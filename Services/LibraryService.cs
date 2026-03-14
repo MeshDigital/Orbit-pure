@@ -692,19 +692,17 @@ public class LibraryService : ILibraryService
         }
     }
 
-    public async Task<int> GetTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null)
+    public async Task<int> GetTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null)
     {
         try
         {
-            // Use repository through databaseService if possible, or add to databaseService
-            // For now, I'll assume databaseService exposes it or I'll add it there.
             if (playlistId == Guid.Empty)
             {
                 // FIX: Guid.Empty means "All Tracks" (Global Library Index)
-                return await _databaseService.GetTotalLibraryTrackCountAsync(filter, downloadedOnly).ConfigureAwait(false);
+                return await _databaseService.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter).ConfigureAwait(false);
             }
 
-            return await _databaseService.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly).ConfigureAwait(false);
+            return await _databaseService.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -713,18 +711,18 @@ public class LibraryService : ILibraryService
         }
     }
 
-    public async Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null)
+    public async Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null)
     {
         try
         {
             if (playlistId == Guid.Empty)
             {
                  // FIX: Guid.Empty means "All Tracks" (Global Library Index)
-                 var globalEntities = await _databaseService.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly).ConfigureAwait(false);
+                 var globalEntities = await _databaseService.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter).ConfigureAwait(false);
                  return globalEntities.Select(EntityToPlaylistTrack).ToList();
             }
 
-            var entities = await _databaseService.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly).ConfigureAwait(false);
+            var entities = await _databaseService.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter).ConfigureAwait(false);
             return entities.Select(EntityToPlaylistTrack).ToList();
         }
         catch (Exception ex)

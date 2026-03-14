@@ -81,11 +81,11 @@ public class ColumnConfigurationService : IDisposable
             new() { Id = "Duration", Header = "Time", Width = 80, DisplayOrder = 3, IsVisible = true, PropertyPath = "DurationFormatted", CanSort = true, DataType = typeof(TimeSpan) },
             new() { Id = "BPM", Header = "BPM", Width = 70, DisplayOrder = 4, IsVisible = true, PropertyPath = "BPM", CanSort = true, DataType = typeof(double), CellTemplateKey = "BpmTemplate" },
             new() { Id = "Key", Header = "Key", Width = 60, DisplayOrder = 5, IsVisible = true, PropertyPath = "MusicalKey", CanSort = true, CellTemplateKey = "KeyTemplate" },
-            new() { Id = "Bitrate", Header = "Bitrate", Width = 80, DisplayOrder = 6, IsVisible = true, PropertyPath = "BitrateFormatted", CanSort = true },
-            new() { Id = "Format", Header = "Format", Width = 70, DisplayOrder = 7, IsVisible = false, PropertyPath = "Format", CanSort = true },
-            new() { Id = "Album", Header = "Album", Width = 200, DisplayOrder = 8, IsVisible = true, PropertyPath = "Album", CanSort = true },
+            new() { Id = "Format", Header = "Format", Width = 70, DisplayOrder = 6, IsVisible = true, PropertyPath = "FormatDisplay", CanSort = true },
+            new() { Id = "Album", Header = "Album", Width = 200, DisplayOrder = 7, IsVisible = true, PropertyPath = "Album", CanSort = true },
+            new() { Id = "Bitrate", Header = "Bitrate", Width = 80, DisplayOrder = 8, IsVisible = false, PropertyPath = "BitrateFormatted", CanSort = true },
             new() { Id = "Genres", Header = "Genres", Width = 150, DisplayOrder = 9, IsVisible = false, PropertyPath = "Genres", CanSort = true },
-            new() { Id = "AddedAt", Header = "Added", Width = 120, DisplayOrder = 10, IsVisible = false, PropertyPath = "AddedAt", CanSort = true, DataType = typeof(DateTime) }
+            new() { Id = "CompletedAt", Header = "Downloaded", Width = 120, DisplayOrder = 10, IsVisible = true, PropertyPath = "CompletedAtDisplay", CanSort = true }
         };
     }
 

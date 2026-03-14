@@ -76,6 +76,20 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    public bool EnableLibrarySharing
+    {
+        get => _config.EnableLibrarySharing;
+        set
+        {
+            if (_config.EnableLibrarySharing != value)
+            {
+                _config.EnableLibrarySharing = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
 
 
     public string FileNameFormat

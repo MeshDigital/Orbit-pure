@@ -32,12 +32,14 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
     private static readonly SemaphoreSlim _rateLimitLock = new(1, 1);
     private DateTime _lastSearchTime = DateTime.MinValue;
 
+    private readonly Network.ProtocolHardeningService _hardeningService;
     private readonly ConcurrentDictionary<string, byte> _excludedPhrases = new();
 
-    public SoulseekAdapter(ILogger<SoulseekAdapter> logger, AppConfig config, IEventBus eventBus)
+    public SoulseekAdapter(ILogger<SoulseekAdapter> logger, AppConfig config, Network.ProtocolHardeningService hardeningService, IEventBus eventBus)
     {
         _logger = logger;
         _config = config;
+        _hardeningService = hardeningService;
         _eventBus = eventBus;
     }
 
@@ -81,8 +83,10 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     if (_excludedPhrases.TryAdd(phrase.ToLowerInvariant(), 0))
                         added++;
                 }
+                
                 if (added > 0)
                 {
+                    _hardeningService.UpdateExcludedPhrases(phrases);
                     _logger.LogInformation("Added {Added} new excluded search phrases. Total known exclusions: {Total}", added, _excludedPhrases.Count);
                 }
             };
@@ -99,6 +103,28 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             
             _logger.LogInformation("Successfully connected to Soulseek as {Username}", _config.Username);
             _eventBus.Publish(new SoulseekConnectionStatusEvent("connected", _config.Username ?? "Unknown"));
+            
+            // Phase 5: Protocol Mastery - Reciprocal Sharing
+            if (_config.EnableLibrarySharing && !string.IsNullOrEmpty(_config.SharedFolderPath))
+            {
+                try
+                {
+                    if (Directory.Exists(_config.SharedFolderPath))
+                    {
+                        _logger.LogInformation("Enabling reciprocal sharing for folder: {Path}", _config.SharedFolderPath);
+                        // Using hypothesized API based on Soulseek.NET patterns & user request validation
+                        await _client.SetSharedFoldersAsync(new[] { _config.SharedFolderPath });
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Shared folder does not exist: {Path}", _config.SharedFolderPath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to set shared folders: {Message}", ex.Message);
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -560,6 +586,12 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         var bitrate = bitrateAttr?.Value ?? 0;
         var lengthAttr = file.Attributes?.FirstOrDefault(a => a.Type == FileAttributeType.Length);
         var length = lengthAttr?.Value ?? 0;
+        
+        var sampleRateAttr = file.Attributes?.FirstOrDefault(a => a.Type == FileAttributeType.SampleRate);
+        var sampleRate = sampleRateAttr?.Value;
+        
+        var bitDepthAttr = file.Attributes?.FirstOrDefault(a => a.Type == FileAttributeType.BitDepth);
+        var bitDepth = bitDepthAttr?.Value;
 
         // Path-Aware Extraction: Split full path into segments for context scoring
         var pathSegments = file.Filename.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries).ToList();
@@ -601,6 +633,8 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             Directory = Path.GetDirectoryName(file.Filename),
             Username = response.Username,
             Bitrate = bitrate,
+            SampleRate = sampleRate,
+            BitDepth = bitDepth,
             Size = file.Size,
             Length = length,
             SoulseekFile = file,
@@ -765,6 +799,38 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             DownloadCompleted?.Invoke(this, new DownloadCompletedEventArgs(filename, username, false, ex.Message));
             
             return false;
+        }
+    }
+
+    public async Task<IEnumerable<Track>> GetUserSharesAsync(string username, CancellationToken ct = default)
+    {
+        if (_client == null || !_client.State.HasFlag(SoulseekClientStates.Connected))
+            throw new InvalidOperationException("Not connected to Soulseek");
+
+        try
+        {
+            _logger.LogInformation("Browsing shares for user: {Username}", username);
+            
+            // Hypothesized API from Soulseek.NET 'Mastery' roadmap
+            var response = await _client.GetFileListAsync(username, ct);
+            
+            var tracks = new List<Track>();
+            foreach (var file in response)
+            {
+                // Re-use our robust track parser logic
+                // Create a dummy search response since ParseTrackFromFile expects it
+                var dummyResponse = new SearchResponse(username, 0, 0, new[] { file });
+                var track = ParseTrackFromFile(file, dummyResponse);
+                if (track != null) tracks.Add(track);
+            }
+            
+            _logger.LogInformation("Found {Count} files in {Username}'s shares", tracks.Count, username);
+            return tracks;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to browse user shares for {Username}: {Message}", username, ex.Message);
+            return Enumerable.Empty<Track>();
         }
     }
 

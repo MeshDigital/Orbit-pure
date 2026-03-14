@@ -19,6 +19,7 @@ public class AppConfig
     public int MaxConcurrentSearches { get; set; } = 4; // Throttling to prevent bans
     public string? DownloadDirectory { get; set; }
     public string? SharedFolderPath { get; set; }
+    public bool EnableLibrarySharing { get; set; } = true; // Reciprocal sharing improves reputation
     public int MaxConcurrentDownloads { get; set; } = 5; // Optimized: was 2, increased for better throughput
     public string? NameFormat { get; set; } = "{artist|filename} - {title}";
     public bool CheckForDuplicates { get; set; } = true;

@@ -26,6 +26,7 @@ public class SearchOrchestrationService
     private readonly SearchQueryNormalizer _searchQueryNormalizer;
     private readonly SearchNormalizationService _searchNormalization; // Phase 4.6: Replaces broken parenthesis stripping
     private readonly ISafetyFilterService _safetyFilter; // Week 2: Gatekeeper
+    private readonly Network.ProtocolHardeningService _hardeningService;
     private readonly AppConfig _config;
     
     private readonly ILibraryService _libraryService;
@@ -40,6 +41,7 @@ public class SearchOrchestrationService
         SearchNormalizationService searchNormalization,
         ISafetyFilterService safetyFilter,
         AppConfig config,
+        Network.ProtocolHardeningService hardeningService,
         ILibraryService libraryService)
     {
         _logger = logger;
@@ -47,6 +49,7 @@ public class SearchOrchestrationService
         _searchQueryNormalizer = searchQueryNormalizer;
         _searchNormalization = searchNormalization;
         _safetyFilter = safetyFilter;
+        _hardeningService = hardeningService;
         _config = config;
         _libraryService = libraryService;
         
@@ -90,8 +93,11 @@ public class SearchOrchestrationService
 
                 bool foundInThisVariation = false;
                 
+                var hardenedVariation = _hardeningService.NormalizeSearchQuery(variation);
+                if (hardenedVariation == null) continue; // Skip banned query
+                
                 await foreach (var track in StreamAndRankResultsAsync(
-                    variation, 
+                    hardenedVariation, 
                     preferredFormats, 
                     minBitrate, 
                     maxBitrate, 

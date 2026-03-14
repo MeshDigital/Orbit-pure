@@ -162,12 +162,12 @@ public interface ILibraryService
     /// <summary>
     /// Gets the count of tracks in a playlist, optionally filtered.
     /// </summary>
-    Task<int> GetTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null);
+    Task<int> GetTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null);
 
     /// <summary>
     /// Loads a page of tracks for a specific playlist.
     /// </summary>
-    Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null);
+    Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null);
 
     /// <summary>
     /// Loads a specific track from a playlist by its unique hash.

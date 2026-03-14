@@ -437,6 +437,7 @@ public partial class App : Application
         services.AddSingleton<ILibraryService>(provider => provider.GetRequiredService<LibraryService>());
         services.AddSingleton<ColumnConfigurationService>();
         services.AddSingleton<SmartCrateService>();
+        services.AddSingleton<PlaylistExportService>();
 
         // Audio Player
         services.AddSingleton<IAudioPlayerService, AudioPlayerService>();
@@ -460,6 +461,7 @@ public partial class App : Application
         // Download manager
         
         // Phase 4.6 Hotfix: Search String Normalization
+        services.AddSingleton<Network.ProtocolHardeningService>();
         services.AddSingleton<SearchNormalizationService>();
         services.AddSingleton<ISafetyFilterService, SafetyFilterService>();
         services.AddSingleton<SearchResultMatcher>();

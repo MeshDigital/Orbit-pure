@@ -259,15 +259,6 @@
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigateDiscoveryHubCommand}"
-                                        ToolTip.Tip="Discovery Hub"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.DiscoveryHub}}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="🛸" FontSize="16"/>
-                                        <TextBlock Text="Discovery Hub" FontSize="14"/>
-                                    </StackPanel>
-                                </Button>
-
                                 <Button Classes="nav" Command="{Binding NavigateProjectsCommand}"
                                         ToolTip.Tip="Inbox"
                                         Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Projects}}">

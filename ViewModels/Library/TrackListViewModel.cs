@@ -325,6 +325,13 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         get => _hasOtherPlaylistsMatches;
         private set => this.RaiseAndSetIfChanged(ref _hasOtherPlaylistsMatches, value);
     }
+
+    private HashSet<string>? _duplicateHashesFilter;
+    public HashSet<string>? DuplicateHashesFilter
+    {
+        get => _duplicateHashesFilter;
+        set => this.RaiseAndSetIfChanged(ref _duplicateHashesFilter, value);
+    }
     
     // ListBox Selection Binding
     private ObservableCollection<PlaylistTrackViewModel> _selectedTracks = new();
@@ -817,7 +824,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             _artworkCache, 
             selectedProjectId, 
             SearchText, 
-            IsFilterDownloaded ? true : (IsFilterPending ? false : null));
+            IsFilterDownloaded ? true : (IsFilterPending ? false : null),
+            DuplicateHashesFilter);
 
         virtualized.CollectionChanged += (s, e) => {
             if (e.Action == NotifyCollectionChangedAction.Reset)

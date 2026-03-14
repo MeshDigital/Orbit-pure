@@ -32,6 +32,13 @@ namespace SLSKDONET.ViewModels
         public int UploadSpeed => _result.UploadSpeed;
         public string UploadSpeedDisplay => UploadSpeed > 0 ? $"{(double)UploadSpeed / 1024.0:F1}MB/s" : "Slow";
         public int QueueLength => _result.QueueLength;
+        public int? SampleRate => _result.SampleRate;
+        public int? BitDepth => _result.BitDepth;
+        
+        public string SampleRateDisplay => SampleRate.HasValue ? $"{(double)SampleRate.Value / 1000.0:F1}kHz" : "";
+        public string BitDepthDisplay => BitDepth.HasValue ? $"{BitDepth.Value}-bit" : "";
+        public string AudioQualityDisplay => string.Join(" / ", new[] { BitDepthDisplay, SampleRateDisplay }.Where(s => !string.IsNullOrEmpty(s)));
+
         public bool SlotFree => _result.SlotFree;
         
         // Phase 19: Sonic Match Reason

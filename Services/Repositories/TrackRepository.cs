@@ -166,7 +166,7 @@ public class TrackRepository : ITrackRepository
         return await context.PlaylistTracks.ToListAsync();
     }
 
-    public async Task<int> GetPlaylistTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null)
+    public async Task<int> GetPlaylistTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null)
     {
         using var context = new AppDbContext();
         var query = context.PlaylistTracks.AsQueryable();
@@ -174,11 +174,11 @@ public class TrackRepository : ITrackRepository
         {
             query = query.Where(t => t.PlaylistId == playlistId);
         }
-        query = ApplyFilters(query, filter, downloadedOnly);
+        query = ApplyFilters(query, filter, downloadedOnly, hashFilter);
         return await query.CountAsync();
     }
 
-    public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null)
+    public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null)
     {
         using var context = new AppDbContext();
         var query = context.PlaylistTracks
@@ -191,7 +191,7 @@ public class TrackRepository : ITrackRepository
             query = query.Where(t => t.PlaylistId == playlistId);
         }
             
-        query = ApplyFilters(query, filter, downloadedOnly);
+        query = ApplyFilters(query, filter, downloadedOnly, hashFilter);
         
         return await query
             .OrderBy(t => t.SortOrder)
@@ -200,8 +200,12 @@ public class TrackRepository : ITrackRepository
             .ToListAsync();
     }
 
-    private IQueryable<PlaylistTrackEntity> ApplyFilters(IQueryable<PlaylistTrackEntity> query, string? filter, bool? downloadedOnly)
+    private IQueryable<PlaylistTrackEntity> ApplyFilters(IQueryable<PlaylistTrackEntity> query, string? filter, bool? downloadedOnly, IEnumerable<string>? hashFilter = null)
     {
+        if (hashFilter != null)
+        {
+            query = query.Where(t => hashFilter.Contains(t.TrackUniqueHash));
+        }
         if (!string.IsNullOrEmpty(filter))
         {
             var lowerFilter = filter.ToLower();

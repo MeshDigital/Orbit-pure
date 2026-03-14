@@ -42,6 +42,8 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     private readonly SmartCrateService _smartCrateService;
     private readonly DownloadManager _downloadManager;
     private readonly Services.Library.ColumnConfigurationService _columnConfigService;
+    private readonly Configuration.AppConfig _appConfig;
+    private readonly Services.Library.PlaylistExportService _exportService;
     
     public Library.ProjectListViewModel Projects { get; }
     public Library.TrackListViewModel Tracks { get; }
@@ -165,7 +167,9 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         SearchFilterViewModel searchFilters,
         SmartCrateService smartCrateService,
         DownloadManager downloadManager,
-        Services.Library.ColumnConfigurationService columnConfigService)
+        Services.Library.ColumnConfigurationService columnConfigService,
+        Configuration.AppConfig appConfig,
+        Services.Library.PlaylistExportService exportService)
     {
         _logger = logger;
         _navigationService = navigationService;
@@ -182,6 +186,8 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         _smartCrateService = smartCrateService;
         _downloadManager = downloadManager;
         _columnConfigService = columnConfigService;
+        _appConfig = appConfig;
+        _exportService = exportService;
         LibrarySourcesViewModel = librarySourcesViewModel;
 
         Projects = projects;

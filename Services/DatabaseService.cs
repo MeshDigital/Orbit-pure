@@ -465,14 +465,14 @@ public class DatabaseService
         return await _trackRepository.LoadPlaylistTracksAsync(jobId);
     }
 
-    public async Task<int> GetPlaylistTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null)
+    public async Task<int> GetPlaylistTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null)
     {
-        return await _trackRepository.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly);
+        return await _trackRepository.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter);
     }
 
-    public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null)
+    public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null)
     {
-        return await _trackRepository.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly);
+        return await _trackRepository.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter);
     }
 
     public async Task<List<TrackPhraseEntity>> GetPhrasesByHashAsync(string trackHash)
@@ -485,14 +485,14 @@ public class DatabaseService
         await _trackRepository.SavePhrasesAsync(phrases);
     }
 
-    public async Task<int> GetTotalLibraryTrackCountAsync(string? filter = null, bool? downloadedOnly = null)
+    public async Task<int> GetTotalLibraryTrackCountAsync(string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null)
     {
-        return await _trackRepository.GetTotalLibraryTrackCountAsync(filter, downloadedOnly);
+        return await _trackRepository.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter);
     }
 
-    public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null)
+    public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null)
     {
-        return await _trackRepository.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly);
+        return await _trackRepository.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter);
     }
 
     public async Task<PlaylistTrackEntity?> GetPlaylistTrackByHashAsync(Guid jobId, string trackHash)

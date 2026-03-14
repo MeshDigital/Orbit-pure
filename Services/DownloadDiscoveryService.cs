@@ -24,6 +24,7 @@ public class DownloadDiscoveryService
     private readonly TrackForensicLogger _forensicLogger;
     private readonly ISafetyFilterService _safetyFilter;
     private readonly Import.AutoCleanerService _autoCleaner;
+    private readonly Network.ProtocolHardeningService _hardeningService;
 
     public DownloadDiscoveryService(
         ILogger<DownloadDiscoveryService> logger,
@@ -33,7 +34,8 @@ public class DownloadDiscoveryService
         IEventBus eventBus,
         TrackForensicLogger forensicLogger,
         ISafetyFilterService safetyFilter,
-        Import.AutoCleanerService autoCleaner)
+        Import.AutoCleanerService autoCleaner,
+        Network.ProtocolHardeningService hardeningService)
     {
         _logger = logger;
         _searchOrchestrator = searchOrchestrator;
@@ -43,6 +45,7 @@ public class DownloadDiscoveryService
         _forensicLogger = forensicLogger;
         _safetyFilter = safetyFilter;
         _autoCleaner = autoCleaner;
+        _hardeningService = hardeningService;
     }
 
     public record DiscoveryResult(Track? BestMatch, SearchAttemptLog? Log)
@@ -89,11 +92,19 @@ public class DownloadDiscoveryService
                 var query = queryTiers[i];
                 if (string.IsNullOrEmpty(query)) continue;
 
-                _logger.LogInformation("Discovery Tier {Tier} (Lossless) for: {Query}", tierNames[i], query);
-                var result = await PerformSearchTierAsync(track, query, tierNames[i], timedCt, blacklistedUsers, log, forceMp3: false);
+                // Phase 26: Protocol Hardening - Double Sanitization
+                var hardenedQuery = _hardeningService.NormalizeSearchQuery(query);
+                if (hardenedQuery == null) continue;
+
+                _logger.LogInformation("Discovery Tier {Tier} (Lossless) for: {Query}", tierNames[i], hardenedQuery);
+                var result = await PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, log, forceMp3: false);
 
                 if (result.BestMatch != null) return result;
                 if (timedCt.IsCancellationRequested) break;
+                
+                // PERFORMANCE Optimization: If FIRST tier (Dirty) finds absolutely ZERO results, 
+                // and it's a very specific query, we might want to skip directly to MP3 if configured.
+                // But for "Pure", we'll stick to the plan: pivot after lossless fails.
             }
 
             // Phase 3D: High-Efficiency Fallback

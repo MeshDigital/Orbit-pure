@@ -35,10 +35,12 @@ public partial class LibraryViewModel
     public ICommand DownloadAlbumCommand { get; set; } = null!;
     public ICommand DownloadMissingCommand { get; set; } = null!;
     public ICommand RenameProjectCommand { get; set; } = null!;
-    public ICommand AutoSortCommand { get; set; } = null!;
+    public ICommand DuplicateDetectionCommand { get; set; } = null!;
+    public ICommand AutoOrganizeCommand { get; set; } = null!;
     public ICommand LoadDeletedProjectsCommand { get; set; } = null!;
     public ICommand RestoreProjectCommand { get; set; } = null!;
     public ICommand SyncProjectCommand { get; set; } = null!;
+    public ICommand ExportPlaylistCommand { get; set; } = null!;
 
     public ICommand SwitchWorkspaceCommand { get; set; } = null!;
     public ICommand ToggleColumnCommand { get; set; } = null!;
@@ -66,11 +68,14 @@ public partial class LibraryViewModel
         DownloadAlbumCommand = new AsyncRelayCommand<object>(ExecuteDownloadAlbumAsync);
         DownloadMissingCommand = new AsyncRelayCommand<object>(ExecuteDownloadMissingAsync);
         SyncProjectCommand = new AsyncRelayCommand<object>(ExecuteSyncProjectAsync);
+        ExportPlaylistCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistAsync);
 
 
         // Fluidity
         SwitchWorkspaceCommand = new RelayCommand<ActiveWorkspace>(ws => CurrentWorkspace = ws);
 
+        DuplicateDetectionCommand = new AsyncRelayCommand(ExecuteDuplicateDetectionAsync);
+        AutoOrganizeCommand = new AsyncRelayCommand(ExecuteAutoOrganizeAsync);
     }
 
     public ICommand SetViewModeCommand { get; set; } = null!;
@@ -398,6 +403,137 @@ public partial class LibraryViewModel
 
             _downloadManager.QueueTracks(onHoldTracks.Select(t => t.Model).ToList());
             _notificationService.Show("MP3 Search Initiated", $"Queueing {onHoldTracks.Count} tracks for MP3 search.", NotificationType.Success);
+        }
+    private async Task ExecuteAutoOrganizeAsync()
+    {
+        try
+        {
+            IsLoading = true;
+            _notificationService.Show("Auto-Organizer", "Scanning library for organization...", NotificationType.Information);
+            
+            var entries = await _libraryService.LoadAllLibraryEntriesAsync();
+            int movedCount = 0;
+            int errorCount = 0;
+            
+            var targetRoot = _appConfig.DownloadDirectory;
+            if (string.IsNullOrEmpty(targetRoot) && _appConfig.LibraryRootPaths.Any())
+                targetRoot = _appConfig.LibraryRootPaths.First();
+                
+            if (string.IsNullOrEmpty(targetRoot))
+            {
+                _notificationService.Show("Organizer Error", "No target directory configured.", NotificationType.Error);
+                return;
+            }
+
+            foreach (var entry in entries)
+            {
+                if (string.IsNullOrEmpty(entry.FilePath) || !System.IO.File.Exists(entry.FilePath)) continue;
+                
+                var extension = System.IO.Path.GetExtension(entry.FilePath);
+                var safeArtist = Utils.FilenameNormalizer.GetSafeFilename(entry.Artist ?? "Unknown Artist");
+                var safeAlbum = Utils.FilenameNormalizer.GetSafeFilename(entry.Album ?? "Unknown Album");
+                var safeTitle = Utils.FilenameNormalizer.GetSafeFilename(entry.Title ?? "Unknown Title");
+                
+                var newDir = System.IO.Path.Combine(targetRoot, safeArtist, safeAlbum);
+                var newPath = System.IO.Path.Combine(newDir, $"{safeArtist} - {safeTitle}{extension}");
+                
+                if (entry.FilePath == newPath) continue;
+                
+                try 
+                {
+                    if (!System.IO.Directory.Exists(newDir))
+                        System.IO.Directory.CreateDirectory(newDir);
+                        
+                    System.IO.File.Move(entry.FilePath, newPath, true);
+                    entry.FilePath = newPath;
+                    await _libraryService.SaveOrUpdateLibraryEntryAsync(entry);
+                    movedCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to move file: {Path}", entry.FilePath);
+                    errorCount++;
+                }
+            }
+            
+            _notificationService.Show("Organization Complete", $"Moved {movedCount} files.", movedCount > 0 ? NotificationType.Success : NotificationType.Information);
+            await LoadLibraryAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Organizaton process failed");
+            _notificationService.Show("Organizer Failed", ex.Message, NotificationType.Error);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task ExecuteDuplicateDetectionAsync()
+    {
+        try
+        {
+            IsLoading = true;
+            _notificationService.Show("Searching Duplicates", "Hashing library entries...", NotificationType.Information);
+            
+            var entries = await _libraryService.LoadAllLibraryEntriesAsync();
+            var duplicateHashes = entries
+                .GroupBy(e => e.UniqueHash)
+                .Where(g => g.Count() > 1)
+                .Select(g => g.Key)
+                .ToHashSet();
+
+            if (!duplicateHashes.Any())
+            {
+                _notificationService.Show("Clean Library", "No duplicate hashes detected.", NotificationType.Success);
+                Tracks.DuplicateHashesFilter = null;
+            }
+            else
+            {
+                _notificationService.Show("Review Required", $"Found {duplicateHashes.Count} duplicate groups.", NotificationType.Warning);
+                Tracks.DuplicateHashesFilter = duplicateHashes;
+            }
+            
+            Tracks.RefreshFilteredTracks();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Duplicate detection crashed");
+            _notificationService.Show("Detection Error", ex.Message, NotificationType.Error);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+    private async Task ExecuteExportPlaylistAsync(object? param)
+    {
+        if (param is not PlaylistJob project) return;
+
+        try
+        {
+            var defaultName = $"{Utils.FilenameNormalizer.GetSafeFilename(project.SourceTitle)}.xml";
+            var path = await _dialogService.ShowSaveFileDialogAsync("Export Rekordbox XML", defaultName, "xml");
+            
+            if (string.IsNullOrEmpty(path)) return;
+
+            IsLoading = true;
+            _notificationService.Show("Exporting", $"Saving '{project.SourceTitle}' to Rekordbox XML...", NotificationType.Information);
+            
+            var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
+            await _exportService.ExportToRekordboxXmlAsync(project.SourceTitle, tracks, path);
+            
+            _notificationService.Show("Export Successful", $"Playlist exported to {Path.GetFileName(path)}", NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Export failed");
+            _notificationService.Show("Export Failed", ex.Message, NotificationType.Error);
+        }
+        finally
+        {
+            IsLoading = false;
         }
     }
 }

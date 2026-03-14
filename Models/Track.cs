@@ -17,6 +17,8 @@ public class Track
     public string? Format { get; set; }
     public int? Length { get; set; } // in seconds
     public int Bitrate { get; set; } // in kbps
+    public int? SampleRate { get; set; } // in Hz
+    public int? BitDepth { get; set; }   // in bits (e.g., 16, 24)
     public List<string>? PathSegments { get; set; } // Phase 1.1: Folder names for context scoring
     public Dictionary<string, object>? Metadata { get; set; }
     public string? Label { get; set; }

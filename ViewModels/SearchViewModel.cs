@@ -200,6 +200,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     public ICommand AddToDownloadsCommand { get; }
     public ReactiveCommand<object?, System.Reactive.Unit> DownloadSelectedCommand { get; }
     public ICommand ApplyPresetCommand { get; } // Phase 5: Search Presets
+    public ICommand BrowseUserSharesCommand { get; } // Phase 5: Directory Browsing
 
     public SearchViewModel(
         ILogger<SearchViewModel> logger,
@@ -275,6 +276,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         AddToDownloadsCommand = ReactiveCommand.CreateFromTask(ExecuteAddToDownloadsAsync);
         DownloadSelectedCommand = ReactiveCommand.CreateFromTask<object?>(ExecuteDownloadSelectedAsync);
         ApplyPresetCommand = ReactiveCommand.Create<string>(ExecuteApplyPreset);
+        BrowseUserSharesCommand = ReactiveCommand.CreateFromTask<AnalyzedSearchResultViewModel>(ExecuteBrowseUserSharesAsync);
         
         FilterViewModel.OnTokenSyncRequested = HandleTokenSync;
     }
@@ -513,6 +515,49 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         {
             _logger.LogError(ex, "Error pasting from clipboard");
             StatusText = "Clipboard error";
+        }
+    }
+
+    private async Task ExecuteBrowseUserSharesAsync(AnalyzedSearchResultViewModel? vm)
+    {
+        if (vm == null) return;
+        
+        IsSearching = true;
+        StatusText = $"Browsing {vm.User}'s library...";
+        
+        try
+        {
+            // The method name from our hypothesized mastery API
+            var shares = await _soulseek.GetUserSharesAsync(vm.User);
+            var sharesList = shares.ToList();
+            
+            if (sharesList.Any())
+            {
+                await RunOnUiThreadAsync(() =>
+                {
+                    _searchResults.Clear();
+                    foreach (var track in sharesList)
+                    {
+                        var result = new SearchResult(track);
+                        var trackVm = new AnalyzedSearchResultViewModel(result);
+                        _searchResults.Add(trackVm);
+                    }
+                });
+                StatusText = $"Loaded {sharesList.Count} items from {vm.User}";
+            }
+            else
+            {
+                StatusText = $"No shares visible for {vm.User} (User might be offline or have private shares)";
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to browse shares for {User}", vm.User);
+            StatusText = $"Error browsing {vm.User}: {ex.Message}";
+        }
+        finally
+        {
+            IsSearching = false;
         }
     }
 

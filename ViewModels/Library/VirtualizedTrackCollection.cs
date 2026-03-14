@@ -28,6 +28,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     private readonly string? _filter;
     private readonly bool? _downloadedOnly;
     private readonly int _pageSize;
+    private readonly IEnumerable<string>? _hashFilter;
     
     private int _count = -1;
     private readonly Dictionary<int, PageInfo> _pages = new();
@@ -46,6 +47,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         Guid playlistId,
         string? filter = null,
         bool? downloadedOnly = null,
+        IEnumerable<string>? hashFilter = null,
         int pageSize = 100)
     {
         _logger = logger;
@@ -55,6 +57,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         _playlistId = playlistId;
         _filter = filter;
         _downloadedOnly = downloadedOnly;
+        _hashFilter = hashFilter;
         _pageSize = pageSize;
         
         // Centralized event dispatch
@@ -89,7 +92,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         try 
         {
             _logger.LogInformation("[VirtualizedTrackCollection] Starting count query...");
-            var count = await _libraryService.GetTrackCountAsync(_playlistId, _filter, _downloadedOnly);
+            var count = await _libraryService.GetTrackCountAsync(_playlistId, _filter, _downloadedOnly, _hashFilter);
             sw.Stop();
             _logger.LogInformation("[VirtualizedTrackCollection] Count query took {Ms}ms, returned {Count}", sw.ElapsedMilliseconds, count);
             _count = count;
@@ -166,7 +169,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             _logger.LogInformation("[VirtualizedTrackCollection] Loading page {PageIndex}...", pageIndex);
             
             int skip = pageIndex * _pageSize;
-            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, skip, _pageSize, _filter, _downloadedOnly);
+            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, skip, _pageSize, _filter, _downloadedOnly, _hashFilter);
             sw.Stop();
             _logger.LogInformation("[VirtualizedTrackCollection] Page {Page} query took {Ms}ms ({Count} tracks)", pageIndex, sw.ElapsedMilliseconds, tracks.Count);
             

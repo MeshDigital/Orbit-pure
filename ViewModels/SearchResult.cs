@@ -29,6 +29,8 @@ public class SearchResult : INotifyPropertyChanged
     public int? Length => Model.Length;
     public int UploadSpeed => Model.UploadSpeed;
     public bool SlotFree => Model.HasFreeUploadSlot;
+    public int? SampleRate => Model.SampleRate;
+    public int? BitDepth => Model.BitDepth;
 
     public long Size => Model.Size ?? 0;
     public string Username => Model.Username ?? "Unknown";
@@ -48,7 +50,11 @@ public class SearchResult : INotifyPropertyChanged
     // Phase 12.6: Multi-line row template properties
     public string PrimaryDisplay => $"{Artist} - {Title}";
     public string FileFormat => System.IO.Path.GetExtension(Model.Filename ?? "")?.TrimStart('.').ToUpperInvariant() ?? "MP3";
-    public string TechnicalMetadata => $"{Bitrate} kbps {FileFormat} • @{Username} • {Size / 1024.0 / 1024.0:F1} MB • Q:{QueueLength}";
+    public string TechnicalMetadata => $"{Bitrate} kbps {FileFormat}{AudioQualitySuffix} • @{Username} • {Size / 1024.0 / 1024.0:F1} MB • Q:{QueueLength}";
+
+    private string AudioQualitySuffix => (SampleRate.HasValue || BitDepth.HasValue)
+        ? $" ({string.Join("/", new[] { BitDepth.HasValue ? $"{BitDepth}bit" : "", SampleRate.HasValue ? $"{SampleRate / 1000.0:F1}kHz" : "" }.Where(s => !string.IsNullOrEmpty(s)))})"
+        : "";
 
     // Phase 12.6: Percentile-based scoring for visual hierarchy
     private double _percentile;

@@ -177,6 +177,11 @@
                 <dg:DataGrid.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="Download Selected" Command="{Binding DownloadSelectedCommand}"/>
+                        <MenuItem Header="Browse User Shares" 
+                                  Command="{Binding BrowseUserSharesCommand}"
+                                  CommandParameter="{Binding #ResultsGrid.SelectedItem}"/>
+                        <Separator/>
+                        <MenuItem Header="Copy Metadata" Command="{Binding CopyMetadataCommand}"/>
                     </ContextMenu>
                 </dg:DataGrid.ContextMenu>
                 <dg:DataGrid.Columns>
@@ -252,8 +257,9 @@
                                     <!-- Sub-info -->
                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                         <Border Background="#333" CornerRadius="3" Padding="3,0">
-                                            <TextBlock Text="{Binding RawResult.Extension}" Foreground="#CCC" FontSize="10"/>
+                                            <TextBlock Text="{Binding RawResult.FileFormat}" Foreground="#CCC" FontSize="10"/>
                                         </Border>
+                                        <TextBlock Text="{Binding AudioQualityDisplay}" Foreground="#FFD700" FontSize="11" FontWeight="SemiBold" IsVisible="{Binding !!AudioQualityDisplay.Length}"/>
                                         <TextBlock Text="{Binding DisplaySize}" Foreground="#888" FontSize="11"/>
                                         <TextBlock Text="•" Foreground="#444"/>
                                         <TextBlock Text="{Binding User}" Foreground="#007ACC" FontSize="11"/>

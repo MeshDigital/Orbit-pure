@@ -83,42 +83,8 @@
                     <!-- Navigation List -->
                     <ScrollViewer Grid.Row="1">
                         <StackPanel Spacing="2">
-                            <!-- Section: Smart Playlists -->
-                            <TextBlock Text="SMART PLAYLISTS" FontSize="10" FontWeight="Bold" Foreground="#555" Margin="16,8,16,4"/>
-                            <ListBox ItemsSource="{Binding SmartPlaylists.SmartPlaylists}"
-                                     SelectedItem="{Binding SmartPlaylists.SelectedSmartPlaylist, Mode=TwoWay}"
-                                     Background="Transparent" BorderThickness="0" Padding="0" Margin="0,0,0,4">
-                                <ListBox.Styles>
-                                    <Style Selector="ListBoxItem">
-                                        <Setter Property="Padding" Value="12,8"/>
-                                        <Setter Property="CornerRadius" Value="4"/>
-                                        <Setter Property="Margin" Value="8,0"/>
-                                    </Style>
-                                </ListBox.Styles>
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Orientation="Horizontal" Spacing="12">
-                                            <Border Width="24" Height="24" CornerRadius="4" Background="#333" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding Icon}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            </Border>
-                                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-                            
-                            <!-- Section: Quick Access -->
-                            <Separator Height="1" Background="#2A2A2A" Margin="12,4"/>
-                            <TextBlock Text="LIBRARY" FontSize="10" FontWeight="Bold" Foreground="#555" Margin="16,4,16,4"/>
-                            
-                            <Button Command="{Binding Projects.ImportLikedSongsCommand}" Classes="nav-item" Margin="8,0">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Border Width="24" Height="24" CornerRadius="4" Background="#281111" VerticalAlignment="Center">
-                                        <TextBlock Text="❤️" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <TextBlock Text="Liked Songs" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
+                            <!-- Section: Library Management -->
+                            <TextBlock Text="LIBRARY" FontSize="10" FontWeight="Bold" Foreground="#555" Margin="16,12,16,4"/>
                             
                             <Button Command="{Binding Projects.LoadAllTracksCommand}" Classes="nav-item" Margin="8,0">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
@@ -129,11 +95,29 @@
                                 </StackPanel>
                             </Button>
 
-                            <!-- Section: User Playlists -->
-                            <Separator Height="1" Background="#2A2A2A" Margin="12,8"/>
-                            <TextBlock Text="PLAYLISTS" FontSize="10" FontWeight="Bold" Foreground="#555" Margin="16,4,16,4"/>
+                            <Button Command="{Binding Projects.ImportLikedSongsCommand}" Classes="nav-item" Margin="8,0">
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <Border Width="24" Height="24" CornerRadius="4" Background="#281111" VerticalAlignment="Center">
+                                        <TextBlock Text="❤️" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <TextBlock Text="Liked Songs" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
 
-                            <!-- Project Search -->
+                            <Button Command="{Binding OpenSourcesCommand}" Classes="nav-item" Margin="8,0">
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <Border Width="24" Height="24" CornerRadius="4" Background="#112811" VerticalAlignment="Center">
+                                        <TextBlock Text="📁" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <TextBlock Text="Folders" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+
+                            <!-- Section: Project Workspace -->
+                            <Separator Height="1" Background="#2A2A2A" Margin="12,12"/>
+                            <TextBlock Text="PROJECTS" FontSize="10" FontWeight="Bold" Foreground="#555" Margin="16,4,16,4"/>
+
+                            <!-- Project Filter -->
                             <Border Background="#2D2D2D" BorderBrush="#333" BorderThickness="1" CornerRadius="8" Margin="8,4,8,8" Padding="10,2">
                                 <Grid ColumnDefinitions="Auto,*">
                                     <TextBlock Grid.Column="0" Text="🔍" FontSize="12" VerticalAlignment="Center" Foreground="#666"/>
@@ -193,6 +177,28 @@
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
+                            
+                            <!-- Section: Library Maintenance -->
+                            <Separator Height="1" Background="#2A2A2A" Margin="12,12"/>
+                            <TextBlock Text="MAINTENANCE" FontSize="10" FontWeight="Bold" Foreground="#555" Margin="16,4,16,4"/>
+                            
+                            <Button Command="{Binding AutoOrganizeCommand}" Classes="nav-item" Margin="8,0" ToolTip.Tip="Relocate files to Artist / Album folders">
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <Border Width="24" Height="24" CornerRadius="4" Background="#282811" VerticalAlignment="Center">
+                                        <TextBlock Text="🧹" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <TextBlock Text="Auto-Organizer" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+
+                            <Button Command="{Binding DuplicateDetectionCommand}" Classes="nav-item" Margin="8,0" ToolTip.Tip="Find tracks with identical hashes">
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <Border Width="24" Height="24" CornerRadius="4" Background="#112828" VerticalAlignment="Center">
+                                        <TextBlock Text="👯" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <TextBlock Text="Duplicates" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
                         </StackPanel>
                     </ScrollViewer>
 
@@ -261,32 +267,22 @@
                     </Grid>
                 </Border>
                 
-                <!-- Row 1: AI Style Chips + Status Filters -->
-                <Border Grid.Row="1" Background="#1E1E1E" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="16,6">
-                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <!-- Core Status Filters -->
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <ToggleButton Content="All" IsChecked="{Binding Tracks.IsFilterAll, Mode=TwoWay}" Classes="chip" Padding="10,4" FontSize="11"/>
-                                <ToggleButton Content="Downloaded" IsChecked="{Binding Tracks.IsFilterDownloaded, Mode=TwoWay}" Classes="chip" Padding="10,4" FontSize="11"/>
-                                <ToggleButton Content="Pending" IsChecked="{Binding Tracks.IsFilterPending, Mode=TwoWay}" Classes="chip" Padding="10,4" FontSize="11"/>
-                                <ToggleButton Content="Review" IsChecked="{Binding Tracks.IsFilterNeedsReview, Mode=TwoWay}" Classes="chip danger" Padding="10,4" FontSize="11"/>
-                                <ToggleButton Content="❤️" IsChecked="{Binding Tracks.IsFilterLiked, Mode=TwoWay}" Classes="chip" Padding="10,4" FontSize="11" ToolTip.Tip="Show Liked Tracks Only"/>
-                            </StackPanel>
-                            
-                            <Rectangle Width="1" Height="14" Fill="#444" VerticalAlignment="Center" Margin="4,0"/>
-                            
-                            <!-- Dynamic Style Filters -->
-                            <ItemsControl ItemsSource="{Binding Tracks.StyleFilters}">
-                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="6"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <ToggleButton Content="{Binding Style.Name}" IsChecked="{Binding IsSelected, Mode=TwoWay}" Classes="chip" Padding="10,4" FontSize="11" BorderBrush="{Binding ColorBrush}" BorderThickness="0,0,0,2"/>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                <!-- Row 1: Status Filters (AI Style Chips Removed for Pure) -->
+                <Border Grid.Row="1" Background="#1E1E1E" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="16,10">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <!-- Core Status Filters -->
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <ToggleButton Content="All" IsChecked="{Binding Tracks.IsFilterAll, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
+                            <ToggleButton Content="Downloaded" IsChecked="{Binding Tracks.IsFilterDownloaded, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
+                            <ToggleButton Content="Pending" IsChecked="{Binding Tracks.IsFilterPending, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
+                            <ToggleButton Content="Review" IsChecked="{Binding Tracks.IsFilterNeedsReview, Mode=TwoWay}" Classes="chip danger" Padding="12,5" FontSize="11"/>
+                            <ToggleButton Content="❤️" IsChecked="{Binding Tracks.IsFilterLiked, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Show Liked Tracks Only"/>
                         </StackPanel>
-                    </ScrollViewer>
+                        
+                        <Rectangle Width="1" Height="14" Fill="#444" VerticalAlignment="Center" Margin="4,0"/>
+                        <TextBlock Text="Total Tracks:" VerticalAlignment="Center" FontSize="11" Foreground="#666"/>
+                        <TextBlock Text="{Binding Tracks.FilteredTracks.Count}" VerticalAlignment="Center" FontSize="11" FontWeight="Bold" Foreground="#888"/>
+                    </StackPanel>
                 </Border>
                 
                 
@@ -616,38 +612,21 @@
                                     </dg:DataGridTemplateColumn.CellTemplate>
                                 </dg:DataGridTemplateColumn>
 
-                                <dg:DataGridTextColumn Header="Drop" Binding="{Binding DropDisplay}" Width="60"/>
-                                <dg:DataGridTextColumn Header="Energy" Binding="{Binding EnergyRating}" Width="60"/>
-
-                                <dg:DataGridTemplateColumn Header="Vibe" Width="1.5*">
-                                    <dg:DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                                            <controls:VibePillContainer Items="{Binding VibePills}" VerticalAlignment="Center"/>
-                                        </DataTemplate>
-                                    </dg:DataGridTemplateColumn.CellTemplate>
-                                </dg:DataGridTemplateColumn>
+                                <dg:DataGridTextColumn Header="Drop" Binding="{Binding DropDisplay}" Width="60" IsVisible="False"/>
+                                <dg:DataGridTextColumn Header="Format" Binding="{Binding FormatDisplay}" Width="70"/>
+                                <dg:DataGridTextColumn Header="Bitrate" Binding="{Binding BitrateFormatted}" Width="80"/>
+                                <dg:DataGridTextColumn Header="Downloaded" Binding="{Binding CompletedAtDisplay}" Width="140"/>
 
                                 <dg:DataGridTextColumn Header="Year" Binding="{Binding YearDisplay}" Width="60"/>
                                 <dg:DataGridTextColumn Header="Genre" Binding="{Binding PrimaryGenre}" Width="1*"/>
                                 <dg:DataGridTextColumn Header="Label" Binding="{Binding Label}" Width="1*"/>
                                 <dg:DataGridTextColumn Header="Time" Binding="{Binding DurationFormatted}" Width="70"/>
-                                <dg:DataGridTextColumn Header="Bitrate" Binding="{Binding BitrateFormatted}" Width="80"/>
                                 <dg:DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="100"/>
                                 <dg:DataGridTextColumn Header="Plays" Binding="{Binding PlayCount}" Width="50"/>
                                 <dg:DataGridTextColumn Header="Comments" Binding="{Binding Comments}" Width="2*"/>
                             </dg:DataGrid.Columns>
                         </dg:DataGrid>
                     </Panel>
-
-                    <GridSplitter Grid.Row="2" Height="2" HorizontalAlignment="Stretch" Background="#33FFFFFF" IsVisible="{Binding IsDiscoveryLaneVisible}">
-                         <GridSplitter.Styles><Style Selector="GridSplitter:pointerover"><Setter Property="Background" Value="#4EC9B0"/><Setter Property="Height" Value="4"/></Style></GridSplitter.Styles>
-                    </GridSplitter>
-
-                    <ListBox Grid.Row="3" Height="{Binding DiscoveryLaneHeight, Mode=TwoWay}" IsVisible="{Binding IsDiscoveryLaneVisible}" ItemsSource="{Binding HarmonicMatches}" SelectionMode="Single" Background="#11000000" BorderThickness="0,1,0,0" BorderBrush="#334EC9B0">
-                        <ListBox.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
-                        <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="Padding" Value="4"/><Setter Property="MinHeight" Value="72"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style></ListBox.Styles>
-                         <ListBox.ItemTemplate><DataTemplate><controls:StandardTrackRow/></DataTemplate></ListBox.ItemTemplate>
-                    </ListBox>
                     </Grid>
                 </Grid>
             </Grid>

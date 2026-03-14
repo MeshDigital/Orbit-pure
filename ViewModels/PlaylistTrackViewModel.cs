@@ -60,8 +60,12 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     public DateTime? ReleaseDate => Model?.ReleaseDate;
     public string ReleaseYear => Model?.ReleaseDate?.Year.ToString() ?? "";
     public string YearDisplay => ReleaseYear; // Alias for StandardTrackRow compatibility
-
     public string? PrimaryGenre => Model.PrimaryGenre;
+
+    // Phase 2: Pure UX Alignment - DataGrid Extras
+    public DateTime? CompletedAt => Model.CompletedAt;
+    public string CompletedAtDisplay => CompletedAt.HasValue ? CompletedAt.Value.ToString("yyyy-MM-dd HH:mm") : "—";
+    public string FormatDisplay => !string.IsNullOrEmpty(Format) ? Format.ToUpper() : "—";
 
     public bool IsPrepared => Model.IsPrepared;
     public string PreparationStatus => IsPrepared ? "Prepared" : "Raw";
@@ -144,6 +148,13 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
                 OnPropertyChanged(nameof(IntegrityTooltip));
             }
         }
+    }
+
+    private bool _isDuplicate;
+    public bool IsDuplicate
+    {
+        get => _isDuplicate;
+        set => SetProperty(ref _isDuplicate, value);
     }
 
     public string IntegrityBadge => Model.Integrity switch

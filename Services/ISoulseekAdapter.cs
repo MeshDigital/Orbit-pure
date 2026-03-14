@@ -44,6 +44,10 @@ public interface ISoulseekAdapter
         Action<IEnumerable<Track>> onTracksFound,
         CancellationToken ct = default);
 
+    Task<IEnumerable<Track>> GetUserSharesAsync(
+        string username,
+        CancellationToken ct = default);
+
     event EventHandler<DownloadProgressEventArgs>? DownloadProgressChanged;
     event EventHandler<DownloadCompletedEventArgs>? DownloadCompleted;
 }
