@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using SLSKDONET.ViewModels;
 using SLSKDONET.Data.Essentia;
 
@@ -19,6 +20,7 @@ public record DownloadManagerHydratedEvent(int TrackCount);
 // Soulseek Adapter Events
 public record SoulseekStateChangedEvent(string State, bool IsConnected);
 public record SoulseekConnectionStatusEvent(string Status, string Username);
+public record ExcludedSearchPhrasesUpdatedEvent(IReadOnlyCollection<string> Phrases, int AddedCount, int TotalCount);
 public record TransferProgressEvent(string Filename, string Username, long BytesTransferred, long TotalBytes);
 public record TransferFinishedEvent(string Filename, string Username);
 public record TransferCancelledEvent(string Filename, string Username);

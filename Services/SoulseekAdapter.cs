@@ -77,17 +77,28 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             // Phase 5/10: Adhere to new global exclusions from Soulseek Server
             _client.ExcludedSearchPhrasesReceived += (sender, phrases) =>
             {
+                var phraseList = phrases
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .Select(p => p.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
                 int added = 0;
-                foreach (var phrase in phrases)
+                foreach (var phrase in phraseList)
                 {
                     if (_excludedPhrases.TryAdd(phrase.ToLowerInvariant(), 0))
                         added++;
                 }
-                
-                if (added > 0)
+
+                if (phraseList.Count > 0)
                 {
-                    _hardeningService.UpdateExcludedPhrases(phrases);
-                    _logger.LogInformation("Added {Added} new excluded search phrases. Total known exclusions: {Total}", added, _excludedPhrases.Count);
+                    _hardeningService.UpdateExcludedPhrases(phraseList);
+                    _eventBus.Publish(new ExcludedSearchPhrasesUpdatedEvent(phraseList, added, _excludedPhrases.Count));
+
+                    if (added > 0)
+                    {
+                        _logger.LogInformation("Added {Added} new excluded search phrases. Total known exclusions: {Total}", added, _excludedPhrases.Count);
+                    }
                 }
             };
 
@@ -105,19 +116,20 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             _eventBus.Publish(new SoulseekConnectionStatusEvent("connected", _config.Username ?? "Unknown"));
             
             // Phase 5: Protocol Mastery - Reciprocal Sharing
-            if (_config.EnableLibrarySharing && !string.IsNullOrEmpty(_config.SharedFolderPath))
+            if (_config.EnableLibrarySharing)
             {
                 try
                 {
-                    if (Directory.Exists(_config.SharedFolderPath))
+                    var shareFolders = ResolveShareFolders();
+                    if (shareFolders.Length > 0)
                     {
-                        _logger.LogInformation("Enabling reciprocal sharing for folder: {Path}", _config.SharedFolderPath);
-                        // Using hypothesized API based on Soulseek.NET patterns & user request validation
-                        await _client.SetSharedFoldersAsync(new[] { _config.SharedFolderPath });
+                        _logger.LogInformation("Enabling reciprocal sharing for {Count} folder(s): {Folders}", shareFolders.Length, string.Join(", ", shareFolders));
+                        await _client.SetSharedFoldersAsync(shareFolders);
+                        _eventBus.Publish(new SharedFilesStatusEvent(shareFolders.Length, string.Join(";", shareFolders)));
                     }
                     else
                     {
-                        _logger.LogWarning("Shared folder does not exist: {Path}", _config.SharedFolderPath);
+                        _logger.LogWarning("Reciprocal sharing enabled, but no valid share folder found (SharedFolderPath/DownloadDirectory missing).");
                     }
                 }
                 catch (Exception ex)
@@ -204,6 +216,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         var totalFilesReceived = 0;
         var filteredByFormat = 0;
         var filteredByBitrate = 0;
+        var filteredBySampleRate = 0;
         var formatSet = formatFilter?.Select(f => f.ToLowerInvariant()).ToHashSet();
 
         try
@@ -316,6 +329,8 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                             // NEW Phase 12.3: Extract Bitrate quickly to avoid allocating full Track object if it fails filters
                             var bitrateAttr = file.Attributes?.FirstOrDefault(a => a.Type == Soulseek.FileAttributeType.BitRate);
                             var rawBitrate = bitrateAttr?.Value ?? 0;
+                            var sampleRateAttr = file.Attributes?.FirstOrDefault(a => a.Type == Soulseek.FileAttributeType.SampleRate);
+                            var rawSampleRate = sampleRateAttr?.Value ?? 0;
                             
                             // Apply bitrate filter BEFORE object allocation
                             if (bitrateFilter.Min.HasValue && rawBitrate < bitrateFilter.Min.Value)
@@ -328,6 +343,13 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                             {
                                 filteredByBitrate++;
                                 _logger.LogTrace("Filtered by bitrate (too high): {File} ({Bitrate} > {Max})", file.Filename, rawBitrate, bitrateFilter.Max.Value);
+                                continue;
+                            }
+
+                            if (_config.PreferredMaxSampleRate > 0 && rawSampleRate > _config.PreferredMaxSampleRate)
+                            {
+                                filteredBySampleRate++;
+                                _logger.LogTrace("Filtered by sample rate (too high): {File} ({SampleRate} > {MaxSampleRate})", file.Filename, rawSampleRate, _config.PreferredMaxSampleRate);
                                 continue;
                             }
 
@@ -361,8 +383,8 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 resultCount = directories.Count;
             }
 
-            _logger.LogInformation("Search completed: {ResultCount} results from {TotalFiles} files (filtered: {FormatFiltered} by format, {BitrateFiltered} by bitrate)",
-                resultCount, totalFilesReceived, filteredByFormat, filteredByBitrate);
+            _logger.LogInformation("Search completed: {ResultCount} results from {TotalFiles} files (filtered: {FormatFiltered} by format, {BitrateFiltered} by bitrate, {SampleRateFiltered} by sample-rate)",
+                resultCount, totalFilesReceived, filteredByFormat, filteredByBitrate, filteredBySampleRate);
             
             return resultCount;
         }
@@ -632,6 +654,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             Filename = file.Filename,
             Directory = Path.GetDirectoryName(file.Filename),
             Username = response.Username,
+            Format = Path.GetExtension(file.Filename)?.TrimStart('.').ToLowerInvariant(),
             Bitrate = bitrate,
             SampleRate = sampleRate,
             BitDepth = bitDepth,
@@ -643,6 +666,25 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             QueueLength = response.QueueLength,
             UploadSpeed = response.UploadSpeed
         };
+    }
+
+    private string[] ResolveShareFolders()
+    {
+        var folders = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(_config.SharedFolderPath) && Directory.Exists(_config.SharedFolderPath))
+        {
+            folders.Add(_config.SharedFolderPath);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_config.DownloadDirectory) && Directory.Exists(_config.DownloadDirectory))
+        {
+            folders.Add(_config.DownloadDirectory);
+        }
+
+        return folders
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     public async Task<bool> DownloadAsync(

@@ -42,6 +42,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     private readonly IBulkOperationCoordinator _bulkCoordinator;
 
     private readonly FileNameFormatter _fileNameFormatter;
+    private readonly HashSet<string> _runtimeExcludedPhrases = new(StringComparer.OrdinalIgnoreCase);
     
     // Cleanup
     private readonly CompositeDisposable _disposables = new();
@@ -242,6 +243,10 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         eventBus.GetEvent<TrackAddedEvent>()
             .Subscribe(OnTrackAdded)
             .DisposeWith(_disposables);
+
+        eventBus.GetEvent<ExcludedSearchPhrasesUpdatedEvent>()
+            .Subscribe(OnExcludedSearchPhrasesUpdated)
+            .DisposeWith(_disposables);
             
         // Phase 6: Removed FindSimilarRequestEvent
 
@@ -358,6 +363,18 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         string effectiveQuery = filtersModified ? string.Join(" ", processedQuery) : SearchQuery;
         if (string.IsNullOrWhiteSpace(effectiveQuery)) effectiveQuery = SearchQuery; 
 
+        effectiveQuery = StripExcludedPhrases(effectiveQuery);
+        if (string.IsNullOrWhiteSpace(effectiveQuery))
+        {
+            StatusText = "Search blocked: query only contains server-excluded phrases.";
+            return;
+        }
+
+        if (!string.Equals(effectiveQuery, SearchQuery, StringComparison.Ordinal))
+        {
+            SearchQuery = effectiveQuery;
+        }
+
         IsSearching = true;
         StatusText = "Searching...";
         await RunOnUiThreadAsync(() =>
@@ -389,7 +406,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             try 
             {
                 await foreach (var track in _searchOrchestration.SearchAsync(
-                    SearchQuery,
+                    effectiveQuery,
                     string.Join(",", PreferredFormats),
                     MinBitrate, 
                     MaxBitrate,
@@ -593,9 +610,9 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             toDownload,
             async (vm, ct) =>
             {
-                vm.RawResult.Status = TrackStatus.Pending;
-                _downloadManager.EnqueueTrack(vm.RawResult.Model);
-                return true;
+                var queued = _downloadManager.EnqueueTrack(vm.RawResult.Model);
+                vm.RawResult.Status = queued ? TrackStatus.Pending : TrackStatus.Failed;
+                return queued;
             },
             "Batch Download"
         );
@@ -696,6 +713,41 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         {
             // Placeholder for future use
         });
+    }
+
+    private void OnExcludedSearchPhrasesUpdated(ExcludedSearchPhrasesUpdatedEvent evt)
+    {
+        if (evt.Phrases == null || evt.Phrases.Count == 0) return;
+
+        foreach (var phrase in evt.Phrases)
+        {
+            if (!string.IsNullOrWhiteSpace(phrase))
+            {
+                _runtimeExcludedPhrases.Add(phrase.Trim());
+            }
+        }
+
+        var sanitized = StripExcludedPhrases(SearchQuery);
+        if (!string.Equals(sanitized, SearchQuery, StringComparison.Ordinal))
+        {
+            SearchQuery = sanitized;
+            StatusText = "Search query updated: removed server-excluded phrase(s).";
+        }
+    }
+
+    private string StripExcludedPhrases(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query) || _runtimeExcludedPhrases.Count == 0)
+            return query;
+
+        var sanitized = query;
+        foreach (var phrase in _runtimeExcludedPhrases)
+        {
+            var pattern = $@"\b{System.Text.RegularExpressions.Regex.Escape(phrase)}\b";
+            sanitized = System.Text.RegularExpressions.Regex.Replace(sanitized, pattern, " ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+
+        return System.Text.RegularExpressions.Regex.Replace(sanitized, @"\s+", " ").Trim();
     }
 
 

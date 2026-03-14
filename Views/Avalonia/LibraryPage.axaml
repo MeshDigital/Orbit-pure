@@ -293,7 +293,7 @@
                             <ColumnDefinition Width="58"/>
                             <ColumnDefinition SharedSizeGroup="ArtistCol" MinWidth="180"/>
                             <ColumnDefinition SharedSizeGroup="TitleCol" MinWidth="240"/>
-                            <ColumnDefinition SharedSizeGroup="BpmKeyCol" MinWidth="100"/>
+                            <ColumnDefinition SharedSizeGroup="AudioCol" MinWidth="140"/>
                             <ColumnDefinition SharedSizeGroup="ForensicCol" MinWidth="140"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
@@ -304,8 +304,8 @@
                         <Border Grid.Column="2" Padding="8,0"><TextBlock Text="TITLE" FontSize="10" FontWeight="Bold" Foreground="#666" VerticalAlignment="Center"/></Border>
                         <Border Grid.Column="3" Padding="12,0" VerticalAlignment="Center">
                             <StackPanel Orientation="Horizontal" Spacing="4">
-                                <TextBlock Text="BPM" FontSize="10" FontWeight="Bold" Foreground="#666" Width="38" TextAlignment="Center"/>
-                                <TextBlock Text="KEY" FontSize="10" FontWeight="Bold" Foreground="#666" Width="30" TextAlignment="Center"/>
+                                <TextBlock Text="FORMAT" FontSize="10" FontWeight="Bold" Foreground="#666" Width="60" TextAlignment="Center"/>
+                                <TextBlock Text="BITRATE" FontSize="10" FontWeight="Bold" Foreground="#666" Width="56" TextAlignment="Center"/>
                             </StackPanel>
                         </Border>
                         <Border Grid.Column="4" Padding="12,0"><TextBlock Text="FORENSICS" FontSize="10" FontWeight="Bold" Foreground="#666" VerticalAlignment="Center"/></Border>
@@ -591,30 +591,10 @@
                                 <dg:DataGridTextColumn Header="Artist" Binding="{Binding Artist}" Width="1.5*"/>
                                 <dg:DataGridTextColumn Header="Title" Binding="{Binding Title}" Width="2*"/>
                                 <dg:DataGridTextColumn Header="Album" Binding="{Binding Album}" Width="1.5*"/>
-                                
-                                <dg:DataGridTemplateColumn Header="BPM" Width="60">
-                                    <dg:DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                                            <TextBlock Text="{Binding BPM, StringFormat={}{0:F0}}" 
-                                                       Foreground="{Binding QualityColor}"
-                                                       VerticalAlignment="Center" HorizontalAlignment="Center" FontWeight="Bold"/>
-                                        </DataTemplate>
-                                    </dg:DataGridTemplateColumn.CellTemplate>
-                                </dg:DataGridTemplateColumn>
-                                
-                                <dg:DataGridTemplateColumn Header="Key" Width="80">
-                                    <dg:DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                                            <Border Background="{Binding ColorBrush}" CornerRadius="4" Padding="4,2" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding KeyDisplay}" Foreground="White" FontSize="11" FontWeight="Bold"/>
-                                            </Border>
-                                        </DataTemplate>
-                                    </dg:DataGridTemplateColumn.CellTemplate>
-                                </dg:DataGridTemplateColumn>
 
                                 <dg:DataGridTextColumn Header="Drop" Binding="{Binding DropDisplay}" Width="60" IsVisible="False"/>
-                                <dg:DataGridTextColumn Header="Format" Binding="{Binding FormatDisplay}" Width="70"/>
-                                <dg:DataGridTextColumn Header="Bitrate" Binding="{Binding BitrateFormatted}" Width="80"/>
+                                <dg:DataGridTextColumn Header="Format" Binding="{Binding FormatDisplay}" Width="90"/>
+                                <dg:DataGridTextColumn Header="Bitrate" Binding="{Binding BitrateFormatted}" Width="90"/>
                                 <dg:DataGridTextColumn Header="Downloaded" Binding="{Binding CompletedAtDisplay}" Width="140"/>
 
                                 <dg:DataGridTextColumn Header="Year" Binding="{Binding YearDisplay}" Width="60"/>

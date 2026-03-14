@@ -1237,8 +1237,15 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }
     }
     
-    public void EnqueueTrack(Track track)
+    public bool EnqueueTrack(Track track)
     {
+        if (!TryValidateTrackForQueue(track, out var reason))
+        {
+            _logger.LogWarning("Skipping queue add for track {Artist} - {Title}: {Reason}", track.Artist, track.Title, reason);
+            _eventBus.Publish(new GlobalStatusEvent($"Queue rejected: {reason}", isActive: false, isError: true));
+            return false;
+        }
+
         var playlistTrack = new PlaylistTrack
         {
              Id = Guid.NewGuid(),
@@ -1251,6 +1258,39 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         };
         
         QueueTracks(new List<PlaylistTrack> { playlistTrack });
+        return true;
+    }
+
+    private bool TryValidateTrackForQueue(Track track, out string reason, int? minBitrateOverride = null)
+    {
+        reason = string.Empty;
+
+        var preferredFormats = _config.PreferredFormats?
+            .Where(f => !string.IsNullOrWhiteSpace(f))
+            .Select(f => f.Trim().ToLowerInvariant())
+            .ToHashSet() ?? new HashSet<string>();
+
+        var extension = (track.Format ?? track.GetExtension())?.Trim().TrimStart('.').ToLowerInvariant() ?? string.Empty;
+        if (preferredFormats.Count > 0 && !string.IsNullOrEmpty(extension) && !preferredFormats.Contains(extension))
+        {
+            reason = $"format '{extension}' not allowed";
+            return false;
+        }
+
+        var requiredMinBitrate = minBitrateOverride ?? _config.PreferredMinBitrate;
+        if (requiredMinBitrate > 0 && track.Bitrate > 0 && track.Bitrate < requiredMinBitrate)
+        {
+            reason = $"bitrate {track.Bitrate}kbps below required {requiredMinBitrate}kbps";
+            return false;
+        }
+
+        if (_config.PreferredMaxSampleRate > 0 && track.SampleRate.HasValue && track.SampleRate.Value > _config.PreferredMaxSampleRate)
+        {
+            reason = $"sample-rate {track.SampleRate.Value}Hz exceeds {_config.PreferredMaxSampleRate}Hz";
+            return false;
+        }
+
+        return true;
     }
 
     public async Task StartAsync(CancellationToken ct = default)
@@ -1887,6 +1927,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 }
 
                 // Phase 3.1: Download Logic (Downloading State)
+                if (!TryValidateTrackForQueue(bestMatch, out var validationReason, ctx.Model.MinBitrateOverride))
+                {
+                    _logger.LogWarning("Rejected candidate before download for {Title}: {Reason}. Candidate: {Filename}",
+                        ctx.Model.Title, validationReason, bestMatch.Filename);
+
+                    ctx.Model.SearchRetryCount++;
+                    ctx.Model.Priority = 20;
+                    ctx.NextRetryTime = DateTime.UtcNow.AddMinutes(10);
+                    await UpdateStateAsync(ctx, PlaylistTrackState.Pending, $"Candidate rejected: {validationReason}. Retrying later.");
+                    return;
+                }
+
                 await DownloadFileAsync(ctx, bestMatch, trackCt);
             }
             catch (OperationCanceledException)
