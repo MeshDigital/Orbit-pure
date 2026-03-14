@@ -145,60 +145,141 @@ public class ImportOrchestrator
             {
                 var newJobId = Utils.GuidGenerator.CreateFromUrl(input);
                 var existingJob = await _libraryService.FindPlaylistJobAsync(newJobId);
-                
-                string sourceTitle = provider.Name;
-                var allTracks = new System.Collections.Generic.List<PlaylistTrack>();
 
+                // Fallback: check by URL if ID lookup fails (e.g., legacy imports)
+                if (existingJob == null)
+                    existingJob = await _libraryService.FindPlaylistJobBySourceUrlAsync(input);
+
+                string sourceTitle = provider.Name;
+                var incomingTracks = new System.Collections.Generic.List<PlaylistTrack>();
+
+                // Stream all incoming tracks from the provider
                 await foreach (var batch in streamProvider.ImportStreamAsync(input))
                 {
                     if (!string.IsNullOrEmpty(batch.SourceTitle) && sourceTitle == provider.Name)
                         sourceTitle = batch.SourceTitle;
-                    
-                    var convertedTracks = batch.Tracks.Select(t => new PlaylistTrack 
+
+                    foreach (var t in batch.Tracks)
                     {
-                        Id = Guid.NewGuid(),
-                        Artist = t.Artist ?? string.Empty,
-                        Title = t.Title ?? string.Empty,
-                        Album = t.Album ?? string.Empty,
-                        TrackUniqueHash = t.TrackHash ?? string.Empty,
-                        SpotifyTrackId = t.SpotifyTrackId,
-                        SpotifyAlbumId = t.SpotifyAlbumId,
-                        SpotifyArtistId = t.SpotifyArtistId,
-                        AlbumArtUrl = t.AlbumArtUrl,
-                        ArtistImageUrl = t.ArtistImageUrl,
-                        Genres = t.Genres,
-                        Popularity = t.Popularity,
-                        CanonicalDuration = t.CanonicalDuration,
-                        ReleaseDate = t.ReleaseDate,
-                        SourcePlaylistId = newJobId,
-                        SourcePlaylistName = sourceTitle,
-                        Status = TrackStatus.Missing,
-
-                        AddedAt = DateTime.UtcNow
-                    }).ToList();
-
-                    allTracks.AddRange(convertedTracks);
+                        incomingTracks.Add(new PlaylistTrack
+                        {
+                            Id = Guid.NewGuid(),
+                            Artist = t.Artist ?? string.Empty,
+                            Title = t.Title ?? string.Empty,
+                            Album = t.Album ?? string.Empty,
+                            TrackUniqueHash = t.TrackHash ?? string.Empty,
+                            SpotifyTrackId = t.SpotifyTrackId,
+                            SpotifyAlbumId = t.SpotifyAlbumId,
+                            SpotifyArtistId = t.SpotifyArtistId,
+                            AlbumArtUrl = t.AlbumArtUrl,
+                            ArtistImageUrl = t.ArtistImageUrl,
+                            Genres = t.Genres,
+                            Popularity = t.Popularity,
+                            CanonicalDuration = t.CanonicalDuration,
+                            ReleaseDate = t.ReleaseDate,
+                            SourcePlaylistId = newJobId,
+                            SourcePlaylistName = sourceTitle,
+                            Status = TrackStatus.Missing,
+                            AddedAt = DateTime.UtcNow
+                        });
+                    }
                 }
 
-                if (allTracks.Count == 0)
+                if (incomingTracks.Count == 0)
                 {
                     _logger.LogWarning("Silent import for {Input} yielded 0 tracks. Skipping.", input);
                     return;
                 }
 
-                // Create and start job
+                System.Collections.Generic.List<PlaylistTrack> tracksToQueue;
+                int newCount = 0;
+                int skippedCount = 0;
+                int retriedCount = 0;
+
+                if (existingJob != null)
+                {
+                    // ── SYNC MODE: Smart Merge ──────────────────────────────────────────────
+                    // Load existing tracks from DB (the source of truth for status)
+                    var existingTracks = await _libraryService.LoadPlaylistTracksAsync(existingJob.Id);
+                    var existingByHash = existingTracks
+                        .Where(t => !string.IsNullOrEmpty(t.TrackUniqueHash))
+                        .GroupBy(t => t.TrackUniqueHash)
+                        .ToDictionary(g => g.Key, g => g.First());
+
+                    tracksToQueue = new System.Collections.Generic.List<PlaylistTrack>();
+
+                    foreach (var incoming in incomingTracks)
+                    {
+                        if (string.IsNullOrEmpty(incoming.TrackUniqueHash))
+                        {
+                            // No hash = can't deduplicate, add as new
+                            tracksToQueue.Add(incoming);
+                            newCount++;
+                            continue;
+                        }
+
+                        if (existingByHash.TryGetValue(incoming.TrackUniqueHash, out var existing))
+                        {
+                            if (existing.Status == TrackStatus.Downloaded)
+                            {
+                                // ✅ Already downloaded — skip entirely, preserve progress
+                                skippedCount++;
+                            }
+                            else if (existing.Status == TrackStatus.Failed || existing.Status == TrackStatus.OnHold)
+                            {
+                                // 🔄 Previously failed — update metadata from Spotify and requeue
+                                existing.Artist = incoming.Artist;
+                                existing.Title = incoming.Title;
+                                existing.Album = incoming.Album;
+                                existing.AlbumArtUrl = incoming.AlbumArtUrl ?? existing.AlbumArtUrl;
+                                existing.CanonicalDuration = incoming.CanonicalDuration > 0 ? incoming.CanonicalDuration : existing.CanonicalDuration;
+                                existing.Status = TrackStatus.Missing; // Reset to queue for download
+                                existing.SearchRetryCount = 0;
+                                existing.NotFoundRestartCount = 0;
+                                tracksToQueue.Add(existing);
+                                retriedCount++;
+                            }
+                            // else: Missing/Searching/Downloading — already in queue, leave untouched
+                        }
+                        else
+                        {
+                            // 🆕 New track not in this playlist yet
+                            incoming.SourcePlaylistId = existingJob.Id;
+                            tracksToQueue.Add(incoming);
+                            newCount++;
+                        }
+                    }
+
+                    _logger.LogInformation(
+                        "Sync merge for '{Title}': {New} new, {Retried} retried, {Skipped} already downloaded (preserved).",
+                        sourceTitle, newCount, retriedCount, skippedCount);
+                }
+                else
+                {
+                    // ── FRESH IMPORT MODE ────────────────────────────────────────────────────
+                    tracksToQueue = incomingTracks;
+                    newCount = tracksToQueue.Count;
+                    _logger.LogInformation("Fresh import for '{Title}': {Count} tracks", sourceTitle, newCount);
+                }
+
+                // Build and queue the job
                 var job = new PlaylistJob
                 {
                     Id = newJobId,
                     SourceUrl = input,
                     SourceTitle = sourceTitle,
                     SourceType = provider.Name,
-                    PlaylistTracks = allTracks,
-                    CreatedAt = DateTime.UtcNow
+                    PlaylistTracks = tracksToQueue,
+                    CreatedAt = existingJob?.CreatedAt ?? DateTime.UtcNow,
+                    DateUpdated = DateTime.UtcNow
                 };
 
                 await _downloadManager.QueueProject(job);
-                _notificationService.Show("Import Complete", $"Successfully synced {allTracks.Count} tracks from '{sourceTitle}'", Views.NotificationType.Success);
+
+                var message = existingJob != null
+                    ? $"Synced '{sourceTitle}': {newCount} new, {retriedCount} retried, {skippedCount} already downloaded"
+                    : $"Imported {tracksToQueue.Count} tracks from '{sourceTitle}'";
+                _notificationService.Show("Sync Complete", message, Views.NotificationType.Success);
             }
         }
         catch (Exception ex)
