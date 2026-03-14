@@ -193,29 +193,7 @@
                     </Grid>
                 </Border>
 
-                <!-- Phase 0A: Live Operations & Resilience Log -->
-                <!-- Vibe Search Command Bar (Phase 12.8) -->
-                <Border Classes="glass" Padding="20" Background="#11FFFFFF" Margin="0,0,0,24">
-                    <Grid ColumnDefinitions="Auto,*,Auto">
-                        <TextBlock Grid.Column="0" Text="✨" FontSize="20" VerticalAlignment="Center" Margin="0,0,16,0"/>
-                        <TextBox Grid.Column="1" Text="{Binding VibeSearchText}" Watermark="Describe the vibe (e.g. 'late night dark techno', 'sunny chill house')..." 
-                                 Background="Transparent" BorderThickness="0" FontSize="16" Foreground="White" VerticalAlignment="Center"
-                                 Classes="clear">
-                             <TextBox.Styles>
-                                 <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
-                                     <Setter Property="Background" Value="Transparent"/>
-                                     <Setter Property="BorderThickness" Value="0"/>
-                                 </Style>
-                             </TextBox.Styles>
-                        </TextBox>
-                        <Button Grid.Column="2" Command="{Binding ExecuteVibeSearchCommand}" Classes="ActionBtnSmall" Padding="12,8" Background="#00A3FF" BorderThickness="0">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <TextBlock Text="Analyze &amp; Search" FontWeight="Bold" Foreground="White"/>
-                                <TextBlock Text="→" Foreground="White"/>
-                            </StackPanel>
-                        </Button>
-                    </Grid>
-                </Border>
+                <!-- Live Operations & Resilience Log -->
                 <Grid ColumnDefinitions="2*,1*" Margin="0,0,0,8">
                     <!-- Live Operations Feed -->
                     <Border Grid.Column="0" Classes="glass" Padding="20" Margin="0,0,16,0">

@@ -123,9 +123,11 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand RefreshLibraryCommand { get; }
     public System.Windows.Input.ICommand LoadAllTracksCommand { get; }
     public System.Windows.Input.ICommand ImportLikedSongsCommand { get; }
+    public System.Windows.Input.ICommand SyncProjectCommand { get; }
 
     // Services
     private readonly ImportOrchestrator _importOrchestrator;
+    private readonly IEnumerable<IImportProvider> _importProviders;
     private readonly Services.ImportProviders.SpotifyLikedSongsImportProvider _spotifyLikedSongsProvider;
     private readonly IDialogService _dialogService;
     private readonly SpotifyAuthService _spotifyAuthService;
@@ -149,6 +151,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         ILibraryService libraryService,
         DownloadManager downloadManager,
         ImportOrchestrator importOrchestrator,
+        IEnumerable<IImportProvider> importProviders,
         Services.ImportProviders.SpotifyLikedSongsImportProvider spotifyLikedSongsProvider,
         SpotifyAuthService spotifyAuthService,
         IDialogService dialogService,
@@ -159,6 +162,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         _libraryService = libraryService;
         _downloadManager = downloadManager;
         _importOrchestrator = importOrchestrator;
+        _importProviders = importProviders;
         _spotifyLikedSongsProvider = spotifyLikedSongsProvider;
         _spotifyAuthService = spotifyAuthService;
         _dialogService = dialogService;
@@ -171,6 +175,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         RefreshLibraryCommand = new AsyncRelayCommand(ExecuteRefreshAsync);
         LoadAllTracksCommand = new RelayCommand(() => SelectedProject = _allTracksJob);
         ImportLikedSongsCommand = new AsyncRelayCommand(ExecuteImportLikedSongsAsync, () => IsSpotifyAuthenticated);
+        SyncProjectCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteSyncProjectAsync);
 
         // Subscribe to auth changes
         _authChangedHandler = (s, authenticated) => 
@@ -377,6 +382,30 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to delete project");
+        }
+    }
+
+    private async Task ExecuteSyncProjectAsync(PlaylistJob? job)
+    {
+        if (job == null || string.IsNullOrWhiteSpace(job.SourceUrl)) return;
+
+        try
+        {
+            _logger.LogInformation("Syncing project: {Title} from {Url}", job.SourceTitle, job.SourceUrl);
+            
+            var provider = _importProviders.FirstOrDefault(p => p.CanHandle(job.SourceUrl));
+            if (provider == null)
+            {
+                _notificationService.Show("Sync Error", "No suitable provider found for this project source.", Views.NotificationType.Error);
+                return;
+            }
+
+            await _importOrchestrator.SilentImportAsync(provider, job.SourceUrl);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to sync project");
+            _notificationService.Show("Sync Error", $"Failed to sync: {ex.Message}", Views.NotificationType.Error);
         }
     }
 

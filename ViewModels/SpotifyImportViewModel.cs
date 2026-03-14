@@ -24,6 +24,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
     private readonly SpotifyInputSource _spotifyInputSource;
     private readonly Services.ImportProviders.SpotifyLikedSongsImportProvider _likedSongsProvider;
     private readonly Services.ImportProviders.CsvImportProvider _csvProvider;
+    private readonly Services.ImportProviders.TracklistImportProvider _tracklistProvider;
     private readonly INavigationService _navigationService;
     private readonly IFileInteractionService _fileInteractionService;
     
@@ -132,6 +133,14 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
     public ICommand RefreshPlaylistsCommand { get; }
     public ICommand ImportPlaylistCommand { get; }
     public ICommand DownloadCommand { get; }
+    public ICommand ImportTracklistCommand { get; }
+
+    private string _pastedTracklist = "";
+    public string PastedTracklist
+    {
+        get => _pastedTracklist;
+        set { _pastedTracklist = value; OnPropertyChanged(); }
+    }
 
     private string _playlistFilter = "";
     public string PlaylistFilter
@@ -162,6 +171,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
         Services.ImportProviders.SpotifyImportProvider spotifyProvider,
         Services.ImportProviders.SpotifyLikedSongsImportProvider likedSongsProvider,
         Services.ImportProviders.CsvImportProvider csvProvider,
+        Services.ImportProviders.TracklistImportProvider tracklistProvider,
         INavigationService navigationService,
         IFileInteractionService fileInteractionService)
     {
@@ -173,6 +183,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
         _spotifyInputSource = spotifyInputSource;
         _likedSongsProvider = likedSongsProvider;
         _csvProvider = csvProvider;
+        _tracklistProvider = tracklistProvider;
         _navigationService = navigationService;
         _fileInteractionService = fileInteractionService;
         
@@ -201,6 +212,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
         ClearSearchCommand = new RelayCommand(ClearSearch);
         SyncAllPlaylistsCommand = new AsyncRelayCommand(ExecuteSyncAllPlaylistsAsync, () => IsAuthenticated && UserPlaylists.Count > 0);
         SyncFilteredPlaylistsCommand = new AsyncRelayCommand(ExecuteSyncFilteredPlaylistsAsync, () => IsAuthenticated && HasFilteredPlaylists);
+        ImportTracklistCommand = new AsyncRelayCommand(ExecuteImportTracklistAsync);
 
         // Disable unused commands
         DownloadCommand = new RelayCommand(() => {}, () => false);
@@ -292,6 +304,29 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
         StatusMessage = "";
         OnPropertyChanged(nameof(ShowPlaylists));
         OnPropertyChanged(nameof(ShowSearchResults));
+    }
+
+    private async Task ExecuteImportTracklistAsync()
+    {
+        if (string.IsNullOrWhiteSpace(PastedTracklist))
+        {
+            StatusMessage = "Please paste a tracklist first";
+            return;
+        }
+
+        try
+        {
+            _logger.LogInformation("Importing pasted tracklist...");
+            await _importOrchestrator.StartImportWithPreviewAsync(_tracklistProvider, PastedTracklist);
+            
+            // Clear if successful navigation happened
+            PastedTracklist = "";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to import tracklist");
+            StatusMessage = $"Error: {ex.Message}";
+        }
     }
 
     public async Task LoadPlaylistAsync()

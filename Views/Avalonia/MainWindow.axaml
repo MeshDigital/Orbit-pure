@@ -2,14 +2,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:vm="clr-namespace:SLSKDONET.Views"
-        xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
-        xmlns:stemviews="clr-namespace:SLSKDONET.Views.Avalonia.Stem"
-        xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
-        xmlns:models="clr-namespace:SLSKDONET.Models"
-        xmlns:sidebar="clr-namespace:SLSKDONET.Features.LibrarySidebar.Views"
-        xmlns:vmSidebar="clr-namespace:SLSKDONET.Features.LibrarySidebar.ViewModels"
-        xmlns:vmCore="clr-namespace:SLSKDONET.ViewModels"
+         xmlns:vm="clr-namespace:SLSKDONET.Views"
+         xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
+         xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+         xmlns:models="clr-namespace:SLSKDONET.Models"
+         xmlns:vmCore="clr-namespace:SLSKDONET.ViewModels"
         mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="900"
         x:Class="SLSKDONET.Views.Avalonia.MainWindow"
         x:DataType="vm:MainViewModel"
@@ -286,89 +283,6 @@
                                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
                                         <TextBlock Text="🔗" FontSize="16"/>
                                         <TextBlock Text="Import" FontSize="14"/>
-                                    </StackPanel>
-                                </Button>
-                            </StackPanel>
-                        </StackPanel>
-
-                        <!-- ENRICH -->
-                        <StackPanel IsVisible="{Binding IsEnrichVisible}">
-                            <Border Classes="GroupHeader" Padding="16,8,0,4">
-                                <TextBlock Text="ENRICH" Classes="GroupTitle" FontSize="11" FontWeight="Bold" Foreground="#666" LetterSpacing="1"/>
-                            </Border>
-
-                            <StackPanel Spacing="2">
-                                <Button Classes="nav" Command="{Binding NavigateInspectorCommand}"
-                                        ToolTip.Tip="The Processor"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.AnalysisQueue}}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="🧠" FontSize="16"/>
-                                        <TextBlock Text="The Processor" FontSize="14"/>
-                                    </StackPanel>
-                                </Button>
-
-                                <Button Classes="nav" Command="{Binding NavigateStyleLabCommand}"
-                                        ToolTip.Tip="Style Lab"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.StyleLab}}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="🧪" FontSize="16"/>
-                                        <TextBlock Text="Style Lab" FontSize="14"/>
-                                    </StackPanel>
-                                </Button>
-
-
-                            </StackPanel>
-                        </StackPanel>
-
-                        <!-- CURATE -->
-                        <StackPanel IsVisible="{Binding IsCurateVisible}">
-                            <Border Classes="GroupHeader" Padding="16,8,0,4">
-                                <TextBlock Text="CURATE" Classes="GroupTitle" FontSize="11" FontWeight="Bold" Foreground="#666" LetterSpacing="1"/>
-                            </Border>
-
-                            <StackPanel Spacing="2">
-                                <Button Classes="nav" Command="{Binding NavigateDJCompanionCommand}"
-                                        ToolTip.Tip="DJ Companion"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.DJCompanion}}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="🎧" FontSize="16"/>
-                                        <TextBlock Text="DJ Companion" FontSize="14"/>
-                                    </StackPanel>
-                                </Button>
-
-                                <Button Classes="nav" Command="{Binding NavigateFlowBuilderCommand}"
-                                        ToolTip.Tip="Flow Builder"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.FlowBuilder}}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="🌊" FontSize="16"/>
-                                        <TextBlock Text="Flow Builder" FontSize="14"/>
-                                    </StackPanel>
-                                </Button>
-
-                                <Button Classes="nav" Command="{Binding NavigateDawCommand}"
-                                        ToolTip.Tip="Timeline"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.DawTimeline}}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="⏱️" FontSize="16"/>
-                                        <TextBlock Text="Timeline" FontSize="14"/>
-                                    </StackPanel>
-                                </Button>
-                            </StackPanel>
-                        </StackPanel>
-
-                        <!-- DELIVER -->
-                        <StackPanel IsVisible="{Binding IsDeliverVisible}">
-                            <Border Classes="GroupHeader" Padding="16,8,0,4">
-                                <TextBlock Text="DELIVER" Classes="GroupTitle" FontSize="11" FontWeight="Bold" Foreground="#666" LetterSpacing="1"/>
-                            </Border>
-
-                            <StackPanel Spacing="2">
-                                <Button Classes="nav" Command="{Binding NavigateExportCommand}"
-                                        ToolTip.Tip="Export Manager"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Export}}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="🚀" FontSize="16"/>
-                                        <TextBlock Text="Export Manager" FontSize="14"/>
                                     </StackPanel>
                                 </Button>
                             </StackPanel>

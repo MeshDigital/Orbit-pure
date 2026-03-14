@@ -463,8 +463,6 @@ public partial class App : Application
         services.AddSingleton<SearchNormalizationService>();
         services.AddSingleton<ISafetyFilterService, SafetyFilterService>();
         services.AddSingleton<SearchResultMatcher>();
-        services.AddSingleton<StemSeparationService>();
-        services.AddSingleton<SLSKDONET.Services.Audio.BatchStemExportService>();
         services.AddSingleton<ForensicLockdownService>();
         services.AddSingleton<IForensicLockdownService>(sp => sp.GetRequiredService<ForensicLockdownService>());
         services.AddSingleton<ISmartPlaylistService, SmartPlaylistService>();

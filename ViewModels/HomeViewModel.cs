@@ -118,6 +118,10 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         set => SetProperty(ref _isLoadingSpotify, value);
     }
 
+    public bool IsSpotifyConnected => _spotifyAuth.IsAuthenticated;
+    
+    public ObservableCollection<MissionOperation> ActiveMissions { get; } = new();
+
     public HomeViewModel(
         ILogger<HomeViewModel> logger,
         DashboardService dashboardService,
@@ -200,6 +204,12 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
 
         // Initial load
         _ = RefreshDashboardAsync();
+        
+        // Listen for Spotify changes
+        _spotifyAuth.PropertyChanged += (s, e) => {
+            if (e.PropertyName == nameof(SpotifyAuthService.IsAuthenticated))
+                OnPropertyChanged(nameof(IsSpotifyConnected));
+        };
     }
 
 

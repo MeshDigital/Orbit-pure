@@ -668,13 +668,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 "SettingsPage" => PageType.Settings,
                 "ImportPage" => PageType.Import,
                 "ImportPreviewPage" => PageType.Import, // Map preview to Import category
-                "UpgradeScoutView" => PageType.UpgradeScout,
                 "InspectorPage" => PageType.Inspector,
-                "AnalysisQueuePage" => PageType.AnalysisQueue,
-                "StyleLabPage" => PageType.StyleLab,
-                "TheaterModePage" => PageType.TheaterMode,
-                "FlowBuilderView" => PageType.FlowBuilder,
-                "ExportManagerView" => PageType.Export,
                 _ => CurrentPageType
             };
 

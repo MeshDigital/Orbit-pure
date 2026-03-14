@@ -6,12 +6,9 @@
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
-             xmlns:sidebar="clr-namespace:SLSKDONET.Features.LibrarySidebar.Views"
-             xmlns:vmSidebar="clr-namespace:SLSKDONET.Features.LibrarySidebar.ViewModels"
              xmlns:conv="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
              xmlns:dg="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.DataGrid"
              xmlns:rootConv="clr-namespace:SLSKDONET.Converters"
-             xmlns:libSidebar="clr-namespace:SLSKDONET.Features.LibrarySidebar"
              xmlns:models="clr-namespace:SLSKDONET.Models"
              xmlns:helpers="clr-namespace:SLSKDONET.Helpers"
              xmlns:interactivity="clr-namespace:Avalonia.Xaml.Interactivity;assembly=Avalonia.Xaml.Interactivity"
@@ -42,7 +39,7 @@
 
     <Grid>
         <!-- CONTENT LAYER (Blurred when Overlay is active) -->
-        <Grid ColumnDefinitions="300,Auto,*,Auto,420,48">
+        <Grid ColumnDefinitions="300,Auto,*">
 
         
             <!-- LEFT PANEL: Playlist List -->
@@ -655,53 +652,6 @@
                 </Grid>
             </Grid>
 
-            <!-- Sidebar Splitter (Right) -->
-            <GridSplitter Grid.Column="3" Width="4" Background="Transparent" 
-                          IsVisible="{Binding Sidebar.IsSidebarOpen}"
-                          ZIndex="10">
-                <GridSplitter.Styles>
-                    <Style Selector="GridSplitter:pointerover">
-                        <Setter Property="Background" Value="#334EC9B0"/>
-                    </Style>
-                </GridSplitter.Styles>
-            </GridSplitter>
-
-            <!-- RIGHT DOCKED SIDEBAR -->
-            <Border Grid.Column="4" 
-                    Width="{Binding SidebarWidth, Mode=TwoWay}" 
-                    IsVisible="{Binding Sidebar.IsSidebarOpen}"
-                    Background="#252526" 
-                    BorderBrush="#3E3E3E" 
-                    BorderThickness="1,0,0,0"
-                    ZIndex="10">
-                <Grid RowDefinitions="Auto,*">
-                    <!-- Sidebar Header -->
-                    <Border Grid.Row="0" Padding="12" Background="#1E1E1E" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
-                        <Grid ColumnDefinitions="Auto,*,Auto">
-                            <TextBlock Text="{Binding Sidebar.ModeIcon}" FontSize="16" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <TextBlock Grid.Column="1" Text="{Binding Sidebar.ModeLabel}" FontWeight="Bold" VerticalAlignment="Center" Foreground="#DDD"/>
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
-                                <Button Classes="tool" Command="{Binding Sidebar.ShowPlayerCommand}" ToolTip.Tip="Show Player">
-                                    <TextBlock Text="🎵" FontSize="12"/>
-                                </Button>
-                                <Button Classes="tool" Command="{Binding Sidebar.HideCommand}" Content="✖" Foreground="#888"/>
-                            </StackPanel>
-                        </Grid>
-                    </Border>
-                    
-                    <!-- Sidebar Content -->
-                    <ContentControl Grid.Row="1" Content="{Binding Sidebar.CurrentContent}">
-                        <ContentControl.DataTemplates>
-
-                            <DataTemplate DataType="vm:PlayerViewModel">
-                                <views:PlayerControl/>
-                            </DataTemplate>
-                        </ContentControl.DataTemplates>
-                    </ContentControl>
-                </Grid>
-            </Border>
-
-            <!-- SIDEBAR NAVIGATION STRIP REMOVED -->
         </Grid>
 
         <!-- OVERLAYS (Outside the main layout grids) -->

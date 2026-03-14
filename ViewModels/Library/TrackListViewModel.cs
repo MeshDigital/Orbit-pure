@@ -36,7 +36,6 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     private readonly IEventBus _eventBus;
     private readonly AppConfig _config;
     private readonly IBulkOperationCoordinator _bulkCoordinator;
-    private readonly BatchStemExportService _stemExportService;
 
     public HierarchicalLibraryViewModel Hierarchical { get; }
     
@@ -433,13 +432,6 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     public System.Windows.Input.ICommand BulkRetryCommand { get; }
     public System.Windows.Input.ICommand BulkCancelCommand { get; }
     public System.Windows.Input.ICommand BulkReEnrichCommand { get; }
-    public System.Windows.Input.ICommand BulkReAnalyzeCommand { get; }
-    public System.Windows.Input.ICommand BulkReAnalyzeT1Command { get; }
-    public System.Windows.Input.ICommand BulkReAnalyzeT2Command { get; }
-    public System.Windows.Input.ICommand BulkReAnalyzeT3Command { get; }
-    public System.Windows.Input.ICommand SeparateStemsCommand { get; }
-    public System.Windows.Input.ICommand BatchExportAcapellasCommand { get; }
-    public System.Windows.Input.ICommand BatchExportInstrumentalsCommand { get; }
     
     // Phase 18: Sonic Match - Find Similar Vibe
     public System.Windows.Input.ICommand FindSimilarCommand { get; }
@@ -454,9 +446,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         ArtworkCacheService artworkCache,
         IEventBus eventBus,
         AppConfig config,
-        IBulkOperationCoordinator bulkCoordinator,
-        BatchStemExportService stemExportService,
-        StemSeparationService separationService)
+        IBulkOperationCoordinator bulkCoordinator)
     {
         _logger = logger;
         _libraryService = libraryService;
@@ -465,24 +455,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         _eventBus = eventBus;
         _config = config;
         _bulkCoordinator = bulkCoordinator;
-        _stemExportService = stemExportService;
 
         Hierarchical = new HierarchicalLibraryViewModel(config, downloadManager, artworkCache);
-
-        // Phase 4: Smart Auto-Separation
-        this.WhenAnyValue(x => x.LeadSelectedTrack)
-            .Where(x => x != null && x.IsCompleted)
-            .Throttle(TimeSpan.FromMilliseconds(800))
-            .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(track => 
-            {
-                if (track != null && !separationService.HasStems(track.GlobalId))
-                {
-                    _logger.LogInformation("Auto-Separation: Pre-preparing stems for {Title}", track.Title);
-                    _ = separationService.SeparateTrackAsync(track.Model.ResolvedFilePath, track.GlobalId);
-                }
-            })
-            .DisposeWith(_disposables);
         
         SelectAllTracksCommand = ReactiveCommand.Create(() => 
         {
@@ -536,16 +510,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         BulkDownloadCommand = ReactiveCommand.CreateFromTask(ExecuteBulkDownloadAsync);
         BulkRetryCommand = ReactiveCommand.CreateFromTask(ExecuteBulkRetryAsync);
         CopyToFolderCommand = ReactiveCommand.CreateFromTask(ExecuteCopyToFolderAsync);
-        SeparateStemsCommand = ReactiveCommand.CreateFromTask<PlaylistTrack>(SeparateStemsAsync);
         BulkCancelCommand = ReactiveCommand.CreateFromTask(ExecuteBulkCancelAsync);
         BulkReEnrichCommand = ReactiveCommand.CreateFromTask(ExecuteBulkReEnrichAsync);
-        BatchExportAcapellasCommand = ReactiveCommand.CreateFromTask(() => ExecuteBatchExportAsync(true));
-        BatchExportInstrumentalsCommand = ReactiveCommand.CreateFromTask(() => ExecuteBatchExportAsync(false));
-        
-        BulkReAnalyzeCommand = ReactiveCommand.CreateFromTask(() => ExecuteBulkReAnalyzeAsync(AnalysisTier.Tier1));
-        BulkReAnalyzeT1Command = ReactiveCommand.CreateFromTask(() => ExecuteBulkReAnalyzeAsync(AnalysisTier.Tier1));
-        BulkReAnalyzeT2Command = ReactiveCommand.CreateFromTask(() => ExecuteBulkReAnalyzeAsync(AnalysisTier.Tier2));
-        BulkReAnalyzeT3Command = ReactiveCommand.CreateFromTask(() => ExecuteBulkReAnalyzeAsync(AnalysisTier.Tier3));
         
         // Phase 18: Find Similar - triggers sonic match search
         FindSimilarCommand = ReactiveCommand.Create<PlaylistTrackViewModel>(ExecuteFindSimilar);
@@ -786,18 +752,6 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     /// Refreshes the filtered tracks based on current filter settings.
     /// Optimized with batch updates for virtualization performance.
     /// </summary>
-    private void SeparateStems()
-    {
-         if (SelectedTracks == null || !SelectedTracks.Any()) return;
-
-         foreach (var track in SelectedTracks.ToList())
-         {
-             if (track.SeparateStemsCommand.CanExecute(null))
-             {
-                 track.SeparateStemsCommand.Execute(null);
-             }
-         }
-    }
 
     private async Task SeparateStemsAsync(PlaylistTrack? singleTrack)
     {
@@ -826,8 +780,6 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         foreach (var track in tracksToProcess)
         {
             if (track.SeparateStemsCommand.CanExecute(null))
-            {
-                track.SeparateStemsCommand.Execute(null);
             }
         }
         
@@ -992,48 +944,6 @@ public class TrackListViewModel : ReactiveObject, IDisposable
 
     }
 
-    private async Task ExecuteBatchExportAsync(bool acapellaOnly)
-    {
-        try
-        {
-            var selectedTracks = SelectedTracks
-                .Where(t => t.State == PlaylistTrackState.Completed && !string.IsNullOrEmpty(t.Model?.ResolvedFilePath))
-                .ToList();
-
-            if (!selectedTracks.Any())
-            {
-                _logger.LogWarning("No completed tracks selected for extraction");
-                return;
-            }
-
-            // Show folder picker dialog
-            var folderTask = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
-            {
-                var dialog = new Avalonia.Platform.Storage.FolderPickerOpenOptions
-                {
-                    Title = acapellaOnly ? "Select destination for Acapellas" : "Select destination for Instrumentals",
-                    AllowMultiple = false
-                };
-
-                var mainWindow = (Avalonia.Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.MainWindow;
-                if (mainWindow == null) return null;
-
-                var result = await mainWindow.StorageProvider.OpenFolderPickerAsync(dialog);
-                return result?.FirstOrDefault()?.Path.LocalPath;
-            });
-
-            var targetFolder = await folderTask;
-            if (string.IsNullOrEmpty(targetFolder)) return;
-
-            // Run via service
-            await _stemExportService.ExportBatchAsync(selectedTracks, targetFolder, acapellaOnly);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Batch stem export failed");
-        }
-    }
-
     private async Task ExecuteCopyToFolderAsync()
     {
         try
@@ -1180,66 +1090,12 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         SelectedTracks.Clear();
     }
 
-    private async Task ExecuteBulkReAnalyzeAsync(AnalysisTier tier)
-    {
-        var selectedTracks = SelectedTracks.Where(t => t.State == PlaylistTrackState.Completed).ToList();
-        if (!selectedTracks.Any())
-        {
-            _logger.LogWarning("No completed tracks selected for re-analysis");
-            return;
-        }
-
-        if (_bulkCoordinator.IsRunning)
-        {
-             _logger.LogWarning("Another bulk operation is already running");
-             return;
-        }
-
-        await _bulkCoordinator.RunOperationAsync(
-            selectedTracks,
-            async (track, ct) =>
-            {
-                if (track.Model != null && !string.IsNullOrEmpty(track.GlobalId))
-                {
-                    // Publish event to request analysis
-                    _eventBus.Publish(new Models.TrackAnalysisRequestedEvent(track.GlobalId, tier));
-                    return true;
-                }
-                return false;
-            },
-            $"Bulk Re-Analyze ({tier})"
-        );
-
-        SelectedTracks.Clear();
-    }
 
     private void OnGlobalTrackUpdated(object? sender, PlaylistTrackViewModel e)
     {
         // Track updates are handled by the ViewModel itself via binding
     }
 
-    /// <summary>
-    /// Phase 18: Publishes FindSimilarRequestEvent to trigger sonic match search.
-    /// </summary>
-    private void ExecuteFindSimilar(PlaylistTrackViewModel? track)
-    {
-        if (track == null) 
-        {
-            // If no parameter, use lead selected track
-            track = LeadSelectedTrack;
-        }
-        
-        if (track == null || track.Model == null)
-        {
-            _logger.LogWarning("FindSimilar called with no track selected");
-            return;
-        }
-
-        _logger.LogInformation("🎵 Find Similar: Publishing event for {Artist} - {Title}", track.Artist, track.Title);
-        
-        // Use existing Models.FindSimilarRequestEvent with PlaylistTrack and UseAi=true for AI matching
-        _eventBus.Publish(new FindSimilarRequestEvent(track.Model, useAi: true));
-    }
 
     private async Task PerformCrossPlaylistSearchAsync(string query)
     {

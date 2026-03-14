@@ -38,6 +38,7 @@ public partial class LibraryViewModel
     public ICommand AutoSortCommand { get; set; } = null!;
     public ICommand LoadDeletedProjectsCommand { get; set; } = null!;
     public ICommand RestoreProjectCommand { get; set; } = null!;
+    public ICommand SyncProjectCommand { get; set; } = null!;
 
     public ICommand SwitchWorkspaceCommand { get; set; } = null!;
     public ICommand ToggleColumnCommand { get; set; } = null!;
@@ -64,6 +65,7 @@ public partial class LibraryViewModel
         PlayAlbumCommand = new AsyncRelayCommand<object>(ExecutePlayAlbumAsync);
         DownloadAlbumCommand = new AsyncRelayCommand<object>(ExecuteDownloadAlbumAsync);
         DownloadMissingCommand = new AsyncRelayCommand<object>(ExecuteDownloadMissingAsync);
+        SyncProjectCommand = new AsyncRelayCommand<object>(ExecuteSyncProjectAsync);
 
 
         // Fluidity
@@ -341,6 +343,18 @@ public partial class LibraryViewModel
     {
         // Called from View when columns are reordered or resized
         _columnConfigService.SaveConfiguration(AvailableColumns.ToList());
+    }
+
+    private async Task ExecuteSyncProjectAsync(object? param)
+    {
+        if (param is PlaylistJob project)
+        {
+            Projects.SyncProjectCommand.Execute(project);
+        }
+        else if (SelectedProject != null)
+        {
+            Projects.SyncProjectCommand.Execute(SelectedProject);
+        }
     }
 
     private async Task ExecuteInitiateMp3SearchAsync(object? param)

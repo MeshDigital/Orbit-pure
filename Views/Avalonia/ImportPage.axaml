@@ -118,6 +118,37 @@
                     </StackPanel>
                 </Border>
                 
+                <!-- Ad-hoc / Pasted Tracklist -->
+                <Border Background="#1A1A1A" BorderBrush="#FFC107" BorderThickness="1" CornerRadius="12" Padding="32">
+                    <StackPanel Spacing="16">
+                        <StackPanel Orientation="Horizontal" Spacing="16">
+                            <TextBlock Text="📋" FontSize="48"/>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Ad-hoc Tracklist" FontSize="20" FontWeight="SemiBold" Foreground="White"/>
+                                <TextBlock Text="Paste a list of tracks (e.g. from YouTube, blog, or chat)" FontSize="14" Foreground="#A0A0A0" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </StackPanel>
+                        
+                        <TextBox Text="{Binding PastedTracklist, Mode=TwoWay}"
+                                 Watermark="Example:&#x0a;Artist - Title&#x0a;Artist2 - Title2&#x0a;01 Artist Title (Album)"
+                                 AcceptsReturn="True"
+                                 Height="150"
+                                 Background="#121212"
+                                 BorderThickness="1"
+                                 Padding="12"
+                                 CornerRadius="8"/>
+                        
+                        <Button Command="{Binding ImportTracklistCommand}"
+                                Background="#FFC107"
+                                Foreground="Black"
+                                HorizontalAlignment="Right"
+                                Padding="24,12"
+                                CornerRadius="8">
+                            <TextBlock Text="Parse &amp; Import" FontWeight="Bold"/>
+                        </Button>
+                    </StackPanel>
+                </Border>
+                
                 <!-- CSV Import -->
                 <Border Name="CsvDropZone" 
                         Background="#1A1A1A" 
