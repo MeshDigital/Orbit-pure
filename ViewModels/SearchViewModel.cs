@@ -208,6 +208,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     public ICommand CancelSearchCommand { get; }
     public ICommand AddToDownloadsCommand { get; }
     public ReactiveCommand<object?, System.Reactive.Unit> DownloadSelectedCommand { get; }
+    public ReactiveCommand<System.Reactive.Unit, System.Reactive.Unit> CopyMetadataCommand { get; }
     public ICommand ApplyPresetCommand { get; } // Phase 5: Search Presets
     public ICommand BrowseUserSharesCommand { get; } // Phase 5: Directory Browsing
     public ICommand CloseUserCollectionBrowserCommand { get; }
@@ -291,6 +292,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         CancelSearchCommand = ReactiveCommand.Create(ExecuteCancelSearch);
         AddToDownloadsCommand = ReactiveCommand.CreateFromTask(ExecuteAddToDownloadsAsync);
         DownloadSelectedCommand = ReactiveCommand.CreateFromTask<object?>(ExecuteDownloadSelectedAsync);
+        CopyMetadataCommand = ReactiveCommand.CreateFromTask(ExecuteCopyMetadataAsync);
         ApplyPresetCommand = ReactiveCommand.Create<string>(ExecuteApplyPreset);
         BrowseUserSharesCommand = ReactiveCommand.CreateFromTask<AnalyzedSearchResultViewModel>(ExecuteBrowseUserSharesAsync);
         CloseUserCollectionBrowserCommand = ReactiveCommand.Create(() => IsUserCollectionBrowserOpen = false);
@@ -554,6 +556,25 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         StatusText = $"Opening {vm.User}'s collection...";
         await UserCollectionBrowser.LoadUserAsync(vm.User);
         IsUserCollectionBrowserOpen = true;
+    }
+
+    private async Task ExecuteCopyMetadataAsync()
+    {
+        var resultsToCopy = SelectedResults.Any()
+            ? SelectedResults.ToList()
+            : _publicSearchResults.Take(1).ToList();
+
+        if (!resultsToCopy.Any())
+        {
+            StatusText = "No results selected to copy.";
+            return;
+        }
+
+        var lines = resultsToCopy.Select(result =>
+            $"{result.DisplayName} | {result.RawResult.FileFormat} | {result.BitRate} kbps | {result.User}");
+
+        await _clipboardService.SetTextAsync(string.Join(Environment.NewLine, lines));
+        StatusText = $"Copied metadata for {resultsToCopy.Count} item(s).";
     }
 
     private void ExecuteCancelSearch()

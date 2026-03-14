@@ -18,6 +18,8 @@ public class UserCollectionViewModel : ReactiveObject
         "mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "aif", "aiff", "ape", "alac", "wma"
     };
 
+    private readonly List<Track> _allShares = new();
+
     private readonly ILogger<UserCollectionViewModel> _logger;
     private readonly ISoulseekAdapter _soulseek;
     private readonly DownloadManager _downloadManager;
@@ -45,6 +47,48 @@ public class UserCollectionViewModel : ReactiveObject
         private set => this.RaiseAndSetIfChanged(ref _statusText, value);
     }
 
+    private string _filterText = string.Empty;
+    public string FilterText
+    {
+        get => _filterText;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _filterText, value);
+            ApplyCurrentView();
+            this.RaisePropertyChanged(nameof(HasActiveFilter));
+            this.RaisePropertyChanged(nameof(FilterSummary));
+        }
+    }
+
+    private bool _showMusicOnly;
+    public bool ShowMusicOnly
+    {
+        get => _showMusicOnly;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _showMusicOnly, value);
+            ApplyCurrentView();
+            this.RaisePropertyChanged(nameof(HasActiveFilter));
+            this.RaisePropertyChanged(nameof(FilterSummary));
+        }
+    }
+
+    private string _selectedSortOption = "Name";
+    public string SelectedSortOption
+    {
+        get => _selectedSortOption;
+        set
+        {
+            var normalized = string.IsNullOrWhiteSpace(value) ? "Name" : value;
+            this.RaiseAndSetIfChanged(ref _selectedSortOption, normalized);
+            ApplyCurrentView();
+            this.RaisePropertyChanged(nameof(HasActiveFilter));
+            this.RaisePropertyChanged(nameof(FilterSummary));
+        }
+    }
+
+    public IReadOnlyList<string> SortOptions { get; } = new[] { "Name", "Format", "Bitrate" };
+
     private UserCollectionNodeViewModel? _selectedNode;
     public UserCollectionNodeViewModel? SelectedNode
     {
@@ -63,10 +107,23 @@ public class UserCollectionViewModel : ReactiveObject
     public string SelectedNodeSubtitle => SelectedNode?.SecondaryText ?? "Select a folder or track to queue it.";
     public string SelectedNodeWarning => SelectedNode?.WarningText ?? string.Empty;
     public bool HasSelectedNodeWarning => SelectedNode?.HasWarning == true;
+    public bool HasVisibleNodes => RootNodes.Count > 0;
+    public bool HasActiveFilter => ShowMusicOnly || !string.IsNullOrWhiteSpace(FilterText) || !string.Equals(SelectedSortOption, "Name", StringComparison.OrdinalIgnoreCase);
+    public string FilterSummary
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (ShowMusicOnly) parts.Add("music only");
+            if (!string.IsNullOrWhiteSpace(FilterText)) parts.Add($"filter: {FilterText.Trim()}");
+            if (!string.Equals(SelectedSortOption, "Name", StringComparison.OrdinalIgnoreCase)) parts.Add($"sort: {SelectedSortOption.ToLowerInvariant()}");
+            return parts.Count == 0 ? "Showing all visible shares" : string.Join(" • ", parts);
+        }
+    }
 
-    public int TotalFiles => RootNodes.SelectMany(n => n.EnumerateFiles()).Count();
+    public int TotalFiles => RootNodes.SelectMany(n => n.EnumerateAllFiles()).Count();
     public int MusicFileCount => RootNodes.SelectMany(n => n.EnumerateFiles()).Count(f => f.IsMusicFile);
-    public int SuspiciousLosslessCount => RootNodes.SelectMany(n => n.EnumerateFiles()).Count(f => f.IsSuspiciousLossless);
+    public int SuspiciousLosslessCount => RootNodes.SelectMany(n => n.EnumerateAllFiles()).Count(f => f.IsSuspiciousLossless);
     public bool HasSuspiciousLossless => SuspiciousLosslessCount > 0;
 
     public ReactiveCommand<System.Reactive.Unit, System.Reactive.Unit> QueueSelectedCommand { get; }
@@ -95,6 +152,7 @@ public class UserCollectionViewModel : ReactiveObject
     {
         CurrentUsername = username;
         SelectedNode = null;
+        _allShares.Clear();
         RootNodes.Clear();
         NotifyTreeChanged();
 
@@ -110,16 +168,15 @@ public class UserCollectionViewModel : ReactiveObject
         try
         {
             var shares = (await _soulseek.GetUserSharesAsync(username)).ToList();
+            _allShares.AddRange(shares);
+
             if (!shares.Any())
             {
                 StatusText = $"No visible shares for {username}.";
                 return;
             }
 
-            BuildTree(shares);
-            SortNodes(RootNodes);
-            NotifyTreeChanged();
-            StatusText = $"Loaded {MusicFileCount} music files from {username} ({SuspiciousLosslessCount} suspicious lossless).";
+            ApplyCurrentView();
         }
         catch (Exception ex)
         {
@@ -130,6 +187,58 @@ public class UserCollectionViewModel : ReactiveObject
         {
             IsLoading = false;
         }
+    }
+
+    private void ApplyCurrentView()
+    {
+        RootNodes.Clear();
+
+        IEnumerable<Track> filteredShares = _allShares;
+
+        if (ShowMusicOnly)
+        {
+            filteredShares = filteredShares.Where(IsMusicExtension);
+        }
+
+        if (!string.IsNullOrWhiteSpace(FilterText))
+        {
+            var filter = FilterText.Trim();
+            filteredShares = filteredShares.Where(track => MatchesFilter(track, filter));
+        }
+
+        var materializedShares = filteredShares.ToList();
+        if (materializedShares.Count > 0)
+        {
+            BuildTree(materializedShares);
+            SortNodes(RootNodes, SelectedSortOption);
+        }
+
+        NotifyTreeChanged();
+
+        if (_allShares.Count == 0)
+        {
+            StatusText = string.IsNullOrWhiteSpace(CurrentUsername)
+                ? "Ready"
+                : $"No visible shares for {CurrentUsername}.";
+            return;
+        }
+
+        if (materializedShares.Count == 0)
+        {
+            StatusText = "No items match the current browser filters.";
+            return;
+        }
+
+        StatusText = $"Showing {TotalFiles} visible file(s), {MusicFileCount} music file(s), {SuspiciousLosslessCount} suspicious lossless.";
+    }
+
+    private static bool MatchesFilter(Track track, string filter)
+    {
+        return (track.Filename?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true)
+            || (track.Artist?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true)
+            || (track.Title?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true)
+            || (track.Album?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true)
+            || (track.Username?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true);
     }
 
     private void BuildTree(IEnumerable<Track> shares)
@@ -180,10 +289,12 @@ public class UserCollectionViewModel : ReactiveObject
         return created;
     }
 
-    private static void SortNodes(ObservableCollection<UserCollectionNodeViewModel> nodes)
+    private static void SortNodes(ObservableCollection<UserCollectionNodeViewModel> nodes, string sortOption)
     {
         var ordered = nodes
             .OrderByDescending(n => n is UserCollectionFolderNodeViewModel)
+            .ThenBy(n => GetSortGroup(n, sortOption), StringComparer.OrdinalIgnoreCase)
+            .ThenByDescending(n => GetSortBitrate(n, sortOption))
             .ThenBy(n => n.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -192,11 +303,35 @@ public class UserCollectionViewModel : ReactiveObject
         {
             if (node is UserCollectionFolderNodeViewModel folder)
             {
-                SortNodes(folder.ChildNodes);
+                SortNodes(folder.ChildNodes, sortOption);
             }
 
             nodes.Add(node);
         }
+    }
+
+    private static string GetSortGroup(UserCollectionNodeViewModel node, string sortOption)
+    {
+        if (node is not UserCollectionFileNodeViewModel file)
+        {
+            return string.Empty;
+        }
+
+        return sortOption switch
+        {
+            "Format" => file.Extension,
+            _ => file.DisplayName
+        };
+    }
+
+    private static int GetSortBitrate(UserCollectionNodeViewModel node, string sortOption)
+    {
+        if (!string.Equals(sortOption, "Bitrate", StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        return node is UserCollectionFileNodeViewModel file ? file.Bitrate : 0;
     }
 
     private async Task QueueSelectedAsync()
@@ -243,6 +378,8 @@ public class UserCollectionViewModel : ReactiveObject
 
     private void NotifyTreeChanged()
     {
+        this.RaisePropertyChanged(nameof(HasVisibleNodes));
+        this.RaisePropertyChanged(nameof(FilterSummary));
         this.RaisePropertyChanged(nameof(TotalFiles));
         this.RaisePropertyChanged(nameof(MusicFileCount));
         this.RaisePropertyChanged(nameof(SuspiciousLosslessCount));
@@ -264,6 +401,7 @@ public abstract class UserCollectionNodeViewModel : ReactiveObject
     public virtual string WarningText => string.Empty;
     public virtual bool HasWarning => !string.IsNullOrWhiteSpace(WarningText);
     public virtual IEnumerable<UserCollectionNodeViewModel> Children => Enumerable.Empty<UserCollectionNodeViewModel>();
+    public virtual IEnumerable<UserCollectionFileNodeViewModel> EnumerateAllFiles() => Enumerable.Empty<UserCollectionFileNodeViewModel>();
     public virtual IEnumerable<UserCollectionFileNodeViewModel> EnumerateFiles() => Enumerable.Empty<UserCollectionFileNodeViewModel>();
     public int QueueableFileCount => EnumerateFiles().Count(f => f.IsMusicFile);
 }
@@ -278,6 +416,9 @@ public sealed class UserCollectionFolderNodeViewModel : UserCollectionNodeViewMo
     public override IEnumerable<UserCollectionNodeViewModel> Children => ChildNodes;
     public override string Icon => "📁";
     public override string SecondaryText => QueueableFileCount > 0 ? $"{QueueableFileCount} track(s)" : "Folder";
+
+    public override IEnumerable<UserCollectionFileNodeViewModel> EnumerateAllFiles()
+        => ChildNodes.SelectMany(child => child.EnumerateAllFiles());
 
     public override IEnumerable<UserCollectionFileNodeViewModel> EnumerateFiles()
         => ChildNodes.SelectMany(child => child.EnumerateFiles());
@@ -314,6 +455,11 @@ public sealed class UserCollectionFileNodeViewModel : UserCollectionNodeViewMode
     }
 
     public override string WarningText => IsSuspiciousLossless ? "Low Quality Transcode: FLAC with low reported bitrate." : string.Empty;
+
+    public override IEnumerable<UserCollectionFileNodeViewModel> EnumerateAllFiles()
+    {
+        yield return this;
+    }
 
     public override IEnumerable<UserCollectionFileNodeViewModel> EnumerateFiles()
     {
