@@ -366,7 +366,8 @@ public class DownloadDiscoveryService
             {
                 if (track.Status != TrackStatus.OnHold && formatsList.Contains("flac") && !formatsList.Contains("mp3"))
                 {
-                     _logger.LogInformation("🧠 BRAIN: FLAC-only search failed. Strict policy prevents relaxation to MP3.");
+                     _logger.LogInformation("🧠 BRAIN: FLAC-only tier {Tier} failed — no relaxation. Will escalate to MP3 after 9 FLAC attempts.", tierName);
+                     _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"🎵 No FLAC found in {tierName} tier — MP3 fallback queues after 9 attempts."));
                      return new DiscoveryResult(null, log);
                 }
 

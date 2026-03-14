@@ -1849,13 +1849,27 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         // Exceeded session retries: increment restart count and mark Failed/OnHold
                         ctx.Model.SearchRetryCount = 0; // Reset for next session
                         ctx.Model.NotFoundRestartCount++;
-                        
-                        // 3 sessions x 3 retries = 9 total
+
+                        // If already in OnHold (MP3 lane) and still failing → truly terminal
+                        if (ctx.Model.Status == TrackStatus.OnHold && ctx.Model.NotFoundRestartCount >= 3)
+                        {
+                            _logger.LogError("🚫 TERMINAL: {Title} failed all FLAC AND MP3 attempts. Marking as permanently Failed.", ctx.Model.Title);
+                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, "🚫 Not found on network — tried FLAC + MP3 across multiple sessions."));
+                            await UpdateStateAsync(ctx, PlaylistTrackState.Failed, "Terminal: Not found (FLAC + MP3 exhausted)");
+                            return;
+                        }
+
+                        // 3 sessions x 3 retries = 9 total (FLAC lane)
                         if (ctx.Model.NotFoundRestartCount >= 3)
                         {
-                            _logger.LogError("🛑 GLOBAL FAILURE for {Title}: No results found after 9 attempts across 3 restarts. Moving to ON HOLD (MP3 Fallback).", ctx.Model.Title);
+                            _logger.LogWarning("🎵 MP3 FALLBACK: {Title} exhausted all FLAC attempts. Auto-escalating to MP3 search lane.", ctx.Model.Title);
                             ctx.Model.Status = TrackStatus.OnHold;
-                            await UpdateStateAsync(ctx, PlaylistTrackState.Failed, "On Hold: 9x Search Failed (Manual MP3 Search Required)");
+                            ctx.Model.NotFoundRestartCount = 0; // Reset so MP3 lane gets fresh attempts
+                            ctx.Model.SearchRetryCount = 0;
+                            ctx.Model.Priority = 15; // Slightly lower priority in the queue
+                            ctx.NextRetryTime = DateTime.UtcNow.AddMinutes(5); // Small delay before MP3 attempt
+                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, "🎵 FLAC not found after 9 attempts — switching to MP3 fallback lane automatically."));
+                            await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "FLAC failed (9x) → Auto MP3 Fallback queued");
                         }
                         else
                         {
