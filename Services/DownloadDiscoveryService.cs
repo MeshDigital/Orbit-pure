@@ -70,73 +70,59 @@ public class DownloadDiscoveryService
     public async Task<DiscoveryResult> FindBestMatchAsync(PlaylistTrack track, CancellationToken ct, HashSet<string>? blacklistedUsers = null)
     {
         // Global discovery timeout: if all tiers combined take > 90s, abort cleanly.
-        // This prevents a single search from hogging a semaphore slot indefinitely.
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(90));
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(120)); // Bumped for fallback support
         var timedCt = timeoutCts.Token;
 
         var tiers = _autoCleaner.Clean($"{track.Artist} - {track.Title}");
         var log = new SearchAttemptLog();
+        
+        // Phase 3D: Integrated Fallback - try lossless tiers first, then a single MP3 fallback if needed
         var queryTiers = new[] { tiers.Dirty, tiers.Smart, tiers.Aggressive };
         var tierNames = new[] { "Dirty", "Smart", "Aggressive" };
 
         try
         {
+            // Pass 1: Gold Standard (Lossless)
             for (int i = 0; i < queryTiers.Length; i++)
             {
                 var query = queryTiers[i];
                 if (string.IsNullOrEmpty(query)) continue;
 
-                _logger.LogInformation("Discovery Tier {Tier} started for: {Query} (GlobalId: {Id})", tierNames[i], query, track.TrackUniqueHash);
-                _forensicLogger.Info(track.TrackUniqueHash, Data.Entities.ForensicStage.Discovery, $"Tier {tierNames[i]} Search Query: \"{query}\"");
-                _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"🔎 Started {tierNames[i]} search for: '{query}'..."));
+                _logger.LogInformation("Discovery Tier {Tier} (Lossless) for: {Query}", tierNames[i], query);
+                var result = await PerformSearchTierAsync(track, query, tierNames[i], timedCt, blacklistedUsers, log, forceMp3: false);
 
-                var result = await PerformSearchTierAsync(track, query, tierNames[i], timedCt, blacklistedUsers, log);
-
-                
-                if (result.BestMatch != null)
-                {
-                    // If it's an Aggressive match, we might want to flag it or lower the confidence
-                    if (tierNames[i] == "Aggressive" && result.BestMatch.CurrentRank > 0)
-                    {
-                        result.BestMatch.CurrentRank *= 0.8; // Penalty for aggressive query match
-                        _logger.LogWarning("Aggressive match found. Reducing confidence score for {Title}.", track.Title);
-                    }
-                    return result;
-                }
-
+                if (result.BestMatch != null) return result;
                 if (timedCt.IsCancellationRequested) break;
+            }
+
+            // Phase 3D: High-Efficiency Fallback
+            // If we found NOTHING in FLAC and we are not already strictly searching for MP3 (OnHold),
+            // perform one last "Safety Tier" with MP3 within the same discovery session.
+            if (track.Status != TrackStatus.OnHold && !timedCt.IsCancellationRequested)
+            {
+                _logger.LogInformation("🥈 Lossless discovery yielded no matches. Triggering integrated MP3 Fallback Pass for: {Title}", track.Title);
+                _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "🥈 Lossless tiers failed. Trying MP3 fallback..."));
                 
-                _forensicLogger.LogSearchSummary(track.TrackUniqueHash, track.TrackUniqueHash, 
-                    $"Tier {tierNames[i]} Summary: {log.GetSummary()}", 
-                    new { 
-                        Tier = tierNames[i], 
-                        Results = log.ResultsCount, 
-                        RejectedForensics = log.RejectedByForensics,
-                        RejectedQuality = log.RejectedByQuality,
-                        RejectedFormat = log.RejectedByFormat,
-                        RejectedBlacklist = log.RejectedByBlacklist
-                    });
-
-                // If we found NO results in Dirty, we move to Smart immediately.
-
-                // If we found results but NO match, we might wait a bit or just move on.
-                _logger.LogInformation("Tier {Tier} yielded no suitable matches. Moving to next tier...", tierNames[i]);
+                var fallbackResult = await PerformSearchTierAsync(track, tiers.Smart, "MP3-Fallback", timedCt, blacklistedUsers, log, forceMp3: true);
+                if (fallbackResult.BestMatch != null)
+                {
+                    _logger.LogInformation("✅ MP3 Fallback SUCCESS for {Title}.", track.Title);
+                    return fallbackResult;
+                }
             }
         }
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
         {
-            // The global timeout fired (not external cancellation)
-            _logger.LogWarning("⏱️ Discovery TIMEOUT (90s) for {Title}. Releasing slot.", track.Title);
-            _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "⏱️ Search timed out after 90 seconds"));
+            _logger.LogWarning("⏱️ Discovery TIMEOUT for {Title}.", track.Title);
+            _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "⏱️ Search timed out."));
             log.TimedOut = true;
         }
 
         return new DiscoveryResult(null, log);
     }
 
-    private async Task<DiscoveryResult> PerformSearchTierAsync(PlaylistTrack track, string query, string tierName, CancellationToken ct, HashSet<string>? blacklistedUsers, SearchAttemptLog log)
-
+    private async Task<DiscoveryResult> PerformSearchTierAsync(PlaylistTrack track, string query, string tierName, CancellationToken ct, HashSet<string>? blacklistedUsers, SearchAttemptLog log, bool forceMp3 = false)
     {
         try
         {
@@ -146,17 +132,17 @@ public class DownloadDiscoveryService
                 if (!await WaitForConnectionAsync(ct)) return new DiscoveryResult(null, log);
             }
             // 1. Configure preferences (Respect per-track overrides)
-            // Phase 21: FLAC-First Policy. If OnHold, we ONLY want MP3.
+            // Phase 21: FLAC-First Policy. If OnHold OR forceMp3, we ONLY want MP3.
             List<string> formatsList;
-            if (track.Status == TrackStatus.OnHold)
+            if (track.Status == TrackStatus.OnHold || forceMp3)
             {
                 formatsList = new List<string> { "mp3" };
-                _logger.LogInformation("🛠️ OnHold Status: Searching strictly for MP3 fallback for {Title}", track.Title);
-                _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "⚠️ Track is OnHold. Focusing strictly on MP3 formats."));
+                _logger.LogInformation("🛠️ MP3 Mode: Searching strictly for MP3 fallback for {Title} (Reason: {Reason})", 
+                    track.Title, forceMp3 ? "Integrated Fallback" : "OnHold Status");
             }
             else
             {
-                // Strict Gold Standard: NO MP3 until OnHold
+                // Strict Gold Standard: Lossless only
                 formatsList = !string.IsNullOrEmpty(track.PreferredFormats)
                     ? track.PreferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()
                     : _config.PreferredFormats ?? new List<string> { "flac" };

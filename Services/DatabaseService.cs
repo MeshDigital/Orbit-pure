@@ -224,10 +224,22 @@ public class DatabaseService
     /// <summary>
     /// Updates the status of a track across all playlists that contain it,
     /// then recalculates the progress counts for those playlists.
+    /// Phase 3D: High-Efficiency Core - handles both Master and Playlist updates in one transaction.
     /// </summary>
-    public async Task<List<Guid>> UpdatePlaylistTrackStatusAndRecalculateJobsAsync(string trackUniqueHash, TrackStatus newStatus, string? resolvedPath, int searchRetryCount = 0, int notFoundRestartCount = 0)
+    public async Task<List<Guid>> UpdatePlaylistTrackStatusAndRecalculateJobsAsync(
+        string trackUniqueHash, 
+        TrackStatus newStatus, 
+        string? resolvedPath, 
+        int searchRetryCount = 0, 
+        int notFoundRestartCount = 0,
+        string? state = null,
+        string? error = null,
+        DateTime? completedAt = null,
+        string? stalledReason = null)
     {
-        return await _trackRepository.UpdatePlaylistTrackStatusAndRecalculateJobsAsync(trackUniqueHash, newStatus, resolvedPath, searchRetryCount, notFoundRestartCount);
+        return await _trackRepository.UpdatePlaylistTrackStatusAndRecalculateJobsAsync(
+            trackUniqueHash, newStatus, resolvedPath, searchRetryCount, notFoundRestartCount, 
+            state, error, completedAt, stalledReason);
     }
 
     // ===== LibraryEntry Methods =====

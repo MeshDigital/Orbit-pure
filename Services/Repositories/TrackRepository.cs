@@ -400,7 +400,16 @@ public class TrackRepository : ITrackRepository
         }
     }
 
-    public async Task<List<Guid>> UpdatePlaylistTrackStatusAndRecalculateJobsAsync(string trackUniqueHash, TrackStatus newStatus, string? resolvedPath, int searchRetryCount = 0, int notFoundRestartCount = 0)
+    public async Task<List<Guid>> UpdatePlaylistTrackStatusAndRecalculateJobsAsync(
+        string trackUniqueHash, 
+        TrackStatus newStatus, 
+        string? resolvedPath, 
+        int searchRetryCount = 0, 
+        int notFoundRestartCount = 0,
+        string? state = null,
+        string? error = null,
+        DateTime? completedAt = null,
+        string? stalledReason = null)
     {
         await _writeSemaphore.WaitAsync();
         try
@@ -411,7 +420,7 @@ public class TrackRepository : ITrackRepository
                 .Where(pt => pt.TrackUniqueHash == trackUniqueHash)
                 .ToListAsync();
 
-            if (playlistTracks.Count == 0) return new List<Guid>();
+            if (playlistTracks.Count == 0 && string.IsNullOrEmpty(state)) return new List<Guid>();
 
             var distinctJobIds = playlistTracks.Select(pt => pt.PlaylistId).Distinct().Cast<Guid>().ToList();
 
@@ -426,39 +435,51 @@ public class TrackRepository : ITrackRepository
                 {
                     pt.ResolvedFilePath = resolvedPath;
                 }
+
+                if (stalledReason != null) pt.StalledReason = stalledReason;
             }
             
-            // Sync with master Track record if it exists
+            // 3. Sync with master Track record if it exists
+            // Phase 3D: Consolidation - Master record and Playlist items share the same transaction
             var masterTrack = await context.Tracks.FindAsync(trackUniqueHash);
             if (masterTrack != null)
             {
                 masterTrack.SearchRetryCount = searchRetryCount;
                 masterTrack.NotFoundRestartCount = notFoundRestartCount;
+                
+                if (!string.IsNullOrEmpty(state)) masterTrack.State = state;
+                if (error != null) masterTrack.ErrorMessage = error;
+                if (completedAt != null) masterTrack.CompletedAt = completedAt;
+                if (stalledReason != null) masterTrack.StalledReason = stalledReason;
+                if (!string.IsNullOrEmpty(resolvedPath)) masterTrack.Filename = resolvedPath;
             }
             
-            // 3. Fetch all affected jobs and all their related tracks
-            var jobsToUpdate = await context.Projects
-                .Where(j => distinctJobIds.Contains(j.Id))
-                .ToListAsync();
-
-            var allRelatedTracks = await context.PlaylistTracks
-                .Where(t => distinctJobIds.Contains(t.PlaylistId))
-                .AsNoTracking()
-                .ToListAsync();
-
-            // 4. Recalculate counts for each job
-            foreach (var job in jobsToUpdate)
+            // 4. Fetch all affected jobs and all their related tracks
+            if (distinctJobIds.Any())
             {
-                var currentJobTracks = allRelatedTracks
-                    .Where(t => t.PlaylistId == job.Id && t.TrackUniqueHash != trackUniqueHash)
-                    .ToList();
-                currentJobTracks.AddRange(playlistTracks.Where(pt => pt.PlaylistId == job.Id));
+                var jobsToUpdate = await context.Projects
+                    .Where(j => distinctJobIds.Contains(j.Id))
+                    .ToListAsync();
 
-                job.SuccessfulCount = currentJobTracks.Count(t => t.Status == TrackStatus.Downloaded);
-                job.FailedCount = currentJobTracks.Count(t => t.Status == TrackStatus.Failed || t.Status == TrackStatus.Skipped);
+                var allRelatedTracks = await context.PlaylistTracks
+                    .Where(t => distinctJobIds.Contains(t.PlaylistId))
+                    .AsNoTracking()
+                    .ToListAsync();
+
+                // 5. Recalculate counts for each job
+                foreach (var job in jobsToUpdate)
+                {
+                    var currentJobTracks = allRelatedTracks
+                        .Where(t => t.PlaylistId == job.Id && t.TrackUniqueHash != trackUniqueHash)
+                        .ToList();
+                    currentJobTracks.AddRange(playlistTracks.Where(pt => pt.PlaylistId == job.Id));
+
+                    job.SuccessfulCount = currentJobTracks.Count(t => t.Status == TrackStatus.Downloaded);
+                    job.FailedCount = currentJobTracks.Count(t => t.Status == TrackStatus.Failed || t.Status == TrackStatus.Skipped);
+                }
             }
 
-            // 5. Update Library Health stats
+            // 6. Update Library Health stats
             await UpdateLibraryHealthAsync(context);
 
             await context.SaveChangesAsync();
