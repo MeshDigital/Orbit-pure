@@ -646,7 +646,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             if (pathSegments.Count >= 3) artist = pathSegments[^3];
         }
 
-        return new Track
+        var track = new Track
         {
             Artist = artist,
             Title = title,
@@ -667,6 +667,15 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             QueueLength = response.QueueLength,
             UploadSpeed = response.UploadSpeed
         };
+
+        var suspiciousReason = MetadataForensicService.GetSuspiciousLosslessReason(track);
+        if (!string.IsNullOrWhiteSpace(suspiciousReason))
+        {
+            track.IsFlagged = true;
+            track.FlagReason = suspiciousReason;
+        }
+
+        return track;
     }
 
     private string[] ResolveShareFolders()

@@ -27,4 +27,17 @@
     <ProjectReference Include="..\..\SLSKDONET.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Legacy tests for components removed during cleanup/refactor. -->
+    <Compile Remove="Services\AnalysisQueueTests.cs" />
+    <Compile Remove="Services\RekordboxExportTests.cs" />
+    <Compile Remove="Services\PersonalClassifierTests.cs" />
+    <Compile Remove="Services\PhraseAlignmentTests.cs" />
+    <Compile Remove="Services\SetlistStressTestServiceTests.cs" />
+    <Compile Remove="Services\StyleClassifierTests.cs" />
+    <Compile Remove="Services\VocalIntelligenceTests.cs" />
+    <Compile Remove="Ranking\TieredTrackComparerTests.cs" />
+    <Compile Remove="ViewModels\TheaterModeViewModelTests.cs" />
+  </ItemGroup>
+
 </Project>

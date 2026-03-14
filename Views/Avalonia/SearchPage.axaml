@@ -249,11 +249,22 @@
                                     <!-- High Risk Badge -->
                                     <Border CornerRadius="4" Padding="6,1" HorizontalAlignment="Left" 
                                             Margin="0,2" Background="#E91E63"
-                                            IsVisible="{Binding IsHighRisk}"
-                                            ToolTip.Tip="{Binding FlagReason}">
+                                            IsVisible="{ReflectionBinding ShowHighRiskBadge}"
+                                            ToolTip.Tip="{ReflectionBinding FlagReason}">
                                         <StackPanel Orientation="Horizontal" Spacing="4">
                                             <TextBlock Text="⚠️" FontSize="10" Foreground="White"/>
                                             <TextBlock Text="HIGH RISK" FontSize="10" 
+                                                       FontWeight="Bold" Foreground="White"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border CornerRadius="4" Padding="6,1" HorizontalAlignment="Left"
+                                            Margin="0,2" Background="#B45309"
+                                            IsVisible="{ReflectionBinding IsSuspiciousLossless}"
+                                            ToolTip.Tip="{ReflectionBinding SuspiciousLosslessReason}">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="⚠️" FontSize="10" Foreground="White"/>
+                                            <TextBlock Text="FAKE FLAC?" FontSize="10"
                                                        FontWeight="Bold" Foreground="White"/>
                                         </StackPanel>
                                     </Border>

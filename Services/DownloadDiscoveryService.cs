@@ -243,6 +243,19 @@ public class DownloadDiscoveryService
                     continue; 
                 }
 
+                if (!forceMp3 && !track.IgnoreSafetyGuards && MetadataForensicService.IsSuspiciousLossless(searchTrack))
+                {
+                    log.RejectedByForensics++;
+                    var suspiciousReason = MetadataForensicService.GetSuspiciousLosslessReason(searchTrack) ?? "Suspicious FLAC transcode detected.";
+                    _forensicLogger.LogRejection(
+                        trackId: track.TrackUniqueHash,
+                        filename: searchTrack.Filename ?? "Unknown",
+                        reason: suspiciousReason,
+                        details: $"User: {searchTrack.Username}, Bitrate: {searchTrack.Bitrate} kbps, SampleRate: {searchTrack.SampleRate}, BitDepth: {searchTrack.BitDepth}");
+                    _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"Skipped {searchTrack.Username}: {suspiciousReason}", true));
+                    continue;
+                }
+
                 // Phase 3C.4: Threshold Trigger (Race & Replace)
                 // Real-time evaluation of incoming results
                 var matchResult = _matcher.CalculateMatchResult(track, searchTrack);

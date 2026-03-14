@@ -13,6 +13,38 @@ namespace SLSKDONET.Services
         private static readonly Regex VbrRegex = new Regex(@"V\d+|VBR", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex LosslessRegex = new Regex(@"\.(flac|wav|aiff|alac)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex SuspiciousExtensions = new Regex(@"\.(wma|ogg|wmv)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly HashSet<int> SuspiciousLossyBitrates = new() { 128, 160, 192, 256, 320 };
+
+        public static bool IsSuspiciousLossless(Track result)
+        {
+            if (result == null || result.Bitrate <= 0)
+                return false;
+
+            var extension = result.Format;
+            if (string.IsNullOrWhiteSpace(extension) && !string.IsNullOrWhiteSpace(result.Filename))
+            {
+                extension = System.IO.Path.GetExtension(result.Filename)?.TrimStart('.');
+            }
+
+            return string.Equals(extension, "flac", StringComparison.OrdinalIgnoreCase)
+                && SuspiciousLossyBitrates.Contains(result.Bitrate);
+        }
+
+        public static string? GetSuspiciousLosslessReason(Track result)
+        {
+            if (!IsSuspiciousLossless(result))
+                return null;
+
+            var quality = string.Join(" / ", new[]
+            {
+                result.BitDepth.HasValue ? $"{result.BitDepth.Value}-bit" : string.Empty,
+                result.SampleRate.HasValue ? $"{result.SampleRate.Value / 1000.0:F1} kHz" : string.Empty
+            }.Where(s => !string.IsNullOrWhiteSpace(s)));
+
+            return string.IsNullOrWhiteSpace(quality)
+                ? $"Suspicious FLAC: reported lossy bitrate {result.Bitrate} kbps."
+                : $"Suspicious FLAC: reported lossy bitrate {result.Bitrate} kbps ({quality}).";
+        }
 
         public static int CalculateTrustScore(Track result)
         {
@@ -58,6 +90,8 @@ namespace SLSKDONET.Services
             if (result.UploadSpeed > 0) score += 5; 
             if (result.HasFreeUploadSlot) score += 10; 
 
+            if (IsSuspiciousLossless(result)) score -= 70;
+
             return Math.Clamp(score, 0, 100);
         }
 
@@ -65,6 +99,9 @@ namespace SLSKDONET.Services
         {
             var notes = new System.Collections.Generic.List<string>();
             if (string.IsNullOrEmpty(result.Filename)) return "Unknown";
+
+            var suspiciousReason = GetSuspiciousLosslessReason(result);
+            if (!string.IsNullOrWhiteSpace(suspiciousReason)) notes.Add($"🚫 {suspiciousReason}");
             
             var ext = System.IO.Path.GetExtension(result.Filename)?.ToLower();
 
@@ -89,6 +126,8 @@ namespace SLSKDONET.Services
 
         public static SearchTier CalculateTier(Track result)
         {
+            if (IsSuspiciousLossless(result)) return SearchTier.Garbage;
+
             int score = CalculateTrustScore(result);
             if (score >= 85) return SearchTier.Platinum;
             if (score >= 70) return SearchTier.Gold;

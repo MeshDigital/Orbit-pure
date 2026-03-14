@@ -55,6 +55,8 @@ namespace SLSKDONET.ViewModels
         public bool IsGoldenMatch { get; }
         public bool IsFake { get; }
         public bool IsSuspicious => IsFake;
+        public bool IsSuspiciousLossless => MetadataForensicService.IsSuspiciousLossless(_result.Model);
+        public string SuspiciousLosslessReason => MetadataForensicService.GetSuspiciousLosslessReason(_result.Model) ?? string.Empty;
         
         public double MatchConfidence => Math.Clamp(_result.CurrentRank, 0, 100);
         
@@ -66,6 +68,7 @@ namespace SLSKDONET.ViewModels
         };
 
         public bool IsHighRisk => _result.Model.IsFlagged;
+        public bool ShowHighRiskBadge => IsHighRisk && !IsSuspiciousLossless;
         public string? FlagReason => _result.Model.FlagReason;
 
         public IBrush ItemBackground
@@ -111,7 +114,7 @@ namespace SLSKDONET.ViewModels
 
             // Calculate Metrics
             TrustScore = MetadataForensicService.CalculateTrustScore(result.Model);
-            ForensicAssessment = MetadataForensicService.GetForensicAssessment(result.Model);
+            var forensicAssessment = MetadataForensicService.GetForensicAssessment(result.Model);
             IsGoldenMatch = MetadataForensicService.IsGoldenMatch(result.Model);
             
             // Phase 14A: The Bouncer Integration
@@ -120,8 +123,10 @@ namespace SLSKDONET.ViewModels
             
             if (result.Model.IsFlagged)
             {
-                ForensicAssessment = result.Model.FlagReason ?? "Flagged by Bouncer";
+                forensicAssessment = result.Model.FlagReason ?? "Flagged by Bouncer";
             }
+
+            ForensicAssessment = forensicAssessment;
             
             // Sync with base SearchResult for Filter & Badge logic
             // Sync with base SearchResult for Filter & Badge logic
