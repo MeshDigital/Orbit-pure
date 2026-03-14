@@ -1,0 +1,398 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="600"
+             x:Class="SLSKDONET.Views.Avalonia.TrackInspectorView"
+             Background="#1A1A1A">
+    
+    <Design.DataContext>
+        <vm:TrackInspectorViewModel/>
+    </Design.DataContext>
+
+    <!-- Main content with progress modal overlay -->
+    <Grid RowDefinitions="Auto,*" Margin="20">
+        <!-- Header -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,20">
+            <TextBlock Text="Track Inspector" FontSize="18" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" Background="Transparent" Padding="4">
+                <TextBlock Text="✕" Foreground="#666"/>
+            </Button>
+        </Grid>
+
+        <!-- Main Content -->
+        <ScrollViewer Grid.Row="1" IsVisible="{Binding HasTrack}">
+            <StackPanel Spacing="24">
+                
+                <!-- HERO SECTION: Album Art + Track Info + Status -->
+                <Border Background="Linear(90deg, #252526 0%, #1E1E1E 100%)" 
+                        CornerRadius="16" 
+                        Padding="24"
+                        BoxShadow="0 4 12 0 #33000000">
+                    <Grid ColumnDefinitions="Auto,*">
+                        <!-- Album Art -->
+                        <Border Width="140" Height="140" 
+                                CornerRadius="12" 
+                                ClipToBounds="True"
+                                BoxShadow="0 8 24 0 #66000000">
+                            <Image Source="{Binding Track.AlbumArtUrl}" 
+                                   Stretch="UniformToFill"/>
+                        </Border>
+                        
+                        <!-- Track Metadata + Status -->
+                        <StackPanel Grid.Column="1" Margin="24,0,0,0" Spacing="12" VerticalAlignment="Center">
+                            <!-- Title -->
+                            <TextBlock Text="{Binding Track.Title}" 
+                                       FontSize="24" 
+                                       FontWeight="Bold" 
+                                       Foreground="White"
+                                       TextWrapping="Wrap"/>
+                            
+                            <!-- Artist -->
+                            <TextBlock Text="{Binding Track.Artist}" 
+                                       FontSize="16" 
+                                       Foreground="#1DB954"
+                                       TextWrapping="Wrap"/>
+                            
+                            <!-- Album -->
+                            <TextBlock Text="{Binding Track.Album}" 
+                                       FontSize="13" 
+                                       Foreground="#888"
+                                       TextWrapping="Wrap"/>
+                            
+                            <!-- Status Badge -->
+                            <Border Background="#1DB95433"
+                                    CornerRadius="8" 
+                                    Padding="12,6"
+                                    HorizontalAlignment="Left"
+                                    Margin="0,8,0,0"
+                                    IsVisible="{Binding HasAnalysis}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="{Binding StatusBadgeText}" 
+                                               Foreground="#1DB954" 
+                                               FontSize="12"
+                                               FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding AnalysisAge, StringFormat='({0})'}" 
+                                               Foreground="#88BB88" 
+                                               FontSize="11"/>
+                                </StackPanel>
+                            </Border>
+                            
+                            <!-- Analyzing Badge -->
+                            <Border Background="#448AFF33"
+                                    CornerRadius="8" 
+                                    Padding="12,6"
+                                    HorizontalAlignment="Left"
+                                    Margin="0,8,0,0"
+                                   IsVisible="{Binding IsAnalyzing}">
+                                <TextBlock Text="🔄 Analyzing..." 
+                                           Foreground="#448AFF" 
+                                           FontSize="12"
+                                           FontWeight="SemiBold"/>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                
+                <!-- METRICS GRID: Key Analysis Data -->
+                <UniformGrid Columns="2" Rows="2">
+                    <!-- Card 1: Sonic Integrity -->
+                    <Border Background="#252526" CornerRadius="12" Padding="20" Margin="0,0,12,12">
+                        <StackPanel Spacing="12">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="🛡️" FontSize="20"/>
+                                <TextBlock Text="Sonic Integrity" FontSize="14" FontWeight="SemiBold" Foreground="#AAA"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding IntegrityStatusText}" 
+                                       FontSize="16" 
+                                       FontWeight="Bold"
+                                       Foreground="{Binding IntegrityStatusColor}"/>
+                            <TextBlock Text="{Binding SpectralCutoffLabel, StringFormat='Cutoff: {0}'}" 
+                                       FontSize="12" 
+                                       Foreground="#888"/>
+                        </StackPanel>
+                    </Border>
+                    
+                    <!-- Card 2: Loudness Analysis -->
+                    <Border Background="#252526" CornerRadius="12" Padding="20" Margin="12,0,0,12">
+                        <StackPanel Spacing="12">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="📊" FontSize="20"/>
+                                <TextBlock Text="Loudness" FontSize="14" FontWeight="SemiBold" Foreground="#AAA"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding LoudnessLabel}" 
+                                       FontSize="16" 
+                                       FontWeight="Bold"
+                                       Foreground="White"/>
+                            <TextBlock Text="{Binding TruePeakLabel, StringFormat='Peak: {0}'}" 
+                                       FontSize="12" 
+                                       Foreground="#888"/>
+                        </StackPanel>
+                    </Border>
+                    
+                    <!-- Card 3: Musical Intelligence -->
+                    <Border Background="#252526" CornerRadius="12" Padding="20" Margin="0,12,12,0">
+                        <StackPanel Spacing="12">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="🎹" FontSize="20"/>
+                                <TextBlock Text="Musical" FontSize="14" FontWeight="SemiBold" Foreground="#AAA"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding CamelotKey, StringFormat='Key: {0}'}" 
+                                       FontSize="16" 
+                                       FontWeight="Bold"
+                                       Foreground="#00A3FF"/>
+                            <TextBlock Text="{Binding EssentiaBpm, StringFormat='BPM: {0:F1}'}" 
+                                       FontSize="12" 
+                                       Foreground="#888"/>
+                        </StackPanel>
+                    </Border>
+                    
+                    <!-- Card 4: Technical Details -->
+                    <Border Background="#252526" CornerRadius="12" Padding="20" Margin="12,12,0,0">
+                        <StackPanel Spacing="12">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="⚡" FontSize="20"/>
+                                <TextBlock Text="Technical" FontSize="14" FontWeight="SemiBold" Foreground="#AAA"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding BitrateLabel}" 
+                                       FontSize="16" 
+                                       FontWeight="Bold"
+                                       Foreground="White"/>
+                            <TextBlock Text="{Binding TechDetailsLabel}" 
+                                       FontSize="11" 
+                                       Foreground="#888"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
+                </UniformGrid>
+                
+                <!-- FORENSIC LOGS: Expandable Section (Keep from old layout) -->
+                            <!-- Audio Guard -->
+                            <Border Grid.Row="0" Grid.Column="0" Background="#252526" CornerRadius="8" Padding="12">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Audio Guard" FontSize="11" Foreground="#666" FontWeight="SemiBold"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="{Binding AudioGuardIcon}" FontSize="18"/>
+                                        <TextBlock Text="{Binding BitrateLabel}" Foreground="{Binding AudioGuardColor}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+        
+                            <!-- Camelot Key -->
+                            <Border Grid.Row="0" Grid.Column="1" Background="#252526" CornerRadius="8" Padding="12">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Camelot Key" FontSize="11" Foreground="#666" FontWeight="SemiBold"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="🎹" FontSize="18"/>
+                                        <TextBlock Text="{Binding CamelotKey}" Foreground="#00A3FF" FontWeight="Bold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+        
+                            <!-- Length -->
+                            <Border Grid.Row="1" Grid.Column="0" Background="#252526" CornerRadius="8" Padding="12">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Duration" FontSize="11" Foreground="#666" FontWeight="SemiBold"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="⏱️" FontSize="18"/>
+                                        <TextBlock Text="{Binding Track.Length, StringFormat={}{0}s}" Foreground="White" FontWeight="Bold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+        
+                            <!-- Popularity -->
+                            <Border Grid.Row="1" Grid.Column="1" Background="#252526" CornerRadius="8" Padding="12">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Popularity" FontSize="11" Foreground="#666" FontWeight="SemiBold"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="🔥" FontSize="18"/>
+                                        <TextBlock Text="{Binding Track.Popularity, StringFormat={}{0}%}" Foreground="White" FontWeight="Bold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+        
+                        <Separator Background="#333" Height="1"/>
+        
+                        <!-- Spotify Audio Features (Sliders/Gauges) -->
+                        <StackPanel Spacing="16">
+                            <TextBlock Text="Spotify Audio Features" FontSize="14" FontWeight="SemiBold" Foreground="#AAA"/>
+                            
+                            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto">
+                                <!-- Energy -->
+                                <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,10,12" Spacing="4">
+                                    <TextBlock Text="Energy ⚡" FontSize="11" Foreground="#666"/>
+                                    <Slider Value="{Binding Energy}" Minimum="0" Maximum="1" IsEnabled="False" Foreground="#FFB900"/>
+                                    <TextBlock Text="{Binding Energy, StringFormat={}{0:P0}}" FontSize="12" Foreground="White" HorizontalAlignment="Right"/>
+                                </StackPanel>
+        
+                                <!-- Danceability -->
+                                <StackPanel Grid.Row="0" Grid.Column="1" Margin="10,0,0,12" Spacing="4">
+                                    <TextBlock Text="Danceability 💃" FontSize="11" Foreground="#666"/>
+                                    <Slider Value="{Binding Danceability}" Minimum="0" Maximum="1" IsEnabled="False" Foreground="#1DB954"/>
+                                    <TextBlock Text="{Binding Danceability, StringFormat={}{0:P0}}" FontSize="12" Foreground="White" HorizontalAlignment="Right"/>
+                                </StackPanel>
+        
+                                <!-- Valence -->
+                                <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,10,0" Spacing="4">
+                                    <TextBlock Text="Valence (Mood) 😊" FontSize="11" Foreground="#666"/>
+                                    <Slider Value="{Binding Valence}" Minimum="0" Maximum="1" IsEnabled="False" Foreground="#00A3FF"/>
+                                    <TextBlock Text="{Binding Valence, StringFormat={}{0:P0}}" FontSize="12" Foreground="White" HorizontalAlignment="Right"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+        
+                        <!-- Technical Details -->
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="Technical Context" FontSize="14" FontWeight="SemiBold" Foreground="#AAA"/>
+                            <Border Background="#252526" CornerRadius="8" Padding="16">
+                                <StackPanel Spacing="8">
+                                    <Grid ColumnDefinitions="Auto,*">
+                                        <TextBlock Grid.Column="0" Text="Format:" Foreground="#666" Width="80"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Track.Format}" Foreground="White"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="Auto,*">
+                                        <TextBlock Grid.Column="0" Text="Spotify ID:" Foreground="#666" Width="80"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Track.SpotifyTrackId}" Foreground="#444" FontSize="10" TextTrimming="CharacterEllipsis"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="Auto,*">
+                                        <TextBlock Grid.Column="0" Text="Status:" Foreground="#666" Width="80"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Track.Status}" Foreground="#1DB954"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+        
+                        <!-- Local Audio Analysis (Phase 3) -->
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="Local Audio Analysis (FFmpeg)" FontSize="14" FontWeight="SemiBold" Foreground="#AAA"/>
+                            <Border Background="#252526" CornerRadius="8" Padding="16">
+                                <StackPanel Spacing="12">
+                                    <Grid ColumnDefinitions="*,*">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="Loudness (LUFS)" FontSize="11" Foreground="#666"/>
+                                            <TextBlock Text="{Binding LoudnessLabel}" Foreground="White" FontWeight="Bold" FontSize="14"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Spacing="4">
+                                            <TextBlock Text="True Peak" FontSize="11" Foreground="#666"/>
+                                            <TextBlock Text="{Binding TruePeakLabel}" Foreground="{Binding AudioGuardColor}" FontWeight="Bold" FontSize="14"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*,*">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="Dynamic Range" FontSize="11" Foreground="#666"/>
+                                            <TextBlock Text="{Binding DynamicRangeLabel}" Foreground="White" FontWeight="Bold" FontSize="14"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    
+                                    <Separator Background="#333" Height="1"/>
+                                    
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Stream Details" FontSize="11" Foreground="#666"/>
+                                        <TextBlock Text="{Binding TechDetailsLabel}" Foreground="#888" FontSize="11" FontFamily="Consolas, Monospace"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+        
+                        <!-- Sonic Integrity Section (Phase 3.5) -->
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="Sonic Integrity (Spectral Analysis)" FontSize="14" FontWeight="SemiBold" Foreground="#AAA"/>
+                            <Border Background="#252526" CornerRadius="8" Padding="16">
+                                <StackPanel Spacing="12">
+                                    <Grid ColumnDefinitions="*,*">
+                                        <StackPanel Grid.Column="0" Spacing="4">
+                                            <TextBlock Text="Frequency Cutoff" FontSize="11" Foreground="#666"/>
+                                            <TextBlock Text="{Binding SpectralCutoffLabel}" Foreground="White" FontWeight="Bold" FontSize="14"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Spacing="4">
+                                            <TextBlock Text="AI Confidence" FontSize="11" Foreground="#666"/>
+                                            <TextBlock Text="{Binding QualityConfidenceLabel}" Foreground="#1DB954" FontWeight="Bold" FontSize="14"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    
+                                    <Border Background="#333" Height="1" Margin="0,4"/>
+                                    
+                                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                                        <PathIcon Data="M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,5A3,3 0 0,1 15,8A3,3 0 0,1 12,11A3,3 0 0,1 9,8A3,3 0 0,1 12,5M17.13,17C15.92,18.85 14.11,20.24 12,20.92C9.89,20.24 8.08,18.85 6.87,17C6.53,16.5 6.24,16 6,15.47C6,13.82 8.7,13 12,13C15.3,13 18,13.82 18,15.47C17.76,16 17.47,16.5 17.13,17Z" 
+                                                  Width="20" Height="20"
+                                                  Foreground="{Binding IntegrityStatusColor}" />
+                                        <TextBlock Text="{Binding IntegrityStatusText}" Foreground="{Binding IntegrityStatusColor}" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            
+            <!-- Forensic Tab -->
+            <TabItem Header="Forensic" FontSize="14">
+                <Grid RowDefinitions="Auto,*">
+                    <Border Background="#252526" Padding="12" Margin="0,10,0,10" CornerRadius="8">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="🕵️" FontSize="20" VerticalAlignment="Center"/>
+                            <StackPanel>
+                                <TextBlock Text="Pipeline Trace" FontWeight="Bold" Foreground="White" FontSize="14"/>
+                                <TextBlock Text="Evidence from all processing stages" Foreground="#888" FontSize="12"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    
+                    <ScrollViewer Grid.Row="1">
+                        <ItemsControl ItemsSource="{Binding ForensicLogs}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#252526" CornerRadius="4" Margin="0,0,0,8" Padding="12">
+                                        <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                                            <!-- Time -->
+                                            <TextBlock Grid.Column="0" Text="{Binding Timestamp, StringFormat={}{0:HH:mm:ss}}" 
+                                                       Foreground="#666" Width="65" VerticalAlignment="Center" FontFamily="Consolas, Monospace" FontSize="12"/>
+                                             
+                                            <!-- Stage Badge -->
+                                            <Border Grid.Column="1" Background="#333" CornerRadius="4" Padding="6,2" Margin="0,0,12,0" VerticalAlignment="Center">
+                                                 <TextBlock Text="{Binding Stage}" Foreground="#AAA" FontSize="10" FontWeight="SemiBold"/>
+                                            </Border>
+                                             
+                                            <!-- Message & Duration -->
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
+                                                 <TextBlock Text="{Binding Message}" Foreground="White" TextWrapping="Wrap" FontSize="12"/>
+                                                 <TextBlock Text="{Binding DurationMs, StringFormat={}⏱️ {0}ms}" 
+                                                            Foreground="#444" FontSize="10" 
+                                                            IsVisible="{Binding DurationMs}"/>
+                                            </StackPanel>
+                                             
+                                            <!-- Level Indicator -->
+                                             <Border Grid.Column="3" Padding="8,4" CornerRadius="4" Background="#11FFFFFF" Margin="8,0,0,0" VerticalAlignment="Center">
+                                                 <TextBlock Text="{Binding Level}" FontSize="10" Foreground="#888"/>
+                                             </Border>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <!-- Empty State -->
+        <StackPanel Grid.Row="1" VerticalAlignment="Center" IsVisible="{Binding !HasTrack}">
+            <TextBlock Text="🔍" FontSize="48" HorizontalAlignment="Center"/>
+            <TextBlock Text="Select a track to inspect" FontSize="16" Foreground="#666" HorizontalAlignment="Center" Margin="0,16,0,0"/>
+        </StackPanel>
+        
+        <!-- Progress Modal Overlay -->
+        <ContentControl Grid.Row="0" Grid.RowSpan="2"
+                        Content="{Binding ProgressModal}"
+                        IsVisible="{Binding !!ProgressModal}">
+            <ContentControl.ContentTemplate>
+                <DataTemplate>
+                    <controls:AnalysisProgressModal/>
+                </DataTemplate>
+            </ContentControl.ContentTemplate>
+        </ContentControl>
+    </Grid>
+</UserControl>

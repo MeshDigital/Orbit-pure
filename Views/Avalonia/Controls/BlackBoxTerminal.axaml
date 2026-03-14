@@ -1,0 +1,107 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:entities="clr-namespace:SLSKDONET.Data.Entities"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="300"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.BlackBoxTerminal">
+
+    <Border Background="#0A0A0A" BorderBrush="#333" BorderThickness="1" CornerRadius="4">
+        <Grid RowDefinitions="Auto,*">
+            <!-- Terminal Header -->
+            <Border Grid.Row="0" Background="#1A1A1A" Padding="12,6" CornerRadius="4,4,0,0">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text=">_" Foreground="#4EC9B0" FontWeight="Bold" FontFamily="{StaticResource CodeFont}"/>
+                        <TextBlock Text="BLACK BOX TELEMETRY" FontSize="10" FontWeight="Bold" Foreground="#888" VerticalAlignment="Center" LetterSpacing="1"/>
+                    </StackPanel>
+                    
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12">
+                         <TextBlock Text="LIVE" Foreground="#FF5252" FontSize="10" FontWeight="Bold" VerticalAlignment="Center">
+                            <TextBlock.Styles>
+                                <Style Selector="TextBlock">
+                                    <Style.Animations>
+                                        <Animation Duration="0:0:1" IterationCount="Infinite">
+                                            <KeyFrame KeyTime="0:0:0">
+                                                <Setter Property="Opacity" Value="1"/>
+                                            </KeyFrame>
+                                            <KeyFrame KeyTime="0:0:0.5">
+                                                <Setter Property="Opacity" Value="0.3"/>
+                                            </KeyFrame>
+                                            <KeyFrame KeyTime="0:0:1">
+                                                <Setter Property="Opacity" Value="1"/>
+                                            </KeyFrame>
+                                        </Animation>
+                                    </Style.Animations>
+                                </Style>
+                            </TextBlock.Styles>
+                         </TextBlock>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Terminal Content with Flicker -->
+            <Border Grid.Row="1">
+                <Border.Styles>
+                    <Style Selector="ItemsControl TextBlock">
+                        <Style.Animations>
+                            <Animation Duration="0:0:8" IterationCount="Infinite">
+                                <KeyFrame KeyTime="0:0:0"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
+                                <KeyFrame KeyTime="0:0:2"><Setter Property="Opacity" Value="0.95"/></KeyFrame>
+                                <KeyFrame KeyTime="0:0:2.1"><Setter Property="Opacity" Value="0.7"/></KeyFrame>
+                                <KeyFrame KeyTime="0:0:2.15"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
+                                <KeyFrame KeyTime="0:0:5"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
+                                <KeyFrame KeyTime="0:0:5.05"><Setter Property="Opacity" Value="0.8"/></KeyFrame>
+                                <KeyFrame KeyTime="0:0:5.1"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
+                                <KeyFrame KeyTime="0:0:8"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
+                            </Animation>
+                        </Style.Animations>
+                    </Style>
+                </Border.Styles>
+                <ScrollViewer HorizontalScrollBarVisibility="Auto">
+
+                <ItemsControl ItemsSource="{Binding TerminalLogs}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="entities:ForensicLogEntry">
+                            <Grid ColumnDefinitions="Auto,Auto,Auto,*" Margin="12,2" VerticalAlignment="Center">
+                                <!-- Timestamp -->
+                                <TextBlock Text="{Binding Timestamp, StringFormat='{}{0:HH:mm:ss.ff}'}" 
+                                           Foreground="#555" 
+                                           FontFamily="{StaticResource CodeFont}" 
+                                           FontSize="11" 
+                                           Margin="0,0,12,0"/>
+                                
+                                <!-- Stage -->
+                                <Border Background="#151515" BorderBrush="#333" BorderThickness="1" CornerRadius="2" Padding="4,1" Margin="0,0,8,0">
+                                    <TextBlock Text="{Binding Stage}" 
+                                               Foreground="#888" 
+                                               FontSize="9" 
+                                               FontWeight="Bold" 
+                                               FontFamily="{StaticResource CodeFont}"/>
+                                </Border>
+
+                                <!-- Level -->
+                                <TextBlock Text="{Binding Level}" 
+                                           Foreground="{Binding Level, Converter={StaticResource ForensicLevelToColorConverter}}" 
+                                           FontFamily="{StaticResource CodeFont}" 
+                                           FontSize="11" 
+                                           FontWeight="Bold"
+                                           Width="60"
+                                           Margin="0,0,8,0"/>
+
+                                <!-- Message -->
+                                <TextBlock Grid.Column="3" 
+                                           Text="{Binding Message}" 
+                                           Foreground="#DDD" 
+                                           FontFamily="{StaticResource CodeFont}" 
+                                           FontSize="11" 
+                                           TextWrapping="NoWrap"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

@@ -1,0 +1,81 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:SLSKDONET.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:Class="SLSKDONET.Views.Avalonia.LibrarySourcesView"
+             x:DataType="vm:LibrarySourcesViewModel">
+    
+    <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+        <StackPanel Spacing="16">
+            <StackPanel Spacing="4">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="📁" FontSize="20" VerticalAlignment="Center"/>
+                    <TextBlock Text="Library Sources" FontSize="18" FontWeight="SemiBold" Foreground="White"/>
+                </StackPanel>
+                <TextBlock Text="Manage local folders monitored by the library scanner" 
+                           Foreground="#AAA" FontSize="12"/>
+            </StackPanel>
+
+            <Separator Background="#333" Height="1"/>
+
+            <!-- Folder List -->
+            <ItemsControl ItemsSource="{Binding LibraryFolders}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="#333" CornerRadius="4" Padding="8" Margin="0,0,0,8">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Text="{Binding FolderPath}" Foreground="White" FontWeight="Medium"/>
+                                    <TextBlock Text="Local Folder" Foreground="#888" FontSize="10"/>
+                                </StackPanel>
+                                <Button Grid.Column="1" 
+                                        Command="{Binding DataContext.RemoveLibraryFolderCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="{Binding}"
+                                        Content="Remove"
+                                        Background="Transparent"
+                                        Foreground="#FF5555"
+                                        Padding="8,4"/>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Grid ColumnDefinitions="*,Auto">
+                <!-- Add Folder Button -->
+                <Button Grid.Column="0" 
+                        Command="{Binding AddLibraryFolderCommand}"
+                        Background="#333"
+                        Foreground="White"
+                        Padding="16,8"
+                        HorizontalAlignment="Left">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="+" FontSize="16" FontWeight="Bold"/>
+                        <TextBlock Text="Add Folder"/>
+                    </StackPanel>
+                </Button>
+
+                <!-- Scan Button -->
+                <Button Grid.Column="1" 
+                        Command="{Binding ScanAllLibraryFoldersCommand}"
+                        Background="#1DB954"
+                        Foreground="White"
+                        Padding="16,8"
+                        IsEnabled="{Binding !!LibraryFolders.Count}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="🔍" FontSize="14"/>
+                        <TextBlock Text="Scan All"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
+            
+            <TextBlock Text="{Binding ScanStatus}" 
+                       Foreground="#AAA" 
+                       FontSize="11"
+                       HorizontalAlignment="Right"
+                       IsVisible="{Binding !!ScanStatus}"/>
+        </StackPanel>
+    </Border>
+</UserControl>

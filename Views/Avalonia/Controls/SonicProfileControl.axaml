@@ -1,0 +1,77 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:local="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:converters="clr-namespace:SLSKDONET.Converters"
+             mc:Ignorable="d" d:DesignWidth="300" d:DesignHeight="120"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.SonicProfileControl">
+
+
+
+    <Border Background="Transparent" CornerRadius="8" Padding="12">
+        <StackPanel Spacing="12">
+            
+            <!-- Header / Title (Optional) -->
+            <!-- <TextBlock Text="Sonic Profile" FontSize="10" Foreground="#888" FontWeight="Bold"/> -->
+
+            <!-- Energy Bar -->
+            <Grid RowDefinitions="Auto, Auto">
+                <Grid ColumnDefinitions="*, Auto" Margin="0,0,0,4">
+                    <TextBlock Text="ENERGY" FontSize="10" Foreground="#AAA" VerticalAlignment="Bottom"/>
+                    <TextBlock Text="{Binding EnergyDisplay}" FontSize="11" FontWeight="Bold" Foreground="{Binding EnergyColor}" Grid.Column="1"/>
+                </Grid>
+                
+                <!-- Gradient Bar Background -->
+                <Border Grid.Row="1" Height="6" CornerRadius="3" Background="#333" ClipToBounds="True">
+                    <!-- Fill -->
+                    <Border CornerRadius="3" HorizontalAlignment="Left" 
+                            Width="{Binding EnergyBarWidth, Mode=OneWay}">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,0%">
+                                <GradientStop Offset="0.0" Color="#00BCD4"/> <!-- Cool Cyan -->
+                                <GradientStop Offset="0.5" Color="#76FF03"/> <!-- Vibrant Green -->
+                                <GradientStop Offset="1.0" Color="#FF3D00"/> <!-- Aggressive Red -->
+                            </LinearGradientBrush>
+                        </Border.Background>
+                    </Border>
+                </Border>
+            </Grid>
+
+            <!-- Mood / Valence Slider -->
+            <Grid RowDefinitions="Auto, Auto">
+                <Grid ColumnDefinitions="*, Auto" Margin="0,0,0,4">
+                    <TextBlock Text="MOOD" FontSize="10" Foreground="#AAA" VerticalAlignment="Bottom"/>
+                    <TextBlock Text="{Binding MoodDisplay}" FontSize="11" FontWeight="Bold" Foreground="#DDD" Grid.Column="1"/>
+                </Grid>
+
+                <Grid Grid.Row="1" Height="24">
+                    <!-- Track -->
+                    <Border Height="4" VerticalAlignment="Center" CornerRadius="2" Background="#333"/>
+                    
+                    <!-- Anchors -->
+                    <TextBlock Text="🌧️" FontSize="12" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="-2,0,0,0" ToolTip.Tip="Melancholic"/>
+                    <TextBlock Text="☀️" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,-2,0" ToolTip.Tip="Euphoric"/>
+                    
+                    <!-- Thumb / Indicator -->
+                    <Canvas>
+                         <Border Width="12" Height="12" CornerRadius="6" Background="White" BorderBrush="Black" BorderThickness="1"
+                                 Canvas.Left="{Binding ValencePosition, Mode=OneWay}"
+                                 Canvas.Top="6"/>
+                    </Canvas>
+                </Grid>
+            </Grid>
+            
+            <!-- Vocals / Instrumental -->
+             <Grid ColumnDefinitions="Auto, *" IsVisible="{Binding HasVocalData}">
+                <Border Background="#22FFFFFF" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" ToolTip.Tip="Vocal Presence">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                         <TextBlock Text="{Binding VocalIcon}" FontSize="12" VerticalAlignment="Center"/>
+                         <TextBlock Text="{Binding VocalText}" FontSize="10" VerticalAlignment="Center" Foreground="#CCC"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+        </StackPanel>
+    </Border>
+</UserControl>

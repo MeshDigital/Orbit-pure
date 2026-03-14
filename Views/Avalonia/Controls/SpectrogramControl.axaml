@@ -1,0 +1,66 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="300"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.SpectrogramControl">
+  <Grid>
+      <Border Background="#101010" CornerRadius="4" ClipToBounds="True">
+          <Grid>
+              <!-- The Spectrogram Image -->
+              <Image Source="{Binding SpectrogramBitmap, RelativeSource={RelativeSource AncestorType=UserControl}}" 
+                     Stretch="Fill" 
+                     RenderOptions.BitmapInterpolationMode="HighQuality" />
+                     
+              <!-- Forensic Grids & Overlays -->
+              <!-- 
+                  FFmpeg Log Scale Mapping (Approximate for 44.1kHz):
+                  Top = 22.05kHz
+                  128kbps Cutoff (~16kHz) -> ~90% height? 
+                  Note: FFmpeg logs scale is tricky to map exactly without knowing params.
+                  For visual reference, we'll place markers at estimated positions for standard log scale.
+                  
+                  Assuming typical log scale from 0 to 22k:
+                  16kHz is roughly at 85-90% of the visual space if linear, but log emphasizes lows.
+                  Actually, spectrograms are usually LINEAR freq scale in typical audio software (Spek, Audacity).
+                  FFmpeg can do both. SonicIntegrity used "scale=log".
+                  Log scale compresses high frequencies into the top pixel rows? No, it expands lows.
+                  If Scale=Log, High Freqs are squashed at the top.
+                  If Scale=Linear, High Freqs are at the top linearly.
+                  
+                  Let's assume LINEAR for "Visual Truth" as it's easier to read brickwalls.
+                  If Linear 0-22kHz:
+                  16kHz = 16/22.05 = ~72% from bottom.
+                  20kHz = 20/22.05 = ~90% from bottom.
+              -->
+              
+              <!-- 16kHz Cutoff Line (128kbps / Fake FLAC) -->
+              <Grid VerticalAlignment="Bottom" Height="300"> 
+                  <!-- We use a proportional container to position lines by % -->
+                  
+                  <!-- 16kHz Line (~72% up) -->
+                  <Border BorderBrush="#AAFF0000" BorderThickness="0,1,0,0" Height="1" VerticalAlignment="Bottom" Margin="0,0,0,216"
+                          IsHitTestVisible="False" Opacity="0.6">
+                      <ToolTip.Tip>16kHz Cutoff (MP3 128kbps)</ToolTip.Tip>
+                  </Border>
+                  <TextBlock Text="16kHz (Low Quality)" Foreground="#AAFF0000" FontSize="10" 
+                             VerticalAlignment="Bottom" Margin="4,0,0,218" IsHitTestVisible="False"/>
+
+                  <!-- 20kHz Line (~90% up) -->
+                  <Border BorderBrush="#AA00FF00" BorderThickness="0,1,0,0" Height="1" VerticalAlignment="Bottom" Margin="0,0,0,270"
+                          IsHitTestVisible="False" Opacity="0.5">
+                      <ToolTip.Tip>20kHz (High Quality)</ToolTip.Tip>
+                  </Border>
+                   <TextBlock Text="20kHz (High Quality)" Foreground="#AA00FF00" FontSize="10" 
+                             VerticalAlignment="Bottom" Margin="4,0,0,272" IsHitTestVisible="False"/>
+              </Grid>
+
+              <!-- Loading State (managed by parent VM ideally, but we can show placeholder if null) -->
+              <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" 
+                          IsVisible="{Binding SpectrogramBitmap, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={x:Static ObjectConverters.IsNull}}">
+                  <TextBlock Text="Waiting for Analysis..." Foreground="#444"/>
+              </StackPanel>
+          </Grid>
+      </Border>
+  </Grid>
+</UserControl>

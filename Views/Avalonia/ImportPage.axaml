@@ -1,0 +1,201 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
+             x:Class="SLSKDONET.Views.Avalonia.ImportPage"
+             Background="#0D0D0D">
+    
+    <Grid RowDefinitions="Auto,*" Margin="40">
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,32">
+            <TextBlock Text="📥 Import" FontSize="32" FontWeight="Bold" Foreground="White"/>
+            <TextBlock Text="Import playlists from external sources" FontSize="16" Foreground="#A0A0A0" Margin="0,8,0,0"/>
+        </StackPanel>
+        
+        <!-- Import Options Grid -->
+        <ScrollViewer Grid.Row="1">
+            <StackPanel Spacing="24">
+                
+                <!-- My Spotify Hub -->
+                <Border Background="#1A1A1A" BorderBrush="#1DB954" BorderThickness="1" CornerRadius="12" Padding="32">
+                    <StackPanel Spacing="20">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Grid.Column="0" Spacing="8">
+                                <TextBlock Text="Spotify Hub" FontSize="24" FontWeight="Bold" Foreground="White"/>
+                                <TextBlock Text="Your personal library, synced." FontSize="14" Foreground="#A0A0A0"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" 
+                                    Command="{Binding ConnectCommand}"
+                                    IsVisible="{Binding !IsAuthenticated}"
+                                    Background="#1DB954" Foreground="White" CornerRadius="20" Padding="16,8">
+                                <TextBlock Text="Connect Account" FontWeight="Bold"/>
+                            </Button>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" IsVisible="{Binding IsAuthenticated}">
+                                <Border Background="#2A2A2A" CornerRadius="16" Padding="12,6">
+                                    <TextBlock Text="Connected" Foreground="#1DB954" FontSize="12" FontWeight="SemiBold"/>
+                                </Border>
+                                <Button Command="{Binding RefreshPlaylistsCommand}" Background="Transparent" Padding="4">
+                                    <TextBlock Text="🔄" FontSize="16"/>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+
+                        <Separator Background="#3E3E3E" Height="1"/>
+
+                        <!-- Liked Songs Quick Action -->
+                        <Button Command="{Binding ImportLikedSongsCommand}"
+                                IsEnabled="{Binding IsAuthenticated}"
+                                Background="#2A2A2A" BorderBrush="#3E3E3E" BorderThickness="1"
+                                HorizontalAlignment="Stretch" Padding="16" CornerRadius="8">
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                <TextBlock Grid.Column="0" Text="❤️" FontSize="24" Margin="0,0,16,0"/>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="Liked Songs" FontWeight="SemiBold" Foreground="White"/>
+                                    <TextBlock Text="Import your entire library of liked tracks" FontSize="12" Foreground="#888"/>
+                                </StackPanel>
+                                <TextBlock Grid.Column="2" Text="→" FontSize="20" Foreground="#1DB954" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Button>
+
+                        <!-- Paste Link Section -->
+                        <Border Background="#121212" BorderBrush="#333" BorderThickness="1" CornerRadius="8" Padding="16">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="Paste Spotify Link" FontWeight="SemiBold" Foreground="#AAA" FontSize="12"/>
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBox Text="{Binding PlaylistUrl, Mode=TwoWay}"
+                                             Watermark="https://open.spotify.com/playlist/... or album/..."
+                                             Background="#1A1A1A"
+                                             BorderThickness="1"
+                                             Padding="12,10"
+                                             CornerRadius="4"
+                                             Margin="0,0,8,0"/>
+                                    <Button Grid.Column="1"
+                                            Command="{Binding LoadPlaylistCommand}"
+                                            IsEnabled="{Binding IsAuthenticated}"
+                                            Background="#1DB954"
+                                            Foreground="Black"
+                                            FontWeight="Bold"
+                                            Padding="20,0"
+                                            VerticalAlignment="Stretch"
+                                            CornerRadius="4">
+                                        <TextBlock Text="Import" VerticalAlignment="Center"/>
+                                    </Button>
+                                </Grid>
+                                <TextBlock Text="Supports Playlists and Albums" FontSize="10" Foreground="#666"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Playlists Section -->
+                        <TextBlock Text="Your Playlists" FontSize="14" FontWeight="SemiBold" Foreground="#AAA" Margin="0,8,0,0"/>
+                        
+                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsLoading}" Height="2"/>
+
+                        <ItemsControl ItemsSource="{Binding UserPlaylists}" MaxHeight="300">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Command="{Binding $parent[UserControl].DataContext.ImportPlaylistCommand}"
+                                            CommandParameter="{Binding}"
+                                            Background="#252526" Margin="0,0,12,12" Width="220" Padding="12" CornerRadius="8">
+                                        <Grid ColumnDefinitions="Auto,*">
+                                            <Border Grid.Column="0" Width="40" Height="40" Background="#333" CornerRadius="4" Margin="0,0,12,0">
+                                                <TextBlock Text="♪" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#666"/>
+                                            </Border>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Name}" FontWeight="Medium" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Tracks.Total, StringFormat={}{0} tracks}" FontSize="10" Foreground="#666"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+                
+                <!-- CSV Import -->
+                <Border Name="CsvDropZone" 
+                        Background="#1A1A1A" 
+                        BorderBrush="#3E3E3E" 
+                        BorderThickness="1" 
+                        CornerRadius="12" 
+                        Padding="32"
+                        DragDrop.AllowDrop="True">
+                    <Border.Styles>
+                        <Style Selector="Border[Tag=Dragging]">
+                            <Setter Property="BorderBrush" Value="#0078D4"/>
+                        </Style>
+                    </Border.Styles>
+                    <Panel>
+                        <!-- Main Content -->
+                        <StackPanel Spacing="16" IsVisible="{Binding !IsCsvDragging}">
+                            <StackPanel Orientation="Horizontal" Spacing="16">
+                                <TextBlock Text="📄" FontSize="48"/>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="CSV Import" FontSize="20" FontWeight="SemiBold" Foreground="White"/>
+                                    <TextBlock Text="Import tracks from a CSV file (Artist, Title, Album)" FontSize="14" Foreground="#A0A0A0" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                            
+                            <Button Background="#0078D4"
+                                    Command="{Binding SelectCsvFileCommand}"
+                                    Foreground="White"
+                                    Padding="24,12"
+                                    CornerRadius="8"
+                                    HorizontalAlignment="Left">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="📂" FontSize="16"/>
+                                    <TextBlock Text="Select CSV File" FontSize="14" FontWeight="Medium"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+
+                        <!-- "Scanner" Overlay for Dragging -->
+                        <Border IsVisible="{Binding IsCsvDragging}" 
+                                Background="#100078D4" 
+                                CornerRadius="12" 
+                                Classes="scanning"
+                                BorderBrush="#0078D4" 
+                                BorderThickness="2"
+                                Margin="-32">
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16">
+                                <PathIcon Data="{StaticResource cloud_arrow_up_regular}" Width="48" Height="48" Foreground="#0078D4"/>
+                                <TextBlock Text="DROP CSV TO INGEST" FontSize="18" FontWeight="Black" Foreground="#0078D4" LetterSpacing="2"/>
+                            </StackPanel>
+                        </Border>
+                    </Panel>
+                </Border>
+                
+                <!-- USB Import (Future) -->
+                <Border Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" CornerRadius="12" Padding="32" Opacity="0.5">
+                    <StackPanel Spacing="16">
+                        <StackPanel Orientation="Horizontal" Spacing="16">
+                            <TextBlock Text="💾" FontSize="48"/>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="USB Drive Import" FontSize="20" FontWeight="SemiBold" Foreground="White"/>
+                                <TextBlock Text="Scan USB drives for music files (Coming Soon)" FontSize="14" Foreground="#A0A0A0" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </StackPanel>
+                        
+                        <Button Background="#666"
+                                Foreground="White"
+                                Padding="24,12"
+                                CornerRadius="8"
+                                HorizontalAlignment="Left"
+                                IsEnabled="False">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="🔌" FontSize="16"/>
+                                <TextBlock Text="Scan USB Drives" FontSize="14" FontWeight="Medium"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

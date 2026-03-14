@@ -1,0 +1,28 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="80" d:DesignHeight="80"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.ConfidenceRadar">
+    <Panel Width="60" Height="60" Margin="5">
+        <!-- Background Ring -->
+        <Ellipse Stroke="#11FFFFFF" StrokeThickness="4"/>
+        
+        <!-- Value Arc -->
+        <Arc Stroke="{Binding Path=Color, RelativeSource={RelativeSource AncestorType=UserControl}}" 
+             StrokeThickness="4" 
+             StrokeJoin="Round"
+             StrokeLineCap="Round"
+             StartAngle="270" 
+             SweepAngle="{Binding Path=Value, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource PercentageToAngleConverter}, ConverterParameter=100}"/>
+        
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+            <TextBlock Text="{Binding Path=Label, RelativeSource={RelativeSource AncestorType=UserControl}}" 
+                       FontSize="9" Foreground="#88FFFFFF" HorizontalAlignment="Center"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <TextBlock Text="{Binding Path=Value, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat=\{0:P0\}}" 
+                           FontSize="11" FontWeight="Bold"/>
+            </StackPanel>
+        </StackPanel>
+    </Panel>
+</UserControl>

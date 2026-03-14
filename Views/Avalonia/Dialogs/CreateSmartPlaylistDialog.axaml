@@ -1,0 +1,92 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:SLSKDONET.ViewModels.Library"
+        xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+        mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="450"
+        x:Class="SLSKDONET.Views.Avalonia.Dialogs.CreateSmartPlaylistDialog"
+        Title="New Smart Playlist"
+        Width="400" Height="500"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        SystemDecorations="Full">
+
+    <Design.DataContext>
+        <vm:CreateSmartPlaylistViewModel/>
+    </Design.DataContext>
+
+    <Border Padding="20" Background="#1E1E1E">
+        <StackPanel Spacing="15">
+            <TextBlock Text="Create Smart Playlist" FontSize="20" FontWeight="Bold" Foreground="White" Margin="0,0,0,10"/>
+
+            <!-- Name -->
+            <StackPanel Spacing="5">
+                <TextBlock Text="Playlist Name" Foreground="#AAAAAA"/>
+                <TextBox Text="{Binding Name}" Watermark="e.g. High Energy Techno"/>
+            </StackPanel>
+
+            <Separator Background="#333333" Height="1"/>
+
+            <!-- Criteria -->
+            <TextBlock Text="Criteria" FontWeight="SemiBold" Foreground="White"/>
+
+            <!-- Energy -->
+            <Grid ColumnDefinitions="*, 10, *">
+                <StackPanel Grid.Column="0" Spacing="5">
+                    <TextBlock Text="Min Energy (0.0 - 1.0)" Foreground="#AAAAAA" FontSize="12"/>
+                    <TextBox Text="{Binding MinEnergy}" Watermark="0.0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="5">
+                    <TextBlock Text="Max Energy (0.0 - 1.0)" Foreground="#AAAAAA" FontSize="12"/>
+                    <TextBox Text="{Binding MaxEnergy}" Watermark="1.0"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Mood (Valence) -->
+            <Grid ColumnDefinitions="*, 10, *">
+                <StackPanel Grid.Column="0" Spacing="5">
+                    <TextBlock Text="Min Mood (0.0 - 1.0)" Foreground="#AAAAAA" FontSize="12"/>
+                    <TextBox Text="{Binding MinValence}" Watermark="0.0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="5">
+                    <TextBlock Text="Max Mood (0.0 - 1.0)" Foreground="#AAAAAA" FontSize="12"/>
+                    <TextBox Text="{Binding MaxValence}" Watermark="1.0"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- BPM -->
+            <Grid ColumnDefinitions="*, 10, *">
+                <StackPanel Grid.Column="0" Spacing="5">
+                    <TextBlock Text="Min BPM" Foreground="#AAAAAA" FontSize="12"/>
+                    <TextBox Text="{Binding MinBpm}" Watermark="120"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="5">
+                    <TextBlock Text="Max BPM" Foreground="#AAAAAA" FontSize="12"/>
+                    <TextBox Text="{Binding MaxBpm}" Watermark="140"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Genre -->
+            <StackPanel Spacing="5">
+                <TextBlock Text="Genre (Contains)" Foreground="#AAAAAA"/>
+                <TextBox Text="{Binding Genre}" Watermark="e.g. House"/>
+            </StackPanel>
+
+
+
+            <Separator Background="#333333" Height="1" Margin="0,5"/>
+
+            <TextBlock Text="Target Profile Preview" FontWeight="SemiBold" Foreground="White" Margin="0,0,0,5"/>
+            <controls:SonicProfileControl Profile="{Binding PreviewProfile}" />
+
+            <Separator Background="#333333" Height="1" Margin="0,5"/>
+
+            <!-- Buttons -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+                <Button Command="{Binding CancelCommand}" Content="Cancel" Background="Transparent" Foreground="#AAAAAA"/>
+                <Button Command="{Binding SaveCommand}" Content="Create Playlist" Background="#007ACC" Foreground="White" FontWeight="Bold" Padding="15,8"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

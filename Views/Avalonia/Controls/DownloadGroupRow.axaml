@@ -1,0 +1,137 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:SLSKDONET.ViewModels.Downloads"
+             xmlns:controls="using:SLSKDONET.Views.Avalonia.Controls"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="120"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.DownloadGroupRow"
+             x:DataType="vm:DownloadGroupViewModel">
+    
+    <Border Background="#1A1A1A80" 
+            BorderBrush="#33333333"
+            BorderThickness="1"
+            CornerRadius="12" 
+            Margin="0,0,0,12" 
+            Padding="0"
+            ClipToBounds="True"
+            BoxShadow="0 8 24 -8 #80000000">
+        
+        <StackPanel>
+            <!-- Header (Always Visible) -->
+            <Border Background="#25252640" Cursor="Hand" Padding="12,0">
+                <Interaction.Behaviors>
+                    <EventTriggerBehavior EventName="PointerPressed">
+                        <InvokeCommandAction Command="{Binding ToggleExpandedCommand}"/>
+                    </EventTriggerBehavior>
+                </Interaction.Behaviors>
+                <Grid ColumnDefinitions="Auto, Auto, *, Auto" Height="64">
+                    <!-- 0. Expansion Indicator -->
+                    <PathIcon Grid.Column="0" 
+                              Data="{DynamicResource chevron_right_regular}" 
+                              Width="12" Height="12" 
+                              Foreground="{DynamicResource TextSecondaryColor}"
+                              Margin="0,0,12,0">
+                        <PathIcon.RenderTransform>
+                            <RotateTransform Angle="{Binding IsExpanded, Converter={StaticResource BoolToAngleConverter}, ConverterParameter=90}"/>
+                        </PathIcon.RenderTransform>
+                    </PathIcon>
+
+                    <!-- 1. Metadata -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                        <!-- Tiny Art -->
+                        <Border Width="40" Height="40" CornerRadius="4" ClipToBounds="True">
+                             <Panel>
+                                 <Panel Background="{DynamicResource SystemChromeLowColor}" 
+                                        IsVisible="{Binding ArtworkUrl, Converter={x:Static ObjectConverters.IsNull}}">
+                                     <PathIcon Data="{DynamicResource disc_regular}" 
+                                               Foreground="{DynamicResource TextSecondaryColor}"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               Width="20" Height="20"/>
+                                 </Panel>
+                                 <Image Source="{Binding ArtworkUrl}" 
+                                        Stretch="UniformToFill"
+                                        IsVisible="{Binding ArtworkUrl, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                             </Panel>
+                        </Border>
+                        
+                        <StackPanel VerticalAlignment="Center" Spacing="0">
+                            <TextBlock Text="{Binding Title}" 
+                                       FontWeight="SemiBold" 
+                                       FontSize="14"
+                                       Foreground="{DynamicResource TextPrimaryColor}"/>
+                            <TextBlock Text="{Binding Subtitle}" 
+                                       FontSize="12"
+                                       Foreground="{DynamicResource TextSecondaryColor}"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- 2. Aggregate Stats -->
+                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="24,0">
+                         <Grid ColumnDefinitions="*, Auto" Margin="0,0,0,4">
+                             <TextBlock Text="{Binding StatusText}" 
+                                        FontSize="11" 
+                                        FontWeight="SemiBold"
+                                        Foreground="{DynamicResource TextSecondaryColor}"/>
+                             <TextBlock Grid.Column="1" 
+                                        Text="{Binding TotalProgress, StringFormat='{}{0:0}%'}" 
+                                        FontSize="11"
+                                        FontWeight="Black"
+                                        Foreground="{DynamicResource TextPrimaryColor}"/>
+                         </Grid>
+                         <ProgressBar Value="{Binding TotalProgress}" 
+                                       Maximum="100" 
+                                       Height="4" 
+                                       CornerRadius="2"
+                                       Foreground="{DynamicResource AccentGradient}"
+                                       Background="#333333"/>
+                    </StackPanel>
+
+                    <!-- 3. Actions -->
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
+                        <Button Classes="icon" Command="{Binding PauseCommand}" ToolTip.Tip="Pause Group">
+                            <PathIcon Data="{DynamicResource pause_regular}" Width="14" Height="14"/>
+                        </Button>
+                        <Button Classes="icon" Command="{Binding ResumeCommand}" ToolTip.Tip="Resume Group">
+                             <PathIcon Data="{DynamicResource play_regular}" Width="14" Height="14"/>
+                        </Button>
+                        <Button Classes="icon danger" Command="{Binding CancelCommand}" ToolTip.Tip="Cancel Group">
+                             <PathIcon Data="{DynamicResource dismiss_regular}" Width="14" Height="14"/>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Items Repeater (Flat List) with Thread Connector -->
+            <Grid IsVisible="{Binding IsExpanded}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="32"/> <!-- Thread Lane -->
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- The Thread Line -->
+                <Rectangle Grid.Column="0" Width="2" HorizontalAlignment="Center" Fill="#333" Margin="0,0,0,12" VerticalAlignment="Stretch"/>
+                
+                <ItemsRepeater Grid.Column="1" ItemsSource="{Binding Tracks}" Margin="0,0,0,8">
+                    <ItemsRepeater.ItemTemplate>
+                        <DataTemplate>
+                           <Grid ColumnDefinitions="24, *">
+                               <!-- Branch Connector -->
+                               <Path Grid.Column="0" Data="M 12,0 L 12,16 L 24,16" Stroke="#333" StrokeThickness="2" VerticalAlignment="Top"/>
+                               <controls:StandardTrackRow Grid.Column="1" Classes="InFlightRow"/>
+                           </Grid>
+                        </DataTemplate>
+                    </ItemsRepeater.ItemTemplate>
+                    <ItemsRepeater.Layout>
+                        <StackLayout Spacing="0"/>
+                    </ItemsRepeater.Layout>
+                </ItemsRepeater>
+            </Grid>
+        </StackPanel>
+    </Border>
+</UserControl>
+
+
+
+

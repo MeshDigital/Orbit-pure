@@ -1,0 +1,39 @@
+# ORBIT Essentia Profile - EDM Specialist Configuration
+# Updated: 2026-01-09
+
+outputFormat: json
+indent: 4
+outputFrames: 0
+sampleRate: 44100
+startTime: 0
+endTime: 600
+analyzeSegments: false
+
+lowlevel:
+    frameSize: 2048
+    hopSize: 1024
+    
+rhythm:
+    minTempo: 40
+    maxTempo: 208
+    
+tonal:
+    frameSize: 4096
+    hopSize: 2048
+
+highlevel:
+    compute: true
+    svm_models: []
+    tensorflow_models:
+        # --- CORE BASICS ---
+        - "Tools/Essentia/models/discogs-effnet-bs64-1.pb"           # General Genre & Style (519 classes)
+        - "Tools/Essentia/models/voice_instrumental-msd-musicnn-1.pb" # Vocal Detection
+        - "Tools/Essentia/models/danceability-msd-musicnn-1.pb"       # Danceability Score
+        
+        # --- EDM SPECIALISTS ---
+        - "Tools/Essentia/models/genre_electronic-musicnn-msd-2.pb"   # DnB/House/Techno/Trance/Ambient
+        - "Tools/Essentia/models/tonal_atonal-musicnn-msd-2.pb"       # DJ Tool Detection (v2)
+        - "Tools/Essentia/models/emomusic-msd-musicnn-2.pb"           # Continuous emotion (alt to arousal_valence)
+        
+        # NOTE: arousal_valence-muse-musicnn-msd-1.pb is NOT available locally
+        # Using emomusic as fallback for emotion detection

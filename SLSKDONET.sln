@@ -1,0 +1,59 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SLSKDONET", "SLSKDONET.csproj", "{9E2DB39E-00F6-4049-B33B-3CB624644C8E}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "External", "External", "{FEE985A4-3DE0-4501-8BAA-D51FBE7F4649}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "TreeDataGrid", "TreeDataGrid", "{B4FA2776-6905-40F1-8941-E553CE4E6F2F}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{E6A0A4B0-E41B-4640-9A11-EDEC48CA1E12}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Avalonia.Controls.TreeDataGrid", "External\TreeDataGrid\src\Avalonia.Controls.TreeDataGrid\Avalonia.Controls.TreeDataGrid.csproj", "{06B5060E-0796-4FD5-81E4-4514282B1A20}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{9E2DB39E-00F6-4049-B33B-3CB624644C8E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9E2DB39E-00F6-4049-B33B-3CB624644C8E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9E2DB39E-00F6-4049-B33B-3CB624644C8E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{9E2DB39E-00F6-4049-B33B-3CB624644C8E}.Debug|x64.Build.0 = Debug|Any CPU
+		{9E2DB39E-00F6-4049-B33B-3CB624644C8E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{9E2DB39E-00F6-4049-B33B-3CB624644C8E}.Debug|x86.Build.0 = Debug|Any CPU
+		{9E2DB39E-00F6-4049-B33B-3CB624644C8E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9E2DB39E-00F6-4049-B33B-3CB624644C8E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9E2DB39E-00F6-4049-B33B-3CB624644C8E}.Release|x64.ActiveCfg = Release|Any CPU
+		{9E2DB39E-00F6-4049-B33B-3CB624644C8E}.Release|x64.Build.0 = Release|Any CPU
+		{9E2DB39E-00F6-4049-B33B-3CB624644C8E}.Release|x86.ActiveCfg = Release|Any CPU
+		{9E2DB39E-00F6-4049-B33B-3CB624644C8E}.Release|x86.Build.0 = Release|Any CPU
+		{06B5060E-0796-4FD5-81E4-4514282B1A20}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{06B5060E-0796-4FD5-81E4-4514282B1A20}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{06B5060E-0796-4FD5-81E4-4514282B1A20}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{06B5060E-0796-4FD5-81E4-4514282B1A20}.Debug|x64.Build.0 = Debug|Any CPU
+		{06B5060E-0796-4FD5-81E4-4514282B1A20}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{06B5060E-0796-4FD5-81E4-4514282B1A20}.Debug|x86.Build.0 = Debug|Any CPU
+		{06B5060E-0796-4FD5-81E4-4514282B1A20}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{06B5060E-0796-4FD5-81E4-4514282B1A20}.Release|Any CPU.Build.0 = Release|Any CPU
+		{06B5060E-0796-4FD5-81E4-4514282B1A20}.Release|x64.ActiveCfg = Release|Any CPU
+		{06B5060E-0796-4FD5-81E4-4514282B1A20}.Release|x64.Build.0 = Release|Any CPU
+		{06B5060E-0796-4FD5-81E4-4514282B1A20}.Release|x86.ActiveCfg = Release|Any CPU
+		{06B5060E-0796-4FD5-81E4-4514282B1A20}.Release|x86.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{B4FA2776-6905-40F1-8941-E553CE4E6F2F} = {FEE985A4-3DE0-4501-8BAA-D51FBE7F4649}
+		{E6A0A4B0-E41B-4640-9A11-EDEC48CA1E12} = {B4FA2776-6905-40F1-8941-E553CE4E6F2F}
+		{06B5060E-0796-4FD5-81E4-4514282B1A20} = {E6A0A4B0-E41B-4640-9A11-EDEC48CA1E12}
+	EndGlobalSection
+EndGlobal

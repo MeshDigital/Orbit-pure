@@ -1,0 +1,496 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:converters="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="60"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.StandardTrackRow"
+             x:Name="RootControl">
+             
+    <UserControl.Styles>
+        <Style Selector="Button.ActionBtn">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.ActionBtn:hover">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="ToggleButton.ActionBtn">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="ToggleButton.ActionBtn:hover">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="ToggleButton.ActionBtn:checked">
+            <Setter Property="Background" Value="#3300BFFF"/>
+            <Setter Property="Foreground" Value="#00BFFF"/>
+        </Style>
+
+        <Style Selector="Button.pending">
+            <Setter Property="Opacity" Value="0.5"/>
+        </Style>
+        
+        <!-- Integrity Badge Styles -->
+        <Style Selector="Border.IntegrityBadge">
+            <Setter Property="CornerRadius" Value="2"/>
+            <Setter Property="Padding" Value="4,1"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Border.IntegrityBadge.Secure">
+            <Setter Property="Background" Value="#2000FF00"/>
+            <Setter Property="BorderBrush" Value="#00FF00"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style Selector="Border.IntegrityBadge.Suspect">
+            <Setter Property="Background" Value="#20FFD700"/>
+            <Setter Property="BorderBrush" Value="#FFD700"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        
+        <Style Selector="Border.PrepBadge">
+            <Setter Property="CornerRadius" Value="2"/>
+            <Setter Property="Padding" Value="4,1"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <!-- Root Styles -->
+        <Style Selector="Border.root">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="BorderBrush" Value="{StaticResource GlassBrush}"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.2"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.root:pointerover">
+            <Setter Property="Background" Value="{StaticResource GlassBrush}"/>
+        </Style>
+        <Style Selector="Border.root:pointerover StackPanel.ActionHub">
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+
+        <!-- Action Hub Visibility -->
+        <Style Selector="StackPanel.ActionHub">
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.15"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        
+        <!-- Card Style (Phase 0.7) -->
+        <Style Selector=":is(UserControl).card Border.root">
+            <Setter Property="Background" Value="#252526"/>
+            <Setter Property="BorderBrush" Value="#333"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="12"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+
+        <!-- Pending Text Style -->
+        <Style Selector="TextBlock.pending">
+            <Setter Property="FontStyle" Value="Italic"/>
+        </Style>
+
+        <!-- Phase 8: In-Flight Row Aesthetics (Glass) -->
+        <Style Selector="Border.InFlightRow">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="BorderBrush" Value="#222222"/>
+            <Setter Property="Padding" Value="12,8"/>
+        </Style>
+        <Style Selector="Border.InFlightRow:hover">
+            <Setter Property="Background" Value="#33FFFFFF"/>
+        </Style>
+
+        <Style Selector="TextBlock.LED">
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="Black"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <Style Selector="Border.root.active">
+            <Setter Property="BorderBrush" Value="#00BCD4"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BoxShadow" Value="0 0 15 0 #2000BCD4"/>
+            <Style.Animations>
+                <Animation Duration="0:0:3" IterationCount="Infinite">
+                    <KeyFrame KeyTime="0:0:0"><Setter Property="Opacity" Value="1.0" /></KeyFrame>
+                    <KeyFrame KeyTime="0:0:1.5"><Setter Property="Opacity" Value="0.85" /></KeyFrame>
+                    <KeyFrame KeyTime="0:0:3"><Setter Property="Opacity" Value="1.0" /></KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+        
+        <Style Selector="Border.root.stalled">
+            <Setter Property="BorderBrush" Value="Orange"/>
+            <Setter Property="Opacity" Value="0.7"/>
+            <Style.Animations>
+                <Animation Duration="0:0:1" IterationCount="Infinite">
+                    <KeyFrame KeyTime="0:0:0"><Setter Property="BorderBrush" Value="OrangeRed"/></KeyFrame>
+                    <KeyFrame KeyTime="0:0:0.5"><Setter Property="BorderBrush" Value="Transparent"/></KeyFrame>
+                    <KeyFrame KeyTime="0:0:1"><Setter Property="BorderBrush" Value="OrangeRed"/></KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+
+    </UserControl.Styles>
+
+    <Border Classes="root" Classes.active="{Binding IsDownloading}" Classes.stalled="{Binding IsStalled}">
+        <StackPanel>
+            <!-- Phase 5B: Removed waveform underlay - was visually noisy in list context -->
+            
+        <!-- Column 0: Art & Health, 1: Artist, 2: Title, 3: BPM/Key, 4: Badges, 5: Actions -->
+        <Grid RowDefinitions="Auto" Margin="0,2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="58"/>
+                <ColumnDefinition SharedSizeGroup="ArtistCol"/> <!-- Artist -->
+                <ColumnDefinition SharedSizeGroup="TitleCol"/> <!-- Title -->
+                <ColumnDefinition SharedSizeGroup="BpmKeyCol"/> <!-- BPM/Key -->
+                <ColumnDefinition SharedSizeGroup="ForensicCol"/> <!-- Forensics -->
+                <ColumnDefinition Width="*"/> <!-- Badges -->
+                <ColumnDefinition Width="Auto"/> <!-- Actions -->
+            </Grid.ColumnDefinitions>
+            
+            <!-- Column 0: Album Art / Status / Health -->
+            <Border Grid.Column="0" Width="44" Height="44" Margin="6,4,8,4" CornerRadius="4" ClipToBounds="True" Background="{DynamicResource SurfaceBrush}" VerticalAlignment="Center">
+                <Panel>
+                    <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill" RenderOptions.BitmapInterpolationMode="MediumQuality" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                    <PathIcon Data="{StaticResource music_regular}" Foreground="#333" Width="20" Height="20" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNull}}"/>
+                    
+                    <!-- Progress Overlay -->
+                    <Arc Width="36" Height="36" StartAngle="-90" SweepAngle="{Binding Progress, Converter={StaticResource PercentageToAngleConverter}}" Stroke="#00BFFF" StrokeThickness="2" IsVisible="{Binding IsActive}" Opacity="0.8"/>
+                    
+                    <!-- Activity Icons (Phase 11.1 Gating) -->
+                    <Border Background="#66000000" IsVisible="{Binding IsActive}" CornerRadius="4">
+                        <Panel>
+                             <TextBlock Text="🔍" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding IsSearching}">
+                                 <TextBlock.Styles>
+                                     <Style Selector="TextBlock">
+                                         <Style.Animations>
+                                             <Animation Duration="0:0:1.5" IterationCount="Infinite">
+                                                 <KeyFrame KeyTime="0:0:0"><Setter Property="Opacity" Value="1"/></KeyFrame>
+                                                 <KeyFrame KeyTime="0:0:0.75"><Setter Property="Opacity" Value="0.3"/></KeyFrame>
+                                                 <KeyFrame KeyTime="0:0:1.5"><Setter Property="Opacity" Value="1"/></KeyFrame>
+                                             </Animation>
+                                         </Style.Animations>
+                                     </Style>
+                                 </TextBlock.Styles>
+                             </TextBlock>
+                             <TextBlock Text="📥" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding IsDownloading}"/>
+                        </Panel>
+                    </Border>
+                    
+                    <!-- Enrichment Progress (Phase 2.1) -->
+                    <Arc Stroke="#C586C0" StrokeThickness="2" StartAngle="0" SweepAngle="300" Width="42" Height="42" IsVisible="{Binding IsAnalyzing}">
+                        <Arc.RenderTransform>
+                            <RotateTransform Angle="0"/>
+                        </Arc.RenderTransform>
+                        <Arc.Styles>
+                            <Style Selector="Arc">
+                                <Style.Animations>
+                                    <Animation Duration="0:0:1.5" IterationCount="Infinite">
+                                        <KeyFrame KeyTime="0:0:0">
+                                            <Setter Property="RotateTransform.Angle" Value="0"/>
+                                        </KeyFrame>
+                                        <KeyFrame KeyTime="0:0:1.5">
+                                            <Setter Property="RotateTransform.Angle" Value="360"/>
+                                        </KeyFrame>
+                                    </Animation>
+                                </Style.Animations>
+                            </Style>
+                        </Arc.Styles>
+                    </Arc>
+
+                    <!-- Spotify/MB Enrichment Progress (Phase 2.1) -->
+                    <Arc Stroke="#1DB954" StrokeThickness="2" StartAngle="180" SweepAngle="120" Width="48" Height="48" IsVisible="{Binding IsEnriching}">
+                        <Arc.RenderTransform>
+                            <RotateTransform Angle="0"/>
+                        </Arc.RenderTransform>
+                        <Arc.Styles>
+                            <Style Selector="Arc">
+                                <Style.Animations>
+                                    <Animation Duration="0:0:2" IterationCount="Infinite">
+                                        <KeyFrame KeyTime="0:0:0">
+                                            <Setter Property="RotateTransform.Angle" Value="360"/>
+                                        </KeyFrame>
+                                        <KeyFrame KeyTime="0:0:2">
+                                            <Setter Property="RotateTransform.Angle" Value="0"/>
+                                        </KeyFrame>
+                                    </Animation>
+                                </Style.Animations>
+                            </Style>
+                        </Arc.Styles>
+                    </Arc>
+
+                    <!-- Phase 12.3: Bulk Selection Overlay -->
+                    <Border Background="#40000000" IsVisible="{Binding IsSelected}" VerticalAlignment="Stretch" HorizontalAlignment="Stretch"/>
+                    <CheckBox IsChecked="{Binding IsSelected}" 
+                              HorizontalAlignment="Left" VerticalAlignment="Top" 
+                              Margin="-2,-2,0,0">
+                         <CheckBox.Styles>
+                             <Style Selector="CheckBox">
+                                 <Setter Property="Opacity" Value="0"/> 
+                                 <Setter Property="Background" Value="#222"/>
+                                 <Setter Property="BorderBrush" Value="#666"/>
+                             </Style>
+                             <Style Selector="CheckBox:pointerover">
+                                 <Setter Property="Opacity" Value="1"/>
+                             </Style>
+                             <Style Selector="CheckBox:checked">
+                                 <Setter Property="Opacity" Value="1"/>
+                                 <Setter Property="Background" Value="#00BFFF"/>
+                             </Style>
+                         </CheckBox.Styles>
+                    </CheckBox>
+                </Panel>
+            </Border>
+            
+            <!-- Health Bar -->
+            <Rectangle Grid.Column="0" Width="3" HorizontalAlignment="Left" Fill="{Binding QualityColor}" RadiusX="1.5" RadiusY="1.5" Margin="2,8">
+                <Rectangle.IsVisible>
+                    <MultiBinding Converter="{x:Static BoolConverters.And}"><Binding Path="IsCompleted"/><Binding Path="$parent[views:LibraryPage].DataContext.ViewSettings.ShowQualityBar"/></MultiBinding>
+                </Rectangle.IsVisible>
+            </Rectangle>
+
+            <!-- Column 1: Artist (Shared) -->
+            <Border Grid.Column="1" Padding="8,0" VerticalAlignment="Center">
+                <TextBlock Text="{Binding ArtistName}" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" FontSize="13" TextTrimming="CharacterEllipsis"/>
+            </Border>
+
+            <!-- Column 2: Title (Shared) -->
+            <Border Grid.Column="2" Padding="8,0" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="{Binding TrackTitle}" Foreground="{DynamicResource TextBrush}" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="❤️" IsVisible="{Binding IsLiked}" FontSize="11" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Column 3: BPM & Key (Shared) -->
+            <Border Grid.Column="3" Padding="12,0" VerticalAlignment="Center" IsVisible="{Binding !IsCompact, ElementName=RootControl}">
+                <Panel>
+                     <!-- The Data is Present -->
+                     <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding HasBpm}">
+                         <TextBlock Text="{Binding BpmDisplay}" Foreground="#AAA" FontSize="11" Width="32" TextAlignment="Right" VerticalAlignment="Center"/>
+                         <Border Background="{Binding ColorBrush}" CornerRadius="4" Padding="4,1" MinWidth="32" VerticalAlignment="Center">
+                             <TextBlock Text="{Binding CamelotDisplay}" Foreground="White" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center"/>
+                         </Border>
+                     </StackPanel>
+
+                     <!-- The Data is Missing (Skeleton loading style) -->
+                     <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding !HasBpm}">
+                         <Border Classes="skeleton" Width="32" Height="14" VerticalAlignment="Center"/>
+                         <Border Classes="skeleton" Width="32" Height="14" VerticalAlignment="Center" CornerRadius="4"/>
+                     </StackPanel>
+                </Panel>
+            </Border>
+
+            <!-- Column 4: Unified Metadata & Health (Refined Phase 3) -->
+            <Border Grid.Column="4" VerticalAlignment="Center" Margin="12,0" IsVisible="{Binding !IsCompact, ElementName=RootControl}">
+                <Panel>
+                    <!-- STATE A: Searching (Clean, No clutter) -->
+                    <StackPanel Spacing="4" IsVisible="{Binding IsSearching}">
+                        <TextBlock Text="Searching Soulseek..." Classes="pulsing" FontSize="11" Foreground="#00BCD4" FontWeight="SemiBold"/>
+                    </StackPanel>
+
+                    <!-- STATE B: Downloading / Finalized (Metrics visible) -->
+                    <StackPanel Spacing="4" IsVisible="{Binding !IsSearching}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                             <!-- Forensic Orbs (Refined) -->
+                             <Border Background="{StaticResource GlassThinBrush}" CornerRadius="10" Padding="6,3">
+                                 <StackPanel Orientation="Horizontal" Spacing="6">
+                                     <Ellipse Width="6" Height="6" Fill="{Binding BitrateLed, Converter={StaticResource LedColorConverter}}" ToolTip.Tip="Bitrate Integrity"/>
+                                     <Ellipse Width="6" Height="6" Fill="{Binding KeyLed, Converter={StaticResource LedColorConverter}}" ToolTip.Tip="Key Accuracy"/>
+                                     <Ellipse Width="6" Height="6" Fill="{Binding PeakLed, Converter={StaticResource LedColorConverter}}" ToolTip.Tip="Peak Levels"/>
+                                 </StackPanel>
+                             </Border>
+                             
+                             <!-- Technical Bitrate/Duration -->
+                             <TextBlock Text="{Binding TechnicalSummary}" FontSize="10" Foreground="#888" VerticalAlignment="Center" Opacity="0.8"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding !IsCompleted}">
+                             <!-- Download Status / Stalled -->
+                             <TextBlock Text="{Binding DetailedStatusText}" FontSize="10" Foreground="{Binding StatusColor}" Opacity="0.9" VerticalAlignment="Center" IsVisible="{Binding !IsDownloading}"/>
+                             
+                             <!-- Speed Context -->
+                             <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsDownloading}">
+                                 <TextBlock Text="Downloading..." FontSize="10" Foreground="Cyan" Opacity="0.9" VerticalAlignment="Center"/>
+                                 <Border Background="{StaticResource AccentBrush}" CornerRadius="4" Padding="4,1">
+                                     <TextBlock Text="{Binding SpeedDisplay}" FontSize="9" FontWeight="Bold" Foreground="Black"/>
+                                 </Border>
+                             </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </Panel>
+            </Border>
+
+            <!-- Column 5: Badge Tray (Flexible) -->
+            <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6" Margin="8,0" IsVisible="{Binding !IsCompact, ElementName=RootControl}">
+                <!-- Peer Info (Softer) -->
+                <Border IsVisible="{Binding PeerName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                        Background="{StaticResource GlassThinBrush}" BorderBrush="{StaticResource BorderGlowBrush}" BorderThickness="1"
+                        CornerRadius="4" Padding="6,2" ToolTip.Tip="Active Peer">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="👤" FontSize="10" Opacity="0.7"/>
+                        <TextBlock Text="{Binding PeerName}" FontSize="10" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Match Reason (Glassy) -->
+                <Border IsVisible="{Binding DiscoveryReason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                        Background="{StaticResource GlassThinBrush}" BorderBrush="#30FFD700" BorderThickness="1"
+                        CornerRadius="4" Padding="6,2" ToolTip.Tip="{Binding DiscoveryReason}">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="✨" FontSize="10" VerticalAlignment="Center"/>
+                        <TextBlock Text="MATCH" FontSize="9" FontWeight="Bold" Foreground="#FFD700" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Curation/Confidence (Glow Pill) -->
+                <Border IsVisible="{Binding MatchConfidence, Converter={x:Static converters:NumericConverters.GreaterThan}, ConverterParameter=0}"
+                        Background="{StaticResource GlassBrush}" BorderBrush="{Binding MatchConfidenceColor}" BorderThickness="1"
+                        CornerRadius="10" Padding="8,1" Margin="0,0,4,0">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="🎯" FontSize="9" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding MatchConfidence, StringFormat='{}{0:0}%'}" FontSize="9" FontWeight="Bold" Foreground="{Binding MatchConfidenceColor}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- High Risk Flag -->
+                <Border IsVisible="{Binding IsHighRisk}"
+                        Background="#E91E63"
+                        CornerRadius="4" Padding="6,2" Margin="0,0,4,0"
+                        ToolTip.Tip="{Binding FlagReason}">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="⚠️" FontSize="10" VerticalAlignment="Center"/>
+                        <TextBlock Text="HIGH RISK" FontSize="10" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Background="{StaticResource GlassThinBrush}" BorderBrush="{Binding CurationColor}" BorderThickness="1" CornerRadius="4" Padding="6,2" IsVisible="{Binding CurationIcon, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <TextBlock Text="{Binding CurationIcon}" FontSize="9" VerticalAlignment="Center"/>
+                </Border>
+                <!-- Verified -->
+                <Border Background="{StaticResource GlassThinBrush}" BorderBrush="#00FF00" BorderThickness="1" CornerRadius="4" Padding="6,2">
+                    <Border.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                            <Binding Path="IsSecure"/>
+                            <Binding Path="IsCompleted"/>
+                        </MultiBinding>
+                    </Border.IsVisible>
+                    <TextBlock Text="✓" FontSize="10" Foreground="#00FF00" FontWeight="Bold" VerticalAlignment="Center"/>
+                </Border>
+                <!-- Stems -->
+                <Border Background="#10E91E63" BorderBrush="#E91E63" BorderThickness="1" CornerRadius="2" Padding="3,0" IsVisible="{Binding HasStems}" Margin="0,0,4,0">
+                    <TextBlock Text="🎹" FontSize="9"/>
+                </Border>
+                <!-- Vibe (Genre) - Phase 1.0: Skeleton State when not completed -->
+                <Panel Margin="0,0,4,0">
+                    <!-- Active Vibe (shown when completed + has genre) -->
+                    <Border Background="{Binding VibeColor}" CornerRadius="10" Padding="8,1" 
+                            ToolTip.Tip="{Binding VibeTooltip}">
+                        <Border.IsVisible>
+                            <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                <Binding Path="DetectedSubGenre" Converter="{x:Static StringConverters.IsNotNullOrEmpty}"/>
+                                <Binding Path="IsCompleted"/>
+                            </MultiBinding>
+                        </Border.IsVisible>
+                        <Border.Transitions>
+                            <Transitions>
+                                <BrushTransition Property="Background" Duration="0:0:0.6"/>
+                            </Transitions>
+                        </Border.Transitions>
+                        <TextBlock Text="{Binding DetectedSubGenre}" FontSize="9" Foreground="White" FontWeight="Bold"/>
+                    </Border>
+                    <!-- Skeleton Vibe (shown when NOT completed — pulsing grey placeholder) -->
+                    <Border Classes="skeleton" CornerRadius="10" Width="40" Height="14" 
+                            IsVisible="{Binding !IsCompleted}"
+                            ToolTip.Tip="Analyzing vibe..."/>
+                </Panel>
+                
+                <!-- Mood -->
+                <Border Background="#337B68EE" BorderBrush="#7B68EE" BorderThickness="1" CornerRadius="10" Padding="8,1" 
+                        IsVisible="{Binding HasMood}" Margin="0,0,4,0"
+                        ToolTip.Tip="{Binding MoodTag}">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="🎭" FontSize="9"/>
+                        <TextBlock Text="{Binding MoodTag}" FontSize="9" Foreground="White" FontWeight="Bold"/>
+                    </StackPanel>
+                </Border>
+                <!-- Instrumental -->
+                <Border Background="#2000CED1" BorderBrush="#00CED1" BorderThickness="1" CornerRadius="10" Padding="8,1" Margin="0,0,4,0"
+                        IsVisible="{Binding InstrumentalProbability, Converter={x:Static converters:NumericConverters.GreaterThan}, ConverterParameter=0.8}">
+                    <TextBlock Text="INSTR" FontSize="9" Foreground="#00CED1" FontWeight="Bold"/>
+                </Border>
+                
+                <!-- Duration & Local Path (Phase 3: Hidden until hover or pro view? No, keeping compact) -->
+                <TextBlock Text="{Binding DownloadDurationDisplay}" FontSize="9" Foreground="#666" VerticalAlignment="Center" IsVisible="{Binding IsCompleted}"/>
+            </StackPanel>
+
+            <!-- Column 6: Action Hub (Refined Phase 12) -->
+            <StackPanel Grid.Column="6" Classes="ActionHub" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center" Margin="0,0,8,0">
+                <!-- Group 1: Success/Playback -->
+                <Button Classes="ActionBtn" Command="{Binding PlayCommand}" IsVisible="{Binding IsCompleted}" ToolTip.Tip="Play"><PathIcon Data="{StaticResource play_circle_regular}" Width="18" Height="18" Foreground="{StaticResource AccentBrush}"/></Button>
+                <Button Classes="ActionBtn" Command="{Binding RevealFileCommand}" IsVisible="{Binding IsCompleted}" ToolTip.Tip="Open Folder"><PathIcon Data="{StaticResource folder_open_regular}" Width="16" Height="16"/></Button>
+                <Button Classes="ActionBtn" Command="{Binding AddToProjectCommand}" IsVisible="{Binding IsCompleted}" ToolTip.Tip="Add to Project"><PathIcon Data="{StaticResource add_circle_regular}" Width="16" Height="16"/></Button>
+                
+                <!-- Group 2: Control/Priority (The "Damn Active" Tray) -->
+                <Button Classes="ActionBtn" Command="{Binding BumpToTopCommand}" IsVisible="{Binding CanBumpToTop}" ToolTip.Tip="Bump to Top (Priority 0)"><PathIcon Data="{StaticResource arrow_up_regular}" Width="14" Height="14" Foreground="#FFD700"/></Button>
+                <Button Classes="ActionBtn" Command="{Binding ForceStartCommand}" IsVisible="{Binding CanForceStart}" ToolTip.Tip="Force Start (VIP Rocket 🚀)"><PathIcon Data="{StaticResource rocket_regular}" Width="18" Height="18" Foreground="#FFD700"/></Button>
+                
+                <!-- Group 3: Real-time State Control -->
+                <Button Classes="ActionBtn" Command="{Binding ResumeCommand}" IsVisible="{Binding CanResume}" ToolTip.Tip="Resume"><PathIcon Data="{StaticResource play_regular}" Width="14" Height="14" Foreground="#4CAF50"/></Button>
+                <Button Classes="ActionBtn" Command="{Binding PauseCommand}" IsVisible="{Binding IsActive}" ToolTip.Tip="Pause"><PathIcon Data="{StaticResource pause_regular}" Width="14" Height="14"/></Button>
+                <Button Classes="ActionBtn" Command="{Binding CancelCommand}" IsVisible="{Binding IsActive}" ToolTip.Tip="Cancel"><PathIcon Data="{StaticResource dismiss_regular}" Width="14" Height="14" Foreground="#FF6666"/></Button>
+                <Button Classes="ActionBtn" Command="{Binding $parent[UserControl].DataContext.InitiateMp3SearchCommand}" CommandParameter="{Binding}" IsVisible="{Binding IsOnHold}" ToolTip.Tip="Manual MP3 Search (On Hold)"><PathIcon Data="{StaticResource music_regular}" Width="14" Height="14" Foreground="#818CF8"/></Button>
+                <Button Classes="ActionBtn" Command="{Binding RetryCommand}" IsVisible="{Binding CanRetry}" ToolTip.Tip="Retry"><PathIcon Data="{StaticResource arrow_counterclockwise_regular}" Width="14" Height="14" Foreground="#4CAF50"/></Button>
+                
+                <!-- NEW Phase 12.1: Live Console Toggle -->
+                <ToggleButton Classes="ActionBtn" IsChecked="{Binding IsConsoleOpen}" ToolTip.Tip="Toggle Live Console">
+                    <PathIcon Data="{StaticResource text_bullet_list_square_regular}" Width="14" Height="14"/>
+                </ToggleButton>
+            </StackPanel>
+
+        </Grid>
+
+        <!-- Phase 12.1: Live Console Panel -->
+        <Border IsVisible="{Binding IsConsoleOpen}" Background="#0A000000" CornerRadius="4" Margin="52,0,8,8" Padding="12" BorderBrush="#1AFFFFFF" BorderThickness="1">
+            <ScrollViewer MaxHeight="200" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding LiveConsoleLog}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" FontFamily="Consolas, SF Mono, default" FontSize="11" Foreground="#A0A0A0" TextWrapping="Wrap" Margin="0,2"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+        
+        </StackPanel>
+    </Border>
+</UserControl>

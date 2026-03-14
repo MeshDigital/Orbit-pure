@@ -1,0 +1,60 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.StarRatingControl"
+             x:Name="RatingControl">
+    
+    <StackPanel Orientation="Horizontal" Spacing="4">
+        
+        <Button Name="Star1" 
+                Click="OnStarClick"
+                Tag="1"
+                Background="Transparent"
+                BorderThickness="0"
+                Padding="2"
+                Cursor="Hand">
+            <TextBlock Name="Star1Text" Text="☆" FontSize="{Binding StarSize, ElementName=RatingControl}" Foreground="{Binding StarColor, ElementName=RatingControl}"/>
+        </Button>
+        
+        <Button Name="Star2" 
+                Click="OnStarClick"
+                Tag="2"
+                Background="Transparent"
+                BorderThickness="0"
+                Padding="2"
+                Cursor="Hand">
+            <TextBlock Name="Star2Text" Text="☆" FontSize="{Binding StarSize, ElementName=RatingControl}" Foreground="{Binding StarColor, ElementName=RatingControl}"/>
+        </Button>
+        
+        <Button Name="Star3" 
+                Click="OnStarClick"
+                Tag="3"
+                Background="Transparent"
+                BorderThickness="0"
+                Padding="2"
+                Cursor="Hand">
+            <TextBlock Name="Star3Text" Text="☆" FontSize="{Binding StarSize, ElementName=RatingControl}" Foreground="{Binding StarColor, ElementName=RatingControl}"/>
+        </Button>
+        
+        <Button Name="Star4" 
+                Click="OnStarClick"
+                Tag="4"
+                Background="Transparent"
+                BorderThickness="0"
+                Padding="2"
+                Cursor="Hand">
+            <TextBlock Name="Star4Text" Text="☆" FontSize="{Binding StarSize, ElementName=RatingControl}" Foreground="{Binding StarColor, ElementName=RatingControl}"/>
+        </Button>
+        
+        <Button Name="Star5" 
+                Click="OnStarClick"
+                Tag="5"
+                Background="Transparent"
+                BorderThickness="0"
+                Padding="2"
+                Cursor="Hand">
+            <TextBlock Name="Star5Text" Text="☆" FontSize="{Binding StarSize, ElementName=RatingControl}" Foreground="{Binding StarColor, ElementName=RatingControl}"/>
+        </Button>
+        
+    </StackPanel>
+    
+</UserControl>

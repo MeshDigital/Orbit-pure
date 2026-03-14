@@ -1,0 +1,220 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:converters="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
+             xmlns:conv_root="clr-namespace:SLSKDONET.Converters"
+             x:Class="SLSKDONET.App"
+             RequestedThemeVariant="Dark">
+    
+    <Application.Resources>
+        <!-- Dynamic Font Sizes for UI Scaling -->
+        <x:Double x:Key="FontSizeSmall">12</x:Double>
+        <x:Double x:Key="FontSizeMedium">14</x:Double>
+        <x:Double x:Key="FontSizeLarge">16</x:Double>
+        <x:Double x:Key="FontSizeXLarge">18</x:Double>
+        
+        <!-- Like/Heart Converters -->
+        <converters:BoolToHeartConverter x:Key="BoolToHeartConverter"/>
+        <converters:BoolToHeartColorConverter x:Key="BoolToHeartColorConverter"/>
+        <converters:ActiveColorConverter x:Key="ActiveColorConverter"/>
+        <converters:FlowHealthColorConverter x:Key="FlowHealthColorConverter"/>
+        
+        <!-- Boolean State Converters -->
+        <converters:BoolToColorConverter x:Key="BoolToColorConverter"/>
+        <converters:BoolToLibraryStatusColorConverter x:Key="BoolToLibraryStatusColorConverter"/>
+        <converters:BoolToLibraryStatusTextConverter x:Key="BoolToLibraryStatusTextConverter"/>
+        <converters:BoolToEditModeTextConverter x:Key="BoolToEditModeTextConverter"/>
+        <converters:BoolToPlayPauseTextConverter x:Key="BoolToPlayPauseTextConverter"/>
+        <converters:BoolToPlayPauseIconConverter x:Key="BoolToPlayPauseIconConverter"/>
+        <converters:BoolToBackgroundConverter x:Key="BoolToBackgroundConverter"/>
+        <converters:BoolToFontWeightConverter x:Key="BoolToFontWeightConverter"/>
+        <converters:BooleanToStatusColorConverter x:Key="BooleanToStatusColorConverter"/>
+        <converters:BoolToErrorColorConverter x:Key="BoolToErrorColorConverter"/>
+        <converters:BoolToFontStyleConverter x:Key="BoolToFontStyleConverter"/>
+        <conv_root:BoolOpacityConverter x:Key="BoolToOpacityConverter"/>
+        <converters:BoolToWidthConverter x:Key="BoolToWidthConverter"/>
+        <conv_root:BoolToStringConverter x:Key="BoolToStringConverter"/>
+        <conv_root:MultiBoolToBlurConverter x:Key="MultiBoolToBlurConverter"/>
+        <converters:BoolToAngleConverter x:Key="BoolToAngleConverter"/>
+        <converters:BoolToTextConverter x:Key="BoolToTextConverter"/>
+        <converters:BoolToOrangeConverter x:Key="BoolToOrangeConverter"/>
+        <converters:BooleanToRedBrushConverter x:Key="BooleanToRedBrushConverter"/>
+        <converters:BooleanToBrushConverter x:Key="BooleanToBrushConverter"/>
+
+        <converters:BoolBlurConverter x:Key="BoolBlurConverter"/>
+        <converters:NumericGreaterThanConverter x:Key="GreaterThanThreshold"/>
+        <converters:NumericIsNotZeroConverter x:Key="GreaterThanZero"/>
+
+        
+        <!-- Utility Converters -->
+        <converters:RepeatModeIconConverter x:Key="RepeatModeIconConverter"/>
+        <converters:RepeatModeColorConverter x:Key="RepeatModeColorConverter"/>
+        <converters:EqualityConverter x:Key="EqualityConverter"/>
+        <converters:WidthToVisibilityConverter x:Key="WidthToVisibilityConverter"/>
+        <converters:PlayerLocationConverter x:Key="PlayerLocationConverter"/>
+        <converters:PlayerDockIconConverter x:Key="PlayerDockIconConverter"/>
+        <converters:BitmapValueConverter x:Key="BitmapValueConverter"/>
+        <converters:BoolInverseConverter x:Key="BoolInverseConverter"/>
+        <converters:VuHeightConverter x:Key="VuHeightConverter"/>
+        <converters:PercentageToAngleConverter x:Key="PercentageToAngleConverter"/>
+        <converters:PlayPauseConverter x:Key="PlayPauseConverter"/>
+        <conv_root:ParameterizedBooleanConverter x:Key="BoolParameterConverter"/>
+        <conv_root:ParameterizedBooleanConverter x:Key="ParameterizedBooleanConverter"/>
+        
+        <converters:EnumToBoolConverter x:Key="EnumToBoolConverter"/>
+        <converters:EnumToColorConverter x:Key="EnumToColorConverter"/>
+        <converters:PassThroughConverter x:Key="PassThroughConverter"/>
+        <converters:ForensicLevelToColorConverter x:Key="ForensicLevelToColorConverter"/>
+        <converters:PercentToWidthConverter x:Key="PercentToWidthConverter"/>
+        
+        <!-- Phase 18: Sonic Match Visual Converters -->
+        <conv_root:EnergyToColorConverter x:Key="EnergyToColorConverter"/>
+        <conv_root:OpacityMultiplierConverter x:Key="OpacityMultiplierConverter"/>
+        <converters:LedColorConverter x:Key="LedColorConverter"/>
+        
+        <!-- Alias EqualityConverter as StringEqualsConverter for semantic clarity in XAML -->
+        <converters:EqualityConverter x:Key="StringEqualsConverter"/>
+        <converters:FraudColorConverter x:Key="FraudColorConverter"/>
+        <converters:StringConcatConverter x:Key="StringConcatConverter"/>
+
+
+        <!-- Icons -->
+        <StreamGeometry x:Key="icons_spotify">M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141 4.32-1.32 9.84-.6 13.561 1.621.42.181.6.779.18 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 14.82 1.14.54.3.72.96.42 1.5-.3.54-.96.72-1.5.42z</StreamGeometry>
+        <StreamGeometry x:Key="icons_library">M4 2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm0 2v16h16V4H4zm2 2h4v12H6V6zm6 0h4v12h-4V6zm6 0h2v12h-2V6z</StreamGeometry>
+        
+        <StreamGeometry x:Key="brain_circuit_regular">M12,2A7,7 0 0,1 19,9C19,11.38 17.81,13.47 16,14.74V17A1,1 0 0,1 15,18H9A1,1 0 0,1 8,17V14.74C6.19,13.47 5,11.38 5,9A7,7 0 0,1 12,2M9,21V20H15V21A1,1 0 0,1 14,22H10A1,1 0 0,1 9,21M12,4A5,5 0 0,0 7,9C7,11.05 8.23,12.81 10,13.58V16H14V13.58C15.77,12.81 17,11.05 17,9A5,5 0 0,0 12,4Z</StreamGeometry>
+        <StreamGeometry x:Key="play_circle_regular">M12,2A10,10 0 1,0 22,12A10,10 0 0,0 12,2M10,16.5V7.5L16,12L10,16.5Z</StreamGeometry>
+        <StreamGeometry x:Key="folder_open_regular">M20,18H4V8H20M20,6H12L10,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V8C22,6.89 21.1,6 20,6Z</StreamGeometry>
+        <StreamGeometry x:Key="add_circle_regular">M17,13H13V17H11V13H7V11H11V7H13V11H17M12,2A10,10 0 1,0 22,12A10,10 0 0,0 12,2Z</StreamGeometry>
+        <StreamGeometry x:Key="pause_regular">M14,19H18V5H14M6,19H10V5H6V19Z</StreamGeometry>
+        <StreamGeometry x:Key="dismiss_regular">M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z</StreamGeometry>
+        <StreamGeometry x:Key="arrow_counterclockwise_regular">M13,3A9,9 0 0,0 4,12H1L4.89,15.89L8.78,12H6A7,7 0 0,1 13,5A7,7 0 0,1 20,12A7,7 0 0,1 13,19C11.07,19 9.32,18.21 8.06,16.94L6.64,18.36C8.27,20 10.5,21 13,21A9,9 0 0,0 22,12A9,9 0 0,0 13,3Z</StreamGeometry>
+        <StreamGeometry x:Key="radar_regular">M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6A6,6 0 0,0 6,12A6,6 0 0,0 12,18A6,6 0 0,0 18,12A6,6 0 0,0 12,6M12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12A2,2 0 0,1 12,10</StreamGeometry>
+        <StreamGeometry x:Key="music_regular">M21,3V15.5A3.5,3.5 0 0,1 17.5,19A3.5,3.5 0 0,1 14,15.5A3.5,3.5 0 0,1 17.5,12C18.04,12 18.55,12.12 19,12.34V6.47L9,8.6V17.5A3.5,3.5 0 0,1 5.5,21A3.5,3.5 0 0,1 2,17.5A3.5,3.5 0 0,1 5.5,14C6.04,14 6.55,14.12 7,14.34V6L21,3Z</StreamGeometry>
+        <StreamGeometry x:Key="mic_regular">M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z</StreamGeometry>
+        
+        <!-- Sprint 5: Transition Preview Icons -->
+        <StreamGeometry x:Key="mixer_regular">M3,5H5V19H3V5M19,5H21V19H19V5M11,5H13V19H11V5M7,9H9V15H7V9M15,9H17V15H15V9</StreamGeometry>
+        <StreamGeometry x:Key="checkmark_regular">M9,20.42L2.79,14.21L5.62,11.38L9,14.77L18.88,4.88L21.71,7.71L9,20.42Z</StreamGeometry>
+        <StreamGeometry x:Key="play_regular">M8,5.14V19.14L19,12.14L8,5.14Z</StreamGeometry>
+
+        <StreamGeometry x:Key="FullScreenData">M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z</StreamGeometry>
+        
+        <!-- UI Icons Added in Phase 3.6 -->
+        <StreamGeometry x:Key="rocket_regular">M12,2L4.5,20.29L5.21,21L12,18L18.79,21L19.5,20.29L12,2Z</StreamGeometry>
+        <StreamGeometry x:Key="arrow_up_regular">M11,19V7.83L5.91,12.91L4.5,11.5L12,4L19.5,11.5L18.09,12.91L13,7.83V19H11Z</StreamGeometry>
+        <StreamGeometry x:Key="search_regular">M15.5,14H14.71L14.43,13.73C15.41,12.59 16,11.11 16,9.5A6.5,6.5 0 0,0 9.5,3A6.5,6.5 0 0,0 3,9.5A6.5,6.5 0 0,0 9.5,16C11.11,16 12.59,15.41 13.73,14.43L14,14.71V15.5L19,20.5L20.5,19L15.5,14M9.5,14C7.01,14 5,11.99 5,9.5C5,7.01 7.01,5 9.5,5C11.99,5 14,7.01 14,9.5C14,11.99 11.99,14 9.5,14Z</StreamGeometry>
+        <StreamGeometry x:Key="cloud_arrow_up_regular">M14,13V17H10V13H7L12,8L17,13M19.35,10.03C18.67,6.59 15.64,4 12,4C9.11,4 6.6,5.64 5.35,8.03C2.34,8.36 0,10.9 0,14A6,6 0 0,0 6,20H19A5,5 0 0,0 24,15C24,12.36 21.95,10.22 19.35,10.03Z</StreamGeometry>
+        <StreamGeometry x:Key="location_pin_regular">M12,2A7,7 0 0,0 5,9C5,14.25 12,22 12,22C12,22 19,14.25 19,9A7,7 0 0,0 12,2M12,11.5A2.5,2.5 0 1,1 14.5,9A2.5,2.5 0 0,1 12,11.5Z</StreamGeometry>
+        <StreamGeometry x:Key="sparkles_regular">M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66L12,15.39M22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,14.05L5.82,21L12,17.27L18.18,21L16.55,14.05L22,9.24Z</StreamGeometry>
+    </Application.Resources>
+    
+    <Application.Styles>
+        <FluentTheme/>
+        <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml"/>
+        <StyleInclude Source="avares://Avalonia.Controls.TreeDataGrid/Themes/Fluent.axaml"/>
+        <StyleInclude Source="avares://ORBIT/Themes/AvaloniaTheme.axaml"/>
+        <StyleInclude Source="avares://ORBIT/Themes/GlassConsoleStyles.axaml"/>
+
+        <!-- Sidebar Navigation Items -->
+        <Style Selector="Button.nav-item">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#AAA"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <Style Selector="Button.nav-item:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#333"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+
+        <!-- Tool/Dropdown Buttons -->
+        <Style Selector="DropDownButton.tool">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="#888"/>
+        </Style>
+        <Style Selector="DropDownButton.tool:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#333"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+
+        <!-- Danger Buttons -->
+        <Style Selector="Button.danger">
+            <Setter Property="Background" Value="#33FF0000"/>
+            <Setter Property="Foreground" Value="#FF6B6B"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <Style Selector="Button.danger:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#66FF0000"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+
+        <!-- Phase 5B: Enhanced Filter Chip Styles -->
+        <Style Selector="ToggleButton.chip">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#888"/>
+            <Setter Property="BorderBrush" Value="#444"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="16"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.15"/>
+                    <BrushTransition Property="Foreground" Duration="0:0:0.15"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="ToggleButton.chip:pointerover">
+            <Setter Property="Background" Value="#2D2D2D"/>
+            <Setter Property="Foreground" Value="#CCC"/>
+            <Setter Property="BorderBrush" Value="#555"/>
+        </Style>
+        <Style Selector="ToggleButton.chip:checked">
+            <Setter Property="Background" Value="#4EC9B0"/>
+            <Setter Property="Foreground" Value="#1E1E1E"/>
+            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style Selector="ToggleButton.chip:checked:pointerover">
+            <Setter Property="Background" Value="#5FD9C0"/>
+        </Style>
+        <Style Selector="ToggleButton.chip.danger:checked">
+            <Setter Property="Background" Value="#FF6B6B"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#FF6B6B"/>
+        </Style>
+        <Style Selector="ToggleButton.chip.danger:checked:pointerover">
+            <Setter Property="Background" Value="#FF8A8A"/>
+        </Style>
+
+        <!-- Stalled / Warning Pulse -->
+        <Style Selector=":is(Control).pulse_amber">
+             <Style.Animations>
+                 <Animation Duration="0:0:1.5" IterationCount="Infinite">
+                     <KeyFrame KeyTime="0:0:0"><Setter Property="Opacity" Value="1"/></KeyFrame>
+                     <KeyFrame KeyTime="0:0:0.75"><Setter Property="Opacity" Value="0.3"/></KeyFrame>
+                     <KeyFrame KeyTime="0:0:1.5"><Setter Property="Opacity" Value="1"/></KeyFrame>
+                 </Animation>
+             </Style.Animations>
+        </Style>
+    </Application.Styles>
+    
+    <!-- System Tray Icon -->
+    <TrayIcon.Icons>
+        <TrayIcons>
+            <TrayIcon ToolTipText="ORBIT - Soulseek Music Downloader">
+                <TrayIcon.Menu>
+                    <NativeMenu>
+                        <NativeMenuItem Header="Show Window" Click="ShowWindow_Click"/>
+                        <NativeMenuItem Header="Hide Window" Click="HideWindow_Click"/>
+                        <NativeMenuItemSeparator/>
+                        <NativeMenuItem Header="Exit" Click="Exit_Click"/>
+                    </NativeMenu>
+                </TrayIcon.Menu>
+            </TrayIcon>
+        </TrayIcons>
+    </TrayIcon.Icons>
+</Application>

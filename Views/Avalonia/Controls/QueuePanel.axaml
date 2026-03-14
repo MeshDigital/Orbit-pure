@@ -1,0 +1,96 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:SLSKDONET.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="300" d:DesignHeight="450"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.QueuePanel"
+             x:DataType="vm:PlayerViewModel">
+    
+    <UserControl.Styles>
+        <Style Selector="ListBox">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        
+        <Style Selector="ListBoxItem">
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="Margin" Value="0,2"/>
+        </Style>
+        
+        <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
+        </Style>
+        
+        <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+        </Style>
+    </UserControl.Styles>
+    
+    <Border Background="{DynamicResource BackgroundBrush}" CornerRadius="8" Padding="16">
+        <DockPanel>
+            <!-- Header -->
+            <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,16">
+                <TextBlock Text="Play Queue" 
+                          FontSize="18" 
+                          FontWeight="SemiBold"
+                          Foreground="{DynamicResource TextBrush}"/>
+                
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Foreground="{DynamicResource TextSecondaryBrush}">
+                        <Run Text="{Binding Queue.Count}"/>
+                        <Run Text="tracks"/>
+                    </TextBlock>
+                    
+                    <Button Content="Clear All"
+                            Command="{Binding ClearQueueCommand}"
+                            IsEnabled="{Binding Queue.Count}"
+                            Padding="8,4"
+                            FontSize="12"
+                            Background="{DynamicResource TertiaryBackgroundBrush}"
+                            Foreground="{DynamicResource TextBrush}"
+                            CornerRadius="4"/>
+                </StackPanel>
+            </StackPanel>
+            
+            <!-- Queue List -->
+            <ScrollViewer>
+                <ListBox ItemsSource="{Binding Queue}"
+                        SelectedIndex="{Binding CurrentQueueIndex}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PlaylistTrackViewModel">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <!-- Track Info -->
+                                <StackPanel Grid.Column="0" Spacing="4">
+                                    <TextBlock Text="{Binding Title}"
+                                              Foreground="{DynamicResource TextBrush}"
+                                              TextTrimming="CharacterEllipsis"/>
+                                    
+                                    <TextBlock Text="{Binding Artist}"
+                                              FontSize="12"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                              TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                                
+                                <!-- Remove Button -->
+                                <Button Grid.Column="1"
+                                       Content="✕"
+                                       Command="{Binding $parent[ListBox].((vm:PlayerViewModel)DataContext).RemoveFromQueueCommand}"
+                                       CommandParameter="{Binding}"
+                                       Width="24"
+                                       Height="24"
+                                       Padding="0"
+                                       Background="Transparent"
+                                       Foreground="#AAAAAA"
+                                       FontSize="16"
+                                       VerticalAlignment="Center"
+                                       HorizontalContentAlignment="Center"
+                                       VerticalContentAlignment="Center"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </ScrollViewer>
+        </DockPanel>
+    </Border>
+</UserControl>

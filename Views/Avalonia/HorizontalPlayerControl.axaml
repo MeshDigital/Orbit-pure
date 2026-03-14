@@ -1,0 +1,228 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="100"
+             x:Class="SLSKDONET.Views.Avalonia.HorizontalPlayerControl"
+             x:DataType="vm:PlayerViewModel"
+             Background="#252526">
+
+    <Grid ColumnDefinitions="350,*,350" Margin="20,10">
+        <!-- Column 0: Track Info -->
+        <Grid Grid.Column="0" ColumnDefinitions="Auto,*" VerticalAlignment="Center">
+            <!-- Mini Album Art -->
+            <Border Width="60" Height="60" 
+                    Background="#1E1E1E" 
+                    CornerRadius="6" 
+                    ClipToBounds="True" 
+                    BoxShadow="0 4 8 0 #40000000">
+                <Panel>
+                    <Button Command="{Binding CycleVisualStyleCommand}" 
+                            Padding="0" 
+                            Background="Transparent" 
+                            BorderThickness="0"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch">
+                        <Panel>
+                            <!-- Phase 1.7: Vibe Visualizer (Mini-Glow) -->
+                            <controls:VibeVisualizer IsPlaying="{Binding IsPlaying}"
+                                                 VuLeft="{Binding VuLeft}"
+                                                 VuRight="{Binding VuRight}"
+                                                 SpectrumData="{Binding SpectrumData}"
+                                                 Energy="{Binding CurrentTrack.Energy}"
+                                                 MoodTag="{Binding CurrentTrack.MoodTag}"
+                                                 VisualStyle="{Binding CurrentVisualStyle}"
+                                                 Opacity="0.6"/>
+                            <Image Source="{Binding CurrentTrack.ArtworkBitmap}" 
+                                   Stretch="UniformToFill"
+                                   IsVisible="{Binding CurrentTrack.ArtworkBitmap, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                            
+                            <!-- Immersive Hover Overlay -->
+                            <Border Name="ImmersiveOverlay" Background="#AA000000" Opacity="0" Transitions="{StaticResource ControlOpacityTransitions}">
+                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                    <TextBlock Text="✨" FontSize="16" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="IMMERSIVE" FontSize="8" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                            <Panel.Styles>
+                                <Style Selector="Panel:pointerover > Border#ImmersiveOverlay">
+                                    <Setter Property="Opacity" Value="1"/>
+                                </Style>
+                            </Panel.Styles>
+
+                            <Path Data="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" 
+                                  Fill="#404040" 
+                                  Width="30" Height="30" 
+                                  Stretch="Uniform"
+                                  IsVisible="{Binding CurrentTrack.ArtworkBitmap, Converter={x:Static ObjectConverters.IsNull}}"/>
+                        </Panel>
+                    </Button>
+                        
+                    <!-- Loading Spinner Overlay -->
+                    <ProgressBar IsIndeterminate="True" 
+                                 VerticalAlignment="Bottom" 
+                                 Height="2" 
+                                 Foreground="#1DB954"
+                                 IsVisible="{Binding IsLoading}"/>
+                </Panel>
+            </Border>
+            
+            <StackPanel Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center" Spacing="4">
+                <TextBlock Text="{Binding TrackTitle}" 
+                           FontSize="14" 
+                           FontWeight="SemiBold" 
+                           Foreground="White" 
+                           TextTrimming="CharacterEllipsis"/>
+                <TextBlock Text="{Binding TrackArtist}" 
+                           FontSize="12" 
+                           Foreground="#B3B3B3" 
+                           TextTrimming="CharacterEllipsis"/>
+                
+                <!-- Metadata Badges -->
+                <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2,0,0">
+                    <Border Background="#3E3E3E" CornerRadius="3" Padding="4,1">
+                        <TextBlock Text="{Binding CurrentTrack.Bitrate, StringFormat='{}{0} KBPS'}" FontSize="9" Foreground="#4EC9B0" FontWeight="Bold"/>
+                    </Border>
+                    <Border Background="#3E3E3E" CornerRadius="3" Padding="4,1">
+                        <TextBlock Text="{Binding CurrentTrack.Format}" FontSize="9" Foreground="#B3B3B3" FontWeight="Bold"/>
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <!-- Column 1: Controls & Progress -->
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="8">
+            <!-- Playback Buttons -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="24">
+                <Button Command="{Binding PreviousTrackCommand}" 
+                        Classes="icon-button" 
+                        ToolTip.Tip="Previous">
+                    <TextBlock Text="⏮️" FontSize="18"/>
+                </Button>
+                
+                <Button Command="{Binding TogglePlayPauseCommand}" 
+                        Background="#1DB954" 
+                        Width="44" Height="44" 
+                        CornerRadius="22" 
+                        HorizontalContentAlignment="Center" 
+                        VerticalContentAlignment="Center"
+                        BorderThickness="0">
+                    <Button.Styles>
+                        <Style Selector="Button:pointerover">
+                            <Setter Property="Background" Value="#1ED760"/>
+                        </Style>
+                    </Button.Styles>
+                    <TextBlock Text="{Binding IsPlaying, Converter={StaticResource BoolToPlayPauseIconConverter}}" 
+                               FontSize="20" 
+                               Foreground="Black"
+                               Margin="2,0,0,0"/>
+                </Button>
+                
+                <Button Command="{Binding NextTrackCommand}" 
+                        Classes="icon-button" 
+                        ToolTip.Tip="Next">
+                    <TextBlock Text="⏭️" FontSize="18"/>
+                </Button>
+            </StackPanel>
+
+            <!-- Progress Bar -->
+            <Grid ColumnDefinitions="50,*,50" VerticalAlignment="Center">
+                <TextBlock Grid.Column="0" 
+                           Text="{Binding CurrentTimeStr}" 
+                           FontSize="11" 
+                           Foreground="#B3B3B3" 
+                           HorizontalAlignment="Left"
+                           VerticalAlignment="Center"/>
+                
+                <Panel Grid.Column="1" Height="32" Margin="12,0">
+                    <!-- High-Res Waveform Background -->
+                    <controls:WaveformControl WaveformData="{Binding WaveformData}" 
+                                             LowBand="{Binding CurrentTrack.LowData}"
+                                             MidBand="{Binding CurrentTrack.MidData}"
+                                             HighBand="{Binding CurrentTrack.HighData}"
+                                             Progress="{Binding Position}" 
+                                             Background="#01000000"
+                                             PlayheadBrush="#1DB954"
+                                             SeekCommand="{Binding SeekCommand}"
+                                             VerticalAlignment="Stretch"/>
+                </Panel>
+                
+                <TextBlock Grid.Column="2" 
+                           Text="{Binding TotalTimeStr}" 
+                           FontSize="11" 
+                           Foreground="#B3B3B3" 
+                           HorizontalAlignment="Right"
+                           VerticalAlignment="Center"/>
+            </Grid>
+        </StackPanel>
+
+        <!-- Column 2: Volume & Secondary Actions -->
+        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="16">
+            <!-- Shuffle & Repeat -->
+            <StackPanel Orientation="Horizontal" Spacing="4">
+                <Button Command="{Binding ToggleShuffleCommand}" 
+                        Classes="icon-button" 
+                        ToolTip.Tip="Shuffle">
+                    <TextBlock Text="🔀" FontSize="14" 
+                               Foreground="{Binding IsShuffling, Converter={StaticResource BoolToColorConverter}}"/>
+                </Button>
+                <Button Command="{Binding ToggleRepeatCommand}" 
+                        Classes="icon-button" 
+                        ToolTip.Tip="Repeat">
+                    <TextBlock Text="{Binding RepeatMode, Converter={StaticResource RepeatModeIconConverter}}" 
+                               FontSize="14" 
+                               Foreground="{Binding RepeatMode, Converter={StaticResource RepeatModeColorConverter}}"/>
+                </Button>
+            </StackPanel>
+
+            <Rectangle Width="1" Height="24" Fill="#3E3E3E"/>
+
+            <!-- Volume -->
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
+                <TextBlock Text="🔊" FontSize="14" Foreground="#B3B3B3" VerticalAlignment="Center"/>
+                <Slider Width="100" 
+                        Minimum="0" Maximum="100" 
+                        Value="{Binding Volume, Mode=TwoWay}"
+                        VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <Rectangle Width="1" Height="24" Fill="#3E3E3E"/>
+
+            <!-- Like & Queue -->
+            <StackPanel Orientation="Horizontal" Spacing="4">
+                <Button Command="{Binding ToggleLikeCommand}" 
+                        Classes="icon-button" 
+                        ToolTip.Tip="Like">
+                    <TextBlock Text="{Binding IsCurrentTrackLiked, Converter={StaticResource BoolToHeartConverter}}" 
+                               FontSize="16" 
+                               Foreground="{Binding IsCurrentTrackLiked, Converter={StaticResource BoolToHeartColorConverter}}"/>
+                </Button>
+                <Button Command="{Binding ToggleQueueCommand}" 
+                        Classes="icon-button" 
+                        ToolTip.Tip="Queue">
+                    <TextBlock Text="📋" FontSize="14" 
+                               Foreground="{Binding IsQueueOpen, Converter={StaticResource BoolToColorConverter}}"/>
+                </Button>
+
+                <Rectangle Width="1" Height="24" Fill="#3E3E3E"/>
+
+                <Button Command="{Binding ToggleTheaterModeCommand}" 
+                        Classes="icon-button" 
+                        ToolTip.Tip="Visualizer (Theater Mode)"
+                        Padding="8,4"
+                        Background="#331DB954"
+                        BorderBrush="#1DB954"
+                        BorderThickness="1">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="✨" FontSize="18" 
+                                   Foreground="{Binding IsTheaterMode, Converter={StaticResource BoolToColorConverter}}"/>
+                        <TextBlock Text="THEATER MODE" FontSize="10" FontWeight="Bold" 
+                                   VerticalAlignment="Center" Foreground="White" Opacity="0.9"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</UserControl>

@@ -1,0 +1,349 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+
+             mc:Ignorable="d" d:DesignWidth="300" d:DesignHeight="800"
+             x:Class="SLSKDONET.Views.Avalonia.PlayerControl"
+             x:DataType="vm:PlayerViewModel"
+             Background="#252526">
+    
+    <!-- Vertical Player for Right Sidebar -->
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+        
+        <!-- Header -->
+        <Border Grid.Row="0" 
+                Background="#2D2D2D" 
+                Padding="16,12"
+                BorderBrush="#3E3E3E"
+                BorderThickness="0,0,0,1">
+            <TextBlock Text="Now Playing" 
+                       FontSize="14" 
+                       FontWeight="SemiBold"
+                       Foreground="White"/>
+        </Border>
+        
+        <!-- Album Art & Track Info -->
+        <StackPanel Grid.Row="1" Margin="16,20,16,16" Spacing="16">
+            <!-- Album Art -->
+            <Border x:Name="PlayNowZone" 
+                    Width="260" Height="260" 
+                    Background="#1E1E1E" 
+                    CornerRadius="8"
+                    HorizontalAlignment="Center"
+                    DragDrop.AllowDrop="True">
+                <Panel>
+                    
+                    <Grid ColumnDefinitions="4,*,4" Margin="4">
+                        <!-- VU Meter Left -->
+                        <Border Grid.Column="0" VerticalAlignment="Bottom" 
+                                Background="#1DB954" Width="4"
+                                Height="{Binding VuLeft, Converter={StaticResource VuHeightConverter}, ConverterParameter=250}"/>
+                                
+                        <!-- Dynamic Album Artwork -->
+                        <Image Grid.Column="1" Source="{Binding CurrentTrack.ArtworkBitmap}" 
+                               Stretch="UniformToFill"
+                               IsVisible="{Binding CurrentTrack.ArtworkBitmap, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                               
+                        <!-- VU Meter Right -->
+                        <Border Grid.Column="2" VerticalAlignment="Bottom" 
+                                Background="#1DB954" Width="4"
+                                Height="{Binding VuRight, Converter={StaticResource VuHeightConverter}, ConverterParameter=250}"/>
+                    </Grid>
+                    
+                    <!-- Professional fallback with Path geometry instead of emoji -->
+                    <Path Data="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" 
+                          Fill="#404040" 
+                          Stretch="Uniform"
+                          Width="80" Height="80"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center"
+                          IsVisible="{Binding CurrentTrack.ArtworkBitmap, Converter={x:Static ObjectConverters.IsNull}}"/>
+                </Panel>
+            </Border>
+
+            
+            <!-- Phase 9.2: Loading State -->
+            <Border IsVisible="{Binding IsLoading}" 
+                    Background="#1E1E1E" 
+                    CornerRadius="8"
+                    Padding="16"
+                    Margin="0,8,0,0">
+                <StackPanel Spacing="8" HorizontalAlignment="Center">
+                    <ProgressBar IsIndeterminate="True" 
+                                  Width="100" Height="4" 
+                                  Foreground="#1DB954"
+                                  IsVisible="{Binding IsLoading}"/>
+                    <TextBlock Text="Loading track..." 
+                               FontSize="12" 
+                               Foreground="#B3B3B3"
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Phase 9.2: Error Banner with Auto-Dismiss -->
+            <Border IsVisible="{Binding HasPlaybackError}" 
+                    Background="#4D0000" 
+                    BorderBrush="#FF0000" 
+                    BorderThickness="1" 
+                    CornerRadius="4"
+                    Padding="12"
+                    Margin="0,8,0,0">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="⚠️ Playback Error" 
+                               FontSize="12" 
+                               FontWeight="SemiBold" 
+                               Foreground="#FF6B6B"/>
+                    <TextBlock Text="{Binding PlaybackError}" 
+                               FontSize="11" 
+                               Foreground="#DDD" 
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Track Info -->
+            <StackPanel Spacing="8">
+                <TextBlock Text="{Binding TrackTitle}" 
+                           FontSize="16" 
+                           FontWeight="SemiBold"
+                           Foreground="White"
+                           TextTrimming="CharacterEllipsis"
+                           TextWrapping="Wrap"
+                           MaxLines="2"
+                           TextAlignment="Center"/>
+                <TextBlock Text="{Binding TrackArtist}" 
+                           FontSize="13" 
+                           Foreground="#B3B3B3"
+                           TextTrimming="CharacterEllipsis"
+                           TextAlignment="Center"/>
+            </StackPanel>
+        </StackPanel>
+        
+        <!-- Spacer -->
+        <Border Grid.Row="2"/>
+        
+        <!-- Controls Section -->
+        <StackPanel x:Name="QueueZone" Grid.Row="3" Spacing="16" Margin="16,0,16,20" DragDrop.AllowDrop="True">
+            
+            <!-- Waveform Seekbar -->
+            <StackPanel Spacing="8">
+                <Panel Height="60">
+                    <!-- Background Waveform with Centered Playhead -->
+                    <controls:WaveformControl WaveformData="{Binding WaveformData}" 
+                                               LowBand="{Binding CurrentTrack.LowData}"
+                                               MidBand="{Binding CurrentTrack.MidData}"
+                                               HighBand="{Binding CurrentTrack.HighData}"
+                                             Progress="{Binding Position}"
+                                             IsRolling="False"
+                                             Background="#01000000"
+                                             PlayheadBrush="#1DB954"
+                                             SeekCommand="{Binding SeekCommand}"
+                                             VerticalAlignment="Stretch"
+                                             HorizontalAlignment="Stretch"/>
+                </Panel>
+                
+                <!-- Time Labels -->
+                <Grid ColumnDefinitions="*,*">
+                    <TextBlock Grid.Column="0" 
+                               Text="{Binding CurrentTimeStr}" 
+                               FontSize="11" 
+                               Foreground="#B3B3B3"/>
+                    <TextBlock Grid.Column="1" 
+                               Text="{Binding TotalTimeStr}" 
+                               FontSize="11" 
+                               Foreground="#B3B3B3"
+                               HorizontalAlignment="Right"/>
+                </Grid>
+            </StackPanel>
+            
+            <!-- Playback Controls -->
+            <StackPanel Orientation="Horizontal" 
+                        HorizontalAlignment="Center" 
+                        Spacing="16">
+                <!-- Previous -->
+                <Button Command="{Binding PreviousTrackCommand}"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Width="40" Height="40"
+                        ToolTip.Tip="Previous">
+                    <Button.Styles>
+                        <Style Selector="Button:pointerover">
+                            <Setter Property="Background" Value="#2D2D2D"/>
+                        </Style>
+                    </Button.Styles>
+                    <TextBlock Text="⏮️" FontSize="20"/>
+                </Button>
+                
+                <!-- Play/Pause -->
+                <Button Command="{Binding TogglePlayPauseCommand}"
+                        Background="#1DB954"
+                        Foreground="Black"
+                        Width="48" Height="48"
+                        CornerRadius="24"
+                        BorderThickness="0"
+                        Cursor="Hand">
+                    <Button.Styles>
+                        <Style Selector="Button:pointerover">
+                            <Setter Property="Background" Value="#1ED760"/>
+                        </Style>
+                    </Button.Styles>
+                    <TextBlock Text="{Binding IsPlaying, Converter={StaticResource BoolToPlayPauseIconConverter}}" 
+                               FontSize="22"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                </Button>
+                
+                <!-- Next -->
+                <Button Command="{Binding NextTrackCommand}"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Width="40" Height="40"
+                        ToolTip.Tip="Next">
+                    <Button.Styles>
+                        <Style Selector="Button:pointerover">
+                            <Setter Property="Background" Value="#2D2D2D"/>
+                        </Style>
+                    </Button.Styles>
+                    <TextBlock Text="⏭️" FontSize="20"/>
+                </Button>
+            </StackPanel>
+            
+            <!-- Shuffle & Repeat Controls -->
+            <StackPanel Orientation="Horizontal" 
+                        HorizontalAlignment="Center" 
+                        Spacing="16"
+                        Margin="0,12,0,0">
+                <!-- Shuffle -->
+                <Button Command="{Binding ToggleShuffleCommand}"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Width="36" Height="36"
+                        ToolTip.Tip="Shuffle">
+                    <Button.Styles>
+                        <Style Selector="Button:pointerover">
+                            <Setter Property="Background" Value="#2D2D2D"/>
+                        </Style>
+                    </Button.Styles>
+                    <TextBlock Text="🔀" 
+                               FontSize="16" 
+                               Foreground="{Binding IsShuffling, Converter={StaticResource BoolToColorConverter}}"/>
+                </Button>
+                
+                <!-- Repeat -->
+                <Button Command="{Binding ToggleRepeatCommand}"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Width="36" Height="36"
+                        ToolTip.Tip="{Binding RepeatMode}">
+                    <Button.Styles>
+                        <Style Selector="Button:pointerover">
+                            <Setter Property="Background" Value="#2D2D2D"/>
+                        </Style>
+                    </Button.Styles>
+                    <TextBlock Text="{Binding RepeatMode, Converter={StaticResource RepeatModeIconConverter}}" 
+                               FontSize="16" 
+                               Foreground="{Binding RepeatMode, Converter={StaticResource RepeatModeColorConverter}}"/>
+                </Button>
+            </StackPanel>
+            
+            <!-- Pitch & Volume Controls -->
+            <StackPanel Spacing="12">
+                <!-- Pitch Slider -->
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <TextBlock Grid.Column="0" Text="-" FontSize="12" Foreground="#B3B3B3" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <Slider Grid.Column="1" 
+                            Minimum="0.9" Maximum="1.1" 
+                            Value="{Binding Pitch, Mode=TwoWay}"
+                            Height="20"
+                            ToolTip.Tip="Pitch / Tempo"/>
+                    <TextBlock Grid.Column="2" Text="+" FontSize="12" Foreground="#B3B3B3" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                </Grid>
+
+                <Grid ColumnDefinitions="Auto,*">
+                    <TextBlock Grid.Column="0" 
+                               Text="🔊" 
+                               FontSize="14" 
+                               Foreground="#B3B3B3"
+                               VerticalAlignment="Center"
+                               Margin="0,0,12,0"/>
+                    
+                    <Slider Grid.Column="1"
+                            Minimum="0"
+                            Maximum="100"
+                            Value="{Binding Volume, Mode=TwoWay}"
+                            Height="20">
+                        <Slider.Styles>
+                            <Style Selector="Slider /template/ Thumb">
+                                <Setter Property="Background" Value="White"/>
+                                <Setter Property="Width" Value="12"/>
+                                <Setter Property="Height" Value="12"/>
+                                <Setter Property="CornerRadius" Value="6"/>
+                            </Style>
+                        </Slider.Styles>
+                    </Slider>
+                </Grid>
+            </StackPanel>
+            
+            <!-- Like & Queue Buttons -->
+            <StackPanel Orientation="Horizontal" 
+                        HorizontalAlignment="Center" 
+                        Spacing="12">
+                <!-- Phase 9.3: Like Button -->
+                <Button Command="{Binding ToggleLikeCommand}"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Width="36" Height="36"
+                        ToolTip.Tip="Like"
+                        Classes.liked="{Binding IsCurrentTrackLiked}">
+                    <Button.Styles>
+                        <Style Selector="Button:pointerover">
+                            <Setter Property="Background" Value="#2D2D2D"/>
+                        </Style>
+                        <!-- Pulsing Heart Animation -->
+                        <Style Selector="Button.liked TextBlock">
+                            <Style.Animations>
+                                <Animation Duration="0:0:0.5" Easing="BackEaseOut" IterationCount="1">
+                                    <KeyFrame KeyTime="0:0:0.0">
+                                        <Setter Property="ScaleTransform.ScaleX" Value="1.0"/>
+                                        <Setter Property="ScaleTransform.ScaleY" Value="1.0"/>
+                                    </KeyFrame>
+                                    <KeyFrame KeyTime="0:0:0.25">
+                                        <Setter Property="ScaleTransform.ScaleX" Value="1.4"/>
+                                        <Setter Property="ScaleTransform.ScaleY" Value="1.4"/>
+                                    </KeyFrame>
+                                    <KeyFrame KeyTime="0:0:0.5">
+                                        <Setter Property="ScaleTransform.ScaleX" Value="1.0"/>
+                                        <Setter Property="ScaleTransform.ScaleY" Value="1.0"/>
+                                    </KeyFrame>
+                                </Animation>
+                            </Style.Animations>
+                        </Style>
+                    </Button.Styles>
+                    <TextBlock Text="{Binding IsCurrentTrackLiked, Converter={StaticResource BoolToHeartConverter}}" 
+                               FontSize="18" 
+                               Foreground="{Binding IsCurrentTrackLiked, Converter={StaticResource BoolToHeartColorConverter}}"
+                               RenderTransformOrigin="50%,50%">
+                        <TextBlock.RenderTransform>
+                            <ScaleTransform ScaleX="1.0" ScaleY="1.0"/>
+                        </TextBlock.RenderTransform>
+                    </TextBlock>
+                </Button>
+                
+                <Button Command="{Binding ToggleQueueCommand}"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Width="36" Height="36"
+                        ToolTip.Tip="Queue">
+                    <Button.Styles>
+                        <Style Selector="Button:pointerover">
+                            <Setter Property="Background" Value="#2D2D2D"/>
+                        </Style>
+                    </Button.Styles>
+                    <TextBlock Text="📋" FontSize="16" Foreground="{Binding IsQueueOpen, Converter={StaticResource BoolToColorConverter}}"/>
+                </Button>
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</UserControl>

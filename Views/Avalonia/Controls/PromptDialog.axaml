@@ -1,0 +1,24 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SLSKDONET.Views.Avalonia.Controls.PromptDialog"
+        Title="{Binding PromptTitle}" Width="400" Height="180"
+        WindowStartupLocation="CenterOwner"
+        Background="#1E1E1E" TransparencyLevelHint="AcrylicBlur"
+        ExtendClientAreaToDecorationsHint="True">
+
+    <Border Padding="20" Background="#1E1E1E">
+        <StackPanel Spacing="16">
+            <TextBlock Text="{Binding PromptTitle}" FontSize="18" FontWeight="SemiBold" Foreground="White" Margin="0,0,0,8"/>
+            <TextBlock Text="{Binding Message}" FontSize="12" Foreground="#AAA" TextWrapping="Wrap"/>
+            
+            <TextBox Name="InputBox" Text="{Binding InputText, Mode=TwoWay}" 
+                     Watermark="Enter name..."
+                     Background="#2D2D30" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12" Margin="0,8,0,0">
+                <Button Content="Cancel" Click="Cancel_Click" Background="Transparent" Foreground="#AAA"/>
+                <Button Content="Save" Click="Save_Click" Background="#1DB954" Foreground="White" Width="100" HorizontalContentAlignment="Center" FontWeight="Bold"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

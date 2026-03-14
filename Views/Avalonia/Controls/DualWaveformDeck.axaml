@@ -1,0 +1,95 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="300"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.DualWaveformDeck">
+
+    <UserControl.Styles>
+        <Style Selector="controls|WaveformControl">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto, 4, *">
+        
+        <!-- MACRO VIEW (The Map) -->
+        <!-- Locked to ZoomLevel=1, Shows full track structure -->
+        <Grid Grid.Row="0" Height="64" Margin="0,0,0,4">
+            <Border Background="#111" CornerRadius="4" ClipToBounds="True">
+                <Grid>
+                    <!-- Macro Waveform -->
+                    <controls:WaveformControl Name="MacroWaveform"
+                                            WaveformData="{Binding WaveformData}"
+                                            Cues="{Binding Cues}"
+                                            PhraseSegments="{Binding PhraseSegments}"
+                                            EnergyCurve="{Binding EnergyCurve}"
+                                            SegmentedEnergy="{Binding SegmentedEnergy}"
+                                            Progress="{Binding Progress}"
+                                            IsRolling="False"
+                                            ZoomLevel="1.0"
+                                            ViewOffset="0.0"
+                                            Foreground="#333"
+                                            PlayheadBrush="#80FFFFFF"/>
+
+                    <!-- Viewport Overlay (The Lens Indicator) -->
+                    <!-- Positioned via Code-behind based on MicroView's Offset/Zoom -->
+                    <Canvas Name="ViewportCanvas" IsHitTestVisible="False">
+                        <Border Name="ViewportRect"
+                                BorderBrush="#00FFD1"
+                                BorderThickness="1"
+                                Background="#2000FFD1"
+                                Height="64"/>
+                    </Canvas>
+                    
+                    <!-- Click-to-Jump Hit Box -->
+                    <Panel Background="Transparent" 
+                           PointerPressed="OnMacroMapClicked"/>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- MICRO VIEW (The Lens) -->
+        <!-- Zoomable, High-FPS, Interactive -->
+        <Grid Grid.Row="2">
+            <Border Background="#080808" CornerRadius="6" ClipToBounds="True" BorderBrush="#222" BorderThickness="1">
+                <Grid>
+                    <!-- Main Micro Waveform with Integrated Ghost Layer -->
+                    <controls:WaveformControl Name="MicroWaveform"
+                                            WaveformData="{Binding WaveformData}"
+                                            Cues="{Binding Cues}"
+                                            PhraseSegments="{Binding PhraseSegments}"
+                                            EnergyCurve="{Binding EnergyCurve}"
+                                            SegmentedEnergy="{Binding SegmentedEnergy}"
+                                            VocalDensityCurve="{Binding VocalDensityCurve}"
+                                            ShowVocalGhost="{Binding ShowVocalGhost, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            Progress="{Binding Progress}"
+                                            IsRolling="{Binding IsRolling}"
+                                            SnappingMode="Hard"
+                                            Bpm="{Binding Bpm}"
+                                            
+                                            CueClickedCommand="{Binding CueClickedCommand}"
+                                            CueUpdatedCommand="{Binding CueUpdatedCommand}"
+                                            SeekCommand="{Binding SeekCommand}"
+                                            
+                                            PlayheadBrush="#FF4081"
+                                            Foreground="#4EC9B0"
+                                            
+                                            PointerWheelChanged="OnMicroWaveformScroll"/>
+
+                    <!-- Adorner Layer (Tooltips, Hover Info) -->
+                    <Canvas Name="AdornerCanvas" IsHitTestVisible="False"/>
+                    
+                    <!-- Zoom/Time Info Overlay -->
+                    <StackPanel VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8" Orientation="Horizontal" Spacing="8">
+                         <Border Background="#80000000" CornerRadius="4" Padding="4,2">
+                             <TextBlock Name="ZoomLabel" Text="1x" FontSize="10" Foreground="#666"/>
+                         </Border>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

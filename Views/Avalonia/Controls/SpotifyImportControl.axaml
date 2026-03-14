@@ -1,0 +1,203 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.SpotifyImportControl"
+             x:Name="Root">
+    
+    <Design.DataContext>
+        <vm:SpotifyImportViewModel/>
+    </Design.DataContext>
+
+    <Grid>
+        <!-- Not Authenticated State -->
+        <Border IsVisible="{Binding ShowLoginButton}" VerticalAlignment="Center" HorizontalAlignment="Center">
+            <StackPanel Spacing="20" HorizontalAlignment="Center">
+                <PathIcon Data="{StaticResource icons_spotify}" Width="64" Height="64" Foreground="#1DB954"/>
+                <TextBlock Text="Connect to Spotify" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center"/>
+                <TextBlock Text="Sign in to browse and import your playlists directly." 
+                           Foreground="#A0A0A0" FontSize="16" HorizontalAlignment="Center"/>
+                
+                <Button Command="{Binding ConnectCommand}"
+                        Classes="primary"
+                        HorizontalAlignment="Center"
+                        Padding="24,12"
+                        CornerRadius="24">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <TextBlock Text="Login with Spotify" FontSize="16" FontWeight="SemiBold"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </Border>
+
+        <!-- Authenticated State: Tabbed Browser -->
+        <Grid IsVisible="{Binding IsAuthenticated}" RowDefinitions="Auto,*">
+            <!-- Header Toolbar -->
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,16">
+                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <PathIcon Data="{StaticResource icons_spotify}" Foreground="#1DB954" Width="24" Height="24"/>
+                    <TextBlock Text="Spotify Browser" FontSize="22" FontWeight="Bold"/>
+                    <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsLoading}" Width="20" Height="20" Margin="8,0,0,0"/>
+                    <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsSearching}" Width="20" Height="20"/>
+                    <TextBlock Text="{Binding StatusMessage}" Foreground="#A0A0A0" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                </StackPanel>
+                <Button Grid.Column="1" Command="{Binding RefreshPlaylistsCommand}" Classes="secondary">
+                     <StackPanel Orientation="Horizontal" Spacing="8">
+                         <TextBlock Text="🔄"/>
+                         <TextBlock Text="Refresh Library"/>
+                     </StackPanel>
+                </Button>
+            </Grid>
+
+            <!-- Tabs -->
+            <TabControl Grid.Row="1" SelectedIndex="{Binding SelectedTabIndex}" Classes="modern">
+                <!-- My Library Tab -->
+                <TabItem Header="My Library">
+                    <Grid RowDefinitions="Auto,*" Margin="0,16,0,0">
+                        <!-- Toolbar for My Library -->
+                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,16">
+                            <TextBox Text="{Binding PlaylistFilter}" 
+                                     Watermark="Filter your playlists by name or owner..."
+                                     Classes="modern"
+                                     Padding="12,10">
+                                <ToolTip.Tip>Type to filter the list below. Use the button to sync only what you see.</ToolTip.Tip>
+                            </TextBox>
+                            <Button Grid.Column="1" Command="{Binding SyncFilteredPlaylistsCommand}" 
+                                    Classes="primary" Margin="12,0,0,0" IsVisible="{Binding !string.IsNullOrWhiteSpace(PlaylistFilter)}">
+                                 <StackPanel Orientation="Horizontal" Spacing="8">
+                                     <TextBlock Text="🎯"/>
+                                     <TextBlock Text="Sync Filtered"/>
+                                 </StackPanel>
+                            </Button>
+                            <Button Grid.Column="2" Command="{Binding SyncAllPlaylistsCommand}" 
+                                    Classes="secondary" Margin="12,0,0,0" IsVisible="{Binding string.IsNullOrWhiteSpace(PlaylistFilter)}">
+                                 <StackPanel Orientation="Horizontal" Spacing="8">
+                                     <TextBlock Text="📦"/>
+                                     <TextBlock Text="Sync All Playlists"/>
+                                 </StackPanel>
+                            </Button>
+                        </Grid>
+
+                        <ScrollViewer Grid.Row="1">
+                            <StackPanel Spacing="24">
+                                <ItemsControl ItemsSource="{Binding FilteredUserPlaylists}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel Orientation="Horizontal"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Command="{Binding #Root.DataContext.ImportPlaylistCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Background="Transparent" Padding="0" Margin="0,0,12,12" BorderThickness="0">
+                                                <Border Width="130" Background="#252526" CornerRadius="8" ClipToBounds="True">
+                                                    <Grid RowDefinitions="130,Auto">
+                                                        <Image Grid.Row="0" Source="{Binding ImageUrl}" Stretch="UniformToFill" Height="130"/>
+                                                        <Border Grid.Row="0" Background="#66000000" IsVisible="{Binding ImageUrl, Converter={x:Static StringConverters.IsNullOrEmpty}}">
+                                                            <TextBlock Text="🎵" FontSize="36" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                        <Border Grid.Row="1" Padding="8">
+                                                            <StackPanel>
+                                                                <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                                                <TextBlock Text="{Binding Owner}" FontSize="10" Foreground="#A0A0A0" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </Grid>
+                                                </Border>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Border Background="#1A1A1A" Padding="40" CornerRadius="12" 
+                                        IsVisible="{Binding !HasFilteredPlaylists}" VerticalAlignment="Center">
+                                    <StackPanel HorizontalAlignment="Center" Spacing="16">
+                                        <TextBlock Text="🔎" FontSize="48" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="No matches found" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="Try a different filter or search the global catalog." 
+                                                   Foreground="#808080" HorizontalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
+                </TabItem>
+
+                <!-- Search Catalog Tab -->
+                <TabItem Header="Search Catalog">
+                    <Grid RowDefinitions="Auto,*" Margin="0,16,0,0">
+                        <!-- Search Box -->
+                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,20">
+                            <TextBox Text="{Binding SearchQuery}" 
+                                     Watermark="Find public playlists, albums, or artists..."
+                                     Classes="modern"
+                                     Padding="12,10">
+                                <TextBox.KeyBindings>
+                                    <KeyBinding Gesture="Enter" Command="{Binding SearchCommand}"/>
+                                </TextBox.KeyBindings>
+                            </TextBox>
+                            <Button Grid.Column="1" Command="{Binding SearchCommand}" 
+                                    Classes="primary" Margin="12,0,0,0" Padding="20,0">
+                                <TextBlock Text="🔍 Search"/>
+                            </Button>
+                            <Button Grid.Column="2" Command="{Binding ClearSearchCommand}" 
+                                    Classes="secondary" Margin="12,0,0,0">
+                                <TextBlock Text="✕ Clear"/>
+                            </Button>
+                        </Grid>
+
+                        <!-- Results -->
+                        <ScrollViewer Grid.Row="1">
+                            <StackPanel Spacing="24">
+                                <TextBlock Text="Search Results" FontSize="18" FontWeight="SemiBold" Foreground="#D0D0D0" 
+                                           IsVisible="{Binding SearchResults.Count}"/>
+                                <ItemsControl ItemsSource="{Binding SearchResults}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel Orientation="Horizontal"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Command="{Binding #Root.DataContext.ImportPlaylistCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Background="Transparent" Padding="0" Margin="0,0,16,16" BorderThickness="0">
+                                                <Border Width="160" Background="#252526" CornerRadius="8" ClipToBounds="True">
+                                                    <Grid RowDefinitions="160,Auto">
+                                                        <Image Grid.Row="0" Source="{Binding ImageUrl}" Stretch="UniformToFill" Height="160"/>
+                                                        <Border Grid.Row="0" Background="#66000000" IsVisible="{Binding ImageUrl, Converter={x:Static StringConverters.IsNullOrEmpty}}">
+                                                            <TextBlock Text="🎵" FontSize="48" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                        <Border Grid.Row="1" Padding="12">
+                                                            <StackPanel>
+                                                                <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="14" TextTrimming="CharacterEllipsis"/>
+                                                                <TextBlock Text="{Binding Description}" FontSize="12" Foreground="#A0A0A0" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </Grid>
+                                                </Border>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                
+                                <Border Background="#1A1A1A" Padding="40" CornerRadius="12" 
+                                        IsVisible="{Binding !SearchResults.Count}" VerticalAlignment="Center">
+                                    <StackPanel HorizontalAlignment="Center" Spacing="16">
+                                        <TextBlock Text="🔍" FontSize="48" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="Explore the Spotify Universe" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="Search for any public playlist or album to import it directly." 
+                                                   Foreground="#808080" HorizontalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
+                </TabItem>
+            </TabControl>
+        </Grid>
+    </Grid>
+</UserControl>

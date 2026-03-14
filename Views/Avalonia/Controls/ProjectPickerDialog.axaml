@@ -1,0 +1,39 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="using:SLSKDONET.Models"
+        x:Class="SLSKDONET.Views.Avalonia.Controls.ProjectPickerDialog"
+        Title="Select Project" Width="400" Height="450"
+        WindowStartupLocation="CenterOwner"
+        Background="#1E1E1E" TransparencyLevelHint="AcrylicBlur"
+        ExtendClientAreaToDecorationsHint="True">
+
+    <Grid RowDefinitions="Auto,*,Auto" Margin="20">
+        <StackPanel Grid.Row="0" Spacing="8" Margin="0,0,0,16">
+            <TextBlock Text="Select Project" FontSize="18" FontWeight="SemiBold" Foreground="White"/>
+            <TextBlock Text="Choose a project to add the selected tracks to." FontSize="12" Foreground="#AAA"/>
+        </StackPanel>
+
+        <ListBox Grid.Row="1" ItemsSource="{Binding Projects}" 
+                 SelectedItem="{Binding SelectedProject}"
+                 Background="#252526" BorderBrush="#3E3E42" BorderThickness="1">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="models:PlaylistJob">
+                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="4">
+                        <TextBlock Text="📁" FontSize="16"/>
+                        <StackPanel>
+                            <TextBlock Text="{Binding SourceTitle}" Foreground="White" FontWeight="Medium"/>
+                            <TextBlock Text="{Binding SourceType}" Foreground="#666" FontSize="10"/>
+                        </StackPanel>
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12" Margin="0,16,0,0">
+            <Button Content="Cancel" Click="Cancel_Click" Background="Transparent" Foreground="#AAA"/>
+            <Button Content="Add to Project" Click="Save_Click" 
+                    IsEnabled="{Binding CanSave}"
+                    Background="#1DB954" Foreground="White" Padding="16,8" FontWeight="Bold"/>
+        </StackPanel>
+    </Grid>
+</Window>

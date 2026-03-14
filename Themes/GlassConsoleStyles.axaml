@@ -1,0 +1,143 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    
+    <Styles.Resources>
+        <!-- Glassmorphism Brushes -->
+        <SolidColorBrush x:Key="GlassBackgroundBrush" Color="#CC0A0A0A"/>
+        <SolidColorBrush x:Key="GlassBorderBrush" Color="#20FFFFFF"/>
+        <SolidColorBrush x:Key="GlassAccentBrush" Color="#4EC9B0"/>
+        <SolidColorBrush x:Key="GlassGlowBrush" Color="#404EC9B0"/>
+        
+        <!-- HUD Ornaments -->
+        <BoxShadows x:Key="GlassConsoleShadow">0 0 50 0 #66000000</BoxShadows>
+    </Styles.Resources>
+
+    <!-- Glass Container Style -->
+    <Style Selector="Border.glass">
+        <Setter Property="Background" Value="{StaticResource GlassBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource GlassBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="12"/>
+        <Setter Property="BoxShadow" Value="{StaticResource GlassConsoleShadow}"/>
+    </Style>
+
+    <!-- HUD Typography -->
+    <Style Selector="TextBlock.hud-label">
+        <Setter Property="FontSize" Value="10"/>
+        <Setter Property="FontWeight" Value="Black"/>
+        <Setter Property="Foreground" Value="#444"/>
+        <Setter Property="LetterSpacing" Value="2"/>
+        <Setter Property="FontFamily" Value="{StaticResource CodeFont}"/>
+    </Style>
+
+    <!-- Scanning Animation Style -->
+    <Style Selector="Border.scanning">
+        <Style.Animations>
+            <Animation Duration="0:0:4" IterationCount="Infinite" Easing="LinearEasing">
+                <KeyFrame KeyTime="0:0:0">
+                    <Setter Property="Opacity" Value="0.4"/>
+                </KeyFrame>
+                <KeyFrame KeyTime="0:0:2">
+                    <Setter Property="Opacity" Value="0.8"/>
+                </KeyFrame>
+                <KeyFrame KeyTime="0:0:4">
+                    <Setter Property="Opacity" Value="0.4"/>
+                </KeyFrame>
+            </Animation>
+        </Style.Animations>
+    </Style>
+
+    <!-- 1. The GPU-Accelerated Skeleton Container -->
+    <Style Selector="Border.skeleton">
+        <Setter Property="Background" Value="#1AFFFFFF"/>
+        <Setter Property="CornerRadius" Value="4"/>
+        <Style.Animations>
+            <Animation Duration="0:0:1.5" IterationCount="Infinite" PlaybackDirection="Alternate">
+                <KeyFrame Cue="0%">
+                    <Setter Property="Opacity" Value="0.1"/>
+                </KeyFrame>
+                <KeyFrame Cue="100%">
+                    <Setter Property="Opacity" Value="0.4"/>
+                </KeyFrame>
+            </Animation>
+        </Style.Animations>
+    </Style>
+
+    <!-- Text Pulse -->
+    <Style Selector="TextBlock.pulsing">
+        <Style.Animations>
+            <Animation Duration="0:0:1" IterationCount="Infinite" PlaybackDirection="Alternate">
+                 <KeyFrame Cue="0%">
+                     <Setter Property="Opacity" Value="0.3"/>
+                 </KeyFrame>
+                 <KeyFrame Cue="100%">
+                     <Setter Property="Opacity" Value="1.0"/>
+                 </KeyFrame>
+            </Animation>
+        </Style.Animations>
+    </Style>
+
+    <!-- Stalled Animation Style -->
+    <Style Selector="PathIcon.stalled">
+        <Style.Animations>
+            <Animation Duration="0:0:1.5" IterationCount="Infinite">
+                <KeyFrame KeyTime="0:0:0">
+                    <Setter Property="Opacity" Value="1.0"/>
+                    <Setter Property="Foreground" Value="#FFB300"/>
+                </KeyFrame>
+                <KeyFrame KeyTime="0:0:0.75">
+                    <Setter Property="Opacity" Value="0.3"/>
+                </KeyFrame>
+            </Animation>
+        </Style.Animations>
+    </Style>
+
+    <!-- Pulsing Amber Style (Global Resource) -->
+    <Style Selector="PathIcon.pulse_amber">
+        <Style.Animations>
+            <Animation Duration="0:0:1.5" IterationCount="Infinite">
+                <KeyFrame KeyTime="0:0:0"><Setter Property="Opacity" Value="1"/><Setter Property="Foreground" Value="#FFA500"/></KeyFrame>
+                <KeyFrame KeyTime="0:0:0.75"><Setter Property="Opacity" Value="0.3"/><Setter Property="Foreground" Value="#FFD700"/></KeyFrame>
+                <KeyFrame KeyTime="0:0:1.5"><Setter Property="Opacity" Value="1"/><Setter Property="Foreground" Value="#FFA500"/></KeyFrame>
+            </Animation>
+        </Style.Animations>
+    </Style>
+
+    <!-- Glowing Accent Style -->
+    <Style Selector="TextBlock.glow">
+        <Setter Property="Effect">
+            <DropShadowEffect BlurRadius="10" Color="{Binding Source={StaticResource GlassAccentBrush}, Path=Color}" Opacity="0.5"/>
+        </Setter>
+    </Style>
+
+    <!-- Sandbox Audition Toggle Style -->
+    <Style Selector="ToggleButton.SandboxToggle">
+        <Setter Property="Background" Value="#22FFFFFF"/>
+        <Setter Property="Foreground" Value="#AAA"/>
+        <Setter Property="Padding" Value="12,8"/>
+        <Setter Property="CornerRadius" Value="20"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="BorderBrush" Value="#44FFFFFF"/>
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.2"/>
+                <BrushTransition Property="Foreground" Duration="0:0:0.2"/>
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="ToggleButton.SandboxToggle:checked">
+        <Setter Property="Background" Value="#FF4081"/>
+        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="BorderBrush" Value="#FFFF80AB"/>
+        <Setter Property="Effect">
+            <DropShadowEffect BlurRadius="15" Color="#FF4081" Opacity="0.6"/>
+        </Setter>
+    </Style>
+    <Style Selector="ToggleButton.SandboxToggle:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#44FFFFFF"/>
+    </Style>
+    <Style Selector="ToggleButton.SandboxToggle:checked:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#FF80AB"/>
+    </Style>
+
+</Styles>

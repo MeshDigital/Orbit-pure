@@ -1,0 +1,240 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="700"
+             x:Class="SLSKDONET.Views.Avalonia.ImportPreviewPage"
+             Background="#1E1E1E" Foreground="White">
+    
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+        
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#252526" Padding="24,20" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
+            <StackPanel Spacing="8">
+                <TextBlock Text="{Binding SourceTitle}" FontSize="24" FontWeight="Bold" Foreground="White"/>
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="{Binding SourceType}" FontSize="13" Foreground="#A0A0A0"/>
+                    <TextBlock Text="•" FontSize="13" Foreground="#666"/>
+                    <TextBlock Text="{Binding TrackCount, StringFormat='{}{0} tracks'}" FontSize="13" Foreground="#A0A0A0"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+
+
+        <!-- Deduplication Alert Banner -->
+        <Border Grid.Row="1" Background="#663300" BorderBrush="#FF8C00" BorderThickness="0,0,0,1" Padding="16,12" IsVisible="{Binding IsDuplicate}">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                    <TextBlock Text="⚠️" FontSize="20" VerticalAlignment="Center"/>
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Existing Playlist Found" FontWeight="Bold" Foreground="#FFD580"/>
+                        <TextBlock Foreground="#FFD580" FontSize="12"
+                                   Text="{Binding ExistingTrackCount, StringFormat='We found an existing playlist with {0} tracks. Do you want to merge new tracks into it?'}"/>
+                    </StackPanel>
+                </StackPanel>
+                
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                    <Button Command="{Binding SelectMissingCommand}" Background="#1AFFFFFF" Foreground="White" Padding="12,6" CornerRadius="4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="✨" FontSize="14"/>
+                            <TextBlock Text="Select Missing" FontSize="12"/>
+                        </StackPanel>
+                    </Button>
+                    <Border Width="1" Height="16" Background="#444" Margin="4,0"/>
+                    <Button Command="{Binding CreateNewCommand}" Background="#424242" Foreground="White" Padding="12,6" CornerRadius="4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="📄" FontSize="14"/> <!-- Clone Icon -->
+                            <TextBlock Text="Create New Clone" FontSize="12"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding MergeCommand}" Background="#FF8C00" Foreground="Black" Padding="12,6" CornerRadius="4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="🔗" FontSize="14"/> <!-- Link/Merge Icon -->
+                            <TextBlock Text="Merge to Existing" FontSize="12" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Toolbar -->
+        <Border Grid.Row="2" Background="#1E1E1E" Padding="24,16" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="*,Auto">
+                <!-- Left: Selection Actions -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                    <Button Command="{Binding SelectAllCommand}"
+                            Background="#0078D4"
+                            Foreground="White"
+                            Padding="12,8"
+                            CornerRadius="6">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="☑" FontSize="14"/>
+                            <TextBlock Text="Select All" FontSize="13"/>
+                        </StackPanel>
+                    </Button>
+                    
+                    <Button Command="{Binding DeselectAllCommand}"
+                            Background="#424242"
+                            Foreground="White"
+                            Padding="12,8"
+                            CornerRadius="6">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="☐" FontSize="14"/>
+                            <TextBlock Text="Deselect All" FontSize="13"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Button Command="{Binding SelectMissingCommand}"
+                            Background="#2D2D2D"
+                            Foreground="White"
+                            Padding="12,8"
+                            CornerRadius="6">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="✨" FontSize="14"/>
+                            <TextBlock Text="Select Missing" FontSize="13"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+                
+                <!-- Right: Status -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                    <Border Background="#1A4CAF50" 
+                            CornerRadius="12" 
+                            Padding="10,6"
+                            IsVisible="{Binding !!SelectedCount}">
+                        <TextBlock Text="{Binding SelectedCount, StringFormat='{}{0} selected'}" 
+                                   FontSize="12" 
+                                   Foreground="White"
+                                   FontWeight="SemiBold"/>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Track List -->
+        <DataGrid Grid.Row="3"
+                  ItemsSource="{Binding ImportedTracks}"
+                  AutoGenerateColumns="False"
+                  Background="Transparent"
+                  BorderThickness="0"
+                  GridLinesVisibility="Horizontal"
+                  RowBackground="Transparent"
+                  Foreground="#DDD"
+                  HeadersVisibility="Column"
+                  CanUserReorderColumns="False"
+                  CanUserResizeColumns="True"
+                  CanUserSortColumns="False"
+                  IsReadOnly="False">
+            
+            <DataGrid.Styles>
+                <Style Selector="DataGridRow:pointerover">
+                    <Setter Property="Background" Value="#1AFFFFFF"/>
+                </Style>
+                <Style Selector="DataGridRow:selected">
+                    <Setter Property="Background" Value="#2A0078D4"/>
+                </Style>
+            </DataGrid.Styles>
+
+            <DataGrid.Columns>
+                <!-- Selection Checkbox -->
+                <DataGridTemplateColumn Header="✓" Width="50">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                      HorizontalAlignment="Center"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                
+                <!-- Artist -->
+                <DataGridTextColumn Header="Artist" 
+                                    Binding="{Binding Model.Artist}" 
+                                    Width="2*"/>
+                
+                <!-- Title -->
+                <DataGridTextColumn Header="Title" 
+                                    Binding="{Binding Model.Title}" 
+                                    Width="3*"/>
+                
+                <!-- Album (hide on tablet/mobile) -->
+                <DataGridTextColumn Header="Album" 
+                                    Binding="{Binding Model.Album}" 
+                                    Width="2*"
+                                    IsVisible="{Binding $parent[Window].Bounds.Width, Converter={StaticResource WidthToVisibilityConverter}, ConverterParameter=800}"/>
+                
+                <!-- Length (hide on mobile) -->
+                <DataGridTextColumn Header="Length" 
+                                    Binding="{Binding Model.Length, StringFormat='{}{0:mm\\:ss}'}" 
+                                    Width="80"
+                                    IsVisible="{Binding $parent[Window].Bounds.Width, Converter={StaticResource WidthToVisibilityConverter}, ConverterParameter=600}"/>
+                
+                <!-- In Library Status (hide on very small screens) -->
+                <DataGridTemplateColumn Header="Status" 
+                                        Width="100"
+                                        IsVisible="{Binding $parent[Window].Bounds.Width, Converter={StaticResource WidthToVisibilityConverter}, ConverterParameter=500}">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Border CornerRadius="4" 
+                                    Padding="6,3" 
+                                    HorizontalAlignment="Center"
+                                    Background="{Binding Model.IsInLibrary, Converter={StaticResource BoolToLibraryStatusColorConverter}}">
+                                <TextBlock Text="{Binding Model.IsInLibrary, Converter={StaticResource BoolToLibraryStatusTextConverter}}" 
+                                           FontSize="10" 
+                                           Foreground="White"
+                                           FontWeight="SemiBold"/>
+                            </Border>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- Footer Actions -->
+        <Border Grid.Row="4" 
+                Background="#252526" 
+                BorderBrush="#3E3E3E" 
+                BorderThickness="0,1,0,0" 
+                Padding="24,16">
+            <Grid ColumnDefinitions="*,Auto">
+                <!-- Left: Status Message -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <ProgressBar IsIndeterminate="True" 
+                                 Width="24" 
+                                 Height="24"
+                                 Foreground="#4CAF50"
+                                 IsVisible="{Binding IsLoading}"/>
+                    <TextBlock Text="{Binding StatusMessage}" 
+                               Foreground="#A0A0A0" 
+                               FontSize="13"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+                
+                <!-- Right: Action Buttons -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                    <Button Command="{Binding CancelCommand}"
+                            Background="#424242"
+                            Foreground="White"
+                            Padding="16,10"
+                            CornerRadius="6">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="✕" FontSize="14"/>
+                            <TextBlock Text="Cancel" FontSize="13"/>
+                        </StackPanel>
+                    </Button>
+                    
+                    <Button Command="{Binding AddToLibraryCommand}"
+                            Classes="primary"
+                            IsEnabled="{Binding CanAddToLibrary}"
+                            Padding="20,10"
+                            CornerRadius="6">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="📚" FontSize="14"/>
+                            <TextBlock Text="Add to Library" FontSize="13" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

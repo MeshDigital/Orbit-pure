@@ -1,0 +1,76 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.BulkOperationProgressModal">
+    
+    <Design.DataContext>
+        <!-- Mock for designer -->
+    </Design.DataContext>
+    
+    <!-- Semi-transparent overlay -->
+    <Border Background="#CC000000" 
+            HorizontalAlignment="Stretch" 
+            VerticalAlignment="Stretch"
+            IsVisible="{Binding IsVisible}"
+            ZIndex="1000">
+        
+        <!-- Centered glassmorphic card -->
+        <Border Background="#252528" 
+                CornerRadius="12" 
+                Padding="32"
+                Width="450" 
+                Height="200"
+                HorizontalAlignment="Center" 
+                VerticalAlignment="Center"
+                BoxShadow="0 8 32 0 #88000000"
+                BorderBrush="#444"
+                BorderThickness="1">
+            
+            <StackPanel Spacing="24" VerticalAlignment="Center">
+                <!-- Header -->
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{Binding Title}" 
+                               FontSize="20" 
+                               FontWeight="SemiBold" 
+                               Foreground="White"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="Please wait while the operation completes..."
+                               FontSize="13"
+                               Foreground="#AAA"
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
+                
+                <!-- Progress Section -->
+                <StackPanel Spacing="12">
+                    <ProgressBar Value="{Binding ProgressPercent}" 
+                                 Maximum="100"
+                                 Height="10"
+                                 Foreground="#007ACC"
+                                 Background="#1A1A1A"
+                                 BorderThickness="0"
+                                 CornerRadius="5"/>
+                    
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0"
+                                   Text="Processing items..." 
+                                   Foreground="#888" 
+                                   FontSize="12"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding ProgressPercent, StringFormat='{}{0:F0}%'}"
+                                   Foreground="#007ACC"
+                                   FontSize="14"
+                                   FontWeight="Bold"/>
+                    </Grid>
+                    
+                    <TextBlock Text="{Binding Processed, StringFormat='{}{0} of {1} items processed'}"
+                               HorizontalAlignment="Center"
+                               FontSize="11"
+                               Foreground="#666"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Border>
+</UserControl>

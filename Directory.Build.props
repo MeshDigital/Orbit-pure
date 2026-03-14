@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <!-- Disable MSBuild node reuse to prevent ghost processes and file locks -->
+    <MSBUILDDISABLENODEREUSE>1</MSBUILDDISABLENODEREUSE>
+    <!-- Disable shared compilation to prevent VBCSCompiler from holding locks -->
+    <UseSharedCompilation>false</UseSharedCompilation>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,53 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:data="clr-namespace:SLSKDONET.Data"
+             mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="120"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.SonicTelemetryCard">
+    
+    <Border Classes="GlassCard" Padding="12" Margin="4" CornerRadius="8" Background="#15FFFFFF" BorderBrush="#20FFFFFF" BorderThickness="1">
+        <Grid ColumnDefinitions="Auto, *, Auto">
+            
+            <!-- Left: Info & Mini Waveform -->
+            <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+                <TextBlock Text="{Binding CurrentTrack}" FontWeight="SemiBold" FontSize="13" MaxWidth="180" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Text="{Binding Status}" FontSize="11" Foreground="#88FFFFFF"/>
+                
+                <!-- Mini Shimmer Waveform (Placeholder for dynamic one) -->
+                <Border Height="20" Width="150" CornerRadius="4" Background="#10FFFFFF" ClipToBounds="True">
+                    <ProgressBar Value="{Binding Progress}" Minimum="0" Maximum="100" 
+                                 Height="20" Background="Transparent" Foreground="#4000FFCC"/>
+                </Border>
+            </StackPanel>
+
+            <!-- Center: Confidence Radars -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+                <controls:ConfidenceRadar Label="BPM" Value="{Binding BpmConfidence}" Color="#00FFCC"/>
+                <controls:ConfidenceRadar Label="KEY" Value="{Binding KeyConfidence}" Color="#BB86FC"/>
+                <controls:ConfidenceRadar Label="BIT" Value="{Binding IntegrityScore}" Color="#FF9800"/>
+            </StackPanel>
+
+            <!-- Right: Stage Indicators -->
+            <StackPanel Grid.Column="2" Spacing="2" VerticalAlignment="Center">
+                <ItemsControl ItemsSource="{Binding ActiveStages}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Margin="1" ToolTip.Tip="{Binding Label}">
+                                <Ellipse Width="10" Height="10" 
+                                         Fill="{Binding Color}"
+                                         Opacity="{Binding Opacity}">
+                                    <Ellipse.Effect>
+                                        <DropShadowEffect Color="{Binding GlowColor}" BlurRadius="8" Opacity="0.5"/>
+                                    </Ellipse.Effect>
+                                </Ellipse>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+            
+        </Grid>
+    </Border>
+</UserControl>

@@ -1,0 +1,85 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Library"
+        mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="600"
+        x:Class="SLSKDONET.Views.Avalonia.Dialogs.SmartCrateEditorDialog"
+        x:DataType="vm:SmartCrateEditorViewModel"
+        Width="400" Height="650"
+        WindowStartupLocation="CenterOwner"
+        SystemDecorations="None"
+        Background="#1E1E1E"
+        TransparencyLevelHint="Mica"
+        ExtendClientAreaToDecorationsHint="True">
+
+    <Border BorderBrush="#33FFFFFF" BorderThickness="1">
+        <Grid RowDefinitions="Auto, *, Auto">
+            
+            <!-- Header -->
+            <Border Grid.Row="0" Background="#252525" Padding="15,10" Height="40">
+                <TextBlock Text="Smart Crate Editor" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            </Border>
+
+            <!-- Content -->
+            <ScrollViewer Grid.Row="1" Padding="20">
+                <StackPanel Spacing="15">
+                    
+                    <!-- Name -->
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="Crate Name" Foreground="#888" FontSize="12"/>
+                        <TextBox Text="{Binding Name}" Watermark="e.g. 'Chill Sunset Vibes'"/>
+                    </StackPanel>
+
+                    <Separator Opacity="0.1"/>
+
+                    <TextBlock Text="Rules" FontWeight="Bold" FontSize="14"/>
+
+                    <!-- Mood -->
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="Mood / Vibe" Foreground="#888" FontSize="12"/>
+                        <ComboBox ItemsSource="{Binding AvailableVibes}" 
+                                  SelectedItem="{Binding Mood}"
+                                  HorizontalAlignment="Stretch"
+                                  PlaceholderText="Any Vibe"/>
+                    </StackPanel>
+                    
+                    <!-- SubGenre -->
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="Sub-Genre (Exact Match)" Foreground="#888" FontSize="12"/>
+                        <TextBox Text="{Binding SubGenre}" Watermark="e.g. 'liquid dnb'"/>
+                    </StackPanel>
+
+                    <!-- BPM Range -->
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="BPM Range" Foreground="#888" FontSize="12"/>
+                        <Grid ColumnDefinitions="*, Auto, *">
+                            <NumericUpDown Grid.Column="0" Value="{Binding MinBpm}" Minimum="0" Maximum="300" Watermark="Min"/>
+                            <TextBlock Grid.Column="1" Text="-" VerticalAlignment="Center" Margin="5,0"/>
+                            <NumericUpDown Grid.Column="2" Value="{Binding MaxBpm}" Minimum="0" Maximum="300" Watermark="Max"/>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Energy Range -->
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="Energy (0.0 - 1.0)" Foreground="#888" FontSize="12"/>
+                        <Grid ColumnDefinitions="*, Auto, *">
+                            <NumericUpDown Grid.Column="0" Value="{Binding MinEnergy}" Minimum="0" Maximum="1" Increment="0.1" FormatString="0.0" Watermark="Min"/>
+                            <TextBlock Grid.Column="1" Text="-" VerticalAlignment="Center" Margin="5,0"/>
+                            <NumericUpDown Grid.Column="2" Value="{Binding MaxEnergy}" Minimum="0" Maximum="1" Increment="0.1" FormatString="0.0" Watermark="Max"/>
+                        </Grid>
+                    </StackPanel>
+                    
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Footer -->
+            <Border Grid.Row="2" Background="#252525" Padding="15">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+                    <Button Command="{Binding CancelCommand}" Content="Cancel" Click="Close_Click"/>
+                    <Button Command="{Binding SaveCommand}" Content="Save Crate" Classes="accent" Click="Save_Click"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

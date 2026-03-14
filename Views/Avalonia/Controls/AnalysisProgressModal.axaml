@@ -1,0 +1,115 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.AnalysisProgressModal">
+    
+    <Design.DataContext>
+        <vm:AnalysisProgressViewModel/>
+    </Design.DataContext>
+    
+    <!-- Semi-transparent overlay -->
+    <Border Background="#E0000000" 
+            HorizontalAlignment="Stretch" 
+            VerticalAlignment="Stretch"
+            IsVisible="{Binding !!ProgressPercent, FallbackValue=True}">
+        
+        <!-- Centered glassmorphic card -->
+        <Border Background="#2D2D2D" 
+                CornerRadius="16" 
+                Padding="40,32"
+                Width="420" 
+                Height="280"
+                HorizontalAlignment="Center" 
+                VerticalAlignment="Center"
+                BoxShadow="0 10 40 0 #66000000">
+            
+            <StackPanel Spacing="24">
+                <!-- Header with animated icon -->
+                <StackPanel Orientation="Horizontal" Spacing="16" HorizontalAlignment="Center">
+                    <TextBlock Text="🔬" FontSize="32" VerticalAlignment="Center"/>
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Analyzing Track..." 
+                                   FontSize="22" 
+                                   FontWeight="Bold" 
+                                   Foreground="White"/>
+                        <TextBlock Text="Extracting audio intelligence..."
+                                   FontSize="13"
+                                   Foreground="#888"/>
+                    </StackPanel>
+                </StackPanel>
+                
+                <!-- Progress Section -->
+                <StackPanel Spacing="16">
+                    <!-- Progress Bar with Glow -->
+                    <Border Background="#1A1A1A" 
+                            CornerRadius="8" 
+                            Padding="4"
+                            Height="12">
+                        <Border CornerRadius="6" ClipToBounds="True">
+                            <ProgressBar Value="{Binding ProgressPercent}" 
+                                         Maximum="100"
+                                         Height="8"
+                                         Foreground="#1DB954"
+                                         Background="Transparent"
+                                         BorderThickness="0"/>
+                        </Border>
+                    </Border>
+                    
+                    <!-- Percentage Display -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0"
+                                   Text="{Binding CurrentStep}" 
+                                   Foreground="#BBB" 
+                                   FontSize="14"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding ProgressPercent, StringFormat='{}{0}%'}"
+                                   Foreground="#1DB954"
+                                   FontSize="18"
+                                   FontWeight="Bold"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+                </StackPanel>
+                
+                <!-- Stats Row -->
+                <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+                    <!-- Elapsed Time -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="⏱️" FontSize="14" Foreground="#666"/>
+                        <TextBlock Text="{Binding ElapsedTime, StringFormat='{}{0:F1}s elapsed'}" 
+                                   Foreground="#666" 
+                                   FontSize="13"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                    
+                    <!-- Animated dots -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                        <Ellipse Width="6" Height="6" Fill="#1DB954" Opacity="0.3"/>
+                        <Ellipse Width="6" Height="6" Fill="#1DB954" Opacity="0.6"/>
+                        <Ellipse Width="6" Height="6" Fill="#1DB954" Opacity="1.0"/>
+                    </StackPanel>
+                </Grid>
+                
+                <!-- Processing Steps Indicator -->
+                <ItemsControl ItemsSource="{Binding ProcessingSteps}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2">
+                                <TextBlock Text="✓" Foreground="#1DB954" FontSize="12" 
+                                           IsVisible="{Binding IsComplete}"/>
+                                <TextBlock Text="○" Foreground="#444" FontSize="12" 
+                                           IsVisible="{Binding !IsComplete}"/>
+                                <TextBlock Text="{Binding Name}" 
+                                           Foreground="{Binding IsComplete, Converter={StaticResource BoolToColorConverter}}"
+                                           FontSize="11"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+    </Border>
+</UserControl>

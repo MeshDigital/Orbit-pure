@@ -1,0 +1,94 @@
+
+
+# Visual Studio cache/options
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# ReSharper
+.idea/
+*.DotSettings.user
+
+# Local environment
+config.ini
+*.db
+*.db-shm
+*.db-wal
+/downloads/
+/music/
+/temp/
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+
+# Test Results
+TestResults/
+*.trx
+*.coverage
+
+# Mac
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+*.dll
+*.exe
+*.so
+bin/
+obj/
+**/bin/
+**/obj/
+
+# Logs and Local Testing
+Buildlogs/
+logs/
+*.log
+*.err
+*.errors
+*.txt
+*.json
+!appsettings.json
+!appsettings.Development.json
+!dotnet-tools.json
+
+# Dev/Debug data
+crash_*.json
+debug_*.json
+temp_*.json
+
+# Obsolete documentation (keep only active docs)
+AVALONIA_MIGRATION_GUIDE.md
+BUGFIX_SPOTIFY_DECOUPLING.md
+BUILD_REFERENCE.md
+CHECKLIST.md
+COMMIT_MESSAGE.md
+COPY_PROGRESS_FIX.md
+DATABASE_UPDATE_INSTRUCTIONS.md
+IMPLEMENTATION_SUMMARY.md
+ISSUES_FOUND.md
+LIBRARY_IMPROVEMENT_PLAN.md
+ORCHESTRATION_ANIMATION.md
+PHASE1_SUMMARY.md
+RANKED_RESULTS_GUIDE.md
+RANKING_COMPLETION_SUMMARY.md
+RANKING_IMPLEMENTATION.md
+RANKING_INTEGRATION_SUMMARY.md
+RANKING_QUICK_REFERENCE.md
+RANKING_TECHNICAL_DEEPDIVE.md
+RATING_LIKES_PLAN.md
+SEARCH_RANKING_OPTIMIZATION.md
+SLSKDONET_LEARNINGS.md
+SPOTIFY_PKCE_FLOW_ANALYSIS.md

@@ -1,0 +1,332 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:models="clr-namespace:SLSKDONET.Models"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:converters="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
+             xmlns:tree="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.TreeDataGrid"
+             xmlns:tp="clr-namespace:Avalonia.Controls.Primitives;assembly=Avalonia.Controls.TreeDataGrid"
+             xmlns:dg="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.DataGrid"
+             mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
+             x:Class="SLSKDONET.Views.Avalonia.SearchPage"
+             Background="#1E1E1E" Foreground="White">
+
+    <DockPanel>
+
+        <!-- ZONE B: The Brain (Sidebar) -->
+        <Border DockPanel.Dock="Left" Width="280" Background="#222" BorderBrush="#3E3E3E" BorderThickness="0,0,1,0" Padding="16">
+            <StackPanel Spacing="24">
+                <TextBlock Text="Curation Assistant" FontSize="18" FontWeight="Bold" Foreground="#DDD"/>
+
+                <!-- Expanded Selection Details (The "Brain Panel") -->
+                <Border Background="#2D2D30" CornerRadius="8" Padding="16" IsVisible="{Binding !!SelectedResults.Count}">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="Selection Intelligence" FontSize="12" FontWeight="SemiBold" Foreground="#AAA"/>
+                        <ItemsControl ItemsSource="{Binding SelectedResults}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Spacing="8" Margin="0,0,0,12">
+                                        <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" FontWeight="Bold"/>
+
+                                        <!-- Trust Score Bar -->
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <ProgressBar Value="{Binding TrustScore}" Maximum="100" Height="6" Background="#444" Foreground="{Binding TrustColor}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding TrustScore, StringFormat='{}{0}%'}" FontSize="12" Foreground="{Binding TrustColor}" FontWeight="Bold"/>
+                                        </Grid>
+
+                                        <!-- Assessment -->
+                                        <TextBlock Text="{Binding ForensicAssessment}" FontSize="11" Foreground="#CCC" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- Phase 19: The Bouncer -->
+                <TextBlock Text="The Bouncer" FontSize="18" FontWeight="Bold" Foreground="#DDD" Margin="0,12,0,0"/>
+
+                <StackPanel Spacing="10">
+                    <RadioButton GroupName="Bouncer" Content="Strict (Platinum/Gold)"
+                                 IsChecked="{Binding FilterViewModel.BouncerMode, Converter={x:Static converters:EnumConverters.BouncerModeEquals}, ConverterParameter={x:Static models:BouncerMode.Strict}}"
+                                 ToolTip.Tip="Only shows high quality, trusted files."/>
+
+                    <RadioButton GroupName="Bouncer" Content="Standard (No Garbage)"
+                                 IsChecked="{Binding FilterViewModel.BouncerMode, Converter={x:Static converters:EnumConverters.BouncerModeEquals}, ConverterParameter={x:Static models:BouncerMode.Standard}}"
+                                 ToolTip.Tip="Blocks fake/upscaled files and very low bitrate."/>
+
+                    <RadioButton GroupName="Bouncer" Content="Relaxed (Show All)"
+                                 IsChecked="{Binding FilterViewModel.BouncerMode, Converter={x:Static converters:EnumConverters.BouncerModeEquals}, ConverterParameter={x:Static models:BouncerMode.Relaxed}}"/>
+                </StackPanel>
+
+                <Separator Background="#333" Height="1"/>
+
+                <!-- Stats / Debug -->
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Status" FontWeight="SemiBold" Foreground="#888"/>
+                    <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Foreground="White"/>
+                    <TextBlock Text="{Binding SearchResults.Count, StringFormat='Visible: {0}'}" Foreground="#888"/>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HiddenResultsCount}">
+                        <TextBlock Text="{Binding HiddenResultsCount, StringFormat='Hidden: {0}'}" Foreground="#666" FontSize="11" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </StackPanel>
+
+            </StackPanel>
+        </Border>
+
+        <!-- ZONE A: The Initiator (Top Bar) -->
+        <Border DockPanel.Dock="Top" Background="#252526" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="24,20" VerticalAlignment="Top">
+            <StackPanel Spacing="20">
+                <!-- Search Input Row -->
+                <Grid ColumnDefinitions="*,Auto,Auto">
+                    <!-- Search Box -->
+                    <Border Grid.Column="0" Background="#1E1E1E" CornerRadius="14" BorderBrush="#333" BorderThickness="1" Height="56" MaxWidth="800" HorizontalAlignment="Stretch">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <TextBlock Grid.Column="0" Text="🔍" VerticalAlignment="Center" Margin="20,0,8,0" Foreground="#888" FontSize="18"/>
+                            <TextBox Grid.Column="1" Text="{Binding SearchQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     Watermark="Search for tracks, artists..."
+                                     Background="Transparent" BorderThickness="0"
+                                     FontSize="16" VerticalContentAlignment="Center" Margin="4,0" Padding="12,0"/>
+                            <Button Grid.Column="2" Command="{Binding ClearSearchCommand}" Background="Transparent" BorderThickness="0"
+                                    IsVisible="{Binding CanSearch}" Margin="0,0,12,0" Padding="8">
+                                <TextBlock Text="✕" Foreground="#888" VerticalAlignment="Center" FontSize="16"/>
+                            </Button>
+                        </Grid>
+                    </Border>
+
+                    <!-- CSV/Paste Buttons -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="16,0,0,0" Spacing="10">
+                        <Button Command="{Binding BrowseCsvCommand}" Classes="secondary hover-bright" Height="56" CornerRadius="12" Padding="16,0" ToolTip.Tip="Import CSV">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="📂" FontSize="16"/>
+                                <TextBlock Text="CSV" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding PasteTracklistCommand}" Classes="secondary hover-bright" Height="56" CornerRadius="12" Padding="16,0" ToolTip.Tip="Paste Tracklist">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="📋" FontSize="16"/>
+                                <TextBlock Text="Paste" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- Search Button -->
+                    <Button Grid.Column="2" Command="{Binding UnifiedSearchCommand}" Classes="secondary accent" Margin="16,0,0,0" Padding="32,0" Height="56" CornerRadius="12">
+                        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <TextBlock Text="SEARCH" FontWeight="Bold" FontSize="14" LetterSpacing="1.5"/>
+                            <TextBlock Text="➡️" FontSize="16"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
+
+                <!-- Presets Row -->
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <TextBlock Text="Presets:" VerticalAlignment="Center" Foreground="#888" FontWeight="SemiBold" FontSize="13"/>
+                    <Button Command="{Binding ApplyPresetCommand}" CommandParameter="Deep Dive" Classes="pill" Content="🌊 Deep Dive" ToolTip.Tip="Match Priority, low bitrate threshold"/>
+                    <Button Command="{Binding ApplyPresetCommand}" CommandParameter="Quick Grab" Classes="pill" Content="⚡ Quick Grab" ToolTip.Tip="Reliability &amp; Speed Priority"/>
+                    <Button Command="{Binding ApplyPresetCommand}" CommandParameter="High Fidelity" Classes="pill" Content="💎 High Fidelity" ToolTip.Tip="Strict Quality, FLAC only"/>
+                    <Button Command="{Binding ApplyPresetCommand}" CommandParameter="Balanced" Classes="pill" Content="⚖️ Balanced" ToolTip.Tip="Reset to defaults"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- ZONE C: Gatekeeper & Results (Main Content) -->
+        <Grid RowDefinitions="Auto,*,Auto">
+
+            <!-- Filters & Toggles -->
+            <Border Grid.Row="0" Background="#1E1E1E" Padding="16,12" BorderBrush="#333" BorderThickness="0,0,0,1">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <!-- Format Toggles -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Formats:" VerticalAlignment="Center" Foreground="#888" Margin="0,0,8,0"/>
+                        <ToggleButton IsChecked="{Binding IsMp3Enabled}" Content="MP3" CornerRadius="4"/>
+                        <ToggleButton IsChecked="{Binding IsFlacEnabled}" Content="FLAC" CornerRadius="4"/>
+                        <ToggleButton IsChecked="{Binding IsWavEnabled}" Content="WAV" CornerRadius="4"/>
+                    </StackPanel>
+
+                    <!-- Safety Toggle -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="16">
+                        <ToggleSwitch IsChecked="{Binding FilterViewModel.HideSuspects}" OnContent="Safety On" OffContent="Safety Off" ToolTip.Tip="Filter out potential fake/upscaled files"/>
+
+                        <!-- Add to Downloads Button -->
+                        <Button Command="{Binding AddToDownloadsCommand}" IsEnabled="{Binding !!SelectedResults.Count}" Classes="primary" Padding="16,6">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="⬇️"/>
+                                <TextBlock Text="{Binding SelectedResults.Count, StringFormat='Download ({0})'}" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Results DataGrid -->
+            <dg:DataGrid x:Name="ResultsGrid" Grid.Row="1" 
+                         ItemsSource="{Binding SearchResultsView}"
+                         SelectionMode="Extended"
+                         CanUserResizeColumns="True"
+                         CanUserSortColumns="True"
+                         IsReadOnly="True"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         HeadersVisibility="Column"
+                         Margin="16,0">
+                <dg:DataGrid.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Download Selected" Command="{Binding DownloadSelectedCommand}"/>
+                    </ContextMenu>
+                </dg:DataGrid.ContextMenu>
+                <dg:DataGrid.Columns>
+                    <!-- Tier Column -->
+                    <dg:DataGridTemplateColumn Header="Tier" Width="50">
+                        <dg:DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="vm:AnalyzedSearchResultViewModel">
+                                <TextBlock Text="{Binding TierBadge}" 
+                                           ToolTip.Tip="{Binding TierDescription}"
+                                           VerticalAlignment="Center" 
+                                           HorizontalAlignment="Center" 
+                                           FontSize="18" />
+                            </DataTemplate>
+                        </dg:DataGridTemplateColumn.CellTemplate>
+                    </dg:DataGridTemplateColumn>
+
+                    <!-- Trust Column -->
+                    <dg:DataGridTextColumn Header="Trust" Binding="{Binding TrustScore}" Width="60"/>
+
+                    <!-- Match Column -->
+                    <dg:DataGridTemplateColumn Header="Match" Width="80">
+                        <dg:DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="vm:AnalyzedSearchResultViewModel">
+                                <Border CornerRadius="4" Padding="6,4" 
+                                        Background="{Binding MatchConfidenceColor}"
+                                        VerticalAlignment="Center" HorizontalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <TextBlock Text="🎯" FontSize="10"/>
+                                        <TextBlock Text="{Binding MatchConfidence, StringFormat='{}{0:0}%'}" 
+                                                   FontSize="10" FontWeight="Bold" Foreground="Black"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </dg:DataGridTemplateColumn.CellTemplate>
+                    </dg:DataGridTemplateColumn>
+
+                    <!-- Track Details Column -->
+                    <dg:DataGridTemplateColumn Header="Track Details" Width="*">
+                        <dg:DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="vm:AnalyzedSearchResultViewModel">
+                                <StackPanel Margin="8,4" Spacing="2" Opacity="{Binding Opacity}">
+                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" 
+                                               TextTrimming="CharacterEllipsis" Foreground="{Binding ForegroundColor}"/>
+                                    
+                                    <!-- Match Reason -->
+                                    <Border CornerRadius="4" Padding="6,1" HorizontalAlignment="Left" 
+                                            Margin="0,2" IsVisible="{Binding HasMatchReason}">
+                                        <Border.Background>
+                                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                                <GradientStop Offset="0" Color="#512BD4"/>
+                                                <GradientStop Offset="1" Color="#C30052"/>
+                                            </LinearGradientBrush>
+                                        </Border.Background>
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="✨" FontSize="10" Foreground="White"/>
+                                            <TextBlock Text="{Binding MatchReason}" FontSize="10" 
+                                                       FontWeight="Bold" Foreground="White"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- High Risk Badge -->
+                                    <Border CornerRadius="4" Padding="6,1" HorizontalAlignment="Left" 
+                                            Margin="0,2" Background="#E91E63"
+                                            IsVisible="{Binding IsHighRisk}"
+                                            ToolTip.Tip="{Binding FlagReason}">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="⚠️" FontSize="10" Foreground="White"/>
+                                            <TextBlock Text="HIGH RISK" FontSize="10" 
+                                                       FontWeight="Bold" Foreground="White"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Sub-info -->
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Border Background="#333" CornerRadius="3" Padding="3,0">
+                                            <TextBlock Text="{Binding RawResult.Extension}" Foreground="#CCC" FontSize="10"/>
+                                        </Border>
+                                        <TextBlock Text="{Binding DisplaySize}" Foreground="#888" FontSize="11"/>
+                                        <TextBlock Text="•" Foreground="#444"/>
+                                        <TextBlock Text="{Binding User}" Foreground="#007ACC" FontSize="11"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+                        </dg:DataGridTemplateColumn.CellTemplate>
+                    </dg:DataGridTemplateColumn>
+
+                    <!-- Bitrate Column -->
+                    <dg:DataGridTextColumn Header="Bitrate" Binding="{Binding BitRate}" Width="80"/>
+
+                    <!-- Source Column -->
+                    <dg:DataGridTextColumn Header="Source" Binding="{Binding User}" Width="120"/>
+
+                    <!-- Speed Column -->
+                    <dg:DataGridTextColumn Header="Speed" Binding="{Binding UploadSpeedDisplay}" Width="80"/>
+                </dg:DataGrid.Columns>
+            </dg:DataGrid>
+
+            <!-- Empty State (Premium) -->
+            <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+                        IsVisible="{Binding !SearchResults.Count}" Spacing="16">
+                <TextBlock Text="📡" FontSize="48" HorizontalAlignment="Center" Opacity="0.5"/>
+                <TextBlock Text="Ready for Extraction" Foreground="#555" FontSize="20" FontWeight="Light" HorizontalAlignment="Center"/>
+                <TextBlock Text="Initiate a search to scan the Soulseek network" Foreground="#333" HorizontalAlignment="Center"/>
+            </StackPanel>
+
+            <!-- Footer / Ghost Counter -->
+            <Border Grid.Row="2" Background="#1A1A1A" BorderBrush="#333" BorderThickness="0,1,0,0" Padding="12,4">
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="{Binding SearchResults.Count}" FontWeight="Bold" Foreground="#1DB954"/>
+                        <TextBlock Text="results shown" Foreground="#888" FontSize="11" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding HiddenResultsCount}">
+                        <TextBlock Text="•" Foreground="#444"/>
+                        <TextBlock Text="{Binding HiddenResultsCount}" FontWeight="Bold" Foreground="#FF9800"/>
+                        <TextBlock Text="hidden by Bouncer (Relax mode to see them)" Foreground="#888" FontSize="11" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+    </DockPanel>
+
+    <UserControl.Styles>
+        <Style Selector="Button.pill">
+            <Setter Property="CornerRadius" Value="16"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Background" Value="#333"/>
+            <Setter Property="Foreground" Value="#DDD"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#444"/>
+        </Style>
+        <Style Selector="Button.pill:pointerover">
+            <Setter Property="Background" Value="#444"/>
+            <Setter Property="BorderBrush" Value="#666"/>
+        </Style>
+        <Style Selector="ToggleButton">
+            <Setter Property="Background" Value="#333"/>
+            <Setter Property="Foreground" Value="#AAA"/>
+            <Setter Property="Padding" Value="12,6"/>
+        </Style>
+        <Style Selector="ToggleButton:checked">
+            <Setter Property="Background" Value="#0078D4"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+
+        <!-- Zebra Striping for TreeDataGrid -->
+        <Style Selector="tp|TreeDataGridRow:nth-child(even)">
+            <Setter Property="Background" Value="#252525"/>
+        </Style>
+    </UserControl.Styles>
+</UserControl>

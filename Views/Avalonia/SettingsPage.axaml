@@ -1,0 +1,694 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:conv="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
+             x:Class="SLSKDONET.Views.Avalonia.SettingsPage"
+             Background="#1E1E1E" Foreground="White">
+
+    <UserControl.Resources>
+        <conv:RankColorConverter x:Key="RankColorConverter"/>
+        <conv:BoolToTextConverter x:Key="BoolToTextConverter"/>
+    </UserControl.Resources>
+    
+    <ScrollViewer>
+        <StackPanel Margin="24" Spacing="24" MaxWidth="800">
+            
+            <!-- Header -->
+            <StackPanel Spacing="8">
+                <TextBlock Text="Settings" FontSize="28" FontWeight="Bold" Foreground="White"/>
+                <TextBlock Text="Configure your download preferences and Soulseek settings" 
+                           FontSize="13" Foreground="#A0A0A0"/>
+            </StackPanel>
+
+            <!-- Download Settings -->
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="Download Settings" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
+                    
+                    <!-- Download Folder -->
+                    <Grid ColumnDefinitions="180,*,Auto">
+                        <TextBlock Grid.Column="0" Text="Download Folder:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <TextBox Grid.Column="1" 
+                                 Text="{Binding DownloadPath, Mode=TwoWay}" 
+                                 IsReadOnly="True"
+                                 Background="#1E1E1E"
+                                 Margin="0,0,8,0"/>
+                        <Button Grid.Column="2" 
+                                Command="{Binding BrowseDownloadPathCommand}"
+                                Background="#0078D4"
+                                Foreground="White"
+                                Padding="12,8">
+                            <TextBlock Text="Browse..."/>
+                        </Button>
+                    </Grid>
+                    
+                    <!-- Shared Folder -->
+                    <Grid ColumnDefinitions="180,*,Auto">
+                        <TextBlock Grid.Column="0" Text="Shared Folder:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <TextBox Grid.Column="1" 
+                                 Text="{Binding SharedFolderPath, Mode=TwoWay}" 
+                                 IsReadOnly="True"
+                                 Background="#1E1E1E"
+                                 Margin="0,0,8,0"/>
+                        <Button Grid.Column="2" 
+                                Command="{Binding BrowseSharedFolderCommand}"
+                                Background="#0078D4"
+                                Foreground="White"
+                                Padding="12,8">
+                            <TextBlock Text="Browse..."/>
+                        </Button>
+                    </Grid>
+                    
+
+                    
+                    <!-- File Name Format -->
+                    <Grid ColumnDefinitions="180,*">
+                        <TextBlock Grid.Column="0" Text="File Name Format:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <TextBox Grid.Column="1" 
+                                 Text="{Binding FileNameFormat, Mode=TwoWay}"
+                                 Background="#1E1E1E"/>
+                    </Grid>
+                    <TextBlock Text="Placeholders: {{artist}}, {{title}}, {{album}}, {{filename}}, {{bitrate}}, {{format}}, {{length}}, {{user}}" 
+                               Foreground="#666" 
+                               FontSize="11"
+                               Margin="180,0,0,0"/>
+                    
+                    <!-- Duplicate Prevention -->
+                    <Grid ColumnDefinitions="180,*">
+                        <TextBlock Grid.Column="0" Text="Prevent Duplicate Downloads:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <CheckBox Grid.Column="1" 
+                                  IsChecked="{Binding CheckForDuplicates, Mode=TwoWay}"
+                                  Content="Skip tracks that already exist in library"
+                                  Foreground="#AAA"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Library Folders -->
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+                <StackPanel Spacing="16">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                             <TextBlock Text="Library Folders" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
+                             <TextBlock Text="Manage additional folders to scan for music." Foreground="#AAA" FontSize="12"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Command="{Binding AddLibraryFolderCommand}" Background="#1DB954" Foreground="White" Padding="12,6">
+                             <StackPanel Orientation="Horizontal" Spacing="6">
+                                 <TextBlock Text="+" FontWeight="Bold"/>
+                                 <TextBlock Text="Add Folder"/>
+                             </StackPanel>
+                        </Button>
+                    </Grid>
+                    
+                    <ListBox ItemsSource="{Binding LibraryFolders}" 
+                             SelectedItem="{Binding SelectedLibraryFolder}"
+                             Background="#1E1E1E" 
+                             BorderThickness="1" 
+                             BorderBrush="#333" 
+                             Height="150">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <PathIcon Grid.Column="0" Data="{StaticResource folder_regular}" Width="16" Height="16" Foreground="#DDD" Margin="0,0,12,0"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding FolderPath}" VerticalAlignment="Center" Foreground="#DDD"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <Button Command="{Binding RemoveLibraryFolderCommand}" 
+                            IsEnabled="{Binding SelectedLibraryFolder, Converter={x:Static ObjectConverters.IsNotNull}}"
+                            Background="#2D2D2D" 
+                            BorderBrush="#FF5555" 
+                            BorderThickness="1" 
+                            HorizontalAlignment="Right">
+                        <TextBlock Text="Remove Selected" Foreground="#FF5555" Padding="12,4"/>
+                    </Button>
+
+                </StackPanel>
+            </Border>
+
+            <!-- Search Filter Defaults -->
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="Default Search Filters" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
+                    
+                    <!-- Min Bitrate -->
+                    <Grid ColumnDefinitions="180,120,*">
+                        <TextBlock Grid.Column="0" Text="Min Bitrate:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <NumericUpDown Grid.Column="1" 
+                                       Value="{Binding MinBitrate, Mode=TwoWay}"
+                                       Minimum="0"
+                                       Maximum="320"
+                                       Increment="32"
+                                       Background="#1E1E1E"
+                                       Foreground="White"/>
+                        <TextBlock Grid.Column="2" 
+                                   Text="kbps" 
+                                   VerticalAlignment="Center" 
+                                   Foreground="#666"
+                                   Margin="12,0,0,0"/>
+                    </Grid>
+                    
+                    <!-- Max Bitrate -->
+                    <Grid ColumnDefinitions="180,120,*">
+                        <TextBlock Grid.Column="0" Text="Max Bitrate:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <NumericUpDown Grid.Column="1" 
+                                       Value="{Binding MaxBitrate, Mode=TwoWay}"
+                                       Minimum="0"
+                                       Maximum="320"
+                                       Increment="32"
+                                       Background="#1E1E1E"
+                                       Foreground="White"/>
+                        <TextBlock Grid.Column="2" 
+                                   Text="kbps" 
+                                   VerticalAlignment="Center" 
+                                   Foreground="#666"
+                                   Margin="12,0,0,0"/>
+                    </Grid>
+                    
+                    <!-- Preferred Formats -->
+                    <Grid ColumnDefinitions="180,*">
+                        <TextBlock Grid.Column="0" Text="Preferred Formats:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <TextBox Grid.Column="1" 
+                                 Text="{Binding PreferredFormats, Mode=TwoWay}"
+                                 Background="#1E1E1E"
+                                 Watermark="mp3,flac,aac"/>
+                    </Grid>
+                    <TextBlock Text="Comma-separated list of preferred audio formats" 
+                               Foreground="#666" 
+                               FontSize="11"
+                               Margin="180,0,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Brain 2.0 & Quality Guard -->
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+                <StackPanel Spacing="16">
+                    <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="🧠" FontSize="20" VerticalAlignment="Center"/>
+                            <TextBlock Text="Smart Features &amp; Integrity" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
+                        </StackPanel>
+                        <TextBlock Text="Sonic intelligence for adaptive search and upscale protection" 
+                                   Foreground="#AAA" FontSize="12"/>
+                    </StackPanel>
+
+                    <Separator Background="#333" Height="1"/>
+
+                    <!-- Fuzzy Normalization -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Fuzzy Normalization" FontWeight="SemiBold" Foreground="#DDD"/>
+                            <TextBlock Text="Auto-corrects titles, strips special characters, and handles 'feat.' variants." 
+                                       Foreground="#666" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnableFuzzyNormalization}" OnContent="On" OffContent="Off"/>
+                    </Grid>
+
+                    <!-- VBR Fraud Detection -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="VBR Fraud Detection (Upscale Guard)" FontWeight="SemiBold" Foreground="#DDD"/>
+                            <TextBlock Text="Detects and flags fake 320kbps/FLAC files that were upscaled from low-quality sources." 
+                                       Foreground="#666" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnableVbrFraudDetection}" OnContent="On" OffContent="Off"/>
+                    </Grid>
+
+                    <Separator Background="#333" Height="1"/>
+
+                    <!-- Relaxation Strategy -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Adaptive Relaxation Strategy" FontWeight="SemiBold" Foreground="#DDD"/>
+                            <TextBlock Text="If no perfect quality match is found after a timeout, progressively widens search filters." 
+                                       Foreground="#666" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnableRelaxationStrategy}" OnContent="On" OffContent="Off"/>
+                    </Grid>
+
+                    <!-- Relaxation Timeout -->
+                    <Grid ColumnDefinitions="180,120,*" IsEnabled="{Binding EnableRelaxationStrategy}">
+                        <TextBlock Grid.Column="0" Text="Relaxation Timeout:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <NumericUpDown Grid.Column="1" 
+                                       Value="{Binding RelaxationTimeoutSeconds}"
+                                       Minimum="5"
+                                       Maximum="120"
+                                       Increment="5"
+                                       Background="#1E1E1E"
+                                       Foreground="White"/>
+                        <TextBlock Grid.Column="2" 
+                                   Text="seconds before widening search" 
+                                   VerticalAlignment="Center" 
+                                   Foreground="#666"
+                                   FontSize="11"
+                                   Margin="12,0,0,0"/>
+                    </Grid>
+
+                    <Separator Background="#333" Height="1"/>
+
+                    <!-- Automation & Retries -->
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="Automation &amp; Retries" FontWeight="SemiBold" Foreground="#DDD"/>
+                        
+                        <!-- Auto Retry Toggle -->
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Grid.Column="0" Spacing="2">
+                                <TextBlock Text="Auto-Retry Failed Downloads" FontWeight="SemiBold" Foreground="#DDD"/>
+                                <TextBlock Text="Automatically requeue failed tracks or searches with exponential backoff." 
+                                           Foreground="#666" FontSize="11" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoRetryFailedDownloads}" OnContent="On" OffContent="Off"/>
+                        </Grid>
+
+                        <!-- Max Retries Numeric -->
+                        <Grid ColumnDefinitions="180,120,*" IsEnabled="{Binding AutoRetryFailedDownloads}">
+                            <TextBlock Grid.Column="0" Text="Max Retry Attempts:" VerticalAlignment="Center" Foreground="#DDD"/>
+                            <NumericUpDown Grid.Column="1" 
+                                           Value="{Binding MaxDownloadRetries}"
+                                           Minimum="1"
+                                           Maximum="20"
+                                           Increment="1"
+                                           Background="#1E1E1E"
+                                           Foreground="White"/>
+                            <TextBlock Grid.Column="2" 
+                                       Text="attempts" 
+                                       VerticalAlignment="Center" 
+                                       Foreground="#666"
+                                       FontSize="11"
+                                       Margin="12,0,0,0"/>
+                        </Grid>
+                    </StackPanel>
+
+                    <Separator Background="#333" Height="1"/>
+
+                    <!-- Spotify Track Identification &amp; Album Art Toggle -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Spotify Track &amp; Album Art" FontWeight="SemiBold" Foreground="#DDD"/>
+                            <TextBlock Text="Fetch track metadata (Title, Artist, Album Art, Duration, ISRC) from Spotify. Uses Search API - works even in Developer Mode." 
+                                       Foreground="#666" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding SpotifyUseApi}" OnContent="On" OffContent="Off"/>
+                    </Grid>
+
+                </StackPanel>
+            </Border>
+
+            <!-- NEW REFACORTED SPOTIFY INTEGRATION -->
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+                <StackPanel Spacing="16">
+                    <Grid ColumnDefinitions="*,Auto">
+                         <StackPanel Grid.Column="0" Spacing="4">
+                             <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource icons_spotify}" Width="20" Height="20" Foreground="#1DB954"/>
+                                <TextBlock Text="Spotify Integration" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
+                             </StackPanel>
+                             <TextBlock Text="Connect to import playlists and improve matching" Foreground="#AAA" FontSize="12"/>
+                             <StackPanel Orientation="Horizontal" Spacing="10">
+                                 <TextBlock Text="{Binding SpotifyState, StringFormat='State: {0}'}" Foreground="Cyan"/>
+                                 <TextBlock Text="{Binding IsSpotifyDisconnected, StringFormat='Disc: {0}'}" Foreground="Yellow"/>
+                                 <TextBlock Text="{Binding IsSpotifyConnecting, StringFormat='Conn: {0}'}" Foreground="Orange"/>
+                                 <TextBlock Text="{Binding IsSpotifyConnected, StringFormat='Cned: {0}'}" Foreground="Lime"/>
+                             </StackPanel>
+                         </StackPanel>
+                         
+                         <!-- Status Badge -->
+                         <Border Grid.Column="1" CornerRadius="12" Padding="12,4" Background="{Binding SpotifyStatusColor}" VerticalAlignment="Top">
+                             <TextBlock Text="{Binding SpotifyDisplayName}" FontSize="12" FontWeight="SemiBold" Foreground="White"/>
+                         </Border>
+                    </Grid>
+
+                    <Separator Background="#333" Height="1"/>
+
+                    <!-- Panel 1: Disconnected State -->
+                    <StackPanel IsVisible="{Binding IsSpotifyDisconnected}" Spacing="12">
+                        <TextBlock Text="Unlock the full power of ORBIT by connecting your Spotify account." 
+                                   TextWrapping="Wrap" Foreground="#CCC"/>
+                        
+                        <Button Command="{Binding ConnectSpotifyCommand}"
+                                Background="#1DB954"
+                                HorizontalAlignment="Left"
+                                Padding="24,10"
+                                CornerRadius="20">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="Connect with Spotify" FontWeight="Bold" Foreground="White"/>
+                                <PathIcon Data="{StaticResource icons_spotify}" Width="16" Height="16" Foreground="White"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- Panel 2: Connecting State -->
+                    <StackPanel IsVisible="{Binding IsSpotifyConnecting}" Spacing="16" HorizontalAlignment="Center">
+                        <TextBlock Text="Connecting to Spotify..." FontSize="16" FontWeight="SemiBold"/>
+                        <ProgressBar IsIndeterminate="True" Width="200" Height="4" Foreground="#1DB954"/>
+                        <TextBlock Text="Please complete the login in your browser window." Foreground="#AAA"/>
+                        
+                        <Button Command="{Binding RestartSpotifyAuthCommand}"
+                                Content="Restart / Cancel"
+                                Background="Transparent"
+                                BorderBrush="#444"
+                                BorderThickness="1"
+                                CornerRadius="16"
+                                Foreground="#AAA"
+                                Margin="0,8,0,0"/>
+                    </StackPanel>
+
+                    <!-- Panel 3: Connected State -->
+                    <StackPanel IsVisible="{Binding IsSpotifyConnected}" Spacing="12">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <!-- Avatar placeholder could go here -->
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock Text="You are connected." Foreground="#DDD"/>
+                                <TextBlock Text="Private playlists and liked songs are available for import." Foreground="#888" FontSize="11"/>
+                            </StackPanel>
+                            
+                            <Button Grid.Column="2" 
+                                    Command="{Binding DisconnectSpotifyCommand}"
+                                    Background="#2D2D2D"
+                                    BorderBrush="#FF5555"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="12,6">
+                                <TextBlock Text="Disconnect" Foreground="#FF5555"/>
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+
+                     <!-- Advanced / Troubleshooting (Always available at bottom) -->
+                     <Expander Header="Troubleshooting &amp; Advanced" 
+                               HorizontalAlignment="Stretch" 
+                               Background="Transparent"
+                               BorderBrush="#333"
+                               BorderThickness="1"
+                               CornerRadius="4"
+                               Margin="0,8,0,0">
+                        <StackPanel Spacing="12" Margin="0,12,0,0">
+                            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto">
+                                <!-- Test Connection -->
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Test Connection Status" VerticalAlignment="Center" Foreground="#DDD"/>
+                                <Button Grid.Row="0" Grid.Column="1" Command="{Binding TestSpotifyConnectionCommand}" Content="Run Test" Background="#333"/>
+                                
+                                <!-- Clear Cache -->
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Clear Metadata Cache" VerticalAlignment="Center" Foreground="#DDD" Margin="0,12,0,0"/>
+                                <Button Grid.Row="1" Grid.Column="1" Command="{Binding ClearSpotifyCacheCommand}" Content="Clear Cache" Background="#333" Margin="0,12,0,0"/>
+                                
+                                <!-- Revoke -->
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Revoke &amp; Re-authenticate (Full Reset)" VerticalAlignment="Center" Foreground="#FF8888" Margin="0,12,0,0"/>
+                                <Button Grid.Row="2" Grid.Column="1" Command="{Binding RevokeAndReAuthCommand}" Content="Revoke All" Background="#552222" Foreground="#FF8888" Margin="0,12,0,0"/>
+                            </Grid>
+                            
+                            <Separator Background="#333" Height="1" Margin="0,8"/>
+                            
+                            <!-- Client ID Override -->
+                            <Grid ColumnDefinitions="120,*">
+                                <TextBlock Grid.Column="0" Text="Client ID:" VerticalAlignment="Center" Foreground="#666"/>
+                                <TextBox Grid.Column="1" Text="{Binding SpotifyClientId}" Watermark="Default (QMUSICSLSK)" Background="#111" BorderThickness="0"/>
+                            </Grid>
+                        </StackPanel>
+                     </Expander>
+                </StackPanel>
+            </Border>
+
+            <!-- Phase 8: Self-Healing Library (Upgrade Scout) -->
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="Library Self-Healing (Upgrade Scout)" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
+                    
+                    <TextBlock TextWrapping="Wrap" Foreground="#AAA" FontSize="12">
+                        Automatically scan your library for low-quality or faked tracks and search for high-fidelity replacements.
+                    </TextBlock>
+
+                    <Grid ColumnDefinitions="180,*">
+                        <TextBlock Grid.Column="0" Text="Enable Upgrade Scout:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <ToggleSwitch Grid.Column="1" 
+                                      IsChecked="{Binding UpgradeScoutEnabled, Mode=TwoWay}"
+                                      OnContent="Active" OffContent="Disabled"/>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="180,120,*">
+                        <TextBlock Grid.Column="0" Text="Min Bitrate Threshold:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <NumericUpDown Grid.Column="1" 
+                                       Value="{Binding UpgradeMinBitrateThreshold, Mode=TwoWay}"
+                                       Minimum="128"
+                                       Maximum="320"
+                                       Increment="32"
+                                       IsEnabled="{Binding UpgradeScoutEnabled}"
+                                       Background="#1E1E1E"/>
+                        <TextBlock Grid.Column="2" Text="Upgrade everything below this bitrate" 
+                                   VerticalAlignment="Center" Foreground="#666" FontSize="11" Margin="12,0,0,0"/>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="180,120,*">
+                        <TextBlock Grid.Column="0" Text="Min Quality Gain:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <NumericUpDown Grid.Column="1" 
+                                       Value="{Binding UpgradeMinGainKbps, Mode=TwoWay}"
+                                       Minimum="0"
+                                       Maximum="320"
+                                       Increment="32"
+                                       IsEnabled="{Binding UpgradeScoutEnabled}"
+                                       Background="#1E1E1E"/>
+                        <TextBlock Grid.Column="2" Text="Only upgrade if bitrate gain >= this value" 
+                                   VerticalAlignment="Center" Foreground="#666" FontSize="11" Margin="12,0,0,0"/>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="180,*">
+                        <TextBlock Grid.Column="0" Text="Auto-Queue Upgrades:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <CheckBox Grid.Column="1" 
+                                  IsChecked="{Binding UpgradeAutoQueueEnabled, Mode=TwoWay}"
+                                  IsEnabled="{Binding UpgradeScoutEnabled}"
+                                  Content="Automatically queue found upgrades for download"
+                                  Foreground="#AAA"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Phase 8: Dependencies (FFmpeg Validation) -->
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="Dependencies" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
+                    
+                    <TextBlock TextWrapping="Wrap" Foreground="#AAA" FontSize="12">
+                        Smart features require external dependencies. Ensure these are installed for full functionality.
+                    </TextBlock>
+
+                    <!-- FFmpeg Status Card -->
+                    <Border Background="#2D2D2D" 
+                            CornerRadius="8" 
+                            Padding="16" 
+                            BorderBrush="{Binding FfmpegBorderColor}" 
+                            BorderThickness="2">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <StackPanel Grid.Column="0" Spacing="4">
+                                <TextBlock Text="FFmpeg" 
+                                           FontWeight="SemiBold" 
+                                           FontSize="14"
+                                           Foreground="White"/>
+                                <TextBlock Text="{Binding FfmpegStatus}" 
+                                           FontSize="12" 
+                                           Foreground="#AAA"/>
+                            </StackPanel>
+                            
+                            <StackPanel Grid.Column="2" 
+                                        Orientation="Horizontal" 
+                                        Spacing="8">
+                                <Button Command="{Binding CheckFfmpegCommand}" 
+                                        Content="Check"
+                                        Background="#0078D4"
+                                        Foreground="White"
+                                        Padding="16,6"/>
+                                
+                                <Button Content="Download FFmpeg"
+                                        Name="DownloadFfmpegButton"
+                                        IsVisible="{Binding !IsFfmpegInstalled}"
+                                        Background="#1DB954"
+                                        Foreground="White"
+                                        Padding="16,6"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- Warning message if not installed -->
+                    <Border Background="#332200" 
+                            CornerRadius="4" 
+                            Padding="12"
+                            IsVisible="{Binding !IsFfmpegInstalled}"
+                            BorderBrush="#FFA500"
+                            BorderThickness="1">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="⚠️ FFmpeg is required for:" 
+                                       FontSize="12" 
+                                       Foreground="#FFA500"
+                                       FontWeight="SemiBold"/>
+                            <StackPanel Margin="16,0,0,0" Spacing="4">
+                                <TextBlock Text="• Sonic Integrity Analysis (fake FLAC detection)" FontSize="11" Foreground="#DDD"/>
+                                <TextBlock Text="• Quality Guard (spectral frequency analysis)" FontSize="11" Foreground="#DDD"/>
+                                <TextBlock Text="• Spectral Hash de-duplication" FontSize="11" Foreground="#DDD"/>
+                            </StackPanel>
+                            
+                            <Separator Background="#FFA500" Height="1" Margin="0,4"/>
+                            
+                            <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#CCC">
+                                <Bold>Windows:</Bold> Download from gyan.dev (full builds)
+                            </TextBlock>
+                            <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#CCC">
+                                <Bold>macOS:</Bold> Run: <Span Foreground="#0078D4">brew install ffmpeg</Span>
+                            </TextBlock>
+                            <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#CCC">
+                                <Bold>Linux:</Bold> Run: <Span Foreground="#0078D4">sudo apt install ffmpeg</Span>
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+
+            <!-- Database & Maintenance -->
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+                <StackPanel Spacing="16">
+                    <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="🛠️" FontSize="20" VerticalAlignment="Center"/>
+                            <TextBlock Text="Database &amp; Maintenance" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
+                        </StackPanel>
+                        <TextBlock Text="Manage your local library data and system health." 
+                                   Foreground="#AAA" FontSize="12"/>
+                    </StackPanel>
+
+                    <Separator Background="#333" Height="1"/>
+
+                    <!-- Reset/Update Database Schema -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="Refresh Database Schema" FontWeight="SemiBold" Foreground="#FF8888"/>
+                            <TextBlock Text="Safely resets the database file and restores your data from backup. Use this to enable new features (like AI columns) on an existing library." 
+                                       Foreground="#666" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" 
+                                Command="{Binding ResetDatabaseCommand}"
+                                Content="Update Schema" 
+                                Background="#552222" 
+                                Foreground="#FF8888"
+                                Padding="16,8"
+                                VerticalAlignment="Center"/>
+                    </Grid>
+                    
+                    <Separator Background="#333" Height="1"/>
+                    
+                    <!-- Manual Scan -->
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Library Scan" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextBrush}"/>
+                        <TextBlock Text="Manually scan the configured download folder for new files." 
+                                   Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap"/>
+                        
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button Command="{Binding ScanLibraryCommand}" 
+                                    IsEnabled="{Binding !IsScanning}"
+                                    Classes="AccentBtn" HorizontalAlignment="Left"
+                                    Padding="16,8" Background="#0078D4">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <PathIcon Data="{StaticResource search_regular}" Width="16" Height="16"/>
+                                    <TextBlock Text="{Binding IsScanning, Converter={StaticResource BoolToTextConverter}, ConverterParameter='Scanning...|Scan Library'}" VerticalAlignment="Center" Foreground="White"/>
+                                </StackPanel>
+                            </Button>
+                            
+                            <TextBlock Text="{Binding ScanStatus}" VerticalAlignment="Center" 
+                                       Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Diagnostics & Telemetry -->
+            <Border Background="#0D1B2A" CornerRadius="8" Padding="20" BorderBrush="#00D4FF" BorderThickness="1">
+                <StackPanel Spacing="16">
+                    <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="🔬" FontSize="20" VerticalAlignment="Center"/>
+                            <TextBlock Text="Diagnostics &amp; Telemetry" FontSize="16" FontWeight="SemiBold" Foreground="#00D4FF"/>
+                        </StackPanel>
+                        <TextBlock Text="Performance validation and system health monitoring for soundcheck sessions." 
+                                   Foreground="#778DA9" FontSize="12"/>
+                    </StackPanel>
+
+                    <Separator Background="#1B263B" Height="1"/>
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="Redline Performance Test" FontWeight="SemiBold" Foreground="#E0E1DD"/>
+                            <TextBlock Text="4-phase stress test: Dual Deck → Chaos Blend → 4-Deck Saturation → Vector Sweep" 
+                                       Foreground="#778DA9" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" 
+                                Name="OpenDiagnosticsPanelButton"
+                                Background="#00D4FF" 
+                                Foreground="#0D1B2A"
+                                FontWeight="Bold"
+                                Padding="16,8"
+                                CornerRadius="6"
+                                VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="🚀"/>
+                                <TextBlock Text="Open Diagnostics"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Strategy Command Center -->
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+                <StackPanel Spacing="16">
+                    <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="🎯" FontSize="20" VerticalAlignment="Center"/>
+                            <TextBlock Text="Search Strategy" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
+                        </StackPanel>
+                        <TextBlock Text="Choose how ORBIT prioritizes search results. This replaces the old slider system." 
+                                   Foreground="#AAA" FontSize="12"/>
+                    </StackPanel>
+
+                    <ItemsControl ItemsSource="{Binding Strategies}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Spacing="12"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Command="{Binding DataContext.SelectStrategyCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="{Binding}"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        Padding="0"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Stretch">
+                                    <controls:StrategyCard Title="{Binding Title}"
+                                                           Description="{Binding Description}"
+                                                           Icon="{Binding Icon}"
+                                                           IsSelected="{Binding IsSelected}"
+                                                           HorizontalAlignment="Stretch"/>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <!-- Save Button -->
+            <Button Command="{Binding SaveSettingsCommand}"
+                    Classes="primary"
+                    HorizontalAlignment="Left"
+                    Padding="24,12">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="💾" FontSize="16"/>
+                    <TextBlock Text="Save Settings" FontSize="14" FontWeight="SemiBold"/>
+                </StackPanel>
+            </Button>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

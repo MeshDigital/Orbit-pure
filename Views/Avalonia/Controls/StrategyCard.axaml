@@ -1,0 +1,73 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="using:SLSKDONET.Views.Avalonia.Controls">
+  <Design.PreviewWith>
+    <controls:StrategyCard />
+  </Design.PreviewWith>
+
+  <Style Selector="controls|StrategyCard">
+    <!-- Set Defaults -->
+    <Setter Property="Background" Value="#2D2D2D"/>
+    <Setter Property="BorderBrush" Value="#3E3E3E"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="8"/>
+    <Setter Property="Padding" Value="16"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="{TemplateBinding CornerRadius}"
+                Padding="{TemplateBinding Padding}">
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+                <!-- Icon -->
+                <TextBlock Grid.Row="0" Grid.Column="0" 
+                           Text="{TemplateBinding Icon}" 
+                           FontSize="24" 
+                           VerticalAlignment="Center"
+                           Margin="0,0,16,0"/>
+                
+                <!-- Content -->
+                <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                    <TextBlock Text="{TemplateBinding Title}" 
+                               FontWeight="Bold" 
+                               FontSize="16" 
+                               Foreground="White"/>
+                    <TextBlock Text="{TemplateBinding Description}" 
+                               FontSize="12" 
+                               Foreground="#AAA" 
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+                
+                <!-- Active Indicator (Checkmark) -->
+                <PathIcon Grid.Row="0" Grid.Column="1" 
+                          Data="{StaticResource icons_checkmark}"
+                          Foreground="#1DB954"
+                          Width="20" Height="20"
+                          HorizontalAlignment="Right"
+                          VerticalAlignment="Top"
+                          IsVisible="{TemplateBinding IsSelected}"/>
+            </Grid>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  
+  <!-- Selected State Visuals -->
+  <Style Selector="controls|StrategyCard[IsSelected=True]">
+      <Setter Property="Background" Value="#1E3E2E"/> <!-- Dark Green Tint -->
+      <Setter Property="BorderBrush" Value="#1DB954"/>
+      <Setter Property="BorderThickness" Value="2"/>
+  </Style>
+  
+  <!-- Hover State -->
+  <Style Selector="controls|StrategyCard:pointerover">
+      <Setter Property="Background" Value="#353535"/>
+  </Style>
+  
+  <Style Selector="controls|StrategyCard[IsSelected=True]:pointerover">
+      <Setter Property="Background" Value="#254535"/>
+  </Style>
+</Styles>

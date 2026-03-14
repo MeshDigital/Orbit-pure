@@ -1,0 +1,315 @@
+{
+  "folders": [
+    {
+      "name": "🚀 ORBIT Root",
+      "path": "."
+    },
+    {
+      "name": "💾 DATA & ENTITIES",
+      "path": "Data"
+    },
+    {
+      "name": "🧠 INTELLIGENCE SERVICES",
+      "path": "Services"
+    },
+    {
+      "name": "🎨 UI & VIEWMODELS",
+      "path": "Views"
+    },
+    {
+      "name": "🖥️ Views: Avalonia Controls",
+      "path": "Views/Avalonia"
+    },
+    {
+      "name": "🧪 TESTS & SPECS",
+      "path": "Tests"
+    },
+    {
+      "name": "📊 FORENSICS: BUILD LOGS",
+      "path": ".",
+      "settings": {
+        "files.exclude": {
+          "**/*": true,
+          "**/build_*.txt": false,
+          "**/build_*.md": false,
+          "**/*.log": false,
+          "**/RECENT_CHANGES.txt": false
+        }
+      }
+    }
+  ],
+  "settings": {
+    // === EDITOR CONFIGURATION ===
+    "editor.formatOnSave": true,
+    "editor.formatOnPaste": false,
+    "editor.codeActionsOnSave": {
+      "source.fixAll": "explicit",
+      "source.organizeImports": "explicit"
+    },
+    "editor.minimap.enabled": true,
+    "editor.minimap.maxColumn": 120,
+    "editor.rulers": [
+      120
+    ],
+    "editor.wordWrap": "off",
+    "editor.bracketPairColorization.enabled": true,
+    "editor.guides.bracketPairs": "active",
+    // === FILE MANAGEMENT ===
+    "files.exclude": {
+      "**/bin": true,
+      "**/obj": true,
+      "**/.vs": true,
+      "**/node_modules": true,
+      "**/.git": false
+    },
+    "files.watcherExclude": {
+      "**/bin/**": true,
+      "**/obj/**": true,
+      "**/node_modules/**": true
+    },
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+    // === SEARCH CONFIGURATION ===
+    "search.exclude": {
+      "**/bin": true,
+      "**/obj": true,
+      "**/node_modules": true,
+      "**/.git": true,
+      "**/build_*.txt": false
+    },
+    "search.useIgnoreFiles": true,
+    "search.quickOpen.includeSymbols": true,
+    "search.smartCase": true,
+    // === C# & .NET CONFIGURATION ===
+    "dotnet.defaultSolution": "SLSKDONET.sln",
+    "dotnet.completion.showCompletionItemsFromUnimportedNamespaces": true,
+    "dotnet.inlayHints.enableInlayHintsForImplicitObjectCreation": true,
+    "dotnet.inlayHints.enableInlayHintsForImplicitVariableTypes": true,
+    "dotnet.inlayHints.enableInlayHintsForLambdaParameterTypes": true,
+    "dotnet.inlayHints.enableInlayHintsForParameters": true,
+    "dotnet.unitTestDebuggingOptions": {
+      "stopOnEntry": false,
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "sourcePath": "${workspaceFolder}/Tests"
+    },
+    "csharp.format.enable": true,
+    "csharp.suppressDotnetRestoreNotification": true,
+    // === AVALONIA XAML CONFIGURATION ===
+    "xml.format.maxLineWidth": 120,
+    "xml.format.splitAttributes": "preserve",
+    "[xml]": {
+      "editor.defaultFormatter": "redhat.vscode-xml"
+    },
+    // === UI/UX CONFIGURATION ===
+    "workbench.sideBar.location": "right",
+    "workbench.editor.enablePreview": false,
+    "workbench.editor.closeOnFileDelete": true,
+    "workbench.colorTheme": "Default Dark+",
+    "workbench.iconTheme": "vs-seti",
+    "workbench.activityBar.location": "top",
+    // === TERMINAL CONFIGURATION ===
+    "terminal.integrated.defaultProfile.windows": "PowerShell",
+    "terminal.integrated.fontSize": 12,
+    "terminal.integrated.fontFamily": "Cascadia Code, Consolas, 'Courier New', monospace",
+    "terminal.integrated.gpuAcceleration": "on",
+    "terminal.integrated.enableMultiLinePasteWarning": false,
+    // === GIT CONFIGURATION ===
+    "git.autofetch": true,
+    "git.confirmSync": false,
+    "git.enableSmartCommit": true,
+    "git.suggestSmartCommit": false,
+    // === WORKSPACE SPECIFIC ===
+    "omnisharp.enableRoslynAnalyzers": true,
+    "omnisharp.enableEditorConfigSupport": true,
+    "omnisharp.useModernNet": true,
+    // === PERFORMANCE OPTIMIZATIONS ===
+    "extensions.ignoreRecommendations": false,
+    "telemetry.telemetryLevel": "off"
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-dotnettools.csdevkit",
+      "ms-dotnettools.csharp",
+      "avaloniateam.vscode-avalonia",
+      "jmrog.vscode-nuget-package-manager",
+      "eamodio.gitlens",
+      "github.vscode-github-actions",
+      "humao.rest-client",
+      "redhat.vscode-xml",
+      "streetsidesoftware.code-spell-checker"
+    ]
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "🚀 Launch ORBIT (Debug)",
+        "type": "coreclr",
+        "request": "launch",
+        "preLaunchTask": "build",
+        "program": "${workspaceFolder}/bin/Debug/net8.0/SLSKDONET.dll",
+        "args": [],
+        "cwd": "${workspaceFolder}",
+        "console": "internalConsole",
+        "stopAtEntry": false,
+        "env": {
+          "DOTNET_ENVIRONMENT": "Development"
+        }
+      },
+      {
+        "name": "🔬 Attach to ORBIT Process",
+        "type": "coreclr",
+        "request": "attach",
+        "processId": "${command:pickProcess}"
+      }
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "build",
+        "command": "dotnet",
+        "type": "process",
+        "args": [
+          "build",
+          "${workspaceFolder}/SLSKDONET.csproj",
+          "/property:GenerateFullPaths=true",
+          "/consoleloggerparameters:NoSummary"
+        ],
+        "problemMatcher": "$msCompile",
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        }
+      },
+      {
+        "label": "clean",
+        "command": "dotnet",
+        "type": "process",
+        "args": [
+          "clean",
+          "${workspaceFolder}/SLSKDONET.csproj"
+        ],
+        "problemMatcher": "$msCompile"
+      },
+      {
+        "label": "run",
+        "command": "dotnet",
+        "type": "process",
+        "args": [
+          "run",
+          "--project",
+          "${workspaceFolder}/SLSKDONET.csproj"
+        ],
+        "problemMatcher": "$msCompile",
+        "group": {
+          "kind": "test",
+          "isDefault": true
+        }
+      },
+      {
+        "label": "🔨 Build-Watch",
+        "command": "dotnet",
+        "type": "process",
+        "args": [
+          "watch",
+          "run",
+          "--project",
+          "${workspaceFolder}/SLSKDONET.csproj"
+        ],
+        "isBackground": true,
+        "presentation": {
+          "echo": true,
+          "reveal": "silent",
+          "focus": false,
+          "panel": "dedicated",
+          "showReuseMessage": true
+        },
+        "runOptions": {
+          "runOn": "default"
+        }
+      },
+      {
+        "label": "📋 Forensic-Logs",
+        "type": "shell",
+        "command": "pwsh",
+        "args": [
+          "-NoExit",
+          "-Command",
+          "Get-ChildItem -Path './bin/Debug/net9.0/logs' -Filter '*.json' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | ForEach-Object { Write-Host 'Latest forensic log:' $_; Get-Content $_.FullName | ConvertFrom-Json | Format-Table -AutoSize }"
+        ],
+        "isBackground": true,
+        "presentation": {
+          "echo": true,
+          "reveal": "silent",
+          "focus": false,
+          "panel": "dedicated"
+        }
+      },
+      {
+        "label": "🔗 Git-Control",
+        "type": "shell",
+        "command": "pwsh",
+        "args": [
+          "-NoExit",
+          "-Command",
+          "Write-Host 'Git Status:'; git status; Write-Host 'Recent commits:'; git log --oneline -5"
+        ],
+        "isBackground": true,
+        "presentation": {
+          "echo": true,
+          "reveal": "silent",
+          "focus": false,
+          "panel": "dedicated"
+        }
+      },
+      {
+        "label": "watch",
+        "command": "dotnet",
+        "type": "process",
+        "args": [
+          "watch",
+          "run",
+          "--project",
+          "${workspaceFolder}/SLSKDONET.csproj"
+        ],
+        "problemMatcher": "$msCompile",
+        "isBackground": true
+      },
+      {
+        "label": "📊 Document Recent Changes",
+        "type": "shell",
+        "command": "Get-Content build_*.txt, build_*.md -ErrorAction SilentlyContinue | Select-Object -Last 100 | Out-File -FilePath RECENT_CHANGES.txt",
+        "windows": {
+          "command": "Get-Content build_*.txt, build_*.md -ErrorAction SilentlyContinue | Select-Object -Last 100 | Out-File -FilePath RECENT_CHANGES.txt"
+        },
+        "problemMatcher": [],
+        "group": "build"
+      },
+      {
+        "label": "🧹 Clean All Build Artifacts",
+        "type": "shell",
+        "command": "Remove-Item -Recurse -Force bin, obj -ErrorAction SilentlyContinue; dotnet clean",
+        "windows": {
+          "command": "Remove-Item -Recurse -Force bin, obj -ErrorAction SilentlyContinue; dotnet clean"
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "🔍 Analyze Solution",
+        "command": "dotnet",
+        "type": "process",
+        "args": [
+          "build",
+          "${workspaceFolder}/SLSKDONET.csproj",
+          "/t:Rebuild",
+          "/p:RunAnalyzers=true",
+          "/p:EnforceCodeStyleInBuild=true"
+        ],
+        "problemMatcher": "$msCompile"
+      }
+    ]
+  }
+}

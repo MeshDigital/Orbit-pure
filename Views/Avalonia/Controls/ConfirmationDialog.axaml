@@ -1,0 +1,35 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="200"
+        x:Class="SLSKDONET.Views.Avalonia.Controls.ConfirmationDialog"
+        Title="Confirmation"
+        Width="400" Height="180"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        SystemDecorations="Full">
+    
+    <Border Padding="20">
+        <Grid RowDefinitions="*,Auto">
+            
+            <!-- Message Area -->
+            <StackPanel Grid.Row="0" VerticalAlignment="Center" Spacing="10">
+                <TextBlock Name="TitleText" 
+                           FontWeight="Bold" 
+                           FontSize="16" 
+                           Text="Confirm Action"/>
+                
+                <TextBlock Name="MessageText" 
+                           TextWrapping="Wrap" 
+                           Text="Are you sure you want to proceed?"/>
+            </StackPanel>
+            
+            <!-- Buttons -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,20,0,0">
+                <Button Name="NoButton" Content="No" Width="80" HorizontalContentAlignment="Center"/>
+                <Button Name="YesButton" Content="Yes" Width="80" HorizontalContentAlignment="Center" Classes="accent"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

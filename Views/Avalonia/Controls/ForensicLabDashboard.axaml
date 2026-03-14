@@ -1,0 +1,506 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.ForensicLabDashboard"
+             Background="#0F0F0F">
+    
+    <Design.DataContext>
+        <vm:ForensicLabViewModel/>
+    </Design.DataContext>
+
+    <!-- 5-Sector Forensic Lab Layout -->
+    <Grid>
+        <Grid RowDefinitions="180,*,200">
+        
+        <!-- ============================================ -->
+        <!-- TOP SECTOR: Waveform & Transport -->
+        <!-- ============================================ -->
+        <Border Grid.Row="0" 
+                Background="#1A1A1A" 
+                BorderBrush="#333" 
+                BorderThickness="0,0,0,1"
+                Padding="20">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <!-- Header -->
+                <TextBlock Text="WAVEFORM ANALYSIS" 
+                           FontSize="11" 
+                           FontWeight="Bold" 
+                           Foreground="#666" 
+                           LetterSpacing="1"/>
+                
+                <!-- Waveform Display -->
+                <Border Grid.Row="1" 
+                        Background="#111" 
+                        CornerRadius="8" 
+                        Margin="0,8"
+                        ClipToBounds="True">
+                    <controls:WaveformControl WaveformData="{Binding WaveformData}"
+                                              LowBand="{Binding LowData}"
+                                              MidBand="{Binding MidData}"
+                                              HighBand="{Binding HighData}"
+                                               Height="100"
+                                               VerticalAlignment="Stretch"
+                                               HorizontalAlignment="Stretch"/>
+                </Border>
+                
+                <!-- Timeline + Transport Controls -->
+                <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto">
+                    <TextBlock Text="0:00" FontSize="10" Foreground="#666" FontFamily="Consolas"/>
+                    <TextBlock Grid.Column="2" 
+                               Text="{Binding Duration, StringFormat='{}{0:mm\\:ss}'}" 
+                               FontSize="10" 
+                               Foreground="#666"
+                               FontFamily="Consolas"/>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- ============================================ -->
+        <!-- MIDDLE ROW: 3-Column Layout -->
+        <!-- ============================================ -->
+        <Grid Grid.Row="1" ColumnDefinitions="300,*,300">
+            
+            <!-- ============================================ -->
+            <!-- LEFT SECTOR: Rhythmic & Tonal -->
+            <!-- ============================================ -->
+            <Border Grid.Column="0" 
+                    Background="#151515" 
+                    BorderBrush="#333" 
+                    BorderThickness="0,0,1,0"
+                    Padding="20">
+                <ScrollViewer>
+                    <StackPanel Spacing="24">
+                        <!-- Header -->
+                        <TextBlock Text="RHYTHMIC &amp; TONAL" 
+                                   FontSize="11" 
+                                   FontWeight="Bold" 
+                                   Foreground="#666" 
+                                   LetterSpacing="1"/>
+
+                        <!-- BPM Section -->
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="TEMPO" FontSize="10" Foreground="#666"/>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Text="{Binding BpmValue, StringFormat='{}{0:F1} BPM'}" 
+                                           FontSize="32" 
+                                           FontWeight="Bold" 
+                                           Foreground="#4EC9B0"/>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding BpmStabilityLabel}" 
+                                               FontSize="11" 
+                                               Foreground="#AAA"/>
+                                    <TextBlock Text="{Binding BpmConfidence, StringFormat='Confidence: {0:P0}'}" 
+                                               FontSize="10" 
+                                               Foreground="#666"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+
+                        <!-- BPM Histogram Placeholder -->
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="BPM STABILITY" FontSize="10" Foreground="#666"/>
+                            <Border Background="#0A0A0A" 
+                                    Height="80" 
+                                    CornerRadius="4"
+                                    Padding="8">
+                                <Grid>
+                                    <!-- Placeholder for histogram visualization -->
+                                    <TextBlock Text="[BPM Histogram Chart]" 
+                                               Foreground="#444" 
+                                               HorizontalAlignment="Center" 
+                                               VerticalAlignment="Center"
+                                               FontStyle="Italic"
+                                               FontSize="11"/>
+                                    <!-- TODO: Add actual histogram rendering -->
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Key Section -->
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="MUSICAL KEY" FontSize="10" Foreground="#666"/>
+                            <Grid ColumnDefinitions="Auto,*">
+                                <Border Background="#1E88E5" 
+                                        CornerRadius="8" 
+                                        Padding="16"
+                                        Width="80"
+                                        Height="80">
+                                    <TextBlock Text="{Binding CamelotKey}" 
+                                               FontSize="28" 
+                                               FontWeight="Bold" 
+                                               Foreground="White"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Border>
+                                <StackPanel Grid.Column="1" 
+                                            Margin="12,0,0,0" 
+                                            VerticalAlignment="Center"
+                                            Spacing="4">
+                                    <TextBlock Text="Key Confidence" 
+                                               FontSize="10" 
+                                               Foreground="#666"/>
+                                    <ProgressBar Value="{Binding KeyConfidence}" 
+                                                 Maximum="1" 
+                                                 Height="8" 
+                                                 Foreground="#1E88E5"
+                                                 Background="#222"
+                                                 CornerRadius="4"/>
+                                    <TextBlock Text="{Binding KeyConfidence, StringFormat='{}{0:P0}'}" 
+                                               FontSize="11" 
+                                               Foreground="#AAA"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+
+                        <!-- Chord Progression -->
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="CHORD PROGRESSION" FontSize="10" Foreground="#666"/>
+                            <Border Background="#0A0A0A" 
+                                    CornerRadius="4" 
+                                    Padding="12">
+                                <TextBlock Text="{Binding ChordProgression}" 
+                                           FontSize="14" 
+                                           Foreground="#4EC9B0"
+                                           FontFamily="Consolas"
+                                           TextWrapping="Wrap"/>
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <!-- ============================================ -->
+            <!-- CENTER SECTOR: Tabbed Analysis (Phase 13) -->
+            <!-- ============================================ -->
+            <Border Grid.Column="1" 
+                    Background="#1A1A1A" 
+                    Padding="16">
+                <TabControl TabStripPlacement="Top">
+                    <TabControl.Styles>
+                        <Style Selector="TabItem">
+                            <Setter Property="FontSize" Value="11"/>
+                            <Setter Property="FontWeight" Value="Bold"/>
+                            <Setter Property="Padding" Value="16,8"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="Foreground" Value="#888"/>
+                        </Style>
+                        <Style Selector="TabItem:selected">
+                            <Setter Property="Foreground" Value="#4EC9B0"/>
+                        </Style>
+                    </TabControl.Styles>
+                    
+                    <!-- ===== VIBE TAB ===== -->
+                    <TabItem Header="🎵 Vibe">
+                        <ScrollViewer Margin="0,16,0,0">
+                            <StackPanel Spacing="20">
+                                <!-- Danceability -->
+                                <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="90,*,50">
+                                    <TextBlock Text="Danceability" 
+                                               Foreground="#AAA" 
+                                               VerticalAlignment="Center" 
+                                               FontSize="12"/>
+                                    <ProgressBar Grid.Column="1" 
+                                                 Value="{Binding Danceability}" 
+                                                 Maximum="1" 
+                                                 Height="10" 
+                                                 Margin="12,0"
+                                                 Foreground="#9C27B0" 
+                                                 Background="#333" 
+                                                 CornerRadius="5"/>
+                                    <TextBlock Grid.Column="2" 
+                                               Text="{Binding Danceability, StringFormat='{}{0:P0}'}" 
+                                               Foreground="White" 
+                                               FontSize="12" 
+                                               FontWeight="SemiBold" 
+                                               TextAlignment="Right"/>
+                                </Grid>
+
+                                <!-- Energy -->
+                                <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="90,*,50">
+                                    <TextBlock Text="Energy" 
+                                               Foreground="#AAA" 
+                                               VerticalAlignment="Center" 
+                                               FontSize="12"/>
+                                    <ProgressBar Grid.Column="1" 
+                                                 Value="{Binding Energy}" 
+                                                 Maximum="1" 
+                                                 Height="10" 
+                                                 Margin="12,0"
+                                                 Foreground="#FF5252" 
+                                                 Background="#333" 
+                                                 CornerRadius="5"/>
+                                    <TextBlock Grid.Column="2" 
+                                               Text="{Binding Energy, StringFormat='{}{0:P0}'}" 
+                                               Foreground="White" 
+                                               FontSize="12" 
+                                               FontWeight="SemiBold" 
+                                               TextAlignment="Right"/>
+                                </Grid>
+
+                                <!-- Intensity (NEW) -->
+                                <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="90,*,50">
+                                    <TextBlock Text="Intensity" 
+                                               Foreground="#AAA" 
+                                               VerticalAlignment="Center" 
+                                               FontSize="12"/>
+                                    <ProgressBar Grid.Column="1" 
+                                                 Value="{Binding Intensity}" 
+                                                 Maximum="1" 
+                                                 Height="10" 
+                                                 Margin="12,0"
+                                                 Foreground="#FF9800" 
+                                                 Background="#333" 
+                                                 CornerRadius="5"/>
+                                    <TextBlock Grid.Column="2" 
+                                               Text="{Binding Intensity, StringFormat='{}{0:P0}'}" 
+                                               Foreground="White" 
+                                               FontSize="12" 
+                                               FontWeight="SemiBold" 
+                                               TextAlignment="Right"/>
+                                </Grid>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+                    
+                    <!-- ===== MOOD TAB ===== -->
+                    <TabItem Header="🎭 Mood">
+                        <ScrollViewer Margin="0,16,0,0">
+                            <StackPanel Spacing="20">
+                                <!-- Vocal Presence -->
+                                <StackPanel Spacing="8">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Text="VOCAL PRESENCE" FontSize="10" Foreground="#666"/>
+                                        <TextBlock Grid.Column="1" 
+                                                   Text="{Binding VocalPresenceLabel}" 
+                                                   FontSize="11" 
+                                                   Foreground="#4EC9B0"
+                                                   FontWeight="SemiBold"/>
+                                    </Grid>
+                                    <Border Background="#0A0A0A" 
+                                            Height="100" 
+                                            CornerRadius="8"
+                                            Padding="16">
+                                        <Viewbox Width="80" Height="80">
+                                            <Canvas Width="100" Height="100">
+                                                <Ellipse Width="100" Height="100" 
+                                                         Stroke="#333" 
+                                                         StrokeThickness="8"
+                                                         Fill="Transparent"/>
+                                                <Ellipse Width="100" Height="100" 
+                                                         Stroke="#9C27B0" 
+                                                         StrokeThickness="8"
+                                                         Fill="Transparent"/>
+                                                <TextBlock Text="{Binding InstrumentalProbability, StringFormat='{}{0:P0}'}" 
+                                                           Canvas.Left="25" 
+                                                           Canvas.Top="38"
+                                                           FontSize="18"
+                                                           FontWeight="Bold"
+                                                           Foreground="White"/>
+                                            </Canvas>
+                                        </Viewbox>
+                                    </Border>
+                                </StackPanel>
+
+                                <!-- Mood Classification -->
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="MOOD CLASSIFICATION" FontSize="10" Foreground="#666"/>
+                                    <Border Background="#0A0A0A" 
+                                            CornerRadius="4" 
+                                            Padding="16">
+                                        <StackPanel Spacing="8">
+                                            <TextBlock Text="{Binding MoodTag}" 
+                                                       FontSize="28" 
+                                                       FontWeight="Bold" 
+                                                       Foreground="#FF9800"
+                                                       HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding MoodConfidence, StringFormat='Confidence: {0:P0}'}" 
+                                                       FontSize="11" 
+                                                       Foreground="#AAA"
+                                                       HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+                    
+                    <!-- ===== AI TAB ===== -->
+                    <TabItem Header="🧠 AI">
+                        <ScrollViewer Margin="0,16,0,0">
+                            <StackPanel Spacing="20">
+                                <!-- Subgenre Radar -->
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="SUBGENRE RADAR" 
+                                               FontSize="10" 
+                                               Foreground="#666"/>
+                                    <Border Background="#0A0A0A" 
+                                            Height="150" 
+                                            CornerRadius="4">
+                                        <TextBlock Text="[Style Embedding Visualization]" 
+                                                   Foreground="#444" 
+                                                   HorizontalAlignment="Center" 
+                                                   VerticalAlignment="Center"
+                                                   FontStyle="Italic"/>
+                                    </Border>
+                                </StackPanel>
+                                
+                                <!-- AI Model Info -->
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="MODEL INFO" 
+                                               FontSize="10" 
+                                               Foreground="#666"/>
+                                    <Border Background="#0A0A0A" 
+                                            CornerRadius="4" 
+                                            Padding="12">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="Essentia + TensorFlow" 
+                                                       FontSize="12" 
+                                                       Foreground="#4EC9B0"/>
+                                            <TextBlock Text="MusicNN / EffNet Models" 
+                                                       FontSize="10" 
+                                                       Foreground="#666"/>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+                </TabControl>
+            </Border>
+
+            <!-- ============================================ -->
+            <!-- RIGHT SECTOR: Signal Integrity (Phase 14) -->
+            <!-- ============================================ -->
+            <Border Grid.Column="2" 
+                    Background="#151515" 
+                    BorderBrush="#333" 
+                    BorderThickness="1,0,0,0"
+                    Padding="20">
+                <ScrollViewer>
+                    <StackPanel Spacing="24">
+                        <!-- Header -->
+                        <TextBlock Text="SIGNAL INTEGRITY" 
+                                   FontSize="11" 
+                                   FontWeight="Bold" 
+                                   Foreground="#666" 
+                                   LetterSpacing="1"/>
+
+                        <!-- Bitrate Verification -->
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="BITRATE VERIFICATION" FontSize="10" Foreground="#666"/>
+                            <Border Background="{Binding IsFake, Converter={StaticResource BoolToColorConverter}, ConverterParameter='#FF5252;#4EC9B0'}"
+                                    CornerRadius="4" 
+                                    Padding="12">
+                                <TextBlock Text="{Binding BitrateVerificationLabel}" 
+                                           FontSize="12" 
+                                           Foreground="White"
+                                           TextWrapping="Wrap"
+                                           FontWeight="SemiBold"/>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Spectrogram -->
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="FREQUENCY SPECTRUM" FontSize="10" Foreground="#666"/>
+                            <Border Background="#0A0A0A" 
+                                    Height="200" 
+                                    CornerRadius="4"
+                                    ClipToBounds="True">
+                                <Grid>
+                                    <!-- Spectrogram Image -->
+                                    <Image Source="{Binding SpectrogramImage}" 
+                                           Stretch="UniformToFill"/>
+                                    
+                                    <!-- Cutoff Overlay -->
+                                    <TextBlock Text="{Binding FrequencyCutoff, StringFormat='Cutoff: {0} Hz'}" 
+                                               Foreground="#4EC9B0" 
+                                               FontSize="10"
+                                               Background="#AA000000"
+                                               Padding="6,4"
+                                               VerticalAlignment="Top"
+                                               HorizontalAlignment="Right"
+                                               Margin="8"/>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Dynamic Range -->
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="DYNAMIC RANGE" FontSize="10" Foreground="#666"/>
+                            <Border Background="#0A0A0A" 
+                                    CornerRadius="4" 
+                                    Padding="12">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="{Binding DynamicRangeLabel}" 
+                                               FontSize="12" 
+                                               Foreground="{Binding IsDynamicCompressed, Converter={StaticResource BoolToColorConverter}, ConverterParameter='#FF9800;#4EC9B0'}"
+                                               FontWeight="SemiBold"
+                                               TextWrapping="Wrap"/>
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Text="Loudness (LUFS)" 
+                                                   FontSize="10" 
+                                                   Foreground="#666"/>
+                                        <TextBlock Grid.Column="1" 
+                                                   Text="{Binding LoudnessLUFS, StringFormat='{}{0:F1} LUFS'}" 
+                                                   FontSize="11" 
+                                                   Foreground="#AAA"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- ============================================ -->
+        <!-- BOTTOM SECTOR: Raw Data Stream -->
+        <!-- ============================================ -->
+        <Border Grid.Row="2" 
+                Background="#0A0A0A" 
+                BorderBrush="#333" 
+                BorderThickness="0,1,0,0"
+                Padding="20">
+            <Grid RowDefinitions="Auto,*">
+                <TextBlock Text="RAW ESSENTIA OUTPUT (JSON)" 
+                           FontSize="11" 
+                           FontWeight="Bold" 
+                           Foreground="#666" 
+                           LetterSpacing="1"/>
+                
+                <ScrollViewer Grid.Row="1" Margin="0,8,0,0">
+                    <TextBlock Text="{Binding EssentiaJsonOutput}" 
+                               FontFamily="Consolas" 
+                               FontSize="10" 
+                               Foreground="#AAA"
+                               TextWrapping="Wrap"/>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+    </Grid>
+
+    <!-- LOADING OVERLAY -->
+    <Grid Background="#CC000000" IsVisible="{Binding IsLoading}" ZIndex="1000">
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
+            <ProgressBar IsIndeterminate="True" 
+                         Width="200" 
+                         Height="4" 
+                         Foreground="#4EC9B0" 
+                         Background="#333"/>
+            <TextBlock Text="{Binding LoadingStatus}" 
+                       Foreground="#4EC9B0" 
+                       FontSize="16" 
+                       FontWeight="SemiBold" 
+                       HorizontalAlignment="Center"/>
+            <TextBlock Text="Analyzing audio features... This may take up to 2 minutes." 
+                       Foreground="#888" 
+                       FontSize="12" 
+                       HorizontalAlignment="Center"/>
+        </StackPanel>
+    </Grid>
+    </Grid>
+</UserControl>

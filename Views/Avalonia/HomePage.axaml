@@ -1,0 +1,422 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:conv="clr-namespace:SLSKDONET.Converters"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:Models="clr-namespace:SLSKDONET.Models"
+             mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="1000"
+             x:Class="SLSKDONET.Views.Avalonia.HomePage"
+             x:DataType="vm:HomeViewModel"
+             Background="#0A0A0B">
+    
+    <UserControl.Resources>
+        <conv:MatchToColorConverter x:Key="MatchToColorConverter"/>
+        <conv:CountToColorConverter x:Key="CountToColorConverter"/>
+    </UserControl.Resources>
+    
+    <UserControl.Styles>
+        <Style Selector="Border.glass">
+            <Setter Property="Background" Value="#1A1A1D"/>
+            <Setter Property="BorderBrush" Value="#2A2A2E"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="16"/>
+            <Setter Property="Opacity" Value="0.95"/>
+            <Setter Property="BoxShadow" Value="0 4 24 0 #08000000"/>
+        </Style>
+        <Style Selector="Border.glass:pointerover">
+            <Setter Property="BorderBrush" Value="#404045"/>
+            <Setter Property="Background" Value="#222226"/>
+        </Style>
+        <Style Selector="Button.ActionBtnSmall">
+            <Setter Property="Background" Value="#2A2A2E"/>
+            <Setter Property="BorderBrush" Value="#3A3A3E"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="6"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <Style Selector="Button.ActionBtnSmall:pointerover">
+            <Setter Property="Background" Value="#3A3A3E"/>
+            <Setter Property="BorderBrush" Value="#00A3FF"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,*" Margin="32">
+        <!-- Header -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,32">
+            <StackPanel Grid.Column="0">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="Mission Control" FontSize="32" FontWeight="Black" Foreground="White" LetterSpacing="-0.5"/>
+                    <Border Background="#FF5252" CornerRadius="4" Padding="8,4" VerticalAlignment="Center" IsVisible="{Binding IsLockdownActive}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="🛡️" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Text="FORENSIC LOCKDOWN ACTIVE" FontSize="11" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Border.Styles>
+                            <Style Selector="Border">
+                                <Style.Animations>
+                                    <Animation Duration="0:0:1" IterationCount="Infinite">
+                                        <KeyFrame KeyTime="0:0:0"><Setter Property="Opacity" Value="1"/></KeyFrame>
+                                        <KeyFrame KeyTime="0:0:0.5"><Setter Property="Opacity" Value="0.4"/></KeyFrame>
+                                        <KeyFrame KeyTime="0:0:1"><Setter Property="Opacity" Value="1"/></KeyFrame>
+                                    </Animation>
+                                </Style.Animations>
+                            </Style>
+                        </Border.Styles>
+                    </Border>
+                </StackPanel>
+                <TextBlock Text="System Status &amp; Intelligence Dashboard" FontSize="14" Foreground="#808080" Margin="0,4,0,0"/>
+            </StackPanel>
+            
+            <Button Grid.Column="1" Command="{Binding RefreshDashboardCommand}" 
+                    Background="Transparent" BorderThickness="0" Padding="8" VerticalAlignment="Top">
+                <TextBlock Text="🔄 Refresh" Foreground="#00A3FF" FontSize="13" FontWeight="SemiBold"/>
+            </Button>
+        </Grid>
+        
+        <ScrollViewer Grid.Row="1">
+            <StackPanel Spacing="24">
+                <!-- Top Bento Row: Core Metrics -->
+                <Grid ColumnDefinitions="*,*,*" RowDefinitions="180">
+                    <!-- Library Health Tile -->
+                    <Border Grid.Column="0" Classes="glass" Padding="24" Margin="0,0,16,0">
+                        <Grid RowDefinitions="Auto,*,Auto">
+                            <TextBlock Grid.Row="0" Text="SONIC HEALTH" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1"/>
+                            
+                            <StackPanel Grid.Row="1" VerticalAlignment="Center" Spacing="10">
+                                <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Bottom">
+                                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Bottom">
+                                        <TextBlock Text="{Binding PurityPercent, StringFormat='{}{0:F1}'}" FontSize="32" FontWeight="Black" Foreground="White"/>
+                                        <TextBlock Text="%" FontSize="16" Foreground="#00A3FF" FontWeight="Bold" Margin="0,0,0,6" VerticalAlignment="Bottom"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" Text="{Binding PurityStatus}" FontSize="12" Foreground="#808080" VerticalAlignment="Bottom" Margin="0,0,0,6"/>
+                                </Grid>
+
+                                <Border Height="8" CornerRadius="4" ClipToBounds="True" Background="#2A2A2E">
+                                    <ProgressBar Value="{Binding PurityPercent}" Height="8" Foreground="#00A3FF" Background="Transparent" BorderThickness="0"/>
+                                </Border>
+                            </StackPanel>
+                            
+                            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
+                                <Button Command="{Binding NavigateLibraryCommand}" Classes="ActionBtnSmall" Padding="8,4">
+                                    <TextBlock Text="{Binding CurrentSnapshot.LibraryHealth.GoldCount, StringFormat='{}{0} 🏆'}" FontSize="10" Foreground="#00A3FF" FontWeight="Bold"/>
+                                </Button>
+                                <Button Command="{Binding NavigateLibraryCommand}" Classes="ActionBtnSmall" Padding="8,4">
+                                    <TextBlock Text="{Binding CurrentSnapshot.LibraryHealth.SilverCount, StringFormat='{}{0} 🥈'}" FontSize="10" Foreground="#1DB954" FontWeight="Bold"/>
+                                </Button>
+                                <Button Command="{Binding UpgradeBronzeCommand}" Classes="ActionBtnSmall" Padding="8,4" BorderBrush="#FF6B6B">
+                                    <TextBlock Text="{Binding CurrentSnapshot.LibraryHealth.BronzeCount, StringFormat='{}{0} 🥉'}" FontSize="10" Foreground="#FF6B6B" FontWeight="Bold"/>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                    
+                    <!-- Command Missions -->
+                    <Border Grid.Column="1" Classes="glass" Padding="20" Margin="0,0,16,0">
+                        <Grid RowDefinitions="Auto,*">
+                            <TextBlock Grid.Row="0" Text="COMMAND MISSIONS" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1"/>
+                            
+                            <ItemsControl Grid.Row="1" ItemsSource="{Binding ActiveMissions}" Margin="0,10,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,8">
+                                            <TextBlock Text="{Binding Icon}" FontSize="16" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold" Foreground="White"/>
+                                                <ProgressBar Value="{Binding Progress}" Maximum="1.0" Height="2" Margin="0,4,12,0" Foreground="#00A3FF" IsVisible="{Binding IsRunning}"/>
+                                                <TextBlock Text="{Binding StatusText}" FontSize="10" Foreground="#808080" IsVisible="{Binding IsRunning}"/>
+                                            </StackPanel>
+                                            <Button Grid.Column="2" Command="{Binding ((vm:HomeViewModel)DataContext).RunMissionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" 
+                                                    CommandParameter="{Binding}" IsVisible="{Binding !IsRunning}"
+                                                    Classes="ActionBtnSmall" Background="#22FFFFFF">
+                                                <TextBlock Text="START" FontSize="9" FontWeight="Black"/>
+                                            </Button>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Grid>
+                    </Border>
+                    
+                    <!-- System Resilience -->
+                    <Border Grid.Column="2" Classes="glass" Padding="20">
+                        <Grid RowDefinitions="Auto,*,Auto">
+                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+                                <TextBlock Text="ENGINE RESILIENCE" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1"/>
+                                <TextBlock Text="OPTIMAL" IsVisible="{Binding !IsLockdownActive}" FontSize="9" FontWeight="SemiBold" Foreground="#1DB954"/>
+                            </Grid>
+                            
+                            <StackPanel Grid.Row="1" VerticalAlignment="Center" Spacing="10">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="Zombies" FontSize="10" Foreground="#808080"/>
+                                        <TextBlock Text="{Binding CurrentSnapshot.ZombieProcessCount}" FontSize="18" FontWeight="Black" Foreground="White"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Spacing="2" HorizontalAlignment="Right">
+                                        <TextBlock Text="Dead Letters" FontSize="10" Foreground="#808080" HorizontalAlignment="Right"/>
+                                        <TextBlock Text="{Binding CurrentSnapshot.DeadLetterCount}" FontSize="18" FontWeight="Black" Foreground="White"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="CPU Load" FontSize="10" Foreground="#808080"/>
+                                        <TextBlock Text="{Binding CurrentCpuLoad, StringFormat={}{0:P0}}" FontSize="13" FontWeight="Bold" Foreground="White"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Spacing="2" HorizontalAlignment="Right">
+                                        <TextBlock Text="Spotify" FontSize="10" Foreground="#808080" HorizontalAlignment="Right"/>
+                                        <TextBlock Text="ACTIVE" IsVisible="{Binding IsSpotifyConnected}" FontSize="13" FontWeight="Bold" Foreground="#1DB954"/>
+                                        <TextBlock Text="OFFLINE" IsVisible="{Binding !IsSpotifyConnected}" FontSize="13" FontWeight="Bold" Foreground="#FF5252"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Button Command="{Binding ClearDeadLettersCommand}" 
+                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                        Background="#1AFF5252" BorderBrush="#FF5252" BorderThickness="1" Padding="4" CornerRadius="6">
+                                    <TextBlock Text="SELF-HEAL ENGINE" FontSize="9" FontWeight="Black" Foreground="#FF5252"/>
+                                </Button>
+                            </StackPanel>
+                            
+                            <TextBlock Grid.Row="2" Text="Bridge Operations Active" FontSize="10" Foreground="#555" FontStyle="Italic" HorizontalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- Genre Galaxy (Phase 12.8 -> SkiaSharp Upgrade) -->
+                <Border Classes="glass" Padding="24" Height="220" Margin="0,0,0,8" ClipToBounds="True">
+                    <Grid RowDefinitions="Auto,*">
+                        <!-- SkiaSharp Animated Canvas -->
+                        <controls:GenreGalaxyCanvas Grid.Row="0" Grid.RowSpan="2" Genres="{Binding TopGenres}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Margin="-24"/>
+                        
+                        <TextBlock Grid.Row="0" Text="GENRE GALAXY" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1" Margin="0,0,0,16"/>
+                    </Grid>
+                </Border>
+
+                <!-- Phase 0A: Live Operations & Resilience Log -->
+                <!-- Vibe Search Command Bar (Phase 12.8) -->
+                <Border Classes="glass" Padding="20" Background="#11FFFFFF" Margin="0,0,0,24">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                        <TextBlock Grid.Column="0" Text="✨" FontSize="20" VerticalAlignment="Center" Margin="0,0,16,0"/>
+                        <TextBox Grid.Column="1" Text="{Binding VibeSearchText}" Watermark="Describe the vibe (e.g. 'late night dark techno', 'sunny chill house')..." 
+                                 Background="Transparent" BorderThickness="0" FontSize="16" Foreground="White" VerticalAlignment="Center"
+                                 Classes="clear">
+                             <TextBox.Styles>
+                                 <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+                                     <Setter Property="Background" Value="Transparent"/>
+                                     <Setter Property="BorderThickness" Value="0"/>
+                                 </Style>
+                             </TextBox.Styles>
+                        </TextBox>
+                        <Button Grid.Column="2" Command="{Binding ExecuteVibeSearchCommand}" Classes="ActionBtnSmall" Padding="12,8" Background="#00A3FF" BorderThickness="0">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="Analyze &amp; Search" FontWeight="Bold" Foreground="White"/>
+                                <TextBlock Text="→" Foreground="White"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Border>
+                <Grid ColumnDefinitions="2*,1*" Margin="0,0,0,8">
+                    <!-- Live Operations Feed -->
+                    <Border Grid.Column="0" Classes="glass" Padding="20" Margin="0,0,16,0">
+                        <Grid RowDefinitions="Auto,*">
+                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+                                <TextBlock Text="LIVE OPERATIONS FEED" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1"/>
+                                <StackPanel Orientation="Horizontal" Grid.Column="1" Spacing="8">
+                                    <Border Background="#222" CornerRadius="4" Padding="6,2">
+                                        <TextBlock Text="{Binding CurrentSnapshot.ActiveDownloads, StringFormat='{}⬇ {0}'}" FontSize="10" Foreground="#00BCD4" FontWeight="Bold"/>
+                                    </Border>
+                                    <Border Background="#222" CornerRadius="4" Padding="6,2">
+                                        <TextBlock Text="{Binding CurrentSnapshot.ZombieProcessCount, StringFormat='{}🧟 {0}'}" FontSize="10" Foreground="#FF5252" FontWeight="Bold"/>
+                                    </Border>
+                                </StackPanel>
+                            </Grid>
+                            
+                            <ScrollViewer Grid.Row="1" MaxHeight="450" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                                <ItemsControl ItemsSource="{Binding ActiveOperations}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Panel>
+                                                <!-- Analysis Forensic Cockpit View -->
+                                                <controls:SonicTelemetryCard IsVisible="{Binding Type, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static Models:OperationType.Analysis}}"
+                                                                           DataContext="{Binding Track}"/>
+
+                                                <!-- Standard Download/Search View -->
+                                                <Border IsVisible="{Binding Type, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static Models:OperationType.Download}}"
+                                                        Background="#1E1E22" CornerRadius="8" Padding="12,8" Margin="0,0,0,8" BorderBrush="#33FFFFFF" BorderThickness="1" ClipToBounds="True">
+                                                    <Grid ColumnDefinitions="48,*,Auto,Auto">
+                                                        <!-- Waveform Underlay -->
+                                                        <controls:WaveformControl Grid.Column="0" Grid.ColumnSpan="4"
+                                                                                Height="40" VerticalAlignment="Stretch"
+                                                                                Opacity="0.15" IsHitTestVisible="False"
+                                                                                WaveformData="{Binding Track.WaveformData}"
+                                                                                Progress="{Binding Progress}"
+                                                                                Foreground="#00A3FF"/>
+                                                        
+                                                        <!-- Status Icon/Art -->
+                                                        <Border Grid.Column="0" Width="36" Height="36" Background="#2A2A2E" CornerRadius="6" ClipToBounds="True">
+                                                            <Grid>
+                                                                <PathIcon Data="{StaticResource icons_music}" Width="16" Height="16" Foreground="#444" IsVisible="{Binding Track.ArtworkBitmap, Converter={x:Static ObjectConverters.IsNull}}"/>
+                                                                <Image Source="{Binding Track.ArtworkBitmap}" Stretch="UniformToFill"/>
+                                                            </Grid>
+                                                        </Border>
+                                                        
+                                                        <!-- Info -->
+                                                        <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13" Foreground="White" TextTrimming="CharacterEllipsis"/>
+                                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                <TextBlock Text="{Binding Subtitle}" FontSize="10" Foreground="#808080"/>
+                                                                <TextBlock Text="•" FontSize="10" Foreground="#444"/>
+                                                                <TextBlock Text="{Binding StatusText}" FontSize="10" Foreground="#00A3FF" FontWeight="Bold"/>
+                                                            </StackPanel>
+                                                        </StackPanel>
+                                                        
+                                                        <!-- Mini Progress -->
+                                                        <TextBlock Grid.Column="2" Text="{Binding Track.SpeedDisplay}" VerticalAlignment="Center" FontSize="11" Foreground="#A0A0A0" Margin="0,0,16,0" IsVisible="{Binding Track, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+                                                        <!-- Actions -->
+                                                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
+                                                            <Button Classes="ActionBtnSmall" Command="{Binding Track.PauseCommand}" IsVisible="{Binding Track.IsActive}" ToolTip.Tip="Pause">
+                                                                <PathIcon Data="{StaticResource pause_regular}" Width="12" Height="12"/>
+                                                            </Button>
+                                                            <Button Classes="ActionBtnSmall" Command="{Binding Track.CancelCommand}" IsVisible="{Binding CanCancel}" ToolTip.Tip="Cancel">
+                                                                <PathIcon Data="{StaticResource dismiss_regular}" Width="12" Height="12"/>
+                                                            </Button>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </Panel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+                    
+                    <!-- Resilience Log -->
+                    <Border Grid.Column="1" Classes="glass" Padding="20">
+                        <Grid RowDefinitions="Auto,*">
+                            <TextBlock Grid.Row="0" Text="RESILIENCE LOG" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1" Margin="0,0,0,12"/>
+                            
+                            <ScrollViewer Grid.Row="1" MaxHeight="200" VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding ResilienceLog}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="#0D00FF00" CornerRadius="4" Padding="10,6" Margin="0,0,0,4">
+                                                <Grid ColumnDefinitions="Auto,*">
+                                                    <TextBlock Text="🛡️" FontSize="10" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding}" Foreground="#808080" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+                </Grid>
+                
+                <!-- Second Row: Recently Added (Horizontal Scroller) -->
+                <StackPanel Spacing="16">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="Recently Added" FontSize="20" FontWeight="Bold" Foreground="White"/>
+                        <Button Grid.Column="1" Background="Transparent" Command="{Binding NavigateLibraryCommand}">
+                            <TextBlock Text="View All →" Foreground="#808080" FontSize="13"/>
+                        </Button>
+                    </Grid>
+                    
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding RecentPlaylists}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="16"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PlaylistCardViewModel">
+                                    <Button Command="{Binding ((vm:HomeViewModel)DataContext).ViewPlaylistCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}"
+                                            Background="Transparent" BorderThickness="0" Padding="0">
+                                        <Border Width="180" Height="240" Background="#1A1A1D" CornerRadius="12" ClipToBounds="True" BorderBrush="#2A2A2E" BorderThickness="1">
+                                            <StackPanel>
+                                                <!-- Cover Image -->
+                                                <Border Height="140" Background="#262629">
+                                                    <Grid>
+                                                        <PathIcon Data="{StaticResource icons_library}" Width="32" Height="32" Foreground="#333" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        <Image Source="{Binding CoverImageUrl, Converter={StaticResource BitmapValueConverter}}" Stretch="UniformToFill"/>
+                                                    </Grid>
+                                                </Border>
+                                                
+                                                <!-- Playlist Info -->
+                                                <StackPanel Margin="12" Spacing="4">
+                                                    <TextBlock Text="{Binding Name}" Foreground="White" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{Binding TrackCountText}" Foreground="#808080" FontSize="11"/>
+                                                    
+                                                    <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                                                        <Border Height="2" Background="{Binding MatchPercentage, Converter={StaticResource MatchToColorConverter}}" VerticalAlignment="Center"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding MatchText}" Foreground="{Binding MatchPercentage, Converter={StaticResource MatchToColorConverter}}" FontSize="11" FontWeight="Bold" Margin="8,0,0,0"/>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    
+                    <!-- Empty State Placeholder -->
+                    <Border IsVisible="{Binding !RecentPlaylists.Count}" HorizontalAlignment="Center" Margin="0,20" Padding="40" Background="#0DFFFFFF" CornerRadius="12">
+                        <StackPanel Spacing="10" HorizontalAlignment="Center">
+                            <TextBlock Text="No recent playlists" Foreground="#606060" FontSize="14" HorizontalAlignment="Center"/>
+                            <Button Content="Go to Search" Command="{Binding NavigateToSearchCommand}" Padding="15,8" Background="#1DB954" CornerRadius="6"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+                
+                <!-- Third Row: Spotify Recommendations -->
+                <StackPanel Spacing="16">
+                    <TextBlock Text="Recommended for You" FontSize="20" FontWeight="Bold" Foreground="White"/>
+                    
+                    <ItemsControl ItemsSource="{Binding SpotifyRecommendations}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Columns="4" Rows="2" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Grid.ColumnSpan="1" Margin="0,0,16,16" Background="#121214" CornerRadius="12" Padding="12" BorderBrush="#1F1F23" BorderThickness="1">
+                                    <Grid ColumnDefinitions="48,*,Auto">
+                                        <Border Grid.Column="0" CornerRadius="6" ClipToBounds="True" Width="48" Height="48">
+                                            <Grid>
+                                                <Rectangle Fill="#262629"/>
+                                                <Image Source="{Binding ImageUrl, Converter={StaticResource BitmapValueConverter}}" Stretch="UniformToFill"/>
+                                            </Grid>
+                                        </Border>
+                                        
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding Artist}" FontSize="11" Foreground="#808080" TextTrimming="CharacterEllipsis"/>
+                                            <Border Height="2" Background="{Binding MatchPercentage, Converter={StaticResource MatchToColorConverter}}" 
+                                                    VerticalAlignment="Bottom" Margin="0,4,0,0"/>
+                                        </StackPanel>
+                                        
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="4">
+                                            <Button Command="{Binding ((vm:HomeViewModel)DataContext).QuickSearchCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" 
+                                                    CommandParameter="{Binding}"
+                                                    Padding="6" Background="#1DB954" CornerRadius="4">
+                                                <TextBlock Text="🔍" FontSize="12"/>
+                                            </Button>
+                                            <TextBlock IsVisible="{Binding InLibrary}" Text="✨ In Library" FontSize="9" Foreground="#1DB954" FontWeight="Bold" HorizontalAlignment="Right"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>
