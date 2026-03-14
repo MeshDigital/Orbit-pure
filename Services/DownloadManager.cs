@@ -1242,7 +1242,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         if (!TryValidateTrackForQueue(track, out var reason))
         {
             _logger.LogWarning("Skipping queue add for track {Artist} - {Title}: {Reason}", track.Artist, track.Title, reason);
-            _eventBus.Publish(new GlobalStatusEvent($"Queue rejected: {reason}", isActive: false, isError: true));
+            _eventBus.Publish(new GlobalStatusEvent($"Queue rejected: {reason}", IsActive: false, IsError: true));
             return false;
         }
 

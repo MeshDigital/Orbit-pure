@@ -461,7 +461,7 @@ public partial class App : Application
         // Download manager
         
         // Phase 4.6 Hotfix: Search String Normalization
-        services.AddSingleton<Network.ProtocolHardeningService>();
+        services.AddSingleton<SLSKDONET.Services.Network.ProtocolHardeningService>();
         services.AddSingleton<SearchNormalizationService>();
         services.AddSingleton<ISafetyFilterService, SafetyFilterService>();
         services.AddSingleton<SearchResultMatcher>();
@@ -494,6 +494,7 @@ public partial class App : Application
         // ViewModels
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<SearchViewModel>();
+        services.AddSingleton<UserCollectionViewModel>();
         services.AddSingleton<SearchFilterViewModel>(); // [FIX] Added missing registration
         services.AddSingleton<ConnectionViewModel>();
         services.AddSingleton<SettingsViewModel>();

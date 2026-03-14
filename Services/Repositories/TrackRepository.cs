@@ -771,9 +771,10 @@ public class TrackRepository : ITrackRepository
         }
     }
 
-    public async Task<int> GetTotalLibraryTrackCountAsync(string? filter = null, bool? downloadedOnly = null)
+    public async Task<int> GetTotalLibraryTrackCountAsync(string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null)
     {
         using var context = new AppDbContext();
+        var hashSet = hashFilter?.Where(h => !string.IsNullOrWhiteSpace(h)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         
         if (!string.IsNullOrEmpty(filter))
         {
@@ -791,6 +792,11 @@ public class TrackRepository : ITrackRepository
             {
                 query = query.Where(t => t.FilePath != null && t.FilePath != "");
             }
+
+            if (hashSet is { Count: > 0 })
+            {
+                query = query.Where(t => hashSet.Contains(t.UniqueHash));
+            }
             
             return await query.CountAsync();
         }
@@ -801,12 +807,18 @@ public class TrackRepository : ITrackRepository
             baseQuery = baseQuery.Where(t => t.FilePath != null && t.FilePath != "");
         }
 
+        if (hashSet is { Count: > 0 })
+        {
+            baseQuery = baseQuery.Where(t => hashSet.Contains(t.UniqueHash));
+        }
+
         return await baseQuery.CountAsync();
     }
 
-    public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null)
+    public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null)
     {
         using var context = new AppDbContext();
+        var hashSet = hashFilter?.Where(h => !string.IsNullOrWhiteSpace(h)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         
         IQueryable<LibraryEntryEntity> query;
 
@@ -831,6 +843,11 @@ public class TrackRepository : ITrackRepository
                 query = query.Where(t => t.FilePath != null && t.FilePath != "");
             else
                 query = query.Where(t => string.IsNullOrEmpty(t.FilePath));
+        }
+
+        if (hashSet is { Count: > 0 })
+        {
+            query = query.Where(t => hashSet.Contains(t.UniqueHash));
         }
 
         // 4. Order & Page (Optimized: Select only what's needed for the list view, avoiding heavy blobs)

@@ -1,5 +1,29 @@
 # Recent Changes
 
+## [0.1.0-alpha.11] - User Collection Browser & Build Recovery (Mar 14, 2026)
+
+### New Features
+* **Explore User Collection**: Added a Search overlay browser for peer shares, letting users inspect a remote Soulseek library as a local folder tree before queueing downloads.
+* **Tree-Based Browse Model**: Added `UserCollectionViewModel` with folder/file nodes, queue actions, aggregate counters, and suspicious-lossless warnings for low-bitrate FLAC results.
+* **Search Workflow Integration**: Replaced the old flat “Browse User Shares” action with the new `Explore User Collection` flow and modal browser UI.
+
+### Fixes & Stability
+* **Soulseek Package Recovery**: Replaced missing external Soulseek and TreeDataGrid project references with package-based dependencies so the solution can restore and build in a clean workspace.
+* **Browse API Alignment**: Updated `SoulseekAdapter` to use `BrowseAsync()` from the published Soulseek v9 package and remap browse results into the existing `Track` parsing pipeline.
+* **Repository Contract Repair**: Synced `TrackRepository` with the current `ITrackRepository` interface by restoring optional hash-filter support on global paging/count queries.
+* **Compile Blocker Cleanup**: Fixed several unrelated syntax/API regressions encountered during validation, including filename normalization, library commands, playlist export metadata fields, and dashboard auth event wiring.
+* **Avalonia Licensing Workaround**: Pinned `Avalonia.Controls.TreeDataGrid` to `11.1.1`, avoiding the newer commercial licensing requirement while preserving existing TreeDataGrid usage.
+
+### Validation
+* **Build Verified**: `dotnet build SLSKDONET.sln` now succeeds locally.
+
+### Files Modified
+* **UI**: `Views/Avalonia/SearchPage.axaml`
+* **ViewModels**: `SearchViewModel.cs`, `UserCollectionViewModel.cs`, `HomeViewModel.cs`, `Library/TrackListViewModel.cs`, `LibraryViewModel.Commands.cs`
+* **Services**: `SoulseekAdapter.cs`, `DownloadManager.cs`, `Library/PlaylistExportService.cs`, `Repositories/TrackRepository.cs`
+* **Infrastructure**: `App.axaml.cs`, `SLSKDONET.csproj`, `SLSKDONET.sln`
+* **Utilities**: `Utils/FilenameNormalizer.cs`
+
 ## [0.1.0-alpha.10] - Download Resilience & Soulseek v9 Compliance (Feb 25, 2026)
 
 ### Fixes & Stability

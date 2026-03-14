@@ -124,7 +124,8 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     if (shareFolders.Length > 0)
                     {
                         _logger.LogInformation("Enabling reciprocal sharing for {Count} folder(s): {Folders}", shareFolders.Length, string.Join(", ", shareFolders));
-                        await _client.SetSharedFoldersAsync(shareFolders);
+                        var sharedFileCount = shareFolders.Sum(folder => System.IO.Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Count());
+                        await _client.SetSharedCountsAsync(shareFolders.Length, sharedFileCount);
                         _eventBus.Publish(new SharedFilesStatusEvent(shareFolders.Length, string.Join(";", shareFolders)));
                     }
                     else
@@ -672,12 +673,12 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
     {
         var folders = new List<string>();
 
-        if (!string.IsNullOrWhiteSpace(_config.SharedFolderPath) && Directory.Exists(_config.SharedFolderPath))
+        if (!string.IsNullOrWhiteSpace(_config.SharedFolderPath) && System.IO.Directory.Exists(_config.SharedFolderPath))
         {
             folders.Add(_config.SharedFolderPath);
         }
 
-        if (!string.IsNullOrWhiteSpace(_config.DownloadDirectory) && Directory.Exists(_config.DownloadDirectory))
+        if (!string.IsNullOrWhiteSpace(_config.DownloadDirectory) && System.IO.Directory.Exists(_config.DownloadDirectory))
         {
             folders.Add(_config.DownloadDirectory);
         }
@@ -853,16 +854,31 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         {
             _logger.LogInformation("Browsing shares for user: {Username}", username);
             
-            // Hypothesized API from Soulseek.NET 'Mastery' roadmap
-            var response = await _client.GetFileListAsync(username, ct);
+            var response = await _client.BrowseAsync(username, cancellationToken: ct);
             
             var tracks = new List<Track>();
-            foreach (var file in response)
+            var allFiles = response.Directories
+                .Concat(response.LockedDirectories)
+                .SelectMany(directory => directory.Files.Select(file => new SearchResponse(
+                    username,
+                    0,
+                    false,
+                    0,
+                    0,
+                    new[]
+                    {
+                        new Soulseek.File(
+                            file.Code,
+                            $"{directory.Name.TrimEnd('\\')}\\{file.Filename}",
+                            file.Size,
+                            file.Extension,
+                            file.Attributes)
+                    })));
+
+            foreach (var responseItem in allFiles)
             {
-                // Re-use our robust track parser logic
-                // Create a dummy search response since ParseTrackFromFile expects it
-                var dummyResponse = new SearchResponse(username, 0, 0, new[] { file });
-                var track = ParseTrackFromFile(file, dummyResponse);
+                var file = responseItem.Files.First();
+                var track = ParseTrackFromFile(file, responseItem);
                 if (track != null) tracks.Add(track);
             }
             

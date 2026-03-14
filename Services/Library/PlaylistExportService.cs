@@ -42,10 +42,10 @@ public class PlaylistExportService
                     Album = track.Album ?? "Unknown Album",
                     Genre = track.Genres ?? "",
                     Size = fileInfo.Length,
-                    TotalTime = (int)track.Duration.TotalSeconds,
-                    DateAdded = track.CreatedAt.ToString("yyyy-MM-dd"),
-                    BitRate = track.Bitrate,
-                    AverageBpm = track.BPM,
+                    TotalTime = Math.Max(0, track.CanonicalDuration.GetValueOrDefault() / 1000),
+                    DateAdded = track.AddedAt.ToString("yyyy-MM-dd"),
+                    BitRate = track.Bitrate ?? 0,
+                    AverageBpm = track.BPM ?? 0,
                     Tonality = track.MusicalKey ?? "",
                     Location = "file://localhost/" + track.ResolvedFilePath.Replace("\\", "/")
                 };

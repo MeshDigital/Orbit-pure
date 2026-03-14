@@ -53,6 +53,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     // Child ViewModels
     public ImportPreviewViewModel ImportPreviewViewModel { get; }
     public SearchFilterViewModel FilterViewModel { get; } = new();
+    public UserCollectionViewModel UserCollectionBrowser { get; }
 
     // Hidden Results Counter
     private int _hiddenResultsCount;
@@ -105,6 +106,13 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     {
         get => _statusText;
         set => SetProperty(ref _statusText, value);
+    }
+
+    private bool _isUserCollectionBrowserOpen;
+    public bool IsUserCollectionBrowserOpen
+    {
+        get => _isUserCollectionBrowserOpen;
+        set => SetProperty(ref _isUserCollectionBrowserOpen, value);
     }
 
     // Reactive State
@@ -202,6 +210,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<object?, System.Reactive.Unit> DownloadSelectedCommand { get; }
     public ICommand ApplyPresetCommand { get; } // Phase 5: Search Presets
     public ICommand BrowseUserSharesCommand { get; } // Phase 5: Directory Browsing
+    public ICommand CloseUserCollectionBrowserCommand { get; }
 
     public SearchViewModel(
         ILogger<SearchViewModel> logger,
@@ -211,6 +220,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         ImportOrchestrator importOrchestrator,
         IEnumerable<IImportProvider> importProviders,
         ImportPreviewViewModel importPreviewViewModel,
+        UserCollectionViewModel userCollectionBrowser,
         DownloadManager downloadManager,
         INavigationService navigationService,
         IFileInteractionService fileInteractionService,
@@ -227,6 +237,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         _importOrchestrator = importOrchestrator;
         _importProviders = importProviders;
         ImportPreviewViewModel = importPreviewViewModel;
+        UserCollectionBrowser = userCollectionBrowser;
         _downloadManager = downloadManager;
         _navigationService = navigationService;
         _fileInteractionService = fileInteractionService;
@@ -282,6 +293,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         DownloadSelectedCommand = ReactiveCommand.CreateFromTask<object?>(ExecuteDownloadSelectedAsync);
         ApplyPresetCommand = ReactiveCommand.Create<string>(ExecuteApplyPreset);
         BrowseUserSharesCommand = ReactiveCommand.CreateFromTask<AnalyzedSearchResultViewModel>(ExecuteBrowseUserSharesAsync);
+        CloseUserCollectionBrowserCommand = ReactiveCommand.Create(() => IsUserCollectionBrowserOpen = false);
         
         FilterViewModel.OnTokenSyncRequested = HandleTokenSync;
     }
@@ -538,44 +550,10 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     private async Task ExecuteBrowseUserSharesAsync(AnalyzedSearchResultViewModel? vm)
     {
         if (vm == null) return;
-        
-        IsSearching = true;
-        StatusText = $"Browsing {vm.User}'s library...";
-        
-        try
-        {
-            // The method name from our hypothesized mastery API
-            var shares = await _soulseek.GetUserSharesAsync(vm.User);
-            var sharesList = shares.ToList();
-            
-            if (sharesList.Any())
-            {
-                await RunOnUiThreadAsync(() =>
-                {
-                    _searchResults.Clear();
-                    foreach (var track in sharesList)
-                    {
-                        var result = new SearchResult(track);
-                        var trackVm = new AnalyzedSearchResultViewModel(result);
-                        _searchResults.Add(trackVm);
-                    }
-                });
-                StatusText = $"Loaded {sharesList.Count} items from {vm.User}";
-            }
-            else
-            {
-                StatusText = $"No shares visible for {vm.User} (User might be offline or have private shares)";
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to browse shares for {User}", vm.User);
-            StatusText = $"Error browsing {vm.User}: {ex.Message}";
-        }
-        finally
-        {
-            IsSearching = false;
-        }
+
+        StatusText = $"Opening {vm.User}'s collection...";
+        await UserCollectionBrowser.LoadUserAsync(vm.User);
+        IsUserCollectionBrowserOpen = true;
     }
 
     private void ExecuteCancelSearch()
@@ -624,6 +602,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     {
         SearchQuery = "";
         IsSearching = false;
+        IsUserCollectionBrowserOpen = false;
         _searchResults.Clear();
         StatusText = "Ready";
     }

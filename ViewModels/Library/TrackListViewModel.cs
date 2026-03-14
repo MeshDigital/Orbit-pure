@@ -787,10 +787,17 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         foreach (var track in tracksToProcess)
         {
             if (track.SeparateStemsCommand.CanExecute(null))
+            {
+                track.SeparateStemsCommand.Execute(null);
             }
         }
         
         await Task.CompletedTask;
+    }
+
+    private void ExecuteFindSimilar(PlaylistTrackViewModel? track)
+    {
+        _logger.LogInformation("Find Similar requested for {Artist} - {Title}", track?.Model?.Artist ?? "Unknown", track?.Model?.Title ?? "Unknown");
     }
 
     public void RefreshFilteredTracks()

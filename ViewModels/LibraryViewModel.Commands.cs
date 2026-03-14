@@ -404,6 +404,9 @@ public partial class LibraryViewModel
             _downloadManager.QueueTracks(onHoldTracks.Select(t => t.Model).ToList());
             _notificationService.Show("MP3 Search Initiated", $"Queueing {onHoldTracks.Count} tracks for MP3 search.", NotificationType.Success);
         }
+
+    }
+
     private async Task ExecuteAutoOrganizeAsync()
     {
         try
@@ -457,7 +460,7 @@ public partial class LibraryViewModel
             }
             
             _notificationService.Show("Organization Complete", $"Moved {movedCount} files.", movedCount > 0 ? NotificationType.Success : NotificationType.Information);
-            await LoadLibraryAsync();
+            await ExecuteRefreshLibraryAsync();
         }
         catch (Exception ex)
         {
@@ -514,7 +517,7 @@ public partial class LibraryViewModel
         try
         {
             var defaultName = $"{Utils.FilenameNormalizer.GetSafeFilename(project.SourceTitle)}.xml";
-            var path = await _dialogService.ShowSaveFileDialogAsync("Export Rekordbox XML", defaultName, "xml");
+            var path = await _dialogService.SaveFileAsync("Export Rekordbox XML", defaultName, "xml");
             
             if (string.IsNullOrEmpty(path)) return;
 

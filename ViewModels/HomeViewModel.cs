@@ -206,10 +206,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         _ = RefreshDashboardAsync();
         
         // Listen for Spotify changes
-        _spotifyAuth.PropertyChanged += (s, e) => {
-            if (e.PropertyName == nameof(SpotifyAuthService.IsAuthenticated))
-                OnPropertyChanged(nameof(IsSpotifyConnected));
-        };
+        _spotifyAuth.AuthenticationChanged += (_, _) => OnPropertyChanged(nameof(IsSpotifyConnected));
     }
 
 

@@ -183,6 +183,8 @@ public static class FilenameNormalizer
         
         var match = CamelotKey.Match(fullPath);
         return match.Success ? match.Value : null;
+    }
+
     /// <summary>
     /// Removes invalid filesystem characters from a string.
     /// </summary>
