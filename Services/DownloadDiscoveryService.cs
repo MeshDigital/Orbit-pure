@@ -215,6 +215,13 @@ public class DownloadDiscoveryService
                 {
                     log.RejectedByBlacklist++;
                     _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"Skipping peer {searchTrack.Username} (Blacklisted)", true));
+                    // Phase 6: Security audit trail
+                    _eventBus.Publish(new SecurityAuditEvent(
+                        Category: SecurityAuditCategory.Blacklist,
+                        Severity: SecurityAuditSeverity.Block,
+                        Summary: $"Blocked peer: {searchTrack.Username}",
+                        Detail: $"Peer is on the blacklist. File: {searchTrack.Filename}",
+                        AssociatedHash: track.TrackUniqueHash));
                     continue;
                 }
 
@@ -240,6 +247,13 @@ public class DownloadDiscoveryService
                         details: safety.TechnicalDetails ?? $"Bitrate: {searchTrack.Bitrate}kbps"
                     );
                     _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"Rejected {searchTrack.Username}: {safety.Reason}", true));
+                    // Phase 6: Security audit trail
+                    _eventBus.Publish(new SecurityAuditEvent(
+                        Category: SecurityAuditCategory.Gate,
+                        Severity: SecurityAuditSeverity.Block,
+                        Summary: $"Gate blocked: {safety.Reason}",
+                        Detail: $"Peer: {searchTrack.Username} | {safety.TechnicalDetails ?? $"Bitrate: {searchTrack.Bitrate}kbps"}",
+                        AssociatedHash: track.TrackUniqueHash));
                     continue; 
                 }
 
@@ -253,6 +267,13 @@ public class DownloadDiscoveryService
                         reason: suspiciousReason,
                         details: $"User: {searchTrack.Username}, Bitrate: {searchTrack.Bitrate} kbps, SampleRate: {searchTrack.SampleRate}, BitDepth: {searchTrack.BitDepth}");
                     _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"Skipped {searchTrack.Username}: {suspiciousReason}", true));
+                    // Phase 6: Security audit trail
+                    _eventBus.Publish(new SecurityAuditEvent(
+                        Category: SecurityAuditCategory.ForensicLab,
+                        Severity: SecurityAuditSeverity.Block,
+                        Summary: $"Fake FLAC blocked: {suspiciousReason}",
+                        Detail: $"Peer: {searchTrack.Username} | {searchTrack.Bitrate}kbps | {searchTrack.Filename}",
+                        AssociatedHash: track.TrackUniqueHash));
                     continue;
                 }
 

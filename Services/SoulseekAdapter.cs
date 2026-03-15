@@ -127,16 +127,36 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                         var sharedFileCount = shareFolders.Sum(folder => System.IO.Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Count());
                         await _client.SetSharedCountsAsync(shareFolders.Length, sharedFileCount);
                         _eventBus.Publish(new SharedFilesStatusEvent(shareFolders.Length, string.Join(";", shareFolders)));
+                        // Phase 6: Share health indicator
+                        _eventBus.Publish(new ShareHealthUpdatedEvent(
+                            SharedFolderCount: shareFolders.Length,
+                            SharedFileCount: sharedFileCount,
+                            IsSharing: true));
                     }
                     else
                     {
                         _logger.LogWarning("Reciprocal sharing enabled, but no valid share folder found (SharedFolderPath/DownloadDirectory missing).");
+                        // Phase 6: No folders configured — warn state
+                        _eventBus.Publish(new ShareHealthUpdatedEvent(
+                            SharedFolderCount: 0,
+                            SharedFileCount: 0,
+                            IsSharing: false,
+                            Note: "Sharing enabled in config but no valid folder resolved."));
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Failed to set shared folders: {Message}", ex.Message);
                 }
+            }
+            else
+            {
+                // Phase 6: Sharing explicitly disabled — set Bad tier so user knows
+                _eventBus.Publish(new ShareHealthUpdatedEvent(
+                    SharedFolderCount: 0,
+                    SharedFileCount: 0,
+                    IsSharing: false,
+                    Note: "Sharing is disabled. Enable in Settings to contribute to the network."));
             }
         }
         catch (Exception ex)

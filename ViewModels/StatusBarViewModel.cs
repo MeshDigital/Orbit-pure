@@ -8,6 +8,20 @@ using Avalonia.Threading;
 
 namespace SLSKDONET.ViewModels;
 
+/// <summary>
+/// Share health tier, used by the Status Bar LED indicator.
+/// Green  = sharing and healthy (≥1 folder configured, connected)
+/// Yellow = sharing configured but possibly empty / low file count
+/// Red    = not sharing (share folder unset or Soulseek disconnected)
+/// </summary>
+public enum ShareHealthTier
+{
+    Unknown,
+    Good,
+    Warn,
+    Bad,
+}
+
 public class StatusBarViewModel : ReactiveObject, IDisposable
 {
     private readonly CompositeDisposable _disposables = new();
@@ -18,7 +32,87 @@ public class StatusBarViewModel : ReactiveObject, IDisposable
     private bool _isPaused;
     private bool _isHealthy = true; // Phase 10.5
     private readonly NativeDependencyHealthService _dependencyHealthService; // Phase 10.5
-    
+
+    // ───────────────────────────────────────────────────
+    // Phase 6: Share Health Indicator
+    // ───────────────────────────────────────────────────
+    private ShareHealthTier _shareHealthTier = ShareHealthTier.Unknown;
+    private int _sharedFolderCount;
+    private int _sharedFileCount;
+    private bool _isSharing;
+
+    public ShareHealthTier ShareHealthTier
+    {
+        get => _shareHealthTier;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _shareHealthTier, value);
+            this.RaisePropertyChanged(nameof(ShareHealthColor));
+            this.RaisePropertyChanged(nameof(ShareHealthTooltip));
+            this.RaisePropertyChanged(nameof(IsShareWarning));
+        }
+    }
+
+    public int SharedFolderCount
+    {
+        get => _sharedFolderCount;
+        set => this.RaiseAndSetIfChanged(ref _sharedFolderCount, value);
+    }
+
+    public int SharedFileCount
+    {
+        get => _sharedFileCount;
+        set => this.RaiseAndSetIfChanged(ref _sharedFileCount, value);
+    }
+
+    public bool IsSharing
+    {
+        get => _isSharing;
+        set => this.RaiseAndSetIfChanged(ref _isSharing, value);
+    }
+
+    /// <summary>Hex colour for the share-health LED.</summary>
+    public string ShareHealthColor => ShareHealthTier switch
+    {
+        ShareHealthTier.Good    => "#1DB954", // green
+        ShareHealthTier.Warn    => "#FFA500", // amber
+        ShareHealthTier.Bad     => "#F44336", // red
+        _                       => "#666666", // grey (unknown/startup)
+    };
+
+    /// <summary>Tooltip text surfaced when the user hovers the share LED.</summary>
+    public string ShareHealthTooltip => ShareHealthTier switch
+    {
+        ShareHealthTier.Good => $"Sharing ✓  —  {SharedFolderCount} folder(s), {SharedFileCount} file(s) shared",
+        ShareHealthTier.Warn => $"Sharing may be degraded  —  {SharedFolderCount} folder(s) configured, {SharedFileCount} file(s) visible",
+        ShareHealthTier.Bad  => "Not sharing  —  Configure a shared folder in Settings to contribute to the network",
+        _                    => "Share status unknown",
+    };
+
+    /// <summary>True when the share health is not Good; drives a gentle pulse animation in XAML.</summary>
+    public bool IsShareWarning => ShareHealthTier is ShareHealthTier.Warn or ShareHealthTier.Bad;
+
+    private void OnShareHealthUpdated(ShareHealthUpdatedEvent e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            IsSharing         = e.IsSharing;
+            SharedFolderCount = e.SharedFolderCount;
+            SharedFileCount   = e.SharedFileCount;
+
+            ShareHealthTier = (e.IsSharing, e.SharedFolderCount, e.SharedFileCount) switch
+            {
+                (true,  >= 1, > 0) => ShareHealthTier.Good,
+                (true,  >= 1, 0)   => ShareHealthTier.Warn,   // folder configured but 0 files visible yet
+                _                  => ShareHealthTier.Bad,
+            };
+        });
+    }
+
+    // ───────────────────────────────────────────────────
+    // Existing queue / health properties (unchanged)
+    // ───────────────────────────────────────────────────
+
     public int QueuedCount
     {
         get => _queuedCount;
@@ -141,6 +235,12 @@ public class StatusBarViewModel : ReactiveObject, IDisposable
             })
             .DisposeWith(_disposables);
 
+        // Phase 6: Subscribe to share health updates
+        eventBus.GetEvent<ShareHealthUpdatedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(OnShareHealthUpdated)
+            .DisposeWith(_disposables);
+
         // Phase 10.5: Bulk Operation Subscriptions
         eventBus.GetEvent<SLSKDONET.Services.BulkOperationStartedEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
@@ -165,7 +265,6 @@ public class StatusBarViewModel : ReactiveObject, IDisposable
             .Subscribe(e =>
             {
                 IsBulkOperationRunning = false;
-                // Optional: Show summary momentarily?
             })
             .DisposeWith(_disposables);
             
@@ -178,3 +277,4 @@ public class StatusBarViewModel : ReactiveObject, IDisposable
         _disposables?.Dispose();
     }
 }
+

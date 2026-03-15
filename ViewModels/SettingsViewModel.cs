@@ -648,6 +648,27 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
     public string FfmpegBorderColor => IsFfmpegInstalled ? "#1DB954" : "#FFA500";
 
+    // Phase 6: Security Audit Feed
+    // A scrollable in-app log of every guardrail decision (Shield / Gate / ForensicLab / Blacklist).
+    // Capped at 100 entries so it stays lightweight.
+    private const int AuditFeedMaxEntries = 100;
+
+    public ObservableCollection<SecurityAuditEntryViewModel> SecurityAuditFeed { get; } = new();
+
+    private IDisposable? _securityAuditSubscription;
+
+    private void OnSecurityAuditEvent(SecurityAuditEvent e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            SecurityAuditFeed.Insert(0, new SecurityAuditEntryViewModel(e));
+            while (SecurityAuditFeed.Count > AuditFeedMaxEntries)
+                SecurityAuditFeed.RemoveAt(SecurityAuditFeed.Count - 1);
+        });
+    }
+
+    public ICommand ClearSecurityAuditCommand { get; private set; } = null!;
+
     public SettingsViewModel(
         ILogger<SettingsViewModel> logger,
         AppConfig config,
@@ -692,6 +713,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         ScanLibraryCommand = new AsyncRelayCommand(ScanLibraryAsync, () => !IsScanning);
         AddLibraryFolderCommand = new AsyncRelayCommand(AddLibraryFolderAsync);
         RemoveLibraryFolderCommand = new AsyncRelayCommand(RemoveLibraryFolderAsync, () => SelectedLibraryFolder != null);
+        ClearSecurityAuditCommand = new RelayCommand(() => SecurityAuditFeed.Clear());
 
         // Explicitly initialize IsAuthenticating to false
         IsAuthenticating = false;
@@ -709,6 +731,9 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _ = LoadLibraryFoldersAsync(); // Phase 0.10
 
         _libraryFoldersSubscription = _eventBus.GetEvent<LibraryFoldersChangedEvent>().Subscribe(e => { _ = LoadLibraryFoldersAsync(); });
+
+        // Phase 6: Security Audit Feed subscription
+        _securityAuditSubscription = _eventBus.GetEvent<SecurityAuditEvent>().Subscribe(OnSecurityAuditEvent);
         
         // Force update of derived properties to ensure UI booleans are in sync with SpotifyState
         UpdateDerivedProperties(SpotifyState);
@@ -1121,6 +1146,10 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         
         _libraryFoldersSubscription?.Dispose();
         _libraryFoldersSubscription = null;
+
+        // Phase 6: Security audit subscription
+        _securityAuditSubscription?.Dispose();
+        _securityAuditSubscription = null;
         
         _authWatchdogCts?.Cancel();
         _authWatchdogCts?.Dispose();

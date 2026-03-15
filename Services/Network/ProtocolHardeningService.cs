@@ -5,27 +5,31 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Configuration;
+using SLSKDONET.Models;
 
 namespace SLSKDONET.Services.Network;
 
 /// <summary>
 /// "The Shield": Hardens the Soulseek protocol interactions.
 /// Performs advanced search query sanitization to prevent bans and manages peer health.
+/// Phase 6: Publishes SecurityAuditEvent for each guardrail decision.
 /// </summary>
 public class ProtocolHardeningService
 {
     private readonly ILogger<ProtocolHardeningService> _logger;
     private readonly AppConfig _config;
+    private readonly IEventBus _eventBus;
     private readonly ConcurrentDictionary<string, PeerReputation> _peerReputations = new();
     private readonly ConcurrentDictionary<string, byte> _excludedPhrases = new();
     
     // Characters that are known to sometimes cause issues or bans if used excessively/wrongly in Soulseek queries
     private static readonly Regex DangerousQueryChars = new(@"[^\w\s\-\.\']", RegexOptions.Compiled);
 
-    public ProtocolHardeningService(ILogger<ProtocolHardeningService> logger, AppConfig config)
+    public ProtocolHardeningService(ILogger<ProtocolHardeningService> logger, AppConfig config, IEventBus eventBus)
     {
         _logger = logger;
         _config = config;
+        _eventBus = eventBus;
     }
 
     /// <summary>
@@ -52,6 +56,11 @@ public class ProtocolHardeningService
         if (_excludedPhrases.Keys.Any(p => lowerQuery.Contains(p)))
         {
             _logger.LogWarning("🚨 [HARDENING] Aborting search: Query '{Query}' contains a server-excluded phrase.", query);
+            _eventBus.Publish(new SecurityAuditEvent(
+                Category: SecurityAuditCategory.Shield,
+                Severity: SecurityAuditSeverity.Block,
+                Summary: $"Query blocked: contains server-excluded phrase",
+                Detail: $"Aborted query: \"{TruncateQuery(query)}\""));
             return null; // Signals to the caller to abort
         }
 
@@ -70,6 +79,11 @@ public class ProtocolHardeningService
         if (sanitized != query)
         {
              _logger.LogDebug("Hardened query: '{Original}' -> '{Normalized}'", query, sanitized);
+             _eventBus.Publish(new SecurityAuditEvent(
+                 Category: SecurityAuditCategory.Shield,
+                 Severity: SecurityAuditSeverity.Info,
+                 Summary: "Query sanitized by Shield",
+                 Detail: $"\"{TruncateQuery(query)}\" → \"{TruncateQuery(sanitized)}\""));
         }
 
         return sanitized;
@@ -87,6 +101,16 @@ public class ProtocolHardeningService
 
         _logger.LogWarning("Negative experience with peer {Username}: {Reason}. Reputation: {Score}", 
             username, reason, reputation.Score);
+
+        // Emit audit event if peer crosses the avoidance threshold
+        if (ShouldAvoidPeer(username))
+        {
+            _eventBus.Publish(new SecurityAuditEvent(
+                Category: SecurityAuditCategory.Shield,
+                Severity: SecurityAuditSeverity.Warn,
+                Summary: $"Peer marked for avoidance: {username}",
+                Detail: $"Failures: {reputation.Failures} | Reputation score: {reputation.Score:F0}/100 | Last reason: {reason}"));
+        }
     }
 
     /// <summary>
@@ -115,6 +139,9 @@ public class ProtocolHardeningService
 
         return false;
     }
+
+    private static string TruncateQuery(string q) =>
+        q.Length > 60 ? q.Substring(0, 60) + "…" : q;
 
     private class PeerReputation
     {

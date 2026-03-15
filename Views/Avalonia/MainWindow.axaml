@@ -115,6 +115,13 @@
                             <Ellipse Width="8" Height="8" Fill="{Binding ConnectionViewModel.IsSpotifyConnected, Converter={StaticResource BoolToColorConverter}}"
                                      ToolTip.Tip="Spotify Connection Status"/>
                             <TextBlock Text="Spotify" FontSize="11" Foreground="#999" VerticalAlignment="Center"/>
+                            <Rectangle Width="1" Height="12" Fill="#444" Margin="4,0"/>
+                            <!-- Phase 6: Share Health LED -->
+                            <Ellipse Width="8" Height="8"
+                                     Fill="{Binding StatusBar.ShareHealthColor}"
+                                     ToolTip.Tip="{Binding StatusBar.ShareHealthTooltip}"/>
+                            <TextBlock Text="Share" FontSize="11" Foreground="#999" VerticalAlignment="Center"
+                                       ToolTip.Tip="{Binding StatusBar.ShareHealthTooltip}"/>
                         </StackPanel>
                     </Border>
                 </StackPanel>
