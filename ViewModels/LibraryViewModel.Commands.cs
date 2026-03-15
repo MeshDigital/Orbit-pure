@@ -48,6 +48,8 @@ public partial class LibraryViewModel
 
     public ICommand SyncPhysicalLibraryCommand { get; set; } = null!;
 
+    public ICommand SmartEscapeCommand { get; set; } = null!;
+
 
 
 
@@ -82,6 +84,7 @@ public partial class LibraryViewModel
         ToggleColumnCommand = new RelayCommand<ColumnDefinition>(ExecuteToggleColumn);
         ResetViewCommand = new RelayCommand(ExecuteResetView);
         SwitchWorkspaceCommand = new RelayCommand<ActiveWorkspace>(ExecuteSwitchWorkspace);
+        SmartEscapeCommand = new RelayCommand(ExecuteSmartEscape);
     }
 
     public ICommand SetViewModeCommand { get; set; } = null!;
@@ -497,19 +500,23 @@ public partial class LibraryViewModel
                 }
             }
 
+            // Clear existing orphaned tracks
+            OrphanedTracks.Clear();
+
             if (orphans.Any())
             {
-                // For now, automatically delete orphans. In future, could show dialog for confirmation.
+                // Add to UI collection for user review
                 foreach (var orphan in orphans)
                 {
-                    await _libraryService.DeleteLibraryEntryAsync(orphan.Id);
+                    OrphanedTracks.Add(new OrphanedTrackViewModel(orphan, _libraryService, _dialogService, OrphanedTracks));
                 }
-                _notificationService.Show("Library Synced", $"Removed {orphans.Count} orphaned entries.", NotificationType.Success);
-                await ExecuteRefreshLibraryAsync();
+                _notificationService.Show("Library Synced", $"Found {orphans.Count} orphaned entries. Review and remove manually.", NotificationType.Warning);
+                IsOrphanedTracksVisible = true;
             }
             else
             {
                 _notificationService.Show("Library Synced", "No orphaned entries found.", NotificationType.Information);
+                IsOrphanedTracksVisible = false;
             }
         }
         catch (Exception ex)
@@ -600,5 +607,22 @@ public partial class LibraryViewModel
     private void ExecuteSwitchWorkspace(ActiveWorkspace workspace)
     {
         CurrentWorkspace = workspace;
+    }
+
+    private void ExecuteSmartEscape()
+    {
+        // Close any open overlays in priority order
+        if (IsOrphanedTracksVisible)
+        {
+            IsOrphanedTracksVisible = false;
+        }
+        else if (IsRemovalHistoryVisible)
+        {
+            IsRemovalHistoryVisible = false;
+        }
+        else if (IsSourcesOpen)
+        {
+            IsSourcesOpen = false;
+        }
     }
 }

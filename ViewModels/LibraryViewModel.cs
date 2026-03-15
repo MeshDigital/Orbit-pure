@@ -80,6 +80,13 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         set { _deletedProjects = value; OnPropertyChanged(); }
     }
 
+    private System.Collections.ObjectModel.ObservableCollection<OrphanedTrackViewModel> _orphanedTracks = new();
+    public System.Collections.ObjectModel.ObservableCollection<OrphanedTrackViewModel> OrphanedTracks
+    {
+        get => _orphanedTracks;
+        set { _orphanedTracks = value; OnPropertyChanged(); }
+    }
+
     // Expose commonly used child properties for backward compatibility (XAML Bindings)
     public PlaylistJob? SelectedProject 
     { 
@@ -121,6 +128,13 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     {
         get => _isRemovalHistoryVisible;
         set { SetProperty(ref _isRemovalHistoryVisible, value); }
+    }
+
+    private bool _isOrphanedTracksVisible;
+    public bool IsOrphanedTracksVisible
+    {
+        get => _isOrphanedTracksVisible;
+        set { SetProperty(ref _isOrphanedTracksVisible, value); }
     }
 
     private double _sidebarWidth = 420;

@@ -71,6 +71,9 @@
                                      <MenuItem Header="Retry Offline Tracks" Command="{Binding Operations.RetryOfflineTracksCommand}">
                                          <MenuItem.Icon><TextBlock Text="🔄"/></MenuItem.Icon>
                                      </MenuItem>
+                                     <MenuItem Header="Sync Physical Library" Command="{Binding SyncPhysicalLibraryCommand}" InputGesture="Ctrl+L">
+                                         <MenuItem.Icon><TextBlock Text="🔗"/></MenuItem.Icon>
+                                     </MenuItem>
                                      <Separator/>
                                      <MenuItem Header="Export Monthly Drop" Command="{Binding ExportMonthlyDropCommand}" InputGesture="Ctrl+E">
                                          <MenuItem.Icon><TextBlock Text="📂"/></MenuItem.Icon>
@@ -392,11 +395,7 @@
                         <ListBox IsVisible="{Binding ViewSettings.ViewMode, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:TrackViewMode.List}}"
                                  SelectionMode="Multiple" SelectedItems="{Binding Tracks.SelectedTracks}" Background="Transparent" BorderThickness="0">
                             <ListBox.ItemsSource>
-                                <MultiBinding Converter="{StaticResource EqualityConverter}">
-                                    <Binding Path="ViewSettings.ViewMode"/>
-                                    <Binding Source="{x:Static models:TrackViewMode.List}"/>
-                                    <Binding Path="Tracks.FilteredTracks"/>
-                                </MultiBinding>
+                                <Binding Path="Tracks.FilteredTracks"/>
                             </ListBox.ItemsSource>
                             <ListBox.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
                             <ListBox.Styles>
@@ -470,11 +469,7 @@
                                  Background="Transparent"
                                  BorderThickness="0">
                             <ListBox.ItemsSource>
-                                <MultiBinding Converter="{StaticResource EqualityConverter}">
-                                    <Binding Path="ViewSettings.ViewMode"/>
-                                    <Binding Source="{x:Static models:TrackViewMode.Cards}"/>
-                                    <Binding Path="Tracks.FilteredTracks"/>
-                                </MultiBinding>
+                                <Binding Path="Tracks.FilteredTracks"/>
                             </ListBox.ItemsSource>
                              <ListBox.Styles>
                                 <Style Selector="ListBoxItem">
@@ -536,11 +531,7 @@
                                   BorderThickness="0"
                                   HeadersVisibility="Column">
                             <dg:DataGrid.ItemsSource>
-                                <MultiBinding Converter="{StaticResource EqualityConverter}">
-                                    <Binding Path="ViewSettings.ViewMode"/>
-                                    <Binding Source="{x:Static models:TrackViewMode.Pro}"/>
-                                    <Binding Path="Tracks.FilteredTracks"/>
-                                </MultiBinding>
+                                <Binding Path="Tracks.FilteredTracks"/>
                             </dg:DataGrid.ItemsSource>
                             <dg:DataGrid.KeyBindings>
                                 <KeyBinding Gesture="I" Command="{Binding QuickLookCommand}"/>
@@ -676,6 +667,77 @@
                     <Border Grid.Row="2" Background="#2D2D2E" Padding="20,12" CornerRadius="0,0,12,12">
                         <TextBlock Text="Restoring an album will preserve all its tracks and metadata." 
                                    FontSize="12" Foreground="#888" HorizontalAlignment="Center"/>
+                    </Border>
+                </Grid>
+            </Border>
+        </Border>
+
+        <!-- ORPHANED TRACKS OVERLAY -->
+        <Border Background="#CC000000" 
+                IsVisible="{Binding IsOrphanedTracksVisible}"
+                ZIndex="100">
+            <Border Background="#252526" 
+                    Width="700" 
+                    Height="500" 
+                    CornerRadius="12" 
+                    BorderBrush="#3E3E3E" 
+                    BorderThickness="1"
+                    HorizontalAlignment="Center" 
+                    VerticalAlignment="Center">
+                <Grid RowDefinitions="Auto,*,Auto">
+                    <!-- Header -->
+                    <Grid Grid.Row="0" Margin="20,16" ColumnDefinitions="*,Auto">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <TextBlock Text="🔗" FontSize="20" VerticalAlignment="Center"/>
+                            <TextBlock Text="Orphaned Tracks" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" 
+                                Command="{Binding SmartEscapeCommand}" 
+                                Background="Transparent" Padding="8">
+                            <TextBlock Text="✖" FontSize="16"/>
+                        </Button>
+                    </Grid>
+
+                    <!-- Content -->
+                    <ScrollViewer Grid.Row="1" Margin="20,0">
+                        <ItemsControl ItemsSource="{Binding OrphanedTracks}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#2D2D2E" Margin="0,0,0,8" Padding="12" CornerRadius="8">
+                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                            <Border Width="40" Height="40" CornerRadius="4" Background="#3E3E3F" Margin="0,0,12,0">
+                                                <TextBlock Text="🎵" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="20"/>
+                                            </Border>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Artist}" FontWeight="Medium" FontSize="14"/>
+                                                <TextBlock Text="{Binding Title}" FontSize="12" Foreground="#CCC"/>
+                                                <TextBlock Text="{Binding FilePath}" FontSize="10" Foreground="#888" TextWrapping="Wrap"/>
+                                                <TextBlock Text="{Binding AddedAt, StringFormat='{}Added on {0:MMM dd, yyyy}'}" FontSize="10" Foreground="#666"/>
+                                            </StackPanel>
+                                            <Button Grid.Column="2" 
+                                                    Classes="secondary" 
+                                                    Command="{Binding RepointCommand}"
+                                                    Padding="8,4"
+                                                    Margin="0,0,8,0">
+                                                <TextBlock Text="🔄 Repoint" FontSize="11"/>
+                                            </Button>
+                                            <Button Grid.Column="3" 
+                                                    Classes="danger" 
+                                                    Command="{Binding RemoveCommand}"
+                                                    Padding="8,4">
+                                                <TextBlock Text="🗑️ Remove" FontSize="11"/>
+                                            </Button>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <!-- Footer -->
+                    <Border Grid.Row="2" Background="#2D2D2E" Padding="20,12" CornerRadius="0,0,12,12">
+                        <TextBlock Text="These tracks were moved or deleted from disk. Remove them from the database or repoint to new locations." 
+                                   FontSize="12" Foreground="#888" HorizontalAlignment="Center" TextWrapping="Wrap"/>
                     </Border>
                 </Grid>
             </Border>

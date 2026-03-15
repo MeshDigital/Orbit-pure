@@ -110,3 +110,22 @@ public class FloatFallbackConverter : IValueConverter
         throw new NotImplementedException();
     }
 }
+
+public class DbToProgressConverter : IValueConverter
+{
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is double dbValue)
+        {
+            // Convert dB (-100 to 0) to progress (0 to 1)
+            // -100dB = 0%, 0dB = 100%
+            return Math.Clamp((dbValue + 100.0) / 100.0, 0.0, 1.0);
+        }
+        return 0.0;
+    }
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
+}

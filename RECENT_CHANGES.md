@@ -1,5 +1,35 @@
 # Recent Changes
 
+## [0.1.0-alpha.18] - Phase 11: Beta Hardening & Forensic Transparency (Mar 15, 2026)
+
+### New Features
+* **Orphaned Tracks Management**: Implemented complete "Ghost File" purge system with `SyncPhysicalLibraryCommand` that identifies and displays missing files in a dedicated overlay. Users can bulk-remove orphaned database entries or repoint to new locations.
+* **Forensic Report Dialog**: Enhanced existing `ForensicReportView` with detailed spectral energy analysis showing dB levels for low-frequency (1kHz-15kHz) vs high-frequency (16kHz+) ranges, providing transparency for "TRANSCODE?" warnings.
+* **Exponential Backoff Reconnection**: Network resilience with 5s → 15s → 60s retry delays for Soulseek disconnections, preventing login flooding and IP bans.
+* **Performance Optimization**: Updated `AudioIntegrityService.CheckSpectralIntegrityAsync()` to use `TaskCreationOptions.LongRunning` for proper background threading during CPU-intensive spectral analysis.
+
+### UI Enhancements
+* **Orphaned Tracks Overlay**: New modal dialog showing orphaned files with Remove/Repoint actions, accessible via Tools menu (Ctrl+L shortcut).
+* **Smart Escape Handling**: Escape key now closes overlays in priority order (Orphaned Tracks → Removal History → Sources).
+* **Tools Menu Integration**: Added "Sync Physical Library" option to Library sidebar Tools dropdown.
+
+### Fixes & Stability
+* **Thread Pool Management**: Spectral analysis no longer blocks thread pool threads, improving UI responsiveness during mass imports.
+* **Overlay State Management**: Proper visibility binding and command handling for orphaned tracks overlay.
+* **Auto-cleanup Logic**: Orphaned track ViewModels automatically remove themselves from collections when deleted.
+
+### Validation
+* **Build Verified**: `dotnet build` succeeds with 0 errors, 0 warnings.
+* **Runtime Tested**: Application starts successfully with all new features functional.
+
+### Files Modified
+* **Services**: `AudioIntegrityService.cs` (performance optimization)
+* **ViewModels**: `LibraryViewModel.cs`, `LibraryViewModel.Commands.cs`, `OrphanedTrackViewModel.cs`
+* **Views**: `LibraryPage.axaml`
+* **Documentation**: `RECENT_CHANGES.md`
+
+---
+
 ## [0.1.0-alpha.17] - Phase 10: Spectral FLAC Auditing & Audio Integrity Verification (Mar 15, 2026)
 
 ### New Features

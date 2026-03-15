@@ -118,19 +118,44 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     {
         get
         {
-            if (index < 0 || index >= _loadedItems.Count) throw new ArgumentOutOfRangeException(nameof(index));
-            return _loadedItems[index];
+            // Load item on demand if not already loaded
+            if (index < 0 || index >= _count) throw new ArgumentOutOfRangeException(nameof(index));
+            
+            // Check if item is already loaded
+            if (index < _loadedItems.Count)
+            {
+                return _loadedItems[index];
+            }
+            
+            // Load the page containing this index
+            var pageIndex = index / _pageSize;
+            var itemIndexInPage = index % _pageSize;
+            
+            // Load the page synchronously (this might block UI, but for now it's necessary)
+            LoadPageAsync(pageIndex).Wait();
+            
+            // Return the item if it was loaded
+            if (index < _loadedItems.Count)
+            {
+                return _loadedItems[index];
+            }
+            
+            throw new InvalidOperationException($"Failed to load item at index {index}");
         }
         set
         {
-            if (index < 0 || index >= _loadedItems.Count) throw new ArgumentOutOfRangeException(nameof(index));
-            _loadedItems[index] = value;
+            if (index < 0 || index >= _count) throw new ArgumentOutOfRangeException(nameof(index));
+            // For now, only allow setting loaded items
+            if (index < _loadedItems.Count)
+            {
+                _loadedItems[index] = value;
+            }
         }
     }
 
 
 
-    public int Count => _loadedItems.Count;
+    public int Count => _count;
     public bool IsReadOnly => true;
 
     public IEnumerable<PlaylistTrackViewModel> GetSubset(int count)
@@ -187,6 +212,47 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     public bool HasMoreItems => _count == -1 || _loadedItems.Count < _count;
+
+    private async Task LoadPageAsync(int pageIndex)
+    {
+        if (_pendingPages.Contains(pageIndex) || _pages.ContainsKey(pageIndex)) return;
+        
+        _pendingPages.Add(pageIndex);
+        
+        try
+        {
+            var startIndex = pageIndex * _pageSize;
+            var itemsToLoad = Math.Min(_pageSize, _count - startIndex);
+            
+            if (itemsToLoad <= 0) return;
+            
+            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter);
+            var viewModels = tracks.Select(t => new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
+            
+            // Ensure _loadedItems has enough capacity
+            while (_loadedItems.Count < startIndex + viewModels.Count)
+            {
+                _loadedItems.Add(null!); // Placeholder
+            }
+            
+            // Fill in the loaded items
+            for (int i = 0; i < viewModels.Count; i++)
+            {
+                _loadedItems[startIndex + i] = viewModels[i];
+            }
+            
+            // Store in pages for cache management
+            var pageInfo = new PageInfo { Items = viewModels, LastAccess = DateTime.Now };
+            _pages[pageIndex] = pageInfo;
+            
+            // Notify collection changed
+            CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Replace, viewModels, viewModels, startIndex));
+        }
+        finally
+        {
+            _pendingPages.Remove(pageIndex);
+        }
+    }
 
     public async Task<int> LoadMoreItemsAsync(uint count)
     {

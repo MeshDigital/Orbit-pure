@@ -1,0 +1,105 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="500" d:DesignHeight="400"
+             x:Class="SLSKDONET.Views.Avalonia.ForensicReportView"
+             Background="#1A1A1A">
+
+    <Design.DataContext>
+        <vm:ForensicReportViewModel/>
+    </Design.DataContext>
+
+    <Grid RowDefinitions="Auto,*" Margin="20">
+        <!-- Header -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,20">
+            <TextBlock Text="Forensic Report" FontSize="18" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+            <Button Grid.Column="1"
+                    Background="Transparent"
+                    Padding="4"
+                    Command="{Binding $parent[UserControl;1].DataContext.CloseCommand}">
+                <TextBlock Text="✕" Foreground="#666"/>
+            </Button>
+        </Grid>
+
+        <!-- Main Content -->
+        <ScrollViewer Grid.Row="1">
+            <StackPanel Spacing="20">
+                <!-- Track Info -->
+                <Border CornerRadius="8" Padding="16" Background="#252526">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="{Binding Artist}" FontSize="16" FontWeight="Bold" Foreground="White"/>
+                        <TextBlock Text="{Binding Title}" FontSize="14" Foreground="#CCC"/>
+                        <TextBlock Text="{Binding FilePath}" FontSize="12" Foreground="#888" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Analysis Button -->
+                <Button Content="Run Spectral Analysis"
+                        Command="{Binding AnalyzeCommand}"
+                        IsEnabled="{Binding !IsAnalyzing}"
+                        HorizontalAlignment="Center"
+                        Padding="12,8"
+                        Background="#007ACC"
+                        Foreground="White"
+                        CornerRadius="4"/>
+
+                <!-- Results -->
+                <Border CornerRadius="8" Padding="16" Background="#252526" IsVisible="{Binding !!Result}">
+                    <StackPanel Spacing="16">
+                        <!-- Result Status -->
+                        <TextBlock Text="{Binding Result}"
+                                 FontSize="14"
+                                 Foreground="White"
+                                 TextWrapping="Wrap"/>
+
+                        <!-- Energy Metrics -->
+                        <StackPanel Spacing="12" IsVisible="{Binding !!HighFreqEnergyDb}">
+                            <TextBlock Text="Spectral Energy Analysis" FontSize="16" FontWeight="Bold" Foreground="White"/>
+
+                            <!-- Energy Bars -->
+                            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" Margin="0,10,0,0">
+                                <!-- Low Frequency (1kHz-15kHz) -->
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Low Frequency Energy (1kHz-15kHz):" Foreground="#CCC" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding LowFreqEnergyDb, StringFormat='\{0:F1\} dB'}" Foreground="#4CAF50" FontWeight="Bold" VerticalAlignment="Center" Margin="10,0,0,0"/>
+
+                                <ProgressBar Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                                           Value="{Binding LowFreqEnergyDb, Converter={StaticResource DbToProgressConverter}}"
+                                           Height="8"
+                                           Background="#333"
+                                           Foreground="#4CAF50"
+                                           Margin="0,4,0,12"/>
+
+                                <!-- High Frequency (16kHz+) -->
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="High Frequency Energy (16kHz+):" Foreground="#CCC" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding HighFreqEnergyDb, StringFormat='\{0:F1\} dB'}" Foreground="#FF9800" FontWeight="Bold" VerticalAlignment="Center" Margin="10,0,0,0"/>
+
+                                <ProgressBar Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
+                                           Value="{Binding HighFreqEnergyDb, Converter={StaticResource DbToProgressConverter}}"
+                                           Height="8"
+                                           Background="#333"
+                                           Foreground="#FF9800"
+                                           Margin="0,4,0,0"/>
+                            </Grid>
+
+                            <!-- Energy Ratio -->
+                            <Border CornerRadius="4" Padding="8" Background="#333" Margin="0,16,0,0">
+                                <TextBlock Text="{Binding EnergyRatio, StringFormat='Energy Ratio: \{0:F1\} dB difference'}"
+                                         Foreground="White"
+                                         HorizontalAlignment="Center"/>
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Loading Indicator -->
+                <TextBlock Text="Analyzing spectral integrity..."
+                         IsVisible="{Binding IsAnalyzing}"
+                         Foreground="#007ACC"
+                         HorizontalAlignment="Center"
+                         Margin="0,20,0,0"/>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

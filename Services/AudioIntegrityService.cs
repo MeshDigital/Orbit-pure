@@ -44,48 +44,47 @@ public class AudioIntegrityService
                 return new IntegrityResult { IsGenuineLossless = false, Reason = "File not found" };
             }
 
-            // Load audio file
-            using var stream = File.OpenRead(filePath);
-            var audioFile = new WaveFile(stream);
-            var signal = audioFile.Signals.First(); // Take first channel
-
-            if (signal.SamplingRate != SampleRate)
+            // Run CPU-intensive analysis on background thread with LongRunning option
+            return await Task.Factory.StartNew(() =>
             {
-                // Resample to 44.1kHz for consistent analysis
-                var resampler = new NWaves.Operations.Resampler();
-                signal = resampler.Resample(signal, SampleRate);
-            }
+                // Load audio file
+                using var stream = File.OpenRead(filePath);
+                var audioFile = new WaveFile(stream);
+                var signal = audioFile.Signals.First(); // Take first channel
 
-            // Extract middle section to avoid silence/artifacts at start/end
-            var totalSamples = signal.Length;
-            var analysisSamples = AnalysisDurationSeconds * SampleRate;
-            var startSample = Math.Max(0, (totalSamples - analysisSamples) / 2);
-            var endSample = Math.Min(totalSamples, startSample + analysisSamples);
+                if (signal.SamplingRate != SampleRate)
+                {
+                    // Resample to 44.1kHz for consistent analysis
+                    var resampler = new NWaves.Operations.Resampler();
+                    signal = resampler.Resample(signal, SampleRate);
+                }
 
-            var analysisSignal = new DiscreteSignal(SampleRate, signal.Samples.Skip(startSample).Take(endSample - startSample).ToArray());
+                // Extract middle section to avoid silence/artifacts at start/end
+                var totalSamples = signal.Length;
+                var analysisSamples = AnalysisDurationSeconds * SampleRate;
+                var startSample = Math.Max(0, (totalSamples - analysisSamples) / 2);
+                var endSample = Math.Min(totalSamples, startSample + analysisSamples);
 
-            // Perform FFT analysis
-            var fftResult = AnalyzeFrequencySpectrum(analysisSignal);
+                var analysisSignal = new DiscreteSignal(SampleRate, signal.Samples.Skip(startSample).Take(endSample - startSample).ToArray());
 
-            // Check for artificial high-frequency cutoff
-            var isGenuine = CheckHighFrequencyIntegrity(fftResult);
+                // Perform FFT analysis
+                var fftResult = AnalyzeFrequencySpectrum(analysisSignal);
 
-            var result = new IntegrityResult
-            {
-                IsGenuineLossless = isGenuine,
-                Reason = isGenuine ? "Genuine lossless recording" : "Suspicious high-frequency cutoff detected",
-                HighFreqEnergyDb = fftResult.HighFreqEnergyDb,
-                LowFreqEnergyDb = fftResult.LowFreqEnergyDb
-            };
+                // Check for artificial high-frequency cutoff
+                var isGenuine = CheckHighFrequencyIntegrity(fftResult);
 
-            _logger.LogInformation("Spectral analysis complete for {Path}: {Result}",
-                Path.GetFileName(filePath), result.Reason);
-
-            return result;
+                return new IntegrityResult
+                {
+                    IsGenuineLossless = isGenuine,
+                    Reason = isGenuine ? "Genuine lossless recording" : "Suspicious high-frequency cutoff detected",
+                    HighFreqEnergyDb = fftResult.HighFreqEnergyDb,
+                    LowFreqEnergyDb = fftResult.LowFreqEnergyDb
+                };
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to analyze spectral integrity for: {Path}", filePath);
+            _logger.LogWarning(ex, "Spectral integrity check failed");
             return new IntegrityResult { IsGenuineLossless = false, Reason = $"Analysis failed: {ex.Message}" };
         }
     }

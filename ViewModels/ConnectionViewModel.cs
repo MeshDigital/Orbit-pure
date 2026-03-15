@@ -60,6 +60,8 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         set => SetProperty(ref _isInitializing, value);
     }
 
+    private int _reconnectRetryCount = 0; // Exponential backoff counter
+
     // Login Overlay State
     private bool _isLoginOverlayVisible;
     public bool IsLoginOverlayVisible
@@ -134,13 +136,16 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
                 {
                     HandleStateChange(evt.State);
                     
-                    // Auto-reconnect logic (Phase 13.5)
+                    // Auto-reconnect logic with exponential backoff (Phase 13.5)
                     // Only auto-reconnect if permitted and not currently connecting
                     if (wasConnected && AutoConnectEnabled && !IsInitializing)
                     {
-                        _logger.LogInformation("Soulseek connection lost. Auto-reconnect in 5s...");
+                        _reconnectRetryCount++;
+                        var delayMs = CalculateReconnectDelay(_reconnectRetryCount);
+                        _logger.LogInformation("Soulseek connection lost. Auto-reconnect attempt #{Attempt} in {Delay}s...", _reconnectRetryCount, delayMs / 1000);
+                        
                         Task.Run(async () => {
-                            await Task.Delay(5000);
+                            await Task.Delay(delayMs);
                             // Check AutoConnectEnabled again in case Disconnect/Shutdown disabled it during the delay
                             if (!IsConnected && AutoConnectEnabled)
                             {
@@ -330,6 +335,7 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
                     IsConnected = true;
                     StatusText = $"Connected as {Username}";
                     IsLoginOverlayVisible = false;
+                    _reconnectRetryCount = 0; // Reset retry counter on successful connection
                     break;
                 case "Disconnected":
                     IsConnected = false;
@@ -353,6 +359,17 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         field = value;
         OnPropertyChanged(propertyName);
         return true;
+    }
+
+    /// <summary>
+    /// Calculates exponential backoff delay for reconnection attempts.
+    /// Delays: 5s, 15s, 60s, then caps at 60s to prevent excessive waiting.
+    /// </summary>
+    private int CalculateReconnectDelay(int attemptNumber)
+    {
+        // Exponential backoff: 5s * 3^(attempt-1), capped at 60s
+        var delaySeconds = 5 * Math.Pow(3, attemptNumber - 1);
+        return Math.Min((int)delaySeconds, 60) * 1000; // Convert to milliseconds
     }
 
     public void Dispose()

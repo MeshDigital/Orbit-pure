@@ -43,6 +43,7 @@
         <converters:BoolBlurConverter x:Key="BoolBlurConverter"/>
         <converters:NumericGreaterThanConverter x:Key="GreaterThanThreshold"/>
         <converters:NumericIsNotZeroConverter x:Key="GreaterThanZero"/>
+        <converters:DbToProgressConverter x:Key="DbToProgressConverter"/>
 
         
         <!-- Utility Converters -->
