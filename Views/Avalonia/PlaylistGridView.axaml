@@ -1,0 +1,120 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:conv="clr-namespace:SLSKDONET.Converters"
+             xmlns:viewConv="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
+             x:Class="SLSKDONET.Views.Avalonia.PlaylistGridView"
+             x:DataType="vm:LibraryViewModel">
+
+    <UserControl.Resources>
+        <viewConv:BitmapValueConverter x:Key="BitmapValueConverter"/>
+        <conv:RatioToWidthConverter x:Key="RatioToWidthConverter"/>
+        <conv:ColorToBrushConverter x:Key="ColorToBrushConverter"/>
+    </UserControl.Resources>
+
+    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+        <ItemsControl ItemsSource="{Binding Projects.FilteredProjectCards}"
+                      Background="Transparent"
+                      Margin="16">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal"
+                              HorizontalAlignment="Left"
+                              VerticalAlignment="Top"
+                              Margin="0,0,0,16"/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:LibraryPlaylistCardViewModel">
+                    <Button Command="{Binding ((vm:LibraryViewModel)DataContext).Projects.OpenProjectCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            CommandParameter="{Binding Model}"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Padding="0"
+                            Margin="8"
+                            Cursor="Hand">
+                        <Border Width="200" Height="280"
+                                Background="#1A1A1D"
+                                CornerRadius="16"
+                                BorderBrush="#2A2A2E"
+                                BorderThickness="1"
+                                ClipToBounds="True">
+
+                            <!-- Health Ring Overlay -->
+                            <Border.Styles>
+                                <Style Selector="Border:pointerover">
+                                    <Setter Property="BorderBrush" Value="#3E3E42"/>
+                                    <Setter Property="Effect">
+                                        <DropShadowEffect BlurRadius="8" Color="#000000" Opacity="0.3"/>
+                                    </Setter>
+                                </Style>
+                            </Border.Styles>
+
+                            <Grid>
+                                <!-- Cover Image -->
+                                <Border Height="160" VerticalAlignment="Top" Background="#262629">
+                                    <Grid>
+                                        <PathIcon Data="{StaticResource icons_library}"
+                                                 Width="40" Height="40"
+                                                 Foreground="#333"
+                                                 HorizontalAlignment="Center"
+                                                 VerticalAlignment="Center"/>
+                                        <Image Source="{Binding CoverImageUrl, Converter={StaticResource BitmapValueConverter}}"
+                                               Stretch="UniformToFill"/>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Health Ring (Simple Progress Bar) -->
+                                <Border Width="50" Height="6"
+                                        Canvas.Top="15" Canvas.Left="75"
+                                        Background="#333333"
+                                        CornerRadius="3"
+                                        ClipToBounds="True">
+                                    <Border Width="{Binding LosslessRatio, Converter={StaticResource RatioToWidthConverter}}"
+                                            Height="6"
+                                            Background="{Binding HealthRingColor}"
+                                            CornerRadius="3"
+                                            HorizontalAlignment="Left"/>
+                                </Border>
+
+                                <!-- Playlist Info -->
+                                <StackPanel Margin="16,176,16,16" Spacing="8">
+                                    <TextBlock Text="{Binding Name}"
+                                               Foreground="White"
+                                               FontWeight="SemiBold"
+                                               FontSize="16"
+                                               TextTrimming="CharacterEllipsis"
+                                               MaxLines="2"
+                                               Height="40"/>
+
+                                    <TextBlock Text="{Binding TrackCountText}"
+                                               Foreground="#808080"
+                                               FontSize="12"/>
+
+                                    <!-- Health Status -->
+                                    <Border Background="{Binding HealthRingColor, Converter={StaticResource ColorToBrushConverter}}"
+                                            CornerRadius="12"
+                                            Padding="8,4"
+                                            HorizontalAlignment="Left">
+                                        <TextBlock Text="{Binding LosslessRatio, StringFormat='Lossless: {0:P0}'}"
+                                                   Foreground="White"
+                                                   FontSize="11"
+                                                   FontWeight="Bold"/>
+                                    </Border>
+                                </StackPanel>
+
+                                <!-- Hover Tooltip -->
+                                <ToolTip.Tip>
+                                    <TextBlock Text="{Binding HealthStatusText}"
+                                               FontSize="12"/>
+                                </ToolTip.Tip>
+                            </Grid>
+                        </Border>
+                    </Button>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </ScrollViewer>
+</UserControl>

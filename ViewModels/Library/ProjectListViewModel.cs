@@ -65,6 +65,17 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    private ObservableCollection<LibraryPlaylistCardViewModel> _filteredProjectCards = new();
+    public ObservableCollection<LibraryPlaylistCardViewModel> FilteredProjectCards
+    {
+        get => _filteredProjectCards;
+        set
+        {
+            _filteredProjectCards = value;
+            OnPropertyChanged();
+        }
+    }
+
     // Selected project
     private PlaylistJob? _selectedProject;
     public PlaylistJob? SelectedProject
@@ -321,8 +332,12 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                     (p.SourceType?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
 
             FilteredProjects.Clear();
+            FilteredProjectCards.Clear();
             foreach (var p in filtered)
+            {
                 FilteredProjects.Add(p);
+                FilteredProjectCards.Add(new LibraryPlaylistCardViewModel(p));
+            }
         });
     }
     // ... existing methods ...
