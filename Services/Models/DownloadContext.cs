@@ -47,6 +47,11 @@ public class DownloadContext
     public int StallCount { get; set; }         // Consecutive stalled ticks
     public DateTime? LastIntervention { get; set; } // When did the Health Monitor last kick in?
 
+    // Phase 9: Hedged Resilience - Stall Detection
+    public DateTime? LastSpeedUpdate { get; set; }
+    public DateTime? StallStartTime { get; set; }
+    public bool IsStalled { get; set; }
+
     // Phase 3A: Finalization Guard (prevents heartbeat race conditions)
     // 0 = false, 1 = true
     private int _isFinalizing; 

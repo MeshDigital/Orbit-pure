@@ -1557,6 +1557,27 @@ public class DatabaseService
     {
         return await _trackRepository.FindTracksInOtherProjectsAsync(artist, title, excludeProjectId);
     }
+
+    public List<PeerReliabilityEntity> GetPeerReliabilityStats()
+    {
+        using var context = new AppDbContext();
+        return context.PeerReliability.ToList();
+    }
+
+    public void UpsertPeerReliability(PeerReliabilityEntity entity)
+    {
+        using var context = new AppDbContext();
+        var existing = context.PeerReliability.Find(entity.Username);
+        if (existing != null)
+        {
+            context.Entry(existing).CurrentValues.SetValues(entity);
+        }
+        else
+        {
+            context.PeerReliability.Add(entity);
+        }
+        context.SaveChanges();
+    }
 }
 
 

@@ -23,6 +23,7 @@ using SLSKDONET.Data.Essentia;
 using Microsoft.EntityFrameworkCore;
 using SLSKDONET.Services.Repositories; // [NEW] Namespace
 using SLSKDONET.Services.IO; // Added explicit using
+using SLSKDONET.Events;
 
 
 namespace SLSKDONET.Services;
@@ -2971,6 +2972,40 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             {
                 _peerReliability.RecordProgress(e.Username, delta);
             }
+
+            // Phase 9: Stall Detection
+            var now = DateTime.Now;
+            if (ctx.LastSpeedUpdate.HasValue)
+            {
+                var timeDelta = (now - ctx.LastSpeedUpdate.Value).TotalSeconds;
+                if (timeDelta > 0)
+                {
+                    ctx.CurrentSpeed = (long)(delta / timeDelta);
+                    const long stallThreshold = 15 * 1024; // 15 KB/s
+                    if (ctx.CurrentSpeed < stallThreshold)
+                    {
+                        if (!ctx.StallStartTime.HasValue)
+                        {
+                            ctx.StallStartTime = now;
+                        }
+                        else if ((now - ctx.StallStartTime.Value).TotalSeconds > 15 && !ctx.IsStalled)
+                        {
+                            ctx.IsStalled = true;
+                            _eventBus.Publish(new TrackStalledEvent(ctx.GlobalId, e.Username));
+                            _logger.LogWarning("🚧 Track stalled: {Title} from {User}, triggering hedge", ctx.Model.Title, e.Username);
+                            // Trigger hedge failover
+                            _ = Task.Run(() => TryRunHedgeFailoverAsync(ctx, _globalCts.Token, "stalled"));
+                        }
+                    }
+                    else
+                    {
+                        // Reset stall state if speed recovered
+                        ctx.StallStartTime = null;
+                        ctx.IsStalled = false;
+                    }
+                }
+            }
+            ctx.LastSpeedUpdate = now;
         }
     }
 

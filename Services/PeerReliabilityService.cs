@@ -2,12 +2,20 @@ using System;
 using System.Collections.Concurrent;
 using System.Linq;
 using System.Threading;
+using SLSKDONET.Data.Entities;
 
 namespace SLSKDONET.Services;
 
 public sealed class PeerReliabilityService
 {
     private readonly ConcurrentDictionary<string, PeerStats> _peers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly DatabaseService _databaseService;
+
+    public PeerReliabilityService(DatabaseService databaseService)
+    {
+        _databaseService = databaseService;
+        LoadFromDatabase();
+    }
 
     public void RecordSearchCandidate(string? username)
     {
@@ -15,6 +23,7 @@ public sealed class PeerReliabilityService
         var peer = GetOrCreate(username);
         Interlocked.Increment(ref peer.SearchCandidates);
         Interlocked.Exchange(ref peer.LastSeenTicks, DateTime.UtcNow.Ticks);
+        SaveToDatabase(username);
     }
 
     public void RecordDownloadStarted(string? username)
@@ -23,6 +32,7 @@ public sealed class PeerReliabilityService
         var peer = GetOrCreate(username);
         Interlocked.Increment(ref peer.DownloadStarts);
         Interlocked.Exchange(ref peer.LastSeenTicks, DateTime.UtcNow.Ticks);
+        SaveToDatabase(username);
     }
 
     public void RecordProgress(string? username, long bytesDelta)
@@ -31,6 +41,7 @@ public sealed class PeerReliabilityService
         var peer = GetOrCreate(username);
         Interlocked.Add(ref peer.BytesTransferred, bytesDelta);
         Interlocked.Exchange(ref peer.LastSeenTicks, DateTime.UtcNow.Ticks);
+        // Save less frequently for progress
     }
 
     public void RecordDownloadCompleted(string? username)
@@ -39,6 +50,7 @@ public sealed class PeerReliabilityService
         var peer = GetOrCreate(username);
         Interlocked.Increment(ref peer.DownloadCompletions);
         Interlocked.Exchange(ref peer.LastSeenTicks, DateTime.UtcNow.Ticks);
+        SaveToDatabase(username);
     }
 
     public void RecordDownloadFailed(string? username, bool stalled)
@@ -51,6 +63,7 @@ public sealed class PeerReliabilityService
             Interlocked.Increment(ref peer.StallFailures);
         }
         Interlocked.Exchange(ref peer.LastSeenTicks, DateTime.UtcNow.Ticks);
+        SaveToDatabase(username);
     }
 
     public double GetReliabilityScore(string? username)
@@ -78,6 +91,12 @@ public sealed class PeerReliabilityService
             score = Math.Max(score, 0.45);
         }
 
+        // Phase 9: De-prioritize bad peers
+        if (starts >= 5 && completions == 0)
+        {
+            score = 0.01; // Very low score for peers with 100% failure rate over 5+ attempts
+        }
+
         return Math.Clamp(score, 0.05, 0.99);
     }
 
@@ -102,6 +121,57 @@ public sealed class PeerReliabilityService
     }
 
     private PeerStats GetOrCreate(string username) => _peers.GetOrAdd(username, static _ => new PeerStats());
+
+    private void LoadFromDatabase()
+    {
+        try
+        {
+            var entities = _databaseService.GetPeerReliabilityStats();
+            foreach (var entity in entities)
+            {
+                var stats = new PeerStats
+                {
+                    SearchCandidates = entity.SearchCandidates,
+                    DownloadStarts = entity.DownloadStarts,
+                    DownloadCompletions = entity.DownloadCompletions,
+                    DownloadFailures = entity.DownloadFailures,
+                    StallFailures = entity.StallFailures,
+                    BytesTransferred = entity.BytesTransferred,
+                    LastSeenTicks = entity.LastSeenTicks
+                };
+                _peers[entity.Username] = stats;
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log or handle
+        }
+    }
+
+    private void SaveToDatabase(string username)
+    {
+        try
+        {
+            var stats = _peers[username];
+            var entity = new PeerReliabilityEntity
+            {
+                Username = username,
+                SearchCandidates = stats.SearchCandidates,
+                DownloadStarts = stats.DownloadStarts,
+                DownloadCompletions = stats.DownloadCompletions,
+                DownloadFailures = stats.DownloadFailures,
+                StallFailures = stats.StallFailures,
+                BytesTransferred = stats.BytesTransferred,
+                LastSeenTicks = stats.LastSeenTicks,
+                LastUpdated = DateTime.UtcNow
+            };
+            _databaseService.UpsertPeerReliability(entity);
+        }
+        catch (Exception ex)
+        {
+            // Log or handle
+        }
+    }
 
     private sealed class PeerStats
     {

@@ -530,18 +530,14 @@
                     </Border>
 
                     <!-- Completed List -->
-                    <ListBox Grid.Row="1" ItemsSource="{Binding CompletedDownloads}" ItemTemplate="{StaticResource DownloadItemTemplate}" Background="Transparent" BorderThickness="0">
-                        <ListBox.Styles>
-                            <Style Selector="ListBoxItem">
-                                <Setter Property="Padding" Value="0"/>
-                                <Setter Property="Margin" Value="0"/>
-                                <Setter Property="Background" Value="Transparent"/>
-                            </Style>
-                            <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-                                <Setter Property="Background" Value="Transparent"/>
-                            </Style>
-                        </ListBox.Styles>
-                    </ListBox>
+                    <ItemsRepeater Grid.Row="1" ItemsSource="{Binding CompletedDownloads}">
+                        <ItemsRepeater.Layout>
+                            <StackLayout Spacing="0"/>
+                        </ItemsRepeater.Layout>
+                        <ItemsRepeater.ItemTemplate>
+                            <StaticResource ResourceKey="DownloadItemTemplate"/>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
                 </Grid>
             </TabItem>
 
@@ -605,18 +601,14 @@
                     </Border>
 
                     <!-- Failed List -->
-                    <ListBox Grid.Row="1" ItemsSource="{Binding FailedDownloads}" ItemTemplate="{StaticResource FailedDownloadItemTemplate}" Background="Transparent" BorderThickness="0">
-                        <ListBox.Styles>
-                            <Style Selector="ListBoxItem">
-                                <Setter Property="Padding" Value="0"/>
-                                <Setter Property="Margin" Value="0"/>
-                                <Setter Property="Background" Value="Transparent"/>
-                            </Style>
-                            <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-                                <Setter Property="Background" Value="Transparent"/>
-                            </Style>
-                        </ListBox.Styles>
-                    </ListBox>
+                    <ItemsRepeater Grid.Row="1" ItemsSource="{Binding FailedDownloads}">
+                        <ItemsRepeater.Layout>
+                            <StackLayout Spacing="0"/>
+                        </ItemsRepeater.Layout>
+                        <ItemsRepeater.ItemTemplate>
+                            <StaticResource ResourceKey="FailedDownloadItemTemplate"/>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
                 </Grid>
             </TabItem>
 

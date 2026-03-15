@@ -61,3 +61,18 @@ public class LibraryUpdatedEvent
         Reason = reason;
     }
 }
+
+/// <summary>
+/// Published when a download stalls and hedging should be attempted.
+/// </summary>
+public class TrackStalledEvent
+{
+    public string GlobalId { get; }
+    public string CurrentUsername { get; }
+
+    public TrackStalledEvent(string globalId, string currentUsername)
+    {
+        GlobalId = globalId;
+        CurrentUsername = currentUsername;
+    }
+}
