@@ -1,5 +1,29 @@
 # Recent Changes
 
+## [0.1.0-alpha.15] - Phase 9: Resilience & The "Pure" Final Polish (Mar 15, 2026)
+
+### New Features
+* **Hedged Download Strategy ("Racer" Pattern)**: Stall detection monitors download throughput below 15 KB/s for 15+ seconds, triggering automatic failover to runner-up peers from search results. Keeps both streams running briefly to ensure top sustained speed.
+* **Persistent Peer Scoring & Blacklisting**: `PeerReliabilityService` now persists stats to SQLite database. Peers with 100% failure rate over 5+ attempts are de-prioritized in winner selection for 24 hours to avoid repeated attempts on "Ghost Peers."
+* **UI Virtualization 2.0 (ItemsRepeater Migration)**: Completed and Failed download tabs switched from `ListBox` to `ItemsRepeater` for zero UI stutter during high-concurrency operations (1000+ tracks).
+
+### Fixes & Stability
+* **Stall Detection Logic**: Added speed tracking fields to `DownloadContext` and event-driven hedge triggering in `DownloadManager`.
+* **Database Persistence for Reliability**: New `PeerReliabilityEntity` table with load/save methods ensuring peer stats survive restarts.
+* **XAML Build Fixes**: Corrected ItemsRepeater template syntax for Completed/Failed lists.
+
+### Validation
+* **Build Verified**: `dotnet build` succeeds with 6 warnings (pre-existing).
+
+### Files Modified
+* **Events**: `Events/TrackEvents.cs` (TrackStalledEvent)
+* **Data**: `Data/AppDbContext.cs`, `Data/Entities/PeerReliabilityEntity.cs`
+* **Services**: `Services/DownloadManager.cs`, `Services/PeerReliabilityService.cs`, `Services/DatabaseService.cs`
+* **Models**: `Services/Models/DownloadContext.cs`
+* **Views**: `Views/Avalonia/DownloadsPage.axaml`
+
+---
+
 ## [0.1.0-alpha.14] - Hyper-Drive Throughput Pass (Mar 15, 2026)
 
 ### New Features
