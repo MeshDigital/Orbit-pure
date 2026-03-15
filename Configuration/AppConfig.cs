@@ -16,7 +16,14 @@ public class AppConfig
     public bool UseUPnP { get; set; } = false;
     public int ConnectTimeout { get; set; } = 20000; // ms
     public int SearchTimeout { get; set; } = 6000; // ms
-    public int MaxConcurrentSearches { get; set; } = 4; // Throttling to prevent bans
+    public int MaxConcurrentSearches { get; set; } = 5; // Throttling to prevent bans
+    public int SearchThrottleDelayMs { get; set; } = 200; // Protocol pacing to prevent flood protection
+    public int MinSearchDurationSeconds { get; set; } = 3; // Keep lanes open briefly to capture late high-quality peers
+    public bool EnableHedgedSearch { get; set; } = true;
+    public int HedgedSearchDelaySeconds { get; set; } = 5;
+    public bool EnableHedgedDownloadFailover { get; set; } = true;
+    public bool IsSoulseekSupporter { get; set; } = false;
+    public int SupporterSearchLaneMultiplier { get; set; } = 2;
     public string? DownloadDirectory { get; set; }
     public string? SharedFolderPath { get; set; }
     public bool EnableLibrarySharing { get; set; } = true; // Reciprocal sharing improves reputation
@@ -99,6 +106,15 @@ public class AppConfig
 
     // Audio Analysis Parallelism
     public int MaxConcurrentAnalyses { get; set; } = 0; // 0 = auto-detect based on CPU/RAM, 1 = sequential, >1 = parallel
+
+    // Hyper-Drive: Adaptive lane autotuning
+    public bool EnableAdaptiveLanes { get; set; } = true;
+    public int MinAdaptiveDownloadLanes { get; set; } = 2;
+    public int MaxAdaptiveDownloadLanes { get; set; } = 6;
+    public int MinAdaptiveSearchLanes { get; set; } = 3;
+    public int MaxAdaptiveSearchLanes { get; set; } = 8;
+    public int MinThroughputFloorKbps { get; set; } = 20;
+    public int StallTimeoutSeconds { get; set; } = 10;
 
     public override string ToString()
     {

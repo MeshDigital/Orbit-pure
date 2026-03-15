@@ -351,6 +351,33 @@
 
             <!-- Column 5: Badge Tray (Flexible) -->
             <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6" Margin="8,0" IsVisible="{Binding !IsCompact, ElementName=RootControl}">
+                <!-- Quality Pill -->
+                <Border IsVisible="{Binding HasQualityPill}"
+                        Background="#1A1F2C" BorderBrush="#00BFFF" BorderThickness="1"
+                        CornerRadius="10" Padding="8,1" ToolTip.Tip="Bitrate / sample rate from Soulseek attributes">
+                    <TextBlock Text="{Binding QualityPillText}" FontSize="9" FontWeight="Bold" Foreground="#00BFFF" VerticalAlignment="Center"/>
+                </Border>
+
+                <!-- Fake FLAC Warning -->
+                <Border IsVisible="{Binding IsFakeFlacWarning}"
+                        Background="#2C1F1F" BorderBrush="#FF5252" BorderThickness="1"
+                        CornerRadius="10" Padding="8,1" ToolTip.Tip="Potential transcode detected">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="⚠" FontSize="9" Foreground="#FF5252"/>
+                        <TextBlock Text="FAKE FLAC" FontSize="9" FontWeight="Bold" Foreground="#FF5252"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Shield badge: query was sanitized by ProtocolHardeningService -->
+                <Border IsVisible="{Binding HasShieldSanitized}"
+                        Background="#1F2430" BorderBrush="#4EC9B0" BorderThickness="1"
+                        CornerRadius="10" Padding="8,1" ToolTip.Tip="{Binding ShieldTooltip}">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="🛡" FontSize="9" VerticalAlignment="Center"/>
+                        <TextBlock Text="SHIELD" FontSize="9" FontWeight="Bold" Foreground="#4EC9B0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- Peer Info (Softer) -->
                 <Border IsVisible="{Binding PeerName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                         Background="{StaticResource GlassThinBrush}" BorderBrush="{StaticResource BorderGlowBrush}" BorderThickness="1"

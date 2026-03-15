@@ -471,6 +471,7 @@ public partial class App : Application
         
         
         services.AddSingleton<DownloadManager>();
+        services.AddSingleton<PeerReliabilityService>();
         
         // Phase 2.5: Download Center ViewModel (singleton observer)
         services.AddSingleton<ViewModels.Downloads.DownloadCenterViewModel>();

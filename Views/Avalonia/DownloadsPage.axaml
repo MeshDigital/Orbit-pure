@@ -436,23 +436,16 @@
                                         <Border Background="#00BCD4" Width="40" Height="2" VerticalAlignment="Center" Opacity="0.3"/>
                                     </StackPanel>
                                     
-                                    <ListBox ItemsSource="{Binding ActiveTracks}" Background="Transparent" BorderThickness="0">
-                                        <ListBox.Styles>
-                                            <Style Selector="ListBoxItem">
-                                                <Setter Property="Padding" Value="0"/>
-                                                <Setter Property="Margin" Value="0,0,0,4"/>
-                                                <Setter Property="Background" Value="Transparent"/>
-                                            </Style>
-                                            <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-                                                <Setter Property="Background" Value="Transparent"/>
-                                            </Style>
-                                        </ListBox.Styles>
-                                        <ListBox.ItemTemplate>
+                                    <ItemsRepeater ItemsSource="{Binding ActiveTracks}">
+                                        <ItemsRepeater.Layout>
+                                            <StackLayout Spacing="4"/>
+                                        </ItemsRepeater.Layout>
+                                        <ItemsRepeater.ItemTemplate>
                                             <DataTemplate>
                                                 <c:StandardTrackRow Classes="card"/>
                                             </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
+                                        </ItemsRepeater.ItemTemplate>
+                                    </ItemsRepeater>
 
                                     <!-- If no active tracks but engine is running, show a 'Scanning' hint -->
                                     <Border IsVisible="{Binding !ActiveTracks.Count}" Background="#1A1A1A" CornerRadius="8" Padding="16" BorderBrush="#333" BorderThickness="1">
@@ -471,23 +464,16 @@
                                     </StackPanel>
 
                                     <!-- Grouped Items (Priority / Express) -->
-                                    <ListBox ItemsSource="{Binding ActiveGroups}" Background="Transparent" BorderThickness="0">
-                                        <ListBox.Styles>
-                                            <Style Selector="ListBoxItem">
-                                                <Setter Property="Padding" Value="0"/>
-                                                <Setter Property="Margin" Value="0,0,0,4"/>
-                                                <Setter Property="Background" Value="Transparent"/>
-                                            </Style>
-                                            <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-                                                <Setter Property="Background" Value="Transparent"/>
-                                            </Style>
-                                        </ListBox.Styles>
-                                        <ListBox.ItemTemplate>
+                                    <ItemsRepeater ItemsSource="{Binding ActiveGroups}">
+                                        <ItemsRepeater.Layout>
+                                            <StackLayout Spacing="4"/>
+                                        </ItemsRepeater.Layout>
+                                        <ItemsRepeater.ItemTemplate>
                                             <DataTemplate>
                                                 <c:DownloadGroupRow/>
                                             </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
+                                        </ItemsRepeater.ItemTemplate>
+                                    </ItemsRepeater>
                                 </StackPanel>
                             </StackPanel>
                         </ScrollViewer>

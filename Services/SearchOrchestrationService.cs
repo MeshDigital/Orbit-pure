@@ -54,8 +54,13 @@ public class SearchOrchestrationService
         _libraryService = libraryService;
         
         // Initialize simple signaling semaphore
-        // Golden Rule: Max 4 concurrent searches to avoid bans
-        int maxSearches = Math.Min(4, Math.Max(1, _config.MaxConcurrentSearches));
+        // Golden Rule: Baseline max 5 search lanes (optionally doubled for supporter accounts).
+        int maxSearches = Math.Clamp(_config.MaxConcurrentSearches, 1, 5);
+        if (_config.IsSoulseekSupporter)
+        {
+            var multiplier = Math.Max(1, _config.SupporterSearchLaneMultiplier);
+            maxSearches = Math.Clamp(maxSearches * multiplier, 1, 10);
+        }
         _searchSemaphore = new SemaphoreSlim(maxSearches);
     }
     
@@ -122,7 +127,7 @@ public class SearchOrchestrationService
                 if (!foundInThisVariation && variations.IndexOf(variation) < variations.Count - 1)
                 {
                     _logger.LogInformation("Cascade Search: No new results for '{Variation}'. Trying next variation...", variation);
-                    await Task.Delay(500, cancellationToken); // Stagger
+                    await Task.Delay(Math.Max(50, _config.SearchThrottleDelayMs), cancellationToken); // Stagger
                 }
             }
         }

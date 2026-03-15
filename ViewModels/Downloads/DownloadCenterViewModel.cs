@@ -644,6 +644,14 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
                 InitialHydration();
             })
             .DisposeWith(_subscriptions);
+
+        // UI Batcher: coalesce high-frequency progress events to 200ms UI pushes.
+        _eventBus.GetEvent<TrackProgressChangedEvent>()
+            .Buffer(TimeSpan.FromMilliseconds(200))
+            .Where(batch => batch.Count > 0)
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(_ => RefreshGlobalSpeed())
+            .DisposeWith(_subscriptions);
         
         // Start global speed calculator
         StartGlobalSpeedTimer();
@@ -721,20 +729,12 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     
     private void StartGlobalSpeedTimer()
     {
-        var timer = new System.Timers.Timer(1000);
+        var timer = new System.Timers.Timer(200);
         timer.Elapsed += (s, e) =>
         {
             try
             {
-                var totalSpeedBytes = ActiveDownloads
-                    .Where(d => d.State == PlaylistTrackState.Downloading)
-                    .Sum(d => d.CurrentSpeedBytes);
-                
-                Dispatcher.UIThread.Post(() => {
-                    GlobalSpeed = totalSpeedBytes > 1024 * 1024 
-                        ? $"{totalSpeedBytes / 1024 / 1024:F1} MB/s" 
-                        : $"{totalSpeedBytes / 1024:F0} KB/s";
-                });
+                Dispatcher.UIThread.Post(() => RefreshGlobalSpeed());
             }
             catch { }
 
@@ -742,6 +742,17 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             CheckSlotHealth();
         };
         timer.Start();
+    }
+
+    private void RefreshGlobalSpeed()
+    {
+        var totalSpeedBytes = ActiveDownloads
+            .Where(d => d.State == PlaylistTrackState.Downloading)
+            .Sum(d => d.CurrentSpeedBytes);
+
+        GlobalSpeed = totalSpeedBytes > 1024 * 1024
+            ? $"{totalSpeedBytes / 1024 / 1024:F1} MB/s"
+            : $"{totalSpeedBytes / 1024:F0} KB/s";
     }
     
     private async Task PauseAll()

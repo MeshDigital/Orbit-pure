@@ -168,6 +168,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             .DisposeWith(_disposables);
 
         _eventBus.GetEvent<TrackProgressChangedEvent>()
+            .Where(e => e.TrackGlobalId == GlobalId)
             .Sample(TimeSpan.FromMilliseconds(250)) // Throttle: ~4 events/sec to prevent UI thread starvation
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(OnProgressChanged)
@@ -581,6 +582,92 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             return string.Join(" • ", parts);
         }
     }
+
+    private int ParsedSampleRateHz
+    {
+        get
+        {
+            var details = Model.QualityDetails;
+            if (string.IsNullOrWhiteSpace(details)) return 0;
+
+            var part = details.Split('|').FirstOrDefault(p => p.EndsWith("Hz", StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrWhiteSpace(part)) return 0;
+
+            var digits = new string(part.Where(char.IsDigit).ToArray());
+            return int.TryParse(digits, out var value) ? value : 0;
+        }
+    }
+
+    private int ParsedBitDepth
+    {
+        get
+        {
+            var details = Model.QualityDetails;
+            if (string.IsNullOrWhiteSpace(details)) return 0;
+
+            var part = details.Split('|').FirstOrDefault(p => p.EndsWith("bit", StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrWhiteSpace(part)) return 0;
+
+            var digits = new string(part.Where(char.IsDigit).ToArray());
+            return int.TryParse(digits, out var value) ? value : 0;
+        }
+    }
+
+    public bool HasQualityPill => !string.IsNullOrWhiteSpace(QualityPillText);
+
+    public string QualityPillText
+    {
+        get
+        {
+            var format = (Model.Format ?? string.Empty).ToUpperInvariant();
+            var bitrate = Model.Bitrate ?? 0;
+            var sampleRate = ParsedSampleRateHz;
+            var bitDepth = ParsedBitDepth;
+
+            if (string.Equals(format, "FLAC", StringComparison.OrdinalIgnoreCase))
+            {
+                if (bitDepth > 0 || sampleRate > 0)
+                {
+                    var sampleKhz = sampleRate > 0 ? $"{sampleRate / 1000.0:F1}k" : "?k";
+                    var depth = bitDepth > 0 ? $"{bitDepth}b" : "?b";
+                    return $"FLAC {depth}/{sampleKhz}";
+                }
+
+                return bitrate > 0 ? $"FLAC {bitrate}kbps" : "FLAC";
+            }
+
+            if (bitrate > 0)
+            {
+                return $"{bitrate}kbps";
+            }
+
+            return string.Empty;
+        }
+    }
+
+    public bool IsFakeFlacWarning
+    {
+        get
+        {
+            if (!string.Equals(Model.Format, "flac", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var probeTrack = new Track
+            {
+                Format = Model.Format,
+                Bitrate = Model.Bitrate ?? 0,
+                SampleRate = ParsedSampleRateHz > 0 ? ParsedSampleRateHz : null,
+                BitDepth = ParsedBitDepth > 0 ? ParsedBitDepth : null
+            };
+
+            return MetadataForensicService.IsSuspiciousLossless(probeTrack);
+        }
+    }
+
+    public bool HasShieldSanitized => string.Equals(Model.SourceProvenance, "ShieldSanitized", StringComparison.OrdinalIgnoreCase);
+    public string ShieldTooltip => "Search query sanitized by ProtocolHardeningService";
     
     // Phase 0.6: Truth in UI - Tech Specs are Estimates until verified
     public string TechSpecPrefix => IsCompleted ? "" : "Est. ";
@@ -893,6 +980,10 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             this.RaisePropertyChanged(nameof(StatusText));
             this.RaisePropertyChanged(nameof(SpeedDisplay));
             this.RaisePropertyChanged(nameof(TechnicalSummary));
+            this.RaisePropertyChanged(nameof(QualityPillText));
+            this.RaisePropertyChanged(nameof(HasQualityPill));
+            this.RaisePropertyChanged(nameof(IsFakeFlacWarning));
+            this.RaisePropertyChanged(nameof(HasShieldSanitized));
         }
         
         // Capture Peer Name if provided in the event or available from manager
@@ -1007,6 +1098,8 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 Model.SpotifyArtistId = updatedTrack.SpotifyArtistId;
                 Model.BPM = updatedTrack.BPM;
                 Model.MusicalKey = updatedTrack.MusicalKey;
+                Model.Bitrate = updatedTrack.Bitrate;
+                Model.Format = updatedTrack.Format;
                 Model.IsEnriched = updatedTrack.IsEnriched;
                 Model.Energy = updatedTrack.Energy;
                 Model.Danceability = updatedTrack.Danceability;
@@ -1037,6 +1130,8 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 Model.SpectralHash = updatedTrack.SpectralHash;
                 Model.IsTrustworthy = updatedTrack.IsTrustworthy;
                 Model.Integrity = updatedTrack.Integrity;
+                Model.QualityDetails = updatedTrack.QualityDetails;
+                Model.SourceProvenance = updatedTrack.SourceProvenance;
                 
                 this.RaisePropertyChanged(nameof(ArtistName));
                 this.RaisePropertyChanged(nameof(TrackTitle));
@@ -1053,6 +1148,10 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(IsSecure));
                 this.RaisePropertyChanged(nameof(QualityIcon));
                 this.RaisePropertyChanged(nameof(QualityColor));
+                this.RaisePropertyChanged(nameof(QualityPillText));
+                this.RaisePropertyChanged(nameof(HasQualityPill));
+                this.RaisePropertyChanged(nameof(IsFakeFlacWarning));
+                this.RaisePropertyChanged(nameof(HasShieldSanitized));
                 this.RaisePropertyChanged(nameof(IsPrepared));
                 this.RaisePropertyChanged(nameof(PreparationStatus));
                 this.RaisePropertyChanged(nameof(PreparationColor));

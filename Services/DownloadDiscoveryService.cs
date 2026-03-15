@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,6 +26,7 @@ public class DownloadDiscoveryService
     private readonly ISafetyFilterService _safetyFilter;
     private readonly Import.AutoCleanerService _autoCleaner;
     private readonly Network.ProtocolHardeningService _hardeningService;
+    private readonly PeerReliabilityService _peerReliability;
 
     public DownloadDiscoveryService(
         ILogger<DownloadDiscoveryService> logger,
@@ -35,7 +37,8 @@ public class DownloadDiscoveryService
         TrackForensicLogger forensicLogger,
         ISafetyFilterService safetyFilter,
         Import.AutoCleanerService autoCleaner,
-        Network.ProtocolHardeningService hardeningService)
+        Network.ProtocolHardeningService hardeningService,
+        PeerReliabilityService peerReliability)
     {
         _logger = logger;
         _searchOrchestrator = searchOrchestrator;
@@ -46,9 +49,10 @@ public class DownloadDiscoveryService
         _safetyFilter = safetyFilter;
         _autoCleaner = autoCleaner;
         _hardeningService = hardeningService;
+        _peerReliability = peerReliability;
     }
 
-    public record DiscoveryResult(Track? BestMatch, SearchAttemptLog? Log)
+    public record DiscoveryResult(Track? BestMatch, SearchAttemptLog? Log, Track? RunnerUpMatch = null)
     {
         public int Bitrate => BestMatch?.Bitrate ?? 0;
     }
@@ -95,6 +99,65 @@ public class DownloadDiscoveryService
                 // Phase 26: Protocol Hardening - Double Sanitization
                 var hardenedQuery = _hardeningService.NormalizeSearchQuery(query);
                 if (hardenedQuery == null) continue;
+
+                if (!string.Equals(hardenedQuery, query, StringComparison.Ordinal))
+                {
+                    track.SourceProvenance = "ShieldSanitized";
+                }
+
+                // Hyper-Drive: Hedged Search
+                // Run first FLAC lane and a delayed MP3 hedge in parallel.
+                // Winner is whichever produces an acceptable match first.
+                if (i == 0 && _config.EnableHedgedSearch && track.Status != TrackStatus.OnHold)
+                {
+                    var flacLog = new SearchAttemptLog();
+                    var hedgeLog = new SearchAttemptLog();
+
+                    using var hedgeCts = CancellationTokenSource.CreateLinkedTokenSource(timedCt);
+                    var flacTask = PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, flacLog, forceMp3: false);
+                    var hedgeTask = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(TimeSpan.FromSeconds(Math.Max(3, _config.HedgedSearchDelaySeconds)), hedgeCts.Token);
+                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "⚡ Hedge activated: launching MP3 lane in parallel."));
+                            return await PerformSearchTierAsync(track, tiers.Smart, "MP3-Hedge", hedgeCts.Token, blacklistedUsers, hedgeLog, forceMp3: true);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            return new DiscoveryResult(null, hedgeLog);
+                        }
+                    }, hedgeCts.Token);
+
+                    var firstCompleted = await Task.WhenAny(flacTask, hedgeTask);
+                    var firstResult = await firstCompleted;
+
+                    if (firstCompleted == flacTask)
+                        MergeAttemptLog(log, flacLog);
+                    else
+                        MergeAttemptLog(log, hedgeLog);
+
+                    if (firstResult.BestMatch != null)
+                    {
+                        hedgeCts.Cancel();
+                        return firstResult;
+                    }
+
+                    var secondTask = firstCompleted == flacTask ? hedgeTask : flacTask;
+                    var secondResult = await secondTask;
+                    if (firstCompleted == flacTask)
+                        MergeAttemptLog(log, hedgeLog);
+                    else
+                        MergeAttemptLog(log, flacLog);
+
+                    if (secondResult.BestMatch != null)
+                    {
+                        return secondResult;
+                    }
+
+                    if (timedCt.IsCancellationRequested) break;
+                    continue;
+                }
 
                 _logger.LogInformation("Discovery Tier {Tier} (Lossless) for: {Query}", tierNames[i], hardenedQuery);
                 var result = await PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, log, forceMp3: false);
@@ -192,10 +255,96 @@ public class DownloadDiscoveryService
             // However, since results are ranked on-the-fly, if we trust the ranking, we might find good chunks.
             // But 'OverallScore' is relative? No, it's absolute calculation in ResultSorter now.
             
-            var allTracks = new System.Collections.Generic.List<Track>();
+            var allTracks = new List<Track>();
             var searchStartTime = DateTime.UtcNow;
             Track? bestSilverMatch = null;
             double bestSilverScore = 0;
+            Track? runnerUpSilverMatch = null;
+            double runnerUpSilverScore = 0;
+            var pendingCandidates = new List<Track>(8);
+            var minSearchDurationSeconds = Math.Clamp(_config.MinSearchDurationSeconds, 3, 5);
+
+            void UpdateTopSilverCandidates(Track candidate, double score)
+            {
+                if (bestSilverMatch == null || score > bestSilverScore)
+                {
+                    runnerUpSilverMatch = bestSilverMatch;
+                    runnerUpSilverScore = bestSilverScore;
+                    bestSilverMatch = candidate;
+                    bestSilverScore = score;
+                    return;
+                }
+
+                if (runnerUpSilverMatch == null || score > runnerUpSilverScore)
+                {
+                    runnerUpSilverMatch = candidate;
+                    runnerUpSilverScore = score;
+                }
+            }
+
+            async Task<DiscoveryResult?> EvaluatePendingCandidatesAsync()
+            {
+                if (!pendingCandidates.Any())
+                {
+                    return null;
+                }
+
+                var batch = pendingCandidates.ToList();
+                pendingCandidates.Clear();
+
+                var scoredBatch = await Task.WhenAll(batch.Select(candidate =>
+                    Task.Run(() =>
+                    {
+                        var localResult = _matcher.CalculateMatchResult(track, candidate);
+                        return (Candidate: candidate, Result: localResult, Score: localResult.Score);
+                    }, ct)));
+
+                foreach (var scored in scoredBatch.OrderByDescending(x => x.Score))
+                {
+                    var searchTrack = scored.Candidate;
+                    var matchResult = scored.Result;
+                    var reliability = _peerReliability.GetReliabilityScore(searchTrack.Username);
+                    var reliabilityBonus = (reliability - 0.5) * 10.0;
+                    var score = scored.Score + reliabilityBonus;
+
+                    searchTrack.ScoreBreakdown = matchResult.ScoreBreakdown;
+                    searchTrack.CurrentRank = score;
+
+                    if (score > 95)
+                    {
+                        _logger.LogInformation("🚀 QUICK STRIKE: Found high-confidence match ({Score}/100) early! Skipping rest of search. File: {File}",
+                            score, searchTrack.Filename);
+                        _forensicLogger.Info(track.TrackUniqueHash, Data.Entities.ForensicStage.Matching,
+                            $"Quick Strike (95+): Approved {searchTrack.Username}'s file. {matchResult.ScoreBreakdown}",
+                            track.TrackUniqueHash,
+                            new { searchTrack.Filename, score, searchTrack.Bitrate, searchTrack.Username });
+                        _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"🚀 Found high-confidence match from {searchTrack.Username} ({score:F0}/100)"));
+                        return new DiscoveryResult(searchTrack, log, runnerUpSilverMatch);
+                    }
+
+                    if (score > 70)
+                    {
+                        UpdateTopSilverCandidates(searchTrack, score);
+                    }
+                    else
+                    {
+                        if (allTracks.Count < 100)
+                        {
+                            if (matchResult.ShortReason?.StartsWith("Duration") == true) log.RejectedByQuality++;
+                            else if (matchResult.ShortReason?.Contains("Low Score") == true) log.RejectedByQuality++;
+                        }
+                    }
+
+                    if (score < 40 && allTracks.Count < 30)
+                    {
+                        _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"Rejected {searchTrack.Username}: {matchResult.ShortReason}", true));
+                    }
+
+                    allTracks.Add(searchTrack);
+                }
+
+                return null;
+            }
 
             // Consume the stream
             await foreach (Track searchTrack in _searchOrchestrator.SearchAsync(
@@ -277,69 +426,39 @@ public class DownloadDiscoveryService
                     continue;
                 }
 
-                // Phase 3C.4: Threshold Trigger (Race & Replace)
-                // Real-time evaluation of incoming results
-                var matchResult = _matcher.CalculateMatchResult(track, searchTrack);
-                var score = matchResult.Score;
+                _peerReliability.RecordSearchCandidate(searchTrack.Username);
 
-                // Phase 1.1: Store breakdown for UI transparency
-                searchTrack.ScoreBreakdown = matchResult.ScoreBreakdown;
-                searchTrack.CurrentRank = score;
-                
-                // If we find a "Golden Key" match (> 95) early, trigger immediate download
-                if (score > 95)
+                pendingCandidates.Add(searchTrack);
+
+                // Aggressive Bulk Matching: score candidates in parallel by batch.
+                if (pendingCandidates.Count >= 8)
                 {
-                    _logger.LogInformation("🚀 QUICK STRIKE: Found high-confidence match ({Score}/100) early! Skipping rest of search. File: {File}", 
-                        score, searchTrack.Filename);
-                    _forensicLogger.Info(track.TrackUniqueHash, Data.Entities.ForensicStage.Matching, 
-                        $"Quick Strike (95+): Approved {searchTrack.Username}'s file. {matchResult.ScoreBreakdown}",
-                        track.TrackUniqueHash,
-                        new { searchTrack.Filename, score, searchTrack.Bitrate, searchTrack.Username });
-                    _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"🚀 Found high-confidence match from {searchTrack.Username} ({score:F0}/100)"));
-                    return new DiscoveryResult(searchTrack, log);
+                    var quickResult = await EvaluatePendingCandidatesAsync();
+                    if (quickResult != null) return quickResult;
                 }
 
-                // Phase 3C.5: Speculative Start (Silver Match)
-                // If we have a decent match (> 70) and 3 seconds have passed, take it.
-                if (score > 70)
+                // Check speculative timeout (configured min search duration)
+                if ((DateTime.UtcNow - searchStartTime).TotalSeconds > minSearchDurationSeconds)
                 {
-                    // Track best silver match found so far
-                    if (bestSilverMatch == null || score > bestSilverScore)
+                    var flushResult = await EvaluatePendingCandidatesAsync();
+                    if (flushResult != null) return flushResult;
+
+                    if (bestSilverMatch != null)
                     {
-                        bestSilverMatch = searchTrack;
-                        bestSilverScore = score;
+                        _logger.LogInformation("🥈 SPECULATIVE TRIGGER: 3s timeout reached with match ({Score}/100). Starting download. File: {File}",
+                            bestSilverScore, bestSilverMatch.Filename);
+                        _forensicLogger.Info(track.TrackUniqueHash, Data.Entities.ForensicStage.Matching,
+                            $"Speculative Trigger (70+): 3s timeout reached. Approved {bestSilverMatch.Username}'s file. Score: {bestSilverScore}",
+                            track.TrackUniqueHash,
+                            new { bestSilverMatch.Filename, bestSilverScore, bestSilverMatch.Bitrate, bestSilverMatch.Username });
+                        _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"⏳ 3s timeout reached. Processing silver match from {bestSilverMatch.Username}"));
+                        return new DiscoveryResult(bestSilverMatch, log, runnerUpSilverMatch);
                     }
                 }
-                else
-                {
-                    // Track why it was rejected
-                    if (allTracks.Count < 100)
-                    {
-                        if (matchResult.ShortReason?.StartsWith("Duration") == true) log.RejectedByQuality++;
-                        else if (matchResult.ShortReason?.Contains("Low Score") == true) log.RejectedByQuality++;
-                    }
-                }
-
-                // Check speculative timeout (3s)
-                if ((DateTime.UtcNow - searchStartTime).TotalSeconds > 3 && bestSilverMatch != null)
-                {
-                    _logger.LogInformation("🥈 SPECULATIVE TRIGGER: 3s timeout reached with match ({Score}/100). Starting download. File: {File}", 
-                        bestSilverScore, bestSilverMatch.Filename);
-                    _forensicLogger.Info(track.TrackUniqueHash, Data.Entities.ForensicStage.Matching, 
-                        $"Speculative Trigger (70+): 3s timeout reached. Approved {bestSilverMatch.Username}'s file. Score: {bestSilverScore}",
-                        track.TrackUniqueHash,
-                        new { bestSilverMatch.Filename, bestSilverScore, bestSilverMatch.Bitrate, bestSilverMatch.Username });
-                    _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"⏳ 3s timeout reached. Processing silver match from {bestSilverMatch.Username}"));
-                    return new DiscoveryResult(bestSilverMatch, log);
-                }
-
-                if (score < 40 && allTracks.Count < 30) // Only spam UI for the first few rejections
-                {
-                     _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"Rejected {searchTrack.Username}: {matchResult.ShortReason}", true));
-                }
-
-                allTracks.Add(searchTrack);
             }
+
+            var finalBatchResult = await EvaluatePendingCandidatesAsync();
+            if (finalBatchResult != null) return finalBatchResult;
 
             if (!allTracks.Any())
             {
@@ -349,7 +468,13 @@ public class DownloadDiscoveryService
             }
 
             // 3. Select Best Match with simple Bitrate sorting since TieredTrackComparer is removed
-            var bestMatch = allTracks.OrderByDescending(t => t.Bitrate).FirstOrDefault();
+            var rankedCandidates = allTracks
+                .OrderByDescending(t => t.CurrentRank)
+                .ThenByDescending(t => t.Bitrate)
+                .ToList();
+
+            var bestMatch = rankedCandidates.FirstOrDefault();
+            var runnerUpMatch = rankedCandidates.Skip(1).FirstOrDefault();
             
             // Phase 14: Decision Matrix Logging (Full Transparency)
             if (allTracks.Any())
@@ -386,7 +511,7 @@ public class DownloadDiscoveryService
                 var tier = MetadataForensicService.CalculateTier(bestMatch);
                 _logger.LogInformation("🧠 BRAIN: Unified Matcher selected: {Filename} (Tier: {Tier})", bestMatch.Filename, tier);
                 _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"🧠 Selected {bestMatch.Username}'s file ({tier})"));
-                return new DiscoveryResult(bestMatch, log);
+                return new DiscoveryResult(bestMatch, log, runnerUpMatch);
             }
 
 
@@ -466,6 +591,25 @@ public class DownloadDiscoveryService
             return false;
         }
         return true;
+    }
+
+    private static void MergeAttemptLog(SearchAttemptLog target, SearchAttemptLog source)
+    {
+        target.ResultsCount += source.ResultsCount;
+        target.RejectedByQuality += source.RejectedByQuality;
+        target.RejectedByFormat += source.RejectedByFormat;
+        target.RejectedByBlacklist += source.RejectedByBlacklist;
+        target.RejectedByForensics += source.RejectedByForensics;
+        target.TimedOut = target.TimedOut || source.TimedOut;
+
+        if (source.Top3RejectedResults.Any())
+        {
+            target.Top3RejectedResults.AddRange(source.Top3RejectedResults);
+            target.Top3RejectedResults = target.Top3RejectedResults
+                .OrderByDescending(x => x.SearchScore)
+                .Take(3)
+                .ToList();
+        }
     }
 
     /// <summary>

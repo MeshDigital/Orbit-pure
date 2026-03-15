@@ -51,10 +51,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     private readonly IFileWriteService _fileWriteService; // Phase 1A
     private readonly CrashRecoveryJournal _crashJournal;
     private readonly TrackForensicLogger _forensicLogger;
+    private readonly PeerReliabilityService _peerReliability;
 
 
     // Phase 2: Parallel Pre-Search Cache
     private readonly ConcurrentDictionary<string, Task<DownloadDiscoveryService.DiscoveryResult>> _preSearchTasks = new();
+    private readonly ConcurrentDictionary<string, long> _lastBytesByUsername = new(StringComparer.OrdinalIgnoreCase);
 
     // Opt-P1: O(1) progress lookup — keyed by Soulseek username, updated on transfer start/end.
     // Eliminates the O(N) _downloads.FirstOrDefault scan inside OnDownloadProgressChanged
@@ -67,6 +69,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     // Phase 2.5: Concurrency control with SemaphoreSlim throttling
     private readonly CancellationTokenSource _globalCts = new();
     private readonly SemaphoreSlim _downloadSemaphore; // Initialized in optimization
+    private readonly SemaphoreSlim _searchSemaphore;
+    private const int DEFAULT_DOWNLOAD_LANES = 3;
+    private const int DEFAULT_SEARCH_LANES = 5;
+    private int _currentSearchLanes = DEFAULT_SEARCH_LANES;
+    private Task? _laneAutotuneTask;
     private Task? _processingTask;
     private readonly object _processingLock = new();
     public bool IsRunning => _processingTask != null && !_processingTask.IsCompleted;
@@ -133,7 +140,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         PathProviderService pathProvider,
         IFileWriteService fileWriteService,
         CrashRecoveryJournal crashJournal,
-        TrackForensicLogger forensicLogger) // Phase 1: Engine Overhaul
+        TrackForensicLogger forensicLogger,
+        PeerReliabilityService peerReliability) // Phase 1: Engine Overhaul
 
     {
         _logger = logger;
@@ -149,6 +157,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         _fileWriteService = fileWriteService;
         _crashJournal = crashJournal; 
         _forensicLogger = forensicLogger;
+        _peerReliability = peerReliability;
 
 
         // CONCURRENCY CONTROL ARCHITECTURE:
@@ -160,7 +169,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         // - No graceful cancellation - Task.WhenAll() is all-or-nothing
         // 
         // Solution: SemaphoreSlim throttling
-        // - Limits concurrent downloads to user-defined value (default: 4)
+        // - Limits concurrent downloads to user-defined value (default: 3)
         // - Queued downloads wait their turn (no timeout waste)
         // - Dynamic adjustment: user can change MaxActiveDownloads at runtime
         // - Hard cap at 50: prevents DOS if user enters 99999
@@ -169,11 +178,15 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         // - 20 concurrent = 60% success rate, ~1.5MB/s (contention overhead)
         
         // Golden Rule: Hard cap at 50 concurrent downloads
-        int configLimit = _config.MaxConcurrentDownloads > 0 ? _config.MaxConcurrentDownloads : 4;
+        int configLimit = _config.MaxConcurrentDownloads > 0 ? _config.MaxConcurrentDownloads : DEFAULT_DOWNLOAD_LANES;
         int initialLimit = Math.Min(50, configLimit); 
+        int initialSearchLanes = _config.MaxConcurrentSearches > 0 ? _config.MaxConcurrentSearches : DEFAULT_SEARCH_LANES;
+        initialSearchLanes = Math.Clamp(initialSearchLanes, _config.MinAdaptiveSearchLanes, _config.MaxAdaptiveSearchLanes);
         
         _maxActiveDownloads = initialLimit; 
         _downloadSemaphore = new SemaphoreSlim(initialLimit, 50); // Hard cap at 50 to prevent DOS
+        _searchSemaphore = new SemaphoreSlim(initialSearchLanes, _config.MaxAdaptiveSearchLanes);
+        _currentSearchLanes = initialSearchLanes;
         
         // Phase 8: Automation Subscriptions
         _eventBus.GetEvent<AutoDownloadTrackEvent>().Subscribe(OnAutoDownloadTrack);
@@ -1365,9 +1378,105 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }, ct);
 
         _processingTask = Task.Run(() => ProcessQueueLoop(_globalCts.Token), _globalCts.Token);
+        if (_laneAutotuneTask == null || _laneAutotuneTask.IsCompleted)
+        {
+            _laneAutotuneTask = Task.Run(() => LaneAutotuneLoop(_globalCts.Token), _globalCts.Token);
+        }
         OnPropertyChanged(nameof(IsRunning));
 
         await Task.CompletedTask;
+    }
+
+    private async Task LaneAutotuneLoop(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(30), token);
+
+                if (!_config.EnableAdaptiveLanes)
+                {
+                    continue;
+                }
+
+                var snapshot = _peerReliability.GetGlobalSnapshot();
+                if (snapshot.TotalStarts < 6)
+                {
+                    continue;
+                }
+
+                var targetDownloadLanes = MaxActiveDownloads;
+                var targetSearchLanes = _currentSearchLanes;
+
+                if (snapshot.CompletionRatio < 0.45 || snapshot.StallRatio > 0.45)
+                {
+                    targetDownloadLanes = Math.Max(_config.MinAdaptiveDownloadLanes, MaxActiveDownloads - 1);
+                    targetSearchLanes = Math.Max(_config.MinAdaptiveSearchLanes, _currentSearchLanes - 1);
+                }
+                else if (snapshot.CompletionRatio > 0.80 && snapshot.StallRatio < 0.20)
+                {
+                    targetDownloadLanes = Math.Min(_config.MaxAdaptiveDownloadLanes, MaxActiveDownloads + 1);
+                    targetSearchLanes = Math.Min(_config.MaxAdaptiveSearchLanes, _currentSearchLanes + 1);
+                }
+
+                if (targetDownloadLanes != MaxActiveDownloads)
+                {
+                    MaxActiveDownloads = targetDownloadLanes;
+                }
+
+                ResizeSearchLanes(targetSearchLanes);
+
+                _logger.LogDebug(
+                    "Adaptive lanes: completion={Completion:P0}, stalls={Stall:P0}, download={DownloadLanes}, search={SearchLanes}",
+                    snapshot.CompletionRatio,
+                    snapshot.StallRatio,
+                    MaxActiveDownloads,
+                    _currentSearchLanes);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Adaptive lane autotuner cycle failed");
+            }
+        }
+    }
+
+    private void ResizeSearchLanes(int target)
+    {
+        target = Math.Clamp(target, _config.MinAdaptiveSearchLanes, _config.MaxAdaptiveSearchLanes);
+        if (target == _currentSearchLanes)
+        {
+            return;
+        }
+
+        var diff = target - _currentSearchLanes;
+        _currentSearchLanes = target;
+
+        if (diff > 0)
+        {
+            try
+            {
+                _searchSemaphore.Release(diff);
+            }
+            catch (SemaphoreFullException)
+            {
+                _logger.LogDebug("Search lane semaphore already at max while resizing to {Target}", target);
+            }
+            return;
+        }
+
+        var reduceBy = Math.Abs(diff);
+        _ = Task.Run(async () =>
+        {
+            for (int i = 0; i < reduceBy; i++)
+            {
+                await _searchSemaphore.WaitAsync(_globalCts.Token);
+            }
+        }, _globalCts.Token);
     }
 
     /// <summary>
@@ -1658,16 +1767,15 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     // Phase 2: Parallel Pre-Search Trigger (Fire & Forget)
                     if (eligibleTracks.Any())
                     {
-                        var topCandidates = eligibleTracks.Take(10).ToList();
+                        var topCandidates = eligibleTracks
+                            .OrderBy(t => t.Model.Priority)
+                            .ThenBy(t => t.Model.AddedAt)
+                            .Take(_currentSearchLanes)
+                            .ToList();
+
                         foreach (var track in topCandidates)
                         {
-                            if (!_preSearchTasks.ContainsKey(track.GlobalId))
-                            {
-                                // Start the search task and cache it
-                                var searchTask = _discoveryService.FindBestMatchAsync(track.Model, _globalCts.Token, track.BlacklistedUsers);
-                                _preSearchTasks.TryAdd(track.GlobalId, searchTask);
-                                _logger.LogDebug("Pre-Search started for {Title}", track.Model.Title);
-                            }
+                            EnqueuePreSearch(track);
                         }
                         
                         // Cleanup old tasks for tracks no longer in eligible list
@@ -1798,6 +1906,47 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }
     }
 
+    private void EnqueuePreSearch(DownloadContext track)
+    {
+        if (_preSearchTasks.ContainsKey(track.GlobalId))
+            return;
+
+        var searchTask = Task.Run(async () =>
+        {
+            await _searchSemaphore.WaitAsync(_globalCts.Token);
+            try
+            {
+                return await _discoveryService.FindBestMatchAsync(track.Model, _globalCts.Token, track.BlacklistedUsers);
+            }
+            finally
+            {
+                _searchSemaphore.Release();
+            }
+        }, _globalCts.Token);
+
+        _preSearchTasks.TryAdd(track.GlobalId, searchTask);
+        _logger.LogDebug("Pre-Search queued for {Title}", track.Model.Title);
+    }
+
+    private void PrimePipelineSearchForNextTrack(string currentTrackGlobalId)
+    {
+        lock (_collectionLock)
+        {
+            var nextCandidate = _downloads
+                .Where(t => t.GlobalId != currentTrackGlobalId &&
+                            t.State == PlaylistTrackState.Pending &&
+                            (!t.NextRetryTime.HasValue || t.NextRetryTime.Value <= DateTime.UtcNow))
+                .OrderBy(t => t.Model.Priority)
+                .ThenBy(t => t.Model.AddedAt)
+                .FirstOrDefault();
+
+            if (nextCandidate != null)
+            {
+                EnqueuePreSearch(nextCandidate);
+            }
+        }
+    }
+
     private async Task ProcessTrackAsync(DownloadContext ctx, CancellationToken ct)
     {
         ctx.CancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -1846,6 +1995,19 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     discoveryResult = await _discoveryService.FindBestMatchAsync(ctx.Model, trackCt, ctx.BlacklistedUsers);
                 }
                 var bestMatch = discoveryResult.BestMatch;
+                ctx.HedgeAttempted = false;
+                ctx.HedgeMatch = null;
+
+                if (_config.EnableHedgedDownloadFailover && discoveryResult.RunnerUpMatch != null)
+                {
+                    var candidate = discoveryResult.RunnerUpMatch;
+                    if (!string.IsNullOrWhiteSpace(candidate.Username) &&
+                        !string.IsNullOrWhiteSpace(candidate.Filename) &&
+                        !string.Equals(candidate.Username, bestMatch?.Username, StringComparison.OrdinalIgnoreCase))
+                    {
+                        ctx.HedgeMatch = candidate;
+                    }
+                }
 
                 // Capture search diagnostics
                 if (discoveryResult.Log != null)
@@ -2000,11 +2162,24 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             catch (TimeoutException tex)
             {
                 // Phase 3: Stalled Detection
-                // SoulseekAdapter throws this if 0 bytes received for 60s
-                _logger.LogWarning("🐢 Download Stalled: {Title} - {Message}. Releasing slot.", ctx.Model.Title, tex.Message);
-                
-                // Transition to Stalled state (releases semaphore in finally block of ProcessQueueLoop)
-                await UpdateStateAsync(ctx, PlaylistTrackState.Stalled, DownloadFailureReason.Timeout);
+                _logger.LogWarning("🐢 Download stall detected for {Title}: {Message}. Dropping peer and re-searching.", ctx.Model.Title, tex.Message);
+
+                if (await TryRunHedgeFailoverAsync(ctx, trackCt, "primary transfer stalled"))
+                {
+                    return;
+                }
+
+                if (!string.IsNullOrEmpty(ctx.CurrentUsername))
+                {
+                    lock (ctx.BlacklistedUsers)
+                    {
+                        ctx.BlacklistedUsers.Add(ctx.CurrentUsername);
+                    }
+                }
+
+                ctx.Model.Priority = 10;
+                ctx.NextRetryTime = DateTime.UtcNow.AddSeconds(1);
+                await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "Stall detected (>10s no throughput). Re-searching with new peer.");
             }
             catch (SearchRejectedException srex)
             {
@@ -2039,6 +2214,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 if (ex.GetType().Name.Contains("TransferRejectedException") || ex.Message.Contains("Too many files"))
                 {
                     _logger.LogWarning("Peer Limit Reached for {Title}: {Message}. Triggering Retry Logic.", ctx.Model.Title, ex.Message);
+
+                    if (await TryRunHedgeFailoverAsync(ctx, trackCt, "primary transfer was rejected"))
+                    {
+                        return;
+                    }
                 }
                 else
                 {
@@ -2078,6 +2258,24 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     private async Task DownloadFileAsync(DownloadContext ctx, Track bestMatch, CancellationToken ct)
     {
         await UpdateStateAsync(ctx, PlaylistTrackState.Downloading);
+        _peerReliability.RecordDownloadStarted(bestMatch.Username);
+
+        ctx.Model.Bitrate = bestMatch.Bitrate;
+        if (!string.IsNullOrWhiteSpace(bestMatch.Filename))
+        {
+            var extension = Path.GetExtension(bestMatch.Filename);
+            if (!string.IsNullOrWhiteSpace(extension))
+            {
+                ctx.Model.Format = extension.TrimStart('.').ToLowerInvariant();
+            }
+        }
+        ctx.Model.QualityDetails = $"{bestMatch.Bitrate}kbps|{bestMatch.BitDepth ?? 0}bit|{bestMatch.SampleRate ?? 0}Hz";
+        if (string.Equals(ctx.Model.SourceProvenance, "ShieldSanitized", StringComparison.OrdinalIgnoreCase))
+        {
+            ctx.Model.DiscoveryReason = "🛡 Shield sanitized search";
+        }
+
+        PrimePipelineSearchForNextTrack(ctx.GlobalId);
         
         // Phase 3B: Track current peer for Health Monitor blacklisting
         ctx.CurrentUsername = bestMatch.Username;
@@ -2214,11 +2412,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             checkpointId, ctx.Model.Artist, ctx.Model.Title);
 
         // Phase 2A: PERIODIC HEARTBEAT with stall detection
-        using var heartbeatTimer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+        var heartbeatIntervalSeconds = Math.Max(1, Math.Min(5, _config.StallTimeoutSeconds));
+        var stallThresholdTicks = Math.Max(1, (int)Math.Ceiling(_config.StallTimeoutSeconds / (double)heartbeatIntervalSeconds));
+        var throughputFloorBytesPerSecond = Math.Max(1, _config.MinThroughputFloorKbps) * 1024.0;
+
+        using var heartbeatTimer = new PeriodicTimer(TimeSpan.FromSeconds(heartbeatIntervalSeconds));
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var stallMonitorCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         
         int stallCount = 0;
         long lastHeartbeatBytes = startPosition;
+        long lastThroughputBytes = startPosition;
+        bool stalledByMonitor = false;
         
         var heartbeatTask = Task.Run(async () =>
         {
@@ -2231,26 +2436,36 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                     var currentBytes = ctx.BytesReceived; // Thread-safe Interlocked read
                     
-                    // STALL DETECTION: 4 heartbeats (1 minute) of no progress
-                    if (currentBytes == lastHeartbeatBytes)
+                    // STALL DETECTION: throughput below floor for configured timeout window.
+                    var bytesDelta = currentBytes - lastThroughputBytes;
+                    var minimumBytesExpected = throughputFloorBytesPerSecond * heartbeatIntervalSeconds;
+
+                    if (bytesDelta < minimumBytesExpected)
                     {
                         stallCount++;
-                        if (stallCount >= 4)
+                        if (stallCount >= stallThresholdTicks && !stalledByMonitor)
                         {
-                            _logger.LogWarning("âš ï¸ Download stalled for 1 minute: {Artist} - {Title} ({Current}/{Total} bytes)",
-                                ctx.Model.Artist, ctx.Model.Title, currentBytes, checkpointState.ExpectedSize);
+                            var currentKbps = bytesDelta > 0
+                                ? (bytesDelta / 1024.0) / heartbeatIntervalSeconds
+                                : 0;
+
+                            _logger.LogWarning("âš ï¸ Download stalled for >{StallTimeout}s: {Artist} - {Title} ({Current}/{Total} bytes, {Kbps:0.0} KB/s)",
+                                _config.StallTimeoutSeconds,
+                                ctx.Model.Artist, ctx.Model.Title, currentBytes, checkpointState.ExpectedSize, currentKbps);
                             
                             // [NEW] Overhaul Phase: Set machine-readable reason
-                            ctx.Model.StalledReason = "No data received for 60s";
-                            
-                            // Skip heartbeat update to save SSD writes
-                            continue;
+                            ctx.Model.StalledReason = $"Throughput below {_config.MinThroughputFloorKbps} KB/s for {_config.StallTimeoutSeconds}s";
+                            stalledByMonitor = true;
+                            stallMonitorCts.Cancel();
+                            return;
                         }
                     }
                     else
                     {
                         stallCount = 0; // Reset on progress
                     }
+
+                    lastThroughputBytes = currentBytes;
 
                     // PERFORMANCE: Only update if progress > 1KB to reduce SQLite overhead
                     if (currentBytes > 0 && currentBytes > lastHeartbeatBytes + 1024)
@@ -2308,15 +2523,23 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         });
 
         // STEP 5: Download to .part file with resume support
-        var success = await _soulseek.DownloadAsync(
-            bestMatch.Username!,
-            bestMatch.Filename!,
-            partPath,          // Download to .part file
-            bestMatch.Size,
-            progress,
-            ct,
-            startPosition      // Resume from existing bytes
-        );
+        bool success;
+        try
+        {
+            success = await _soulseek.DownloadAsync(
+                bestMatch.Username!,
+                bestMatch.Filename!,
+                partPath,          // Download to .part file
+                bestMatch.Size,
+                progress,
+                stallMonitorCts.Token,
+                startPosition      // Resume from existing bytes
+            );
+        }
+        catch (OperationCanceledException) when (stalledByMonitor)
+        {
+            throw new TimeoutException("Local stall monitor triggered (10s with no throughput). Dropping peer.");
+        }
 
         if (success)
         {
@@ -2452,11 +2675,15 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 DownloadFailureReason.TransferFailed);
         }
     }
+
     finally
     {
         // Opt-P1: Ensure username index is cleaned up even on failures / cancellation.
         if (!string.IsNullOrEmpty(bestMatch.Username))
+        {
             _activeByUsername.TryRemove(bestMatch.Username, out _);
+            _lastBytesByUsername.TryRemove(bestMatch.Username, out _);
+        }
 
         // Phase 2A: CRITICAL CLEANUP - Stop heartbeat timer
         heartbeatCts.Cancel(); // Signal heartbeat to stop
@@ -2476,6 +2703,50 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }
     }
 }
+
+    private async Task<bool> TryRunHedgeFailoverAsync(DownloadContext ctx, CancellationToken ct, string reason)
+    {
+        if (!_config.EnableHedgedDownloadFailover || ctx.HedgeAttempted || ctx.HedgeMatch == null)
+        {
+            return false;
+        }
+
+        var hedgeMatch = ctx.HedgeMatch;
+        if (string.IsNullOrWhiteSpace(hedgeMatch.Username) || string.IsNullOrWhiteSpace(hedgeMatch.Filename))
+        {
+            return false;
+        }
+
+        ctx.HedgeAttempted = true;
+
+        if (!string.IsNullOrEmpty(ctx.CurrentUsername))
+        {
+            lock (ctx.BlacklistedUsers)
+            {
+                ctx.BlacklistedUsers.Add(ctx.CurrentUsername);
+            }
+        }
+
+        _logger.LogWarning("⚡ Hedge failover for {Title}: switching to runner-up peer {User} after {Reason}.",
+            ctx.Model.Title,
+            hedgeMatch.Username,
+            reason);
+
+        _eventBus.Publish(new Events.TrackDetailedStatusEvent(
+            ctx.GlobalId,
+            $"⚡ Switching to runner-up peer {hedgeMatch.Username} ({reason})."));
+
+        try
+        {
+            await DownloadFileAsync(ctx, hedgeMatch, ct);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Hedge failover attempt failed for {Title}", ctx.Model.Title);
+            return false;
+        }
+    }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     protected void OnPropertyChanged([CallerMemberName] string? name = null)
@@ -2693,12 +2964,31 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             ctx.Progress = e.Progress * 100;
             ctx.BytesReceived = e.BytesReceived;
             ctx.TotalBytes = e.TotalBytes;
+
+            var previous = _lastBytesByUsername.AddOrUpdate(e.Username, e.BytesReceived, (_, old) => e.BytesReceived);
+            var delta = e.BytesReceived - previous;
+            if (delta > 0)
+            {
+                _peerReliability.RecordProgress(e.Username, delta);
+            }
         }
     }
 
     private void OnDownloadCompleted(object? sender, DownloadCompletedEventArgs e)
     {
         _logger.LogDebug("Adapter download completed event: {File} ({Success})", e.Filename, e.Success);
+        _lastBytesByUsername.TryRemove(e.Username, out _);
+
+        if (e.Success)
+        {
+            _peerReliability.RecordDownloadCompleted(e.Username);
+            return;
+        }
+
+        var isStall = !string.IsNullOrWhiteSpace(e.Error) &&
+                      (e.Error.Contains("Timeout", StringComparison.OrdinalIgnoreCase) ||
+                       e.Error.Contains("stalled", StringComparison.OrdinalIgnoreCase));
+        _peerReliability.RecordDownloadFailed(e.Username, stalled: isStall);
     }
 
     public void Dispose()

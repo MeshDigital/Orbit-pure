@@ -1,5 +1,33 @@
 # Recent Changes
 
+## [0.1.0-alpha.14] - Hyper-Drive Throughput Pass (Mar 15, 2026)
+
+### New Features
+* **Adaptive Throughput Engine**: Added adaptive lane tuning and peer reliability telemetry with a new `PeerReliabilityService`, feeding reliability-weighted selection during discovery.
+* **Hedged Search + Download Failover**: Added delayed MP3 hedge lane for discovery and runner-up peer failover for transfers when the primary peer stalls or rejects.
+* **Protocol-Safe Search Pacing**: Search rate-limiting, lane caps, and supporter boost now use config-driven constants aligned to Hyper-Drive defaults (200ms pacing, baseline 5 lanes, optional supporter multiplier).
+* **Quality/Trust UX Signals**: Added quality pill rendering plus Shield provenance and fake-lossless warning indicators in download rows.
+
+### Fixes & Stability
+* **Stall Classifier Upgrade**: Replaced coarse stall handling with configurable throughput-floor + timeout logic (`MinThroughputFloorKbps`, `StallTimeoutSeconds`) and cleaner retry handoff.
+* **UI Event Pressure Reduction**: Coalesced global progress updates at 200ms and filtered row-level progress subscriptions by track id before sampling.
+* **Virtualized List Migration (Active Views)**: Moved primary active/on-deck sections to `ItemsRepeater` layouts to reduce tree churn under heavy download activity.
+* **Build Recovery During Pass**: Resolved transient compile/structure issues from iterative refactors and removed the logging-template placeholder mismatch in `DownloadManager`.
+
+### Validation
+* **Build Verified**: `dotnet clean; dotnet build; dotnet run` succeeded in local terminal session.
+
+### Files Modified
+* **App/DI**: `App.axaml.cs`
+* **Configuration**: `Configuration/AppConfig.cs`
+* **Discovery/Downloads**: `Services/DownloadDiscoveryService.cs`, `Services/DownloadManager.cs`, `Services/Models/DownloadContext.cs`
+* **Search/Protocol**: `Services/SearchOrchestrationService.cs`, `Services/SoulseekAdapter.cs`
+* **Reliability Service**: `Services/PeerReliabilityService.cs` (new)
+* **ViewModels**: `ViewModels/Downloads/DownloadCenterViewModel.cs`, `ViewModels/Downloads/UnifiedTrackViewModel.cs`
+* **Views**: `Views/Avalonia/Controls/StandardTrackRow.axaml`, `Views/Avalonia/DownloadsPage.axaml`
+
+---
+
 ## [0.1.0-alpha.13] - Phase 6: Network Presence & Transparency (Mar 15, 2026)
 
 ### New Features

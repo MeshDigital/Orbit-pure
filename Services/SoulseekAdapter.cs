@@ -257,14 +257,15 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             var minBitrateStr = bitrateFilter.Min?.ToString() ?? "0";
             var maxBitrateStr = bitrateFilter.Max?.ToString() ?? "unlimited";
             
-            // Golden Rule: Rate Limiting (500ms global delay)
+            // Golden Rule: Rate Limiting (configurable global delay, default 200ms)
             await _rateLimitLock.WaitAsync(ct);
             try
             {
+                var throttleMs = Math.Max(50, _config.SearchThrottleDelayMs);
                 var timeSinceLast = DateTime.UtcNow - _lastSearchTime;
-                if (timeSinceLast.TotalMilliseconds < 550) // 550ms just to be safe
+                if (timeSinceLast.TotalMilliseconds < throttleMs)
                 {
-                    var delay = 550 - (int)timeSinceLast.TotalMilliseconds;
+                    var delay = throttleMs - (int)timeSinceLast.TotalMilliseconds;
                     _logger.LogDebug("Rate Limiting: Delaying search by {Ms}ms", delay);
                     await Task.Delay(delay, ct);
                 }
@@ -552,7 +553,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 }
 
                 if (attempt < maxAttempts)
-                    await Task.Delay(500, ct); // Brief delay before retry
+                    await Task.Delay(Math.Max(50, _config.SearchThrottleDelayMs), ct); // Brief delay before retry
             }
             catch (Exception ex)
             {
@@ -586,7 +587,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 }
 
                 if (attempt < maxAttempts)
-                    await Task.Delay(500, ct); // Brief delay before retry
+                    await Task.Delay(Math.Max(50, _config.SearchThrottleDelayMs), ct); // Brief delay before retry
             }
             catch (Exception ex)
             {
@@ -621,7 +622,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     }
 
                     if (attempt < maxAttempts)
-                        await Task.Delay(500, ct); // Brief delay before retry
+                        await Task.Delay(Math.Max(50, _config.SearchThrottleDelayMs), ct); // Brief delay before retry
                 }
                 catch (Exception ex)
                 {
