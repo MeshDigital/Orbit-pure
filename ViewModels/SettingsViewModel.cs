@@ -39,6 +39,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private readonly DatabaseService _databaseService;
     private readonly LibraryFolderScannerService _libraryFolderScannerService;
     private readonly IEventBus _eventBus;
+    private readonly ISoulseekAdapter _soulseek;
 
     // Hardcoded public client ID provided by user/project
     // Ideally this would be in a secured config, but for this desktop app scenario it's acceptable as a default.
@@ -72,6 +73,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 _config.SharedFolderPath = value;
                 OnPropertyChanged();
                 SaveSettings();
+                // Immediately refresh share counts so the LED updates
+                _ = Task.Run(() => _soulseek.RefreshShareStateAsync());
             }
         }
     }
@@ -86,6 +89,10 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 _config.EnableLibrarySharing = value;
                 OnPropertyChanged();
                 SaveSettings();
+                // Reflect toggle change in share state immediately
+                _ = Task.Run(() => _soulseek.RefreshShareStateAsync());
+                OnPropertyChanged(nameof(ShareStatusSummary));
+                OnPropertyChanged(nameof(ShareStatusColor));
             }
         }
     }
@@ -649,14 +656,9 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public string FfmpegBorderColor => IsFfmpegInstalled ? "#1DB954" : "#FFA500";
 
     // Phase 6: Security Audit Feed
-    // A scrollable in-app log of every guardrail decision (Shield / Gate / ForensicLab / Blacklist).
-    // Capped at 100 entries so it stays lightweight.
     private const int AuditFeedMaxEntries = 100;
-
     public ObservableCollection<SecurityAuditEntryViewModel> SecurityAuditFeed { get; } = new();
-
     private IDisposable? _securityAuditSubscription;
-
     private void OnSecurityAuditEvent(SecurityAuditEvent e)
     {
         Dispatcher.UIThread.Post(() =>
@@ -666,8 +668,40 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 SecurityAuditFeed.RemoveAt(SecurityAuditFeed.Count - 1);
         });
     }
-
     public ICommand ClearSecurityAuditCommand { get; private set; } = null!;
+
+    // Phase 6: Live Share Status (bound in Settings page)
+    private int    _shareFileCount;
+    private string _shareReputationLabel = "Unknown";
+    private IDisposable? _shareHealthSubscription;
+
+    public int ShareFileCount
+    {
+        get => _shareFileCount;
+        private set { _shareFileCount = value; OnPropertyChanged(); OnPropertyChanged(nameof(ShareStatusSummary)); OnPropertyChanged(nameof(ShareStatusColor)); }
+    }
+
+    public string ShareStatusColor => !EnableLibrarySharing ? "#666666" :
+        _shareFileCount == 0 ? "#F44336" :
+        _shareFileCount <  500 ? "#FFA500" : "#1DB954";
+
+    public string ShareStatusSummary => !EnableLibrarySharing
+        ? "Sharing is disabled"
+        : _shareFileCount == 0
+            ? "No shared files detected — check the folder path"
+            : $"{_shareFileCount:N0} files shared · {_shareReputationLabel}";
+
+    public ICommand RefreshShareNowCommand { get; private set; } = null!;
+
+    private void OnShareHealthUpdated(ShareHealthUpdatedEvent e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            _shareReputationLabel = e.SharedFileCount == 0 ? "🔴 Critical" :
+                                    e.SharedFileCount <  500 ? "🟡 Low" : "🟢 Healthy";
+            ShareFileCount = e.SharedFileCount; // notifies all dependents
+        });
+    }
 
     public SettingsViewModel(
         ILogger<SettingsViewModel> logger,
@@ -678,7 +712,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         ISpotifyMetadataService spotifyMetadataService,
         DatabaseService databaseService,
         LibraryFolderScannerService libraryFolderScannerService,
-        IEventBus eventBus)
+        IEventBus eventBus,
+        ISoulseekAdapter soulseek)
     {
         _logger = logger;
         _config = config;
@@ -689,6 +724,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _databaseService = databaseService;
         _libraryFolderScannerService = libraryFolderScannerService;
         _eventBus = eventBus;
+        _soulseek = soulseek;
 
         // Ensure default Client ID is set if empty
         if (string.IsNullOrEmpty(_config.SpotifyClientId))
@@ -714,6 +750,13 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         AddLibraryFolderCommand = new AsyncRelayCommand(AddLibraryFolderAsync);
         RemoveLibraryFolderCommand = new AsyncRelayCommand(RemoveLibraryFolderAsync, () => SelectedLibraryFolder != null);
         ClearSecurityAuditCommand = new RelayCommand(() => SecurityAuditFeed.Clear());
+        RefreshShareNowCommand = new AsyncRelayCommand(async () =>
+        {
+            await _soulseek.RefreshShareStateAsync();
+        });
+
+        // Subscribe to live share health updates
+        _shareHealthSubscription = _eventBus.GetEvent<ShareHealthUpdatedEvent>().Subscribe(OnShareHealthUpdated);
 
         // Explicitly initialize IsAuthenticating to false
         IsAuthenticating = false;
@@ -1150,6 +1193,9 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         // Phase 6: Security audit subscription
         _securityAuditSubscription?.Dispose();
         _securityAuditSubscription = null;
+
+        _shareHealthSubscription?.Dispose();
+        _shareHealthSubscription = null;
         
         _authWatchdogCts?.Cancel();
         _authWatchdogCts?.Dispose();

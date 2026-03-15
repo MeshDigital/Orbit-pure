@@ -45,25 +45,6 @@
                         </Button>
                     </Grid>
                     
-                    <!-- Shared Folder -->
-                    <Grid ColumnDefinitions="180,*,Auto">
-                        <TextBlock Grid.Column="0" Text="Shared Folder:" VerticalAlignment="Center" Foreground="#DDD"/>
-                        <TextBox Grid.Column="1" 
-                                 Text="{Binding SharedFolderPath, Mode=TwoWay}" 
-                                 IsReadOnly="True"
-                                 Background="#1E1E1E"
-                                 Margin="0,0,8,0"/>
-                        <Button Grid.Column="2" 
-                                Command="{Binding BrowseSharedFolderCommand}"
-                                Background="#0078D4"
-                                Foreground="White"
-                                Padding="12,8">
-                            <TextBlock Text="Browse..."/>
-                        </Button>
-                    </Grid>
-                    
-
-                    
                     <!-- File Name Format -->
                     <Grid ColumnDefinitions="180,*">
                         <TextBlock Grid.Column="0" Text="File Name Format:" VerticalAlignment="Center" Foreground="#DDD"/>
@@ -84,6 +65,72 @@
                                   Content="Skip tracks that already exist in library"
                                   Foreground="#AAA"/>
                     </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Library Sharing -->
+            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#1DB954" BorderThickness="1">
+                <StackPanel Spacing="16">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="📤" FontSize="20" VerticalAlignment="Center"/>
+                                <TextBlock Text="Library Sharing" FontSize="16" FontWeight="SemiBold" Foreground="#1DB954"/>
+                            </StackPanel>
+                            <TextBlock Text="Share files back to the Soulseek network. Your share count directly affects your reputation and download priority from quality peers."
+                                       Foreground="#666" FontSize="12" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1"
+                                      IsChecked="{Binding EnableLibrarySharing, Mode=TwoWay}"
+                                      OnContent="On" OffContent="Off"
+                                      VerticalAlignment="Top"/>
+                    </Grid>
+
+                    <Separator Background="#1A2F1A" Height="1"/>
+
+                    <!-- Folder picker – only enabled when sharing is on -->
+                    <Grid ColumnDefinitions="130,*,Auto" IsEnabled="{Binding EnableLibrarySharing}">
+                        <TextBlock Grid.Column="0" Text="Shared Folder:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <TextBox Grid.Column="1"
+                                 Text="{Binding SharedFolderPath, Mode=TwoWay}"
+                                 IsReadOnly="True"
+                                 Background="#1E1E1E"
+                                 Margin="0,0,8,0"/>
+                        <Button Grid.Column="2"
+                                Command="{Binding BrowseSharedFolderCommand}"
+                                Background="#0078D4"
+                                Foreground="White"
+                                Padding="12,8">
+                            <TextBlock Text="Browse..."/>
+                        </Button>
+                    </Grid>
+
+                    <!-- Live share status pill -->
+                    <Border Background="#111" BorderBrush="#2A3A2A" BorderThickness="1" CornerRadius="6" Padding="12,10">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Ellipse Grid.Column="0"
+                                     Width="9" Height="9"
+                                     Fill="{Binding ShareStatusColor}"
+                                     VerticalAlignment="Center"
+                                     Margin="0,0,10,0"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding ShareStatusSummary}"
+                                       Foreground="#AAA" FontSize="11"
+                                       VerticalAlignment="Center"
+                                       TextWrapping="Wrap"/>
+                            <Button Grid.Column="2"
+                                    Command="{Binding RefreshShareNowCommand}"
+                                    Background="Transparent"
+                                    BorderBrush="#2A3A2A"
+                                    BorderThickness="1"
+                                    CornerRadius="4"
+                                    Padding="10,4"
+                                    VerticalAlignment="Center"
+                                    Margin="12,0,0,0">
+                                <TextBlock Text="↻ Refresh" Foreground="#888" FontSize="10"/>
+                            </Button>
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </Border>
 
