@@ -207,6 +207,17 @@ public class DatabaseService
         await _trackRepository.RemoveTrackAsync(globalId);
     }
 
+    public async Task DeleteLibraryEntryAsync(Guid id)
+    {
+        using var context = new AppDbContext();
+        var entry = await context.LibraryEntries.FindAsync(id);
+        if (entry != null)
+        {
+            context.LibraryEntries.Remove(entry);
+            await context.SaveChangesAsync();
+        }
+    }
+
     // Helper to bulk save if needed
     public async Task SaveAllAsync(IEnumerable<TrackEntity> tracks)
     {

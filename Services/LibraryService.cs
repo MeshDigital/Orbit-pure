@@ -308,6 +308,20 @@ public class LibraryService : ILibraryService
         }
     }
 
+    public async Task DeleteLibraryEntryAsync(Guid id)
+    {
+        try
+        {
+            _logger.LogInformation("Deleting orphaned library entry: {Id}", id);
+            await _databaseService.DeleteLibraryEntryAsync(id);
+            _cache.InvalidateGlobalLibrary();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete library entry {Id}", id);
+        }
+    }
+
     // ===== INDEX 2: PlaylistJob (Playlist Headers - Database Backed) =====
 
     public async Task LogPlaylistActivityAsync(Guid playlistId, string action, string details)

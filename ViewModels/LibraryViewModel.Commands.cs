@@ -46,6 +46,8 @@ public partial class LibraryViewModel
     public ICommand ToggleColumnCommand { get; set; } = null!;
     public ICommand ResetViewCommand { get; set; } = null!;
 
+    public ICommand SyncPhysicalLibraryCommand { get; set; } = null!;
+
 
 
 
@@ -76,6 +78,10 @@ public partial class LibraryViewModel
 
         DuplicateDetectionCommand = new AsyncRelayCommand(ExecuteDuplicateDetectionAsync);
         AutoOrganizeCommand = new AsyncRelayCommand(ExecuteAutoOrganizeAsync);
+        SyncPhysicalLibraryCommand = new AsyncRelayCommand(ExecuteSyncPhysicalLibraryAsync);
+        ToggleColumnCommand = new RelayCommand<ColumnDefinition>(ExecuteToggleColumn);
+        ResetViewCommand = new RelayCommand(ExecuteResetView);
+        SwitchWorkspaceCommand = new RelayCommand<ActiveWorkspace>(ExecuteSwitchWorkspace);
     }
 
     public ICommand SetViewModeCommand { get; set; } = null!;
@@ -473,6 +479,50 @@ public partial class LibraryViewModel
         }
     }
 
+    private async Task ExecuteSyncPhysicalLibraryAsync()
+    {
+        try
+        {
+            IsLoading = true;
+            _notificationService.Show("Syncing Library", "Scanning for missing files...", NotificationType.Information);
+
+            var entries = await _databaseService.GetAllLibraryEntriesAsync();
+            var orphans = new List<LibraryEntryEntity>();
+
+            foreach (var entry in entries)
+            {
+                if (!string.IsNullOrEmpty(entry.FilePath) && !System.IO.File.Exists(entry.FilePath))
+                {
+                    orphans.Add(entry);
+                }
+            }
+
+            if (orphans.Any())
+            {
+                // For now, automatically delete orphans. In future, could show dialog for confirmation.
+                foreach (var orphan in orphans)
+                {
+                    await _libraryService.DeleteLibraryEntryAsync(orphan.Id);
+                }
+                _notificationService.Show("Library Synced", $"Removed {orphans.Count} orphaned entries.", NotificationType.Success);
+                await ExecuteRefreshLibraryAsync();
+            }
+            else
+            {
+                _notificationService.Show("Library Synced", "No orphaned entries found.", NotificationType.Information);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Library sync failed");
+            _notificationService.Show("Sync Failed", ex.Message, NotificationType.Error);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
     private async Task ExecuteDuplicateDetectionAsync()
     {
         try
@@ -538,5 +588,17 @@ public partial class LibraryViewModel
         {
             IsLoading = false;
         }
+    }
+
+    private void ExecuteResetView()
+    {
+        // Reset view settings
+        CurrentWorkspace = ActiveWorkspace.Selector;
+        // Reset other view states
+    }
+
+    private void ExecuteSwitchWorkspace(ActiveWorkspace workspace)
+    {
+        CurrentWorkspace = workspace;
     }
 }

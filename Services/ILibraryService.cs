@@ -69,6 +69,11 @@ public interface ILibraryService
     /// </summary>
     Task RemoveTrackFromLibraryAsync(string trackHash);
 
+    /// <summary>
+    /// Deletes a library entry by its ID (for orphaned entries).
+    /// </summary>
+    Task DeleteLibraryEntryAsync(Guid id);
+
     // ===== INDEX 2: PlaylistJob (Playlist Headers) =====
 
     /// <summary>
