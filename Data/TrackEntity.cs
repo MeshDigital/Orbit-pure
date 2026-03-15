@@ -416,6 +416,13 @@ public class LibraryEntryEntity
     public double? VocalStartSeconds { get; set; }
     public double? VocalEndSeconds { get; set; }
 
+    // Phase 10: Spectral Forensics - Added for CSV export with forensic data
+    public bool? IsTranscoded { get; set; }
+    public double? HighFreqEnergyDb { get; set; }
+    public double? LowFreqEnergyDb { get; set; }
+    public double? EnergyRatio { get; set; }
+    public string? ForensicReason { get; set; }
+
     // Configured in AppDbContext via Fluent API
     public virtual AudioFeaturesEntity? AudioFeatures { get; set; }
 }

@@ -7,6 +7,8 @@ using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Models;
 using SLSKDONET.Services.Models.Export;
+using SLSKDONET.Data;
+using SLSKDONET.Data.Entities;
 
 namespace SLSKDONET.Services.Library;
 
@@ -100,6 +102,59 @@ public class PlaylistExportService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to export playlist to Rekordbox XML");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Phase 12: Enhanced CSV Export with Forensic Metrics
+    /// </summary>
+    public async Task ExportToCsvWithForensicsAsync(string playlistName, IEnumerable<LibraryEntryEntity> entries, string targetPath)
+    {
+        try
+        {
+            _logger.LogInformation("Exporting playlist '{PlaylistName}' to CSV with forensics: {Path}", playlistName, targetPath);
+
+            var csvLines = new List<string>
+            {
+                // Phase 12: Enhanced CSV headers with forensic data
+                "Title,Artist,Album,Genre,BPM,Key,Bitrate,Duration,FilePath,AddedAt,IsTranscoded,HighFreqEnergyDb,LowFreqEnergyDb,EnergyRatio,ForensicReason"
+            };
+
+            foreach (var entry in entries)
+            {
+                // Escape commas and quotes in CSV fields
+                string EscapeCsvField(string? field) =>
+                    field?.Replace("\"", "\"\"").Replace(",", ";") ?? "";
+
+                var line = string.Join(",", new[]
+                {
+                    $"\"{EscapeCsvField(entry.Title)}\"",
+                    $"\"{EscapeCsvField(entry.Artist)}\"",
+                    $"\"{EscapeCsvField(entry.Album)}\"",
+                    $"\"{EscapeCsvField(entry.Genres)}\"",
+                    entry.BPM?.ToString() ?? "",
+                    $"\"{EscapeCsvField(entry.MusicalKey)}\"",
+                    entry.Bitrate.ToString(),
+                    entry.DurationSeconds?.ToString() ?? "",
+                    $"\"{EscapeCsvField(entry.FilePath)}\"",
+                    entry.AddedAt.ToString("yyyy-MM-dd HH:mm:ss"),
+                    entry.IsTranscoded?.ToString() ?? "false",
+                    entry.HighFreqEnergyDb?.ToString("F2") ?? "",
+                    entry.LowFreqEnergyDb?.ToString("F2") ?? "",
+                    entry.EnergyRatio?.ToString("F2") ?? "",
+                    $"\"{EscapeCsvField(entry.ForensicReason)}\""
+                });
+
+                csvLines.Add(line);
+            }
+
+            await File.WriteAllLinesAsync(targetPath, csvLines);
+            _logger.LogInformation("CSV export with forensics completed successfully. Exported {Count} tracks.", entries.Count());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to export playlist to CSV with forensics");
             throw;
         }
     }

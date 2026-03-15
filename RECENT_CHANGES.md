@@ -1,5 +1,29 @@
 # Recent Changes
 
+## [0.1.0-alpha.19] - Phase 12: Professional Distribution & Beta Launch (Mar 15, 2026)
+
+### New Features
+* **Global Exception Handling**: Implemented comprehensive crash reporting system with user-friendly error dialog. Captures stack traces, system info, and log file locations for beta testing feedback.
+* **Enhanced CSV Export with Forensic Data**: Extended `PlaylistExportService.ExportToCsvWithForensicsAsync()` to include spectral analysis metrics (HighFreqEnergyDb, LowFreqEnergyDb, EnergyRatio, IsTranscoded, ForensicReason) for professional music library analysis.
+* **Delta Scan Optimization**: Added `LibraryFolderScannerService.FastSyncLibraryAsync()` for intelligent library syncing that only scans folders modified since last scan, improving performance for large music collections.
+* **Error Report Dialog**: New Avalonia-based crash reporting UI with clipboard copy functionality and system diagnostics display.
+
+### UI Enhancements
+* **Professional Error Handling**: Beta users now see informative crash dialogs instead of raw exceptions, with options to copy technical details or continue using the application.
+* **Forensic CSV Export**: Enhanced playlist export includes audio integrity metrics for professional DJs and music librarians to assess collection quality.
+* **Smart Library Syncing**: Delta scanning reduces sync time from minutes to seconds for incremental library updates.
+
+### Technical Improvements
+* **AppDomain Exception Handling**: Added `SetupGlobalExceptionHandling()` in App.axaml.cs to catch unhandled exceptions and unobserved task exceptions.
+* **Forensic Entity Fields**: Extended `LibraryEntryEntity` with spectral analysis properties for comprehensive audio integrity tracking.
+* **Avalonia Clipboard Integration**: Proper clipboard access using `TopLevel.GetTopLevel(this).Clipboard` for cross-platform compatibility.
+* **Build System Cleanup**: Resolved compilation issues and removed unused service dependencies for cleaner production builds.
+
+### Fixes & Stability
+* **Compilation Fixes**: Resolved namespace conflicts, missing using directives, and XAML property binding issues.
+* **Memory Management**: Optimized delta scanning to avoid unnecessary file system operations.
+* **Cross-Platform Compatibility**: Fixed clipboard and UI element access for Windows/Linux/macOS deployment.
+
 ## [0.1.0-alpha.18] - Phase 11: Beta Hardening & Forensic Transparency (Mar 15, 2026)
 
 ### New Features

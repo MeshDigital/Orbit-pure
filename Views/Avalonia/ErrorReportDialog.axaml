@@ -1,0 +1,117 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="500"
+        x:Class="SLSKDONET.Views.Avalonia.ErrorReportDialog"
+        Title="ORBIT-Pure Error Report"
+        WindowStartupLocation="CenterScreen"
+        CanResize="true"
+        MinWidth="500"
+        MinHeight="400"
+        Background="#1A1A1A"
+        Foreground="White">
+
+    <Window.Styles>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="#007ACC"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style Selector="Button.secondary">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#3E3E42"/>
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#3E3E42"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8"/>
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#252526" Padding="20" BorderBrush="#3E3E42" BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Grid.Column="0" Text="🚨" FontSize="24" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="ORBIT-Pure Encountered an Error" FontSize="18" FontWeight="SemiBold"/>
+                    <TextBlock Text="Please help us improve by reporting this issue" FontSize="12" Foreground="#888" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Content -->
+        <ScrollViewer Grid.Row="1" Margin="20">
+            <StackPanel Spacing="16">
+                <!-- Error Summary -->
+                <Border Background="#2D2D30" Padding="16" CornerRadius="4">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Error Summary:" FontWeight="SemiBold" Foreground="#FF6B6B"/>
+                        <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Termination Warning -->
+                <Border Background="#3E2F1B" BorderBrush="#D4AF37" BorderThickness="1" Padding="16" CornerRadius="4"
+                        IsVisible="{Binding IsTerminating}">
+                    <StackPanel Spacing="8" Orientation="Horizontal">
+                        <TextBlock Text="⚠️" FontSize="16" VerticalAlignment="Center"/>
+                        <TextBlock Text="This error will terminate the application. Please save your work before continuing."
+                                 TextWrapping="Wrap" Foreground="#D4AF37"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Stack Trace -->
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Technical Details (Stack Trace):" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding StackTrace}"
+                            IsReadOnly="true"
+                            FontFamily="Consolas"
+                            FontSize="10"
+                            Height="200"
+                            TextWrapping="Wrap"
+                            ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+                </StackPanel>
+
+                <!-- Log Location -->
+                <Border Background="#252526" Padding="12" CornerRadius="4">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="📁 Log Location:" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding LogFilePath}" FontFamily="Consolas" FontSize="11" Foreground="#007ACC"/>
+                        <TextBlock Text="Full application logs are available at the location above. Include this file when reporting the issue."
+                                 FontSize="11" Foreground="#888" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer -->
+        <Border Grid.Row="2" Background="#252526" Padding="20" BorderBrush="#3E3E42" BorderThickness="0,1,0,0">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBlock Grid.Column="0" Text="Thank you for helping improve ORBIT-Pure!" VerticalAlignment="Center" FontSize="12" Foreground="#888"/>
+
+                <Button Grid.Column="1" Classes="secondary" Command="{Binding CopyToClipboardCommand}" Margin="0,0,8,0">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="📋"/>
+                        <TextBlock Text="Copy Report"/>
+                    </StackPanel>
+                </Button>
+
+                <Button Grid.Column="2" Classes="primary" Command="{Binding CloseCommand}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="{Binding CloseButtonText}"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

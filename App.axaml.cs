@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
@@ -35,6 +36,9 @@ public partial class App : Application
 
     public override async void OnFrameworkInitializationCompleted()
     {
+        // Phase 12: Global Exception Handling - Setup before anything else
+        SetupGlobalExceptionHandling();
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // Configure services
@@ -621,6 +625,91 @@ public partial class App : Application
         }
         
         Serilog.Log.Information("[Maintenance] Daily maintenance completed");
+    }
+
+    /// <summary>
+    /// Phase 12: Global Exception Handling - Setup safety net for beta testing
+    /// </summary>
+    private void SetupGlobalExceptionHandling()
+    {
+        // Handle unhandled exceptions on the UI thread
+        AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+        {
+            var exception = e.ExceptionObject as Exception;
+            HandleGlobalException(exception, "AppDomain Unhandled Exception", e.IsTerminating);
+        };
+
+        // Handle unobserved task exceptions (fire-and-forget tasks)
+        TaskScheduler.UnobservedTaskException += (sender, e) =>
+        {
+            HandleGlobalException(e.Exception, "Unobserved Task Exception", false);
+            e.SetObserved(); // Prevent the exception from crashing the finalizer thread
+        };
+
+        Serilog.Log.Information("✅ Global exception handling initialized");
+    }
+
+    /// <summary>
+    /// Phase 12: Global exception handler - Show user-friendly error dialog
+    /// </summary>
+    private async void HandleGlobalException(Exception? exception, string source, bool isTerminating)
+    {
+        try
+        {
+            var errorMessage = exception?.Message ?? "Unknown error";
+            var stackTrace = exception?.ToString() ?? "No stack trace available";
+
+            Serilog.Log.Fatal(exception, "🚨 {Source}: {Message}", source, errorMessage);
+
+            // Show error dialog on UI thread
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                try
+                {
+                    var errorDialog = new Views.Avalonia.ErrorReportDialog
+                    {
+                        ErrorMessage = errorMessage,
+                        StackTrace = stackTrace,
+                        IsTerminating = isTerminating
+                    };
+
+                    if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop &&
+                        desktop.MainWindow != null)
+                    {
+                        await errorDialog.ShowDialog(desktop.MainWindow);
+                    }
+                    else
+                    {
+                        // Fallback if no main window
+                        errorDialog.Show();
+                    }
+                }
+                catch (Exception dialogEx)
+                {
+                    Serilog.Log.Fatal(dialogEx, "Failed to show error dialog");
+                    // Last resort: show message box
+                    var messageBox = new Window
+                    {
+                        Title = "ORBIT-Pure Error",
+                        Content = new TextBlock
+                        {
+                            Text = $"A critical error occurred:\n\n{errorMessage}\n\nPlease check the logs for details.",
+                            TextWrapping = TextWrapping.Wrap,
+                            Margin = new Thickness(20)
+                        },
+                        SizeToContent = SizeToContent.WidthAndHeight,
+                        WindowStartupLocation = WindowStartupLocation.CenterScreen
+                    };
+                    messageBox.Show();
+                }
+            });
+        }
+        catch (Exception handlerEx)
+        {
+            // Absolute last resort - log to console if everything fails
+            Console.WriteLine($"CRITICAL: Exception handler failed: {handlerEx}");
+            Console.WriteLine($"Original error: {exception}");
+        }
     }
 
 }

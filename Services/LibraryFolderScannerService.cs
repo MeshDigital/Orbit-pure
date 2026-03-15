@@ -162,6 +162,77 @@ public class LibraryFolderScannerService
     }
 
     /// <summary>
+    /// Phase 12: Delta Scan Optimization - Fast sync using file system timestamps
+    /// Only scans folders that have changed since the last scan
+    /// </summary>
+    public async Task<ScanResult> FastSyncLibraryAsync(IProgress<ScanProgress>? progress = null, CancellationToken ct = default)
+    {
+        _logger.LogInformation("🔄 Starting fast library sync (delta scan)...");
+
+        var result = new ScanResult();
+        var scanProgress = new ScanProgress();
+
+        using var context = new AppDbContext();
+
+        // Get all enabled library folders
+        var folders = await context.LibraryFolders
+            .Where(f => f.IsEnabled)
+            .ToListAsync(ct);
+
+        var foldersToScan = new List<LibraryFolderEntity>();
+
+        foreach (var folder in folders)
+        {
+            if (!Directory.Exists(folder.FolderPath))
+            {
+                _logger.LogWarning("Folder no longer exists: {Path}", folder.FolderPath);
+                continue;
+            }
+
+            // Check if folder has changed since last scan
+            var folderInfo = new DirectoryInfo(folder.FolderPath);
+            var lastWriteTime = folderInfo.LastWriteTimeUtc;
+
+            // If never scanned or folder has been modified, add to scan list
+            if (!folder.LastScannedAt.HasValue || lastWriteTime > folder.LastScannedAt.Value)
+            {
+                foldersToScan.Add(folder);
+                _logger.LogInformation("📁 Folder changed, will scan: {Path} (last modified: {LastWrite})",
+                    folder.FolderPath, lastWriteTime);
+            }
+            else
+            {
+                _logger.LogDebug("📁 Folder unchanged, skipping: {Path}", folder.FolderPath);
+            }
+        }
+
+        if (!foldersToScan.Any())
+        {
+            _logger.LogInformation("✅ Fast sync complete: No folders changed since last scan");
+            return result;
+        }
+
+        _logger.LogInformation("🔍 Fast sync will scan {Count} of {Total} folders", foldersToScan.Count, folders.Count);
+
+        // Scan the changed folders
+        foreach (var folder in foldersToScan)
+        {
+            if (ct.IsCancellationRequested) break;
+
+            var folderResult = await ScanFolderAsync(folder.Id, progress, ct);
+            result.TotalFilesFound += folderResult.TotalFilesFound;
+            result.FilesImported += folderResult.FilesImported;
+            result.FilesSkipped += folderResult.FilesSkipped;
+            result.ImportedLibraryEntryIds.AddRange(folderResult.ImportedLibraryEntryIds);
+        }
+
+        _logger.LogInformation("✅ Fast sync complete: {Imported} imported, {Skipped} skipped from {Folders} folders",
+            result.FilesImported, result.FilesSkipped, foldersToScan.Count);
+
+        return result;
+    }
+
+    /// <summary>
     /// Saves a batch of entries to the database in a single transaction
     /// </summary>
     private async Task SaveBatchAsync(List<LibraryEntryEntity> batch, CancellationToken ct)
