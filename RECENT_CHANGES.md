@@ -1,5 +1,24 @@
 # Recent Changes
 
+## [0.1.0-alpha.16] - Phase 10: The 1,000-Track "Battle Test" & Global Polish (Mar 15, 2026)
+
+### New Features
+* **Purge Missing Tracks Command**: New "Sync Physical Library" maintenance command in Library sidebar that scans for orphaned database entries (missing files) and bulk-deletes them to keep the index perfectly synced with disk.
+* **Library Maintenance Infrastructure**: Added `DeleteLibraryEntryAsync` methods across `ILibraryService`, `LibraryService`, and `DatabaseService` for safe removal of orphaned entries.
+
+### Fixes & Stability
+* **Command Declarations**: Added missing `ICommand` properties and implementations for `ToggleColumnCommand`, `ResetViewCommand`, and `SwitchWorkspaceCommand` in `LibraryViewModel`.
+* **Type Corrections**: Fixed method signatures and entity handling in library sync logic.
+
+### Validation
+* **Build Verified**: `dotnet build` succeeds with 6 warnings (pre-existing).
+
+### Files Modified
+* **Services**: `ILibraryService.cs`, `LibraryService.cs`, `DatabaseService.cs`
+* **ViewModels**: `LibraryViewModel.Commands.cs`
+
+---
+
 ## [0.1.0-alpha.15] - Phase 9: Resilience & The "Pure" Final Polish (Mar 15, 2026)
 
 ### New Features
