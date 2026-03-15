@@ -1,5 +1,30 @@
 # Recent Changes
 
+## [0.1.0-alpha.13] - Phase 6: Network Presence & Transparency (Mar 15, 2026)
+
+### New Features
+* **Reputation LED with Exact Thresholds**: Share-health indicator in the top status bar now maps to a `ReputationLevel` enum — 🔴 Critical (0 shared files), 🟡 Low (1–499), 🟢 Healthy (500+). Color and tooltip reflect exact peer-reputation impact.
+* **Clickable Share LED → Settings**: Clicking the Share LED or label fires `NavigateToPageEvent("Settings")` so users can immediately configure their shared folders without hunting through menus.
+* **Security & Quality Diagnostics Tab**: A fourth "🛡 Security & Quality" tab added to the Downloads page. Displays a live, reverse-chronological audit trail of every Shield / Gate / Forensic Lab / Blacklist guardrail decision, capped at 200 entries with a Clear button.
+* **Reciprocal Sharing Growth**: `DownloadManager` calls `RefreshShareStateAsync()` after every successful download completion, so the shared-file count increments automatically as the library grows and Soulseek peers see an up-to-date share count.
+* **`ISoulseekAdapter` Surface Expansion**: Added `SharedFileCount { get; }` property and `Task RefreshShareStateAsync(CancellationToken)` to the adapter interface and implementation, making share state inspectable and refreshable from anywhere in the service layer.
+
+### Fixes & Stability
+* **CS8524 Exhaustiveness Warnings Eliminated**: Added `_ =>` default arms to both `ReputationLevel` switch expressions in `StatusBarViewModel`, reducing the warning count from 6 to 4.
+
+### Validation
+* **Build Verified**: `dotnet build SLSKDONET.sln` succeeds — 0 errors, 4 warnings (all pre-existing).
+
+### Files Modified
+* **Interface/Adapter**: `Services/ISoulseekAdapter.cs`, `Services/SoulseekAdapter.cs`
+* **Status Bar**: `ViewModels/StatusBarViewModel.cs`
+* **Main Window**: `Views/Avalonia/MainWindow.axaml`
+* **Download Orchestration**: `Services/DownloadManager.cs`
+* **Download Center VM**: `ViewModels/Downloads/DownloadCenterViewModel.cs`
+* **Downloads UI**: `Views/Avalonia/DownloadsPage.axaml`
+
+---
+
 ## [0.1.0-alpha.12] - Fake FLAC Guardrail & Test Suite Recovery (Mar 14, 2026)
 
 ### New Features
