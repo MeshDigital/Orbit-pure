@@ -22,6 +22,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
     private static readonly SemaphoreSlim _connectLock = new(1, 1);
     public bool IsConnected => _client?.State.HasFlag(SoulseekClientStates.Connected) == true && 
                               !_client.State.HasFlag(SoulseekClientStates.Disconnecting);
+    public int SharedFileCount { get; private set; }
     
     public bool IsLoggedIn => _client?.State.HasFlag(SoulseekClientStates.LoggedIn) == true;
     
@@ -120,29 +121,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             {
                 try
                 {
-                    var shareFolders = ResolveShareFolders();
-                    if (shareFolders.Length > 0)
-                    {
-                        _logger.LogInformation("Enabling reciprocal sharing for {Count} folder(s): {Folders}", shareFolders.Length, string.Join(", ", shareFolders));
-                        var sharedFileCount = shareFolders.Sum(folder => System.IO.Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Count());
-                        await _client.SetSharedCountsAsync(shareFolders.Length, sharedFileCount);
-                        _eventBus.Publish(new SharedFilesStatusEvent(shareFolders.Length, string.Join(";", shareFolders)));
-                        // Phase 6: Share health indicator
-                        _eventBus.Publish(new ShareHealthUpdatedEvent(
-                            SharedFolderCount: shareFolders.Length,
-                            SharedFileCount: sharedFileCount,
-                            IsSharing: true));
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Reciprocal sharing enabled, but no valid share folder found (SharedFolderPath/DownloadDirectory missing).");
-                        // Phase 6: No folders configured — warn state
-                        _eventBus.Publish(new ShareHealthUpdatedEvent(
-                            SharedFolderCount: 0,
-                            SharedFileCount: 0,
-                            IsSharing: false,
-                            Note: "Sharing enabled in config but no valid folder resolved."));
-                    }
+                    await RefreshShareStateAsync(ct);
                 }
                 catch (Exception ex)
                 {
@@ -152,6 +131,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             else
             {
                 // Phase 6: Sharing explicitly disabled — set Bad tier so user knows
+                SharedFileCount = 0;
                 _eventBus.Publish(new ShareHealthUpdatedEvent(
                     SharedFolderCount: 0,
                     SharedFileCount: 0,
@@ -168,6 +148,38 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         {
             _connectLock.Release();
         }
+    }
+
+    public async Task RefreshShareStateAsync(CancellationToken ct = default)
+    {
+        if (_client == null || !_config.EnableLibrarySharing)
+        {
+            SharedFileCount = 0;
+            return;
+        }
+
+        var shareFolders = ResolveShareFolders();
+        if (shareFolders.Length <= 0)
+        {
+            SharedFileCount = 0;
+            _eventBus.Publish(new ShareHealthUpdatedEvent(
+                SharedFolderCount: 0,
+                SharedFileCount: 0,
+                IsSharing: false,
+                Note: "Sharing enabled in config but no valid folder resolved."));
+            return;
+        }
+
+        _logger.LogInformation("Refreshing reciprocal sharing for {Count} folder(s): {Folders}", shareFolders.Length, string.Join(", ", shareFolders));
+        var sharedFileCount = shareFolders.Sum(folder => System.IO.Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Count());
+        SharedFileCount = sharedFileCount;
+
+        await _client.SetSharedCountsAsync(shareFolders.Length, sharedFileCount);
+        _eventBus.Publish(new SharedFilesStatusEvent(shareFolders.Length, string.Join(";", shareFolders)));
+        _eventBus.Publish(new ShareHealthUpdatedEvent(
+            SharedFolderCount: shareFolders.Length,
+            SharedFileCount: sharedFileCount,
+            IsSharing: true));
     }
 
     public async Task DisconnectAsync()

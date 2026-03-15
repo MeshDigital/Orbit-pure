@@ -8,9 +8,11 @@ namespace SLSKDONET.Services;
 public interface ISoulseekAdapter
 {
     bool IsConnected { get; }
+    int SharedFileCount { get; }
     Task ConnectAsync(string? password = null, CancellationToken ct = default);
     Task DisconnectAsync();
     void Disconnect();
+    Task RefreshShareStateAsync(CancellationToken ct = default);
     Task<int> SearchAsync(
         string query,
         IEnumerable<string>? formatFilter,

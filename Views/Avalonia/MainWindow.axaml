@@ -116,12 +116,18 @@
                                      ToolTip.Tip="Spotify Connection Status"/>
                             <TextBlock Text="Spotify" FontSize="11" Foreground="#999" VerticalAlignment="Center"/>
                             <Rectangle Width="1" Height="12" Fill="#444" Margin="4,0"/>
-                            <!-- Phase 6: Share Health LED -->
-                            <Ellipse Width="8" Height="8"
-                                     Fill="{Binding StatusBar.ShareHealthColor}"
-                                     ToolTip.Tip="{Binding StatusBar.ShareHealthTooltip}"/>
-                            <TextBlock Text="Share" FontSize="11" Foreground="#999" VerticalAlignment="Center"
-                                       ToolTip.Tip="{Binding StatusBar.ShareHealthTooltip}"/>
+                            <!-- Phase 6: Share Health LED (click to open Sharing/Folders settings) -->
+                            <Button Command="{Binding StatusBar.OpenShareSettingsCommand}"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Padding="0"
+                                    ToolTip.Tip="{Binding StatusBar.ShareHealthTooltip}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <Ellipse Width="8" Height="8"
+                                             Fill="{Binding StatusBar.ShareHealthColor}"/>
+                                    <TextBlock Text="Share" FontSize="11" Foreground="#999" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
                         </StackPanel>
                     </Border>
                 </StackPanel>

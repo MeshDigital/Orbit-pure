@@ -633,6 +633,105 @@
                     </ListBox>
                 </Grid>
             </TabItem>
+
+            <!-- Phase 6: Security & Quality Audit Log Tab -->
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="🛡" FontSize="12" VerticalAlignment="Center"/>
+                        <TextBlock Text="Security &amp; Quality" FontSize="12" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </TabItem.Header>
+                <Grid RowDefinitions="Auto,*">
+                    <!-- Header bar -->
+                    <Border Grid.Row="0" Background="#0D1117" Padding="16,12" BorderBrush="#30C97A" BorderThickness="0,0,0,1">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                <TextBlock Text="Live audit trail of guardrail decisions"
+                                           Foreground="#30C97A" FontSize="12" FontWeight="SemiBold"/>
+                                <TextBlock Text="Shield · Gate · ForensicLab · Blacklist events — newest first, capped at 200"
+                                           Foreground="#666" FontSize="10"/>
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Command="{Binding ClearSecurityQualityLogsCommand}"
+                                    Background="Transparent"
+                                    BorderBrush="#333"
+                                    BorderThickness="1"
+                                    CornerRadius="4"
+                                    Padding="10,4"
+                                    VerticalAlignment="Center">
+                                <TextBlock Text="Clear" Foreground="#666" FontSize="11"/>
+                            </Button>
+                        </Grid>
+                    </Border>
+
+                    <!-- Empty state -->
+                    <Border Grid.Row="1"
+                            IsVisible="{Binding !SecurityQualityLogs.Count}"
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Center">
+                        <StackPanel Spacing="12" HorizontalAlignment="Center">
+                            <TextBlock Text="🛡️" FontSize="48" HorizontalAlignment="Center" Opacity="0.2"/>
+                            <TextBlock Text="No security events yet"
+                                       FontSize="16" Foreground="#505050"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Events will appear here once a search or download is running."
+                                       FontSize="11" Foreground="#404040" FontStyle="Italic"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Audit feed -->
+                    <ScrollViewer Grid.Row="1"
+                                  IsVisible="{Binding SecurityQualityLogs.Count}"
+                                  VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding SecurityQualityLogs}" Margin="0,4">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#111319" CornerRadius="4" Padding="10,6" Margin="8,2">
+                                        <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                                            <!-- Timestamp -->
+                                            <TextBlock Grid.Column="0"
+                                                       Text="{Binding TimeLabel}"
+                                                       Foreground="#555" FontSize="10"
+                                                       FontFamily="Consolas,Courier New,monospace"
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,10,0"/>
+                                            <!-- Category icon -->
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding CategoryIcon}"
+                                                       FontSize="14" VerticalAlignment="Center"
+                                                       Margin="0,0,8,0"/>
+                                            <!-- Summary + detail -->
+                                            <StackPanel Grid.Column="2" Spacing="2">
+                                                <TextBlock Text="{Binding Summary}"
+                                                           Foreground="#DDD" FontSize="12" FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Detail}"
+                                                           Foreground="#666" FontSize="10"
+                                                           TextWrapping="NoWrap"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                            </StackPanel>
+                                            <!-- Severity badge -->
+                                            <Border Grid.Column="3"
+                                                    CornerRadius="3" Padding="6,2"
+                                                    Background="{Binding SeverityColor}"
+                                                    Opacity="0.9"
+                                                    VerticalAlignment="Center"
+                                                    Margin="8,0,0,0">
+                                                <TextBlock Text="{Binding SeverityLabel}"
+                                                           Foreground="White"
+                                                           FontSize="9" FontWeight="Bold"/>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </TabItem>
         </TabControl>
 
         <!-- Phase 2: Live Engine Feed (Collapsible Overlay) -->

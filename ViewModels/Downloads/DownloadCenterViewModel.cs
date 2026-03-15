@@ -13,6 +13,7 @@ using ReactiveUI;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Configuration;
+using SLSKDONET.ViewModels;
 
 namespace SLSKDONET.ViewModels.Downloads;
 
@@ -171,7 +172,9 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     }
 
     public ObservableCollection<Data.Entities.ForensicLogEntry> EngineLogs { get; } = new();
+    public ObservableCollection<SecurityAuditEntryViewModel> SecurityQualityLogs { get; } = new();
     public ICommand ToggleLogsCommand { get; }
+    public ICommand ClearSecurityQualityLogsCommand { get; }
     
     // Alias for HomeViewModel compatibility
     public string GlobalSpeedDisplay => GlobalSpeed;
@@ -274,6 +277,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         _isAutoEnrichEnabled = _config.IsAutoEnrichEnabled;
         
         ToggleLogsCommand = ReactiveCommand.Create(() => ShowEngineLogs = !ShowEngineLogs);
+        ClearSecurityQualityLogsCommand = ReactiveCommand.Create(() => SecurityQualityLogs.Clear());
 
         // Subscribe to Forensic Logs
         forensicLogger.LogGenerated += (s, e) => 
@@ -284,6 +288,17 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
                 if (EngineLogs.Count > 100) EngineLogs.RemoveAt(100);
             });
         };
+
+        // Phase 6: Security & Quality diagnostics feed (Shield / Gate visibility)
+        _eventBus.GetEvent<SecurityAuditEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e =>
+            {
+                SecurityQualityLogs.Insert(0, new SecurityAuditEntryViewModel(e));
+                if (SecurityQualityLogs.Count > 200)
+                    SecurityQualityLogs.RemoveAt(SecurityQualityLogs.Count - 1);
+            })
+            .DisposeWith(_subscriptions);
         
         // Initialize commands (ReactiveCommand)
         PauseAllCommand = ReactiveCommand.Create(PauseAll, 

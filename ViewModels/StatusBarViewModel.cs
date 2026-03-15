@@ -1,6 +1,7 @@
 using System;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
+using System.Windows.Input;
 using ReactiveUI;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
@@ -22,6 +23,13 @@ public enum ShareHealthTier
     Bad,
 }
 
+public enum ReputationLevel
+{
+    Critical,
+    Low,
+    Healthy,
+}
+
 public class StatusBarViewModel : ReactiveObject, IDisposable
 {
     private readonly CompositeDisposable _disposables = new();
@@ -37,6 +45,7 @@ public class StatusBarViewModel : ReactiveObject, IDisposable
     // Phase 6: Share Health Indicator
     // ───────────────────────────────────────────────────
     private ShareHealthTier _shareHealthTier = ShareHealthTier.Unknown;
+    private ReputationLevel _reputationLevel = ReputationLevel.Critical;
     private int _sharedFolderCount;
     private int _sharedFileCount;
     private bool _isSharing;
@@ -50,6 +59,18 @@ public class StatusBarViewModel : ReactiveObject, IDisposable
             this.RaisePropertyChanged(nameof(ShareHealthColor));
             this.RaisePropertyChanged(nameof(ShareHealthTooltip));
             this.RaisePropertyChanged(nameof(IsShareWarning));
+        }
+    }
+
+    public ReputationLevel ReputationLevel
+    {
+        get => _reputationLevel;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _reputationLevel, value);
+            this.RaisePropertyChanged(nameof(ShareHealthColor));
+            this.RaisePropertyChanged(nameof(ShareHealthTooltip));
+            this.RaisePropertyChanged(nameof(ReputationLabel));
         }
     }
 
@@ -72,22 +93,24 @@ public class StatusBarViewModel : ReactiveObject, IDisposable
     }
 
     /// <summary>Hex colour for the share-health LED.</summary>
-    public string ShareHealthColor => ShareHealthTier switch
+    public string ShareHealthColor => ReputationLevel switch
     {
-        ShareHealthTier.Good    => "#1DB954", // green
-        ShareHealthTier.Warn    => "#FFA500", // amber
-        ShareHealthTier.Bad     => "#F44336", // red
-        _                       => "#666666", // grey (unknown/startup)
+        ReputationLevel.Healthy  => "#1DB954", // green
+        ReputationLevel.Low      => "#FFA500", // amber
+        ReputationLevel.Critical => "#F44336", // red
+        _                        => "#666666",
     };
 
     /// <summary>Tooltip text surfaced when the user hovers the share LED.</summary>
-    public string ShareHealthTooltip => ShareHealthTier switch
+    public string ShareHealthTooltip => ReputationLevel switch
     {
-        ShareHealthTier.Good => $"Sharing ✓  —  {SharedFolderCount} folder(s), {SharedFileCount} file(s) shared",
-        ShareHealthTier.Warn => $"Sharing may be degraded  —  {SharedFolderCount} folder(s) configured, {SharedFileCount} file(s) visible",
-        ShareHealthTier.Bad  => "Not sharing  —  Configure a shared folder in Settings to contribute to the network",
-        _                    => "Share status unknown",
+        ReputationLevel.Healthy  => $"Reputation Healthy (🟢) — {SharedFileCount} shared files",
+        ReputationLevel.Low      => $"Reputation Low (🟡) — {SharedFileCount} shared files. Share more to avoid peer auto-blocks",
+        ReputationLevel.Critical => "Reputation Critical (🔴) — 0 shared files. High risk of being blocked by quality peers",
+        _                        => "Share health unknown",
     };
+
+    public string ReputationLabel => ReputationLevel.ToString();
 
     /// <summary>True when the share health is not Good; drives a gentle pulse animation in XAML.</summary>
     public bool IsShareWarning => ShareHealthTier is ShareHealthTier.Warn or ShareHealthTier.Bad;
@@ -100,14 +123,23 @@ public class StatusBarViewModel : ReactiveObject, IDisposable
             SharedFolderCount = e.SharedFolderCount;
             SharedFileCount   = e.SharedFileCount;
 
-            ShareHealthTier = (e.IsSharing, e.SharedFolderCount, e.SharedFileCount) switch
+            ReputationLevel = e.SharedFileCount switch
             {
-                (true,  >= 1, > 0) => ShareHealthTier.Good,
-                (true,  >= 1, 0)   => ShareHealthTier.Warn,   // folder configured but 0 files visible yet
-                _                  => ShareHealthTier.Bad,
+                <= 0 => ReputationLevel.Critical,
+                < 500 => ReputationLevel.Low,
+                _ => ReputationLevel.Healthy,
+            };
+
+            ShareHealthTier = ReputationLevel switch
+            {
+                ReputationLevel.Healthy => ShareHealthTier.Good,
+                ReputationLevel.Low => ShareHealthTier.Warn,
+                _ => ShareHealthTier.Bad,
             };
         });
     }
+
+    public ICommand OpenShareSettingsCommand { get; }
 
     // ───────────────────────────────────────────────────
     // Existing queue / health properties (unchanged)
@@ -216,6 +248,11 @@ public class StatusBarViewModel : ReactiveObject, IDisposable
         NativeDependencyHealthService dependencyHealthService)
     {
         _dependencyHealthService = dependencyHealthService;
+        OpenShareSettingsCommand = ReactiveCommand.Create(() =>
+        {
+            eventBus.Publish(new NavigateToPageEvent("Settings"));
+            eventBus.Publish(new GlobalStatusEvent("Open Settings → Library Folders to improve sharing reputation.", true));
+        });
 
         // Phase 10.5: Subscribe to Health Events
         _dependencyHealthService.HealthChanged += (s, healthy) =>

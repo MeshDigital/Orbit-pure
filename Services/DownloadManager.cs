@@ -888,6 +888,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         if (newState == PlaylistTrackState.Completed && !string.IsNullOrEmpty(ctx.Model.ResolvedFilePath))
         {
             await _libraryService.AddTrackToLibraryIndexAsync(ctx.Model, ctx.Model.ResolvedFilePath);
+
+            // Phase 6: Reciprocal Sharing Growth
+            // As new downloads land in the library/download folders, refresh the outgoing share count
+            // so Soulseek peers immediately see updated availability.
+            try
+            {
+                await _soulseek.RefreshShareStateAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Share state refresh skipped/failed after completion for {Track}", ctx.Model.Title);
+            }
         }
     }
     
