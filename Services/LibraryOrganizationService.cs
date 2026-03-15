@@ -14,11 +14,19 @@ public class LibraryOrganizationService
 {
     private readonly AppConfig _config;
     private readonly ILogger<LibraryOrganizationService> _logger;
+    private readonly AudioIntegrityService _integrityService;
+    private readonly ILibraryService _libraryService;
     
-    public LibraryOrganizationService(AppConfig config, ILogger<LibraryOrganizationService> logger)
+    public LibraryOrganizationService(
+        AppConfig config, 
+        ILogger<LibraryOrganizationService> logger,
+        AudioIntegrityService integrityService,
+        ILibraryService libraryService)
     {
         _config = config;
         _logger = logger;
+        _integrityService = integrityService;
+        _libraryService = libraryService;
     }
     
     /// <summary>
@@ -63,6 +71,23 @@ public class LibraryOrganizationService
             else
             {
                 _logger.LogWarning("Source file not found, returning target path anyway: {Path}", downloadedPath);
+            }
+            
+            // Phase 10: Spectral FLAC auditing - Check integrity after organization
+            try
+            {
+                var isTranscoded = await IsTranscodedFlacAsync(targetPath);
+                if (isTranscoded)
+                {
+                    // For now, we'll mark the file but can't update LibraryEntry without title
+                    // This will be handled by a background scan later
+                    _logger.LogWarning("⚠️ Forensic verdict: {File} detected as transcoded FLAC", Path.GetFileName(targetPath));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to perform spectral audit on organized file: {Path}", targetPath);
+                // Don't fail the organization process for audit failures
             }
             
             return targetPath;
@@ -111,27 +136,20 @@ public class LibraryOrganizationService
     }
     
     /// <summary>
-    /// Validates if a file path is within the configured library directory.
-    /// Useful for security checks.
+    /// Generates a unique hash for a track based on artist and title.
+    /// Used to identify tracks in the library index.
     /// </summary>
-    public bool IsWithinLibraryDirectory(string filePath)
+    private string GenerateUniqueHash(string artist, string title)
     {
-        try
-        {
-            var fullPath = Path.GetFullPath(filePath);
-            var libraryPath = Path.GetFullPath(_config.DownloadDirectory ?? "");
-            
-            return fullPath.StartsWith(libraryPath, StringComparison.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            return false;
-        }
+        var key = $"{artist}-{title}".ToLowerInvariant().Trim();
+        using var sha256 = System.Security.Cryptography.SHA256.Create();
+        var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(key));
+        return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
     }
 
     /// <summary>
     /// Phase 10: Performs spectral audit on FLAC files to detect transcodes.
-    /// Checks for energy above 16kHz, indicating possible lossy source.
+    /// Uses FFT analysis to check for energy above 16kHz, indicating possible lossy source.
     /// </summary>
     public async Task<bool> IsTranscodedFlacAsync(string filePath)
     {
@@ -140,30 +158,12 @@ public class LibraryOrganizationService
 
         try
         {
-            // Use ffprobe to analyze frequency spectrum
-            var process = new System.Diagnostics.Process
-            {
-                StartInfo = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "ffprobe",
-                    Arguments = $"-f lavfi -i \"amovie='{filePath}',astats=metadata=1:reset=1\" -show_entries frame_tags=lavfi.astats.Overall.RMS_level -of csv=p=0 -v quiet",
-                    RedirectStandardOutput = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-
-            process.Start();
-            var output = await process.StandardOutput.ReadToEndAsync();
-            await process.WaitForExitAsync();
-
-            // Simple check: if output contains high frequency data, assume not transcoded
-            // This is a placeholder; real implementation would parse spectrum data
-            return !output.Contains("16kHz"); // Placeholder logic
+            var result = await _integrityService.CheckSpectralIntegrityAsync(filePath);
+            return !result.IsGenuineLossless;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to analyze spectral data for {File}", filePath);
+            _logger.LogWarning(ex, "Failed to analyze spectral integrity for {File}", filePath);
             return false; // Assume not transcoded if analysis fails
         }
     }

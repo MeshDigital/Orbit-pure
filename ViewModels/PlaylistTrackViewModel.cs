@@ -181,6 +181,9 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         _ => "Not Analyzed"
     };
 
+    // Phase 10: Spectral FLAC auditing
+    public bool IsTranscoded => Model.IsTranscoded;
+
     public double Energy
     {
         get => Model.Energy ?? 0.0;

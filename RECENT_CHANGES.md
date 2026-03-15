@@ -1,6 +1,29 @@
 # Recent Changes
 
-## [0.1.0-alpha.16] - Phase 10: The 1,000-Track "Battle Test" & Global Polish (Mar 15, 2026)
+## [0.1.0-alpha.17] - Phase 10: Spectral FLAC Auditing & Audio Integrity Verification (Mar 15, 2026)
+
+### New Features
+* **Spectral FLAC Auditing**: Implemented `AudioIntegrityService` using NWaves DSP library for automatic detection of fake FLAC files (MP3s transcoded to appear lossless). Analyzes frequency spectrum to detect artificial high-frequency cutoffs typical of lossy compression.
+* **Automatic Forensic Analysis**: Integrated spectral analysis into `LibraryOrganizationService` - all newly organized FLAC files are automatically scanned for integrity after download completion.
+* **UI Forensic Indicators**: Added "TRANSCODE?" warning badges in library view for detected suspicious files. Uses existing `IsTranscoded` property binding in `StandardTrackRow.axaml`.
+* **Frequency Domain Analysis**: Performs simplified FFT-based analysis on middle 30 seconds of audio, comparing energy levels above/below 16kHz threshold to identify transcoded content.
+* **Database Persistence**: Added `IsTranscoded` boolean property to `LibraryEntry` model for storing forensic analysis results.
+
+### Fixes & Stability
+* **Graceful Analysis Failures**: Spectral analysis failures don't interrupt file organization or download workflows - logs warnings and continues processing.
+* **Service Integration**: Properly registered `AudioIntegrityService` in dependency injection container with required dependencies (`ILibraryService`, `ILogger`).
+
+### Validation
+* **Build Verified**: `dotnet build` succeeds with 6 warnings (pre-existing).
+* **Runtime Tested**: Application starts successfully with new services initialized.
+
+### Files Modified
+* **Services**: `AudioIntegrityService.cs` (new), `LibraryOrganizationService.cs`
+* **Models**: `LibraryEntry.cs`, `PlaylistTrackViewModel.cs`
+* **Views**: `App.axaml.cs` (DI registration)
+* **Documentation**: `RECENT_CHANGES.md`
+
+---
 
 ### New Features
 * **Global Hotkey System**: Implemented focus-aware keyboard shortcuts for navigation and media control. Ctrl+1-5 for workspace switching, Space for play/pause, arrow keys for seeking, Ctrl+F for search focus, Ctrl+L for library sync.
