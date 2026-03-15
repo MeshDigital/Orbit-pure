@@ -491,6 +491,7 @@ public partial class App : Application
         services.AddSingleton<IClipboardService, ClipboardService>();
         services.AddSingleton<IDialogService, DialogService>();
         services.AddSingleton<DashboardService>();
+        services.AddSingleton<GlobalHotkeyService>();
 
         // ViewModels
         services.AddSingleton<MainViewModel>();

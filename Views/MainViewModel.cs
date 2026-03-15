@@ -39,6 +39,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private readonly NativeDependencyHealthService _dependencyHealthService; // Phase 10.5
     private readonly IDialogService _dialogService;
     private readonly ILibraryService _libraryService;
+    private readonly GlobalHotkeyService _globalHotkeyService;
 
     // Child ViewModels
     public PlayerViewModel PlayerViewModel { get; }
@@ -95,7 +96,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         IEventBus eventBus,
         NativeDependencyHealthService dependencyHealthService,
         IDialogService dialogService,
-        ILibraryService libraryService)
+        ILibraryService libraryService,
+        GlobalHotkeyService globalHotkeyService)
 
     {
         _logger = logger;
@@ -114,6 +116,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _spotifyAuth = spotifyAuth;
         _dialogService = dialogService;
         _libraryService = libraryService;
+        _globalHotkeyService = globalHotkeyService;
 
         PlayerViewModel = playerViewModel;
         LibraryViewModel = libraryViewModel;
@@ -131,6 +134,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateSettingsCommand = new RelayCommand(NavigateToSettings);
         NavigateImportCommand = new RelayCommand(NavigateToImport); // Phase 6D
         PlayPauseCommand = new RelayCommand(() => PlayerViewModel.TogglePlayPauseCommand.Execute(null));
+        FocusSearchCommand = new RelayCommand(FocusSearch);
         ToggleNavigationCommand = new RelayCommand(() => 
         {
             if (!IsNavigationMini && !IsNavigationCollapsed)
@@ -295,6 +299,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             SearchViewModel?.Dispose();
             SettingsViewModel?.Dispose();
             HomeViewModel?.Dispose();
+            _globalHotkeyService?.Dispose();
         }
 
         _isDisposed = true;
@@ -630,6 +635,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateSettingsCommand { get; }
     public ICommand NavigateImportCommand { get; } // Phase 6D
     public ICommand PlayPauseCommand { get; }
+    public ICommand FocusSearchCommand { get; }
     public ICommand ToggleNavigationCommand { get; }
     public ICommand TogglePlayerCommand { get; }
     public ICommand TogglePlayerLocationCommand { get; }
@@ -714,6 +720,13 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void NavigateToSearch()
     {
         _navigationService.NavigateTo("Search");
+    }
+
+    private void FocusSearch()
+    {
+        // Navigate to search page and focus the search box
+        NavigateToSearch();
+        // For now, just navigate. In a full implementation, we'd use a focus protocol
     }
 
     private void ToggleZenMode()

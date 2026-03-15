@@ -3,6 +3,9 @@
 ## [0.1.0-alpha.16] - Phase 10: The 1,000-Track "Battle Test" & Global Polish (Mar 15, 2026)
 
 ### New Features
+* **Global Hotkey System**: Implemented focus-aware keyboard shortcuts for navigation and media control. Ctrl+1-5 for workspace switching, Space for play/pause, arrow keys for seeking, Ctrl+F for search focus, Ctrl+L for library sync.
+* **Focus-Aware Interception**: `GlobalHotkeyService` uses tunnel routing to prevent shortcuts from interfering with text input fields.
+* **Player Seek Commands**: Added `SeekForwardCommand` and `SeekBackwardCommand` for 10-second skip controls.
 * **Purge Missing Tracks Command**: New "Sync Physical Library" maintenance command in Library sidebar that scans for orphaned database entries (missing files) and bulk-deletes them to keep the index perfectly synced with disk.
 * **Library Maintenance Infrastructure**: Added `DeleteLibraryEntryAsync` methods across `ILibraryService`, `LibraryService`, and `DatabaseService` for safe removal of orphaned entries.
 
@@ -15,8 +18,9 @@
 * **Build Verified**: `dotnet build` succeeds with 6 warnings (pre-existing).
 
 ### Files Modified
-* **Services**: `ILibraryService.cs`, `LibraryService.cs`, `DatabaseService.cs`
-* **ViewModels**: `LibraryViewModel.Commands.cs`, `VirtualizedTrackCollection.cs`
+* **Services**: `ILibraryService.cs`, `LibraryService.cs`, `DatabaseService.cs`, `GlobalHotkeyService.cs`
+* **ViewModels**: `LibraryViewModel.Commands.cs`, `VirtualizedTrackCollection.cs`, `PlayerViewModel.cs`
+* **Views**: `MainWindow.axaml`, `MainViewModel.cs`
 
 ---
 

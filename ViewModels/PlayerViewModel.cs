@@ -279,6 +279,8 @@ namespace SLSKDONET.ViewModels
         public ICommand ToggleQueueCommand { get; }
         public ICommand ToggleLikeCommand { get; } // Phase 9.3
         public ICommand SeekCommand { get; } // Phase 12.6: Waveform Seeking
+        public ICommand SeekForwardCommand { get; }
+        public ICommand SeekBackwardCommand { get; }
         public ICommand ToggleTheaterModeCommand { get; }
 
         // Phase 5C: UI Throttling
@@ -445,6 +447,8 @@ namespace SLSKDONET.ViewModels
             ToggleQueueCommand = new RelayCommand(ToggleQueue);
             ToggleLikeCommand = new AsyncRelayCommand(ToggleLikeAsync); // Phase 9.3
             SeekCommand = new RelayCommand<float>(Seek);
+            SeekForwardCommand = new RelayCommand(() => SeekRelative(10)); // Seek forward 10 seconds
+            SeekBackwardCommand = new RelayCommand(() => SeekRelative(-10)); // Seek backward 10 seconds
             ToggleTheaterModeCommand = new RelayCommand(() => _eventBus.Publish(new RequestTheaterModeEvent()));
 
             
@@ -892,6 +896,18 @@ namespace SLSKDONET.ViewModels
         public void Seek(float position)
         {
             _playerService.Position = position;
+        }
+
+        // Seek relative by seconds
+        private void SeekRelative(double seconds)
+        {
+            if (_playerService.Length > 0)
+            {
+                double currentSeconds = _playerService.Position * _playerService.Length / 1000.0;
+                double newSeconds = Math.Max(0, Math.Min(_playerService.Length / 1000.0, currentSeconds + seconds));
+                double newPosition = newSeconds * 1000.0 / _playerService.Length;
+                _playerService.Position = (float)newPosition;
+            }
         }
         
         // Helper to load track
