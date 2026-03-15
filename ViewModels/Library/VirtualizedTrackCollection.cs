@@ -11,6 +11,7 @@ using SLSKDONET.Services;
 using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
 using System.Reactive.Disposables;
+using SLSKDONET.Helpers;
 
 namespace SLSKDONET.ViewModels.Library;
 
@@ -18,7 +19,7 @@ namespace SLSKDONET.ViewModels.Library;
 /// A collection that virtualizes data by loading tracks in pages from the database.
 /// Optimized for large libraries (50k+ tracks).
 /// </summary>
-public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, INotifyCollectionChanged, INotifyPropertyChanged, IDisposable
+public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, INotifyCollectionChanged, INotifyPropertyChanged, IDisposable, ISupportIncrementalLoading
 {
     private readonly ILogger _logger;
     private readonly ILibraryService _libraryService;
@@ -31,6 +32,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     private readonly IEnumerable<string>? _hashFilter;
     
     private int _count = -1;
+    private readonly List<PlaylistTrackViewModel> _loadedItems = new();
     private readonly Dictionary<int, PageInfo> _pages = new();
     private readonly Dictionary<string, PlaylistTrackViewModel> _viewModelCache = new();
     private readonly HashSet<int> _pendingPages = new();
@@ -116,134 +118,19 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     {
         get
         {
-            if (index < 0 || index >= Count) return GetPlaceholder(); // Return placeholder instead of throwing
-
-            int pageIndex = index / _pageSize;
-            int itemIndex = index % _pageSize;
-
-            if (_pages.TryGetValue(pageIndex, out var page))
-            {
-                if (itemIndex < page.Items.Count)
-                    return page.Items[itemIndex];
-            }
-
-            // Trigger async load if not already pending
-            if (!_pendingPages.Contains(pageIndex))
-            {
-                 // Trace access to see if virtualization is working
-                 _logger.LogDebug("[VirtualizedTrackCollection] Accessing unloaded index {Index} (Page {Page})", index, pageIndex);
-                 _ = LoadPageAsync(pageIndex);
-            }
-
-            return GetPlaceholder();
+            if (index < 0 || index >= _loadedItems.Count) throw new ArgumentOutOfRangeException(nameof(index));
+            return _loadedItems[index];
         }
-        set => throw new NotSupportedException();
-    }
-
-    private PlaylistTrackViewModel? _placeholder;
-    private PlaylistTrackViewModel GetPlaceholder()
-    {
-        if (_placeholder == null)
+        set
         {
-            _placeholder = new PlaylistTrackViewModel(new PlaylistTrack 
-            { 
-                 Id = Guid.Empty, 
-                 Title = "Loading...", 
-                 Artist = "...",
-                 PlaylistId = _playlistId
-            }, _eventBus, _libraryService, _artworkCache);
-        }
-        return _placeholder;
-    }
-
-    private CancellationTokenSource? _notifyThrottleCts;
-    private bool _hasPendingNotify;
-
-    private async Task LoadPageAsync(int pageIndex)
-    {
-        if (!_pendingPages.Add(pageIndex)) return;
-
-        try
-        {
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            _logger.LogInformation("[VirtualizedTrackCollection] Loading page {PageIndex}...", pageIndex);
-            
-            int skip = pageIndex * _pageSize;
-            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, skip, _pageSize, _filter, _downloadedOnly, _hashFilter);
-            sw.Stop();
-            _logger.LogInformation("[VirtualizedTrackCollection] Page {Page} query took {Ms}ms ({Count} tracks)", pageIndex, sw.ElapsedMilliseconds, tracks.Count);
-            
-            var viewModels = tracks.Select(t => new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
-            
-            _pages[pageIndex] = new PageInfo { Items = viewModels, LastAccess = DateTime.UtcNow };
-
-            // Update ViewModel cache for quick event dispatch
-            foreach (var vm in viewModels)
-            {
-                if (!string.IsNullOrEmpty(vm.GlobalId))
-                {
-                    _viewModelCache[vm.GlobalId] = vm;
-                }
-            }
-
-            // Cache management
-            if (_pages.Count > 20) 
-            {
-                var oldest = _pages.OrderBy(p => p.Value.LastAccess).First();
-                
-                // Remove from VM cache before discarding page
-                foreach (var vm in oldest.Value.Items)
-                {
-                    if (!string.IsNullOrEmpty(vm.GlobalId))
-                    {
-                        _viewModelCache.Remove(vm.GlobalId);
-                    }
-                    vm.Dispose();
-                }
-
-                _pages.Remove(oldest.Key);
-            }
-
-            // PERFORMANCE FIX: Throttle UI notifications to prevent cascading Reset events
-            // Only notify UI after 200ms of no new page loads to batch updates
-            ScheduleThrottledNotify();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[VirtualizedTrackCollection] LoadPageAsync Failed");
-        }
-        finally
-        {
-            _pendingPages.Remove(pageIndex);
+            if (index < 0 || index >= _loadedItems.Count) throw new ArgumentOutOfRangeException(nameof(index));
+            _loadedItems[index] = value;
         }
     }
 
-    private void ScheduleThrottledNotify()
-    {
-        _hasPendingNotify = true;
-        _notifyThrottleCts?.Cancel();
-        _notifyThrottleCts = new CancellationTokenSource();
-        var token = _notifyThrottleCts.Token;
 
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(200, token); // Wait 200ms for more page loads to batch
-                if (!token.IsCancellationRequested && _hasPendingNotify)
-                {
-                    _hasPendingNotify = false;
-                    await Dispatcher.UIThread.InvokeAsync(() =>
-                    {
-                        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
-                    });
-                }
-            }
-            catch (OperationCanceledException) { /* Expected when new pages load */ }
-        });
-    }
 
-    public int Count => _count == -1 ? 0 : _count;
+    public int Count => _loadedItems.Count;
     public bool IsReadOnly => true;
 
     public IEnumerable<PlaylistTrackViewModel> GetSubset(int count)
@@ -284,27 +171,60 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     // Generic IList/ICollection/IEnumerable
     public void Add(PlaylistTrackViewModel item) => throw new NotSupportedException();
     public void Clear() => throw new NotSupportedException();
-    public bool Contains(PlaylistTrackViewModel item) => _pages.Values.Any(p => p.Items.Contains(item));
+    public bool Contains(PlaylistTrackViewModel item) => _loadedItems.Contains(item);
     public void CopyTo(PlaylistTrackViewModel[] array, int arrayIndex) 
     { 
-        for (int i = 0; i < Count && arrayIndex + i < array.Length; i++)
-        {
-             array[arrayIndex + i] = this[i];
-        }
+        _loadedItems.CopyTo(array, arrayIndex);
     }
     public IEnumerator<PlaylistTrackViewModel> GetEnumerator()
     {
-        for (int i = 0; i < Count; i++) yield return this[i];
+        return _loadedItems.GetEnumerator();
     }
-    public int IndexOf(PlaylistTrackViewModel item) => -1;
+    public int IndexOf(PlaylistTrackViewModel item) => _loadedItems.IndexOf(item);
     public void Insert(int index, PlaylistTrackViewModel item) => throw new NotSupportedException();
     public bool Remove(PlaylistTrackViewModel item) => throw new NotSupportedException();
     public void RemoveAt(int index) => throw new NotSupportedException();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
+    public bool HasMoreItems => _count == -1 || _loadedItems.Count < _count;
+
+    public async Task<int> LoadMoreItemsAsync(uint count)
+    {
+        var itemsToLoad = (int)Math.Min(count, _pageSize);
+        var startIndex = _loadedItems.Count;
+        var pageIndex = startIndex / _pageSize;
+
+        if (_pendingPages.Contains(pageIndex)) return 0;
+
+        _pendingPages.Add(pageIndex);
+
+        try
+        {
+            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter);
+            var viewModels = tracks.Select(t => new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
+
+            _loadedItems.AddRange(viewModels);
+
+            // Store in pages for cache management
+            var pageInfo = new PageInfo { Items = viewModels, LastAccess = DateTime.Now };
+            _pages[pageIndex] = pageInfo;
+
+            // Notify collection changed
+            CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Add, viewModels, startIndex));
+
+            return viewModels.Count;
+        }
+        finally
+        {
+            _pendingPages.Remove(pageIndex);
+        }
+    }
+
     public void Dispose()
     {
         _disposables.Dispose();
+        foreach (var item in _loadedItems) item.Dispose();
+        _loadedItems.Clear();
         foreach (var page in _pages.Values)
         {
             foreach (var vm in page.Items) vm.Dispose();

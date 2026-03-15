@@ -130,6 +130,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateProjectsCommand = new RelayCommand(NavigateToProjects);
         NavigateSettingsCommand = new RelayCommand(NavigateToSettings);
         NavigateImportCommand = new RelayCommand(NavigateToImport); // Phase 6D
+        PlayPauseCommand = new RelayCommand(() => PlayerViewModel.TogglePlayPauseCommand.Execute(null));
         ToggleNavigationCommand = new RelayCommand(() => 
         {
             if (!IsNavigationMini && !IsNavigationCollapsed)
@@ -628,6 +629,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateProjectsCommand { get; }
     public ICommand NavigateSettingsCommand { get; }
     public ICommand NavigateImportCommand { get; } // Phase 6D
+    public ICommand PlayPauseCommand { get; }
     public ICommand ToggleNavigationCommand { get; }
     public ICommand TogglePlayerCommand { get; }
     public ICommand TogglePlayerLocationCommand { get; }

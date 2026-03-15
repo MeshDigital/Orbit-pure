@@ -423,6 +423,9 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
     public bool IsCompleted => State == PlaylistTrackState.Completed;
 
+    // Phase 10: Spectral audit warning
+    public bool IsTranscoded => Model.IsTranscoded;
+
     // Phase 11.1: Restored Missing Animation Flags
     private bool _isAnalyzing;
     public bool IsAnalyzing

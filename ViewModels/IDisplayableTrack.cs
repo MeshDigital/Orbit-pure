@@ -26,4 +26,5 @@ public interface IDisplayableTrack : INotifyPropertyChanged
     bool IsFailed { get; }
     bool IsActive { get; }
     bool IsCompleted { get; }
+    bool IsTranscoded { get; } // Phase 10: Spectral audit warning
 }

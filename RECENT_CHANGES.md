@@ -7,6 +7,7 @@
 * **Library Maintenance Infrastructure**: Added `DeleteLibraryEntryAsync` methods across `ILibraryService`, `LibraryService`, and `DatabaseService` for safe removal of orphaned entries.
 
 ### Fixes & Stability
+* **UI Virtualization**: Implemented `ISupportIncrementalLoading` in `VirtualizedTrackCollection` to enable true incremental loading in DataGrid, preventing UI freezes with large libraries (1,000+ tracks).
 * **Command Declarations**: Added missing `ICommand` properties and implementations for `ToggleColumnCommand`, `ResetViewCommand`, and `SwitchWorkspaceCommand` in `LibraryViewModel`.
 * **Type Corrections**: Fixed method signatures and entity handling in library sync logic.
 
@@ -15,7 +16,7 @@
 
 ### Files Modified
 * **Services**: `ILibraryService.cs`, `LibraryService.cs`, `DatabaseService.cs`
-* **ViewModels**: `LibraryViewModel.Commands.cs`
+* **ViewModels**: `LibraryViewModel.Commands.cs`, `VirtualizedTrackCollection.cs`
 
 ---
 

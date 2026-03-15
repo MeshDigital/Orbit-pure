@@ -148,6 +148,9 @@ public class PlaylistTrack
     public double? SpotifyBPM { get; set; }
     public string? SpotifyKey { get; set; }
     public double? ManualBPM { get; set; }
+
+    // Phase 10: Spectral audit warning
+    public bool IsTranscoded { get; set; }
     public string? ManualKey { get; set; }
 
     // Phase 8: Sonic Integrity & Spectral Analysis

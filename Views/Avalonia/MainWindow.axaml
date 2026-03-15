@@ -16,6 +16,13 @@
         FontSize="{Binding BaseFontSize}"
         Background="#1E1E1E">
 
+    <Window.KeyBindings>
+        <KeyBinding Gesture="Ctrl+S" Command="{Binding NavigateSearchCommand}"/>
+        <KeyBinding Gesture="Ctrl+L" Command="{Binding NavigateLibraryCommand}"/>
+        <KeyBinding Gesture="Ctrl+D" Command="{Binding NavigateProjectsCommand}"/>
+        <KeyBinding Gesture="Space" Command="{Binding PlayPauseCommand}"/>
+    </Window.KeyBindings>
+
     <Window.Styles>
         <StyleInclude Source="/Themes/AvaloniaTheme.axaml"/>
         

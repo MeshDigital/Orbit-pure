@@ -378,6 +378,16 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Transcoded Warning -->
+                <Border IsVisible="{Binding IsTranscoded}"
+                        Background="#2C1F1F" BorderBrush="#FFA500" BorderThickness="1"
+                        CornerRadius="10" Padding="8,1" ToolTip.Tip="Spectral analysis suggests possible transcode">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="⚠" FontSize="9" Foreground="#FFA500"/>
+                        <TextBlock Text="TRANSCODE?" FontSize="9" FontWeight="Bold" Foreground="#FFA500"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- Peer Info (Softer) -->
                 <Border IsVisible="{Binding PeerName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                         Background="{StaticResource GlassThinBrush}" BorderBrush="{StaticResource BorderGlowBrush}" BorderThickness="1"
