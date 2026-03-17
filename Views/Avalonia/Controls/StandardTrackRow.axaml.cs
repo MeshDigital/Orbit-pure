@@ -1,6 +1,9 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Markup.Xaml;
+using SLSKDONET.ViewModels.Downloads;
 
 namespace SLSKDONET.Views.Avalonia.Controls;
 
@@ -18,5 +21,29 @@ public partial class StandardTrackRow : UserControl
     public StandardTrackRow()
     {
         InitializeComponent();
+    }
+
+    private void OnRowPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            return;
+
+        if (e.Source is StyledElement sourceElement)
+        {
+            StyledElement? current = sourceElement;
+            while (current != null)
+            {
+                if (current is Button || current is ToggleButton || current is TextBox || current is CheckBox || current is Slider)
+                    return;
+
+                current = current.Parent as StyledElement;
+            }
+        }
+
+        if (DataContext is UnifiedTrackViewModel track)
+        {
+            track.IsConsoleOpen = !track.IsConsoleOpen;
+            e.Handled = true;
+        }
     }
 }

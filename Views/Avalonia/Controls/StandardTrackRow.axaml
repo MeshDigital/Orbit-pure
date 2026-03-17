@@ -6,6 +6,7 @@
              xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              xmlns:converters="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
+             xmlns:dg="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.DataGrid"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="60"
              x:Class="SLSKDONET.Views.Avalonia.Controls.StandardTrackRow"
              x:Name="RootControl">
@@ -165,7 +166,7 @@
             <!-- Phase 5B: Removed waveform underlay - was visually noisy in list context -->
             
         <!-- Column 0: Art & Health, 1: Artist, 2: Title, 3: BPM/Key, 4: Badges, 5: Actions -->
-        <Grid RowDefinitions="Auto" Margin="0,2">
+        <Grid RowDefinitions="Auto" Margin="0,2" PointerPressed="OnRowPointerPressed">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="58"/>
                 <ColumnDefinition SharedSizeGroup="ArtistCol"/> <!-- Artist -->
@@ -528,64 +529,68 @@
 
         </Grid>
 
-        <!-- Row Details: Per-track incoming peer/search updates -->
-        <Border IsVisible="{Binding IsConsoleOpen}" Background="#0A000000" CornerRadius="4" Margin="52,0,8,8" Padding="12" BorderBrush="#1AFFFFFF" BorderThickness="1">
-            <StackPanel Spacing="8">
-                <StackPanel Orientation="Horizontal" Spacing="8">
+        <!-- Row Details: Click-expand live incoming peer/search updates -->
+        <Expander IsExpanded="{Binding IsConsoleOpen, Mode=TwoWay}" Margin="52,0,8,8" Background="#0A000000" BorderBrush="#1AFFFFFF" BorderThickness="1" CornerRadius="4">
+            <Expander.Header>
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="10,6">
                     <TextBlock Text="Live Peer Results" FontSize="11" FontWeight="Bold" Foreground="#DDD"/>
                     <TextBlock Text="{Binding IncomingResultsSummary}" FontSize="10" Foreground="#888"/>
                 </StackPanel>
+            </Expander.Header>
 
-                <Border Background="#111214" BorderBrush="#26282B" BorderThickness="1" CornerRadius="4" Padding="8,6">
-                    <Grid ColumnDefinitions="68,130,90,*,80,90,86">
-                        <TextBlock Grid.Column="0" Text="TIME" FontSize="9" FontWeight="Bold" Foreground="#666"/>
-                        <TextBlock Grid.Column="1" Text="USER" FontSize="9" FontWeight="Bold" Foreground="#666"/>
-                        <TextBlock Grid.Column="2" Text="STATE" FontSize="9" FontWeight="Bold" Foreground="#666"/>
-                        <TextBlock Grid.Column="3" Text="DETAIL" FontSize="9" FontWeight="Bold" Foreground="#666"/>
-                        <TextBlock Grid.Column="4" Text="SPEED" FontSize="9" FontWeight="Bold" Foreground="#666"/>
-                        <TextBlock Grid.Column="5" Text="FILE" FontSize="9" FontWeight="Bold" Foreground="#666"/>
-                        <TextBlock Grid.Column="6" Text="ACTION" FontSize="9" FontWeight="Bold" Foreground="#666"/>
-                    </Grid>
-                </Border>
+            <StackPanel Spacing="8" Margin="10,0,10,10">
+                <dg:DataGrid ItemsSource="{Binding IncomingResults}"
+                             AutoGenerateColumns="False"
+                             Height="220"
+                             CanUserResizeColumns="True"
+                             CanUserSortColumns="False"
+                             GridLinesVisibility="Horizontal"
+                             HeadersVisibility="Column"
+                             IsReadOnly="True"
+                             SelectionMode="Single">
+                    <dg:DataGrid.Columns>
+                        <dg:DataGridTextColumn Header="Time" Binding="{Binding TimeDisplay}" Width="90"/>
+                        <dg:DataGridTextColumn Header="User" Binding="{Binding Username}" Width="130"/>
 
-                <ScrollViewer MaxHeight="220" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding IncomingResults}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="#0F1012" BorderBrush="#1F2226" BorderThickness="0,0,0,1" Padding="8,6">
-                                    <Grid ColumnDefinitions="68,130,90,*,80,90,86">
-                                        <TextBlock Grid.Column="0" Text="{Binding TimeDisplay}" FontSize="10" Foreground="#888"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding Username}" FontSize="10" Foreground="#DDD" TextTrimming="CharacterEllipsis"/>
-                                        <Border Grid.Column="2" Background="#1D2228" BorderBrush="{Binding StateColor}" BorderThickness="1" CornerRadius="3" Padding="6,1" HorizontalAlignment="Left">
-                                            <TextBlock Text="{Binding StateLabel}" FontSize="9" FontWeight="Bold" Foreground="{Binding StateColor}"/>
-                                        </Border>
-                                        <TextBlock Grid.Column="3" Text="{Binding Detail}" FontSize="10" Foreground="#B0B0B0" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Detail}"/>
-                                        <TextBlock Grid.Column="4" Text="{Binding Speed}" FontSize="10" Foreground="#8FAADC" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Grid.Column="5" Text="{Binding Filename}" FontSize="10" Foreground="#777" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Filename}"/>
-                                        <Button Grid.Column="6"
-                                                Classes="ActionBtn"
-                                                IsVisible="{Binding CanForceDownload}"
-                                                Command="{Binding $parent[UserControl].DataContext.ForceDownloadCandidateCommand}"
-                                                CommandParameter="{Binding}"
-                                                ToolTip.Tip="{Binding ForceDownloadTooltip}"
-                                                Padding="6,2"
-                                                HorizontalAlignment="Left"
-                                                VerticalAlignment="Center">
-                                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                                <TextBlock Text="⬇" FontSize="9" Foreground="#00BFFF"/>
-                                                <TextBlock Text="Force" FontSize="9" FontWeight="Bold" Foreground="#00BFFF"/>
-                                            </StackPanel>
-                                        </Button>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
+                        <dg:DataGridTemplateColumn Header="State" Width="100">
+                            <dg:DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Border Background="#1D2228" BorderBrush="{Binding StateColor}" BorderThickness="1" CornerRadius="3" Padding="6,1" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding StateLabel}" FontSize="9" FontWeight="Bold" Foreground="{Binding StateColor}"/>
+                                    </Border>
+                                </DataTemplate>
+                            </dg:DataGridTemplateColumn.CellTemplate>
+                        </dg:DataGridTemplateColumn>
+
+                        <dg:DataGridTextColumn Header="Detail" Binding="{Binding Detail}" Width="*"/>
+                        <dg:DataGridTextColumn Header="Speed" Binding="{Binding Speed}" Width="90"/>
+                        <dg:DataGridTextColumn Header="File" Binding="{Binding Filename}" Width="170"/>
+
+                        <dg:DataGridTemplateColumn Header="Action" Width="88">
+                            <dg:DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Classes="ActionBtn"
+                                            IsVisible="{Binding CanForceDownload}"
+                                            Command="{Binding $parent[UserControl].DataContext.ForceDownloadCandidateCommand}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip.Tip="{Binding ForceDownloadTooltip}"
+                                            Padding="6,2"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="⬇" FontSize="9" Foreground="#00BFFF"/>
+                                            <TextBlock Text="Force" FontSize="9" FontWeight="Bold" Foreground="#00BFFF"/>
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </dg:DataGridTemplateColumn.CellTemplate>
+                        </dg:DataGridTemplateColumn>
+                    </dg:DataGrid.Columns>
+                </dg:DataGrid>
 
                 <TextBlock IsVisible="{Binding !HasIncomingResults}" Text="No peer messages yet for this track." FontSize="10" Foreground="#666"/>
             </StackPanel>
-        </Border>
+        </Expander>
         
         </StackPanel>
     </Border>

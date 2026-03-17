@@ -1,5 +1,26 @@
 # Recent Changes
 
+## [0.1.0-alpha.37] - Download Center Live Incoming Results DataGrid + VIP Log Noise Reduction (Mar 17, 2026)
+
+### Download Center: Expandable Per-Track Incoming Messages
+* `StandardTrackRow.axaml` now uses an expandable row-details section (`Expander`) bound to `IsConsoleOpen`.
+* Replaced the prior ad-hoc `ItemsControl` message list with a structured `Avalonia DataGrid` bound to per-track `IncomingResults`.
+* Added explicit columns for `Time`, `User`, `State`, `Detail`, `Speed`, `File`, and row-level `Force` action.
+* State remains color-coded per row via existing `TrackPeerResultViewModel.StateColor`/`StateLabel` bindings.
+
+### Row-Click Expand Interaction
+* `StandardTrackRow.axaml.cs` adds `OnRowPointerPressed(...)` to toggle `IsConsoleOpen` when the row body is clicked.
+* Interactive controls are excluded from toggle handling (buttons/toggles/text inputs/sliders), so action clicks behave normally.
+
+### VIP Logging Signal Cleanup
+* `DownloadManager.cs` downgrades tight-loop VIP bypass chatter from `Information` to `Debug` inside `ProcessQueueLoop(...)`.
+* Added a single high-signal `Information` log when a VIP track actually transitions into `Searching`.
+
+### Validation
+* `dotnet build SLSKDONET.sln -c Debug -p:UseAppHost=false` ✅
+
+---
+
 ## [0.1.0-alpha.36] - Hardwired Strict/Throughput Search Profile Toggle (Mar 17, 2026)
 
 ### One-Toggle Search Policy Switching

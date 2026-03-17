@@ -911,6 +911,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             ctx.Model.SearchStartedAt = ctx.SearchStartedAt;
         }
 
+        if (newState == PlaylistTrackState.Searching && ctx.IsVip)
+        {
+            _logger.LogInformation("🚀 VIP Track bypassing worker slot: {Title} ({TrackId})", ctx.Model.Title, ctx.GlobalId);
+        }
+
         ctx.State = newState;
         ctx.ErrorMessage = error; // Update context
 
@@ -1924,7 +1929,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 }
                 else
                 {
-                    _logger.LogInformation("🚀 VIP Track detected in loop: Bypassing semaphore for '{Title}'", nextContext.Model.Title);
+                    _logger.LogDebug("VIP bypass path selected in loop for '{Title}'", nextContext.Model.Title);
                 }
 
                 OnPropertyChanged(nameof(ActiveWorkerSlots));
