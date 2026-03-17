@@ -60,8 +60,37 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     public int HiddenResultsCount
     {
         get => _hiddenResultsCount;
-        set => this.RaiseAndSetIfChanged(ref _hiddenResultsCount, value);
+        set
+        {
+            if (_hiddenResultsCount != value)
+            {
+                this.RaiseAndSetIfChanged(ref _hiddenResultsCount, value);
+                this.RaisePropertyChanged(nameof(HasHiddenResults));
+                this.RaisePropertyChanged(nameof(ShowHiddenResultsButtonText));
+            }
+        }
     }
+
+    private bool _showFilteredOutResults;
+    public bool ShowFilteredOutResults
+    {
+        get => _showFilteredOutResults;
+        set
+        {
+            if (SetProperty(ref _showFilteredOutResults, value))
+            {
+                SyncSearchResultsView();
+                this.RaisePropertyChanged(nameof(ShowHiddenResultsButtonText));
+            }
+        }
+    }
+
+    public bool HasHiddenResults => HiddenResultsCount > 0;
+    public int DisplayedResultsCount => SearchResultsView.Count;
+    public bool HasDisplayedResults => DisplayedResultsCount > 0;
+    public string ShowHiddenResultsButtonText => ShowFilteredOutResults
+        ? "Hide filtered-out"
+        : $"Show filtered-out ({HiddenResultsCount})";
     
     // Selected items for Batch Actions
     public ObservableCollection<AnalyzedSearchResultViewModel> SelectedResults { get; } = new();
@@ -212,6 +241,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     public ICommand ApplyPresetCommand { get; } // Phase 5: Search Presets
     public ICommand BrowseUserSharesCommand { get; } // Phase 5: Directory Browsing
     public ICommand CloseUserCollectionBrowserCommand { get; }
+    public ICommand ToggleHiddenResultsCommand { get; }
+    public ICommand RelaxFiltersCommand { get; }
 
     public SearchViewModel(
         ILogger<SearchViewModel> logger,
@@ -296,6 +327,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         ApplyPresetCommand = ReactiveCommand.Create<string>(ExecuteApplyPreset);
         BrowseUserSharesCommand = ReactiveCommand.CreateFromTask<AnalyzedSearchResultViewModel>(ExecuteBrowseUserSharesAsync);
         CloseUserCollectionBrowserCommand = ReactiveCommand.Create(() => IsUserCollectionBrowserOpen = false);
+        ToggleHiddenResultsCommand = ReactiveCommand.Create(ToggleHiddenResults);
+        RelaxFiltersCommand = ReactiveCommand.Create(RelaxFilters);
         
         FilterViewModel.OnTokenSyncRequested = HandleTokenSync;
     }
@@ -395,7 +428,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         {
             _searchResults.Clear();
         });
-        HiddenResultsCount = 0; 
+        HiddenResultsCount = 0;
+        ShowFilteredOutResults = false;
 
         try
         {
@@ -661,13 +695,69 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         }
     }
 
+    private void ToggleHiddenResults()
+    {
+        if (!HasHiddenResults)
+            return;
+
+        ShowFilteredOutResults = !ShowFilteredOutResults;
+        StatusText = ShowFilteredOutResults
+            ? $"Showing cached filtered-out results ({HiddenResultsCount} hidden by current filters)."
+            : $"Showing only visible results ({DisplayedResultsCount} currently pass filters).";
+    }
+
+    private void RelaxFilters()
+    {
+        ShowFilteredOutResults = true;
+        FilterViewModel.SetFromQueryParsing(() =>
+        {
+            FilterViewModel.BouncerMode = BouncerMode.Relaxed;
+            FilterViewModel.HideSuspects = false;
+            FilterViewModel.MinBitrate = 0;
+            FilterViewModel.FilterMp3 = true;
+            FilterViewModel.FilterFlac = true;
+            FilterViewModel.FilterWav = true;
+        });
+
+        StatusText = "Relaxed filters for the cached result set. Hidden matches are now visible without a new network search.";
+    }
+
     private void SyncSearchResultsView()
     {
+        var filter = FilterViewModel.GetFilterPredicate();
+        var sortedResults = _searchResults.Items
+            .OrderByDescending(result => result.TrustScore)
+            .ToList();
+
+        var displayedResults = new List<AnalyzedSearchResultViewModel>(sortedResults.Count);
+        var hiddenCount = 0;
+
+        foreach (var result in sortedResults)
+        {
+            var isVisible = filter(result.RawResult);
+            var hiddenReason = isVisible ? null : FilterViewModel.GetHiddenReason(result.RawResult);
+            result.SetFilterVisibility(!isVisible, hiddenReason);
+
+            if (!isVisible)
+            {
+                hiddenCount++;
+            }
+
+            if (isVisible || ShowFilteredOutResults)
+            {
+                displayedResults.Add(result);
+            }
+        }
+
+        HiddenResultsCount = hiddenCount;
         _searchResultsView.Clear();
-        foreach (var result in _publicSearchResults)
+        foreach (var result in displayedResults)
         {
             _searchResultsView.Add(result);
         }
+
+        this.RaisePropertyChanged(nameof(DisplayedResultsCount));
+        this.RaisePropertyChanged(nameof(HasDisplayedResults));
     }
 
     private static async Task RunOnUiThreadAsync(Action action)

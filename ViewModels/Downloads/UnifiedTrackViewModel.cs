@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
+using System.Text.RegularExpressions;
 using System.Windows.Input;
 using Avalonia.Threading;
 using ReactiveUI;
@@ -18,6 +20,10 @@ namespace SLSKDONET.ViewModels.Downloads;
 /// </summary>
 public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposable
 {
+    private static readonly Regex RejectedUserRegex = new(@"^(?:Rejected|Skipped)\s+(?<user>[^:]+):\s*(?<detail>.+)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex BlacklistedUserRegex = new(@"^Skipping\s+peer\s+(?<user>[^\s]+)\s+\((?<detail>[^\)]+)\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex WinnerUserRegex = new(@"(?:winner:|match from|Selected\s+)(?<user>[A-Za-z0-9_\-\.]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private readonly DownloadManager _downloadManager;
     private readonly IEventBus _eventBus;
     private readonly ArtworkCacheService _artworkCache;
@@ -52,6 +58,37 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     {
         get => _isSelected;
         set => this.RaiseAndSetIfChanged(ref _isSelected, value);
+    }
+
+    public ObservableCollection<TrackPeerResultViewModel> IncomingResults { get; } = new();
+
+    private bool _isConsoleOpen;
+    public bool IsConsoleOpen
+    {
+        get => _isConsoleOpen;
+        set => this.RaiseAndSetIfChanged(ref _isConsoleOpen, value);
+    }
+
+    public int IncomingResultCount => IncomingResults.Count;
+    public bool HasIncomingResults => IncomingResults.Count > 0;
+    public string IncomingResultsSummary
+    {
+        get
+        {
+            if (!IncomingResults.Any())
+                return "Awaiting peer responses...";
+
+            var accepted = IncomingResults.Count(x => x.State == TrackPeerResultState.Matched);
+            var filtered = IncomingResults.Count(x => x.State == TrackPeerResultState.Filtered);
+            var queued = IncomingResults.Count(x => x.State == TrackPeerResultState.Queued);
+
+            var parts = new List<string>();
+            if (accepted > 0) parts.Add($"{accepted} matched");
+            if (queued > 0) parts.Add($"{queued} queued");
+            if (filtered > 0) parts.Add($"{filtered} filtered");
+
+            return parts.Count > 0 ? string.Join(" • ", parts) : "Live search updates";
+        }
     }
     
     
@@ -242,6 +279,19 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 }
             }
         }, this.WhenAnyValue(x => x.HasRejectionDetails));
+
+        ForceDownloadCandidateCommand = ReactiveCommand.CreateFromTask<TrackPeerResultViewModel>(async candidate =>
+        {
+            if (candidate == null || !candidate.CanForceDownload || string.IsNullOrWhiteSpace(candidate.Filename))
+                return;
+
+            await _downloadManager.ForceDownloadSpecificCandidateAsync(
+                GlobalId,
+                candidate.Username,
+                candidate.Filename,
+                candidate.BitrateKbps,
+                candidate.Format);
+        });
 
         // Only run synergy check immediately if this track is already in a terminal failed state.
         // For Pending/Downloading tracks the check fires lazily via the State setter when
@@ -956,6 +1006,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public ICommand BumpToTopCommand { get; }
     public ICommand ViewLogCommand { get; }
     public ICommand CopyLogCommand { get; }
+    public ICommand ForceDownloadCandidateCommand { get; }
 
     // Internal State
     private long _totalBytes;
@@ -1083,18 +1134,42 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
              HasRejectionDetails = true;
              this.RaisePropertyChanged(nameof(SearchAttemptCount));
              this.RaisePropertyChanged(nameof(StatusText));
+
+             foreach (var rejection in e.SearchLog.Top3RejectedResults)
+             {
+                 AppendIncomingResult(new TrackPeerResultViewModel(
+                     DateTime.Now,
+                     rejection.Username,
+                     TrackPeerResultState.Filtered,
+                     string.IsNullOrWhiteSpace(rejection.ShortReason) ? rejection.RejectionReason : rejection.ShortReason,
+                     true,
+                     rejection.Filename,
+                     rejection.Bitrate > 0 ? $"{rejection.Bitrate}kbps" : null,
+                     rejection.Bitrate > 0 ? rejection.Bitrate : null,
+                     rejection.Format));
+             }
         }
         else if (State == PlaylistTrackState.Pending || State == PlaylistTrackState.Searching)
         {
              // Clear diagnostics on retry/restart
              RejectionDetails = null;
              HasRejectionDetails = false;
+
+             if (State == PlaylistTrackState.Searching)
+             {
+                 IncomingResults.Clear();
+                 this.RaisePropertyChanged(nameof(IncomingResultCount));
+                 this.RaisePropertyChanged(nameof(HasIncomingResults));
+                 this.RaisePropertyChanged(nameof(IncomingResultsSummary));
+             }
         }
     }
 
     private void OnDetailedStatus(TrackDetailedStatusEvent e)
     {
         // Already filtered by TrackHash in the Rx subscription (Where clause)
+        AppendIncomingResult(ParseIncomingResult(e));
+
         if (e.Message.Contains("Fast lane", StringComparison.OrdinalIgnoreCase))
         {
             _discoveryReasonOverride = "⚡ Fast lane: idle peer match";
@@ -1109,6 +1184,66 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         }
 
         DetailedSearchStatus = e.Message;
+    }
+
+    private void AppendIncomingResult(TrackPeerResultViewModel entry)
+    {
+        if (IncomingResults.Count >= 150)
+        {
+            IncomingResults.RemoveAt(0);
+        }
+
+        IncomingResults.Add(entry);
+        this.RaisePropertyChanged(nameof(IncomingResultCount));
+        this.RaisePropertyChanged(nameof(HasIncomingResults));
+        this.RaisePropertyChanged(nameof(IncomingResultsSummary));
+    }
+
+    private static TrackPeerResultViewModel ParseIncomingResult(TrackDetailedStatusEvent e)
+    {
+        var message = e.Message?.Trim() ?? string.Empty;
+        var user = string.Empty;
+        var detail = message;
+        var state = e.IsError ? TrackPeerResultState.Error : TrackPeerResultState.Update;
+
+        var rejectedMatch = RejectedUserRegex.Match(message);
+        if (rejectedMatch.Success)
+        {
+            user = rejectedMatch.Groups["user"].Value.Trim();
+            detail = rejectedMatch.Groups["detail"].Value.Trim();
+            state = TrackPeerResultState.Filtered;
+        }
+        else
+        {
+            var blacklistedMatch = BlacklistedUserRegex.Match(message);
+            if (blacklistedMatch.Success)
+            {
+                user = blacklistedMatch.Groups["user"].Value.Trim();
+                detail = blacklistedMatch.Groups["detail"].Value.Trim();
+                state = TrackPeerResultState.Filtered;
+            }
+            else if (message.Contains("winner", StringComparison.OrdinalIgnoreCase) ||
+                     message.Contains("Golden match", StringComparison.OrdinalIgnoreCase) ||
+                     message.Contains("Selected", StringComparison.OrdinalIgnoreCase) ||
+                     message.Contains("high-confidence match", StringComparison.OrdinalIgnoreCase))
+            {
+                var winnerMatch = WinnerUserRegex.Match(message);
+                if (winnerMatch.Success)
+                {
+                    user = winnerMatch.Groups["user"].Value.Trim().Trim('\'', 's');
+                }
+
+                state = TrackPeerResultState.Matched;
+            }
+            else if (message.Contains("queue", StringComparison.OrdinalIgnoreCase) ||
+                     message.Contains("timeout", StringComparison.OrdinalIgnoreCase) ||
+                     message.Contains("fallback", StringComparison.OrdinalIgnoreCase))
+            {
+                state = TrackPeerResultState.Queued;
+            }
+        }
+
+        return new TrackPeerResultViewModel(DateTime.Now, user, state, detail, e.IsError);
     }
 
     private string? _detailedSearchStatus;
@@ -1295,4 +1430,61 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         _disposables.Dispose();
         // Artwork is a proxy, cache manages bitmap disposal
     }
+}
+
+public enum TrackPeerResultState
+{
+    Update,
+    Filtered,
+    Queued,
+    Matched,
+    Error
+}
+
+public sealed class TrackPeerResultViewModel
+{
+    public TrackPeerResultViewModel(DateTime timestamp, string? username, TrackPeerResultState state, string detail, bool isError = false, string? filename = null, string? speed = null, int? bitrateKbps = null, string? format = null)
+    {
+        Timestamp = timestamp;
+        Username = string.IsNullOrWhiteSpace(username) ? "(system)" : username;
+        State = state;
+        Detail = detail;
+        IsError = isError;
+        Filename = filename;
+        Speed = speed;
+        BitrateKbps = bitrateKbps;
+        Format = format;
+    }
+
+    public DateTime Timestamp { get; }
+    public string Username { get; }
+    public TrackPeerResultState State { get; }
+    public string Detail { get; }
+    public bool IsError { get; }
+    public string? Filename { get; }
+    public string? Speed { get; }
+    public int? BitrateKbps { get; }
+    public string? Format { get; }
+    public string TimeDisplay => Timestamp.ToString("HH:mm:ss");
+    public bool CanForceDownload => !string.IsNullOrWhiteSpace(Filename) && !string.Equals(Username, "(system)", StringComparison.OrdinalIgnoreCase);
+    public string ForceDownloadTooltip => CanForceDownload
+        ? "Force download this exact peer/file (ignores quality guards)"
+        : "Force download unavailable for this row";
+    public string StateLabel => State switch
+    {
+        TrackPeerResultState.Filtered => "Filtered",
+        TrackPeerResultState.Queued => "Queued",
+        TrackPeerResultState.Matched => "Matched",
+        TrackPeerResultState.Error => "Error",
+        _ => "Update"
+    };
+
+    public string StateColor => State switch
+    {
+        TrackPeerResultState.Filtered => "#9E9E9E",
+        TrackPeerResultState.Queued => "#FFB300",
+        TrackPeerResultState.Matched => "#4CAF50",
+        TrackPeerResultState.Error => "#F44336",
+        _ => "#4EC9B0"
+    };
 }

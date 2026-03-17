@@ -10,6 +10,8 @@ namespace SLSKDONET.ViewModels
     public class AnalyzedSearchResultViewModel : ReactiveObject
     {
         private readonly SearchResult _result;
+        private bool _isFilteredOut;
+        private string? _filteredOutReason;
         public Models.SearchTier Tier { get; } // Phase 19
 
 
@@ -67,6 +69,20 @@ namespace SLSKDONET.ViewModels
             _ => "#E91E63"      // Red
         };
 
+        public bool IsFilteredOut
+        {
+            get => _isFilteredOut;
+            private set => this.RaiseAndSetIfChanged(ref _isFilteredOut, value);
+        }
+
+        public string? FilteredOutReason
+        {
+            get => _filteredOutReason;
+            private set => this.RaiseAndSetIfChanged(ref _filteredOutReason, value);
+        }
+
+        public bool HasFilteredOutReason => !string.IsNullOrWhiteSpace(FilteredOutReason);
+
         public bool IsHighRisk => _result.Model.IsFlagged;
         public bool ShowHighRiskBadge => IsHighRisk && !IsSuspiciousLossless;
         public string? FlagReason => _result.Model.FlagReason;
@@ -106,7 +122,7 @@ namespace SLSKDONET.ViewModels
         public double TrustBarWidth => TrustScore;
 
         // Opacity for Ghosting (The Bouncer Phase 14A)
-        public double Opacity => IsFake ? 0.3 : 1.0;
+        public double Opacity => IsFilteredOut ? 0.45 : IsFake ? 0.3 : 1.0;
 
         public AnalyzedSearchResultViewModel(SearchResult result)
         {
@@ -143,5 +159,13 @@ namespace SLSKDONET.ViewModels
         public string TierDescription => "Standard Track";
 
         public IBrush TierColor => Brushes.Gray;
+
+        public void SetFilterVisibility(bool isFilteredOut, string? reason)
+        {
+            IsFilteredOut = isFilteredOut;
+            FilteredOutReason = reason;
+            this.RaisePropertyChanged(nameof(HasFilteredOutReason));
+            this.RaisePropertyChanged(nameof(Opacity));
+        }
     }
 }

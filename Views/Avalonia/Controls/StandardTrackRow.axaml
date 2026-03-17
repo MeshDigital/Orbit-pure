@@ -520,25 +520,71 @@
                 <Button Classes="ActionBtn" Command="{Binding $parent[UserControl].DataContext.InitiateMp3SearchCommand}" CommandParameter="{Binding}" IsVisible="{Binding IsOnHold}" ToolTip.Tip="Manual MP3 Search (On Hold)"><PathIcon Data="{StaticResource music_regular}" Width="14" Height="14" Foreground="#818CF8"/></Button>
                 <Button Classes="ActionBtn" Command="{Binding RetryCommand}" IsVisible="{Binding CanRetry}" ToolTip.Tip="Retry"><PathIcon Data="{StaticResource arrow_counterclockwise_regular}" Width="14" Height="14" Foreground="#4CAF50"/></Button>
                 
-                <!-- NEW Phase 12.1: Live Console Toggle -->
-                <ToggleButton Classes="ActionBtn" IsChecked="{Binding IsConsoleOpen}" ToolTip.Tip="Toggle Live Console">
+                <!-- NEW: Track Row Details Toggle (structured peer updates) -->
+                <ToggleButton Classes="ActionBtn" IsChecked="{Binding IsConsoleOpen}" ToolTip.Tip="Toggle live peer results">
                     <PathIcon Data="{StaticResource text_bullet_list_square_regular}" Width="14" Height="14"/>
                 </ToggleButton>
             </StackPanel>
 
         </Grid>
 
-        <!-- Phase 12.1: Live Console Panel -->
+        <!-- Row Details: Per-track incoming peer/search updates -->
         <Border IsVisible="{Binding IsConsoleOpen}" Background="#0A000000" CornerRadius="4" Margin="52,0,8,8" Padding="12" BorderBrush="#1AFFFFFF" BorderThickness="1">
-            <ScrollViewer MaxHeight="200" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                <ItemsControl ItemsSource="{Binding LiveConsoleLog}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding}" FontFamily="Consolas, SF Mono, default" FontSize="11" Foreground="#A0A0A0" TextWrapping="Wrap" Margin="0,2"/>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
+            <StackPanel Spacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="Live Peer Results" FontSize="11" FontWeight="Bold" Foreground="#DDD"/>
+                    <TextBlock Text="{Binding IncomingResultsSummary}" FontSize="10" Foreground="#888"/>
+                </StackPanel>
+
+                <Border Background="#111214" BorderBrush="#26282B" BorderThickness="1" CornerRadius="4" Padding="8,6">
+                    <Grid ColumnDefinitions="68,130,90,*,80,90,86">
+                        <TextBlock Grid.Column="0" Text="TIME" FontSize="9" FontWeight="Bold" Foreground="#666"/>
+                        <TextBlock Grid.Column="1" Text="USER" FontSize="9" FontWeight="Bold" Foreground="#666"/>
+                        <TextBlock Grid.Column="2" Text="STATE" FontSize="9" FontWeight="Bold" Foreground="#666"/>
+                        <TextBlock Grid.Column="3" Text="DETAIL" FontSize="9" FontWeight="Bold" Foreground="#666"/>
+                        <TextBlock Grid.Column="4" Text="SPEED" FontSize="9" FontWeight="Bold" Foreground="#666"/>
+                        <TextBlock Grid.Column="5" Text="FILE" FontSize="9" FontWeight="Bold" Foreground="#666"/>
+                        <TextBlock Grid.Column="6" Text="ACTION" FontSize="9" FontWeight="Bold" Foreground="#666"/>
+                    </Grid>
+                </Border>
+
+                <ScrollViewer MaxHeight="220" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding IncomingResults}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#0F1012" BorderBrush="#1F2226" BorderThickness="0,0,0,1" Padding="8,6">
+                                    <Grid ColumnDefinitions="68,130,90,*,80,90,86">
+                                        <TextBlock Grid.Column="0" Text="{Binding TimeDisplay}" FontSize="10" Foreground="#888"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Username}" FontSize="10" Foreground="#DDD" TextTrimming="CharacterEllipsis"/>
+                                        <Border Grid.Column="2" Background="#1D2228" BorderBrush="{Binding StateColor}" BorderThickness="1" CornerRadius="3" Padding="6,1" HorizontalAlignment="Left">
+                                            <TextBlock Text="{Binding StateLabel}" FontSize="9" FontWeight="Bold" Foreground="{Binding StateColor}"/>
+                                        </Border>
+                                        <TextBlock Grid.Column="3" Text="{Binding Detail}" FontSize="10" Foreground="#B0B0B0" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Detail}"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Speed}" FontSize="10" Foreground="#8FAADC" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Filename}" FontSize="10" Foreground="#777" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Filename}"/>
+                                        <Button Grid.Column="6"
+                                                Classes="ActionBtn"
+                                                IsVisible="{Binding CanForceDownload}"
+                                                Command="{Binding $parent[UserControl].DataContext.ForceDownloadCandidateCommand}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="{Binding ForceDownloadTooltip}"
+                                                Padding="6,2"
+                                                HorizontalAlignment="Left"
+                                                VerticalAlignment="Center">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <TextBlock Text="⬇" FontSize="9" Foreground="#00BFFF"/>
+                                                <TextBlock Text="Force" FontSize="9" FontWeight="Bold" Foreground="#00BFFF"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <TextBlock IsVisible="{Binding !HasIncomingResults}" Text="No peer messages yet for this track." FontSize="10" Foreground="#666"/>
+            </StackPanel>
         </Border>
         
         </StackPanel>

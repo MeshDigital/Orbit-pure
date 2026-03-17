@@ -200,6 +200,45 @@ public class SearchFilterViewModel : ReactiveObject
         };
     }
 
+    public string? GetHiddenReason(SearchResult result)
+    {
+        if (result.Model == null)
+            return "Invalid result";
+
+        if (BouncerMode == BouncerMode.Strict && result.Bitrate < 320)
+            return $"Bouncer strict mode requires 320kbps+, got {result.Bitrate}kbps";
+
+        int effectiveMin = MinBitrate;
+        if (MinBitrate >= 320) effectiveMin = 240;
+        else if (MinBitrate >= 256) effectiveMin = 220;
+        else if (MinBitrate >= 192) effectiveMin = 180;
+
+        if (result.Bitrate < effectiveMin)
+            return $"Bitrate below filter floor ({effectiveMin}kbps effective minimum)";
+
+        var ext = System.IO.Path.GetExtension(result.Model.Filename)?.TrimStart('.')?.ToUpperInvariant() ?? "UNKNOWN";
+        if (!SelectedFormats.Contains(ext))
+            return $"Format filtered out ({ext})";
+
+        if (UseHighReliability && result.QueueLength > 50)
+            return $"Queue too deep for high-reliability mode ({result.QueueLength})";
+
+        if (HideSuspects)
+        {
+            if (result.IntegrityStatus == "Suspect")
+                return "Hidden by safety filter (suspect or upscaled)";
+
+            if (result.Size > 0 && result.Length > 0 && result.Bitrate > 0)
+            {
+                double expectedBytes = (result.Bitrate * 1000.0 / 8.0) * result.Length.Value;
+                if (result.Size < (expectedBytes * 0.75) || result.Size > (expectedBytes * 1.25))
+                    return "Hidden by forensic size gate";
+            }
+        }
+
+        return null;
+    }
+
     public bool IsMatch(SearchResult result) 
     {
             if (result.Model == null) return false;

@@ -73,9 +73,19 @@
                     <TextBlock Text="Status" FontWeight="SemiBold" Foreground="#888"/>
                     <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Foreground="White"/>
                     <TextBlock Text="{Binding SearchResults.Count, StringFormat='Visible: {0}'}" Foreground="#888"/>
+                    <TextBlock Text="{Binding DisplayedResultsCount, StringFormat='Shown: {0}'}" Foreground="#888"/>
 
-                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HiddenResultsCount}">
+                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasHiddenResults}">
                         <TextBlock Text="{Binding HiddenResultsCount, StringFormat='Hidden: {0}'}" Foreground="#666" FontSize="11" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <StackPanel Spacing="8" IsVisible="{Binding HasHiddenResults}">
+                        <Button Command="{Binding ToggleHiddenResultsCommand}" Classes="secondary" HorizontalAlignment="Left">
+                            <TextBlock Text="{Binding ShowHiddenResultsButtonText}"/>
+                        </Button>
+                        <Button Command="{Binding RelaxFiltersCommand}" Classes="secondary" HorizontalAlignment="Left">
+                            <TextBlock Text="Relax filters for cached results"/>
+                        </Button>
                     </StackPanel>
                 </StackPanel>
 
@@ -246,6 +256,17 @@
                                         </StackPanel>
                                     </Border>
 
+                                    <Border CornerRadius="4" Padding="6,1" HorizontalAlignment="Left"
+                                            Margin="0,2" Background="#A16207"
+                                            IsVisible="{Binding IsFilteredOut}"
+                                            ToolTip.Tip="{Binding FilteredOutReason}">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="👁" FontSize="10" Foreground="White"/>
+                                            <TextBlock Text="FILTERED OUT" FontSize="10"
+                                                       FontWeight="Bold" Foreground="White"/>
+                                        </StackPanel>
+                                    </Border>
+
                                     <!-- High Risk Badge -->
                                     <Border CornerRadius="4" Padding="6,1" HorizontalAlignment="Left" 
                                             Margin="0,2" Background="#E91E63"
@@ -297,7 +318,7 @@
 
             <!-- Empty State (Premium) -->
             <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
-                        IsVisible="{Binding !SearchResults.Count}" Spacing="16">
+                        IsVisible="{Binding !HasDisplayedResults}" Spacing="16">
                 <TextBlock Text="📡" FontSize="48" HorizontalAlignment="Center" Opacity="0.5"/>
                 <TextBlock Text="Ready for Extraction" Foreground="#555" FontSize="20" FontWeight="Light" HorizontalAlignment="Center"/>
                 <TextBlock Text="Initiate a search to scan the Soulseek network" Foreground="#333" HorizontalAlignment="Center"/>
@@ -307,14 +328,14 @@
             <Border Grid.Row="2" Background="#1A1A1A" BorderBrush="#333" BorderThickness="0,1,0,0" Padding="12,4">
                 <StackPanel Orientation="Horizontal" Spacing="16">
                     <StackPanel Orientation="Horizontal" Spacing="4">
-                        <TextBlock Text="{Binding SearchResults.Count}" FontWeight="Bold" Foreground="#1DB954"/>
+                        <TextBlock Text="{Binding DisplayedResultsCount}" FontWeight="Bold" Foreground="#1DB954"/>
                         <TextBlock Text="results shown" Foreground="#888" FontSize="11" VerticalAlignment="Center"/>
                     </StackPanel>
 
-                    <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding HiddenResultsCount}">
+                    <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding HasHiddenResults}">
                         <TextBlock Text="•" Foreground="#444"/>
                         <TextBlock Text="{Binding HiddenResultsCount}" FontWeight="Bold" Foreground="#FF9800"/>
-                        <TextBlock Text="hidden by Bouncer (Relax mode to see them)" Foreground="#888" FontSize="11" VerticalAlignment="Center"/>
+                        <TextBlock Text="cached as filtered-out results" Foreground="#888" FontSize="11" VerticalAlignment="Center"/>
                     </StackPanel>
                 </StackPanel>
             </Border>

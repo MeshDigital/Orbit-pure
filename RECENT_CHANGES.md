@@ -1,5 +1,25 @@
 # Recent Changes
 
+## [0.1.0-alpha.33] - Filter Transparency + Live Peer Row Details with Force Candidate Action (Mar 17, 2026)
+
+### Search UX Transparency (Cached Hidden Results)
+* `SearchViewModel.cs` now keeps filtered-out hits in the cached result set and lets users toggle visibility without re-querying the network.
+* `SearchFilterViewModel.cs` adds `GetHiddenReason(...)` so each hidden result can expose the exact rejection reason (bitrate floor, format gate, reliability gate, safety/forensic gate).
+* `AnalyzedSearchResultViewModel.cs` now tracks filtered-out state and reason for row-level UI signaling.
+* `SearchPage.axaml` adds hidden/shown counters, `Show filtered-out` and `Relax filters for cached results` actions, and a per-row filtered badge with tooltip reason.
+
+### Download Center Row Details + Manual Candidate Override
+* `UnifiedTrackViewModel.cs` adds structured per-track live incoming peer result rows (`IncomingResults`) with parsed state tags (`Matched`, `Filtered`, `Queued`, `Error`, `Update`).
+* `StandardTrackRow.axaml` replaces the plain console panel with an expandable row-details grid (time/user/state/detail/speed/file/action).
+* `UnifiedTrackViewModel.cs` introduces `ForceDownloadCandidateCommand` and actionable row metadata.
+* `DownloadManager.cs` adds `ForceDownloadSpecificCandidateAsync(...)` to directly force a selected peer/file candidate from row details, bypassing normal safety guards by explicit manual operator intent.
+
+### Validation
+* `dotnet build SLSKDONET.sln -c Debug` ✅
+* `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj -c Debug --no-build` ✅ (`20/20` passing)
+
+---
+
 ## [0.1.0-alpha.32] - Discovery Signal Surfacing, Fast-Lane UX, and Connection Stability Pass (Mar 17, 2026)
 
 ### Download Center Signal Surfacing

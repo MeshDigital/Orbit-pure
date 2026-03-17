@@ -1221,6 +1221,78 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         
         _ = Task.Run(() => ProcessTrackAsync(ctx, _globalCts.Token));
     }
+
+    public async Task ForceDownloadSpecificCandidateAsync(string globalId, string username, string filename, int? bitrate = null, string? format = null)
+    {
+        if (string.IsNullOrWhiteSpace(globalId) || string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(filename))
+            return;
+
+        DownloadContext? ctx;
+        lock (_collectionLock)
+        {
+            ctx = _downloads.FirstOrDefault(d => d.GlobalId == globalId);
+        }
+
+        if (ctx == null)
+            return;
+
+        _logger.LogInformation("🎛️ Manual force download for {Title}: @{User} -> {File}", ctx.Model.Title, username, filename);
+
+        ctx.Model.IgnoreSafetyGuards = true;
+        ctx.IsVip = true;
+        ctx.Model.Priority = 0;
+        ctx.ErrorMessage = null;
+        ctx.SearchAttempts.Clear();
+
+        ctx.CancellationTokenSource?.Cancel();
+        ctx.CancellationTokenSource?.Dispose();
+        ctx.CancellationTokenSource = new CancellationTokenSource();
+
+        if (!string.IsNullOrWhiteSpace(ctx.CurrentUsername))
+        {
+            _activeByUsername.TryRemove(ctx.CurrentUsername, out _);
+            _lastBytesByUsername.TryRemove(ctx.CurrentUsername, out _);
+        }
+
+        var resolvedFormat = !string.IsNullOrWhiteSpace(format)
+            ? format.Trim().TrimStart('.').ToLowerInvariant()
+            : Path.GetExtension(filename)?.TrimStart('.').ToLowerInvariant();
+
+        var candidate = new Track
+        {
+            Artist = ctx.Model.Artist,
+            Title = ctx.Model.Title,
+            Album = ctx.Model.Album,
+            Username = username,
+            Filename = filename,
+            Bitrate = bitrate ?? (ctx.Model.Bitrate ?? 0),
+            Format = string.IsNullOrWhiteSpace(resolvedFormat) ? null : resolvedFormat,
+            MatchReason = "🛠 Manual force from row details"
+        };
+
+        _eventBus.Publish(new Events.TrackDetailedStatusEvent(globalId,
+            $"🛠 Manual force: starting direct download from {username}."));
+
+        await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "Manual force candidate selected");
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await DownloadFileAsync(ctx, candidate, ctx.CancellationTokenSource.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Manual force download was cancelled for {Title}", ctx.Model.Title);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Manual force download failed for {Title}", ctx.Model.Title);
+                ctx.FailureReason = DownloadFailureReason.TransferFailed;
+                await UpdateStateAsync(ctx, PlaylistTrackState.Failed, ex.Message);
+            }
+        });
+    }
     
     public async Task UpdateTrackFiltersAsync(string globalId, string formats, int minBitrate)
     {
