@@ -1,5 +1,35 @@
 # Recent Changes
 
+## [0.1.0-alpha.24] - Import Preview Before/After Validation, Inline Edit & Restore (Mar 17, 2026)
+
+### Problem Addressed
+* **Over-cleaning risk during import**: Track metadata cleaning (especially from pasted tracklists) could remove too much information, with no direct side-by-side visibility or one-click rollback in preview.
+
+### New Features
+* **Original vs Cleaned metadata tracking**: Import pipeline now preserves raw values (`OriginalArtist`, `OriginalTitle`) alongside the cleaned values used for search/import.
+* **Visual cleaning indicators in preview**: Tracks with significant sanitization (>30% character reduction) now show a `⚠ Cleaned` badge.
+* **Diff tooltip for transparency**: Hovering the badge shows a before/after tooltip for artist/title.
+* **Inline correction before import**: Artist and Title fields are now editable directly in the preview grid.
+* **One-click restore**: `↩` restore button reverts the edited/cleaned fields back to the preserved originals.
+
+### Technical Changes
+* **Models**
+  * `Models/SearchQuery.cs`: Added `OriginalArtist`, `OriginalTitle`.
+  * `Models/Track.cs`: Added `OriginalArtist`, `OriginalTitle`.
+* **Parser**
+  * `Utils/CommentTracklistParser.cs`: Added raw split capture (`SplitRaw`) and now populates original fields before emoji/symbol sanitization.
+* **ViewModels**
+  * `ViewModels/ImportPreviewViewModel.cs`: Maps original fields from `SearchQuery` to `Track` in both preview initialization and streamed batches.
+  * `ViewModels/SelectableTrack.cs`: Added editable `Artist`/`Title`, `IsCleaned` threshold logic (>30%), `CleanTooltip`, and `RestoreOriginalCommand`.
+* **UI**
+  * `Views/Avalonia/ImportPreviewPage.axaml`: Replaced Artist/Title `DataGridTextColumn` with `DataGridTemplateColumn` supporting badges, tooltip, restore action, and inline edit templates.
+
+### Validation
+* **Build Verified**: `dotnet build` succeeds with 0 errors (pre-existing warnings unchanged).
+* **Commit**: `cc7c23e` — `feat: import preview before/after validation - cleaning badges, inline edit, restore`
+
+---
+
 ## [0.1.0-alpha.23] - Fix: Soulseek Noise Filter, Error Rate-Limit & Import Cancellation Safety (Mar 17, 2026)
 
 ### Problems Fixed
