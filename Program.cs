@@ -3,6 +3,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.ReactiveUI;
 using Microsoft.Extensions.Configuration;
 using Serilog;
+using Serilog.Formatting.Compact;
 using System;
 using System.IO;
 
@@ -22,34 +23,40 @@ namespace SLSKDONET
                 .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Production"}.json", optional: true)
                 .Build();
 
-            // Determine log directory based on environment
-            var isDevelopment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") == "Development" ||
-                               (Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") == null && 
-                                Directory.GetCurrentDirectory().Contains("GitHub")); // Development heuristic
-            
-            string logDirectory;
-            if (isDevelopment)
-            {
-                // In development, use project root logs directory
-                logDirectory = Path.Combine(Directory.GetCurrentDirectory(), "logs");
-            }
-            else
-            {
-                // In production, use user app data directory
-                logDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ORBIT", "logs");
-            }
+            // Determine a deterministic log directory
+            var currentDirectory = Directory.GetCurrentDirectory();
+            var csprojInCurrentDir = File.Exists(Path.Combine(currentDirectory, "SLSKDONET.csproj"));
+            var isDevelopment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") == "Development" || csprojInCurrentDir;
+
+            var logDirectory = isDevelopment
+                ? Path.Combine(currentDirectory, "logs")
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ORBIT", "logs");
 
             // Ensure log directory exists
             Directory.CreateDirectory(logDirectory);
+
+            // Create a unique log file per app run
+            var runId = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
+            var runJsonLogPath = Path.Combine(logDirectory, $"run_{runId}.json");
+            var runTxtLogPath = Path.Combine(logDirectory, $"run_{runId}.txt");
+
+            AppContext.SetData("Orbit.LogDirectory", logDirectory);
+            AppContext.SetData("Orbit.RunJsonLogPath", runJsonLogPath);
+            AppContext.SetData("Orbit.RunTxtLogPath", runTxtLogPath);
 
             // Initialize Serilog with proper log paths
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Debug()
                 .ReadFrom.Configuration(configuration)
                 .WriteTo.File(
-                    path: Path.Combine(logDirectory, "log.json"), 
-                    formatter: new Serilog.Formatting.Compact.CompactJsonFormatter(),
-                    rollingInterval: RollingInterval.Day,
+                    path: runJsonLogPath,
+                    formatter: new CompactJsonFormatter(),
+                    rollingInterval: RollingInterval.Infinite,
+                    retainedFileCountLimit: 7)
+                .WriteTo.File(
+                    path: runTxtLogPath,
+                    outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff} {Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}",
+                    rollingInterval: RollingInterval.Infinite,
                     retainedFileCountLimit: 7)
                 .WriteTo.Logger(l => l
                     .Filter.ByIncludingOnly(e => e.Properties.ContainsKey("SourceContext") && e.Properties["SourceContext"].ToString().Contains("DownloadManager"))
@@ -61,7 +68,7 @@ namespace SLSKDONET
 
             try
             {
-                Log.Information("Starting ORBIT application");
+                Log.Information("Starting ORBIT application | RunJsonLog: {RunJsonLogPath} | RunTxtLog: {RunTxtLogPath}", runJsonLogPath, runTxtLogPath);
                 BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
             }
             catch (Exception ex)

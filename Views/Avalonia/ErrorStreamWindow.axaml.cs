@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Reactive;
 using System.Threading.Tasks;
+using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -52,6 +53,7 @@ public partial class ErrorStreamWindow : Window, INotifyPropertyChanged
     {
         // Log every error to the persistent log file
         Serilog.Log.Error("🚨 UI Error Stream - {Source}: {Message}\n{StackTrace}", source, message, stackTrace);
+        AppendErrorFallback(source, message, stackTrace);
 
         Dispatcher.UIThread.InvokeAsync(() =>
         {
@@ -70,7 +72,21 @@ public partial class ErrorStreamWindow : Window, INotifyPropertyChanged
     {
         try
         {
-            string logDirectory = null;
+            var logDirectory = AppContext.GetData("Orbit.LogDirectory") as string;
+
+            if (!string.IsNullOrWhiteSpace(logDirectory))
+            {
+                Directory.CreateDirectory(logDirectory);
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = $"\"{logDirectory}\"",
+                    UseShellExecute = true
+                });
+                return;
+            }
+
+            string? fallbackLogDirectory = null;
 
             // Try multiple possible log locations in order of preference
             string[] possiblePaths = {
@@ -90,31 +106,31 @@ public partial class ErrorStreamWindow : Window, INotifyPropertyChanged
             {
                 if (Directory.Exists(path) && Directory.GetFiles(path, "*.json").Length > 0)
                 {
-                    logDirectory = path;
+                    fallbackLogDirectory = path;
                     break;
                 }
             }
 
             // If no existing log directory found, create one in the most appropriate location
-            if (logDirectory == null)
+            if (fallbackLogDirectory == null)
             {
                 // Check if we're in development (running from source)
                 bool isDevelopment = Directory.GetCurrentDirectory().Contains("GitHub") || 
                                    Directory.GetCurrentDirectory().Contains("source") ||
                                    File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "SLSKDONET.csproj"));
                 
-                logDirectory = isDevelopment 
+                fallbackLogDirectory = isDevelopment 
                     ? Path.Combine(Directory.GetCurrentDirectory(), "logs")
                     : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ORBIT", "logs");
                 
-                Directory.CreateDirectory(logDirectory);
+                Directory.CreateDirectory(fallbackLogDirectory);
             }
 
             // Use explorer.exe to open the directory
             Process.Start(new ProcessStartInfo
             {
                 FileName = "explorer.exe",
-                Arguments = $"\"{logDirectory}\"",
+                Arguments = $"\"{fallbackLogDirectory}\"",
                 UseShellExecute = true
             });
         }
@@ -135,6 +151,39 @@ public partial class ErrorStreamWindow : Window, INotifyPropertyChanged
                 };
                 messageBox.Show();
             });
+        }
+    }
+
+    private static void AppendErrorFallback(string source, string message, string stackTrace)
+    {
+        try
+        {
+            var logDirectory = (AppContext.GetData("Orbit.LogDirectory") as string)
+                ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ORBIT", "logs");
+
+            Directory.CreateDirectory(logDirectory);
+
+            var jsonPath = (AppContext.GetData("Orbit.RunJsonLogPath") as string)
+                ?? Path.Combine(logDirectory, $"run_{DateTime.Now:yyyyMMdd}.json");
+
+            var txtPath = (AppContext.GetData("Orbit.RunTxtLogPath") as string)
+                ?? Path.Combine(logDirectory, $"run_{DateTime.Now:yyyyMMdd}.txt");
+
+            var payload = new
+            {
+                Timestamp = DateTime.UtcNow,
+                Level = "Error",
+                Source = source,
+                Message = message,
+                StackTrace = stackTrace
+            };
+
+            File.AppendAllText(jsonPath, JsonSerializer.Serialize(payload) + Environment.NewLine);
+            File.AppendAllText(txtPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} ERR] {source}: {message}{Environment.NewLine}{stackTrace}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Last resort: do not throw from error handler.
         }
     }
 

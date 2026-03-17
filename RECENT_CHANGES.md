@@ -1,5 +1,29 @@
 # Recent Changes
 
+## [0.1.0-alpha.22] - Phase 15: Per-Run Log Files & Guaranteed Exception Persistence (Mar 17, 2026)
+
+### Problem Fixed
+* **Logs Not Written to Disk**: Exceptions were streaming to the Error Stream UI but were not appearing in the logs folder. Root cause: the Serilog file sink used rolling-interval naming that could collide with previous runs, and had no guaranteed fallback write path. Errors visible in the UI were silently lost on disk.
+
+### New Features
+* **Per-Run Log Files**: Every app launch now creates two unique log files — `run_yyyyMMdd_HHmmss_fff.json` (structured NDJSON) and `run_yyyyMMdd_HHmmss_fff.txt` (human-readable). Files are named with millisecond precision so concurrent or rapid restarts never collide.
+* **Dual-Layer Exception Persistence**: Every exception added to the Error Stream is written by two independent paths — the Serilog sink AND a direct `File.AppendAllText` fallback — so errors are always on disk even if the sink is misconfigured or blocked.
+* **AppContext Log Path Registry**: Active run log directory and file paths are stored in `AppContext` at startup and reused by the Error Stream window and Open Logs button, ensuring all components write to the same location.
+
+### Technical Improvements
+* **Deterministic Log Directory**: Development environment detected by presence of `SLSKDONET.csproj` in the current working directory (replaces unreliable "GitHub" string heuristic). Dev writes to `project-root/logs/`, production to `%LOCALAPPDATA%/ORBIT/logs/`.
+* **`RollingInterval.Infinite` for Run Files**: Per-run files use `Infinite` rolling so each file stays as one complete session log rather than being split at midnight.
+* **Open Logs Button Uses AppContext Path**: Button now reads the exact `Orbit.LogDirectory` key set at startup, falling back to a multi-path search only if the key is absent.
+* **Human-Readable TXT Sink Added**: Alongside the compact JSON sink, a plain-text `.txt` log is written each run with a `[datetime LEVEL] Context: Message` format — easy to read and share without a JSON viewer.
+
+### Files Modified
+* **Startup**: `Program.cs` — log directory detection, per-run file naming, `AppContext` registration, dual sinks
+* **Error UI**: `Views/Avalonia/ErrorStreamWindow.axaml.cs` — `AppendErrorFallback()` direct file-append, updated `OpenLogs()` to read from `AppContext`
+
+### Validation
+* **Build Verified**: `dotnet build` succeeds with 0 errors.
+* **Runtime Tested**: Fresh `run_*.json` and `run_*.txt` files confirmed present in logs folder after each launch; exception entries verified in file tails.
+
 ## [0.1.0-alpha.21] - Phase 14: Enhanced Error Logging & Diagnostics (Mar 17, 2026)
 
 ### New Features
