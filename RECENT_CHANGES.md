@@ -1,5 +1,49 @@
 # Recent Changes
 
+## [0.1.0-alpha.23] - Fix: Soulseek Noise Filter, Error Rate-Limit & Import Cancellation Safety (Mar 17, 2026)
+
+### Problems Fixed
+* **Error Stream UI Saturated by Network Noise**: Every `UnobservedTaskException` from Soulseek.NET's P2P connection cycling (distributed parent negotiation, peer timeouts) was routed through the global exception handler into `ErrorStreamWindow`, flooding the UI with ~80 identical error boxes per session and blocking the import flow.
+* **Repeated Identical Errors Persisted Redundantly**: No deduplication existed on `AddError()`, so bursts of the same error triggered repeated `Serilog.Log.Error` calls and `File.AppendAllText` disk writes for each duplicate.
+* **Background Stream Ran After Import Cancelled**: `StreamPreviewAsync` was launched as a fire-and-forget `Task.Run` with no `CancellationToken`. After the user cancelled the preview, the background task continued calling `_previewViewModel.AddTracksToPreviewAsync()` and setting `IsLoading = false` on a ViewModel that had already been reset.
+
+### Technical Fixes
+
+#### `App.axaml.cs` — Soulseek noise filter
+* Added `IsTransientSoulseekError(Exception ex)` private static helper: detects `SocketException` native error codes 10061 (connection refused) and 995 (operation aborted), `TimeoutException`, and message substrings "timed out", "Inactivity timeout", "Remote connection closed", "I/O operation has been aborted", "No connection could be made", "An existing connection was forcibly closed", plus any exception whose `Source` contains "Soulseek".
+* `HandleGlobalException` returns early with a `Log.Debug` trace for matched transient errors — they are never displayed in the UI and never logged at Fatal/Error level.
+* Added `using System.Net.Sockets`.
+
+#### `Views/Avalonia/ErrorStreamWindow.axaml.cs` — Error rate-limiting
+* Added static `ConcurrentDictionary<string, DateTime> _errorCooldowns` with a 5-second deduplication window per `source:message[..80]` key.
+* `AddError()` short-circuits for repeated identical errors: appends to fallback disk log (data never lost) but skips the `Serilog.Log.Error` call and the `ObservableCollection` UI insert, preventing UI saturation.
+* Added `using System.Collections.Concurrent`.
+
+#### `Services/ImportOrchestrator.cs` — Import cancellation safety
+* Added `CancellationTokenSource? _streamCts` instance field.
+* `StartImportWithPreviewAsync` cancels and disposes any in-flight CTS before creating a new one, ensuring no leaked background tasks from prior imports.
+* `StreamPreviewAsync` now accepts `CancellationToken ct`, passes it via `.WithCancellation(ct)` to the async enumerable, and breaks on `ct.IsCancellationRequested` between batches.
+* Catches `OperationCanceledException` separately and logs it at Information level (not Error).
+* `finally` block skips `_previewViewModel.IsLoading = false` when cancelled, avoiding writes to a possibly reset ViewModel.
+* `OnPreviewCancelled` calls `_streamCts?.Cancel()` before navigating back — streaming stops immediately on user cancel.
+* Added `using System.Threading`.
+
+#### `Services/ImportProviders/TracklistImportProvider.cs` — Completion logging
+* `ImportStreamAsync` now logs the batched track count after yielding (`"ImportStreamAsync completed: yielded {Count} tracks"`).
+* Logs a warning when parse produces no tracks, including the error message.
+
+### Files Modified
+* `App.axaml.cs`
+* `Views/Avalonia/ErrorStreamWindow.axaml.cs`
+* `Services/ImportOrchestrator.cs`
+* `Services/ImportProviders/TracklistImportProvider.cs`
+
+### Validation
+* **Build Verified**: `dotnet build` succeeds with 0 errors, 8 pre-existing warnings (none in modified files).
+* **Commit**: `d3267dd` — `fix: Soulseek noise filter, error rate-limit, import cancellation safety`
+
+---
+
 ## [0.1.0-alpha.22] - Phase 15: Per-Run Log Files & Guaranteed Exception Persistence (Mar 17, 2026)
 
 ### Problem Fixed
