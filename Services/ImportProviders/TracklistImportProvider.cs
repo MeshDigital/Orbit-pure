@@ -81,7 +81,7 @@ public class TracklistImportProvider : IStreamingImportProvider
     public async IAsyncEnumerable<ImportBatchResult> ImportStreamAsync(string input)
     {
         var result = await ImportAsync(input);
-        
+
         if (result.Success && result.Tracks.Any())
         {
             yield return new ImportBatchResult
@@ -90,6 +90,11 @@ public class TracklistImportProvider : IStreamingImportProvider
                 SourceTitle = result.SourceTitle,
                 TotalEstimated = result.Tracks.Count
             };
+            _logger.LogInformation("ImportStreamAsync completed: yielded {Count} tracks from pasted tracklist", result.Tracks.Count);
+        }
+        else if (!result.Success)
+        {
+            _logger.LogWarning("ImportStreamAsync: no tracks yielded — {Error}", result.ErrorMessage);
         }
     }
 }

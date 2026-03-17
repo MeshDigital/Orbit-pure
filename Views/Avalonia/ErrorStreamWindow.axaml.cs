@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -31,6 +32,10 @@ public partial class ErrorStreamWindow : Window, INotifyPropertyChanged
     public ObservableCollection<ErrorItem> Errors { get; } = new();
     public int ErrorCount => Errors.Count;
 
+    // Cooldown dictionary to suppress repeated identical errors within a 5-second window
+    private static readonly ConcurrentDictionary<string, DateTime> _errorCooldowns = new();
+    private static readonly TimeSpan ErrorCooldownPeriod = TimeSpan.FromSeconds(5);
+
     public ReactiveCommand<Unit, Unit> OpenLogsCommand { get; }
     public ReactiveCommand<ErrorItem, Unit> CopyErrorCommand { get; }
     public ReactiveCommand<ErrorItem, Unit> ClearErrorCommand { get; }
@@ -51,7 +56,23 @@ public partial class ErrorStreamWindow : Window, INotifyPropertyChanged
 
     public void AddError(string source, string message, string stackTrace)
     {
-        // Log every error to the persistent log file
+        // Deduplicate: suppress identical source+message pairs within the cooldown window.
+        // Always write to disk, but skip expensive UI updates and Serilog.Error for duplicates.
+        var key = $"{source}:{message[..Math.Min(80, message.Length)]}";
+        var now = DateTime.Now;
+        bool isDuplicate = _errorCooldowns.TryGetValue(key, out var lastSeen)
+                           && (now - lastSeen) < ErrorCooldownPeriod;
+
+        if (isDuplicate)
+        {
+            // Still persist to disk silently — don't spam the log level or UI
+            AppendErrorFallback(source, message, stackTrace);
+            return;
+        }
+
+        _errorCooldowns[key] = now;
+
+        // Log every first-occurrence error to the persistent log file
         Serilog.Log.Error("🚨 UI Error Stream - {Source}: {Message}\n{StackTrace}", source, message, stackTrace);
         AppendErrorFallback(source, message, stackTrace);
 

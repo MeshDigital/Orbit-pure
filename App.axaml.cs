@@ -20,6 +20,7 @@ using SLSKDONET.Views;
 using SLSKDONET.Views.Avalonia;
 using System;
 using System.IO;
+using System.Net.Sockets;
 
 namespace SLSKDONET;
 
@@ -651,12 +652,52 @@ public partial class App : Application
     /// <summary>
     /// Phase 12: Global exception handler - Stream errors to persistent window
     /// </summary>
+    /// <summary>
+    /// Returns true for transient Soulseek P2P network noise that should not surface in the UI.
+    /// These are expected connection failures during distributed parent negotiation.
+    /// </summary>
+    private static bool IsTransientSoulseekError(Exception ex)
+    {
+        var baseEx = ex is AggregateException agg ? agg.Flatten().InnerException ?? ex : ex;
+
+        // SocketException: connection refused (10061) or operation aborted (995)
+        if (baseEx is SocketException se && (se.NativeErrorCode == 10061 || se.NativeErrorCode == 995))
+            return true;
+
+        // Timeout / inactivity / cancelled I/O noise from Soulseek.NET internals
+        if (baseEx is TimeoutException)
+            return true;
+
+        var msg = baseEx.Message;
+        if (msg.Contains("timed out", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("Inactivity timeout", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("Remote connection closed", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("I/O operation has been aborted", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("No connection could be made", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("An existing connection was forcibly closed", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Any exception originating from Soulseek.NET library itself
+        if (baseEx.Source?.Contains("Soulseek", StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        return false;
+    }
+
     private async void HandleGlobalException(Exception? exception, string source, bool isTerminating)
     {
         try
         {
             var errorMessage = exception?.Message ?? "Unknown error";
             var stackTrace = exception?.ToString() ?? "No stack trace available";
+
+            // Filter transient Soulseek P2P network noise — expected failures during
+            // distributed parent negotiation and peer connection cycling.
+            if (exception != null && IsTransientSoulseekError(exception))
+            {
+                Serilog.Log.Debug("[Noise Filter] Suppressed transient Soulseek error: {Message}", exception.Message);
+                return;
+            }
 
             Serilog.Log.Fatal(exception, "🚨 {Source}: {Message}", source, errorMessage);
 

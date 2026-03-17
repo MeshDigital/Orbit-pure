@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Models;
@@ -19,6 +20,9 @@ public class ImportOrchestrator
     private readonly INavigationService _navigationService;
     private readonly Views.INotificationService _notificationService;
     private readonly ILibraryService _libraryService;
+
+    // CancellationTokenSource for the active streaming preview task
+    private CancellationTokenSource? _streamCts;
 
     // Track current import to avoid duplicate event subscriptions in older logic
     // private bool _isHandlingImport; // REMOVED: Unused
@@ -109,8 +113,11 @@ public class ImportOrchestrator
                      _navigationService.NavigateTo("ImportPreview");
                      _logger.LogInformation("Navigated to ImportPreview");
                      
-                     // Start Streaming
-                     _ = Task.Run(async () => await StreamPreviewAsync(streamProvider, input));
+                     // Start Streaming — cancel any prior stream and issue a fresh token
+                     _streamCts?.Cancel();
+                     _streamCts?.Dispose();
+                     _streamCts = new CancellationTokenSource();
+                     _ = Task.Run(async () => await StreamPreviewAsync(streamProvider, input, _streamCts.Token));
                 }
                 catch (Exception navEx)
                 {
@@ -289,12 +296,14 @@ public class ImportOrchestrator
         }
     }
 
-    private async Task StreamPreviewAsync(IStreamingImportProvider provider, string input)
+    private async Task StreamPreviewAsync(IStreamingImportProvider provider, string input, CancellationToken ct = default)
     {
         try
         {
-            await foreach (var batch in provider.ImportStreamAsync(input))
+            await foreach (var batch in provider.ImportStreamAsync(input).WithCancellation(ct))
             {
+                 if (ct.IsCancellationRequested) break;
+
                  // Update Title from first batch if generic
                  if (!string.IsNullOrEmpty(batch.SourceTitle) && _previewViewModel.SourceTitle == provider.Name)
                  {
@@ -307,6 +316,10 @@ public class ImportOrchestrator
                  await _previewViewModel.AddTracksToPreviewAsync(batch.Tracks);
             }
         }
+        catch (OperationCanceledException)
+        {
+             _logger.LogInformation("Streaming preview cancelled by user");
+        }
         catch (Exception ex)
         {
              _logger.LogError(ex, "Error during streaming preview");
@@ -314,7 +327,9 @@ public class ImportOrchestrator
         }
         finally
         {
-             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => _previewViewModel.IsLoading = false);
+             // Only reset IsLoading if not cancelled — cancellation means the ViewModel may have been reset already
+             if (!ct.IsCancellationRequested)
+                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => _previewViewModel.IsLoading = false);
         }
     }
 
@@ -364,6 +379,7 @@ public class ImportOrchestrator
     private void OnPreviewCancelled(object? sender, EventArgs e)
     {
         _logger.LogInformation("Import preview cancelled");
+        _streamCts?.Cancel(); // Stop the background streaming task immediately
         _navigationService.GoBack();
         CleanupCallbacks();
     }
