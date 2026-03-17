@@ -1,5 +1,31 @@
 # Recent Changes
 
+## [0.1.0-alpha.30] - Hyper-Drive Core Finalization: Lane Semaphore, 3x-Zero Parent Trigger, and Fingerprinter v2 (Mar 17, 2026)
+
+### Objective 1 — Hyper-Drive Streaming Discovery
+* **`DownloadDiscoveryService.cs`** now enforces a hard **5-lane ceiling** with `SemaphoreSlim(5,5)` around discovery sessions.
+* Existing per-tier `CancellationTokenSource` streaming win behavior remains intact; lane is now also globally budgeted.
+
+### Objective 2 — Distributed Parent Resilience
+* **`SoulseekAdapter.cs` ParentHealthMonitor** changed from average-fertility heuristic to explicit **3 consecutive zero-result searches** trigger.
+* On trigger, ORBIT first attempts to request a fresh potential-parents list via reflection (`RequestPotentialParents*` if exposed by current Soulseek.NET runtime); if unavailable, it falls back to connection cycling.
+
+### Objective 3 — Download Center UI Batching
+* **`DownloadCenterViewModel.cs`** switched to a native **`DispatcherTimer` (200ms)** with pending-refresh flag, replacing cross-thread timer push behavior.
+* Progress bursts are coalesced into batched refresh cycles on the UI thread.
+
+### Objective 4 — Result De-duplication
+* Added **`Services/ResultFingerprinter.cs`**.
+* `SoulseekAdapter` dedup key upgraded to **`FileName + FileSize + Duration`** (instead of stem+size), reducing false positives and redundant scoring.
+
+### Validation
+* `dotnet build` ✅ (0 errors)
+* Targeted tests ✅
+  * `SafetyFilterTests` (4/4)
+  * `SearchResultMatcherTests` (4/4)
+
+---
+
 ## [0.1.0-alpha.29] - Purist Lossless Hunter Rules Hardcoded (Mar 17, 2026)
 
 ### ORBIT Brain — Strict Quality Decision Tree

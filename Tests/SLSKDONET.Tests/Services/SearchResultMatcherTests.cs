@@ -33,7 +33,7 @@ public class SearchResultMatcherTests
             Artist = "Beatles", 
             Title = "Yesterday", 
             Length = 125, 
-            Filename = "Beatles - Yesterday.mp3",
+            Filename = "Beatles - Yesterday.flac",
             PathSegments = new List<string> { "The Beatles", "Yesterday" }
         };
 
@@ -55,7 +55,7 @@ public class SearchResultMatcherTests
             Artist = "Artist", 
             Title = "Title", 
             Length = 205, // 5s mismatch -> 20 pts (not 40)
-            Filename = "Artist - Title.mp3",
+            Filename = "Artist - Title.flac",
             PathSegments = new List<string> { "Artist" }
         };
 
@@ -75,7 +75,7 @@ public class SearchResultMatcherTests
         var candidate = new Track 
         { 
             Length = 276, 
-            Filename = "Jay Z - Empire State of Mind.mp3",
+            Filename = "Jay Z - Empire State of Mind.flac",
             PathSegments = new List<string> { "Jay Z" }
         };
 
@@ -96,7 +96,7 @@ public class SearchResultMatcherTests
         var candidate = new Track 
         { 
             Length = 300, // 100s mismatch -> 0 pts
-            Filename = "Artist - Title.mp3",
+            Filename = "Artist - Title.flac",
             PathSegments = new List<string> { "Artist" }
         };
 

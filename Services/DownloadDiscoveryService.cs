@@ -17,6 +17,9 @@ namespace SLSKDONET.Services;
 /// </summary>
 public class DownloadDiscoveryService
 {
+    // Hyper-Drive: 5 concurrent discovery lanes max (professional beta target).
+    private static readonly SemaphoreSlim _searchLaneSemaphore = new(5, 5);
+
     private readonly ILogger<DownloadDiscoveryService> _logger;
     private readonly SearchOrchestrationService _searchOrchestrator;
     private readonly SearchResultMatcher _matcher;
@@ -73,6 +76,9 @@ public class DownloadDiscoveryService
     /// </summary>
     public async Task<DiscoveryResult> FindBestMatchAsync(PlaylistTrack track, CancellationToken ct, HashSet<string>? blacklistedUsers = null)
     {
+        await _searchLaneSemaphore.WaitAsync(ct);
+        try
+        {
         // Global discovery timeout: if all tiers combined take > 90s, abort cleanly.
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(120)); // Bumped for fallback support
@@ -191,6 +197,11 @@ public class DownloadDiscoveryService
         }
 
         return new DiscoveryResult(null, log);
+        }
+        finally
+        {
+            _searchLaneSemaphore.Release();
+        }
     }
 
     private async Task<DiscoveryResult> PerformSearchTierAsync(PlaylistTrack track, string query, string tierName, CancellationToken ct, HashSet<string>? blacklistedUsers, SearchAttemptLog log, bool forceMp3 = false)

@@ -49,6 +49,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
     // Beta 2026: Parent Health Monitor — search fertility tracker
     private readonly ConcurrentQueue<int> _recentSearchResultCounts = new();
     private CancellationTokenSource? _healthMonitorCts;
+    private readonly ResultFingerprinter _resultFingerprinter = new();
 
     public async Task ConnectAsync(string? password = null, CancellationToken ct = default)
     {
@@ -219,8 +220,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
     /// </summary>
     private async Task MonitorParentHealthAsync(CancellationToken ct)
     {
-        const double minFertilityThreshold = 3.0;
-        const int windowSize = 5;
+        const int consecutiveZeroThreshold = 3;
 
         while (!ct.IsCancellationRequested)
         {
@@ -229,24 +229,28 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 await Task.Delay(TimeSpan.FromSeconds(60), ct);
 
                 var counts = _recentSearchResultCounts.ToArray();
-                if (counts.Length < windowSize) continue; // Not enough samples yet
+                if (counts.Length < consecutiveZeroThreshold) continue;
 
-                var avg = counts.TakeLast(windowSize).Average();
-                if (avg < minFertilityThreshold)
+                var lastThree = counts.TakeLast(consecutiveZeroThreshold).ToArray();
+                var hasThreeConsecutiveZeroSearches = lastThree.All(c => c == 0);
+                if (hasThreeConsecutiveZeroSearches)
                 {
+                    var avg = lastThree.Average();
                     _logger.LogWarning(
-                        "⚠️ [PARENT HEALTH] Search fertility critical: {Avg:F1} avg results/search over last {N} searches. " +
-                        "Cycling connection to negotiate a new distributed parent.",
-                        avg, windowSize);
+                        "⚠️ [PARENT HEALTH] 3 consecutive zero-result searches detected. Attempting parent refresh/re-init.");
 
                     _eventBus.Publish(new NetworkHealthWarningEvent(
                         SearchFertilityRate: avg,
-                        Message: $"Low search fertility ({avg:F1} results/search). Reconnecting to find a better distributed parent."));
+                        Message: "3 consecutive zero-result searches. Reinitializing distributed parent negotiation."));
 
                     try
                     {
-                        _client?.Disconnect();
-                        // DownloadManager's reconnect-loop will handle re-establishment
+                        var requested = await TryRequestPotentialParentsAsync(ct);
+                        if (!requested)
+                        {
+                            _client?.Disconnect();
+                            // DownloadManager's reconnect-loop will handle re-establishment
+                        }
                     }
                     catch (Exception cycleEx)
                     {
@@ -262,6 +266,43 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             {
                 _logger.LogError(ex, "[PARENT HEALTH] Unexpected error in health monitor loop.");
             }
+        }
+    }
+
+    private async Task<bool> TryRequestPotentialParentsAsync(CancellationToken ct)
+    {
+        if (_client == null) return false;
+
+        try
+        {
+            var managerProp = _client.GetType().GetProperty("DistributedConnectionManager");
+            var manager = managerProp?.GetValue(_client);
+            if (manager == null) return false;
+
+            var managerType = manager.GetType();
+            var method = managerType.GetMethod("RequestPotentialParentsAsync", new[] { typeof(CancellationToken) })
+                         ?? managerType.GetMethod("RequestPotentialParentsAsync")
+                         ?? managerType.GetMethod("RequestPotentialParents");
+
+            if (method == null) return false;
+
+            var parameters = method.GetParameters().Length == 1
+                ? new object?[] { ct }
+                : Array.Empty<object?>();
+
+            var result = method.Invoke(manager, parameters);
+            if (result is Task task)
+            {
+                await task;
+            }
+
+            _logger.LogInformation("[PARENT HEALTH] Requested fresh potential-parents list.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[PARENT HEALTH] Potential-parents request API unavailable; falling back to reconnect cycle.");
+            return false;
         }
     }
 
@@ -317,7 +358,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         var filteredByQueue = 0;
         var filteredByDedup = 0;
         var formatSet = formatFilter?.Select(f => f.ToLowerInvariant()).ToHashSet();
-        // Beta 2026: Result fingerprinting — deduplicate by (filename_stem + size) within one search.
+        // Beta 2026: Result fingerprinting — deduplicate by (FileName + FileSize + Duration) within one search.
         // Reduces noise by up to 70% on popular tracks shared by many peers.
         var seenThisSearch = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
 
@@ -442,6 +483,8 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                             // NEW Phase 12.3: Extract Bitrate quickly to avoid allocating full Track object if it fails filters
                             var bitrateAttr = file.Attributes?.FirstOrDefault(a => a.Type == Soulseek.FileAttributeType.BitRate);
                             var rawBitrate = bitrateAttr?.Value ?? 0;
+                            var lengthAttr = file.Attributes?.FirstOrDefault(a => a.Type == Soulseek.FileAttributeType.Length);
+                            var rawDurationSeconds = lengthAttr?.Value ?? 0;
                             var sampleRateAttr = file.Attributes?.FirstOrDefault(a => a.Type == Soulseek.FileAttributeType.SampleRate);
                             var rawSampleRate = sampleRateAttr?.Value ?? 0;
                             
@@ -466,9 +509,9 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                                 continue;
                             }
 
-                            // Beta 2026: Fingerprint dedup — skip identical file (same stem + size) from different peers.
+                            // Beta 2026: Fingerprint dedup — skip identical files from different peers.
                             // This cuts scoring overhead on heavily-shared tracks by ~70%.
-                            var fpKey = $"{System.IO.Path.GetFileNameWithoutExtension(file.Filename).ToLowerInvariant()}:{file.Size}";
+                            var fpKey = _resultFingerprinter.Create(file.Filename, file.Size, rawDurationSeconds);
                             if (!seenThisSearch.TryAdd(fpKey, 0))
                             {
                                 filteredByDedup++;

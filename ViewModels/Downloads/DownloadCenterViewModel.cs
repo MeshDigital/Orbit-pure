@@ -27,6 +27,8 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     private readonly IEventBus _eventBus;
     private readonly AppConfig _config;
     private readonly CompositeDisposable _subscriptions = new();
+    private DispatcherTimer? _uiBatchTimer;
+    private bool _hasPendingUiRefresh;
     
     // Collections (DynamicData Source)
     private readonly SourceCache<UnifiedTrackViewModel, string> _downloadsSource = new(x => x.GlobalId);
@@ -675,7 +677,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             .Buffer(TimeSpan.FromMilliseconds(200))
             .Where(batch => batch.Count > 0)
             .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(_ => RefreshGlobalSpeed())
+            .Subscribe(_ => _hasPendingUiRefresh = true)
             .DisposeWith(_subscriptions);
         
         // Start global speed calculator
@@ -754,19 +756,25 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     
     private void StartGlobalSpeedTimer()
     {
-        var timer = new System.Timers.Timer(200);
-        timer.Elapsed += (s, e) =>
+        _uiBatchTimer?.Stop();
+        _uiBatchTimer = new DispatcherTimer
         {
-            try
+            Interval = TimeSpan.FromMilliseconds(200)
+        };
+
+        _uiBatchTimer.Tick += (_, _) =>
+        {
+            if (_hasPendingUiRefresh)
             {
-                Dispatcher.UIThread.Post(() => RefreshGlobalSpeed());
+                _hasPendingUiRefresh = false;
+                RefreshGlobalSpeed();
             }
-            catch { }
 
             // Phase 12.3: Slot Health Check (Piggyback on 1s timer)
             CheckSlotHealth();
         };
-        timer.Start();
+
+        _uiBatchTimer.Start();
     }
 
     private void RefreshGlobalSpeed()
@@ -787,6 +795,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     
     public void Dispose()
     {
+        _uiBatchTimer?.Stop();
         _subscriptions.Dispose();
         _downloadsSource.Dispose();
     }
