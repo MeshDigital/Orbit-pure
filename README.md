@@ -1,86 +1,124 @@
-<div align="center">
-  <h1>🛰️ ORBIT</h1>
-  <p><strong>Organized Retrieval & Batch Integration Tool</strong></p>
-  <p>A technical, reliability-focused P2P client and music workstation</p>
-</div>
+# ORBIT Pure
 
-ORBIT interfaces with the Soulseek network but prioritizes strict file verification, structural analysis, and metadata fidelity over blind downloading. Originally designed as a "High-Fidelity Downloader," the project is actively evolving into a "Creative Workstation" (DAW lite), integrating ML audio analysis to support DJ and curation workflows.
+ORBIT Pure is a reliability-first Soulseek client and music curation workstation built with .NET 9 + Avalonia.
+It prioritizes signal quality, forensic filtering, and operator control over raw download volume.
 
-> **LEGAL & PRIVACY NOTICE**
-> ORBIT connects to the Soulseek P2P network. Your IP address is visible to other peers. We strongly advise using a VPN. This tool is provided for educational purposes and managing legally acquired content.
+> Legal & privacy notice
+> ORBIT connects to the Soulseek P2P network, where your IP may be visible to peers. Use a VPN and only download/share content you are legally allowed to use.
 
 ---
 
-## Technical Overview
+## Project State (March 2026)
 
-Traditional file sharing clients treat music as opaque blobs. ORBIT analyzes content at ingestion and post-download stages to ensure structural integrity and enrich files with musical metadata.
-
-### Core Architecture
-- **UI Framework**: Avalonia (cross-platform XAML)
-- **Backend & Networking**: .NET 9.0 (C#) / Soulseek.NET
-- **Database**: SQLite (WAL mode, optimized for concurrent reads/writes)
-- **Audio Processing**: NAudio, Xabe.FFmpeg, Essentia, NWaves
-- **Machine Learning**: Microsoft ML.NET (LightGBM classifiers for 512-dimensional Essentia BLOBs)
-
-### Key Features
-1. **Pre-Download Heuristics**: Calculates expected file size vs actual size (Bitrate × Duration / 8) to preemptively filter mathematically impossible files (e.g., upscaled 64kbps disguised as 320kbps).
-2. **Audio Spectral Analysis**: FFmpeg and Essentia sidecars analyze downloaded audio for frequency cutoffs to detect fake lossless (FLAC) files.
-3. **Crash Recovery**: Enforces Journal-first logging. Downloads write 15-second heartbeat checkpoints to SQLite; operations continue seamlessly across unexpected reboots or crashes.
-4. **API Integration**: Connects with the Spotify API (PKCE OAuth) and MusicBrainz to fetch accurate ID3 tags, ISRC codes, and deep producer/label relationships.
-5. **Creative Workstation Capabilities**: Includes interactive multi-track timelines (`WaveformControl`) and SkiaSharp-powered visualizers (Vibe Radar, Genre Galaxy) for setlist preparation.
-6. **Professional Export Tools**: Enhanced CSV export with forensic metrics for music library analysis and integrity verification.
-7. **Delta Library Syncing**: Intelligent incremental scanning that dramatically improves performance for large music collections.
-8. **Beta-Ready Error Handling**: User-friendly crash reporting with technical diagnostics for professional beta testing.
+- Current branch baseline is `master`, with the latest documented release milestone at `0.1.0-alpha.33`.
+- Build and tests are green for the latest integration pass:
+  - `dotnet build SLSKDONET.sln -c Debug`
+  - `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj -c Debug --no-build`
+- Product focus is now on three operational pillars:
+  - explainable search decisions
+  - resilient high-fidelity download orchestration
+  - dense, real-time operator UX in Download Center and Library
 
 ---
 
-## Current Status & Recent Updates (March 2026)
+## Core Capabilities
 
-The project has reached **beta-ready status** with comprehensive error handling, professional export capabilities, and optimized performance. Phase 12 implementation is complete, making ORBIT suitable for professional music library management and beta distribution.
+### 1) Explainable Search & Curation
+- Cached filtered-out results can be shown without issuing a new network search.
+- Hidden-result reasoning is explicit (bitrate floor, format gate, queue/reliability, safety/forensic gate).
+- Search UI exposes quick controls to reveal hidden candidates and relax filters against the cached result set.
 
-**Latest Technical Deliverables** (Phase 12: Professional Distribution & Beta Launch):
-- **Global Exception Handling**: User-friendly crash reporting with system diagnostics and clipboard integration for beta testing feedback
-- **Enhanced CSV Export with Forensic Data**: Professional-grade playlist export including spectral analysis metrics (HighFreqEnergyDb, LowFreqEnergyDb, EnergyRatio, IsTranscoded, ForensicReason)
-- **Delta Scan Optimization**: Intelligent library syncing that only scans folders modified since last sync, dramatically improving performance for large collections
-- **Error Report Dialog**: Avalonia-based crash reporting UI with technical details and system information display
-- **Build System Cleanup**: Resolved compilation issues and optimized dependencies for production deployment
+### 2) Download Orchestration & Manual Override
+- Multi-lane discovery with fast-lane/golden-winner short-circuiting.
+- Structured per-track live peer result feed in row details (time, user, state, detail, speed, file).
+- Manual per-candidate force download from row details when the operator wants a specific peer/file.
 
-**Phase 11 Features**:
-- **Orphaned Tracks Management**: Complete "Ghost File" purge system with physical library synchronization
-- **Forensic Report Dialog**: Enhanced spectral energy analysis showing dB levels for audio integrity verification
-- **Exponential Backoff Reconnection**: Network resilience with progressive retry delays for Soulseek disconnections
-- **Performance Optimization**: Background threading for CPU-intensive spectral analysis
+### 3) Forensic Quality Controls
+- Safety/bouncer gating for suspect/upscaled results.
+- Forensic quality surfacing in track/list views.
+- Spectral and integrity-aware decision signals are surfaced across search and download UX.
 
-**Phase 10 & Earlier**:
-- **512D Essentia Integration**: Rebuilt similarity algorithms supporting 512-vector ML BLOBs for precise harmonic matching
-- **Mission Control**: Centralized system health monitoring with thread workloads and recovery queues
-- **Vibe Radar**: Custom SKCanvasView for visualizing rhythmically and harmonically similar tracks
-- **Forensic Librarian**: "Report as Fraud" pipelines with local quarantines and database cleanup
-- **Contextual Sidebar**: Dynamic folding library navigation with context-aware commands
+### 4) Network & Runtime Resilience
+- Hardened disconnect/reconnect behavior and distributed-parent recovery paths.
+- Crash-aware download state handling and recovery-friendly orchestration.
+- Global exception reporting and cleaner non-fatal runtime diagnostics.
+
+### 5) Library & Workstation UX
+- Album-first flows and dense playlist grid/cards.
+- Hover/flyout forensic diagnostics and quality signaling.
+- Performance-friendly population and virtualization-oriented UI updates for larger libraries.
 
 ---
 
-## Installation & Setup
+## Recent Delivery Timeline (alpha.25 → alpha.33)
 
-1. Clone and build:
-   ```bash
-   git clone https://github.com/MeshDigital/ORBIT.git
-   cd ORBIT
-   dotnet restore
-   dotnet build
-   dotnet run
-   ```
-2. **First Run**: Configure your Soulseek credentials in the Settings menu.
-3. **Dependencies**: Requires `ffmpeg` installed locally and in your PATH for spectral analysis services to function correctly.
+- `alpha.33`: Search hidden-result transparency, row-level live peer details, and force-candidate download action.
+- `alpha.32`: Discovery reason surfacing, fast-lane UX improvements, disconnect handling hardening, and UI cleanup.
+- `alpha.31`: Library slim-rail behavior and responsive playlist card/grid refinements.
+- `alpha.30`: Discovery lane semaphore budget, distributed-parent trigger refinement, dedup/fingerprinter upgrade.
+- `alpha.29`: Strict purist lossless policy and stronger fake-lossless rejection criteria.
+- `alpha.28`: Parent-health monitoring, streaming tier cancellation improvements, peer-lane dashboard, health banner.
+- `alpha.27`: Visual dashboard upgrades (slim rail defaults, circular forensic ring, quality HUD).
+- `alpha.26`: Search and queue-aware protocol tuning (response caps, file caps, queue-depth filtering).
+- `alpha.25`: Golden-search gate and library/workflow activation refinements.
 
-## Project Structure
-- `Views/Avalonia/` - XAML views and controls
-- `ViewModels/` - Reactive state logic
-- `Services/` - Core daemon services (DownloadManager, SonicIntegrityService, MissionControl)
-- `Models/` - Database schemas and event records
-- `DOCS/` & `TODO.md` - Advanced strategy plans and backlog items
+For full details, see RECENT_CHANGES.md.
+
+---
+
+## Tech Stack
+
+- UI: Avalonia + ReactiveUI
+- Runtime: .NET 9 (C#)
+- Network: Soulseek.NET integration
+- Data: SQLite (EF Core)
+- Audio/forensics: FFmpeg, NAudio, Essentia, NWaves
+- Analysis/ML: ML.NET-based feature workflows where applicable
+
+---
+
+## Quick Start
+
+1. Clone:
+
+  ```bash
+  git clone https://github.com/MeshDigital/Orbit-pure.git
+  cd Orbit-pure
+  ```
+
+2. Restore and build:
+
+  ```bash
+  dotnet restore
+  dotnet build SLSKDONET.sln -c Debug
+  ```
+
+3. Run:
+
+  ```bash
+  dotnet run
+  ```
+
+4. First launch:
+- Configure Soulseek credentials in Settings.
+- Ensure `ffmpeg` is installed and available on PATH for audio forensic services.
+
+---
+
+## Repository Map
+
+- `Views/Avalonia`: XAML pages and controls
+- `ViewModels`: reactive presentation state
+- `Services`: orchestration, discovery, network, forensic, and IO services
+- `Data`, `Migrations`: persistence layer and schema evolution
+- `Tests`: unit/integration test coverage
+- `RECENT_CHANGES.md`: chronological release and implementation notes
+
+---
 
 ## Contributing
-Contributions for code refactoring, performance improvements, and algorithm optimization are welcome. Please ensure new logic adheres to atomic state patterns to prevent mid-download corruption.
+
+Contributions are welcome, especially around reliability, performance, and explainability.
+Please keep changes surgical, test-backed, and aligned with the existing architecture and event-driven patterns.
 
 License: GPL-3.0
