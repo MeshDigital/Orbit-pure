@@ -1,5 +1,24 @@
 # Recent Changes
 
+## [0.1.0-alpha.38] - Download Profile Overwrite Control + Incoming Status Routing Hardening (Mar 17, 2026)
+
+### Download Center Profile Overwrite (3 Modes)
+* `DownloadsPage.axaml` adds a live **Download Profile Overwrite** control in the Download Center header.
+* `DownloadCenterViewModel.cs` adds 3 profile modes with immediate config overwrite:
+  * **Non-Strict**: `flac,wav,aiff,aif,mp3`
+  * **Strict**: `flac,wav,aiff,aif`
+  * **Stricter**: `flac`
+* Each mode applies profile-specific bitrate/search cap settings and shows current mode via `DownloadProfileModeText`.
+
+### Incoming Row Details Reliability
+* `UnifiedTrackViewModel.cs` now matches `TrackDetailedStatusEvent.TrackHash` using resilient ID comparison (case-insensitive + GUID `N`/`D` fallback), preventing silent misses.
+* `DownloadDiscoveryService.cs` now guarantees a stable `TrackUniqueHash` before discovery/event emission by falling back to `track.Id.ToString("N")` when needed.
+
+### Validation
+* `dotnet build SLSKDONET.sln -c Debug -p:UseAppHost=false` ✅
+
+---
+
 ## [0.1.0-alpha.37] - Download Center Live Incoming Results DataGrid + VIP Log Noise Reduction (Mar 17, 2026)
 
 ### Download Center: Expandable Per-Track Incoming Messages

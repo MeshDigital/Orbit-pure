@@ -219,7 +219,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
         // Fix: Subscribe to granular search status events for live console updates
         _eventBus.GetEvent<TrackDetailedStatusEvent>()
-            .Where(e => e.TrackHash == GlobalId)
+            .Where(e => IsSameTrackId(e.TrackHash))
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(OnDetailedStatus)
             .DisposeWith(_disposables);
@@ -1244,6 +1244,26 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         }
 
         return new TrackPeerResultViewModel(DateTime.Now, user, state, detail, e.IsError);
+    }
+
+    private bool IsSameTrackId(string? candidateTrackId)
+    {
+        if (string.IsNullOrWhiteSpace(candidateTrackId))
+            return false;
+
+        var candidate = candidateTrackId.Trim();
+        var global = GlobalId?.Trim();
+
+        if (!string.IsNullOrWhiteSpace(global) &&
+            string.Equals(candidate, global, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var idN = Model.Id.ToString("N");
+        var idD = Model.Id.ToString("D");
+        return string.Equals(candidate, idN, StringComparison.OrdinalIgnoreCase)
+               || string.Equals(candidate, idD, StringComparison.OrdinalIgnoreCase);
     }
 
     private string? _detailedSearchStatus;

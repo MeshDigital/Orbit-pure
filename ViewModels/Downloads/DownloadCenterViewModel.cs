@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
@@ -23,12 +24,34 @@ namespace SLSKDONET.ViewModels.Downloads;
 /// </summary>
 public class DownloadCenterViewModel : ReactiveObject, IDisposable
 {
+    private const string NonStrictPreferredFormats = "flac,wav,aiff,aif,mp3";
+    private const int NonStrictMinBitrate = 192;
+    private const int NonStrictMaxBitrate = 0;
+    private const int NonStrictSearchResponseLimit = 300;
+    private const int NonStrictSearchFileLimit = 300;
+    private const int NonStrictMaxPeerQueueLength = 200;
+
+    private const string StrictPreferredFormats = "flac,wav,aiff,aif";
+    private const int StrictMinBitrate = 320;
+    private const int StrictMaxBitrate = 0;
+    private const int StrictSearchResponseLimit = 200;
+    private const int StrictSearchFileLimit = 200;
+    private const int StrictMaxPeerQueueLength = 120;
+
+    private const string StricterPreferredFormats = "flac";
+    private const int StricterMinBitrate = 701;
+    private const int StricterMaxBitrate = 0;
+    private const int StricterSearchResponseLimit = 100;
+    private const int StricterSearchFileLimit = 100;
+    private const int StricterMaxPeerQueueLength = 50;
+
     private readonly DownloadManager _downloadManager;
     private readonly IEventBus _eventBus;
     private readonly AppConfig _config;
     private readonly CompositeDisposable _subscriptions = new();
     private DispatcherTimer? _uiBatchTimer;
     private bool _hasPendingUiRefresh;
+    private bool _isApplyingDownloadProfile;
     
     // Collections (DynamicData Source)
     private readonly SourceCache<UnifiedTrackViewModel, string> _downloadsSource = new(x => x.GlobalId);
@@ -258,6 +281,48 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
              }
         }
     }
+
+    public bool DownloadProfileNonStrict
+    {
+        get => IsNonStrictActive();
+        set
+        {
+            if (!value || _isApplyingDownloadProfile)
+                return;
+
+            ApplyDownloadProfile("NonStrict");
+        }
+    }
+
+    public bool DownloadProfileStrict
+    {
+        get => IsStrictActive();
+        set
+        {
+            if (!value || _isApplyingDownloadProfile)
+                return;
+
+            ApplyDownloadProfile("Strict");
+        }
+    }
+
+    public bool DownloadProfileStricter
+    {
+        get => IsStricterActive();
+        set
+        {
+            if (!value || _isApplyingDownloadProfile)
+                return;
+
+            ApplyDownloadProfile("Stricter");
+        }
+    }
+
+    public string DownloadProfileModeText => DownloadProfileStricter
+        ? "STRICTER overwrite: FLAC-only + 701kbps floor"
+        : DownloadProfileStrict
+            ? "STRICT overwrite: FLAC/WAV/AIFF/AIF + 320kbps floor"
+            : "NON-STRICT overwrite: expanded formats + 192kbps floor";
     
     // Commands
     public ICommand PauseAllCommand { get; }
@@ -690,6 +755,87 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             InitialHydration();
         }
         
+    }
+
+    private void ApplyDownloadProfile(string mode)
+    {
+        _isApplyingDownloadProfile = true;
+        try
+        {
+            if (string.Equals(mode, "Stricter", StringComparison.OrdinalIgnoreCase))
+            {
+                _config.PreferredFormats = StricterPreferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                _config.PreferredMinBitrate = StricterMinBitrate;
+                _config.PreferredMaxBitrate = StricterMaxBitrate;
+                _config.SearchResponseLimit = StricterSearchResponseLimit;
+                _config.SearchFileLimit = StricterSearchFileLimit;
+                _config.MaxPeerQueueLength = StricterMaxPeerQueueLength;
+            }
+            else if (string.Equals(mode, "Strict", StringComparison.OrdinalIgnoreCase))
+            {
+                _config.PreferredFormats = StrictPreferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                _config.PreferredMinBitrate = StrictMinBitrate;
+                _config.PreferredMaxBitrate = StrictMaxBitrate;
+                _config.SearchResponseLimit = StrictSearchResponseLimit;
+                _config.SearchFileLimit = StrictSearchFileLimit;
+                _config.MaxPeerQueueLength = StrictMaxPeerQueueLength;
+            }
+            else
+            {
+                _config.PreferredFormats = NonStrictPreferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                _config.PreferredMinBitrate = NonStrictMinBitrate;
+                _config.PreferredMaxBitrate = NonStrictMaxBitrate;
+                _config.SearchResponseLimit = NonStrictSearchResponseLimit;
+                _config.SearchFileLimit = NonStrictSearchFileLimit;
+                _config.MaxPeerQueueLength = NonStrictMaxPeerQueueLength;
+            }
+
+            this.RaisePropertyChanged(nameof(DownloadProfileNonStrict));
+            this.RaisePropertyChanged(nameof(DownloadProfileStrict));
+            this.RaisePropertyChanged(nameof(DownloadProfileStricter));
+            this.RaisePropertyChanged(nameof(DownloadProfileModeText));
+
+            _eventBus.Publish(new GlobalStatusEvent($"Download profile overwrite applied: {DownloadProfileModeText}", IsActive: true, IsError: false));
+        }
+        finally
+        {
+            _isApplyingDownloadProfile = false;
+        }
+    }
+
+    private bool IsNonStrictActive()
+    {
+        var formats = NormalizeFormats(_config.PreferredFormats);
+        return formats.SetEquals(new HashSet<string>(new[] { "flac", "wav", "aiff", "aif", "mp3" }))
+               && _config.PreferredMinBitrate <= NonStrictMinBitrate
+               && _config.SearchResponseLimit >= NonStrictSearchResponseLimit
+               && _config.SearchFileLimit >= NonStrictSearchFileLimit;
+    }
+
+    private bool IsStrictActive()
+    {
+        var formats = NormalizeFormats(_config.PreferredFormats);
+        return formats.SetEquals(new HashSet<string>(new[] { "flac", "wav", "aiff", "aif" }))
+               && _config.PreferredMinBitrate >= StrictMinBitrate
+               && _config.PreferredMinBitrate < StricterMinBitrate;
+    }
+
+    private bool IsStricterActive()
+    {
+        var formats = NormalizeFormats(_config.PreferredFormats);
+        return formats.Count == 1
+               && formats.Contains("flac")
+               && _config.PreferredMinBitrate >= StricterMinBitrate
+               && _config.SearchResponseLimit <= StricterSearchResponseLimit
+               && _config.SearchFileLimit <= StricterSearchFileLimit;
+    }
+
+    private static HashSet<string> NormalizeFormats(List<string>? formats)
+    {
+        return (formats ?? new List<string>())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim().ToLowerInvariant())
+            .ToHashSet();
     }
 
     private Func<UnifiedTrackViewModel, bool> BuildFilter(string searchText)

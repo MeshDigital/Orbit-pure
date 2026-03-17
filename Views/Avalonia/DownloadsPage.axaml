@@ -289,7 +289,23 @@
                              <TextBlock Text="CONCURRENCY" FontSize="10" Foreground="#555" VerticalAlignment="Center"/>
                              <Slider Width="120" Minimum="1" Maximum="20" Value="{Binding MaxConcurrentDownloads}" TickFrequency="1" IsSnapToTickEnabled="True"/>
                              <TextBlock Text="{Binding MaxConcurrentDownloads}" FontSize="12" FontWeight="Bold" Foreground="#00BFFF" Width="20" TextAlignment="Center"/>
-                    </StackPanel>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Vertical" Spacing="6" HorizontalAlignment="Right">
+                            <TextBlock Text="DOWNLOAD PROFILE OVERWRITE" FontSize="10" Foreground="#555" HorizontalAlignment="Right"/>
+                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                                <ToggleButton IsChecked="{Binding DownloadProfileNonStrict, Mode=TwoWay}" Background="#2D2D2D" BorderBrush="#555" BorderThickness="1" CornerRadius="4" Padding="10,4">
+                                    <TextBlock Text="Non-Strict" FontSize="10" Foreground="#DDD"/>
+                                </ToggleButton>
+                                <ToggleButton IsChecked="{Binding DownloadProfileStrict, Mode=TwoWay}" Background="#2D2D2D" BorderBrush="#00BFFF" BorderThickness="1" CornerRadius="4" Padding="10,4">
+                                    <TextBlock Text="Strict" FontSize="10" Foreground="#00BFFF" FontWeight="SemiBold"/>
+                                </ToggleButton>
+                                <ToggleButton IsChecked="{Binding DownloadProfileStricter, Mode=TwoWay}" Background="#2D2D2D" BorderBrush="#FFB300" BorderThickness="1" CornerRadius="4" Padding="10,4">
+                                    <TextBlock Text="Stricter" FontSize="10" Foreground="#FFB300" FontWeight="SemiBold"/>
+                                </ToggleButton>
+                            </StackPanel>
+                            <TextBlock Text="{Binding DownloadProfileModeText}" FontSize="10" Foreground="#777" HorizontalAlignment="Right"/>
+                        </StackPanel>
                 </StackPanel>
                 </Grid>
             </Border>

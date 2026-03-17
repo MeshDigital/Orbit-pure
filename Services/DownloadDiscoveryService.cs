@@ -79,6 +79,11 @@ public class DownloadDiscoveryService
         await _searchLaneSemaphore.WaitAsync(ct);
         try
         {
+        if (string.IsNullOrWhiteSpace(track.TrackUniqueHash))
+        {
+            track.TrackUniqueHash = track.Id.ToString("N");
+        }
+
         // Global discovery timeout: if all tiers combined take > 90s, abort cleanly.
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(120)); // Bumped for fallback support
