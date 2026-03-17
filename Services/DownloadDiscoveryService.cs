@@ -282,6 +282,20 @@ public class DownloadDiscoveryService
                               track.Status == TrackStatus.OnHold ||
                               track.Priority >= 10 ||
                               (_config.SearchPolicy?.PreferSpeedOverQuality ?? false);
+
+            var formatSource = !string.IsNullOrWhiteSpace(track.PreferredFormats)
+                ? "track-override"
+                : "config-default";
+
+            _logger.LogInformation(
+                "[DISCOVERY FILTER] {Artist} - {Title}: formats={Formats} (source={Source}), minBitrate={MinBitrate}, forceMp3={ForceMp3}, status={Status}",
+                track.Artist,
+                track.Title,
+                preferredFormats,
+                formatSource,
+                minBitrate,
+                forceMp3,
+                track.Status);
             
             // Workstation 2026: enforce network-side quality gate for lossless lanes.
             // This pushes filtering upstream to Soulseek and reduces local scoring overhead.
@@ -674,17 +688,25 @@ public class DownloadDiscoveryService
 
     private async Task<bool> WaitForConnectionAsync(CancellationToken ct)
     {
-        _logger.LogInformation("Waiting for Soulseek connection...");
+        _logger.LogInformation("Waiting for Soulseek connection (max 10s) before continuing discovery tier...");
         var waitStart = DateTime.UtcNow;
+        var nextProgressLogAtSeconds = 2;
         while (!_searchOrchestrator.IsConnected && (DateTime.UtcNow - waitStart).TotalSeconds < 10)
         {
             if (ct.IsCancellationRequested) return false;
             await Task.Delay(500, ct);
+
+            var waitedSeconds = (int)(DateTime.UtcNow - waitStart).TotalSeconds;
+            if (waitedSeconds >= nextProgressLogAtSeconds)
+            {
+                _logger.LogDebug("Still waiting for Soulseek connection... ({Waited}s elapsed)", waitedSeconds);
+                nextProgressLogAtSeconds += 2;
+            }
         }
 
         if (!_searchOrchestrator.IsConnected)
         {
-            _logger.LogWarning("Timeout waiting for Soulseek connection.");
+            _logger.LogWarning("Timeout waiting for Soulseek connection after 10s; this discovery tier will return no match for now and retry logic/fallback tiers may continue.");
             return false;
         }
         return true;

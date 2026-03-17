@@ -1,5 +1,27 @@
 # Recent Changes
 
+## [0.1.0-alpha.35] - Soulseek Disconnect Diagnostics + Parent Health False-Positive Reduction (Mar 17, 2026)
+
+### Parent Health Stability Tuning
+* `SoulseekAdapter.cs` now tracks richer search fertility samples (accepted results + raw files + key filter counters) instead of only accepted result count.
+* Parent-health reconnect logic now differentiates between:
+  * **network starvation** (zero raw files) → recovery action allowed,
+  * **strict local filtering** (raw files present but accepted=0) → no forced reconnect.
+* Added clearer reconnect decision logs, including last-sample context and fallback action outcomes.
+
+### Disconnect Observability
+* `SoulseekAdapter.cs` now logs explicit disconnect execution context (`reason` + current client state) before cycling.
+* Parent-health reconnect path now reports whether potential-parent refresh API succeeded versus hard reconnect fallback.
+
+### Discovery Wait/Filter Diagnostics
+* `DownloadDiscoveryService.cs` now logs effective format filter source per tier (`track-override` vs `config-default`) with min bitrate and mode context.
+* `WaitForConnectionAsync` messaging now includes elapsed wait progress and explicit timeout consequence (tier returns no match for now; fallback/retry paths may continue).
+
+### Validation
+* `dotnet build SLSKDONET.sln -c Debug -p:UseAppHost=false` ✅
+
+---
+
 ## [0.1.0-alpha.34] - Import Crash Hardening + Duplicate Merge-Missing Recovery (Mar 17, 2026)
 
 ### Spotify Import Crash Fix

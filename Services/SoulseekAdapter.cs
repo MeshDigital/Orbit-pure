@@ -46,10 +46,22 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
     private SoulseekClient? _client;
 
-    // Beta 2026: Parent Health Monitor — search fertility tracker
-    private readonly ConcurrentQueue<int> _recentSearchResultCounts = new();
+    // Beta 2026: Parent Health Monitor — richer fertility tracker.
+    // IMPORTANT: Accepted (post-filter) result count can be zero even when network is healthy
+    // (e.g., strict FLAC-only lanes). We track both accepted and raw response volume.
+    private readonly ConcurrentQueue<SearchFertilitySample> _recentSearchSamples = new();
     private CancellationTokenSource? _healthMonitorCts;
     private readonly ResultFingerprinter _resultFingerprinter = new();
+
+    private sealed record SearchFertilitySample(
+        DateTime TimestampUtc,
+        string Query,
+        int AcceptedResults,
+        int RawFiles,
+        int FormatFiltered,
+        int QueueFiltered,
+        int DedupFiltered,
+        string ClientState);
 
     public async Task ConnectAsync(string? password = null, CancellationToken ct = default)
     {
@@ -219,6 +231,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
         try
         {
+            _logger.LogInformation("[DISCONNECT] Executing Soulseek disconnect for reason '{Reason}' (State: {State})", reason, state);
             _client.Disconnect();
             _logger.LogInformation("Disconnected from Soulseek ({Reason})", reason);
             return true;
@@ -245,28 +258,50 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             {
                 await Task.Delay(TimeSpan.FromSeconds(60), ct);
 
-                var counts = _recentSearchResultCounts.ToArray();
-                if (counts.Length < consecutiveZeroThreshold) continue;
+                var samples = _recentSearchSamples.ToArray();
+                if (samples.Length < consecutiveZeroThreshold) continue;
 
-                var lastThree = counts.TakeLast(consecutiveZeroThreshold).ToArray();
-                var hasThreeConsecutiveZeroSearches = lastThree.All(c => c == 0);
-                if (hasThreeConsecutiveZeroSearches)
+                var lastThree = samples.TakeLast(consecutiveZeroThreshold).ToArray();
+                var hasThreeConsecutiveZeroAccepted = lastThree.All(s => s.AcceptedResults == 0);
+                if (hasThreeConsecutiveZeroAccepted)
                 {
-                    var avg = lastThree.Average();
+                    var avgAccepted = lastThree.Average(s => s.AcceptedResults);
+                    var avgRaw = lastThree.Average(s => s.RawFiles);
+                    var hadAnyRawResponses = lastThree.Any(s => s.RawFiles > 0);
+
+                    if (hadAnyRawResponses)
+                    {
+                        _logger.LogInformation(
+                            "[PARENT HEALTH] 3 zero-accepted searches observed, but network is responsive (avg raw files {AvgRaw:F1}). " +
+                            "Skipping reconnect; likely strict local filtering. Last samples: {Samples}",
+                            avgRaw,
+                            string.Join(" | ", lastThree.Select(s => $"'{s.Query}' acc={s.AcceptedResults},raw={s.RawFiles},fmt={s.FormatFiltered},q={s.QueueFiltered}")));
+
+                        while (_recentSearchSamples.TryDequeue(out _)) { }
+                        continue;
+                    }
+
                     _logger.LogWarning(
-                        "⚠️ [PARENT HEALTH] 3 consecutive zero-result searches detected. Attempting parent refresh/re-init.");
+                        "⚠️ [PARENT HEALTH] 3 consecutive zero-accepted searches with zero raw network files detected. " +
+                        "Attempting parent refresh/re-init. Last samples: {Samples}",
+                        string.Join(" | ", lastThree.Select(s => $"'{s.Query}' acc={s.AcceptedResults},raw={s.RawFiles},fmt={s.FormatFiltered},q={s.QueueFiltered}")));
 
                     _eventBus.Publish(new NetworkHealthWarningEvent(
-                        SearchFertilityRate: avg,
-                        Message: "3 consecutive zero-result searches. Reinitializing distributed parent negotiation."));
+                        SearchFertilityRate: avgAccepted,
+                        Message: "3 consecutive zero-accepted searches with zero raw responses. Reinitializing distributed parent negotiation."));
 
                     try
                     {
                         var requested = await TryRequestPotentialParentsAsync(ct);
                         if (!requested)
                         {
-                            TryDisconnectClient("parent health recovery");
+                            var disconnected = TryDisconnectClient("parent health recovery");
+                            _logger.LogInformation("[PARENT HEALTH] Fallback reconnect action result: disconnected={Disconnected}", disconnected);
                             // DownloadManager's reconnect-loop will handle re-establishment
+                        }
+                        else
+                        {
+                            _logger.LogInformation("[PARENT HEALTH] Potential-parent refresh API call succeeded; skipping hard reconnect cycle.");
                         }
                     }
                     catch (Exception cycleEx)
@@ -275,7 +310,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     }
 
                     // Clear stale fertility data so the next window is fresh
-                    while (_recentSearchResultCounts.TryDequeue(out _)) { }
+                    while (_recentSearchSamples.TryDequeue(out _)) { }
                 }
             }
             catch (OperationCanceledException) { break; }
@@ -578,10 +613,20 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 resultCount, totalFilesReceived, filteredByFormat, filteredByBitrate,
                 filteredBySampleRate, filteredByQueue, filteredByDedup);
 
-            // Fertility tracking: feed result count into sliding window for Parent Health Monitor
-            _recentSearchResultCounts.Enqueue(resultCount);
-            while (_recentSearchResultCounts.Count > 10)
-                _recentSearchResultCounts.TryDequeue(out _);
+            // Fertility tracking: include both accepted and raw response volume to avoid
+            // false reconnects when strict local filters produce accepted=0.
+            _recentSearchSamples.Enqueue(new SearchFertilitySample(
+                TimestampUtc: DateTime.UtcNow,
+                Query: query,
+                AcceptedResults: resultCount,
+                RawFiles: totalFilesReceived,
+                FormatFiltered: filteredByFormat,
+                QueueFiltered: filteredByQueue,
+                DedupFiltered: filteredByDedup,
+                ClientState: _client?.State.ToString() ?? "Unknown"));
+
+            while (_recentSearchSamples.Count > 12)
+                _recentSearchSamples.TryDequeue(out _);
             
             return resultCount;
         }
