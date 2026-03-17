@@ -184,6 +184,36 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         _ => "Not Analyzed"
     };
 
+    // 2026 Forensic UX: compact quality pill + detailed hover HUD.
+    public string ForensicVerdictText => Model.Integrity switch
+    {
+        Data.IntegrityLevel.Gold => "Gold",
+        Data.IntegrityLevel.Verified => "Verified",
+        Data.IntegrityLevel.Suspicious => "Review",
+        _ => "Unknown"
+    };
+
+    public string ForensicHudText
+    {
+        get
+        {
+            var details = Model.QualityDetails;
+            string cutoffText = "";
+            if (Model.FrequencyCutoff.HasValue && Model.FrequencyCutoff.Value > 0)
+            {
+                var khz = Model.FrequencyCutoff.Value / 1000.0;
+                cutoffText = $"\nHard cutoff at {khz:F1}kHz detected.";
+            }
+
+            if (string.IsNullOrWhiteSpace(details))
+            {
+                return $"{IntegrityTooltip}{cutoffText}".Trim();
+            }
+
+            return $"{IntegrityTooltip}\n{details}{cutoffText}".Trim();
+        }
+    }
+
     // Phase 10: Spectral FLAC auditing
     public bool IsTranscoded => Model.IsTranscoded;
 

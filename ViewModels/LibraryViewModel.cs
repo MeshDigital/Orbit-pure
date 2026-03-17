@@ -116,14 +116,16 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         set { _isActiveDownloadsVisible = value; OnPropertyChanged(); }
     }
 
-    private bool _isNavigationCollapsed;
+    // 2026 workstation default: start in slim-rail mode (icons-first) to maximize grid space
+    private bool _isNavigationCollapsed = true;
     public bool IsNavigationCollapsed
     {
         get => _isNavigationCollapsed;
         set { SetProperty(ref _isNavigationCollapsed, value); }
     }
 
-    private bool _useCardView = false;
+    // 2026 workstation default: card hub as primary playlist surface
+    private bool _useCardView = true;
     public bool UseCardView
     {
         get => _useCardView;

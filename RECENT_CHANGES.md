@@ -1,5 +1,33 @@
 # Recent Changes
 
+## [0.1.0-alpha.27] - Library 2026 Visual Dashboard: Slim Rail Defaults, Circular Forensic Ring & Quality HUD (Mar 17, 2026)
+
+### UI/UX Modernization
+* **Slim-Rail by default**: Library now starts with collapsed navigation (`IsNavigationCollapsed = true`) to maximize horizontal workspace.
+* **Card dashboard by default**: Library now defaults to card mode (`UseCardView = true`) for playlist browsing.
+* **Circular forensic ring**: Playlist cards now use a circular health ring (via `CircularProgressConverter`) instead of a linear bar.
+
+### Forensic Track UX
+* **Quality Pills in DataGrid**: Track grid now shows a dedicated `FORENSICS` pill column (`Gold`, `Verified`, `Review`) with integrity icon + color.
+* **Hover HUD details**: Forensics pill tooltip now surfaces detailed diagnostics (integrity verdict + `QualityDetails` + spectral cutoff when available, e.g. hard cutoff in kHz).
+
+### Aesthetic Upgrade
+* **Main window transparency hint** enabled for workstation look:
+  * `TransparencyLevelHint="Mica, AcrylicBlur"`
+  * `Background="Transparent"`
+
+### Files Modified
+* `ViewModels/LibraryViewModel.cs`
+* `Views/Avalonia/PlaylistGridView.axaml`
+* `ViewModels/PlaylistTrackViewModel.cs`
+* `Views/Avalonia/TrackListView.axaml`
+* `Views/Avalonia/MainWindow.axaml`
+
+### Validation
+* **Build Verified**: `dotnet build` succeeds with 0 errors (8 pre-existing warnings unchanged).
+
+---
+
 ## [0.1.0-alpha.26] - Hyper-Drive Protocol Tuning: Search Caps + Queue-Aware Filtering (Mar 17, 2026)
 
 ### Soulseek Protocol Efficiency

@@ -154,6 +154,29 @@
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
+                <!-- Forensic Verdict Column -->
+                <DataGridTemplateColumn Header="FORENSICS" Width="120">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
+                            <Border Background="{Binding IntegrityColor}"
+                                    CornerRadius="10"
+                                    Padding="8,3"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    Margin="12,0"
+                                    ToolTip.Tip="{Binding ForensicHudText}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="{Binding IntegrityBadge}" FontSize="10"/>
+                                    <TextBlock Text="{Binding ForensicVerdictText}"
+                                               FontSize="10"
+                                               FontWeight="SemiBold"
+                                               Foreground="Black"/>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
                 <!-- Duration Column -->
                 <DataGridTemplateColumn Header="DURATION" Width="80">
                     <DataGridTemplateColumn.CellTemplate>

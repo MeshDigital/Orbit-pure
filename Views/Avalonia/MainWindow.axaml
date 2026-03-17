@@ -14,7 +14,8 @@
         Width="1400" Height="900"
         MinWidth="360" MinHeight="500"
         FontSize="{Binding BaseFontSize}"
-        Background="#1E1E1E">
+        TransparencyLevelHint="Mica, AcrylicBlur"
+        Background="Transparent">
 
     <Window.KeyBindings>
         <KeyBinding Gesture="Ctrl+D1" Command="{Binding NavigateHomeCommand}"/>
