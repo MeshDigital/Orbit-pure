@@ -12,6 +12,18 @@ public class Track
     public string? Artist { get; set; }
     public string? Title { get; set; }
     public string? Album { get; set; }
+
+    /// <summary>
+    /// Raw artist string before any sanitization. Null when no cleaning was performed.
+    /// Used by ImportPreviewPage to show a "⚠️ Cleaned" badge and diff tooltip.
+    /// </summary>
+    public string? OriginalArtist { get; set; }
+
+    /// <summary>
+    /// Raw title string before any sanitization. Null when no cleaning was performed.
+    /// Used by ImportPreviewPage to show a "⚠️ Cleaned" badge and diff tooltip.
+    /// </summary>
+    public string? OriginalTitle { get; set; }
     public long? Size { get; set; }
     public string? Username { get; set; }
     public string? Format { get; set; }

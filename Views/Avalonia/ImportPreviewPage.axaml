@@ -148,14 +148,96 @@
                 </DataGridTemplateColumn>
                 
                 <!-- Artist -->
-                <DataGridTextColumn Header="Artist" 
-                                    Binding="{Binding Model.Artist}" 
-                                    Width="2*"/>
+                <DataGridTemplateColumn Header="Artist" Width="2*">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Grid ColumnDefinitions="*,Auto" Margin="4,0">
+                                <TextBlock Grid.Column="0"
+                                           Text="{Binding Artist}"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <!-- ⚠️ Cleaned badge — visible when >30% of original artist was removed -->
+                                <Border Grid.Column="1"
+                                        Background="#33FF8C00"
+                                        CornerRadius="4"
+                                        Padding="5,2"
+                                        Margin="6,0,0,0"
+                                        VerticalAlignment="Center"
+                                        IsVisible="{Binding IsCleaned}"
+                                        ToolTip.Tip="{Binding CleanTooltip}">
+                                    <TextBlock Text="⚠ Cleaned"
+                                               FontSize="9"
+                                               Foreground="#FF8C00"
+                                               FontWeight="SemiBold"/>
+                                </Border>
+                            </Grid>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                    <DataGridTemplateColumn.CellEditingTemplate>
+                        <DataTemplate>
+                            <TextBox Text="{Binding Artist, Mode=TwoWay}"
+                                     Background="#2A2A2A"
+                                     Foreground="White"
+                                     BorderBrush="#0078D4"
+                                     Padding="4,2"
+                                     VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellEditingTemplate>
+                </DataGridTemplateColumn>
                 
                 <!-- Title -->
-                <DataGridTextColumn Header="Title" 
-                                    Binding="{Binding Model.Title}" 
-                                    Width="3*"/>
+                <DataGridTemplateColumn Header="Title" Width="3*">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Grid ColumnDefinitions="*,Auto" Margin="4,0">
+                                <TextBlock Grid.Column="0"
+                                           Text="{Binding Title}"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <!-- ↩ Restore + diff tooltip — visible when any field was cleaned -->
+                                <StackPanel Grid.Column="1"
+                                            Orientation="Horizontal"
+                                            Spacing="4"
+                                            Margin="6,0,2,0"
+                                            VerticalAlignment="Center"
+                                            IsVisible="{Binding HasAnyChange}">
+                                    <Border Background="#33FF8C00"
+                                            CornerRadius="4"
+                                            Padding="5,2"
+                                            VerticalAlignment="Center"
+                                            ToolTip.Tip="{Binding CleanTooltip}"
+                                            IsVisible="{Binding IsCleaned}">
+                                        <TextBlock Text="⚠ Cleaned"
+                                                   FontSize="9"
+                                                   Foreground="#FF8C00"
+                                                   FontWeight="SemiBold"/>
+                                    </Border>
+                                    <Button Command="{Binding RestoreOriginalCommand}"
+                                            ToolTip.Tip="Restore original artist &amp; title"
+                                            Background="Transparent"
+                                            Foreground="#FF8C00"
+                                            BorderThickness="0"
+                                            Padding="4,2"
+                                            FontSize="14"
+                                            VerticalAlignment="Center"
+                                            Cursor="Hand">
+                                        ↩
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                    <DataGridTemplateColumn.CellEditingTemplate>
+                        <DataTemplate>
+                            <TextBox Text="{Binding Title, Mode=TwoWay}"
+                                     Background="#2A2A2A"
+                                     Foreground="White"
+                                     BorderBrush="#0078D4"
+                                     Padding="4,2"
+                                     VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellEditingTemplate>
+                </DataGridTemplateColumn>
                 
                 <!-- Album (hide on tablet/mobile) -->
                 <DataGridTextColumn Header="Album" 

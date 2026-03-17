@@ -70,6 +70,18 @@ public class SearchQuery
     public string? Title { get; set; }
     public string? Artist { get; set; }
     public string? Album { get; set; }
+
+    /// <summary>
+    /// Raw artist string captured before any sanitization/cleaning step.
+    /// Populated by import providers that apply cleaning; null when no cleaning occurred.
+    /// </summary>
+    public string? OriginalArtist { get; set; }
+
+    /// <summary>
+    /// Raw title string captured before any sanitization/cleaning step.
+    /// Populated by import providers that apply cleaning; null when no cleaning occurred.
+    /// </summary>
+    public string? OriginalTitle { get; set; }
     /// <summary>
     /// Name of the originating source (e.g., Spotify playlist name).
     /// </summary>

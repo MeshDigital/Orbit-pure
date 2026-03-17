@@ -144,6 +144,9 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
                     Artist = query.Artist,
                     Album = query.Album,
                     Length = query.Length,
+                    // Preserve raw strings for "⚠️ Cleaned" badge in preview UI
+                    OriginalArtist = query.OriginalArtist,
+                    OriginalTitle = query.OriginalTitle,
                     // Phase 0: Map Spotify Metadata
                     SpotifyTrackId = query.SpotifyTrackId,
                     SpotifyAlbumId = query.SpotifyAlbumId,
@@ -342,6 +345,9 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
                 Artist = query.Artist,
                 Album = query.Album,
                 Length = query.Length,
+                // Preserve raw strings for "⚠️ Cleaned" badge in preview UI
+                OriginalArtist = query.OriginalArtist,
+                OriginalTitle = query.OriginalTitle,
                 SpotifyTrackId = query.SpotifyTrackId,
                 SpotifyAlbumId = query.SpotifyAlbumId,
                 SpotifyArtistId = query.SpotifyArtistId,

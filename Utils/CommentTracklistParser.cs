@@ -53,8 +53,11 @@ public static class CommentTracklistParser
             if (IsJunkLine(cleaned) || string.IsNullOrWhiteSpace(cleaned))
                 continue;
             
-            // 3. Split artist/title
+            // 3. Split artist/title (post-emoji-removal)
             var (artist, title) = SplitArtistTitle(cleaned);
+
+            // 3b. Also split the pre-emoji-removal version to record originals
+            var (rawArtist, rawTitle) = SplitRaw(cleaned);
             
             // 4. Create SearchQuery if both artist and title are valid
             if (!string.IsNullOrWhiteSpace(artist) && !string.IsNullOrWhiteSpace(title))
@@ -63,6 +66,10 @@ public static class CommentTracklistParser
                 {
                     Artist = artist.Trim(),
                     Title = title.Trim(),
+                    // Store raw values so the preview UI can show a "⚠️ Cleaned" badge
+                    // when emoji removal or other transforms materially changed the string.
+                    OriginalArtist = string.IsNullOrWhiteSpace(rawArtist) ? null : rawArtist.Trim(),
+                    OriginalTitle = string.IsNullOrWhiteSpace(rawTitle) ? null : rawTitle.Trim(),
                     Album = null // No album info from comments
                 });
             }
@@ -103,6 +110,20 @@ public static class CommentTracklistParser
             return true;
 
         return false;
+    }
+
+    /// <summary>
+    /// Split a line into artist and title without applying emoji/symbol removal.
+    /// Used to capture the raw original values before sanitization.
+    /// </summary>
+    private static (string Artist, string Title) SplitRaw(string line)
+    {
+        var parts = SeparatorRegex.Split(line, 2);
+        if (parts.Length == 2)
+            return (parts[0].Trim(), parts[1].Trim());
+        if (parts.Length == 1)
+            return ("Unknown Artist", parts[0].Trim());
+        return (string.Empty, string.Empty);
     }
 
     /// <summary>
