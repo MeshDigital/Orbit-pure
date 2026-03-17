@@ -1,5 +1,31 @@
 # Recent Changes
 
+## [0.1.0-alpha.21] - Phase 14: Enhanced Error Logging & Diagnostics (Mar 17, 2026)
+
+### New Features
+* **Persistent Error Logging**: All errors displayed in the Error Stream window are now automatically logged to persistent JSON log files for the current app session.
+* **Reliable Open Logs Button**: Completely redesigned the "Open Logs" button functionality with robust directory detection that works in both development and production environments.
+* **Environment-Aware Logging**: Automatic detection of development vs production environments with appropriate log directory selection.
+
+### Technical Improvements
+* **Consistent Log Directory Management**: Unified logging configuration that writes to project root `/logs` in development and `%LOCALAPPDATA%/ORBIT/logs` in production.
+* **Enhanced Error Stream Logging**: Every error added to the UI error stream is now logged with full context to the persistent log file.
+* **Robust Directory Detection**: OpenLogs method now searches multiple possible log locations and provides clear error messages when directories cannot be found.
+
+### Fixes & Stability
+* **Open Logs Button Reliability**: Fixed the "Open Logs" button to always work by implementing fallback directory detection logic.
+* **Error Persistence**: Ensured all application errors are captured in log files that persist after app closure.
+* **Cross-Environment Compatibility**: Logging system now works correctly in both VS Code development and deployed application scenarios.
+
+### Files Modified
+* **Configuration**: `Program.cs` (logging setup), `appsettings.json` (removed duplicate file sink)
+* **UI**: `ErrorStreamWindow.axaml.cs` (OpenLogs method, error logging)
+
+### Validation
+* **Build Verified**: `dotnet build` succeeds with all logging improvements.
+* **Runtime Tested**: Application logs errors correctly and OpenLogs button functions properly.
+* **Cross-Platform**: Logging works in both development and production environments.
+
 ## [0.1.0-alpha.20] - Phase 13: Soulseek Connection Management UI (Mar 17, 2026)
 
 ### New Features
