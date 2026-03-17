@@ -1,5 +1,31 @@
 # Recent Changes
 
+## [0.1.0-alpha.36] - Hardwired Strict/Throughput Search Profile Toggle (Mar 17, 2026)
+
+### One-Toggle Search Policy Switching
+* `SettingsViewModel.cs` adds a hardwired profile toggle property: `HardwireStrictSearchProfile`.
+* Toggle **ON** applies strict policy values directly to config:
+  * formats: `flac`
+  * min bitrate: `701`
+  * search caps: conservative (`SearchResponseLimit=100`, `SearchFileLimit=100`, `MaxPeerQueueLength=50`)
+* Toggle **OFF** applies throughput policy values directly to config:
+  * formats: `flac,wav,aiff,aif,mp3`
+  * min bitrate: `320`
+  * search caps: wider (`SearchResponseLimit=250`, `SearchFileLimit=250`, `MaxPeerQueueLength=150`)
+
+### Settings UX
+* `SettingsPage.axaml` adds a dedicated “Hardwire Strict Profile” toggle block under **Default Search Filters**.
+* Added live mode label via `SearchProfileModeText` for immediate operator clarity.
+
+### Binding/State Sync
+* `SettingsViewModel.cs` now refreshes profile-mode bindings when `PreferredFormats`, `MinBitrate`, or `MaxBitrate` are edited.
+* Added guard (`_isApplyingSearchProfile`) to avoid recursive/unstable toggle updates during hard-apply operations.
+
+### Validation
+* `dotnet build SLSKDONET.sln -c Debug -p:UseAppHost=false` ✅
+
+---
+
 ## [0.1.0-alpha.35] - Soulseek Disconnect Diagnostics + Parent Health False-Positive Reduction (Mar 17, 2026)
 
 ### Parent Health Stability Tuning

@@ -182,6 +182,23 @@
             <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
                 <StackPanel Spacing="16">
                     <TextBlock Text="Default Search Filters" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
+
+                    <Border Background="#1E1E1E" BorderBrush="#333" BorderThickness="1" CornerRadius="6" Padding="12">
+                        <StackPanel Spacing="8">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Text="Hardwire Strict Profile" FontWeight="SemiBold" Foreground="#DDD"/>
+                                    <TextBlock Text="Toggle ON for strict FLAC-only policy. Toggle OFF for throughput profile." Foreground="#888" FontSize="11" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1"
+                                              IsChecked="{Binding HardwireStrictSearchProfile, Mode=TwoWay}"
+                                              OnContent="Strict"
+                                              OffContent="Throughput"
+                                              VerticalAlignment="Center"/>
+                            </Grid>
+                            <TextBlock Text="{Binding SearchProfileModeText}" Foreground="#666" FontSize="11"/>
+                        </StackPanel>
+                    </Border>
                     
                     <!-- Min Bitrate -->
                     <Grid ColumnDefinitions="180,120,*">

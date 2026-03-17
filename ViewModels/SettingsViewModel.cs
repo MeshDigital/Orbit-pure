@@ -27,6 +27,21 @@ public enum SpotifyAuthStatus
 
 public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 {
+    private const string StrictPreferredFormats = "flac";
+    private const int StrictMinBitrate = 701;
+    private const int StrictMaxBitrate = 0;
+    private const int StrictSearchResponseLimit = 100;
+    private const int StrictSearchFileLimit = 100;
+    private const int StrictMaxPeerQueueLength = 50;
+
+    private const string ThroughputPreferredFormats = "flac,wav,aiff,aif,mp3";
+    private const int ThroughputMinBitrate = 320;
+    private const int ThroughputMaxBitrate = 0;
+    private const int ThroughputSearchResponseLimit = 250;
+    private const int ThroughputSearchFileLimit = 250;
+    private const int ThroughputMaxPeerQueueLength = 150;
+
+    private bool _isApplyingSearchProfile;
     private bool _isDisposed;
     private IDisposable? _libraryFoldersSubscription;
 
@@ -194,6 +209,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             {
                 _config.PreferredMinBitrate = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(HardwireStrictSearchProfile));
+                OnPropertyChanged(nameof(SearchProfileModeText));
                 SaveSettings();
             }
         }
@@ -208,6 +225,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             {
                 _config.PreferredMaxBitrate = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(HardwireStrictSearchProfile));
+                OnPropertyChanged(nameof(SearchProfileModeText));
                 SaveSettings();
             }
         }
@@ -220,8 +239,73 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         {
             _config.PreferredFormats = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
             OnPropertyChanged();
+            OnPropertyChanged(nameof(HardwireStrictSearchProfile));
+            OnPropertyChanged(nameof(SearchProfileModeText));
             SaveSettings();
         }
+    }
+
+    public bool HardwireStrictSearchProfile
+    {
+        get => IsStrictProfileActive();
+        set
+        {
+            if (_isApplyingSearchProfile)
+                return;
+
+            _isApplyingSearchProfile = true;
+            try
+            {
+                if (value)
+                {
+                    _config.PreferredFormats = StrictPreferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                    _config.PreferredMinBitrate = StrictMinBitrate;
+                    _config.PreferredMaxBitrate = StrictMaxBitrate;
+                    _config.SearchResponseLimit = StrictSearchResponseLimit;
+                    _config.SearchFileLimit = StrictSearchFileLimit;
+                    _config.MaxPeerQueueLength = StrictMaxPeerQueueLength;
+                }
+                else
+                {
+                    _config.PreferredFormats = ThroughputPreferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                    _config.PreferredMinBitrate = ThroughputMinBitrate;
+                    _config.PreferredMaxBitrate = ThroughputMaxBitrate;
+                    _config.SearchResponseLimit = ThroughputSearchResponseLimit;
+                    _config.SearchFileLimit = ThroughputSearchFileLimit;
+                    _config.MaxPeerQueueLength = ThroughputMaxPeerQueueLength;
+                }
+
+                OnPropertyChanged(nameof(PreferredFormats));
+                OnPropertyChanged(nameof(MinBitrate));
+                OnPropertyChanged(nameof(MaxBitrate));
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(SearchProfileModeText));
+                SaveSettings();
+            }
+            finally
+            {
+                _isApplyingSearchProfile = false;
+            }
+        }
+    }
+
+    public string SearchProfileModeText => HardwireStrictSearchProfile
+        ? "STRICT hardwired: FLAC-only + 701kbps floor + conservative search caps"
+        : "THROUGHPUT hardwired: FLAC/WAV/AIFF/AIF/MP3 + 320kbps floor + wider search caps";
+
+    private bool IsStrictProfileActive()
+    {
+        var formats = (_config.PreferredFormats ?? new List<string>())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim().ToLowerInvariant())
+            .ToList();
+
+        return formats.Count == 1
+               && formats[0] == "flac"
+               && _config.PreferredMinBitrate >= StrictMinBitrate
+               && _config.SearchResponseLimit <= StrictSearchResponseLimit
+               && _config.SearchFileLimit <= StrictSearchFileLimit
+               && _config.MaxPeerQueueLength <= StrictMaxPeerQueueLength;
     }
 
     public bool SpotifyUseApi
