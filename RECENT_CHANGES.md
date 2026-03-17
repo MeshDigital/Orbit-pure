@@ -1,5 +1,38 @@
 # Recent Changes
 
+## [0.1.0-alpha.26] - Hyper-Drive Protocol Tuning: Search Caps + Queue-Aware Filtering (Mar 17, 2026)
+
+### Soulseek Protocol Efficiency
+* **SearchOptions tuned for speed** in `SoulseekAdapter`:
+  * `searchTimeout` now uses config (`SearchTimeout`) instead of fixed 30s.
+  * Added configurable limits: `SearchResponseLimit` and `SearchFileLimit` (default 100/100).
+* **Queue-length ingress filter**: responses from peers with queue length above `MaxPeerQueueLength` (default 50) are skipped before file parsing/scoring.
+
+### Queue-Aware Match Scoring
+* `DownloadDiscoveryService` now applies a queue penalty during candidate scoring:
+  * starts after queue length 10,
+  * scales per slot,
+  * capped to prevent over-penalization.
+* This reduces "winner" selections that are technically high quality but practically unavailable due to deep upload queues.
+
+### Config Additions
+* `AppConfig`:
+  * `SearchResponseLimit`
+  * `SearchFileLimit`
+  * `MaxPeerQueueLength`
+* `ConfigManager` now loads/saves all three values under `[Search]`.
+
+### Files Modified
+* `Configuration/AppConfig.cs`
+* `Configuration/ConfigManager.cs`
+* `Services/SoulseekAdapter.cs`
+* `Services/DownloadDiscoveryService.cs`
+
+### Validation
+* **Build Verified**: `dotnet build` succeeds with 0 errors (8 pre-existing warnings unchanged).
+
+---
+
 ## [0.1.0-alpha.25] - Workstation 2026 Kickoff: Golden Search Gate + Side-by-Side Import + Card View Wiring (Mar 17, 2026)
 
 ### Performance: Search Lane Quality Gate

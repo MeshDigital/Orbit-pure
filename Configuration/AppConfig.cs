@@ -18,6 +18,9 @@ public class AppConfig
     public int SearchTimeout { get; set; } = 6000; // ms
     public int MaxConcurrentSearches { get; set; } = 5; // Throttling to prevent bans
     public int SearchThrottleDelayMs { get; set; } = 200; // Protocol pacing to prevent flood protection
+    public int SearchResponseLimit { get; set; } = 100; // Workstation 2026: cap response batches for fast winner selection
+    public int SearchFileLimit { get; set; } = 100; // Workstation 2026: cap files per search for memory/CPU efficiency
+    public int MaxPeerQueueLength { get; set; } = 50; // Ignore peers with very long queue lengths
     public int MinSearchDurationSeconds { get; set; } = 3; // Keep lanes open briefly to capture late high-quality peers
     public bool EnableHedgedSearch { get; set; } = true;
     public int HedgedSearchDelaySeconds { get; set; } = 5;

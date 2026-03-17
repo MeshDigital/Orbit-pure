@@ -309,7 +309,11 @@ public class DownloadDiscoveryService
                     var matchResult = scored.Result;
                     var reliability = _peerReliability.GetReliabilityScore(searchTrack.Username);
                     var reliabilityBonus = (reliability - 0.5) * 10.0;
-                    var score = scored.Score + reliabilityBonus;
+                    var queueLength = Math.Max(0, searchTrack.QueueLength);
+                    var queuePenalty = queueLength > 10
+                        ? Math.Min(20.0, (queueLength - 10) * 0.25)
+                        : 0.0;
+                    var score = scored.Score + reliabilityBonus - queuePenalty;
 
                     searchTrack.ScoreBreakdown = matchResult.ScoreBreakdown;
                     searchTrack.CurrentRank = score;

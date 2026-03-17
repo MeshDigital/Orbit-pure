@@ -250,6 +250,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         var filteredByFormat = 0;
         var filteredByBitrate = 0;
         var filteredBySampleRate = 0;
+        var filteredByQueue = 0;
         var formatSet = formatFilter?.Select(f => f.ToLowerInvariant()).ToHashSet();
 
         try
@@ -295,9 +296,9 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             
             var searchQuery = Soulseek.SearchQuery.FromText(query);
             var options = new SearchOptions(
-                searchTimeout: 30000, // 30 seconds
-                responseLimit: 1000,
-                fileLimit: 10000
+                searchTimeout: Math.Max(5000, _config.SearchTimeout),
+                responseLimit: Math.Max(20, _config.SearchResponseLimit),
+                fileLimit: Math.Max(20, _config.SearchFileLimit)
             );
 
             // The SearchAsync method in the library (or wrapper) seems to handle the waiting internally 
@@ -308,6 +309,16 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 (response) =>
                 {
                     _logger.LogDebug("Received response from {User} with {Count} files", response.Username, response.Files.Count());
+
+                    // Workstation 2026: pre-filter high queue peers at ingress to avoid
+                    // expensive parsing/matching on low-likelihood responses.
+                    if (response.QueueLength > _config.MaxPeerQueueLength)
+                    {
+                        filteredByQueue += response.Files.Count();
+                        _logger.LogTrace("[QUEUE FILTER] Skipping response from {User} (queue {QueueLength} > {MaxQueue})",
+                            response.Username, response.QueueLength, _config.MaxPeerQueueLength);
+                        return;
+                    }
                     
                     var foundTracksInResponse = new List<Track>();
 
@@ -417,8 +428,8 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 resultCount = directories.Count;
             }
 
-            _logger.LogInformation("Search completed: {ResultCount} results from {TotalFiles} files (filtered: {FormatFiltered} by format, {BitrateFiltered} by bitrate, {SampleRateFiltered} by sample-rate)",
-                resultCount, totalFilesReceived, filteredByFormat, filteredByBitrate, filteredBySampleRate);
+            _logger.LogInformation("Search completed: {ResultCount} results from {TotalFiles} files (filtered: {FormatFiltered} by format, {BitrateFiltered} by bitrate, {SampleRateFiltered} by sample-rate, {QueueFiltered} by peer queue)",
+                resultCount, totalFilesReceived, filteredByFormat, filteredByBitrate, filteredBySampleRate, filteredByQueue);
             
             return resultCount;
         }

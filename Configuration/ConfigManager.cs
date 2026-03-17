@@ -98,6 +98,9 @@ public class ConfigManager
                 PreferredFormats = config["Search:PreferredFormats"]?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList() ?? new List<string> { "mp3", "flac" },
                 PreferredMinBitrate = int.TryParse(config["Search:PreferredMinBitrate"], out var pmb) ? pmb : 96,
                 PreferredMaxBitrate = int.TryParse(config["Search:PreferredMaxBitrate"], out var pmaxb) ? pmaxb : 0,
+                SearchResponseLimit = int.TryParse(config["Search:SearchResponseLimit"], out var srl) ? srl : 100,
+                SearchFileLimit = int.TryParse(config["Search:SearchFileLimit"], out var sfl) ? sfl : 100,
+                MaxPeerQueueLength = int.TryParse(config["Search:MaxPeerQueueLength"], out var mpql) ? mpql : 50,
 
                 // [Library] & Upgrade Scout
                 LibraryColumnOrder = config["Library:ColumnOrder"] ?? "",
@@ -175,6 +178,9 @@ public class ConfigManager
         iniContent.AppendLine($"PreferredFormats = {(config.PreferredFormats != null ? string.Join(",", config.PreferredFormats) : "mp3,flac")}");
         iniContent.AppendLine($"PreferredMinBitrate = {config.PreferredMinBitrate}");
         iniContent.AppendLine($"PreferredMaxBitrate = {config.PreferredMaxBitrate}");
+        iniContent.AppendLine($"SearchResponseLimit = {config.SearchResponseLimit}");
+        iniContent.AppendLine($"SearchFileLimit = {config.SearchFileLimit}");
+        iniContent.AppendLine($"MaxPeerQueueLength = {config.MaxPeerQueueLength}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[MusicalIntelligence]");
