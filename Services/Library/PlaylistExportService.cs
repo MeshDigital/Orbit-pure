@@ -118,7 +118,7 @@ public class PlaylistExportService
             var csvLines = new List<string>
             {
                 // Phase 12: Enhanced CSV headers with forensic data
-                "Title,Artist,Album,Genre,BPM,Key,Bitrate,Duration,FilePath,AddedAt,IsTranscoded,HighFreqEnergyDb,LowFreqEnergyDb,EnergyRatio,ForensicReason"
+                "Title,Artist,Album,Genre,BPM,Key,Bitrate,Duration,FilePath,AddedAt,IsTranscoded"
             };
 
             foreach (var entry in entries)
@@ -139,11 +139,7 @@ public class PlaylistExportService
                     entry.DurationSeconds?.ToString() ?? "",
                     $"\"{EscapeCsvField(entry.FilePath)}\"",
                     entry.AddedAt.ToString("yyyy-MM-dd HH:mm:ss"),
-                    entry.IsTranscoded?.ToString() ?? "false",
-                    entry.HighFreqEnergyDb?.ToString("F2") ?? "",
-                    entry.LowFreqEnergyDb?.ToString("F2") ?? "",
-                    entry.EnergyRatio?.ToString("F2") ?? "",
-                    $"\"{EscapeCsvField(entry.ForensicReason)}\""
+                    entry.IsTranscoded?.ToString() ?? "false"
                 });
 
                 csvLines.Add(line);

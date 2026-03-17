@@ -17,6 +17,7 @@ using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.Library;
 using SLSKDONET.ViewModels;
 using SLSKDONET.Views;
+using SLSKDONET.Views.Avalonia;
 using System;
 using System.IO;
 
@@ -28,6 +29,7 @@ namespace SLSKDONET;
 public partial class App : Application
 {
     public IServiceProvider? Services { get; private set; }
+    private Views.Avalonia.ErrorStreamWindow? _errorStreamWindow;
 
     public override void Initialize()
     {
@@ -370,7 +372,6 @@ public partial class App : Application
         
         // Phase 2A: Crash Recovery - Journal & Recovery Services (ORBIT v1.0)
         services.AddSingleton<CrashRecoveryJournal>();
-        services.AddSingleton<TrackForensicLogger>();
         services.AddSingleton<CrashRecoveryService>();
         
         //Session 1: Performance Optimization - Smart caching layer
@@ -470,8 +471,6 @@ public partial class App : Application
         services.AddSingleton<SearchNormalizationService>();
         services.AddSingleton<ISafetyFilterService, SafetyFilterService>();
         services.AddSingleton<SearchResultMatcher>();
-        services.AddSingleton<ForensicLockdownService>();
-        services.AddSingleton<IForensicLockdownService>(sp => sp.GetRequiredService<ForensicLockdownService>());
         services.AddSingleton<ISmartPlaylistService, SmartPlaylistService>();
         
         
@@ -650,7 +649,7 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Phase 12: Global exception handler - Show user-friendly error dialog
+    /// Phase 12: Global exception handler - Stream errors to persistent window
     /// </summary>
     private async void HandleGlobalException(Exception? exception, string source, bool isTerminating)
     {
@@ -661,46 +660,55 @@ public partial class App : Application
 
             Serilog.Log.Fatal(exception, "🚨 {Source}: {Message}", source, errorMessage);
 
-            // Show error dialog on UI thread
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+            // Add to error stream window on UI thread
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
                 try
                 {
-                    var errorDialog = new Views.Avalonia.ErrorReportDialog
+                    // Create window if needed
+                    if (_errorStreamWindow == null)
                     {
-                        ErrorMessage = errorMessage,
-                        StackTrace = stackTrace,
-                        IsTerminating = isTerminating
-                    };
+                        _errorStreamWindow = new Views.Avalonia.ErrorStreamWindow();
+                    }
 
-                    if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop &&
-                        desktop.MainWindow != null)
+                    // Add the error
+                    _errorStreamWindow.AddError(source, errorMessage, stackTrace);
+
+                    // Show window if not already visible
+                    if (!_errorStreamWindow.IsVisible)
                     {
-                        await errorDialog.ShowDialog(desktop.MainWindow);
+                        _errorStreamWindow.Show();
+                        _errorStreamWindow.Activate();
                     }
                     else
                     {
-                        // Fallback if no main window
-                        errorDialog.Show();
+                        // Bring to front
+                        _errorStreamWindow.Activate();
+                    }
+
+                    // If terminating, show a brief alert
+                    if (isTerminating)
+                    {
+                        var alert = new Window
+                        {
+                            Title = "Critical Error",
+                            Content = new TextBlock
+                            {
+                                Text = "A critical error occurred and the application will terminate.\nCheck the Error Stream window for details.",
+                                TextWrapping = TextWrapping.Wrap,
+                                Margin = new Thickness(20)
+                            },
+                            SizeToContent = SizeToContent.WidthAndHeight,
+                            WindowStartupLocation = WindowStartupLocation.CenterScreen
+                        };
+                        alert.Show();
                     }
                 }
-                catch (Exception dialogEx)
+                catch (Exception ex)
                 {
-                    Serilog.Log.Fatal(dialogEx, "Failed to show error dialog");
-                    // Last resort: show message box
-                    var messageBox = new Window
-                    {
-                        Title = "ORBIT-Pure Error",
-                        Content = new TextBlock
-                        {
-                            Text = $"A critical error occurred:\n\n{errorMessage}\n\nPlease check the logs for details.",
-                            TextWrapping = TextWrapping.Wrap,
-                            Margin = new Thickness(20)
-                        },
-                        SizeToContent = SizeToContent.WidthAndHeight,
-                        WindowStartupLocation = WindowStartupLocation.CenterScreen
-                    };
-                    messageBox.Show();
+                    Serilog.Log.Fatal(ex, "Failed to show error stream window");
+                    // Last resort: console output
+                    Console.WriteLine($"CRITICAL ERROR: {source} - {errorMessage}");
                 }
             });
         }
