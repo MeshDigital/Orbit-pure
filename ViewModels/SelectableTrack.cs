@@ -15,6 +15,7 @@ public class SelectableTrack : INotifyPropertyChanged
 {
     public Track Model { get; }
     public Track Track => Model; // Alias for compatibility
+    private readonly RelayCommand _restoreOriginalCommand;
 
     // ─── Selection ────────────────────────────────────────────────────────────
 
@@ -51,9 +52,12 @@ public class SelectableTrack : INotifyPropertyChanged
             {
                 Model.Artist = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(RawInputDisplay));
+                OnPropertyChanged(nameof(HasAnyChange));
                 OnPropertyChanged(nameof(IsCleaned));
                 OnPropertyChanged(nameof(CleanBadgeVisible));
                 OnPropertyChanged(nameof(CleanTooltip));
+                _restoreOriginalCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -70,9 +74,12 @@ public class SelectableTrack : INotifyPropertyChanged
             {
                 Model.Title = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(RawInputDisplay));
+                OnPropertyChanged(nameof(HasAnyChange));
                 OnPropertyChanged(nameof(IsCleaned));
                 OnPropertyChanged(nameof(CleanBadgeVisible));
                 OnPropertyChanged(nameof(CleanTooltip));
+                _restoreOriginalCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -84,6 +91,20 @@ public class SelectableTrack : INotifyPropertyChanged
 
     /// <summary>Raw title string before sanitization (null if none applied).</summary>
     public string? OriginalTitle => Model.OriginalTitle;
+
+    /// <summary>
+    /// Side-by-side preview column value: original "Artist - Title" (raw input).
+    /// Falls back to current values if originals are unavailable.
+    /// </summary>
+    public string RawInputDisplay
+    {
+        get
+        {
+            var rawArtist = string.IsNullOrWhiteSpace(OriginalArtist) ? Artist : OriginalArtist;
+            var rawTitle = string.IsNullOrWhiteSpace(OriginalTitle) ? Title : OriginalTitle;
+            return $"{rawArtist ?? ""} - {rawTitle ?? ""}".Trim(' ', '-');
+        }
+    }
 
     /// <summary>
     /// True when a significant cleaning step removed more than 30% of the original
@@ -137,6 +158,8 @@ public class SelectableTrack : INotifyPropertyChanged
     {
         if (Model.OriginalArtist != null) Artist = Model.OriginalArtist;
         if (Model.OriginalTitle  != null) Title  = Model.OriginalTitle;
+        OnPropertyChanged(nameof(RawInputDisplay));
+        _restoreOriginalCommand.RaiseCanExecuteChanged();
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -145,7 +168,7 @@ public class SelectableTrack : INotifyPropertyChanged
     {
         if (string.IsNullOrEmpty(original) || original == cleaned) return false;
         var removed = original.Length - (cleaned?.Length ?? 0);
-        return removed > 0 && (double)removed / original.Length > 0.30;
+        return removed >= 20 || (removed > 0 && (double)removed / original.Length > 0.30);
     }
 
     // ─── Proxied / computed pass-through ─────────────────────────────────────
@@ -174,7 +197,8 @@ public class SelectableTrack : INotifyPropertyChanged
         Model = track;
         _isSelected = isSelected;
         Model.IsSelected = isSelected;
-        RestoreOriginalCommand = new RelayCommand(RestoreOriginal, () => HasAnyChange);
+        _restoreOriginalCommand = new RelayCommand(RestoreOriginal, () => HasAnyChange);
+        RestoreOriginalCommand = _restoreOriginalCommand;
     }
 
     // Constructor for SpotifyImportViewModel compatibility

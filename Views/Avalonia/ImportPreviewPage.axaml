@@ -146,6 +146,20 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
+
+                <!-- Raw Input (Before Cleaning) -->
+                <DataGridTemplateColumn Header="Raw Input" Width="3*">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding RawInputDisplay}"
+                                       Margin="4,0"
+                                       Foreground="#A9A9A9"
+                                       VerticalAlignment="Center"
+                                       TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 
                 <!-- Artist -->
                 <DataGridTemplateColumn Header="Artist" Width="2*">

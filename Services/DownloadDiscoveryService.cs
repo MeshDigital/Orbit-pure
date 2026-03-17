@@ -242,6 +242,13 @@ public class DownloadDiscoveryService
             var preferredFormats = string.Join(",", formatsList.Distinct());
             var minBitrate = track.MinBitrateOverride ?? _config.PreferredMinBitrate;
             
+            // Workstation 2026: enforce network-side quality gate for lossless lanes.
+            // This pushes filtering upstream to Soulseek and reduces local scoring overhead.
+            if (!forceMp3 && formatsList.Contains("flac", StringComparer.OrdinalIgnoreCase))
+            {
+                minBitrate = Math.Max(minBitrate, 500);
+            }
+            
             // Cap at reasonable high unless strictly set, but for discovery we want quality
             var maxBitrate = 0; 
 
@@ -306,6 +313,24 @@ public class DownloadDiscoveryService
 
                     searchTrack.ScoreBreakdown = matchResult.ScoreBreakdown;
                     searchTrack.CurrentRank = score;
+
+                    var isGoldenCriteria = !forceMp3 &&
+                                           string.Equals(searchTrack.Format, "flac", StringComparison.OrdinalIgnoreCase) &&
+                                           searchTrack.Bitrate >= 500 &&
+                                           score >= 85;
+
+                    // Workstation 2026: first-past-the-post quality gate.
+                    // As soon as a verified FLAC 500kbps+ candidate appears, we stop this lane early.
+                    if (isGoldenCriteria)
+                    {
+                        _logger.LogInformation("🏁 GOLDEN CRITERIA hit ({Score}/100): {File} [{Bitrate}kbps {Format}] - ending tier early.",
+                            score, searchTrack.Filename, searchTrack.Bitrate, searchTrack.Format);
+
+                        _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash,
+                            $"🏁 Golden match: {searchTrack.Username} ({searchTrack.Bitrate}kbps FLAC)."));
+
+                        return new DiscoveryResult(searchTrack, log, runnerUpSilverMatch);
+                    }
 
                     if (score > 95)
                     {

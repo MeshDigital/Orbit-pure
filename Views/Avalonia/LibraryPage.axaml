@@ -190,6 +190,11 @@
                         </StackPanel>
                     </ScrollViewer>
 
+                    <!-- Navigation Content: 2026 Card View -->
+                    <ScrollViewer Grid.Row="1" IsVisible="{Binding UseCardView}">
+                        <views:PlaylistGridView/>
+                    </ScrollViewer>
+
                     <!-- Bottom Actions / Compact Icon Bar -->
                     <Grid Grid.Row="2" Margin="12,12">
                         <!-- Full Actions (when expanded) -->

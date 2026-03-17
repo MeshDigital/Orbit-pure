@@ -1,5 +1,37 @@
 # Recent Changes
 
+## [0.1.0-alpha.25] - Workstation 2026 Kickoff: Golden Search Gate + Side-by-Side Import + Card View Wiring (Mar 17, 2026)
+
+### Performance: Search Lane Quality Gate
+* **Network-side bitrate floor for lossless lanes**: `DownloadDiscoveryService` now enforces `minBitrate >= 500` whenever FLAC/lossless mode is active (non-MP3 fallback), reducing local candidate churn.
+* **First-past-the-post golden criteria**: Discovery tier exits early when a candidate meets all conditions:
+  * `format == flac`
+  * `bitrate >= 500`
+  * `score >= 85`
+* **Result**: Faster lane completion on high-quality hits and less wasted scoring work.
+
+### Data Integrity UX: Side-by-Side Import Validation
+* **Raw Input column added** to `ImportPreviewPage.axaml`, showing pre-cleaned metadata side-by-side with editable sanitized fields.
+* `SelectableTrack` now exposes `RawInputDisplay` (`OriginalArtist - OriginalTitle` with graceful fallback).
+* **Cleaning flag logic tightened**: badges now trigger when cleaning removed either:
+  * **20+ characters**, or
+  * **more than 30%** of original length.
+* **Restore command robustness**: `RestoreOriginalCommand` now updates can-execute/reactivity during inline edits.
+
+### Layout Modernization: Library Card View Activation
+* `LibraryPage.axaml` now renders `PlaylistGridView` when `UseCardView == true`, activating the existing card-based WrapPanel playlist experience in the slim rail workflow.
+
+### Files Modified
+* `Services/DownloadDiscoveryService.cs`
+* `ViewModels/SelectableTrack.cs`
+* `Views/Avalonia/ImportPreviewPage.axaml`
+* `Views/Avalonia/LibraryPage.axaml`
+
+### Validation
+* **Build Verified**: `dotnet build` succeeds with 0 errors (8 pre-existing warnings unchanged).
+
+---
+
 ## [0.1.0-alpha.24] - Import Preview Before/After Validation, Inline Edit & Restore (Mar 17, 2026)
 
 ### Problem Addressed
