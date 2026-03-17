@@ -76,11 +76,13 @@ public class SearchOrchestrationService
         string preferredFormats,
         int minBitrate,
         int maxBitrate,
-        bool isAlbumSearch, 
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        bool isAlbumSearch,
+        bool fastClearance = false,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var variations = _searchNormalization.GenerateSearchVariations(query);
         var seenHashes = new HashSet<string>();
+        var formatFilter = preferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         int totalFound = 0;
 
         // Throttling Check (Acquire once for the entire cascade)
@@ -113,6 +115,17 @@ public class SearchOrchestrationService
                         yield return track;
                         totalFound++;
                         foundInThisVariation = true;
+
+                        if (fastClearance && !isAlbumSearch && IsFastLaneWinner(track, formatFilter, minBitrate))
+                        {
+                            _logger.LogInformation(
+                                "Fast lane triggered for '{Variation}'. Short-circuiting cascade on idle peer {User} ({Bitrate} kbps, queue {QueueLength}).",
+                                variation,
+                                track.Username ?? "Unknown",
+                                track.Bitrate,
+                                track.QueueLength);
+                            yield break;
+                        }
                     }
                 }
 
@@ -139,6 +152,33 @@ public class SearchOrchestrationService
                 _searchSemaphore.Release();
             }
         }
+    }
+
+    private static bool IsFastLaneWinner(Track track, string[] formatFilter, int minBitrate)
+    {
+        if (track.IsFlagged)
+            return false;
+
+        if (track.QueueLength > ScoringConstants.Availability.FastLaneMaxQueue)
+            return false;
+
+        if (!track.HasFreeUploadSlot && track.QueueLength != 0)
+            return false;
+
+        var ext = track.GetExtension().ToLowerInvariant();
+        var format = (track.Format ?? string.Empty).ToLowerInvariant();
+        if (formatFilter.Length > 0 &&
+            !formatFilter.Contains(format, StringComparer.OrdinalIgnoreCase) &&
+            !formatFilter.Contains(ext, StringComparer.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var isLossless = ext is "flac" or "wav" or "aif" or "aiff" or "ape" or "alac" ||
+                         format is "flac" or "wav" or "aif" or "aiff" or "ape" or "alac";
+
+        var effectiveMinBitrate = Math.Max(minBitrate, ScoringConstants.Availability.FastLaneMinBitrate);
+        return isLossless || track.Bitrate >= effectiveMinBitrate;
     }
 
     private async IAsyncEnumerable<Track> StreamAndRankResultsAsync(

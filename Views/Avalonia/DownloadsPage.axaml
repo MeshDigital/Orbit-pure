@@ -227,13 +227,6 @@
                                     </Border>
                                 </StackPanel>
 
-                                <TextBlock Text="|" Foreground="#252526" VerticalAlignment="Center"/>
-
-                                <!-- Slot Allocation -->
-                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                    <TextBlock Text="WORKERS:" FontSize="10" Foreground="#555" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding WorkerSlotsDisplay}" FontSize="11" FontWeight="Black" Foreground="White" VerticalAlignment="Center"/>
-                                </StackPanel>
                             </StackPanel>
                         </StackPanel>
                     
@@ -254,7 +247,7 @@
                             </StackPanel>
 
                             <StackPanel Spacing="4">
-                                <TextBlock Text="DISCOVERY RATE" FontSize="9" FontWeight="Bold" Foreground="#555"/>
+                                <TextBlock Text="SEARCHING" FontSize="9" FontWeight="Bold" Foreground="#555"/>
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                      <TextBlock Text="{Binding SearchingCount}" FontSize="24" FontWeight="Bold" Foreground="#4EC9B0"/>
                                      <PathIcon Data="{StaticResource search_regular}" Width="14" Height="14" Foreground="#4EC9B0" VerticalAlignment="Center" Margin="0,4,0,0" Opacity="0.5"/>

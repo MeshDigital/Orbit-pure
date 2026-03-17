@@ -420,12 +420,12 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             try 
             {
                 await foreach (var track in _searchOrchestration.SearchAsync(
-                    effectiveQuery,
-                    string.Join(",", PreferredFormats),
-                    MinBitrate, 
-                    MaxBitrate,
-                    IsAlbumSearch,
-                    cts.Token))
+                    query: effectiveQuery,
+                    preferredFormats: string.Join(",", PreferredFormats),
+                    minBitrate: MinBitrate,
+                    maxBitrate: MaxBitrate,
+                    isAlbumSearch: IsAlbumSearch,
+                    cancellationToken: cts.Token))
                 {
                     var result = new SearchResult(track);
                     

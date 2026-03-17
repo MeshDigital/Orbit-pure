@@ -23,6 +23,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     private readonly ArtworkCacheService _artworkCache;
     private readonly ILibraryService _libraryService;
     private readonly CompositeDisposable _disposables = new();
+    private string? _discoveryReasonOverride;
 
     private bool _hasPerformedHeadCheck5;
     private bool _hasPerformedHeadCheck15;
@@ -663,7 +664,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             if (IsDownloading && CurrentSpeedBytes > 1_048_576) return "⚡ FAST";
             if (fmt is "MP3" or "AAC" or "OGG") return $"● {fmt}";
             if (bitrate > 0) return $"{bitrate}kbps";
-            return "● AUDIO";
+            return string.Empty; // No data yet — badge hidden via IsDownloading guard
         }
     }
 
@@ -818,7 +819,14 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public bool IsEnriched => Model.IsEnriched;
     public bool IsPrepared => Model.IsPrepared;
     public string? PrimaryGenre => Model.PrimaryGenre;
-    public string? DiscoveryReason => Model.DiscoveryReason;
+    public string? DiscoveryReason => Model.DiscoveryReason ?? _discoveryReasonOverride;
+    public string DiscoveryBadgeText => DiscoveryReason switch
+    {
+        var reason when !string.IsNullOrWhiteSpace(reason) && reason.Contains("Fast lane", StringComparison.OrdinalIgnoreCase) => "FAST",
+        var reason when !string.IsNullOrWhiteSpace(reason) && reason.Contains("Curated", StringComparison.OrdinalIgnoreCase) => "CURATED",
+        var reason when !string.IsNullOrWhiteSpace(reason) && reason.Contains("Golden", StringComparison.OrdinalIgnoreCase) => "GOLD",
+        _ => "MATCH"
+    };
     public bool IsStalled => State == PlaylistTrackState.Stalled;
     public string? StalledReason => Model.StalledReason;
     public string? DetectedSubGenre => Model.DetectedSubGenre;
@@ -1087,6 +1095,19 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     private void OnDetailedStatus(TrackDetailedStatusEvent e)
     {
         // Already filtered by TrackHash in the Rx subscription (Where clause)
+        if (e.Message.Contains("Fast lane", StringComparison.OrdinalIgnoreCase))
+        {
+            _discoveryReasonOverride = "⚡ Fast lane: idle peer match";
+            this.RaisePropertyChanged(nameof(DiscoveryReason));
+            this.RaisePropertyChanged(nameof(DiscoveryBadgeText));
+        }
+        else if (e.Message.Contains("Golden match", StringComparison.OrdinalIgnoreCase))
+        {
+            _discoveryReasonOverride = "🏁 Golden match";
+            this.RaisePropertyChanged(nameof(DiscoveryReason));
+            this.RaisePropertyChanged(nameof(DiscoveryBadgeText));
+        }
+
         DetailedSearchStatus = e.Message;
     }
 
@@ -1104,6 +1125,8 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             this.RaiseAndSetIfChanged(ref _detailedSearchStatus, value);
             // Also refresh StatusText since it may incorporate this
             this.RaisePropertyChanged(nameof(StatusText));
+            this.RaisePropertyChanged(nameof(DiscoveryReason));
+            this.RaisePropertyChanged(nameof(DiscoveryBadgeText));
         }
     }
 
@@ -1238,6 +1261,8 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(CurationIcon));
                 this.RaisePropertyChanged(nameof(CurationColor));
                 this.RaisePropertyChanged(nameof(ProvenanceTooltip));
+                this.RaisePropertyChanged(nameof(DiscoveryReason));
+                this.RaisePropertyChanged(nameof(DiscoveryBadgeText));
 
                 // Audio features
                 this.RaisePropertyChanged(nameof(IsEnriched));

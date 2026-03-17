@@ -15,6 +15,21 @@ namespace SLSKDONET.Services;
 /// </summary>
 public class SearchResultMatcher
 {
+    private static readonly string[] QualityBoosters =
+    [
+        "WEB", "CD", "VINYL", "LOSSLESS", "REMASTER", "REMASTERED", "24BIT", "24-BIT", "AUDIOPHILE", "DELUXE"
+    ];
+
+    private static readonly string[] SourceVerifiers =
+    [
+        "QOBUZ", "BANDCAMP", "DEEZER", "TIDAL", "ITUNES", "BEATPORT", "DISCOGS"
+    ];
+
+    private static readonly string[] JunkPenalties =
+    [
+        "DOWNLOADS", "DESKTOP", "TEMP", "RECYCLE", "NEW FOLDER", "INCOMING"
+    ];
+
     private readonly ILogger<SearchResultMatcher> _logger;
     private readonly AppConfig _config;
 
@@ -251,11 +266,83 @@ public class SearchResultMatcher
             breakdown.Add("BitDepth: 16/24-bit (+3)");
         }
 
+        // 6. Context anchors from folder structure / release naming.
+        // This is a bounded tie-breaker: curated release folders should beat loose reshared files,
+        // but never overpower a bad artist/title/duration fit.
+        score += CalculateContextScore(candidate, breakdown);
+
         string breakdownStr = string.Join(", ", breakdown);
         string? rejection = null;
         if (score < 40) rejection = $"Low match score ({score:F1}). Breakdown: {breakdownStr}";
 
         return new MatchResult(score, breakdownStr, rejection, score < 40 ? "Low Score" : null);
+    }
+
+    private static double CalculateContextScore(Track candidate, List<string> breakdown)
+    {
+        var pathParts = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(candidate.Directory))
+            pathParts.Add(candidate.Directory);
+
+        if (candidate.PathSegments is { Count: > 0 })
+            pathParts.AddRange(candidate.PathSegments.Where(segment => !string.IsNullOrWhiteSpace(segment)));
+
+        if (!string.IsNullOrWhiteSpace(candidate.Filename))
+            pathParts.Add(candidate.Filename);
+
+        if (pathParts.Count == 0)
+            return 0;
+
+        var pathUpper = string.Join(" | ", pathParts).ToUpperInvariant();
+        double contextScore = 0;
+
+        foreach (var anchor in SourceVerifiers)
+        {
+            if (ContainsAnchor(pathUpper, anchor))
+            {
+                contextScore += 5;
+                breakdown.Add($"Context: {anchor} source (+5)");
+            }
+        }
+
+        foreach (var anchor in QualityBoosters)
+        {
+            if (ContainsAnchor(pathUpper, anchor))
+            {
+                contextScore += 3;
+                breakdown.Add($"Context: {anchor} anchor (+3)");
+            }
+        }
+
+        if (Regex.IsMatch(pathUpper, @"[\[\(](19|20)\d{2}[\]\)]"))
+        {
+            contextScore += 4;
+            breakdown.Add("Context: Structured year (+4)");
+        }
+
+        if (Regex.IsMatch(pathUpper, @"[\[\(](WEB|FLAC|CD|VINYL|LOSSLESS|24BIT|24-BIT)[\]\)]"))
+        {
+            contextScore += 4;
+            breakdown.Add("Context: Structured release tag (+4)");
+        }
+
+        foreach (var anchor in JunkPenalties)
+        {
+            if (ContainsAnchor(pathUpper, anchor))
+            {
+                contextScore -= 8;
+                breakdown.Add($"Context: {anchor} junk (-8)");
+            }
+        }
+
+        return Math.Clamp(contextScore, -16, 18);
+    }
+
+    private static bool ContainsAnchor(string haystack, string anchor)
+    {
+        var pattern = $@"(^|[^A-Z0-9]){Regex.Escape(anchor.ToUpperInvariant())}([^A-Z0-9]|$)";
+        return Regex.IsMatch(haystack, pattern);
     }
 
     private List<string> Tokenize(string? input)

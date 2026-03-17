@@ -107,6 +107,15 @@ public static class ScoringConstants
     {
         /// <summary>Bonus for free upload slot</summary>
         public static readonly int FreeSlotBonus = 2000;
+
+        /// <summary>Minimum bitrate for a fast-lane "good enough" result.</summary>
+        public static readonly int FastLaneMinBitrate = 300;
+
+        /// <summary>Required queue length for fast-lane short-circuiting.</summary>
+        public static readonly int FastLaneMaxQueue = 0;
+
+        /// <summary>Minimum match score for discovery fast-lane early acceptance.</summary>
+        public static readonly double FastLaneMinMatchScore = 85;
         
         /// <summary>Penalty per item in queue</summary>
         public static readonly int QueuePenaltyPerItem = 10;

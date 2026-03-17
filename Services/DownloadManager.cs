@@ -2264,7 +2264,13 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         ctx.Model.QualityDetails = $"{bestMatch.Bitrate}kbps|{bestMatch.BitDepth ?? 0}bit|{bestMatch.SampleRate ?? 0}Hz";
         if (string.Equals(ctx.Model.SourceProvenance, "ShieldSanitized", StringComparison.OrdinalIgnoreCase))
         {
-            ctx.Model.DiscoveryReason = "🛡 Shield sanitized search";
+            ctx.Model.DiscoveryReason = string.IsNullOrWhiteSpace(bestMatch.MatchReason)
+                ? "🛡 Shield sanitized search"
+                : $"🛡 Shield sanitized · {bestMatch.MatchReason}";
+        }
+        else if (!string.IsNullOrWhiteSpace(bestMatch.MatchReason))
+        {
+            ctx.Model.DiscoveryReason = bestMatch.MatchReason;
         }
 
         PrimePipelineSearchForNextTrack(ctx.GlobalId);

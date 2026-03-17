@@ -116,6 +116,10 @@ public class DownloadDiscoveryService
                     var flacLog = new SearchAttemptLog();
                     var hedgeLog = new SearchAttemptLog();
 
+                    // Pre-harden the hedge query through the Shield before any network use.
+                    var hedgeRawQuery = tiers.Smart;
+                    var hardenedHedgeQuery = _hardeningService.NormalizeSearchQuery(hedgeRawQuery);
+
                     using var hedgeCts = CancellationTokenSource.CreateLinkedTokenSource(timedCt);
                     var flacTask = PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, flacLog, forceMp3: false);
                     var hedgeTask = Task.Run(async () =>
@@ -124,7 +128,14 @@ public class DownloadDiscoveryService
                         {
                             await Task.Delay(TimeSpan.FromSeconds(Math.Max(3, _config.HedgedSearchDelaySeconds)), hedgeCts.Token);
                             _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "⚡ Hedge activated: launching MP3 lane in parallel."));
-                            return await PerformSearchTierAsync(track, tiers.Smart, "MP3-Hedge", hedgeCts.Token, blacklistedUsers, hedgeLog, forceMp3: true);
+                            if (hardenedHedgeQuery == null)
+                            {
+                                // Banned phrase in hedge query — skip rather than abort the whole search
+                                _logger.LogWarning("[MP3-Hedge] Shield blocked hedge query for {Title} — skipping hedge.", track.Title);
+                                return new DiscoveryResult(null, hedgeLog);
+                            }
+                            _logger.LogInformation("[TIER MP3-Hedge] MP3 search: '{Query}' for {Title}", hardenedHedgeQuery, track.Title);
+                            return await PerformSearchTierAsync(track, hardenedHedgeQuery, "MP3-Hedge", hedgeCts.Token, blacklistedUsers, hedgeLog, forceMp3: true);
                         }
                         catch (OperationCanceledException)
                         {
@@ -180,12 +191,23 @@ public class DownloadDiscoveryService
             {
                 _logger.LogInformation("🥈 Lossless discovery yielded no matches. Triggering integrated MP3 Fallback Pass for: {Title}", track.Title);
                 _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "🥈 Lossless tiers failed. Trying MP3 fallback..."));
-                
-                var fallbackResult = await PerformSearchTierAsync(track, tiers.Smart, "MP3-Fallback", timedCt, blacklistedUsers, log, forceMp3: true);
-                if (fallbackResult.BestMatch != null)
+
+                // Harden the fallback query through the Shield before sending it to the network.
+                var fallbackRawQuery = tiers.Smart;
+                var hardenedFallbackQuery = _hardeningService.NormalizeSearchQuery(fallbackRawQuery);
+                if (hardenedFallbackQuery == null)
                 {
-                    _logger.LogInformation("✅ MP3 Fallback SUCCESS for {Title}.", track.Title);
-                    return fallbackResult;
+                    _logger.LogWarning("[MP3-Fallback] Shield blocked fallback query for {Title} — skipping fallback.", track.Title);
+                }
+                else
+                {
+                    _logger.LogInformation("[TIER MP3-Fallback] MP3 search: '{Query}' for {Title}", hardenedFallbackQuery, track.Title);
+                    var fallbackResult = await PerformSearchTierAsync(track, hardenedFallbackQuery, "MP3-Fallback", timedCt, blacklistedUsers, log, forceMp3: true);
+                    if (fallbackResult.BestMatch != null)
+                    {
+                        _logger.LogInformation("✅ MP3 Fallback SUCCESS for {Title}.", track.Title);
+                        return fallbackResult;
+                    }
                 }
             }
         }
@@ -256,6 +278,10 @@ public class DownloadDiscoveryService
             
             var preferredFormats = string.Join(",", formatsList.Distinct());
             var minBitrate = track.MinBitrateOverride ?? _config.PreferredMinBitrate;
+            var useFastLane = forceMp3 ||
+                              track.Status == TrackStatus.OnHold ||
+                              track.Priority >= 10 ||
+                              (_config.SearchPolicy?.PreferSpeedOverQuality ?? false);
             
             // Workstation 2026: enforce network-side quality gate for lossless lanes.
             // This pushes filtering upstream to Soulseek and reduces local scoring overhead.
@@ -263,9 +289,11 @@ public class DownloadDiscoveryService
             {
                 minBitrate = Math.Max(minBitrate, 701);
             }
-            
-            // Cap at reasonable high unless strictly set, but for discovery we want quality
-            var maxBitrate = 0; 
+
+            // null = no upper limit. Explicit 0 was previously used but printed as "320-0" in logs,
+            // making it look like a misconfigured range. Using null is semantically correct and
+            // produces "320-∞" in the search-started log instead.
+            int maxBitrate = forceMp3 ? 320 : 0; // 320 caps MP3 hedge/fallback; 0 = unlimited for FLAC lanes
 
             // 2. Perform Search via Orchestrator
             // Use streaming, but since we need the 'best' match from the entire set,
@@ -332,6 +360,7 @@ public class DownloadDiscoveryService
 
                     searchTrack.ScoreBreakdown = matchResult.ScoreBreakdown;
                     searchTrack.CurrentRank = score;
+                    searchTrack.MatchReason = BuildDiscoveryReason(matchResult.ScoreBreakdown, useFastLane, queueLength);
 
                     var isGoldenCriteria = !forceMp3 &&
                                            string.Equals(searchTrack.Format, "flac", StringComparison.OrdinalIgnoreCase) &&
@@ -351,6 +380,30 @@ public class DownloadDiscoveryService
                         // Beta 2026: Cancel the tier's search stream — no need to wait for timeout
                         tierCts.Cancel();
 
+                        return new DiscoveryResult(searchTrack, log, runnerUpSilverMatch);
+                    }
+
+                    var fastLaneWinner = useFastLane &&
+                                         queueLength <= ScoringConstants.Availability.FastLaneMaxQueue &&
+                                         (searchTrack.HasFreeUploadSlot || queueLength == 0) &&
+                                         score >= ScoringConstants.Availability.FastLaneMinMatchScore &&
+                                         (string.Equals(searchTrack.Format, "flac", StringComparison.OrdinalIgnoreCase) ||
+                                          searchTrack.Bitrate >= Math.Max(minBitrate, ScoringConstants.Availability.FastLaneMinBitrate));
+
+                    if (fastLaneWinner)
+                    {
+                        _logger.LogInformation(
+                            "⚡ FAST LANE: Accepting idle-peer winner ({Score}/100): {File} [{Bitrate}kbps {Format}] queue={QueueLength}",
+                            score,
+                            searchTrack.Filename,
+                            searchTrack.Bitrate,
+                            searchTrack.Format,
+                            queueLength);
+
+                        _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash,
+                            $"⚡ Fast lane winner: {searchTrack.Username} ({searchTrack.Bitrate}kbps, queue {queueLength})."));
+
+                        tierCts.Cancel();
                         return new DiscoveryResult(searchTrack, log, runnerUpSilverMatch);
                     }
 
@@ -387,6 +440,26 @@ public class DownloadDiscoveryService
                 return null;
             }
 
+            _logger.LogInformation("[TIER {TierName}] {Mode} lane starting — query: '{Query}' | formats: {Formats} | bitrate: {MinBitrate}-{MaxBitrate}",
+                tierName,
+                forceMp3 ? "MP3" : "FLAC",
+                query,
+                preferredFormats,
+                minBitrate,
+                maxBitrate == 0 ? "∞" : maxBitrate.ToString());
+
+            if (useFastLane)
+            {
+                _logger.LogInformation("[TIER {TierName}] Fast lane active for {Title} (priority {Priority}, status {Status}, forceMp3={ForceMp3})",
+                    tierName,
+                    track.Title,
+                    track.Priority,
+                    track.Status,
+                    forceMp3);
+                _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash,
+                    "⚡ Fast lane active: preferring idle peers that meet minimum quality."));
+            }
+
             // Consume the stream
             await foreach (Track searchTrack in _searchOrchestrator.SearchAsync(
                 query,
@@ -394,6 +467,7 @@ public class DownloadDiscoveryService
                 minBitrate,
                 maxBitrate,
                 isAlbumSearch: false,
+                fastClearance: useFastLane,
                 cancellationToken: tierCts.Token))  // Beta 2026: use tierCts so golden hit cancels stream
             {
                 log.ResultsCount++;
@@ -582,6 +656,20 @@ public class DownloadDiscoveryService
             _logger.LogError(ex, "Search tier failed for {Query}", query);
             return new DiscoveryResult(null, log);
         }
+    }
+
+    private static string? BuildDiscoveryReason(string? scoreBreakdown, bool useFastLane, int queueLength)
+    {
+        if (useFastLane && queueLength == 0)
+            return "⚡ Fast lane: idle peer match";
+
+        if (string.IsNullOrWhiteSpace(scoreBreakdown))
+            return null;
+
+        if (scoreBreakdown.Contains("Context:", StringComparison.OrdinalIgnoreCase))
+            return "🗂 Curated release context";
+
+        return null;
     }
 
     private async Task<bool> WaitForConnectionAsync(CancellationToken ct)

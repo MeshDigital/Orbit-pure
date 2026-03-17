@@ -195,21 +195,38 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
     public async Task DisconnectAsync()
     {
         _healthMonitorCts?.Cancel();
-        if (_client != null)
-        {
-            _client.Disconnect();
-            await Task.CompletedTask;
-            _logger.LogInformation("Disconnected from Soulseek");
-        }
+        TryDisconnectClient("manual async disconnect");
+        await Task.CompletedTask;
     }
 
     public void Disconnect()
     {
         _healthMonitorCts?.Cancel();
-        if (_client != null)
+        TryDisconnectClient("manual disconnect");
+    }
+
+    private bool TryDisconnectClient(string reason)
+    {
+        if (_client == null)
+            return false;
+
+        var state = _client.State;
+        if (state.HasFlag(SoulseekClientStates.Disconnecting) || state.HasFlag(SoulseekClientStates.Disconnected))
+        {
+            _logger.LogDebug("Skipped Soulseek disconnect for {Reason} because client state is already {State}", reason, state);
+            return false;
+        }
+
+        try
         {
             _client.Disconnect();
-            _logger.LogInformation("Disconnected from Soulseek");
+            _logger.LogInformation("Disconnected from Soulseek ({Reason})", reason);
+            return true;
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("Sequence contains no elements", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning(ex, "Soulseek disconnect hit library race during {Reason}; treating as already disconnected.", reason);
+            return false;
         }
     }
 
@@ -248,7 +265,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                         var requested = await TryRequestPotentialParentsAsync(ct);
                         if (!requested)
                         {
-                            _client?.Disconnect();
+                            TryDisconnectClient("parent health recovery");
                             // DownloadManager's reconnect-loop will handle re-establishment
                         }
                     }
@@ -329,6 +346,12 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             throw new InvalidOperationException("Soulseek client not initialized yet. ConnectAsync may not have completed.");
         }
 
+        if (_client.State.HasFlag(SoulseekClientStates.Disconnecting) || _client.State.HasFlag(SoulseekClientStates.Disconnected))
+        {
+            _logger.LogInformation("Search skipped for query {SearchQuery} because Soulseek is reconnecting/disconnected (State: {State})", query, _client.State);
+            return 0;
+        }
+
         // Wait for Soulseek to be fully logged in before searching
         // Fixes: "The server connection must be connected and logged in" error on startup
         int waitRetries = 0;
@@ -365,8 +388,8 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         try
         {
             var minBitrateStr = bitrateFilter.Min?.ToString() ?? "0";
-            var maxBitrateStr = bitrateFilter.Max?.ToString() ?? "unlimited";
-            
+            var maxBitrateStr = (bitrateFilter.Max == null || bitrateFilter.Max == 0) ? "∞" : bitrateFilter.Max.ToString()!;
+
             // Golden Rule: Rate Limiting (configurable global delay, default 200ms)
             await _rateLimitLock.WaitAsync(ct);
             try

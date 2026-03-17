@@ -32,6 +32,13 @@
                     </MenuItem.Icon>
                 </MenuItem>
                 <Separator/>
+                <MenuItem Header="Download Album (All Tracks)" 
+                          Command="{Binding $parent[views:LibraryPage].DataContext.DownloadAlbumCommand}"
+                          CommandParameter="{Binding}">
+                    <MenuItem.Icon>
+                        <TextBlock Text="⬇️"/>
+                    </MenuItem.Icon>
+                </MenuItem>
                 <MenuItem Header="Download Missing" 
                           Command="{Binding $parent[views:LibraryPage].DataContext.DownloadMissingCommand}"
                           CommandParameter="{Binding}">
@@ -108,7 +115,7 @@
                  <TextBlock Text="▶️" FontSize="14"/>
                  <Button.Styles><Style Selector="Button:pointerover"><Setter Property="Opacity" Value="1"/></Style></Button.Styles>
             </Button>
-            <Button Classes="icon-btn" ToolTip.Tip="Resume" Padding="6" Background="Transparent"
+                <Button Classes="icon-btn" ToolTip.Tip="Download Album" Padding="6" Background="Transparent"
                     Opacity="0.6"
                     Command="{Binding $parent[views:LibraryPage].DataContext.DownloadAlbumCommand}"
                     CommandParameter="{Binding}">

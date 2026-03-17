@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:converters="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
              mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="100"
              x:Class="SLSKDONET.Views.Avalonia.HorizontalPlayerControl"
              x:DataType="vm:PlayerViewModel"
@@ -80,12 +81,15 @@
                            Foreground="#B3B3B3" 
                            TextTrimming="CharacterEllipsis"/>
                 
-                <!-- Metadata Badges -->
-                <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2,0,0">
-                    <Border Background="#3E3E3E" CornerRadius="3" Padding="4,1">
+                <!-- Metadata Badges — only shown when track data is present -->
+                <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2,0,0"
+                            IsVisible="{Binding CurrentTrack, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <Border Background="#3E3E3E" CornerRadius="3" Padding="4,1"
+                            IsVisible="{Binding CurrentTrack.Bitrate, Converter={x:Static converters:NumericConverters.GreaterThan}, ConverterParameter=0}">
                         <TextBlock Text="{Binding CurrentTrack.Bitrate, StringFormat='{}{0} KBPS'}" FontSize="9" Foreground="#4EC9B0" FontWeight="Bold"/>
                     </Border>
-                    <Border Background="#3E3E3E" CornerRadius="3" Padding="4,1">
+                    <Border Background="#3E3E3E" CornerRadius="3" Padding="4,1"
+                            IsVisible="{Binding CurrentTrack.Format, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                         <TextBlock Text="{Binding CurrentTrack.Format}" FontSize="9" Foreground="#B3B3B3" FontWeight="Bold"/>
                     </Border>
                 </StackPanel>

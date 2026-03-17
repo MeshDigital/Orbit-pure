@@ -1,5 +1,39 @@
 # Recent Changes
 
+## [0.1.0-alpha.32] - Discovery Signal Surfacing, Fast-Lane UX, and Connection Stability Pass (Mar 17, 2026)
+
+### Download Center Signal Surfacing
+* `StandardTrackRow.axaml` now shows a dynamic discovery badge instead of a hardcoded `MATCH` label.
+* `UnifiedTrackViewModel.cs` adds `DiscoveryBadgeText` so rows can surface `FAST`, `CURATED`, and `GOLD` states from live discovery decisions.
+* `DownloadManager.cs` now persists the winning candidate's `MatchReason` into the track model so discovery context survives past transient search logs.
+* Shielded matches now compose their reason text cleanly (for example, shield-sanitized plus fast-lane or curated context).
+
+### Fast-Lane Discovery Intelligence
+* `DownloadDiscoveryService.cs` now tags accepted winners with a user-facing discovery reason.
+* Fast-lane activation and idle-peer short-circuit wins are now surfaced through detailed track status events.
+* `SearchOrchestrationService.cs` adds an optional `fastClearance` path so speed-first lanes can stop the cascade once a queue-free acceptable result is found.
+* `ScoringConstants.cs` centralizes fast-lane thresholds for bitrate, queue depth, and minimum score.
+
+### Search Quality Context Anchors
+* `SearchResultMatcher.cs` now scores structured release context as a bounded tie-breaker.
+* Verified source anchors like `Qobuz`/`Bandcamp`, structured year/release tags, and curated folder markers help good releases outrank loose junk-folder reshared files.
+* Added tests in `SearchResultMatcherTests.cs` to confirm curated folders and source anchors improve ranking.
+
+### Stability and UX Cleanup
+* `App.axaml.cs` now downgrades non-terminating transient Soulseek cancellation/disposal noise to warnings and suppresses expected distributed-parent chatter more reliably.
+* `SoulseekAdapter.cs` hardens disconnect handling and avoids issuing searches while the client is disconnecting or disconnected.
+* `ConnectionViewModel.cs` no longer forces the login overlay on transient disconnects and respects explicit manual disconnect intent.
+* `DownloadsPage.axaml`, `StandardTrackRow.axaml`, and `HorizontalPlayerControl.axaml` remove or hide misleading placeholder/debug UI such as `WORKERS`, premature quality pills, and empty metadata badges.
+
+### Library Download Flow
+* `CompactPlaylistTemplate.axaml` and `PlaylistGridView.axaml` continue the album-first workflow by exposing direct whole-album download actions from playlist surfaces.
+
+### Validation
+* `dotnet build SLSKDONET.sln -c Debug` ✅
+* `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj -c Debug --no-build` ✅ (`16/16` passing)
+
+---
+
 ## [0.1.0-alpha.31] - Library 2026 Fluid Discovery Hub Refinements (Mar 17, 2026)
 
 ### Slim-Rail Navigation

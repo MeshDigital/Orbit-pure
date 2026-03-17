@@ -107,4 +107,74 @@ public class SearchResultMatcherTests
         // Duration: 0, Artist: 30, Title: 20 -> 50 pts (below 70 threshold)
         Assert.True(result.Score < 70);
     }
+
+    [Fact]
+    public void CalculateMatchResult_ShouldPreferStructuredReleaseFoldersOverJunkFolders()
+    {
+        // Arrange
+        var model = new PlaylistTrack { Artist = "Artist", Title = "Title", CanonicalDuration = 200000 };
+        var curated = new Track
+        {
+            Length = 200,
+            Bitrate = 950,
+            SampleRate = 44100,
+            BitDepth = 24,
+            Format = "flac",
+            Filename = "Artist - Title.flac",
+            Directory = @"Artist\[2024] Album [WEB] [FLAC]\Qobuz",
+            PathSegments = new List<string> { "Artist", "[2024] Album [WEB] [FLAC]", "Qobuz" }
+        };
+        var junk = new Track
+        {
+            Length = 200,
+            Bitrate = 950,
+            SampleRate = 44100,
+            BitDepth = 24,
+            Format = "flac",
+            Filename = "Artist - Title.flac",
+            Directory = @"Users\Quint\Downloads\New Folder",
+            PathSegments = new List<string> { "Downloads", "New Folder" }
+        };
+
+        // Act
+        var curatedResult = _matcher.CalculateMatchResult(model, curated);
+        var junkResult = _matcher.CalculateMatchResult(model, junk);
+
+        // Assert
+        Assert.True(curatedResult.Score > junkResult.Score, $"Curated release folder should outrank junk folder. Curated={curatedResult.Score}, Junk={junkResult.Score}");
+    }
+
+    [Fact]
+    public void CalculateMatchResult_ShouldRewardSourceAnchorsInPath()
+    {
+        // Arrange
+        var model = new PlaylistTrack { Artist = "Artist", Title = "Title", CanonicalDuration = 200000 };
+        var plain = new Track
+        {
+            Length = 200,
+            Bitrate = 900,
+            SampleRate = 44100,
+            BitDepth = 16,
+            Format = "flac",
+            Filename = "Artist - Title.flac",
+            PathSegments = new List<string> { "Artist", "Album" }
+        };
+        var anchored = new Track
+        {
+            Length = 200,
+            Bitrate = 900,
+            SampleRate = 44100,
+            BitDepth = 16,
+            Format = "flac",
+            Filename = "Artist - Title.flac",
+            PathSegments = new List<string> { "Artist", "Album [WEB] [FLAC]", "Bandcamp" }
+        };
+
+        // Act
+        var plainResult = _matcher.CalculateMatchResult(model, plain);
+        var anchoredResult = _matcher.CalculateMatchResult(model, anchored);
+
+        // Assert
+        Assert.True(anchoredResult.Score > plainResult.Score, $"Source anchors should improve score. Anchored={anchoredResult.Score}, Plain={plainResult.Score}");
+    }
 }

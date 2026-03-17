@@ -61,6 +61,7 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
     }
 
     private int _reconnectRetryCount = 0; // Exponential backoff counter
+    private bool _manualDisconnectRequested;
 
     // Login Overlay State
     private bool _isLoginOverlayVisible;
@@ -138,7 +139,7 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
                     
                     // Auto-reconnect logic with exponential backoff (Phase 13.5)
                     // Only auto-reconnect if permitted and not currently connecting
-                    if (wasConnected && AutoConnectEnabled && !IsInitializing)
+                    if (wasConnected && AutoConnectEnabled && !IsInitializing && !_manualDisconnectRequested)
                     {
                         _reconnectRetryCount++;
                         var delayMs = CalculateReconnectDelay(_reconnectRetryCount);
@@ -306,17 +307,13 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
 
     public void Disconnect()
     {
+        _manualDisconnectRequested = true;
         _soulseek.Disconnect();
         IsConnected = false;
         StatusText = "Disconnected";
-        
-        // Ensure we don't auto-reconnect if user manually disconnected
-        // Logic handled in event subscription via state check, but we could add a flag if needed.
-        // For now, explicit Disconnect sets state to Disconnected which event handler sees.
-        // But the event handler also triggers auto-reconnect if it WAS connected.
-        // We need to differentiate User Disconnect vs Network Drop.
-        
-        IsLoginOverlayVisible = true;
+
+        // Do not force the login overlay here. Users can reopen it explicitly,
+        // and transient reconnect cycles should never look like credential loss.
     }
 
     public void Shutdown()
@@ -335,16 +332,14 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
                     IsConnected = true;
                     StatusText = $"Connected as {Username}";
                     IsLoginOverlayVisible = false;
+                    _manualDisconnectRequested = false;
                     _reconnectRetryCount = 0; // Reset retry counter on successful connection
                     break;
                 case "Disconnected":
                     IsConnected = false;
                     StatusText = "Disconnected";
-                    // Keep login overlay visible so user can retry
-                    if (!IsConnected && !IsLoginOverlayVisible)
-                    {
-                        IsLoginOverlayVisible = true;
-                    }
+                    // Keep the current overlay state. Only explicit login actions or
+                    // missing startup credentials should surface the login prompt.
                     break;
                 default:
                     StatusText = state;

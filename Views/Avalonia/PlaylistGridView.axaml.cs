@@ -26,4 +26,13 @@ public partial class PlaylistGridView : UserControl
             flyout?.ShowAt(control);
         }
     }
+
+    private void OnHealthRingPointerExited(object? sender, PointerEventArgs e)
+    {
+        if (sender is Control control)
+        {
+            var flyout = FlyoutBase.GetAttachedFlyout(control);
+            flyout?.Hide();
+        }
+    }
 }

@@ -19,7 +19,9 @@ using SLSKDONET.ViewModels;
 using SLSKDONET.Views;
 using SLSKDONET.Views.Avalonia;
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Sockets;
 
 namespace SLSKDONET;
@@ -654,31 +656,77 @@ public partial class App : Application
     /// </summary>
     /// <summary>
     /// Returns true for transient Soulseek P2P network noise that should not surface in the UI.
-    /// These are expected connection failures during distributed parent negotiation.
+    /// These are expected cancellation/disposal/network failures during distributed parent negotiation.
     /// </summary>
     private static bool IsTransientSoulseekError(Exception ex)
     {
-        var baseEx = ex is AggregateException agg ? agg.Flatten().InnerException ?? ex : ex;
+        var rootCauses = GetRootCauseExceptions(ex).ToList();
+        return rootCauses.Count > 0 && rootCauses.All(IsTransientSoulseekRootCause);
+    }
+
+    private static IEnumerable<Exception> GetRootCauseExceptions(Exception ex)
+    {
+        if (ex is AggregateException aggregate)
+        {
+            foreach (var inner in aggregate.Flatten().InnerExceptions)
+            {
+                foreach (var nested in GetRootCauseExceptions(inner))
+                {
+                    yield return nested;
+                }
+            }
+
+            yield break;
+        }
+
+        if (ex.InnerException is not null)
+        {
+            foreach (var inner in GetRootCauseExceptions(ex.InnerException))
+            {
+                yield return inner;
+            }
+
+            yield break;
+        }
+
+        yield return ex;
+    }
+
+    private static bool IsTransientSoulseekRootCause(Exception ex)
+    {
+        if (ex is OperationCanceledException)
+            return true;
+
+        if (ex is ObjectDisposedException ode)
+        {
+            if (ode.ObjectName?.Contains("MessageConnection", StringComparison.OrdinalIgnoreCase) == true)
+                return true;
+
+            if (ode.Message.Contains("MessageConnection", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
 
         // SocketException: connection refused (10061) or operation aborted (995)
-        if (baseEx is SocketException se && (se.NativeErrorCode == 10061 || se.NativeErrorCode == 995))
+        if (ex is SocketException se && (se.NativeErrorCode == 10061 || se.NativeErrorCode == 995))
             return true;
 
         // Timeout / inactivity / cancelled I/O noise from Soulseek.NET internals
-        if (baseEx is TimeoutException)
+        if (ex is TimeoutException)
             return true;
 
-        var msg = baseEx.Message;
+        var msg = ex.Message;
         if (msg.Contains("timed out", StringComparison.OrdinalIgnoreCase) ||
             msg.Contains("Inactivity timeout", StringComparison.OrdinalIgnoreCase) ||
             msg.Contains("Remote connection closed", StringComparison.OrdinalIgnoreCase) ||
             msg.Contains("I/O operation has been aborted", StringComparison.OrdinalIgnoreCase) ||
             msg.Contains("No connection could be made", StringComparison.OrdinalIgnoreCase) ||
-            msg.Contains("An existing connection was forcibly closed", StringComparison.OrdinalIgnoreCase))
+            msg.Contains("An existing connection was forcibly closed", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("The operation was canceled", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("MessageConnection", StringComparison.OrdinalIgnoreCase))
             return true;
 
         // Any exception originating from Soulseek.NET library itself
-        if (baseEx.Source?.Contains("Soulseek", StringComparison.OrdinalIgnoreCase) == true)
+        if (ex.Source?.Contains("Soulseek", StringComparison.OrdinalIgnoreCase) == true)
             return true;
 
         return false;
@@ -699,7 +747,14 @@ public partial class App : Application
                 return;
             }
 
-            Serilog.Log.Fatal(exception, "🚨 {Source}: {Message}", source, errorMessage);
+            if (isTerminating)
+            {
+                Serilog.Log.Fatal(exception, "🚨 {Source}: {Message}", source, errorMessage);
+            }
+            else
+            {
+                Serilog.Log.Warning(exception, "⚠️ {Source}: {Message}", source, errorMessage);
+            }
 
             // Add to error stream window on UI thread
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>

@@ -23,14 +23,14 @@
             </ItemsRepeater.Layout>
             <ItemsRepeater.ItemTemplate>
                 <DataTemplate x:DataType="vm:LibraryPlaylistCardViewModel">
-                    <Button Command="{Binding ((vm:LibraryViewModel)DataContext).Projects.OpenProjectCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                            CommandParameter="{Binding Model}"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            Padding="0"
-                            Margin="8"
-                            Cursor="Hand">
-                        <Border Width="200" Height="280"
+                    <Grid Margin="8" Width="200" Height="280">
+                        <Button Command="{Binding ((vm:LibraryViewModel)DataContext).Projects.OpenProjectCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                CommandParameter="{Binding Model}"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="0"
+                                Cursor="Hand">
+                            <Border Width="200" Height="280"
                                 Background="#1A1A1D"
                                 CornerRadius="16"
                                 BorderBrush="#2A2A2E"
@@ -67,6 +67,7 @@
                                       VerticalAlignment="Top"
                                       Margin="0,10,10,0"
                                       PointerEntered="OnHealthRingPointerEntered"
+                                      PointerExited="OnHealthRingPointerExited"
                                       ToolTip.Tip="{Binding HealthStatusText}">
                                     <Ellipse Width="54" Height="54"
                                              Stroke="#2F2F34"
@@ -134,8 +135,27 @@
                                 </StackPanel>
 
                             </Grid>
-                        </Border>
-                    </Button>
+                            </Border>
+                        </Button>
+
+                        <!-- Quick Action: Queue full album immediately -->
+                        <Button HorizontalAlignment="Right"
+                                VerticalAlignment="Bottom"
+                                Margin="0,0,10,10"
+                                Padding="8,4"
+                                CornerRadius="10"
+                                Background="#CC0E1D33"
+                                BorderBrush="#00BFFF"
+                                BorderThickness="1"
+                                ToolTip.Tip="Queue complete album now"
+                                Command="{Binding ((vm:LibraryViewModel)DataContext).DownloadAlbumCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                CommandParameter="{Binding Model}">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="⬇" FontSize="11" Foreground="#00BFFF"/>
+                                <TextBlock Text="Album" FontSize="11" FontWeight="SemiBold" Foreground="#00BFFF"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
                 </DataTemplate>
             </ItemsRepeater.ItemTemplate>
         </ItemsRepeater>
