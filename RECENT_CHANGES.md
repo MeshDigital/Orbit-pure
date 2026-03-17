@@ -1,5 +1,28 @@
 # Recent Changes
 
+## [0.1.0-alpha.34] - Import Crash Hardening + Duplicate Merge-Missing Recovery (Mar 17, 2026)
+
+### Spotify Import Crash Fix
+* `SpotifyImportViewModel.cs` no longer uses reflection to resolve the Spotify provider and now uses the injected `SpotifyImportProvider` directly.
+* `ImportOrchestrator.cs` adds null/empty guards for provider and input in `StartImportWithPreviewAsync(...)`.
+* Error logging in import startup now uses a null-safe provider name path to prevent secondary `NullReferenceException` crashes in failure handling.
+
+### Duplicate Playlist Merge-Missing Behavior
+* `DownloadManager.cs` `QueueProject(...)` now performs a true merge pass for preview-based duplicate imports:
+  * adds genuinely new tracks,
+  * re-queues existing tracks that were `Failed` or `OnHold` by resetting them to `Missing`,
+  * skips unchanged healthy existing tracks.
+* Merge telemetry now logs `new / retried / skipped` counts for clearer operator diagnostics.
+
+### Global Exception Noise Filtering
+* `App.axaml.cs` transient exception filter now suppresses listener shutdown/startup race noise:
+  * `InvalidOperationException` with message `Not listening. You must call the Start() method before calling this method.`
+
+### Validation
+* `dotnet build SLSKDONET.sln -c Debug -p:UseAppHost=false` ✅
+
+---
+
 ## [0.1.0-alpha.33] - Filter Transparency + Live Peer Row Details with Force Candidate Action (Mar 17, 2026)
 
 ### Search UX Transparency (Cached Hidden Results)

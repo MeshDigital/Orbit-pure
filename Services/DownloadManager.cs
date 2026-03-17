@@ -406,19 +406,23 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             if (job.PlaylistTracks.Count == 0 && job.OriginalTracks.Count > 0)
             {
                 _logger.LogInformation("Gap analysis: Checking for existing tracks in Job {JobId} to avoid duplicates", job.Id);
-                
-                // Phase 7.1: Robust Deduplication
-                // Load existing track hashes for this job to avoid adding duplicates
-                var existingHashes = new HashSet<string>();
+
+                // Phase 7.1: Robust Deduplication + Merge Missing
+                // Load persisted tracks for this playlist so we can:
+                // - skip already-present healthy tracks
+                // - reset/requeue failed or on-hold tracks
+                // - add truly new tracks
+                var existingByHash = new Dictionary<string, PlaylistTrack>(StringComparer.OrdinalIgnoreCase);
                 try 
                 {
                     var existingJob = await _libraryService.FindPlaylistJobAsync(job.Id);
                     if (existingJob != null)
                     {
-                        foreach (var t in existingJob.PlaylistTracks)
+                        var persistedTracks = await _libraryService.LoadPlaylistTracksAsync(existingJob.Id);
+                        foreach (var t in persistedTracks)
                         {
                             if (!string.IsNullOrEmpty(t.TrackUniqueHash))
-                                existingHashes.Add(t.TrackUniqueHash);
+                                existingByHash[t.TrackUniqueHash] = t;
                         }
                     }
                 }
@@ -427,21 +431,54 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     _logger.LogWarning(ex, "Failed to load existing tracks for gap analysis, proceeding cautiously");
                 }
 
-                _logger.LogInformation("Converting {OriginalTrackCount} OriginalTracks to PlaylistTracks (Existing: {ExistingCount})", 
-                    job.OriginalTracks.Count, existingHashes.Count);
-                
+                _logger.LogInformation("Converting {OriginalTrackCount} OriginalTracks to PlaylistTracks (Existing: {ExistingCount})",
+                    job.OriginalTracks.Count, existingByHash.Count);
+
                 var playlistTracks = new List<PlaylistTrack>();
-                int idx = existingHashes.Count + 1;
+                var seenInBatch = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                int idx = existingByHash.Count + 1;
+                int retried = 0;
+                int skipped = 0;
+                int added = 0;
+
                 foreach (var track in job.OriginalTracks)
                 {
-                    // SKIP if already in this project
-                    if (existingHashes.Contains(track.UniqueHash))
+                    var hash = track.UniqueHash;
+                    if (string.IsNullOrWhiteSpace(hash) || !seenInBatch.Add(hash))
                     {
-                        _logger.LogDebug("Skipping track '{Title}' - already exists in this project (or already seen in this batch)", track.Title);
+                        _logger.LogDebug("Skipping track '{Title}' - invalid/duplicate hash in current batch", track.Title);
                         continue;
                     }
 
-                    existingHashes.Add(track.UniqueHash);
+                    if (existingByHash.TryGetValue(hash, out var existingTrack))
+                    {
+                        if (existingTrack.Status == TrackStatus.Failed || existingTrack.Status == TrackStatus.OnHold)
+                        {
+                            existingTrack.Artist = track.Artist ?? existingTrack.Artist;
+                            existingTrack.Title = track.Title ?? existingTrack.Title;
+                            existingTrack.Album = track.Album ?? existingTrack.Album;
+                            existingTrack.AlbumArtUrl = track.AlbumArtUrl ?? existingTrack.AlbumArtUrl;
+                            existingTrack.SpotifyTrackId = track.SpotifyTrackId ?? existingTrack.SpotifyTrackId;
+                            existingTrack.SpotifyAlbumId = track.SpotifyAlbumId ?? existingTrack.SpotifyAlbumId;
+                            existingTrack.SpotifyArtistId = track.SpotifyArtistId ?? existingTrack.SpotifyArtistId;
+                            existingTrack.Genres = track.Genres ?? existingTrack.Genres;
+                            existingTrack.Popularity = track.Popularity != 0 ? track.Popularity : existingTrack.Popularity;
+                            existingTrack.CanonicalDuration = track.CanonicalDuration > 0 ? track.CanonicalDuration : existingTrack.CanonicalDuration;
+                            existingTrack.ReleaseDate = track.ReleaseDate ?? existingTrack.ReleaseDate;
+                            existingTrack.Status = TrackStatus.Missing;
+                            existingTrack.SearchRetryCount = 0;
+                            existingTrack.NotFoundRestartCount = 0;
+
+                            playlistTracks.Add(existingTrack);
+                            retried++;
+                        }
+                        else
+                        {
+                            skipped++;
+                        }
+
+                        continue;
+                    }
 
                     playlistTracks.Add(new PlaylistTrack
                     {
@@ -450,7 +487,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         Artist = track.Artist ?? string.Empty,
                         Title = track.Title ?? string.Empty,
                         Album = track.Album ?? string.Empty,
-                        TrackUniqueHash = track.UniqueHash,
+                        TrackUniqueHash = hash,
                         Status = TrackStatus.Missing,
                         ResolvedFilePath = string.Empty,
                         TrackNumber = idx++,
@@ -470,9 +507,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         ReleaseDate = track.ReleaseDate
 
                     });
+                    added++;
                 }
+
+                _logger.LogInformation(
+                    "Merge result for job {JobId}: {Added} new, {Retried} retried, {Skipped} unchanged existing",
+                    job.Id,
+                    added,
+                    retried,
+                    skipped);
+
                 job.PlaylistTracks = playlistTracks;
-                job.TotalTracks = existingHashes.Count + playlistTracks.Count;
+                job.TotalTracks = existingByHash.Count + added;
             }
 
             _logger.LogInformation("Queueing project with {TrackCount} tracks", job.PlaylistTracks.Count);

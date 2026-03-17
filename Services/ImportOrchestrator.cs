@@ -56,9 +56,25 @@ public class ImportOrchestrator
     /// </summary>
     public async Task StartImportWithPreviewAsync(IImportProvider provider, string input)
     {
+        if (provider == null)
+        {
+            _logger.LogError("Failed to start import: provider was null");
+            _notificationService.Show("Import Error", "Import provider is unavailable.", Views.NotificationType.Error);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            _logger.LogWarning("Failed to start import from {Provider}: input was empty", provider.Name);
+            _notificationService.Show("Import Error", "Import input is empty.", Views.NotificationType.Error);
+            return;
+        }
+
+        var providerName = string.IsNullOrWhiteSpace(provider.Name) ? provider.GetType().Name : provider.Name;
+
         try
         {
-            _logger.LogInformation("Starting unified import from {Provider}: {Input}", provider.Name, input);
+            _logger.LogInformation("Starting unified import from {Provider}: {Input}", providerName, input);
 
             if (provider is IStreamingImportProvider streamProvider)
             {
@@ -104,7 +120,7 @@ public class ImportOrchestrator
                      }
                      
                      // Initialize UI
-                     _previewViewModel.InitializeStreamingPreview(provider.Name, provider.Name, newJobId, input, existingJob);
+                     _previewViewModel.InitializeStreamingPreview(providerName, providerName, newJobId, input, existingJob);
                      
                      // Clean/Setup Callbacks
                      SetupPreviewCallbacks();
@@ -128,12 +144,12 @@ public class ImportOrchestrator
             }
             else
             {
-                throw new InvalidOperationException($"Provider {provider.Name} must implement IStreamingImportProvider");
+                throw new InvalidOperationException($"Provider {providerName} must implement IStreamingImportProvider");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to start import from {Provider}", provider.Name);
+            _logger.LogError(ex, "Failed to start import from {Provider}", providerName);
             _notificationService.Show("Import Error", $"Failed to import: {ex.Message}", Views.NotificationType.Error);
         }
     }

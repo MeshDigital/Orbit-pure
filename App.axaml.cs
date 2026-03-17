@@ -697,6 +697,10 @@ public partial class App : Application
         if (ex is OperationCanceledException)
             return true;
 
+        if (ex is InvalidOperationException ioe &&
+            ioe.Message.Contains("Not listening. You must call the Start() method before calling this method.", StringComparison.OrdinalIgnoreCase))
+            return true;
+
         if (ex is ObjectDisposedException ode)
         {
             if (ode.ObjectName?.Contains("MessageConnection", StringComparison.OrdinalIgnoreCase) == true)

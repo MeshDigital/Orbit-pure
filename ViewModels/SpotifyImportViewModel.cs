@@ -22,6 +22,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
     private readonly ImportOrchestrator _importOrchestrator;
     private readonly ISpotifyMetadataService _spotifyMetadataService;
     private readonly SpotifyInputSource _spotifyInputSource;
+    private readonly Services.ImportProviders.SpotifyImportProvider _spotifyProvider;
     private readonly Services.ImportProviders.SpotifyLikedSongsImportProvider _likedSongsProvider;
     private readonly Services.ImportProviders.CsvImportProvider _csvProvider;
     private readonly Services.ImportProviders.TracklistImportProvider _tracklistProvider;
@@ -181,6 +182,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
         _importOrchestrator = importOrchestrator;
         _spotifyMetadataService = spotifyMetadataService;
         _spotifyInputSource = spotifyInputSource;
+        _spotifyProvider = spotifyProvider;
         _likedSongsProvider = likedSongsProvider;
         _csvProvider = csvProvider;
         _tracklistProvider = tracklistProvider;
@@ -338,12 +340,7 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
         }
 
         _logger.LogInformation("Starting unified Spotify import: {Url}", PlaylistUrl);
-        // We use the direct provider call here
-        var provider = (Services.ImportProviders.SpotifyImportProvider)_importOrchestrator.GetType()
-            .GetField("_spotifyProvider", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-            ?.GetValue(_importOrchestrator)!;
-            
-        await _importOrchestrator.StartImportWithPreviewAsync(provider, PlaylistUrl);
+        await _importOrchestrator.StartImportWithPreviewAsync(_spotifyProvider, PlaylistUrl);
     }
 
     private void SelectAll()
