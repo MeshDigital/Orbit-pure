@@ -1,7 +1,8 @@
 # ORBIT Pure
 
-ORBIT Pure is a reliability-first Soulseek client and music curation workstation built with .NET 9 + Avalonia.
-It prioritizes signal quality, forensic filtering, and operator control over raw download volume.
+Reliability-first Soulseek client and music curation workstation with explainable search, forensic filtering, and operator-grade download controls.
+
+ORBIT Pure is built with .NET 9 + Avalonia and prioritizes signal quality over raw download volume.
 
 > Legal & privacy notice
 > ORBIT connects to the Soulseek P2P network, where your IP may be visible to peers. Use a VPN and only download/share content you are legally allowed to use.
