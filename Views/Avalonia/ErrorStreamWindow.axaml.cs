@@ -7,9 +7,12 @@ using System.Reactive;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
 using Avalonia.Threading;
 using ReactiveUI;
+using Serilog;
 
 namespace SLSKDONET.Views.Avalonia;
 
@@ -47,6 +50,9 @@ public partial class ErrorStreamWindow : Window, INotifyPropertyChanged
 
     public void AddError(string source, string message, string stackTrace)
     {
+        // Log every error to the persistent log file
+        Serilog.Log.Error("🚨 UI Error Stream - {Source}: {Message}\n{StackTrace}", source, message, stackTrace);
+
         Dispatcher.UIThread.InvokeAsync(() =>
         {
             Errors.Insert(0, new ErrorItem
@@ -64,65 +70,71 @@ public partial class ErrorStreamWindow : Window, INotifyPropertyChanged
     {
         try
         {
-            // Try multiple possible log locations
+            string logDirectory = null;
+
+            // Try multiple possible log locations in order of preference
             string[] possiblePaths = {
+                // Development: project root logs (when running from VS Code/dotnet run)
+                Path.Combine(Directory.GetCurrentDirectory(), "logs"),
+                // Development: go up from bin directory
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "logs"),
+                // Production: user app data
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ORBIT", "logs"),
+                // Fallback: app data roaming
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ORBIT", "logs"),
-                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs"),
-                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "logs") // For development
+                // Last resort: bin directory logs
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs")
             };
 
-            string logDir = null;
             foreach (var path in possiblePaths)
             {
-                if (Directory.Exists(path))
+                if (Directory.Exists(path) && Directory.GetFiles(path, "*.json").Length > 0)
                 {
-                    logDir = path;
+                    logDirectory = path;
                     break;
                 }
             }
 
-            if (logDir == null)
+            // If no existing log directory found, create one in the most appropriate location
+            if (logDirectory == null)
             {
-                // Create logs directory if it doesn't exist
-                logDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
-                Directory.CreateDirectory(logDir);
+                // Check if we're in development (running from source)
+                bool isDevelopment = Directory.GetCurrentDirectory().Contains("GitHub") || 
+                                   Directory.GetCurrentDirectory().Contains("source") ||
+                                   File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "SLSKDONET.csproj"));
+                
+                logDirectory = isDevelopment 
+                    ? Path.Combine(Directory.GetCurrentDirectory(), "logs")
+                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ORBIT", "logs");
+                
+                Directory.CreateDirectory(logDirectory);
             }
 
             // Use explorer.exe to open the directory
             Process.Start(new ProcessStartInfo
             {
                 FileName = "explorer.exe",
-                Arguments = $"\"{logDir}\"",
+                Arguments = $"\"{logDirectory}\"",
                 UseShellExecute = true
             });
         }
         catch (Exception ex)
         {
-            // Fallback: try to open the app directory
-            try
+            // Fallback: show error message
+            Dispatcher.UIThread.InvokeAsync(() =>
             {
-                Process.Start(new ProcessStartInfo
+                var messageBox = new Window
                 {
-                    FileName = "explorer.exe",
-                    Arguments = $"\"{AppDomain.CurrentDomain.BaseDirectory}\"",
-                    UseShellExecute = true
-                });
-            }
-            catch
-            {
-                // Last resort: show message
-                Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    var messageBox = new Window
-                    {
-                        Title = "Error",
-                        Content = new TextBlock { Text = $"Could not open logs folder: {ex.Message}" },
-                        SizeToContent = SizeToContent.WidthAndHeight
-                    };
-                    messageBox.Show();
-                });
-            }
+                    Title = "Error Opening Logs",
+                    Content = new TextBlock { 
+                        Text = $"Could not open logs folder: {ex.Message}\n\nLog directory detection failed. Please check manually in the application directory or %LOCALAPPDATA%\\ORBIT\\logs",
+                        TextWrapping = TextWrapping.Wrap 
+                    },
+                    SizeToContent = SizeToContent.WidthAndHeight,
+                    WindowStartupLocation = WindowStartupLocation.CenterScreen
+                };
+                messageBox.Show();
+            });
         }
     }
 

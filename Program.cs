@@ -22,16 +22,41 @@ namespace SLSKDONET
                 .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Production"}.json", optional: true)
                 .Build();
 
-            // Initialize Serilog
+            // Determine log directory based on environment
+            var isDevelopment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") == "Development" ||
+                               (Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") == null && 
+                                Directory.GetCurrentDirectory().Contains("GitHub")); // Development heuristic
+            
+            string logDirectory;
+            if (isDevelopment)
+            {
+                // In development, use project root logs directory
+                logDirectory = Path.Combine(Directory.GetCurrentDirectory(), "logs");
+            }
+            else
+            {
+                // In production, use user app data directory
+                logDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ORBIT", "logs");
+            }
+
+            // Ensure log directory exists
+            Directory.CreateDirectory(logDirectory);
+
+            // Initialize Serilog with proper log paths
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Debug()
                 .ReadFrom.Configuration(configuration)
+                .WriteTo.File(
+                    path: Path.Combine(logDirectory, "log.json"), 
+                    formatter: new Serilog.Formatting.Compact.CompactJsonFormatter(),
+                    rollingInterval: RollingInterval.Day,
+                    retainedFileCountLimit: 7)
                 .WriteTo.Logger(l => l
                     .Filter.ByIncludingOnly(e => e.Properties.ContainsKey("SourceContext") && e.Properties["SourceContext"].ToString().Contains("DownloadManager"))
-                    .WriteTo.File("logs/downloads.log", rollingInterval: RollingInterval.Day, outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}"))
+                    .WriteTo.File(Path.Combine(logDirectory, "downloads.log"), rollingInterval: RollingInterval.Day, outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}"))
                  .WriteTo.Logger(l => l
                     .Filter.ByIncludingOnly(e => e.Properties.ContainsKey("SourceContext") && e.Properties["SourceContext"].ToString().Contains("BuildService"))
-                    .WriteTo.File("logs/build_runs.log", rollingInterval: RollingInterval.Day))
+                    .WriteTo.File(Path.Combine(logDirectory, "build_runs.log"), rollingInterval: RollingInterval.Day))
                 .CreateLogger();
 
             try
