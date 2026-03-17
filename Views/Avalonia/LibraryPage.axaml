@@ -47,6 +47,14 @@
         <!-- LEFT PANE: Collapsible Playlist Navigation -->
         <SplitView.Pane>
             <Border Background="#1A1A1D" BorderBrush="#2A2A2E" BorderThickness="0,0,1,0">
+                <interactivity:Interaction.Behaviors>
+                    <ia:EventTriggerBehavior EventName="PointerEntered">
+                        <ia:InvokeCommandAction Command="{Binding ExpandNavigationCommand}"/>
+                    </ia:EventTriggerBehavior>
+                    <ia:EventTriggerBehavior EventName="PointerExited">
+                        <ia:InvokeCommandAction Command="{Binding CollapseNavigationCommand}"/>
+                    </ia:EventTriggerBehavior>
+                </interactivity:Interaction.Behaviors>
                 <Grid RowDefinitions="Auto,*,Auto">
                     
                     <!-- Header / Tools -->

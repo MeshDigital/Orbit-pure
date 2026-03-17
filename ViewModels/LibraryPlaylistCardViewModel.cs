@@ -70,6 +70,24 @@ public class LibraryPlaylistCardViewModel : ReactiveObject
         }
     }
 
+    public string ForensicFlyoutText
+    {
+        get
+        {
+            if (_playlist.PlaylistTracks == null || _playlist.PlaylistTracks.Count == 0)
+                return "No forensic data available yet.";
+
+            var analyzed = _playlist.PlaylistTracks.Where(t => t.FrequencyCutoff.HasValue).ToList();
+            if (!analyzed.Any())
+                return $"{HealthStatusText} • Spectral analysis pending.";
+
+            var avgCutoff = analyzed.Average(t => t.FrequencyCutoff!.Value) / 1000.0;
+            var transcoded = _playlist.PlaylistTracks.Count(t => t.IsTranscoded);
+
+            return $"{HealthStatusText}\nAvg spectral cutoff: {avgCutoff:F1} kHz\nFlagged transcodes: {transcoded}";
+        }
+    }
+
     private bool _isHovered;
     public bool IsHovered
     {

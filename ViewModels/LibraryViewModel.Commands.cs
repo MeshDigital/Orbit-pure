@@ -27,6 +27,8 @@ public partial class LibraryViewModel
     public ICommand ToggleEditModeCommand { get; set; } = null!;
     public ICommand ToggleActiveDownloadsCommand { get; set; } = null!;
     public ICommand ToggleNavigationCommand { get; set; } = null!;
+    public ICommand ExpandNavigationCommand { get; set; } = null!;
+    public ICommand CollapseNavigationCommand { get; set; } = null!;
     public ICommand ToggleViewModeCommand { get; set; } = null!;
     
     public ICommand PlayTrackCommand { get; set; } = null!;
@@ -65,6 +67,8 @@ public partial class LibraryViewModel
         ToggleEditModeCommand = new RelayCommand(() => IsEditMode = !IsEditMode);
         ToggleActiveDownloadsCommand = new RelayCommand(() => IsActiveDownloadsVisible = !IsActiveDownloadsVisible);
         ToggleNavigationCommand = new RelayCommand(() => IsNavigationCollapsed = !IsNavigationCollapsed);
+        ExpandNavigationCommand = new RelayCommand(() => IsNavigationCollapsed = false);
+        CollapseNavigationCommand = new RelayCommand(() => IsNavigationCollapsed = true);
         ToggleViewModeCommand = new RelayCommand(() => UseCardView = !UseCardView);
         
         PlayTrackCommand = new AsyncRelayCommand<object>(ExecutePlayTrackAsync);

@@ -1,5 +1,27 @@
 # Recent Changes
 
+## [0.1.0-alpha.31] - Library 2026 Fluid Discovery Hub Refinements (Mar 17, 2026)
+
+### Slim-Rail Navigation
+* `LibraryPage.axaml` now expands/collapses the SplitView pane on hover using explicit `ExpandNavigationCommand` and `CollapseNavigationCommand`.
+* `LibraryViewModel.Commands.cs` adds dedicated expand/collapse commands (keeps toggle behavior intact).
+
+### Responsive Playlist Grid
+* `PlaylistGridView.axaml` refactored from `ItemsControl + WrapPanel` to `ItemsRepeater + UniformGridLayout` (`MinItemWidth=200`, spacing 12px) for denser, workstation-style album surfaces.
+
+### High-Fidelity Forensics UI
+* Existing circular health ring preserved and upgraded with an acrylic-style forensic flyout panel.
+* `LibraryPlaylistCardViewModel.cs` adds `ForensicFlyoutText` with summarized spectral health (verified/suspicious counts, avg cutoff kHz, transcode flags).
+* `PlaylistGridView.axaml.cs` now opens the attached flyout on ring hover (`OnHealthRingPointerEntered`).
+
+### Viewport-Friendly Card Population
+* `ProjectListViewModel.RefreshFilteredProjects()` now fills card VMs in chunks (initial 40, then batches of 30 at `DispatcherPriority.Background`) to keep library scrolling responsive for large collections.
+
+### Validation
+* `dotnet build` succeeds (0 errors, 8 pre-existing warnings).
+
+---
+
 ## [0.1.0-alpha.30] - Hyper-Drive Core Finalization: Lane Semaphore, 3x-Zero Parent Trigger, and Fingerprinter v2 (Mar 17, 2026)
 
 ### Objective 1 — Hyper-Drive Streaming Discovery

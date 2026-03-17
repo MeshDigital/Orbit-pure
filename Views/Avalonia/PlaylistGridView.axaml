@@ -15,19 +15,13 @@
         <conv:CircularProgressConverter x:Key="CircularProgressConverter"/>
     </UserControl.Resources>
 
-    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-        <ItemsControl ItemsSource="{Binding Projects.FilteredProjectCards}"
-                      Background="Transparent"
-                      Margin="16">
-            <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <WrapPanel Orientation="Horizontal"
-                              HorizontalAlignment="Left"
-                              VerticalAlignment="Top"
-                              Margin="0,0,0,16"/>
-                </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <ItemsRepeater ItemsSource="{Binding Projects.FilteredProjectCards}"
+                       Margin="16">
+            <ItemsRepeater.Layout>
+                <UniformGridLayout MinItemWidth="200" MinColumnSpacing="12" MinRowSpacing="12"/>
+            </ItemsRepeater.Layout>
+            <ItemsRepeater.ItemTemplate>
                 <DataTemplate x:DataType="vm:LibraryPlaylistCardViewModel">
                     <Button Command="{Binding ((vm:LibraryViewModel)DataContext).Projects.OpenProjectCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding Model}"
@@ -67,11 +61,13 @@
                                     </Grid>
                                 </Border>
 
-                                <!-- Health Ring (Circular Forensic Ring) -->
-                                <Grid Width="54" Height="54"
+                                  <!-- Health Ring (Circular Forensic Ring) + Acrylic Flyout -->
+                                  <Grid Width="54" Height="54"
                                       HorizontalAlignment="Right"
                                       VerticalAlignment="Top"
-                                      Margin="0,10,10,0">
+                                      Margin="0,10,10,0"
+                                      PointerEntered="OnHealthRingPointerEntered"
+                                      ToolTip.Tip="{Binding HealthStatusText}">
                                     <Ellipse Width="54" Height="54"
                                              Stroke="#2F2F34"
                                              StrokeThickness="5"
@@ -86,6 +82,29 @@
                                                Foreground="White"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"/>
+
+                                    <FlyoutBase.AttachedFlyout>
+                                        <Flyout Placement="BottomEdgeAlignedRight" ShowMode="TransientWithDismissOnPointerMoveAway">
+                                            <Border Background="#B21A1A1D"
+                                                    BorderBrush="#4A4A50"
+                                                    BorderThickness="1"
+                                                    CornerRadius="10"
+                                                    Padding="12"
+                                                    MaxWidth="260">
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Text="Forensic Snapshot"
+                                                               Foreground="#DCDCDC"
+                                                               FontSize="11"
+                                                               FontWeight="SemiBold"/>
+                                                    <TextBlock Text="{Binding ForensicFlyoutText}"
+                                                               Foreground="#AFAFB6"
+                                                               FontSize="11"
+                                                               TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </Flyout>
+                                    </FlyoutBase.AttachedFlyout>
+
                                 </Grid>
 
                                 <!-- Playlist Info -->
@@ -114,16 +133,11 @@
                                     </Border>
                                 </StackPanel>
 
-                                <!-- Hover Tooltip -->
-                                <ToolTip.Tip>
-                                    <TextBlock Text="{Binding HealthStatusText}"
-                                               FontSize="12"/>
-                                </ToolTip.Tip>
                             </Grid>
                         </Border>
                     </Button>
                 </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
+            </ItemsRepeater.ItemTemplate>
+        </ItemsRepeater>
     </ScrollViewer>
 </UserControl>

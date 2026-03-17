@@ -323,7 +323,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     private void RefreshFilteredProjects()
     {
         // Safety: Ensure filtering runs on UI thread to update ObservableCollection
-        Dispatcher.UIThread.Post(() =>
+        Dispatcher.UIThread.Post(async () =>
         {
             var filtered = string.IsNullOrWhiteSpace(SearchText) 
                 ? AllProjects.ToList()
@@ -333,10 +333,32 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
 
             FilteredProjects.Clear();
             FilteredProjectCards.Clear();
+
             foreach (var p in filtered)
             {
                 FilteredProjects.Add(p);
+            }
+
+            // Workstation 2026: populate card VM list in background-priority chunks
+            // to keep the UI fluid with large libraries.
+            const int initialChunk = 40;
+            const int chunkSize = 30;
+
+            foreach (var p in filtered.Take(initialChunk))
+            {
                 FilteredProjectCards.Add(new LibraryPlaylistCardViewModel(p));
+            }
+
+            for (int i = initialChunk; i < filtered.Count; i += chunkSize)
+            {
+                var batch = filtered.Skip(i).Take(chunkSize).ToList();
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    foreach (var p in batch)
+                    {
+                        FilteredProjectCards.Add(new LibraryPlaylistCardViewModel(p));
+                    }
+                }, DispatcherPriority.Background);
             }
         });
     }
