@@ -25,7 +25,6 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     private readonly IFileInteractionService _fileInteractionService;
     private readonly Services.IO.IFileWriteService _fileWriteService; // Phase 11.6 Physical Duplication
     private readonly LibraryService _libraryService; // Phase 11.6 Physical Duplication
-    private readonly ForensicLockdownService _forensicLockdownService; // Phase 7
     private readonly NativeDependencyHealthService _dependencyHealthService; // Phase 10.5
     private readonly IBulkOperationCoordinator _bulkCoordinator; // Phase 10.5
     private readonly IEventBus _eventBus; // Phase 11.6 Notification
@@ -40,7 +39,6 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand CancelCommand { get; }
     public System.Windows.Input.ICommand DownloadAlbumCommand { get; }
     public System.Windows.Input.ICommand RemoveTrackCommand { get; }
-    public System.Windows.Input.ICommand DeleteAndBlacklistCommand { get; } // Phase 7
     public System.Windows.Input.ICommand CloneTrackCommand { get; } // Phase 11.6: Physical Clone
     public System.Windows.Input.ICommand AddToProjectCommand { get; }
     public System.Windows.Input.ICommand RetryOfflineTracksCommand { get; }
@@ -57,7 +55,6 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         IFileInteractionService fileInteractionService,
         Services.IO.IFileWriteService fileWriteService,
         LibraryService libraryService,
-        ForensicLockdownService forensicLockdownService,
         NativeDependencyHealthService dependencyHealthService,
         IBulkOperationCoordinator bulkCoordinator,
         IEventBus eventBus)
@@ -68,7 +65,6 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         _fileInteractionService = fileInteractionService;
         _fileWriteService = fileWriteService;
         _libraryService = libraryService;
-        _forensicLockdownService = forensicLockdownService;
         _dependencyHealthService = dependencyHealthService;
         _bulkCoordinator = bulkCoordinator;
         _eventBus = eventBus;
@@ -93,7 +89,6 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         CancelCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteCancel);
         DownloadAlbumCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteDownloadAlbum);
         RemoveTrackCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteRemoveTrack);
-        DeleteAndBlacklistCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteDeleteAndBlacklist); // Phase 7
         CloneTrackCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteCloneTrack); // Phase 11.6
         AddToProjectCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteAddToProject);
         RetryOfflineTracksCommand = new AsyncRelayCommand(ExecuteRetryOfflineTracks);
@@ -270,38 +265,6 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to remove track");
-        }
-    }
-
-    private async Task ExecuteDeleteAndBlacklist(PlaylistTrackViewModel? track)
-    {
-        if (track == null) return;
-
-        try
-        {
-             _logger.LogInformation("Deleting and blacklisting track: {Title}", track.Title);
-
-            // 1. Calculate Hash if missing
-            // The file might be corrupted, so we try to get metadata hash first.
-            // But usually the file exists if we are deleting it.
-            // For now, assume track.GlobalId IS the hash (UniqueHash), or we need to calculate audio hash.
-            // The request was "Audio Hashing". 
-            // UniqueHash is usually the Soulseek File Hash (standard MD5?) or path-based?
-            // In ORBIT logic, UniqueHash for SearchResult is typically the File Hash from Soulseek.
-            
-            string hashToBlock = track.GlobalId; 
-            
-            // 2. Blacklist
-            await _forensicLockdownService.BlacklistAsync(hashToBlock, "User Deleted & Blacklisted", track.Title);
-
-            // 3. Delete File (Reuse existing logic)
-            await _downloadManager.DeleteTrackFromDiskAndHistoryAsync(track.GlobalId);
-            
-             _logger.LogInformation("Track blacklisted and deleted successfully");
-        }
-        catch (Exception ex)
-        {
-             _logger.LogError(ex, "Failed to blacklist track");
         }
     }
 

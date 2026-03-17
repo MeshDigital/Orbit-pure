@@ -51,7 +51,6 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     private readonly PathProviderService _pathProvider;
     private readonly IFileWriteService _fileWriteService; // Phase 1A
     private readonly CrashRecoveryJournal _crashJournal;
-    private readonly TrackForensicLogger _forensicLogger;
     private readonly PeerReliabilityService _peerReliability;
 
 
@@ -141,7 +140,6 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         PathProviderService pathProvider,
         IFileWriteService fileWriteService,
         CrashRecoveryJournal crashJournal,
-        TrackForensicLogger forensicLogger,
         PeerReliabilityService peerReliability) // Phase 1: Engine Overhaul
 
     {
@@ -157,7 +155,6 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         _pathProvider = pathProvider;
         _fileWriteService = fileWriteService;
         _crashJournal = crashJournal; 
-        _forensicLogger = forensicLogger;
         _peerReliability = peerReliability;
 
 
@@ -600,6 +597,13 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         if (queued > 0)
         {
              _ = RefillQueueAsync();
+             
+             // Auto-start engine if not running and we have tracks to process
+             if (!IsRunning)
+             {
+                 _logger.LogInformation("Auto-starting download engine for {Count} queued tracks", queued);
+                 _ = StartAsync();
+             }
         }
     }
 
@@ -884,19 +888,6 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         {
              _logger.LogInformation("🚀 VIP Track Active: {Title}", ctx.Model.Title);
         }
-
-        // Phase 14: Lifecycle Forensic Logging
-        _forensicLogger.Info(ctx.GlobalId, Data.Entities.ForensicStage.Download, 
-            $"State Transition: {newState}{(error != null ? $" - Error: {error}" : "")}", 
-            ctx.GlobalId, 
-            new { 
-                ctx.State, 
-                ctx.ErrorMessage,
-                ctx.Model.Priority,
-                ctx.IsVip,
-                ctx.CurrentUsername
-            });
-
 
         // Phase 6 Fix: Real-time population of "All Tracks" (LibraryEntry)
         if (newState == PlaylistTrackState.Completed && !string.IsNullOrEmpty(ctx.Model.ResolvedFilePath))

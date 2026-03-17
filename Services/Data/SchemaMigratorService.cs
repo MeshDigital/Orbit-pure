@@ -1240,6 +1240,12 @@ public class SchemaMigratorService
                 command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""Comments"" TEXT NULL;";
                 await command.ExecuteNonQueryAsync();
             }
+            if (!ColumnExists("LibraryEntries", "EnergyRatio"))
+            {
+                _logger.LogInformation("Patching Schema: Adding EnergyRatio to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""EnergyRatio"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
             if (!ColumnExists("LibraryEntries", "QualityDetails"))
             {
                 _logger.LogInformation("Patching Schema: Adding QualityDetails to LibraryEntries...");
@@ -1370,6 +1376,12 @@ public class SchemaMigratorService
             {
                 _logger.LogInformation("Patching Schema: Adding LastPlayedAt to LibraryEntries...");
                 command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""LastPlayedAt"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "IsTranscoded"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsTranscoded to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""IsTranscoded"" INTEGER NULL;";
                 await command.ExecuteNonQueryAsync();
             }
 

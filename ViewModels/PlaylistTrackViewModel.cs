@@ -75,14 +75,17 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     {
         get
         {
-            // Use MetadataForensicService if available, otherwise fallback to bitrate
-            var tier = MetadataForensicService.CalculateTier(Model);
-            return new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse(MetadataForensicService.GetTierColor(tier)));
+            // Simple bitrate based color as fallback
+            var bitrate = Model.Bitrate ?? 0;
+            if (bitrate >= 320) return Avalonia.Media.Brushes.LimeGreen;
+            if (bitrate >= 256) return Avalonia.Media.Brushes.Gold;
+            if (bitrate > 0) return Avalonia.Media.Brushes.Orange;
+            return Avalonia.Media.Brushes.Gray;
         }
     }
 
-    public string TierBadge => MetadataForensicService.GetTierBadge(MetadataForensicService.CalculateTier(Model));
-    public string Tier => MetadataForensicService.CalculateTier(Model).ToString();
+    public string TierBadge => string.Empty;
+    public string Tier => "Standard";
     
 
 

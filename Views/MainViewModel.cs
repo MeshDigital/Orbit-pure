@@ -676,7 +676,6 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 "SettingsPage" => PageType.Settings,
                 "ImportPage" => PageType.Import,
                 "ImportPreviewPage" => PageType.Import, // Map preview to Import category
-                "InspectorPage" => PageType.Inspector,
                 _ => CurrentPageType
             };
 

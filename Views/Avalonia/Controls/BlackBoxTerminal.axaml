@@ -62,7 +62,7 @@
 
                 <ItemsControl ItemsSource="{Binding TerminalLogs}">
                     <ItemsControl.ItemTemplate>
-                        <DataTemplate DataType="entities:ForensicLogEntry">
+                        <DataTemplate>
                             <Grid ColumnDefinitions="Auto,Auto,Auto,*" Margin="12,2" VerticalAlignment="Center">
                                 <!-- Timestamp -->
                                 <TextBlock Text="{Binding Timestamp, StringFormat='{}{0:HH:mm:ss.ff}'}" 

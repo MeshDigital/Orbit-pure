@@ -123,9 +123,16 @@
                     
                     <Border Background="#252526" CornerRadius="4" Padding="8,4">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Ellipse Width="8" Height="8" Fill="{Binding ConnectionViewModel.IsConnected, Converter={StaticResource BoolToColorConverter}}"
-                                     ToolTip.Tip="Soulseek Connection Status"/>
-                            <TextBlock Text="Soulseek" FontSize="11" Foreground="#999" VerticalAlignment="Center"/>
+                            <Button Command="{Binding ConnectionViewModel.ShowLoginCommand}"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Padding="0"
+                                    ToolTip.Tip="Click to manage Soulseek connection">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <Ellipse Width="8" Height="8" Fill="{Binding ConnectionViewModel.IsConnected, Converter={StaticResource BoolToColorConverter}}"/>
+                                    <TextBlock Text="Soulseek" FontSize="11" Foreground="#999" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
                             <Rectangle Width="1" Height="12" Fill="#444" Margin="4,0"/>
                             <Ellipse Width="8" Height="8" Fill="{Binding ConnectionViewModel.IsSpotifyConnected, Converter={StaticResource BoolToColorConverter}}"
                                      ToolTip.Tip="Spotify Connection Status"/>

@@ -1,0 +1,168 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:models="clr-namespace:SLSKDONET.Models"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:conv="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
+             xmlns:rootConv="clr-namespace:SLSKDONET.Converters"
+             xmlns:dg="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.DataGrid"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="SLSKDONET.Views.Avalonia.TrackListView"
+             x:DataType="vm:Library.TrackListViewModel"
+             Background="#1E1E1E">
+
+    <UserControl.Resources>
+        <rootConv:BoolToWidthConverter x:Key="BoolToWidthConverter"/>
+        <rootConv:BoolToTextConverter x:Key="BoolToTextConverter"/>
+        <conv:TrackStateToColorConverter x:Key="TrackStateToColorConverter"/>
+        <conv:TrackStateToTextConverter x:Key="TrackStateToTextConverter"/>
+        <x:Double x:Key="NonDownloadedOpacity">0.3</x:Double>
+    </UserControl.Resources>
+
+    <UserControl.Styles>
+        <Style Selector="DataGridColumnHeader">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#555"/>
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Padding" Value="12,8"/>
+        </Style>
+        <Style Selector="DataGridRow:pointerover /template/ Border#RowBorder">
+            <Setter Property="Background" Value="#2A2A2E"/>
+        </Style>
+        <Style Selector="DataGridRow:selected /template/ Border#RowBorder">
+            <Setter Property="Background" Value="#3300BFFF"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,*">
+
+        <!-- Search Bar -->
+        <Border Grid.Row="0" Background="#252526" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="16,12">
+            <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Grid.Column="0" Text="🔍" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="#888"/>
+                <TextBox Grid.Column="1" Text="{Binding SearchText, Mode=TwoWay}" Watermark="Search tracks, artists, albums..." Background="Transparent" BorderThickness="0" Padding="0,8" Foreground="White"/>
+            </Grid>
+        </Border>
+
+        <!-- Status Filters -->
+        <Border Grid.Row="1" Background="#1E1E1E" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="16,10">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <!-- Core Status Filters -->
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <ToggleButton Content="All" IsChecked="{Binding IsFilterAll, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
+                    <ToggleButton Content="Downloaded" IsChecked="{Binding IsFilterDownloaded, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
+                    <ToggleButton Content="Pending" IsChecked="{Binding IsFilterPending, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
+                    <ToggleButton Content="Review" IsChecked="{Binding IsFilterNeedsReview, Mode=TwoWay}" Classes="chip danger" Padding="12,5" FontSize="11"/>
+                    <ToggleButton Content="❤️" IsChecked="{Binding IsFilterLiked, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Show Liked Tracks Only"/>
+                </StackPanel>
+
+                <Rectangle Width="1" Height="14" Fill="#444" VerticalAlignment="Center" Margin="4,0"/>
+                <TextBlock Text="Total Tracks:" VerticalAlignment="Center" FontSize="11" Foreground="#666"/>
+                <TextBlock Text="{Binding FilteredTracks.Count}" VerticalAlignment="Center" FontSize="11" FontWeight="Bold" Foreground="#888"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Track List -->
+        <DataGrid Grid.Row="2" Name="TrackGrid" 
+                  ItemsSource="{Binding FilteredTracks}"
+                  CanUserSortColumns="True"
+                  IsReadOnly="True"
+                  Background="Transparent"
+                  BorderThickness="0"
+                  HeadersVisibility="Column"
+                  Margin="0"
+                  RowHeight="48"
+                  Padding="16,0"
+                  SelectionMode="Extended"
+                  GridLinesVisibility="None"
+                  AutoGenerateColumns="False">
+
+            <DataGrid.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="Play Track" Command="{Binding Operations.PlayTrackCommand}" CommandParameter="{Binding #TrackGrid.SelectedItem}">
+                        <MenuItem.Icon><TextBlock Text="▶️" FontSize="12"/></MenuItem.Icon>
+                    </MenuItem>
+                    <Separator/>
+                    <MenuItem Header="Hard Retry" Command="{Binding Operations.HardRetryCommand}" CommandParameter="{Binding #TrackGrid.SelectedItem}">
+                         <MenuItem.Icon><TextBlock Text="🔄" FontSize="12"/></MenuItem.Icon>
+                    </MenuItem>
+                    <Separator/>
+                    <MenuItem Header="Open Folder" Command="{Binding Operations.OpenFolderCommand}" CommandParameter="{Binding #TrackGrid.SelectedItem}">
+                         <MenuItem.Icon><TextBlock Text="📂" FontSize="12"/></MenuItem.Icon>
+                    </MenuItem>
+                    <Separator/>
+                    <MenuItem Header="Remove Track" Command="{Binding Operations.RemoveTrackCommand}" CommandParameter="{Binding #TrackGrid.SelectedItem}" InputGesture="Delete">
+                         <MenuItem.Icon><TextBlock Text="🗑️" FontSize="12" Foreground="#FF5252"/></MenuItem.Icon>
+                    </MenuItem>
+                </ContextMenu>
+            </DataGrid.ContextMenu>
+
+            <DataGrid.Columns>
+                <!-- Column 0: Artwork/Status -->
+                <DataGridTemplateColumn Header="" Width="60">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
+                            <Panel Margin="12,0,0,0">
+                                <Border Width="32" Height="32" CornerRadius="4" Background="#2A2A2E" ClipToBounds="True">
+                                    <Panel>
+                                        <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                                        <TextBlock Text="🎵" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.3" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNull}}"/>
+                                        
+                                        <!-- Status Overlay -->
+                                        <Border VerticalAlignment="Bottom" HorizontalAlignment="Right" Width="8" Height="8" Margin="0,0,2,2" CornerRadius="4" 
+                                                Background="{Binding State, Converter={StaticResource TrackStateToColorConverter}}"
+                                                BorderBrush="#1E1E1E" BorderThickness="1"/>
+                                    </Panel>
+                                </Border>
+                            </Panel>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <!-- Artist Column -->
+                <DataGridTemplateColumn Header="ARTIST" Width="180" CanUserSort="True" SortMemberPath="Artist">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
+                            <TextBlock Text="{Binding Artist}" VerticalAlignment="Center" Margin="12,0" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <!-- Title Column -->
+                <DataGridTemplateColumn Header="TITLE" Width="*" CanUserSort="True" SortMemberPath="Title">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
+                            <TextBlock Text="{Binding Title}" VerticalAlignment="Center" Margin="12,0" Foreground="White" FontWeight="SemiBold" FontSize="12"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <!-- Format Column -->
+                <DataGridTemplateColumn Header="FORMAT" Width="100">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
+                            <Border Background="#1A1F2C" BorderBrush="#3300BFFF" BorderThickness="1" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="{Binding Format}" FontSize="9" FontWeight="Bold" Foreground="#00BFFF" Opacity="0.8"/>
+                                    <TextBlock Text="{Binding Bitrate, StringFormat='{}{0}k'}" FontSize="9" Foreground="#00BFFF"/>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <!-- Duration Column -->
+                <DataGridTemplateColumn Header="DURATION" Width="80">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
+                            <TextBlock Text="{Binding DurationDisplay}" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0" Opacity="0.5"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>

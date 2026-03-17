@@ -15,13 +15,11 @@ namespace SLSKDONET.Services
     {
         private readonly CrashRecoveryJournal _crashJournal;
         private readonly SearchOrchestrationService _searchOrchestrator;
-        private readonly IForensicLockdownService _lockdown;
 
-        public SetListService(CrashRecoveryJournal crashJournal, SearchOrchestrationService searchOrchestrator, IForensicLockdownService lockdown)
+        public SetListService(CrashRecoveryJournal crashJournal, SearchOrchestrationService searchOrchestrator)
         {
             _crashJournal = crashJournal;
             _searchOrchestrator = searchOrchestrator;
-            _lockdown = lockdown;
         }
 
         public async Task<SetListEntity> CreateSetListAsync(string name)

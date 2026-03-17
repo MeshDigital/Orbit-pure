@@ -20,7 +20,6 @@ namespace SLSKDONET.Services
         private readonly ILogger<MissionControlService> _logger;
         
         private readonly CancellationTokenSource _cts = new();
-        private readonly IForensicLockdownService _lockdown;
         private readonly ConfigManager _configManager;
         private readonly SpotifyAuthService _spotifyAuth;
         private readonly DashboardService _dashboardService;
@@ -36,7 +35,6 @@ namespace SLSKDONET.Services
             DownloadManager downloadManager,
             CrashRecoveryJournal crashJournal,
             SearchOrchestrationService searchOrchestrator,
-            IForensicLockdownService lockdown,
             ConfigManager configManager,
             SpotifyAuthService spotifyAuth,
             DashboardService dashboardService,
@@ -46,7 +44,6 @@ namespace SLSKDONET.Services
             _downloadManager = downloadManager;
             _crashJournal = crashJournal;
             _searchOrchestrator = searchOrchestrator;
-            _lockdown = lockdown;
             _configManager = configManager;
             _spotifyAuth = spotifyAuth;
             _dashboardService = dashboardService;
@@ -213,8 +210,8 @@ namespace SLSKDONET.Services
                 ZombieProcessCount = _cachedZombieCount,
                 ActiveOperations = operations,
                 ResilienceLog = resilienceLog,
-                IsForensicLockdownActive = _lockdown.IsLockdownActive,
-                CurrentCpuLoad = _lockdown.CurrentCpuLoad,
+                IsForensicLockdownActive = false,
+                CurrentCpuLoad = 0,
                 Topology = SystemInfoHelper.Topology,
                 LibraryHealth = _cachedLibraryHealth,
                 AvailableFreeSpaceBytes = _cachedFreeSpace,

@@ -150,19 +150,11 @@ public class SearchFilterViewModel : ReactiveObject
         {
             if (result.Model == null) return false;
 
-            // Phase 19: The Bouncer Logic
-            // Calculate Tier for Bouncer checks
-            var tier = Services.MetadataForensicService.CalculateTier(result.Model);
-
+            // Phase 19: The Bouncer Logic simplified
             if (bouncerMode == BouncerMode.Strict)
             {
-                // Strict: Only Gold or Platinum
-                if (tier != SearchTier.Platinum && tier != SearchTier.Gold) return false;
-            }
-            else if (bouncerMode == BouncerMode.Standard)
-            {
-                // Standard: Block Garbage
-                if (tier == SearchTier.Garbage) return false;
+                // Strict: Only high bitrate
+                if (result.Bitrate < 320) return false;
             }
             
             // 1. Bitrate Check with "Bucket Logic" for VBR
@@ -189,7 +181,7 @@ public class SearchFilterViewModel : ReactiveObject
             // Phase 12.6: Hide potential fakes/upscales (Operational Hardening)
             if (hideSuspects)
             {
-                if (result.IntegrityStatus == "Suspect" || SLSKDONET.Services.MetadataForensicService.IsFake(result.Model)) 
+                if (result.IntegrityStatus == "Suspect") 
                     return false;
 
                 // 4. Manual Forensic Size Gate (Phase 11.5)
@@ -212,16 +204,10 @@ public class SearchFilterViewModel : ReactiveObject
     {
             if (result.Model == null) return false;
 
-            // Phase 19: The Bouncer Logic
-            var tier = Services.MetadataForensicService.CalculateTier(result.Model);
-
+            // Phase 19: The Bouncer Logic simplified
             if (BouncerMode == BouncerMode.Strict)
             {
-                if (tier != SearchTier.Platinum && tier != SearchTier.Gold) return false;
-            }
-            else if (BouncerMode == BouncerMode.Standard)
-            {
-                if (tier == SearchTier.Garbage) return false;
+                if (result.Bitrate < 320) return false;
             }
 
             // 1. Bitrate Check
@@ -241,7 +227,7 @@ public class SearchFilterViewModel : ReactiveObject
             if (UseHighReliability && result.QueueLength > 50) return false;
 
             // Phase 12.6: Hide potential fakes/upscales
-            if (HideSuspects && (result.IntegrityStatus == "Suspect" || Services.MetadataForensicService.IsFake(result.Model))) 
+            if (HideSuspects && (result.IntegrityStatus == "Suspect")) 
                 return false;
 
             return true;

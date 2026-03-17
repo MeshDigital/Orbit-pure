@@ -809,6 +809,72 @@
                 </StackPanel>
             </Border>
 
+            <!-- Soulseek Connection -->
+            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#0078D4" BorderThickness="1">
+                <StackPanel Spacing="16">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="🌐" FontSize="20" VerticalAlignment="Center"/>
+                                <TextBlock Text="Soulseek Connection" FontSize="16" FontWeight="SemiBold" Foreground="#0078D4"/>
+                            </StackPanel>
+                            <TextBlock Text="Manage your connection to the Soulseek peer-to-peer network for music sharing and downloads."
+                                       Foreground="#666" FontSize="12" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <Separator Background="#1A2F3A" Height="1"/>
+
+                    <!-- Username -->
+                    <Grid ColumnDefinitions="140,*">
+                        <TextBlock Grid.Column="0" Text="Username:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <TextBox Grid.Column="1"
+                                 Text="{Binding SoulseekUsername, Mode=TwoWay}"
+                                 Watermark="Your Soulseek username"
+                                 Background="#1E1E1E"/>
+                    </Grid>
+
+                    <!-- Connection Options -->
+                    <StackPanel Spacing="8">
+                        <CheckBox Content="Auto-connect on startup"
+                                  IsChecked="{Binding SoulseekAutoConnectEnabled, Mode=TwoWay}"
+                                  Foreground="#AAA"/>
+                        <CheckBox Content="Remember password"
+                                  IsChecked="{Binding SoulseekRememberPassword, Mode=TwoWay}"
+                                  Foreground="#AAA"/>
+                    </StackPanel>
+
+                    <!-- Connection Buttons -->
+                    <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Left">
+                        <Button Command="{Binding SoulseekConnectCommand}"
+                                Background="#0078D4"
+                                Foreground="White"
+                                Padding="16,8"
+                                IsEnabled="{Binding !SoulseekConnectCommand.CanExecute}">
+                            <TextBlock Text="Connect" FontSize="12" FontWeight="SemiBold"/>
+                        </Button>
+
+                        <Button Command="{Binding SoulseekDisconnectCommand}"
+                                Background="#2D2D2D"
+                                Foreground="#FF5555"
+                                BorderBrush="#FF5555"
+                                BorderThickness="1"
+                                Padding="16,8"
+                                IsEnabled="{Binding SoulseekDisconnectCommand.CanExecute}">
+                            <TextBlock Text="Disconnect" FontSize="12" FontWeight="SemiBold"/>
+                        </Button>
+
+                        <Button Command="{Binding SoulseekReconnectCommand}"
+                                Background="#FFA500"
+                                Foreground="White"
+                                Padding="16,8"
+                                IsEnabled="{Binding SoulseekReconnectCommand.CanExecute}">
+                            <TextBlock Text="Reconnect" FontSize="12" FontWeight="SemiBold"/>
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
             <!-- Save Button -->
             <Button Command="{Binding SaveSettingsCommand}"
                     Classes="primary"

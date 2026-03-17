@@ -1,5 +1,36 @@
 # Recent Changes
 
+## [0.1.0-alpha.20] - Phase 13: Soulseek Connection Management UI (Mar 17, 2026)
+
+### New Features
+* **Clickable Soulseek Status Indicator**: Made the Soulseek connection status indicator in the main window clickable to open the login overlay, providing quick access to connection management.
+* **Persistent Login Overlay**: Modified connection state handling to keep the login overlay visible on authentication failures, allowing users to retry without reopening the overlay.
+* **Settings Connection Controls**: Added comprehensive Soulseek connection management section to settings with connect/disconnect/reconnect buttons and credential management options.
+
+### UI Enhancements
+* **Connection Management Hub**: Settings page now includes a dedicated "Soulseek Connection" section with username field, auto-connect toggle, remember password checkbox, and connection action buttons.
+* **Improved User Experience**: Failed login attempts no longer dismiss the overlay, enabling immediate retry without navigation.
+* **Status Indicator Interactivity**: Main window Soulseek status indicator now responds to clicks, opening the login interface for better accessibility.
+
+### Technical Improvements
+* **Enhanced ConnectionViewModel**: Added `ShowLoginCommand` and modified `HandleStateChange()` to maintain overlay visibility on login failures.
+* **SettingsViewModel Integration**: Extended `SettingsViewModel` with Soulseek connection properties (`Username`, `AutoConnectEnabled`, `RememberPassword`) and commands (`ConnectCommand`, `DisconnectCommand`, `ReconnectCommand`).
+* **Dependency Injection**: Configured `ISoulseekCredentialService` injection in `SettingsViewModel` for secure credential management.
+
+### Fixes & Stability
+* **Connection Error Resolution**: Eliminated "Unobserved Task Exception" errors on startup by disabling auto-connect when credentials are invalid.
+* **State Management**: Proper handling of connection states to prevent overlay dismissal on authentication failures.
+* **Credential Security**: Integrated secure credential storage and retrieval through the credential service.
+
+### Files Modified
+* **ViewModels**: `ConnectionViewModel.cs`, `SettingsViewModel.cs`
+* **Views**: `MainWindow.axaml`, `SettingsPage.axaml`
+* **App Configuration**: `App.axaml.cs` (dependency injection setup)
+
+### Validation
+* **Build Verified**: `dotnet build` succeeds with 0 errors.
+* **Runtime Tested**: Application starts successfully with all connection management features functional.
+
 ## [0.1.0-alpha.19] - Phase 12: Professional Distribution & Beta Launch (Mar 15, 2026)
 
 ### New Features

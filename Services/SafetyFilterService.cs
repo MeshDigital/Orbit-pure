@@ -75,11 +75,12 @@ public class SafetyFilterService : ISafetyFilterService
         // A 320kbps MP3 MUST be approx 2.4MB per minute. 
         if (candidate.Bitrate > 0 && candidate.Length > 0 && candidate.Size.HasValue)
         {
-            if (MetadataForensicService.IsFake(candidate))
+            // Simple size check instead of forensic service
+            double expectedBytes = (candidate.Bitrate * 1000.0 / 8.0) * (candidate.Length.Value);
+            if (candidate.Size < (expectedBytes * 0.5) || candidate.Size > (expectedBytes * 2.0))
             {
-                var trust = MetadataForensicService.CalculateTrustScore(candidate);
-                _logger.LogWarning("Forensic Core detected Fake/Low-Integrity file for {Track}: Trust Score {Score}", candidate.Title, trust);
-                return new SafetyCheckResult(false, "Forensic Integrity Failure", $"Metadata/Size trust score ({trust}%) is below safety threshold.");
+                _logger.LogWarning("Size check detected suspicious file for {Track}: Size {Size} vs Expected {Expected}", candidate.Title, candidate.Size, expectedBytes);
+                return new SafetyCheckResult(false, "Forensic Integrity Failure", "File size deviates significantly from expected bitrate duration.");
             }
         }
 

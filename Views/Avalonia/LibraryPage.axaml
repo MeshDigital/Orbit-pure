@@ -24,6 +24,8 @@
         <rootConv:BoolOpacityConverter x:Key="BoolOpacityConverter"/>
         <conv:BoolBlurConverter x:Key="BoolBlurConverter"/>
         <conv:EnumToBooleanConverter x:Key="EnumToBoolConverter"/>
+        <rootConv:BoolToWidthConverter x:Key="BoolToWidthConverter"/>
+        <rootConv:BoolToTextConverter x:Key="BoolToTextConverter"/>
         <x:Double x:Key="NonDownloadedOpacity">0.3</x:Double>
     </UserControl.Resources>
 
@@ -37,26 +39,31 @@
         <KeyBinding Gesture="Ctrl+Alt+N" Command="{Binding ToggleNavigationCommand}"/>
     </UserControl.KeyBindings>
 
-    <Grid>
-        <!-- CONTENT LAYER (Blurred when Overlay is active) -->
-        <Grid ColumnDefinitions="300,Auto,*">
+    <SplitView IsPaneOpen="{Binding !IsNavigationCollapsed}"
+               OpenPaneLength="{Binding IsNavigationCollapsed, Converter={StaticResource BoolToWidthConverter}, ConverterParameter='60,300'}"
+               PanePlacement="Left"
+               DisplayMode="CompactInline">
 
-        
-            <!-- LEFT PANEL: Playlist List -->
-            <Border Grid.Column="0" MinWidth="250" MaxWidth="600" Background="#202020" BorderBrush="#3E3E3E" BorderThickness="0,0,1,0" IsVisible="{Binding !IsNavigationCollapsed}">
+        <!-- LEFT PANE: Collapsible Playlist Navigation -->
+        <SplitView.Pane>
+            <Border Background="#1A1A1D" BorderBrush="#2A2A2E" BorderThickness="0,0,1,0">
                 <Grid RowDefinitions="Auto,*,Auto">
                     
                     <!-- Header / Tools -->
                     <Grid Grid.Row="0" Margin="12,16,12,8" ColumnDefinitions="Auto,*,Auto">
-                         <Button Grid.Column="0" Command="{Binding ToggleNavigationCommand}" 
-                                 Classes="icon-button" ToolTip.Tip="Hide Library Navigation (Ctrl+Alt+N)" Margin="0,0,8,0">
-                             <TextBlock Text="🗂️" FontSize="16" Opacity="0.8"/>
-                         </Button>
-                         <TextBlock Grid.Column="1" Text="LIBRARY" FontSize="12" FontWeight="Bold" Foreground="#888" VerticalAlignment="Center"/>
-                         
-                         <DropDownButton Content="Tools" Classes="tool" CornerRadius="4" Padding="8,4" FontSize="12" Grid.Column="2">
-                             <DropDownButton.Flyout>
-                                 <MenuFlyout>
+                        <Button Grid.Column="0" Command="{Binding ToggleNavigationCommand}"
+                                Classes="icon-button" ToolTip.Tip="Toggle Library Navigation (Ctrl+Alt+N)" Margin="0,0,8,0">
+                            <TextBlock Text="{Binding IsNavigationCollapsed, Converter={StaticResource BoolToTextConverter}, ConverterParameter='▶,◀'}" FontSize="16" Opacity="0.8"/>
+                        </Button>
+                        <TextBlock Grid.Column="1" Text="LIBRARY" FontSize="12" FontWeight="Bold" Foreground="#888" VerticalAlignment="Center" IsVisible="{Binding !IsNavigationCollapsed}"/>
+
+                        <DropDownButton Content="Tools" Classes="tool" CornerRadius="4" Padding="8,4" FontSize="12" Grid.Column="2" IsVisible="{Binding !IsNavigationCollapsed}">
+                            <DropDownButton.Flyout>
+                                <MenuFlyout>
+                                    <MenuItem Header="View Mode" Command="{Binding ToggleViewModeCommand}">
+                                        <MenuItem.Icon><TextBlock Text="{Binding UseCardView, Converter={StaticResource BoolToTextConverter}, ConverterParameter='📋,🎴'}"/></MenuItem.Icon>
+                                    </MenuItem>
+                                    <Separator/>
                                      <MenuItem Header="Import History" Command="{Binding ViewHistoryCommand}" InputGesture="Ctrl+H">
                                          <MenuItem.Icon><TextBlock Text="📜"/></MenuItem.Icon>
                                      </MenuItem>
@@ -83,12 +90,12 @@
                          </DropDownButton>
                     </Grid>
 
-                    <!-- Navigation List -->
-                    <ScrollViewer Grid.Row="1">
+                    <!-- Navigation Content: List View -->
+                    <ScrollViewer Grid.Row="1" IsVisible="{Binding !UseCardView}">
                         <StackPanel Spacing="2">
                             <!-- Section: Library Management -->
                             <TextBlock Text="LIBRARY" FontSize="10" FontWeight="Bold" Foreground="#555" Margin="16,12,16,4"/>
-                            
+
                             <Button Command="{Binding Projects.LoadAllTracksCommand}" Classes="nav-item" Margin="8,0">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <Border Width="24" Height="24" CornerRadius="4" Background="#111128" VerticalAlignment="Center">
@@ -127,9 +134,9 @@
                                     <TextBox Grid.Column="1" Text="{Binding Projects.SearchText, Mode=TwoWay}" Watermark="Filter projects..." Background="Transparent" BorderThickness="0" FontSize="12" Padding="8,6" Foreground="White"/>
                                 </Grid>
                             </Border>
-                            
-                            <ListBox ItemsSource="{Binding Projects.FilteredProjects}" 
-                                     SelectedItem="{Binding Projects.SelectedProject, Mode=TwoWay}" 
+
+                            <ListBox ItemsSource="{Binding Projects.FilteredProjects}"
+                                     SelectedItem="{Binding Projects.SelectedProject, Mode=TwoWay}"
                                      Background="Transparent" BorderThickness="0" Padding="0,4">
                                 <ListBox.Styles>
                                     <Style Selector="ListBoxItem">
@@ -180,602 +187,52 @@
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
-                            
-                            <!-- Section: Library Maintenance -->
-                            <Separator Height="1" Background="#2A2A2A" Margin="12,12"/>
-                            <TextBlock Text="MAINTENANCE" FontSize="10" FontWeight="Bold" Foreground="#555" Margin="16,4,16,4"/>
-                            
-                            <Button Command="{Binding AutoOrganizeCommand}" Classes="nav-item" Margin="8,0" ToolTip.Tip="Relocate files to Artist / Album folders">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Border Width="24" Height="24" CornerRadius="4" Background="#282811" VerticalAlignment="Center">
-                                        <TextBlock Text="🧹" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <TextBlock Text="Auto-Organizer" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-
-                            <Button Command="{Binding DuplicateDetectionCommand}" Classes="nav-item" Margin="8,0" ToolTip.Tip="Find tracks with identical hashes">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Border Width="24" Height="24" CornerRadius="4" Background="#112828" VerticalAlignment="Center">
-                                        <TextBlock Text="👯" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <TextBlock Text="Duplicates" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
                         </StackPanel>
                     </ScrollViewer>
 
-                    <!-- Bottom Actions -->
-                    <StackPanel Grid.Row="2" Margin="12,12" Spacing="8">
-                        <Button Command="{Binding Projects.AddPlaylistCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="➕"/>
-                                <TextBlock Text="New Playlist"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Command="{Binding DeleteProjectCommand}" CommandParameter="{Binding SelectedProject}" Classes="danger" IsVisible="{Binding !!SelectedProject}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
-                             <TextBlock Text="Delete Project"/>
-                        </Button>
-                    </StackPanel>
-                </Grid>
-            </Border>
-
-            <!-- Sidebar Splitter -->
-            <GridSplitter Grid.Column="1" Width="1" Background="#3E3E3E" HorizontalAlignment="Center" IsVisible="{Binding !IsNavigationCollapsed}"/>
-            
-            <!-- MAIN CONTENT AREA (Track List and Search) -->
-            <Grid Grid.Column="2" x:Name="TrackListContainer" ClipToBounds="True">
-                <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Grid.IsSharedSizeScope="True">
-                <!-- Row 0: Global Search + High-Level Toggles -->
-                <Border Grid.Row="0" Background="#252526" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="16,10">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <!-- Search Box & Nav Toggle -->
-                        <Grid Grid.Column="0" ColumnDefinitions="Auto,*" Margin="0,0,12,0">
-                            <!-- Toggle Library Nav Button -->
-                            <Button Grid.Column="0" Command="{Binding ToggleNavigationCommand}" 
-                                    IsVisible="{Binding IsNavigationCollapsed}"
-                                    Classes="icon-button" ToolTip.Tip="Show Library Navigation (Ctrl+Alt+N)" Margin="0,0,12,0" VerticalAlignment="Center">
-                                <TextBlock Text="🗂️" FontSize="16" Opacity="0.8"/>
-                            </Button>
-                            
-                            <!-- Search Border -->
-                            <Border Grid.Column="1" Background="#2D2D2D" BorderBrush="#3E3E3E" BorderThickness="1" CornerRadius="8" Padding="12,0" HorizontalAlignment="Stretch">
-                                <Grid ColumnDefinitions="Auto,*">
-                                    <TextBlock Grid.Column="0" Text="🔍" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="#888"/>
-                                    <TextBox Grid.Column="1" Text="{Binding Tracks.SearchText, Mode=TwoWay}" Watermark="Search tracks, artists, albums..." Background="Transparent" BorderThickness="0" Padding="0,10" Foreground="White"/>
-                                </Grid>
-                            </Border>
-                        </Grid>
-                        
-                        <!-- Global Action Toggles -->
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-                            <Button Command="{Binding RunForensicScanCommand}" Classes="chip warning" ToolTip.Tip="Global Integrity Scan" Padding="10,5" FontSize="11" Foreground="#F59E0B" BorderBrush="#F59E0B" BorderThickness="1" CornerRadius="4">
+                    <!-- Bottom Actions / Compact Icon Bar -->
+                    <Grid Grid.Row="2" Margin="12,12">
+                        <!-- Full Actions (when expanded) -->
+                        <StackPanel Spacing="8" IsVisible="{Binding !IsNavigationCollapsed}">
+                            <Button Command="{Binding Projects.AddPlaylistCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <TextBlock Text="🛡️" VerticalAlignment="Center"/>
-                                    <TextBlock Text="Analyse Frauds" FontWeight="Bold" VerticalAlignment="Center"/>
+                                    <TextBlock Text="➕"/>
+                                    <TextBlock Text="New Playlist"/>
                                 </StackPanel>
                             </Button>
-
-                            <Button Command="{Binding InitiateMp3SearchCommand}" Classes="chip primary" ToolTip.Tip="Initiate MP3 search for On-Hold tracks" Padding="10,5" FontSize="11" Background="#6366F1" BorderBrush="#818CF8" BorderThickness="1" CornerRadius="4">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <TextBlock Text="🎵" VerticalAlignment="Center"/>
-                                    <TextBlock Text="Search MP3 (On Hold)" FontWeight="Bold" VerticalAlignment="Center"/>
-                                </StackPanel>
+                            <Button Command="{Binding DeleteProjectCommand}" CommandParameter="{Binding SelectedProject}" Classes="danger" IsVisible="{Binding !!SelectedProject}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
+                                 <TextBlock Text="Delete Project"/>
                             </Button>
-                            
-                            <Button Command="{Binding Tracks.SelectAllTracksCommand}" Classes="icon-button" ToolTip.Tip="Select All"><TextBlock Text="☑️" FontSize="15"/></Button>
-                            <Button Command="{Binding RefreshLibraryCommand}" Classes="icon-button" ToolTip.Tip="Refresh library"><TextBlock Text="🔄" FontSize="15"/></Button>
-                            <Button Command="{Binding ToggleEditModeCommand}" Classes="icon-button" ToolTip.Tip="Toggle Edit"><TextBlock Text="✏️" FontSize="15"/></Button>
+                        </StackPanel>
+
+                        <!-- Compact Icon Bar (when collapsed) -->
+                        <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" IsVisible="{Binding IsNavigationCollapsed}">
+                            <Button Command="{Binding Projects.LoadAllTracksCommand}" Classes="icon-button" ToolTip.Tip="All Tracks">
+                                <TextBlock Text="📚" FontSize="16"/>
+                            </Button>
+                            <Button Command="{Binding Projects.ImportLikedSongsCommand}" Classes="icon-button" ToolTip.Tip="Liked Songs">
+                                <TextBlock Text="❤️" FontSize="16"/>
+                            </Button>
+                            <Button Command="{Binding OpenSourcesCommand}" Classes="icon-button" ToolTip.Tip="Folders">
+                                <TextBlock Text="📁" FontSize="16"/>
+                            </Button>
+                            <Separator Background="#444" Width="1" Height="20" Margin="4,0"/>
+                            <Button Command="{Binding Projects.AddPlaylistCommand}" Classes="icon-button" ToolTip.Tip="New Playlist">
+                                <TextBlock Text="➕" FontSize="16"/>
+                            </Button>
                         </StackPanel>
                     </Grid>
-                </Border>
-                
-                <!-- Row 1: Status Filters (AI Style Chips Removed for Pure) -->
-                <Border Grid.Row="1" Background="#1E1E1E" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="16,10">
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                        <!-- Core Status Filters -->
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <ToggleButton Content="All" IsChecked="{Binding Tracks.IsFilterAll, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
-                            <ToggleButton Content="Downloaded" IsChecked="{Binding Tracks.IsFilterDownloaded, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
-                            <ToggleButton Content="Pending" IsChecked="{Binding Tracks.IsFilterPending, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
-                            <ToggleButton Content="Review" IsChecked="{Binding Tracks.IsFilterNeedsReview, Mode=TwoWay}" Classes="chip danger" Padding="12,5" FontSize="11"/>
-                            <ToggleButton Content="❤️" IsChecked="{Binding Tracks.IsFilterLiked, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Show Liked Tracks Only"/>
-                        </StackPanel>
-                        
-                        <Rectangle Width="1" Height="14" Fill="#444" VerticalAlignment="Center" Margin="4,0"/>
-                        <TextBlock Text="Total Tracks:" VerticalAlignment="Center" FontSize="11" Foreground="#666"/>
-                        <TextBlock Text="{Binding Tracks.FilteredTracks.Count}" VerticalAlignment="Center" FontSize="11" FontWeight="Bold" Foreground="#888"/>
-                    </StackPanel>
-                </Border>
-                
-                
-                <!-- Row 2: Column Headers & View Settings -->
-                <Border Grid.Row="2" Background="#252526" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="16,4">
-                    <Grid VerticalAlignment="Center">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="58"/>
-                            <ColumnDefinition SharedSizeGroup="ArtistCol" MinWidth="180"/>
-                            <ColumnDefinition SharedSizeGroup="TitleCol" MinWidth="240"/>
-                            <ColumnDefinition SharedSizeGroup="AudioCol" MinWidth="140"/>
-                            <ColumnDefinition SharedSizeGroup="ForensicCol" MinWidth="140"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        
-                        <!-- Column Headers (Shared Size) -->
-                        <Border Grid.Column="1" Padding="8,0"><TextBlock Text="ARTIST" FontSize="10" FontWeight="Bold" Foreground="#666" VerticalAlignment="Center"/></Border>
-                        <Border Grid.Column="2" Padding="8,0"><TextBlock Text="TITLE" FontSize="10" FontWeight="Bold" Foreground="#666" VerticalAlignment="Center"/></Border>
-                        <Border Grid.Column="3" Padding="12,0" VerticalAlignment="Center">
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <TextBlock Text="FORMAT" FontSize="10" FontWeight="Bold" Foreground="#666" Width="60" TextAlignment="Center"/>
-                                <TextBlock Text="BITRATE" FontSize="10" FontWeight="Bold" Foreground="#666" Width="56" TextAlignment="Center"/>
-                            </StackPanel>
-                        </Border>
-                        <Border Grid.Column="4" Padding="12,0"><TextBlock Text="FORENSICS" FontSize="10" FontWeight="Bold" Foreground="#666" VerticalAlignment="Center"/></Border>
-                        <Border Grid.Column="5" Padding="12,0"><TextBlock Text="METADATA" FontSize="10" FontWeight="Bold" Foreground="#666" VerticalAlignment="Center"/></Border>
-                        
-                        <!-- Actions & View Selector -->
-                        <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0">
-                            <ToggleButton IsChecked="{Binding ViewSettings.ShowBadges}" Classes="icon-button" ToolTip.Tip="Show Badges">
-                                <TextBlock Text="🏷️" FontSize="12" Opacity="{Binding ViewSettings.ShowBadges, Converter={StaticResource BoolOpacityConverter}}"/>
-                            </ToggleButton>
-                            <ToggleButton IsChecked="{Binding ViewSettings.ShowVibePills}" Classes="icon-button" ToolTip.Tip="Show Vibe Pills">
-                                <TextBlock Text="💊" FontSize="12" Opacity="{Binding ViewSettings.ShowVibePills, Converter={StaticResource BoolOpacityConverter}}"/>
-                            </ToggleButton>
-                            <Rectangle Width="1" Height="14" Fill="#3E3E3E" Margin="4,0"/>
-                            <RadioButton IsChecked="{Binding ViewSettings.ViewMode, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:TrackViewMode.List}}" Classes="icon-button" ToolTip.Tip="List View"><TextBlock Text="≡" FontSize="16"/></RadioButton>
-                            <RadioButton IsChecked="{Binding ViewSettings.ViewMode, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:TrackViewMode.Cards}}" Classes="icon-button" ToolTip.Tip="Card View"><TextBlock Text="⠿" FontSize="16"/></RadioButton>
-                            <RadioButton IsChecked="{Binding ViewSettings.ViewMode, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:TrackViewMode.Pro}}" Classes="icon-button" ToolTip.Tip="Pro View"><TextBlock Text="▦" FontSize="16"/></RadioButton>
-                        </StackPanel>
-                    </Grid>
-                </Border>
-                
-                <Border Grid.Row="3" Background="#252526" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="16,12" IsVisible="{Binding IsActiveDownloadsVisible}">
-                    <Grid RowDefinitions="Auto,Auto">
-                        <Grid ColumnDefinitions="*,Auto" Grid.Row="0">
-                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                                <TextBlock Text="⬇️ Downloads" FontWeight="Bold" FontSize="14" Foreground="White"/>
-                                <Border Background="#333" CornerRadius="10" Padding="8,2"><TextBlock FontSize="12"><Run Text="{Binding MainViewModel.TodoCount}" Foreground="#4EC9B0" FontWeight="Bold"/><Run Text=" active" Foreground="#AAA"/></TextBlock></Border>
-                                <Border Background="#333" CornerRadius="10" Padding="8,2" IsVisible="{Binding MainViewModel.FailedCount}"><TextBlock FontSize="12"><Run Text="{Binding MainViewModel.FailedCount}" Foreground="#F44336" FontWeight="Bold"/><Run Text=" failed" Foreground="#AAA"/></TextBlock></Border>
-                                <TextBlock Text="{Binding MainViewModel.DownloadProgressPercentage, StringFormat='{}{0:F0}%'}" Foreground="#888" VerticalAlignment="Center" FontSize="12"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                <Button Command="{Binding MainViewModel.ResumeAllDownloadsCommand}" Background="#2E7D32" Foreground="White" Padding="12,6" CornerRadius="4" ToolTip.Tip="Resume All Downloads" FontSize="12"><StackPanel Orientation="Horizontal" Spacing="6"><TextBlock Text="▶"/><TextBlock Text="Resume"/></StackPanel></Button>
-                                <Button Command="{Binding MainViewModel.PauseAllDownloadsCommand}" Background="#EF6C00" Foreground="White" Padding="12,6" CornerRadius="4" ToolTip.Tip="Pause All Downloads" FontSize="12"><StackPanel Orientation="Horizontal" Spacing="6"><TextBlock Text="⏸"/><TextBlock Text="Pause"/></StackPanel></Button>
-                                <Border Width="1" Height="16" Background="#444" Margin="4,0"/>
-                                <Button Command="{Binding ToggleActiveDownloadsCommand}" Background="Transparent" Padding="8,6" Foreground="#888" ToolTip.Tip="Hide Panel"><TextBlock Text="✖"/></Button>
-                            </StackPanel>
-                        </Grid>
-                        <ProgressBar Grid.Row="1" Margin="0,12,0,0" Value="{Binding MainViewModel.DownloadProgressPercentage}" Maximum="100" Height="4" Background="#333" Foreground="#4EC9B0" CornerRadius="2"/>
-                    </Grid>
-                </Border>
-
-                <Grid Grid.Row="4" RowDefinitions="Auto, *, Auto, Auto">
-                    <!-- Phase 22: Search 2.1 - Split Results (Matches in other playlists) -->
-                    <Border Grid.Row="0" IsVisible="{Binding Tracks.HasOtherPlaylistsMatches}" Background="#2A1A1A" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Height="150">
-                        <Grid RowDefinitions="Auto,*">
-                            <Border Grid.Row="0" Background="#1E1E1E" Padding="12,4">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <TextBlock Text="FOUND IN OTHER PLAYLISTS" FontSize="10" FontWeight="Bold" Foreground="#888" VerticalAlignment="Center"/>
-                                    <TextBlock Text="(Deduplicated)" FontSize="9" Foreground="#555" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Border>
-                            <ListBox Grid.Row="1" ItemsSource="{Binding Tracks.OtherPlaylistsMatches}" Background="Transparent" BorderThickness="0">
-                                <ListBox.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ListBox.ItemsPanel>
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Background="#333" Width="300" Height="80" CornerRadius="8" Margin="8,4" Padding="12">
-                                            <Grid ColumnDefinitions="Auto,*,Auto">
-                                                <Border Width="48" Height="48" CornerRadius="4" ClipToBounds="True" Background="#222">
-                                                    <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill"/>
-                                                </Border>
-                                                <StackPanel Grid.Column="1" Margin="12,0">
-                                                    <TextBlock Text="{Binding Artist}" FontSize="11" Foreground="#AAA" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="Bold" Foreground="White" TextTrimming="CharacterEllipsis"/>
-                                                </StackPanel>
-                                                <Button Grid.Column="2" 
-                                                        Command="{Binding $parent[UserControl].DataContext.Tracks.AddToCurrentPlaylistCommand}" 
-                                                        CommandParameter="{Binding}"
-                                                        Classes="primary" Padding="8,4" FontSize="11" VerticalAlignment="Center">
-                                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                                        <TextBlock Text="➕"/>
-                                                        <TextBlock Text="Add"/>
-                                                    </StackPanel>
-                                                </Button>
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-                        </Grid>
-                    </Border>
-
-                    <Panel Grid.Row="1">
-                        <!-- Standard List View -->
-                        <ListBox IsVisible="{Binding ViewSettings.ViewMode, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:TrackViewMode.List}}"
-                                 SelectionMode="Multiple" SelectedItems="{Binding Tracks.SelectedTracks}" Background="Transparent" BorderThickness="0">
-                            <ListBox.ItemsSource>
-                                <Binding Path="Tracks.FilteredTracks"/>
-                            </ListBox.ItemsSource>
-                            <ListBox.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
-                            <ListBox.Styles>
-                                <Style Selector="ListBoxItem">
-                                    <Setter Property="Padding" Value="4"/><Setter Property="MinHeight" Value="72"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0,0,0,1"/><Setter Property="BorderBrush" Value="#22FFFFFF"/>
-                                    <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}"/>
-                                    <Setter Property="Template">
-                                        <ControlTemplate>
-                                            <Border x:Name="PART_RootBorder" 
-                                                    Background="{TemplateBinding Background}"
-                                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                                    BorderThickness="{TemplateBinding BorderThickness}"
-                                                    Padding="{TemplateBinding Padding}"
-                                                    CornerRadius="{TemplateBinding CornerRadius}">
-                                                <interactivity:Interaction.Behaviors>
-                                                    <ia:EventTriggerBehavior EventName="DoubleTapped">
-                                                        <ia:InvokeCommandAction Command="{Binding $parent[UserControl].DataContext.DoubleTrackClickCommand}" 
-                                                                               CommandParameter="{Binding}"/>
-                                                    </ia:EventTriggerBehavior>
-                                                </interactivity:Interaction.Behaviors>
-                                                <ContentPresenter Name="PART_ContentPresenter"
-                                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
-                                                                  Content="{TemplateBinding Content}"
-                                                                  VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
-                                                                  HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" />
-                                            </Border>
-                                        </ControlTemplate>
-                                    </Setter>
-                                </Style>
-
-                                <Style Selector="ListBoxItem:selected /template/ ContentPresenter"><Setter Property="Background" Value="#1AFFFFFF"/></Style>
-                            </ListBox.Styles>
-                            <ListBox.KeyBindings>
-                                <KeyBinding Gesture="I" Command="{Binding QuickLookCommand}"/>
-                                <KeyBinding Gesture="P" Command="{Binding Operations.PlayTrackCommand}" CommandParameter="{Binding Tracks.LeadSelectedTrack}"/>
-                                <KeyBinding Gesture="L" Command="{Binding Operations.OpenFolderCommand}" CommandParameter="{Binding Tracks.LeadSelectedTrack}"/>
-                            </ListBox.KeyBindings>
-                            <ListBox.ItemTemplate>
-                                <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                                    <Border Background="Transparent" Padding="8,6">
-                                        <Border.ContextMenu>
-                                            <ContextMenu>
-                                                <MenuItem Header="Play" Command="{Binding $parent[UserControl].DataContext.Operations.PlayTrackCommand}" CommandParameter="{Binding}"><MenuItem.Icon><TextBlock Text="▶️"/></MenuItem.Icon></MenuItem>
-                                                <MenuItem Header="Industrial Prep (Bulk)" Command="{Binding $parent[UserControl].DataContext.Operations.IndustrialPrepCommand}" CommandParameter="{Binding $parent[UserControl].DataContext.Tracks.SelectedTracks}"><MenuItem.Icon><TextBlock Text="🏭"/></MenuItem.Icon></MenuItem>
-                                                <MenuItem Header="Open File Location" Command="{Binding $parent[UserControl].DataContext.Operations.OpenFolderCommand}" CommandParameter="{Binding}"><MenuItem.Icon><TextBlock Text="📁"/></MenuItem.Icon></MenuItem>
-                                                <MenuItem Header="Add to Another Project..." Command="{Binding $parent[UserControl].DataContext.Operations.AddToProjectCommand}" CommandParameter="{Binding}"><MenuItem.Icon><TextBlock Text="➕"/></MenuItem.Icon></MenuItem>
-                                                <MenuItem Header="Add to Timeline" Command="{Binding $parent[UserControl].DataContext.AddToTimelineCommand}" CommandParameter="{Binding}">
-                                                    <MenuItem.Icon><TextBlock Text="⏱️"/></MenuItem.Icon>
-                                                </MenuItem>
-                                                <MenuItem Header="Create Independent Physical Copy" Command="{Binding $parent[UserControl].DataContext.Operations.CloneTrackCommand}" CommandParameter="{Binding}" ToolTip.Tip="Create a physical copy of this file with independent cues"><MenuItem.Icon><TextBlock Text="📄"/></MenuItem.Icon></MenuItem>
-                                                <Separator/>
-                                                <MenuItem Header="Retry Download" Command="{Binding $parent[UserControl].DataContext.Operations.HardRetryCommand}" CommandParameter="{Binding}" IsVisible="{Binding CanHardRetry}"><MenuItem.Icon><TextBlock Text="🔄"/></MenuItem.Icon></MenuItem>
-                                                <MenuItem Header="Manual MP3 Search (On Hold)" Command="{Binding $parent[UserControl].DataContext.InitiateMp3SearchCommand}" CommandParameter="{Binding}" IsVisible="{Binding Model.Status, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:TrackStatus.OnHold}}">
-                                                    <MenuItem.Icon><TextBlock Text="🎵"/></MenuItem.Icon>
-                                                </MenuItem>
-                                                <MenuItem Header="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding CanCancel}"><MenuItem.Icon><TextBlock Text="✖"/></MenuItem.Icon></MenuItem>
-                                                <Separator/>
-                                                <MenuItem Header="Remove from Library" Command="{Binding $parent[UserControl].DataContext.Operations.RemoveTrackCommand}" CommandParameter="{Binding}" InputGesture="Delete"><MenuItem.Icon><TextBlock Text="🗑️"/></MenuItem.Icon></MenuItem>
-                                                <MenuItem Header="Delete &amp; Ban (Forensic)" Command="{Binding $parent[UserControl].DataContext.Operations.DeleteAndBlacklistCommand}" CommandParameter="{Binding}"><MenuItem.Icon><TextBlock Text="💀"/></MenuItem.Icon></MenuItem>
-                                            </ContextMenu>
-                                        </Border.ContextMenu>
-                                        <controls:StandardTrackRow/>
-                                    </Border>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-
-                        <!-- Card View -->
-                        <ListBox IsVisible="{Binding ViewSettings.ViewMode, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:TrackViewMode.Cards}}" 
-                                 SelectionMode="Multiple" 
-                                 Background="Transparent"
-                                 BorderThickness="0">
-                            <ListBox.ItemsSource>
-                                <Binding Path="Tracks.FilteredTracks"/>
-                            </ListBox.ItemsSource>
-                             <ListBox.Styles>
-                                <Style Selector="ListBoxItem">
-                                    <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}"/>
-                                    <Setter Property="Padding" Value="0"/>
-                                    <Setter Property="Background" Value="Transparent"/>
-                                    <Setter Property="Template">
-                                        <ControlTemplate>
-                                            <Border x:Name="PART_RootBorder" 
-                                                    Background="{TemplateBinding Background}"
-                                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                                    BorderThickness="{TemplateBinding BorderThickness}"
-                                                    Padding="{TemplateBinding Padding}"
-                                                    CornerRadius="{TemplateBinding CornerRadius}">
-                                                <interactivity:Interaction.Behaviors>
-                                                    <ia:EventTriggerBehavior EventName="DoubleTapped">
-                                                        <ia:InvokeCommandAction Command="{Binding $parent[UserControl].DataContext.DoubleTrackClickCommand}" 
-                                                                               CommandParameter="{Binding}"/>
-                                                    </ia:EventTriggerBehavior>
-                                                </interactivity:Interaction.Behaviors>
-                                                <ContentPresenter Name="PART_ContentPresenter"
-                                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
-                                                                  Content="{TemplateBinding Content}"
-                                                                  VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
-                                                                  HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" />
-                                            </Border>
-                                        </ControlTemplate>
-                                    </Setter>
-                                </Style>
-                             </ListBox.Styles>
-
-                             <ListBox.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <!-- Note: WrapPanel is not virtualized, but okay for small pages -->
-                                    <WrapPanel/> 
-                                </ItemsPanelTemplate>
-                            </ListBox.ItemsPanel>
-                            <ListBox.KeyBindings>
-                                <KeyBinding Gesture="I" Command="{Binding QuickLookCommand}"/>
-                                <KeyBinding Gesture="P" Command="{Binding Operations.PlayTrackCommand}" CommandParameter="{Binding Tracks.LeadSelectedTrack}"/>
-                                <KeyBinding Gesture="L" Command="{Binding Operations.OpenFolderCommand}" CommandParameter="{Binding Tracks.LeadSelectedTrack}"/>
-                            </ListBox.KeyBindings>
-                            <ListBox.ItemTemplate>
-                                <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                                    <controls:TrackCard/>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-
-                        <!-- Pro View (DataGrid) -->
-                        <dg:DataGrid Name="ProDataGrid"
-                                  IsVisible="{Binding ViewSettings.ViewMode, Converter={StaticResource EnumToBoolConverter}, ConverterParameter={x:Static models:TrackViewMode.Pro}}"
-                                  SelectionMode="Extended"
-                                  CanUserReorderColumns="True"
-                                  CanUserResizeColumns="True"
-                                  CanUserSortColumns="True"
-                                  IsReadOnly="True"
-                                  Background="Transparent"
-                                  BorderThickness="0"
-                                  HeadersVisibility="Column">
-                            <dg:DataGrid.ItemsSource>
-                                <Binding Path="Tracks.FilteredTracks"/>
-                            </dg:DataGrid.ItemsSource>
-                            <dg:DataGrid.KeyBindings>
-                                <KeyBinding Gesture="I" Command="{Binding QuickLookCommand}"/>
-                                <KeyBinding Gesture="P" Command="{Binding Operations.PlayTrackCommand}" CommandParameter="{Binding Tracks.LeadSelectedTrack}"/>
-                                <KeyBinding Gesture="L" Command="{Binding Operations.OpenFolderCommand}" CommandParameter="{Binding Tracks.LeadSelectedTrack}"/>
-                            </dg:DataGrid.KeyBindings>
-                            <dg:DataGrid.Styles>
-                                <Style Selector="dg|DataGridColumnHeader">
-                                    <Setter Property="Background" Value="{StaticResource Surface2Brush}"/>
-                                    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
-                                    <Setter Property="FontSize" Value="11"/>
-                                    <Setter Property="FontWeight" Value="SemiBold"/>
-                                    <Setter Property="Padding" Value="12,10"/>
-                                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
-                                    <Setter Property="BorderBrush" Value="{StaticResource GlassBrush}"/>
-                                </Style>
-                                <Style Selector="dg|DataGridRow:selected /template/ Rectangle#BackgroundRectangle">
-                                    <Setter Property="Fill" Value="{StaticResource GlassHeavyBrush}"/>
-                                </Style>
-                                <Style Selector="dg|DataGridRow">
-                                    <Setter Property="interactivity:Interaction.Behaviors">
-                                        <Setter.Value>
-                                            <interactivity:BehaviorCollection>
-                                                <ia:EventTriggerBehavior EventName="DoubleTapped">
-                                                    <ia:InvokeCommandAction Command="{Binding $parent[UserControl].DataContext.DoubleTrackClickCommand}" 
-                                                                           CommandParameter="{Binding}"/>
-                                                </ia:EventTriggerBehavior>
-                                            </interactivity:BehaviorCollection>
-                                        </Setter.Value>
-                                    </Setter>
-                                </Style>
-                                <Style Selector="dg|DataGridRow:selected">
-                                    <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
-                                </Style>
-
-                            </dg:DataGrid.Styles>
-                            <dg:DataGrid.Columns>
-                                <dg:DataGridTemplateColumn Header="Art" Width="50">
-                                    <dg:DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                                            <Border Width="32" Height="32" CornerRadius="4" ClipToBounds="True" Background="#333" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill"/>
-                                            </Border>
-                                        </DataTemplate>
-                                    </dg:DataGridTemplateColumn.CellTemplate>
-                                </dg:DataGridTemplateColumn>
-
-                                <dg:DataGridTextColumn Header="Artist" Binding="{Binding Artist}" Width="1.5*"/>
-                                <dg:DataGridTextColumn Header="Title" Binding="{Binding Title}" Width="2*"/>
-                                <dg:DataGridTextColumn Header="Album" Binding="{Binding Album}" Width="1.5*"/>
-
-                                <dg:DataGridTextColumn Header="Drop" Binding="{Binding DropDisplay}" Width="60" IsVisible="False"/>
-                                <dg:DataGridTextColumn Header="Format" Binding="{Binding FormatDisplay}" Width="90"/>
-                                <dg:DataGridTextColumn Header="Bitrate" Binding="{Binding BitrateFormatted}" Width="90"/>
-                                <dg:DataGridTextColumn Header="Downloaded" Binding="{Binding CompletedAtDisplay}" Width="140"/>
-
-                                <dg:DataGridTextColumn Header="Year" Binding="{Binding YearDisplay}" Width="60"/>
-                                <dg:DataGridTextColumn Header="Genre" Binding="{Binding PrimaryGenre}" Width="1*"/>
-                                <dg:DataGridTextColumn Header="Label" Binding="{Binding Label}" Width="1*"/>
-                                <dg:DataGridTextColumn Header="Time" Binding="{Binding DurationFormatted}" Width="70"/>
-                                <dg:DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="100"/>
-                                <dg:DataGridTextColumn Header="Plays" Binding="{Binding PlayCount}" Width="50"/>
-                                <dg:DataGridTextColumn Header="Comments" Binding="{Binding Comments}" Width="2*"/>
-                            </dg:DataGrid.Columns>
-                        </dg:DataGrid>
-                    </Panel>
-                    </Grid>
-                </Grid>
-            </Grid>
-
-        </Grid>
-
-        <!-- OVERLAYS (Outside the main layout grids) -->
-
-        <!-- REMOVAL HISTORY OVERLAY -->
-        <Border Background="#CC000000" 
-                IsVisible="{Binding IsRemovalHistoryVisible}"
-                ZIndex="100">
-            <Border Background="#252526" 
-                    Width="600" 
-                    Height="500" 
-                    CornerRadius="12" 
-                    BorderBrush="#3E3E3E" 
-                    BorderThickness="1"
-                    HorizontalAlignment="Center" 
-                    VerticalAlignment="Center">
-                <Grid RowDefinitions="Auto,*,Auto">
-                    <!-- Header -->
-                    <Grid Grid.Row="0" Margin="20,16" ColumnDefinitions="*,Auto">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <TextBlock Text="🗑️" FontSize="20" VerticalAlignment="Center"/>
-                            <TextBlock Text="Removal History" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                        </StackPanel>
-                        <Button Grid.Column="1" 
-                                Command="{Binding SmartEscapeCommand}" 
-                                Background="Transparent" Padding="8">
-                            <TextBlock Text="✖" FontSize="16"/>
-                        </Button>
-                    </Grid>
-
-                    <!-- Content -->
-                    <ScrollViewer Grid.Row="1" Margin="20,0">
-                        <ItemsControl ItemsSource="{Binding DeletedProjects}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Background="#2D2D2E" Margin="0,0,0,8" Padding="12" CornerRadius="8">
-                                        <Grid ColumnDefinitions="Auto,*,Auto">
-                                            <Border Width="40" Height="40" CornerRadius="4" Background="#3E3E3F" Margin="0,0,12,0">
-                                                <TextBlock Text="📂" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="20"/>
-                                            </Border>
-                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding SourceTitle}" FontWeight="Medium" FontSize="14"/>
-                                                <TextBlock Text="{Binding DeletedAt, StringFormat='{}Deleted on {0:MMM dd, yyyy}'}" FontSize="12" Foreground="#888"/>
-                                            </StackPanel>
-                                            <Button Grid.Column="2" 
-                                                    Classes="primary" 
-                                                    Command="{Binding $parent[UserControl].DataContext.RestoreProjectCommand}"
-                                                    CommandParameter="{Binding}"
-                                                    Padding="12,6">
-                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                    <TextBlock Text="⤴️"/>
-                                                    <TextBlock Text="Restore"/>
-                                                </StackPanel>
-                                            </Button>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
-
-                    <!-- Footer -->
-                    <Border Grid.Row="2" Background="#2D2D2E" Padding="20,12" CornerRadius="0,0,12,12">
-                        <TextBlock Text="Restoring an album will preserve all its tracks and metadata." 
-                                   FontSize="12" Foreground="#888" HorizontalAlignment="Center"/>
-                    </Border>
                 </Grid>
             </Border>
-        </Border>
+        </SplitView.Pane>
 
-        <!-- ORPHANED TRACKS OVERLAY -->
-        <Border Background="#CC000000" 
-                IsVisible="{Binding IsOrphanedTracksVisible}"
-                ZIndex="100">
-            <Border Background="#252526" 
-                    Width="700" 
-                    Height="500" 
-                    CornerRadius="12" 
-                    BorderBrush="#3E3E3E" 
-                    BorderThickness="1"
-                    HorizontalAlignment="Center" 
-                    VerticalAlignment="Center">
-                <Grid RowDefinitions="Auto,*,Auto">
-                    <!-- Header -->
-                    <Grid Grid.Row="0" Margin="20,16" ColumnDefinitions="*,Auto">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <TextBlock Text="🔗" FontSize="20" VerticalAlignment="Center"/>
-                            <TextBlock Text="Orphaned Tracks" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                        </StackPanel>
-                        <Button Grid.Column="1" 
-                                Command="{Binding SmartEscapeCommand}" 
-                                Background="Transparent" Padding="8">
-                            <TextBlock Text="✖" FontSize="16"/>
-                        </Button>
-                    </Grid>
-
-                    <!-- Content -->
-                    <ScrollViewer Grid.Row="1" Margin="20,0">
-                        <ItemsControl ItemsSource="{Binding OrphanedTracks}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Background="#2D2D2E" Margin="0,0,0,8" Padding="12" CornerRadius="8">
-                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-                                            <Border Width="40" Height="40" CornerRadius="4" Background="#3E3E3F" Margin="0,0,12,0">
-                                                <TextBlock Text="🎵" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="20"/>
-                                            </Border>
-                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding Artist}" FontWeight="Medium" FontSize="14"/>
-                                                <TextBlock Text="{Binding Title}" FontSize="12" Foreground="#CCC"/>
-                                                <TextBlock Text="{Binding FilePath}" FontSize="10" Foreground="#888" TextWrapping="Wrap"/>
-                                                <TextBlock Text="{Binding AddedAt, StringFormat='{}Added on {0:MMM dd, yyyy}'}" FontSize="10" Foreground="#666"/>
-                                            </StackPanel>
-                                            <Button Grid.Column="2" 
-                                                    Classes="secondary" 
-                                                    Command="{Binding RepointCommand}"
-                                                    Padding="8,4"
-                                                    Margin="0,0,8,0">
-                                                <TextBlock Text="🔄 Repoint" FontSize="11"/>
-                                            </Button>
-                                            <Button Grid.Column="3" 
-                                                    Classes="danger" 
-                                                    Command="{Binding RemoveCommand}"
-                                                    Padding="8,4">
-                                                <TextBlock Text="🗑️ Remove" FontSize="11"/>
-                                            </Button>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
-
-                    <!-- Footer -->
-                    <Border Grid.Row="2" Background="#2D2D2E" Padding="20,12" CornerRadius="0,0,12,12">
-                        <TextBlock Text="These tracks were moved or deleted from disk. Remove them from the database or repoint to new locations." 
-                                   FontSize="12" Foreground="#888" HorizontalAlignment="Center" TextWrapping="Wrap"/>
-                    </Border>
-                </Grid>
-            </Border>
-        </Border>
-
-        <!-- Sources Overlay -->
-        <Grid Background="#BB000000"
-              IsVisible="{Binding IsSourcesOpen}"
-              ZIndex="300">
-            <!-- Click background to close -->
-            <Button HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                    Background="Transparent"
-                    Command="{Binding OpenSourcesCommand}" 
-                    CommandParameter="Close">
-                <Button.Template>
-                    <ControlTemplate>
-                        <Panel Background="Transparent"/>
-                    </ControlTemplate>
-                </Button.Template>
-            </Button>
-            
-            <!-- Content -->
-            <TransitioningContentControl Content="{Binding LibrarySourcesViewModel}">
-                <TransitioningContentControl.DataTemplates>
-                    <DataTemplate DataType="vm:LibrarySourcesViewModel">
-                         <views:LibrarySourcesView Width="600" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </DataTemplate>
-                </TransitioningContentControl.DataTemplates>
-            </TransitioningContentControl>
-
-            <!-- Close Button (X) -->
-            <Button HorizontalAlignment="Right" VerticalAlignment="Top" Margin="20"
-                    Content="❌" FontSize="20" Background="Transparent" Foreground="White"
-                    Command="{Binding OpenSourcesCommand}" CommandParameter="Close"/>
-        </Grid>
-
-        <!-- OPERATION GLASS CONSOLE: Handled globally in MainWindow.axaml -->
-
-
-    </Grid>
+        <!-- MAIN CONTENT AREA -->
+        <ContentControl Grid.Column="0" Content="{Binding Tracks}">
+            <ContentControl.DataTemplates>
+                <DataTemplate DataType="vm:Library.TrackListViewModel">
+                    <views:TrackListView/>
+                </DataTemplate>
+            </ContentControl.DataTemplates>
+        </ContentControl>
+    </SplitView>
 </UserControl>

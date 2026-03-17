@@ -10,8 +10,7 @@
         MinWidth="600"
         MinHeight="400"
         Background="#1A1A1A"
-        Foreground="White"
-        Icon="/Assets/orbit-icon.ico">
+        Foreground="White">
 
     <Window.Styles>
         <Style Selector="Button.primary">

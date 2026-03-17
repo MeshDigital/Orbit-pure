@@ -436,9 +436,9 @@ public sealed class UserCollectionFileNodeViewModel : UserCollectionNodeViewMode
     public bool IsMusicFile { get; }
     public string Extension => (Track.Format ?? Track.GetExtension())?.Trim().TrimStart('.').ToUpperInvariant() ?? "—";
     public int Bitrate => Track.Bitrate;
-    public bool IsSuspiciousLossless => MetadataForensicService.IsSuspiciousLossless(Track);
+    public bool IsSuspiciousLossless => false;
 
-    public override string Icon => IsSuspiciousLossless ? "⚠️" : (IsMusicFile ? "🎵" : "📄");
+    public override string Icon => (IsMusicFile ? "🎵" : "📄");
     public override string SecondaryText
     {
         get
@@ -451,7 +451,7 @@ public sealed class UserCollectionFileNodeViewModel : UserCollectionNodeViewMode
         }
     }
 
-    public override string WarningText => MetadataForensicService.GetSuspiciousLosslessReason(Track) ?? string.Empty;
+    public override string WarningText => string.Empty;
 
     public override IEnumerable<UserCollectionFileNodeViewModel> EnumerateAllFiles()
     {

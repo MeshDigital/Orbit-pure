@@ -123,6 +123,13 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         set { SetProperty(ref _isNavigationCollapsed, value); }
     }
 
+    private bool _useCardView = false;
+    public bool UseCardView
+    {
+        get => _useCardView;
+        set { SetProperty(ref _useCardView, value); }
+    }
+
     private bool _isRemovalHistoryVisible;
     public bool IsRemovalHistoryVisible
     {
@@ -208,6 +215,9 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         Tracks = tracks;
         Operations = operations;
         SmartPlaylists = smartPlaylists;
+
+        // Bridge TrackList and Operations for ContextMenu functionality
+        Tracks.Operations = operations;
 
         // Load columns
         _ = InitializeColumnsAsync();

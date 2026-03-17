@@ -40,6 +40,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private readonly LibraryFolderScannerService _libraryFolderScannerService;
     private readonly IEventBus _eventBus;
     private readonly ISoulseekAdapter _soulseek;
+    private readonly ISoulseekCredentialService _credentialService;
 
     // Hardcoded public client ID provided by user/project
     // Ideally this would be in a secured config, but for this desktop app scenario it's acceptable as a default.
@@ -253,6 +254,54 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     {
         get => _config.ClearSpotifyOnExit;
         set { _config.ClearSpotifyOnExit = value; OnPropertyChanged(); }
+    }
+
+    // Soulseek Connection Settings
+    public string SoulseekUsername
+    {
+        get => _config.Username ?? "";
+        set
+        {
+            if (_config.Username != value)
+            {
+                _config.Username = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool SoulseekAutoConnectEnabled
+    {
+        get => _config.AutoConnectEnabled;
+        set
+        {
+            if (_config.AutoConnectEnabled != value)
+            {
+                _config.AutoConnectEnabled = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool SoulseekRememberPassword
+    {
+        get => _config.RememberPassword;
+        set
+        {
+            if (_config.RememberPassword != value)
+            {
+                _config.RememberPassword = value;
+                OnPropertyChanged();
+                SaveSettings();
+                // Clear stored credentials if remember password is disabled
+                if (!value)
+                {
+                    _ = _credentialService.DeleteCredentialsAsync();
+                }
+            }
+        }
     }
 
     // Brain 2.0 & Quality Guard
@@ -693,6 +742,11 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
     public ICommand RefreshShareNowCommand { get; private set; } = null!;
 
+    // Soulseek Connection Commands
+    public ICommand SoulseekConnectCommand { get; private set; } = null!;
+    public ICommand SoulseekDisconnectCommand { get; private set; } = null!;
+    public ICommand SoulseekReconnectCommand { get; private set; } = null!;
+
     private void OnShareHealthUpdated(ShareHealthUpdatedEvent e)
     {
         Dispatcher.UIThread.Post(() =>
@@ -713,7 +767,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         DatabaseService databaseService,
         LibraryFolderScannerService libraryFolderScannerService,
         IEventBus eventBus,
-        ISoulseekAdapter soulseek)
+        ISoulseekAdapter soulseek,
+        ISoulseekCredentialService credentialService)
     {
         _logger = logger;
         _config = config;
@@ -725,6 +780,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _libraryFolderScannerService = libraryFolderScannerService;
         _eventBus = eventBus;
         _soulseek = soulseek;
+        _credentialService = credentialService;
 
         // Ensure default Client ID is set if empty
         if (string.IsNullOrEmpty(_config.SpotifyClientId))
@@ -754,6 +810,11 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         {
             await _soulseek.RefreshShareStateAsync();
         });
+
+        // Soulseek Connection Commands
+        SoulseekConnectCommand = new AsyncRelayCommand(SoulseekConnectAsync, () => !_soulseek.IsConnected);
+        SoulseekDisconnectCommand = new RelayCommand(SoulseekDisconnect, () => _soulseek.IsConnected);
+        SoulseekReconnectCommand = new AsyncRelayCommand(SoulseekReconnectAsync, () => _soulseek.IsConnected);
 
         // Subscribe to live share health updates
         _shareHealthSubscription = _eventBus.GetEvent<ShareHealthUpdatedEvent>().Subscribe(OnShareHealthUpdated);
@@ -1389,6 +1450,54 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to remove library folder");
+        }
+    }
+
+    // Soulseek Connection Methods
+    private async Task SoulseekConnectAsync()
+    {
+        try
+        {
+            // Load stored credentials if available
+            var creds = await _credentialService.LoadCredentialsAsync();
+            if (!string.IsNullOrEmpty(creds.Password) && !string.IsNullOrEmpty(creds.Username))
+            {
+                await _soulseek.ConnectAsync(creds.Password);
+            }
+            else
+            {
+                _logger.LogWarning("No stored credentials available for Soulseek connection");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to connect to Soulseek from settings");
+        }
+    }
+
+    private void SoulseekDisconnect()
+    {
+        try
+        {
+            _soulseek.Disconnect();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to disconnect from Soulseek");
+        }
+    }
+
+    private async Task SoulseekReconnectAsync()
+    {
+        try
+        {
+            SoulseekDisconnect();
+            await Task.Delay(1000); // Brief pause before reconnecting
+            await SoulseekConnectAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to reconnect to Soulseek");
         }
     }
 }

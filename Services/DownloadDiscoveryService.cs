@@ -22,7 +22,6 @@ public class DownloadDiscoveryService
     private readonly SearchResultMatcher _matcher;
     private readonly AppConfig _config;
     private readonly IEventBus _eventBus;
-    private readonly TrackForensicLogger _forensicLogger;
     private readonly ISafetyFilterService _safetyFilter;
     private readonly Import.AutoCleanerService _autoCleaner;
     private readonly Network.ProtocolHardeningService _hardeningService;
@@ -34,7 +33,6 @@ public class DownloadDiscoveryService
         SearchResultMatcher matcher,
         AppConfig config,
         IEventBus eventBus,
-        TrackForensicLogger forensicLogger,
         ISafetyFilterService safetyFilter,
         Import.AutoCleanerService autoCleaner,
         Network.ProtocolHardeningService hardeningService,
@@ -45,7 +43,6 @@ public class DownloadDiscoveryService
         _matcher = matcher;
         _config = config;
         _eventBus = eventBus;
-        _forensicLogger = forensicLogger;
         _safetyFilter = safetyFilter;
         _autoCleaner = autoCleaner;
         _hardeningService = hardeningService;
@@ -314,10 +311,7 @@ public class DownloadDiscoveryService
                     {
                         _logger.LogInformation("🚀 QUICK STRIKE: Found high-confidence match ({Score}/100) early! Skipping rest of search. File: {File}",
                             score, searchTrack.Filename);
-                        _forensicLogger.Info(track.TrackUniqueHash, Data.Entities.ForensicStage.Matching,
-                            $"Quick Strike (95+): Approved {searchTrack.Username}'s file. {matchResult.ScoreBreakdown}",
-                            track.TrackUniqueHash,
-                            new { searchTrack.Filename, score, searchTrack.Bitrate, searchTrack.Username });
+
                         _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"🚀 Found high-confidence match from {searchTrack.Username} ({score:F0}/100)"));
                         return new DiscoveryResult(searchTrack, log, runnerUpSilverMatch);
                     }
@@ -389,12 +383,6 @@ public class DownloadDiscoveryService
                 {
                     log.RejectedByForensics++;
                     // Log the rejection to the persistent audit trail
-                    _forensicLogger.LogRejection(
-                        trackId: track.TrackUniqueHash,
-                        filename: searchTrack.Filename ?? "Unknown",
-                        reason: safety.Reason,
-                        details: safety.TechnicalDetails ?? $"Bitrate: {searchTrack.Bitrate}kbps"
-                    );
                     _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"Rejected {searchTrack.Username}: {safety.Reason}", true));
                     // Phase 6: Security audit trail
                     _eventBus.Publish(new SecurityAuditEvent(
@@ -406,15 +394,10 @@ public class DownloadDiscoveryService
                     continue; 
                 }
 
-                if (!forceMp3 && !track.IgnoreSafetyGuards && MetadataForensicService.IsSuspiciousLossless(searchTrack))
+                if (!forceMp3 && !track.IgnoreSafetyGuards && (searchTrack.Format == "flac" && searchTrack.Bitrate < 400))
                 {
                     log.RejectedByForensics++;
-                    var suspiciousReason = MetadataForensicService.GetSuspiciousLosslessReason(searchTrack) ?? "Suspicious FLAC transcode detected.";
-                    _forensicLogger.LogRejection(
-                        trackId: track.TrackUniqueHash,
-                        filename: searchTrack.Filename ?? "Unknown",
-                        reason: suspiciousReason,
-                        details: $"User: {searchTrack.Username}, Bitrate: {searchTrack.Bitrate} kbps, SampleRate: {searchTrack.SampleRate}, BitDepth: {searchTrack.BitDepth}");
+                    var suspiciousReason = "Suspicious FLAC transcode detected (Low bitrate).";
                     _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"Skipped {searchTrack.Username}: {suspiciousReason}", true));
                     // Phase 6: Security audit trail
                     _eventBus.Publish(new SecurityAuditEvent(
@@ -447,10 +430,7 @@ public class DownloadDiscoveryService
                     {
                         _logger.LogInformation("🥈 SPECULATIVE TRIGGER: 3s timeout reached with match ({Score}/100). Starting download. File: {File}",
                             bestSilverScore, bestSilverMatch.Filename);
-                        _forensicLogger.Info(track.TrackUniqueHash, Data.Entities.ForensicStage.Matching,
-                            $"Speculative Trigger (70+): 3s timeout reached. Approved {bestSilverMatch.Username}'s file. Score: {bestSilverScore}",
-                            track.TrackUniqueHash,
-                            new { bestSilverMatch.Filename, bestSilverScore, bestSilverMatch.Bitrate, bestSilverMatch.Username });
+
                         _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"⏳ 3s timeout reached. Processing silver match from {bestSilverMatch.Username}"));
                         return new DiscoveryResult(bestSilverMatch, log, runnerUpSilverMatch);
                     }
@@ -479,38 +459,13 @@ public class DownloadDiscoveryService
             // Phase 14: Decision Matrix Logging (Full Transparency)
             if (allTracks.Any())
             {
-                var candidateSummary = allTracks
-                    .OrderByDescending(t => t.Bitrate)
-                    .Take(10) // Log top 10 candidates for matrix transparency
-                    .Select(t => new { 
-                        t.Username, 
-                        t.Bitrate, 
-                        t.Size, 
-                        t.QueueLength, 
-                        t.HasFreeUploadSlot,
-                        Tier = MetadataForensicService.CalculateTier(t).ToString(),
-                        Score = t.CurrentRank,
-                        t.Filename
-                    }).ToList();
-
-                _forensicLogger.LogSelectionDecision(
-                    track.TrackUniqueHash, 
-                    track.TrackUniqueHash, 
-                    bestMatch != null ? $"Selected {bestMatch.Username}'s file" : "No suitable match found", 
-                    new { 
-                        Tier = tierName, 
-                        Query = query, 
-                        CandidatesCount = allTracks.Count, 
-                        TopCandidates = candidateSummary 
-                    });
-
+                _logger.LogInformation("🧠 BRAIN: Matcher considered {Count} candidates. Query: {Query}", allTracks.Count, query);
             }
 
             if (bestMatch != null)
             {
-                var tier = MetadataForensicService.CalculateTier(bestMatch);
-                _logger.LogInformation("🧠 BRAIN: Unified Matcher selected: {Filename} (Tier: {Tier})", bestMatch.Filename, tier);
-                _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"🧠 Selected {bestMatch.Username}'s file ({tier})"));
+                _logger.LogInformation("🧠 BRAIN: Unified Matcher selected: {Filename}", bestMatch.Filename);
+                _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"🧠 Selected {bestMatch.Username}'s file"));
                 return new DiscoveryResult(bestMatch, log, runnerUpMatch);
             }
 

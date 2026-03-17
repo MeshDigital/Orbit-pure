@@ -701,13 +701,6 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             UploadSpeed = response.UploadSpeed
         };
 
-        var suspiciousReason = MetadataForensicService.GetSuspiciousLosslessReason(track);
-        if (!string.IsNullOrWhiteSpace(suspiciousReason))
-        {
-            track.IsFlagged = true;
-            track.FlagReason = suspiciousReason;
-        }
-
         return track;
     }
 

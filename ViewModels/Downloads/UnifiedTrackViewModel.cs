@@ -657,15 +657,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 return false;
             }
 
-            var probeTrack = new Track
-            {
-                Format = Model.Format,
-                Bitrate = Model.Bitrate ?? 0,
-                SampleRate = ParsedSampleRateHz > 0 ? ParsedSampleRateHz : null,
-                BitDepth = ParsedBitDepth > 0 ? ParsedBitDepth : null
-            };
-
-            return MetadataForensicService.IsSuspiciousLossless(probeTrack);
+            return (Model.Bitrate ?? 0) < 400;
         }
     }
 
@@ -681,15 +673,15 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public bool IsSecure => IsCompleted && IntegrityScore > 0.9 && !string.IsNullOrEmpty(Model.ResolvedFilePath);
 
     // Phase 19: Search 2.0 Tiers for Library
-    public SLSKDONET.Models.SearchTier Tier => MetadataForensicService.CalculateTier(Model);
+    public SLSKDONET.Models.SearchTier Tier => SLSKDONET.Models.SearchTier.Gold;
 
-    public string TierBadge => MetadataForensicService.GetTierBadge(Tier);
+    public string TierBadge => string.Empty;
 
-    public Avalonia.Media.IBrush TierColor => new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse(MetadataForensicService.GetTierColor(Tier)));
+    public Avalonia.Media.IBrush TierColor => Avalonia.Media.Brushes.Gray;
     
     // Legacy mapping for backward compatibility if needed, otherwise replaced by Tier
-    public string QualityIcon => TierBadge;
-    public Avalonia.Media.IBrush QualityColor => TierColor;
+    public string QualityIcon => string.Empty;
+    public Avalonia.Media.IBrush QualityColor => Avalonia.Media.Brushes.Gray;
     
     // Match & High Risk Logic
     public double MatchConfidence => (Model.QualityConfidence ?? 0) * 100;

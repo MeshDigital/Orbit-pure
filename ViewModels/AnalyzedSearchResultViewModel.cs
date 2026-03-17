@@ -55,8 +55,8 @@ namespace SLSKDONET.ViewModels
         public bool IsGoldenMatch { get; }
         public bool IsFake { get; }
         public bool IsSuspicious => IsFake;
-        public bool IsSuspiciousLossless => MetadataForensicService.IsSuspiciousLossless(_result.Model);
-        public string SuspiciousLosslessReason => MetadataForensicService.GetSuspiciousLosslessReason(_result.Model) ?? string.Empty;
+        public bool IsSuspiciousLossless => false;
+        public string SuspiciousLosslessReason => string.Empty;
         
         public double MatchConfidence => Math.Clamp(_result.CurrentRank, 0, 100);
         
@@ -113,13 +113,13 @@ namespace SLSKDONET.ViewModels
             _result = result;
 
             // Calculate Metrics
-            TrustScore = MetadataForensicService.CalculateTrustScore(result.Model);
-            var forensicAssessment = MetadataForensicService.GetForensicAssessment(result.Model);
-            IsGoldenMatch = MetadataForensicService.IsGoldenMatch(result.Model);
+            TrustScore = 100;
+            var forensicAssessment = "Standard";
+            IsGoldenMatch = false;
             
             // Phase 14A: The Bouncer Integration
             // Combine existing forensic checks with new SafetyFilter flags
-            IsFake = MetadataForensicService.IsFake(result.Model) || result.Model.IsFlagged;
+            IsFake = result.Model.IsFlagged;
             
             if (result.Model.IsFlagged)
             {
@@ -135,13 +135,13 @@ namespace SLSKDONET.ViewModels
             else _result.IntegrityStatus = "";
             
             // Phase 19: Search 2.0 Tier Calculation
-            Tier = MetadataForensicService.CalculateTier(result.Model);
+            Tier = 0; // Simplified
         }
 
-        public string TierBadge => MetadataForensicService.GetTierBadge(Tier);
+        public string TierBadge => string.Empty;
 
-        public string TierDescription => MetadataForensicService.GetTierDescription(Tier);
+        public string TierDescription => "Standard Track";
 
-        public IBrush TierColor => new SolidColorBrush(Color.Parse(MetadataForensicService.GetTierColor(Tier)));
+        public IBrush TierColor => Brushes.Gray;
     }
 }

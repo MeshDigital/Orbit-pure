@@ -64,14 +64,36 @@ public partial class ErrorStreamWindow : Window, INotifyPropertyChanged
     {
         try
         {
-            var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ORBIT", "logs");
-            if (!Directory.Exists(logDir))
+            // Try multiple possible log locations
+            string[] possiblePaths = {
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ORBIT", "logs"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ORBIT", "logs"),
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs"),
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "logs") // For development
+            };
+
+            string logDir = null;
+            foreach (var path in possiblePaths)
             {
-                logDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
+                if (Directory.Exists(path))
+                {
+                    logDir = path;
+                    break;
+                }
             }
+
+            if (logDir == null)
+            {
+                // Create logs directory if it doesn't exist
+                logDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
+                Directory.CreateDirectory(logDir);
+            }
+
+            // Use explorer.exe to open the directory
             Process.Start(new ProcessStartInfo
             {
-                FileName = logDir,
+                FileName = "explorer.exe",
+                Arguments = $"\"{logDir}\"",
                 UseShellExecute = true
             });
         }
@@ -82,20 +104,24 @@ public partial class ErrorStreamWindow : Window, INotifyPropertyChanged
             {
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = AppDomain.CurrentDomain.BaseDirectory,
+                    FileName = "explorer.exe",
+                    Arguments = $"\"{AppDomain.CurrentDomain.BaseDirectory}\"",
                     UseShellExecute = true
                 });
             }
             catch
             {
                 // Last resort: show message
-                var messageBox = new Window
+                Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    Title = "Error",
-                    Content = new TextBlock { Text = $"Could not open logs folder: {ex.Message}" },
-                    SizeToContent = SizeToContent.WidthAndHeight
-                };
-                messageBox.Show();
+                    var messageBox = new Window
+                    {
+                        Title = "Error",
+                        Content = new TextBlock { Text = $"Could not open logs folder: {ex.Message}" },
+                        SizeToContent = SizeToContent.WidthAndHeight
+                    };
+                    messageBox.Show();
+                });
             }
         }
     }

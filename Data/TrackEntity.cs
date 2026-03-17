@@ -370,6 +370,7 @@ public class LibraryEntryEntity
     public string? ManualKey { get; set; }
 
     public double? Energy { get; set; }
+    public double? EnergyRatio { get; set; }
     public double? Valence { get; set; }
     public double? Danceability { get; set; }
     public string? AudioFingerprint { get; set; }

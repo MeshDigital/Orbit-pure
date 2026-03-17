@@ -37,6 +37,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     private readonly AppConfig _config;
     private readonly IBulkOperationCoordinator _bulkCoordinator;
 
+    public TrackOperationsViewModel? Operations { get; set; }
+
     public HierarchicalLibraryViewModel Hierarchical { get; }
     
     private readonly System.Reactive.Subjects.Subject<System.Reactive.Unit> _refreshRequestSubject = new();

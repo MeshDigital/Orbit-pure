@@ -30,10 +30,8 @@ public class AppDbContext : DbContext
     public DbSet<Entities.AudioAnalysisEntity> AudioAnalysis { get; set; }
     public DbSet<Entities.AudioFeaturesEntity> AudioFeatures { get; set; }
     public DbSet<Entities.AnalysisRunEntity> AnalysisRuns { get; set; } // Phase 21: Analysis Run Tracking
-    public DbSet<Entities.ForensicLogEntry> ForensicLogs { get; set; } // Phase 4.7: Forensic Logging
     public DbSet<Entities.StyleDefinitionEntity> StyleDefinitions { get; set; } // Phase 15: Style Lab
     public DbSet<Entities.LibraryActionLogEntity> LibraryActionLogs { get; set; } // Phase 16.1: Ledger
-    public DbSet<Entities.BlacklistedItemEntity> Blacklist { get; set; } // Phase 7: Forensic Duplication
     public DbSet<Entities.LibraryFolderEntity> LibraryFolders { get; set; } // Library Folder Scanner
     public DbSet<Entities.TrackPhraseEntity> TrackPhrases { get; set; } // Phase 17: Cue Generation
     public DbSet<Entities.GenreCueTemplateEntity> GenreCueTemplates { get; set; } // Phase 17: Cue Generation
@@ -182,13 +180,7 @@ public class AppDbContext : DbContext
             .HasForeignKey<Entities.TrackTechnicalEntity>(t => t.PlaylistTrackId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        // Phase 7: Forensic Duplication
-        modelBuilder.Entity<Entities.BlacklistedItemEntity>()
-            .HasIndex(b => b.Hash)
-            .IsUnique()
-            .HasDatabaseName("IX_Blacklist_Hash");
-
-        // Phase 21: AI Brain Relationships
+        // AI Brain Relationships
 
         // 1. Valid Join Target: AudioFeatures must have Unique Hash
         modelBuilder.Entity<AudioFeaturesEntity>()

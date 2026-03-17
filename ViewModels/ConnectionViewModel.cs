@@ -340,6 +340,11 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
                 case "Disconnected":
                     IsConnected = false;
                     StatusText = "Disconnected";
+                    // Keep login overlay visible so user can retry
+                    if (!IsConnected && !IsLoginOverlayVisible)
+                    {
+                        IsLoginOverlayVisible = true;
+                    }
                     break;
                 default:
                     StatusText = state;

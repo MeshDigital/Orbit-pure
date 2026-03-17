@@ -80,7 +80,11 @@ public partial class ErrorReportDialog : Window, INotifyPropertyChanged
                         $".NET: {Environment.Version}\n" +
                         $"Architecture: {RuntimeInformation.ProcessArchitecture}\n";
 
-            await TopLevel.GetTopLevel(this)?.Clipboard?.SetTextAsync(report);
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.Clipboard != null)
+            {
+                await topLevel.Clipboard.SetTextAsync(report);
+            }
 
             // Show brief success feedback
             var originalText = ErrorMessage;
@@ -99,7 +103,7 @@ public partial class ErrorReportDialog : Window, INotifyPropertyChanged
         Close();
     }
 
-    public event PropertyChangedEventHandler? PropertyChanged;
+    public new event PropertyChangedEventHandler? PropertyChanged;
 
     protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {

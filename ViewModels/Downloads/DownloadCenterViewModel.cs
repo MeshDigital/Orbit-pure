@@ -171,8 +171,6 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         set => this.RaiseAndSetIfChanged(ref _showEngineLogs, value);
     }
 
-    public ObservableCollection<Data.Entities.ForensicLogEntry> EngineLogs { get; } = new();
-    public ObservableCollection<SecurityAuditEntryViewModel> SecurityQualityLogs { get; } = new();
     public ICommand ToggleLogsCommand { get; }
     public ICommand ClearSecurityQualityLogsCommand { get; }
     
@@ -266,8 +264,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         IEventBus eventBus,
         AppConfig config,
         ArtworkCacheService artworkCache,
-        ILibraryService libraryService,
-        TrackForensicLogger forensicLogger)
+        ILibraryService libraryService)
     {
         _downloadManager = downloadManager;
         _eventBus = eventBus;
@@ -277,26 +274,14 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         _isAutoEnrichEnabled = _config.IsAutoEnrichEnabled;
         
         ToggleLogsCommand = ReactiveCommand.Create(() => ShowEngineLogs = !ShowEngineLogs);
-        ClearSecurityQualityLogsCommand = ReactiveCommand.Create(() => SecurityQualityLogs.Clear());
-
-        // Subscribe to Forensic Logs
-        forensicLogger.LogGenerated += (s, e) => 
-        {
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => 
-            {
-                EngineLogs.Insert(0, e);
-                if (EngineLogs.Count > 100) EngineLogs.RemoveAt(100);
-            });
-        };
+        ClearSecurityQualityLogsCommand = ReactiveCommand.Create(() => { });
 
         // Phase 6: Security & Quality diagnostics feed (Shield / Gate visibility)
         _eventBus.GetEvent<SecurityAuditEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(e =>
             {
-                SecurityQualityLogs.Insert(0, new SecurityAuditEntryViewModel(e));
-                if (SecurityQualityLogs.Count > 200)
-                    SecurityQualityLogs.RemoveAt(SecurityQualityLogs.Count - 1);
+                // SecurityQualityLogs removed
             })
             .DisposeWith(_subscriptions);
         
