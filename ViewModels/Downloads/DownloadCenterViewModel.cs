@@ -45,6 +45,10 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     private readonly ReadOnlyObservableCollection<DownloadGroupViewModel> _activeGroups;
     public ReadOnlyObservableCollection<DownloadGroupViewModel> ActiveGroups => _activeGroups;
 
+    // Beta 2026: Peer Lane Dashboard — group active tracks by source peer
+    private readonly ReadOnlyObservableCollection<PeerLaneViewModel> _byPeerGroups;
+    public ReadOnlyObservableCollection<PeerLaneViewModel> ByPeerGroups => _byPeerGroups;
+
     // Swimlanes (Derived from Active)
     private readonly ReadOnlyObservableCollection<UnifiedTrackViewModel> _expressItems;
     public ReadOnlyObservableCollection<UnifiedTrackViewModel> ExpressItems => _expressItems;
@@ -193,6 +197,21 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     }
 
     public bool HasAnyActiveOrQueued => ActiveCount > 0 || QueuedCount > 0;
+
+    // Beta 2026: Network Health Indicator (fed by Parent Health Monitor)
+    private string? _networkHealthMessage;
+    public string? NetworkHealthMessage
+    {
+        get => _networkHealthMessage;
+        set => this.RaiseAndSetIfChanged(ref _networkHealthMessage, value);
+    }
+
+    private bool _showNetworkHealthWarning;
+    public bool ShowNetworkHealthWarning
+    {
+        get => _showNetworkHealthWarning;
+        set => this.RaiseAndSetIfChanged(ref _showNetworkHealthWarning, value);
+    }
 
     private bool _isAutoEnrichEnabled;
     public bool IsAutoEnrichEnabled
@@ -599,6 +618,27 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             .Subscribe();
 
         sharedSource.Connect(); // Connect the publisher
+
+        // Beta 2026: Peer Lane Dashboard — group downloading/searching tracks by their peer name
+        sharedSource
+            .Filter(x => x.IsActive && !string.IsNullOrEmpty(x.PeerName))
+            .Group(x => x.PeerName!)
+            .Transform((IGroup<UnifiedTrackViewModel, string, string> group) => new PeerLaneViewModel(group))
+            .DisposeMany()
+            .SortAndBind(out _byPeerGroups,
+                SortExpressionComparer<PeerLaneViewModel>.Descending(x => x.TotalSpeed))
+            .Subscribe()
+            .DisposeWith(_subscriptions);
+
+        // Beta 2026: Network health warning from Parent Health Monitor
+        _eventBus.GetEvent<NetworkHealthWarningEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e =>
+            {
+                NetworkHealthMessage = e.Message;
+                ShowNetworkHealthWarning = true;
+            })
+            .DisposeWith(_subscriptions);
 
         // Subscribe to creation events ONLY (State/Progress handled by Smart Component)
         _eventBus.GetEvent<TrackAddedEvent>()

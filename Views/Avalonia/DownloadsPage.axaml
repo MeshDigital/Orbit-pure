@@ -381,7 +381,7 @@
                     <!-- Global Status Indicator (Circuit Breaker / Connection Alerts) -->
                     <Border Grid.Row="0" 
                             IsVisible="{Binding IsGlobalStatusVisible}"
-                            Background="{Binding IsGlobalStatusError, Converter={StaticResource BoolToErrorColorConverter}}"
+                               Background="{Binding IsGlobalStatusError, Converter={StaticResource BoolToErrorColorConverter}}"
                             Opacity="0.8"
                             Margin="16,16,16,0"
                             Padding="16,10"
@@ -402,6 +402,24 @@
                                          IsVisible="{Binding IsGlobalStatusError}"/>
                         </StackPanel>
                     </Border>
+
+                        <!-- Beta 2026: Network Parent Health Warning -->
+                        <Border Grid.Row="0"
+                                IsVisible="{Binding ShowNetworkHealthWarning}"
+                                Background="#2A1500"
+                                Margin="16,8,16,0"
+                                Padding="14,10"
+                                CornerRadius="8"
+                                BorderThickness="1"
+                                BorderBrush="#664400">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <TextBlock Text="🔍" FontSize="14" VerticalAlignment="Center"/>
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="NETWORK HEALTH ALERT" FontSize="9" FontWeight="Black" Foreground="#FFA500" LetterSpacing="1"/>
+                                    <TextBlock Text="{Binding NetworkHealthMessage}" Foreground="#FFB74D" FontSize="11" FontStyle="Italic"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
 
                     <!-- Empty State -->
                     <Border Grid.Row="1" 
@@ -455,6 +473,64 @@
                                          </StackPanel>
                                     </Border>
                                 </StackPanel>
+
+                                    <!-- Beta 2026: PEER LANE DASHBOARD — Group active transfers by peer -->
+                                    <StackPanel Spacing="12" IsVisible="{Binding ByPeerGroups.Count}">
+                                        <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,4">
+                                            <TextBlock Text="PEER LANES" FontSize="10" FontWeight="Black" Foreground="#FFA500" LetterSpacing="1"/>
+                                            <Border Background="#FFA500" Width="40" Height="2" VerticalAlignment="Center" Opacity="0.3"/>
+                                            <TextBlock Text="active contributors" FontSize="9" Foreground="#444" VerticalAlignment="Center" FontStyle="Italic"/>
+                                        </StackPanel>
+                                        <!-- Horizontal scroll of peer cards -->
+                                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Height="150">
+                                            <ItemsRepeater ItemsSource="{Binding ByPeerGroups}">
+                                                <ItemsRepeater.Layout>
+                                                    <StackLayout Orientation="Horizontal" Spacing="8"/>
+                                                </ItemsRepeater.Layout>
+                                                <ItemsRepeater.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Background="#1C1C1E" CornerRadius="8" Padding="14,10" Width="190"
+                                                                BorderBrush="{Binding LaneAccentColor}" BorderThickness="1">
+                                                            <StackPanel Spacing="6">
+                                                                <!-- Peer name -->
+                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                    <TextBlock Text="👤" FontSize="10" VerticalAlignment="Center"/>
+                                                                    <TextBlock Text="{Binding PeerName}"
+                                                                               FontSize="11" FontWeight="SemiBold" Foreground="White"
+                                                                               MaxWidth="144" TextTrimming="CharacterEllipsis"
+                                                                               VerticalAlignment="Center"/>
+                                                                </StackPanel>
+                                                                <!-- Speed + track count pills -->
+                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                    <Border Background="#252526" CornerRadius="4" Padding="6,2">
+                                                                        <TextBlock Text="{Binding SpeedDisplay}"
+                                                                                   FontSize="10" FontWeight="Bold"
+                                                                                   Foreground="{Binding LaneAccentColor}"/>
+                                                                    </Border>
+                                                                    <Border Background="#252526" CornerRadius="4" Padding="6,2">
+                                                                        <TextBlock Text="{Binding TrackCountDisplay}" FontSize="10" Foreground="#888"/>
+                                                                    </Border>
+                                                                </StackPanel>
+                                                                <!-- Mini track list -->
+                                                                <ItemsRepeater ItemsSource="{Binding Tracks}">
+                                                                    <ItemsRepeater.Layout>
+                                                                        <StackLayout Spacing="2"/>
+                                                                    </ItemsRepeater.Layout>
+                                                                    <ItemsRepeater.ItemTemplate>
+                                                                        <DataTemplate>
+                                                                            <TextBlock Text="{Binding TrackTitle}"
+                                                                                       FontSize="9" Foreground="#666"
+                                                                                       TextTrimming="CharacterEllipsis" MaxWidth="162"/>
+                                                                        </DataTemplate>
+                                                                    </ItemsRepeater.ItemTemplate>
+                                                                </ItemsRepeater>
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsRepeater.ItemTemplate>
+                                            </ItemsRepeater>
+                                        </ScrollViewer>
+                                    </StackPanel>
 
                                 <!-- SECTION 2: THE QUEUE (Groups & Bulk) -->
                                 <StackPanel Spacing="12">

@@ -648,6 +648,83 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         }
     }
 
+    // ── Beta 2026: Forensic Quality Pill ─────────────────────────────────────
+    // Shown on every active download row. Driven by format, bitrate, and live speed.
+
+    /// <summary>Short badge label: "🧪 FLAC", "⚠️ FAKE", "⚡ FAST", "● MP3", etc.</summary>
+    public string ForensicBadgeText
+    {
+        get
+        {
+            if (Model.IsTranscoded) return "⚠️ FAKE";
+            var fmt = (Model.Format ?? string.Empty).ToUpperInvariant();
+            var bitrate = Model.Bitrate ?? 0;
+            if (fmt == "FLAC" && bitrate >= 400) return "🧪 FLAC";
+            if (IsDownloading && CurrentSpeedBytes > 1_048_576) return "⚡ FAST";
+            if (fmt is "MP3" or "AAC" or "OGG") return $"● {fmt}";
+            if (bitrate > 0) return $"{bitrate}kbps";
+            return "● AUDIO";
+        }
+    }
+
+    public string ForensicBadgeBackground
+    {
+        get
+        {
+            if (Model.IsTranscoded) return "#3C1F1F";
+            var fmt = (Model.Format ?? string.Empty).ToUpperInvariant();
+            var bitrate = Model.Bitrate ?? 0;
+            if (fmt == "FLAC" && bitrate >= 400) return "#1A3028";
+            if (IsDownloading && CurrentSpeedBytes > 1_048_576) return "#0E1D33";
+            return "#222222";
+        }
+    }
+
+    public string ForensicBadgeForeground
+    {
+        get
+        {
+            if (Model.IsTranscoded) return "#FF5252";
+            var fmt = (Model.Format ?? string.Empty).ToUpperInvariant();
+            var bitrate = Model.Bitrate ?? 0;
+            if (fmt == "FLAC" && bitrate >= 400) return "#1DB954";
+            if (IsDownloading && CurrentSpeedBytes > 1_048_576) return "#00BFFF";
+            return "#888888";
+        }
+    }
+
+    public string ForensicBadgeBorderColor
+    {
+        get
+        {
+            if (Model.IsTranscoded) return "#FF5252";
+            var fmt = (Model.Format ?? string.Empty).ToUpperInvariant();
+            var bitrate = Model.Bitrate ?? 0;
+            if (fmt == "FLAC" && bitrate >= 400) return "#1DB954";
+            if (IsDownloading && CurrentSpeedBytes > 1_048_576) return "#00BFFF";
+            return "#333333";
+        }
+    }
+
+    /// <summary>Full hover HUD: bitrate · sample rate · bit depth · format · peer · transcode flag.</summary>
+    public string ForensicBadgeHud
+    {
+        get
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            if ((Model.Bitrate ?? 0) > 0) parts.Add($"{Model.Bitrate}kbps");
+            var sr = ParsedSampleRateHz;
+            if (sr > 0) parts.Add($"{sr / 1000.0:F1}kHz");
+            var bd = ParsedBitDepth;
+            if (bd > 0) parts.Add($"{bd}-bit");
+            if (!string.IsNullOrEmpty(Model.Format)) parts.Add(Model.Format.ToUpperInvariant());
+            if (Model.IsTranscoded) parts.Add("⚠️ LIKELY TRANSCODE");
+            if (!string.IsNullOrEmpty(PeerName)) parts.Add($"Peer: {PeerName}");
+            return parts.Count > 0 ? string.Join(" • ", parts) : "Technical data pending";
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     public bool IsFakeFlacWarning
     {
         get

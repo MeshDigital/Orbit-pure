@@ -358,6 +358,19 @@
                     <TextBlock Text="{Binding QualityPillText}" FontSize="9" FontWeight="Bold" Foreground="#00BFFF" VerticalAlignment="Center"/>
                 </Border>
 
+                    <!-- Beta 2026: Forensic Badge — live quality signal during active download -->
+                    <Border IsVisible="{Binding IsActive}"
+                            Background="{Binding ForensicBadgeBackground}"
+                            BorderBrush="{Binding ForensicBadgeBorderColor}"
+                            BorderThickness="1"
+                            CornerRadius="10" Padding="8,1"
+                            ToolTip.Tip="{Binding ForensicBadgeHud}">
+                        <TextBlock Text="{Binding ForensicBadgeText}"
+                                   FontSize="9" FontWeight="Bold"
+                                   Foreground="{Binding ForensicBadgeForeground}"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+
                 <!-- Fake FLAC Warning -->
                 <Border IsVisible="{Binding IsFakeFlacWarning}"
                         Background="#2C1F1F" BorderBrush="#FF5252" BorderThickness="1"

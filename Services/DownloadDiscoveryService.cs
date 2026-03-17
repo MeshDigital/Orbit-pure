@@ -195,6 +195,10 @@ public class DownloadDiscoveryService
 
     private async Task<DiscoveryResult> PerformSearchTierAsync(PlaylistTrack track, string query, string tierName, CancellationToken ct, HashSet<string>? blacklistedUsers, SearchAttemptLog log, bool forceMp3 = false)
     {
+        // Beta 2026: Per-tier CTS — cancels the underlying search stream the moment a
+        // golden match is found, freeing the lane for the next playlist track immediately.
+        using var tierCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
         try
         {
             if (!_searchOrchestrator.IsConnected)
@@ -333,6 +337,9 @@ public class DownloadDiscoveryService
                         _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash,
                             $"🏁 Golden match: {searchTrack.Username} ({searchTrack.Bitrate}kbps FLAC)."));
 
+                        // Beta 2026: Cancel the tier's search stream — no need to wait for timeout
+                        tierCts.Cancel();
+
                         return new DiscoveryResult(searchTrack, log, runnerUpSilverMatch);
                     }
 
@@ -376,7 +383,7 @@ public class DownloadDiscoveryService
                 minBitrate,
                 maxBitrate,
                 isAlbumSearch: false,
-                cancellationToken: ct))
+                cancellationToken: tierCts.Token))  // Beta 2026: use tierCts so golden hit cancels stream
             {
                 log.ResultsCount++;
 
@@ -548,9 +555,16 @@ public class DownloadDiscoveryService
             _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"❌ No acceptable match found in {tierName} tier.", true));
             return new DiscoveryResult(null, log);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Outer cancellation — propagate to caller
+            throw;
+        }
         catch (OperationCanceledException)
         {
-            throw;
+            // Tier-internal cancellation (golden criteria hit tierCts.Cancel() already returned the match).
+            // If we somehow end up here it's due to enumerator cleanup; return clean empty result.
+            return new DiscoveryResult(null, log);
         }
         catch (Exception ex)
         {

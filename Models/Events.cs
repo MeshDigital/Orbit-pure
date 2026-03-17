@@ -94,6 +94,13 @@ public record AnalysisCompletedEvent(
     string? ErrorMessage = null
 );
 
+// Beta 2026: Network Resilience Events
+/// <summary>
+/// Fired by the Parent Health Monitor when search fertility drops below threshold,
+/// indicating the distributed parent connection may have degraded.
+/// </summary>
+public record NetworkHealthWarningEvent(double SearchFertilityRate, string Message);
+
 // Phase 8: Automation & Upgrade Events
 public record AutoDownloadTrackEvent(string TrackGlobalId, Track BestMatch);
 public record AutoDownloadUpgradeEvent(string TrackGlobalId, Track BestMatch);
