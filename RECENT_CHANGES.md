@@ -1,5 +1,24 @@
 # Recent Changes
 
+## [0.1.0-alpha.39] - Settings/Download Center Profile Unification (Mar 17, 2026)
+
+### Unified Search Profile Model
+* `SettingsViewModel.cs` now uses the same 3 overwrite profiles as Download Center:
+  * **Non-Strict**: `flac,wav,aiff,aif,mp3`
+  * **Strict**: `flac,wav,aiff,aif`
+  * **Stricter**: `flac`
+* Replaced legacy 2-mode strict/throughput toggle behavior with explicit 3-mode profile selectors (`SearchProfileNonStrict`, `SearchProfileStrict`, `SearchProfileStricter`).
+* Profile mode label in Settings now mirrors Download Center semantics via `SearchProfileModeText`.
+
+### Settings UX Alignment
+* `SettingsPage.axaml` replaces the old hardwire switch with three toggle buttons matching Download Center profile controls.
+* Increased Settings bitrate numeric bounds to `1000` so stricter profile values (e.g., `701`) are fully representable.
+
+### Validation
+* `dotnet build` ✅
+
+---
+
 ## [0.1.0-alpha.38] - Download Profile Overwrite Control + Incoming Status Routing Hardening (Mar 17, 2026)
 
 ### Download Center Profile Overwrite (3 Modes)

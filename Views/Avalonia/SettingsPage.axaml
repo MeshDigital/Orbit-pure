@@ -185,17 +185,21 @@
 
                     <Border Background="#1E1E1E" BorderBrush="#333" BorderThickness="1" CornerRadius="6" Padding="12">
                         <StackPanel Spacing="8">
-                            <Grid ColumnDefinitions="*,Auto">
-                                <StackPanel Grid.Column="0" Spacing="2">
-                                    <TextBlock Text="Hardwire Strict Profile" FontWeight="SemiBold" Foreground="#DDD"/>
-                                    <TextBlock Text="Toggle ON for strict FLAC-only policy. Toggle OFF for throughput profile." Foreground="#888" FontSize="11" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <ToggleSwitch Grid.Column="1"
-                                              IsChecked="{Binding HardwireStrictSearchProfile, Mode=TwoWay}"
-                                              OnContent="Strict"
-                                              OffContent="Throughput"
-                                              VerticalAlignment="Center"/>
-                            </Grid>
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="Search Profile Overwrite" FontWeight="SemiBold" Foreground="#DDD"/>
+                                <TextBlock Text="Apply one of the shared runtime profiles used by Download Center." Foreground="#888" FontSize="11" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <ToggleButton IsChecked="{Binding SearchProfileNonStrict, Mode=TwoWay}" Background="#2D2D2D" BorderBrush="#555" BorderThickness="1" CornerRadius="4" Padding="10,4">
+                                    <TextBlock Text="Non-Strict" FontSize="10" Foreground="#DDD"/>
+                                </ToggleButton>
+                                <ToggleButton IsChecked="{Binding SearchProfileStrict, Mode=TwoWay}" Background="#2D2D2D" BorderBrush="#00BFFF" BorderThickness="1" CornerRadius="4" Padding="10,4">
+                                    <TextBlock Text="Strict" FontSize="10" Foreground="#00BFFF" FontWeight="SemiBold"/>
+                                </ToggleButton>
+                                <ToggleButton IsChecked="{Binding SearchProfileStricter, Mode=TwoWay}" Background="#2D2D2D" BorderBrush="#FFB300" BorderThickness="1" CornerRadius="4" Padding="10,4">
+                                    <TextBlock Text="Stricter" FontSize="10" Foreground="#FFB300" FontWeight="SemiBold"/>
+                                </ToggleButton>
+                            </StackPanel>
                             <TextBlock Text="{Binding SearchProfileModeText}" Foreground="#666" FontSize="11"/>
                         </StackPanel>
                     </Border>
@@ -206,7 +210,7 @@
                         <NumericUpDown Grid.Column="1" 
                                        Value="{Binding MinBitrate, Mode=TwoWay}"
                                        Minimum="0"
-                                       Maximum="320"
+                                       Maximum="1000"
                                        Increment="32"
                                        Background="#1E1E1E"
                                        Foreground="White"/>
@@ -223,7 +227,7 @@
                         <NumericUpDown Grid.Column="1" 
                                        Value="{Binding MaxBitrate, Mode=TwoWay}"
                                        Minimum="0"
-                                       Maximum="320"
+                                       Maximum="1000"
                                        Increment="32"
                                        Background="#1E1E1E"
                                        Foreground="White"/>
