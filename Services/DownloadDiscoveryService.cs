@@ -250,7 +250,7 @@ public class DownloadDiscoveryService
             // This pushes filtering upstream to Soulseek and reduces local scoring overhead.
             if (!forceMp3 && formatsList.Contains("flac", StringComparer.OrdinalIgnoreCase))
             {
-                minBitrate = Math.Max(minBitrate, 500);
+                minBitrate = Math.Max(minBitrate, 701);
             }
             
             // Cap at reasonable high unless strictly set, but for discovery we want quality
@@ -324,7 +324,7 @@ public class DownloadDiscoveryService
 
                     var isGoldenCriteria = !forceMp3 &&
                                            string.Equals(searchTrack.Format, "flac", StringComparison.OrdinalIgnoreCase) &&
-                                           searchTrack.Bitrate >= 500 &&
+                                           searchTrack.Bitrate > 700 &&
                                            score >= 85;
 
                     // Workstation 2026: first-past-the-post quality gate.

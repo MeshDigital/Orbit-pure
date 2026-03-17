@@ -95,8 +95,8 @@ public class ConfigManager
                 EnableRelaxationStrategy = !bool.TryParse(config["Search:EnableRelaxationStrategy"], out var ers) || ers, // Default true
                 EnableVbrFraudDetection = !bool.TryParse(config["Search:EnableVbrFraudDetection"], out var evfd) || evfd, // Default true
                 RelaxationTimeoutSeconds = int.TryParse(config["Search:RelaxationTimeoutSeconds"], out var rts) ? rts : 10,
-                PreferredFormats = config["Search:PreferredFormats"]?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList() ?? new List<string> { "mp3", "flac" },
-                PreferredMinBitrate = int.TryParse(config["Search:PreferredMinBitrate"], out var pmb) ? pmb : 96,
+                PreferredFormats = config["Search:PreferredFormats"]?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList() ?? new List<string> { "aiff", "aif", "flac", "wav" },
+                PreferredMinBitrate = int.TryParse(config["Search:PreferredMinBitrate"], out var pmb) ? pmb : 701,
                 PreferredMaxBitrate = int.TryParse(config["Search:PreferredMaxBitrate"], out var pmaxb) ? pmaxb : 0,
                 SearchResponseLimit = int.TryParse(config["Search:SearchResponseLimit"], out var srl) ? srl : 100,
                 SearchFileLimit = int.TryParse(config["Search:SearchFileLimit"], out var sfl) ? sfl : 100,
@@ -175,7 +175,7 @@ public class ConfigManager
         iniContent.AppendLine($"EnableRelaxationStrategy = {config.EnableRelaxationStrategy}");
         iniContent.AppendLine($"EnableVbrFraudDetection = {config.EnableVbrFraudDetection}");
         iniContent.AppendLine($"RelaxationTimeoutSeconds = {config.RelaxationTimeoutSeconds}");
-        iniContent.AppendLine($"PreferredFormats = {(config.PreferredFormats != null ? string.Join(",", config.PreferredFormats) : "mp3,flac")}");
+        iniContent.AppendLine($"PreferredFormats = {(config.PreferredFormats != null ? string.Join(",", config.PreferredFormats) : "aiff,aif,flac,wav")}");
         iniContent.AppendLine($"PreferredMinBitrate = {config.PreferredMinBitrate}");
         iniContent.AppendLine($"PreferredMaxBitrate = {config.PreferredMaxBitrate}");
         iniContent.AppendLine($"SearchResponseLimit = {config.SearchResponseLimit}");

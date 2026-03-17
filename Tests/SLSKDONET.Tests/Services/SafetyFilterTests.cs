@@ -30,7 +30,7 @@ public class SafetyFilterTests
     {
         // Arrange
         _config.BlacklistedUsers = new List<string> { "BannedUser" };
-        var track = new Track { Username = "BannedUser", Length = 300, Bitrate = 320, Filename = "Test Query.mp3" };
+        var track = new Track { Username = "BannedUser", Length = 300, Bitrate = 900, SampleRate = 44100, Filename = "Test Query.flac" };
         var searchTrack = new Track { Length = 300 };
 
         // Act
@@ -45,7 +45,7 @@ public class SafetyFilterTests
     {
         // Arrange
         _config.BlacklistedUsers = new List<string> { "BannedUser" };
-        var track = new Track { Username = "GoodUser", Length = 300, Bitrate = 320, Filename = "Test Query.mp3" };
+        var track = new Track { Username = "GoodUser", Length = 300, Bitrate = 900, SampleRate = 44100, Filename = "Test Query.flac" };
         var searchTrack = new Track { Length = 300 };
 
         // Act
@@ -60,7 +60,7 @@ public class SafetyFilterTests
     {
         // Arrange
         _config.SearchPolicy.DurationToleranceSeconds = 10;
-        var track = new Track { Length = 500, Bitrate = 320, Filename = "Test Query.mp3" }; // 200s diff
+        var track = new Track { Length = 500, Bitrate = 900, SampleRate = 44100, Filename = "Test Query.flac" }; // 200s diff
         var searchTrack = new Track { Length = 300 };
 
         // Act
@@ -75,7 +75,7 @@ public class SafetyFilterTests
     {
         // Arrange
         _config.SearchPolicy.DurationToleranceSeconds = 10;
-        var track = new Track { Length = 305, Bitrate = 320, Filename = "Test Query.mp3" }; // 5s diff
+        var track = new Track { Length = 305, Bitrate = 900, SampleRate = 44100, Filename = "Test Query.flac" }; // 5s diff
         var searchTrack = new Track { Length = 300 };
 
         // Act

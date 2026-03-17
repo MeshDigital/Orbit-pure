@@ -1,5 +1,36 @@
 # Recent Changes
 
+## [0.1.0-alpha.29] - Purist Lossless Hunter Rules Hardcoded (Mar 17, 2026)
+
+### ORBIT Brain — Strict Quality Decision Tree
+* **SafetyFilterService** now enforces a hard extension policy:
+  * **Whitelist:** `.flac`, `.aif`, `.aiff`, `.wav`
+  * **Blacklist:** `.mp3`, `.m4a`, `.mp4`, `.ogg`, `.wma`
+* Added strict evidence gates before admission:
+  * **Bitrate must be > 700 kbps**
+  * **Sample rate must be >= 44.1 kHz**
+* `IsUpscaled` fake-lossless detection tightened for FLAC:
+  * FLAC with spectral cutoff below **20 kHz** is now flagged as likely fake/upscaled.
+
+### Discovery Engine — Early Winner at Purist Threshold
+* **DownloadDiscoveryService** lossless lanes now force `minBitrate >= 701`.
+* Golden first-past-the-post winner threshold raised to **FLAC > 700 kbps**.
+
+### Scoring Matrix — Format Priority (AIFF/FLAC/WAV)
+* **SearchResultMatcher** now hard-rejects lossy formats (`mp3/m4a/mp4/ogg/wma`) with score `0`.
+* Added purist format weighting:
+  * **AIFF:** top priority
+  * **FLAC:** second
+  * **WAV:** third
+* Added metadata confidence bonuses for `>700kbps`, `>=44.1kHz`, and `16/24-bit`.
+
+### Config Defaults
+* `AppConfig` + `ConfigManager` defaults updated to strict profile:
+  * `PreferredFormats = aiff,aif,flac,wav`
+  * `PreferredMinBitrate = 701`
+
+---
+
 ## [0.1.0-alpha.28] - Professional Beta Hardening: Network Resilience, Streaming Discovery & Download Center 2026 (Mar 17, 2026)
 
 ### 1. Network Resilience — Distributed Parent Health Monitor

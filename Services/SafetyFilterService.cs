@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Models;
 using SLSKDONET.Configuration;
@@ -25,6 +26,14 @@ public class SafetyFilterService : ISafetyFilterService
     private readonly ILogger<SafetyFilterService> _logger;
     private readonly AppConfig _config;
     private readonly string[] _bannedExtensions = new[] { ".exe", ".zip", ".rar", ".lnk", ".bat", ".cmd", ".vbs", ".dmg", ".iso" };
+    private static readonly HashSet<string> _losslessWhitelist = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".flac", ".aif", ".aiff", ".wav"
+    };
+    private static readonly HashSet<string> _lossyBlacklist = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp3", ".m4a", ".mp4", ".ogg", ".wma"
+    };
 
     public SafetyFilterService(ILogger<SafetyFilterService> logger, AppConfig config)
     {
@@ -65,10 +74,21 @@ public class SafetyFilterService : ISafetyFilterService
     public SafetyCheckResult EvaluateCandidate(Track candidate, string query, int? targetDuration = null)
     {
         // 1. Check Extension Blacklist
-        var ext = candidate.GetExtension().ToLower();
+        var ext = Path.GetExtension(candidate.Filename ?? string.Empty).ToLowerInvariant();
         if (_bannedExtensions.Contains(ext))
         {
             return new SafetyCheckResult(false, "Banned Extension", $"Extension '{ext}' is not allowed.");
+        }
+
+        // 1B. Purist First Barrier: hard extension allow/deny
+        if (_lossyBlacklist.Contains(ext))
+        {
+            return new SafetyCheckResult(false, "Lossy Extension Rejected", $"Extension '{ext}' is blacklisted for lossless hunting.");
+        }
+
+        if (!_losslessWhitelist.Contains(ext))
+        {
+            return new SafetyCheckResult(false, "Unsupported Extension", $"Extension '{ext}' is outside the strict lossless whitelist.");
         }
 
         // 2. The Accountant: Bitrate vs Size Math (Delegated to Forensic Core)
@@ -95,11 +115,17 @@ public class SafetyFilterService : ISafetyFilterService
             }
         }
 
-        // 4. Bitrate Check (Low Quality)
-        if (candidate.Bitrate > 0 && candidate.Bitrate < 128)
-        {
-             return new SafetyCheckResult(false, "Low Quality", $"Bitrate {candidate.Bitrate}kbps is below 128kbps threshold.");
-        }
+           // 4. Bitrate & sample-rate evidence gate for lossless intake
+           if (candidate.Bitrate <= 700)
+           {
+               return new SafetyCheckResult(false, "Bitrate Too Low", $"Bitrate {candidate.Bitrate}kbps is below strict >700kbps threshold.");
+           }
+
+           // Require 44.1kHz / 48kHz or higher for strict pass
+           if (!candidate.SampleRate.HasValue || candidate.SampleRate.Value < 44100)
+           {
+              return new SafetyCheckResult(false, "Sample Rate Too Low", $"Sample rate {(candidate.SampleRate?.ToString() ?? "unknown")}Hz is below 44.1kHz threshold.");
+           }
         
         // 5. Manual Blacklist (Keywords/Users)
         if (IsBlacklisted(candidate))
@@ -144,14 +170,7 @@ public class SafetyFilterService : ISafetyFilterService
     /// </summary>
     private bool IsBlacklisted(Track item)
     {
-        // 1. Extension check
-        var ext = Path.GetExtension(item.Filename)?.ToLowerInvariant();
-        if (string.IsNullOrEmpty(ext)) return true; // No extension? Suspicious.
-
-        var allowedExtensions = new[] { ".mp3", ".flac", ".wav", ".aiff", ".m4a", ".aac", ".ogg" };
-        if (!allowedExtensions.Contains(ext)) return true; // Filter exes, zips, etc.
-
-        // 2. Keyword check
+        // 1. Keyword check
         // Guard against null filename
         if (string.IsNullOrEmpty(item.Filename)) return true;
         
@@ -190,12 +209,12 @@ public class SafetyFilterService : ISafetyFilterService
         // 192kbps cuts off around 18-19kHz.
         // 128kbps cuts off around 16-17kHz.
         
-        // 2. Strict Gold Standard: Fake FLAC check
-        // Real FLACs MUST have a frequency cutoff well above 16.1 kHz.
-        // If it claims to be FLAC (lossless) but looks like a low-bitrate MP3 shelf...
-        if ((track.Format?.Equals("flac", StringComparison.OrdinalIgnoreCase) ?? false) && cutoff < 16100)
+           // 2. Strict Gold Standard: Fake FLAC check
+           // Real FLACs should preserve energy well beyond 20kHz. If they shelf early,
+           // treat as likely upscaled lossy source.
+           if ((track.Format?.Equals("flac", StringComparison.OrdinalIgnoreCase) ?? false) && cutoff < 20000)
         {
-             _logger.LogWarning("🛑 Forensic Failure: Strict 16.1 kHz FLAC gate failed for {Track}. Cutoff: {Cutoff}Hz. Marking as fake.", track.Title, cutoff);
+               _logger.LogWarning("🛑 Forensic Failure: Strict 20kHz FLAC gate failed for {Track}. Cutoff: {Cutoff}Hz. Marking as fake.", track.Title, cutoff);
              return true; 
         }
 

@@ -40,8 +40,8 @@ public class AppConfig
     public int SoulseekMinorVersion { get; set; } = 2026;
     
     // File preference conditions
-    public List<string>? PreferredFormats { get; set; } = new() { "mp3", "flac" };
-    public int PreferredMinBitrate { get; set; } = 96; // Lowered from 128 to reduce rejections
+    public List<string>? PreferredFormats { get; set; } = new() { "aiff", "aif", "flac", "wav" };
+    public int PreferredMinBitrate { get; set; } = 701; // Strict lossless profile: >700kbps
     public int PreferredMaxBitrate { get; set; } = 0; // 0 = no limit
     public int PreferredMaxSampleRate { get; set; } = 48000; // Hz
     public string? PreferredLengthTolerance { get; set; } = "3"; // seconds
