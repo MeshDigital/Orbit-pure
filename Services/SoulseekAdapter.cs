@@ -197,6 +197,19 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             return;
         }
 
+        var state = _client.State;
+        var canPublishShares = state.HasFlag(SoulseekClientStates.Connected) && state.HasFlag(SoulseekClientStates.LoggedIn);
+        if (!canPublishShares)
+        {
+            _logger.LogInformation("Skipping reciprocal share refresh because Soulseek is not fully connected/logged in (State: {State})", state);
+            _eventBus.Publish(new ShareHealthUpdatedEvent(
+                SharedFolderCount: 0,
+                SharedFileCount: SharedFileCount,
+                IsSharing: false,
+                Note: $"Waiting for Soulseek login before publishing shared counts (state: {state})."));
+            return;
+        }
+
         var shareFolders = ResolveShareFolders();
         if (shareFolders.Length <= 0)
         {
@@ -213,7 +226,21 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         var sharedFileCount = shareFolders.Sum(folder => System.IO.Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Count());
         SharedFileCount = sharedFileCount;
 
-        await _client.SetSharedCountsAsync(shareFolders.Length, sharedFileCount);
+        try
+        {
+            await _client.SetSharedCountsAsync(shareFolders.Length, sharedFileCount, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Share refresh skipped because Soulseek disconnected during publish step (State: {State})", _client.State);
+            _eventBus.Publish(new ShareHealthUpdatedEvent(
+                SharedFolderCount: shareFolders.Length,
+                SharedFileCount: sharedFileCount,
+                IsSharing: false,
+                Note: "Share publish skipped because connection dropped during update."));
+            return;
+        }
+
         _eventBus.Publish(new SharedFilesStatusEvent(shareFolders.Length, string.Join(";", shareFolders)));
         _eventBus.Publish(new ShareHealthUpdatedEvent(
             SharedFolderCount: shareFolders.Length,

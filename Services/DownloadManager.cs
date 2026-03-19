@@ -2223,6 +2223,14 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 ctx.NextRetryTime = DateTime.UtcNow.AddSeconds(1);
                 await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "Stall detected (>10s no throughput). Re-searching with new peer.");
             }
+            catch (DownloadDiscoveryService.DiscoveryConnectionUnavailableException ex)
+            {
+                // Transient connectivity issue: do NOT consume "not found" attempt budget.
+                // Keep the track hot in queue with a short retry delay.
+                _logger.LogInformation("Discovery paused for {Title} due to temporary connection loss: {Message}", ctx.Model.Title, ex.Message);
+                ctx.NextRetryTime = DateTime.UtcNow.AddSeconds(15);
+                await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "Waiting for Soulseek connection. Retrying shortly.");
+            }
             catch (SearchRejectedException srex)
             {
                 _logger.LogWarning("Search Rejected for {Title}: {Message}", ctx.Model.Title, srex.Message);

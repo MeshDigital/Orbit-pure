@@ -42,8 +42,8 @@ public class AsyncRelayCommand<T> : ICommand
             {
                 // Log the exception to prevent unobserved task exceptions
                 System.Diagnostics.Debug.WriteLine($"AsyncRelayCommand exception: {ex.Message}");
-                // Re-throw to let global handlers deal with it
-                throw;
+                // Do not rethrow from async void command execution.
+                // Rethrowing here tears down the UI thread and crashes the app.
             }
             finally
             {

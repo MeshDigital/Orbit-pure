@@ -999,7 +999,14 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         ClearSecurityAuditCommand = new RelayCommand(() => SecurityAuditFeed.Clear());
         RefreshShareNowCommand = new AsyncRelayCommand(async () =>
         {
-            await _soulseek.RefreshShareStateAsync();
+            try
+            {
+                await _soulseek.RefreshShareStateAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Manual share refresh failed. This is non-fatal and can happen while reconnecting.");
+            }
         });
 
         // Soulseek Connection Commands

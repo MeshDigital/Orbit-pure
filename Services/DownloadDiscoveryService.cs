@@ -57,6 +57,13 @@ public class DownloadDiscoveryService
         public int Bitrate => BestMatch?.Bitrate ?? 0;
     }
 
+    public sealed class DiscoveryConnectionUnavailableException : Exception
+    {
+        public DiscoveryConnectionUnavailableException(string message) : base(message)
+        {
+        }
+    }
+
     /// <summary>
     /// Searches for a track and returns the single best match based on user preferences.
     /// Phase T.1: Refactored to accept PlaylistTrack model (decoupled from UI).
@@ -248,7 +255,10 @@ public class DownloadDiscoveryService
             if (!_searchOrchestrator.IsConnected)
             {
                 // Connection check inside tier as well (redundant but safe)
-                if (!await WaitForConnectionAsync(ct)) return new DiscoveryResult(null, log);
+                if (!await WaitForConnectionAsync(ct))
+                {
+                    throw new DiscoveryConnectionUnavailableException("Soulseek connection unavailable during discovery tier.");
+                }
             }
             var allowMp3Fallback = IsMp3FallbackAllowed(track);
             // 1. Configure preferences (Respect per-track overrides)
@@ -732,7 +742,7 @@ public class DownloadDiscoveryService
 
         if (!_searchOrchestrator.IsConnected)
         {
-            _logger.LogWarning("Timeout waiting for Soulseek connection after 10s; this discovery tier will return no match for now and retry logic/fallback tiers may continue.");
+            _logger.LogWarning("Timeout waiting for Soulseek connection after 10s; discovery will be retried as a transient connectivity issue.");
             return false;
         }
         return true;
