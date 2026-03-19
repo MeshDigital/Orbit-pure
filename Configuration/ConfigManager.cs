@@ -104,6 +104,10 @@ public class ConfigManager
 
                 // [Library] & Upgrade Scout
                 LibraryColumnOrder = config["Library:ColumnOrder"] ?? "",
+                LibraryNavigationAutoHideEnabled = bool.TryParse(config["Library:NavigationAutoHideEnabled"], out var navAutoHideEnabled) && navAutoHideEnabled,
+                LibraryNavigationAutoHideActivationToggleCount = int.TryParse(config["Library:NavigationAutoHideActivationToggleCount"], out var navAutoHideActivationCount)
+                    ? Math.Max(2, navAutoHideActivationCount)
+                    : 3,
                 UpgradeScoutEnabled = bool.TryParse(config["Library:UpgradeScoutEnabled"], out var use) && use,
                 UpgradeMinBitrateThreshold = int.TryParse(config["Library:UpgradeMinBitrateThreshold"], out var umbt) ? umbt : 320,
                 UpgradeMinGainKbps = int.TryParse(config["Library:UpgradeMinGainKbps"], out var umgk) ? umgk : 128,
@@ -200,6 +204,8 @@ public class ConfigManager
         iniContent.AppendLine();
         iniContent.AppendLine("[Library]");
         iniContent.AppendLine($"ColumnOrder = {config.LibraryColumnOrder}");
+        iniContent.AppendLine($"NavigationAutoHideEnabled = {config.LibraryNavigationAutoHideEnabled}");
+        iniContent.AppendLine($"NavigationAutoHideActivationToggleCount = {Math.Max(2, config.LibraryNavigationAutoHideActivationToggleCount)}");
         iniContent.AppendLine($"UpgradeScoutEnabled = {config.UpgradeScoutEnabled}");
         iniContent.AppendLine($"UpgradeMinBitrateThreshold = {config.UpgradeMinBitrateThreshold}");
         iniContent.AppendLine($"UpgradeMinGainKbps = {config.UpgradeMinGainKbps}");

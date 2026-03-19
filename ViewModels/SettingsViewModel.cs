@@ -207,6 +207,35 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    public bool LibraryNavigationAutoHideEnabled
+    {
+        get => _config.LibraryNavigationAutoHideEnabled;
+        set
+        {
+            if (_config.LibraryNavigationAutoHideEnabled != value)
+            {
+                _config.LibraryNavigationAutoHideEnabled = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public int LibraryNavigationAutoHideActivationToggleCount
+    {
+        get => Math.Max(2, _config.LibraryNavigationAutoHideActivationToggleCount);
+        set
+        {
+            var normalized = Math.Max(2, value);
+            if (_config.LibraryNavigationAutoHideActivationToggleCount != normalized)
+            {
+                _config.LibraryNavigationAutoHideActivationToggleCount = normalized;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
     public int MinBitrate
     {
         get => _config.PreferredMinBitrate;

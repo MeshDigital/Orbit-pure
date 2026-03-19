@@ -66,9 +66,9 @@ public partial class LibraryViewModel
         });
         ToggleEditModeCommand = new RelayCommand(() => IsEditMode = !IsEditMode);
         ToggleActiveDownloadsCommand = new RelayCommand(() => IsActiveDownloadsVisible = !IsActiveDownloadsVisible);
-        ToggleNavigationCommand = new RelayCommand(() => IsNavigationCollapsed = !IsNavigationCollapsed);
-        ExpandNavigationCommand = new RelayCommand(() => IsNavigationCollapsed = false);
-        CollapseNavigationCommand = new RelayCommand(() => IsNavigationCollapsed = true);
+        ToggleNavigationCommand = new RelayCommand(ExecuteToggleNavigation);
+        ExpandNavigationCommand = new RelayCommand(ExecuteHoverExpandNavigation);
+        CollapseNavigationCommand = new RelayCommand(ExecuteHoverCollapseNavigation);
         ToggleViewModeCommand = new RelayCommand(() => UseCardView = !UseCardView);
         
         PlayTrackCommand = new AsyncRelayCommand<object>(ExecutePlayTrackAsync);
@@ -91,6 +91,37 @@ public partial class LibraryViewModel
         ResetViewCommand = new RelayCommand(ExecuteResetView);
         SwitchWorkspaceCommand = new RelayCommand<ActiveWorkspace>(ExecuteSwitchWorkspace);
         SmartEscapeCommand = new RelayCommand(ExecuteSmartEscape);
+    }
+
+    private void ExecuteToggleNavigation()
+    {
+        var willCollapse = !IsNavigationCollapsed;
+        IsNavigationCollapsed = !IsNavigationCollapsed;
+
+        if (willCollapse)
+        {
+            RegisterManualNavigationCollapse();
+        }
+    }
+
+    private void ExecuteHoverExpandNavigation()
+    {
+        if (!IsNavigationHoverAutoHideArmed)
+        {
+            return;
+        }
+
+        IsNavigationCollapsed = false;
+    }
+
+    private void ExecuteHoverCollapseNavigation()
+    {
+        if (!IsNavigationHoverAutoHideArmed)
+        {
+            return;
+        }
+
+        IsNavigationCollapsed = true;
     }
 
     public ICommand SetViewModeCommand { get; set; } = null!;

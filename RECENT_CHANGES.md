@@ -1,5 +1,34 @@
 # Recent Changes
 
+## [0.1.0-alpha.40] - Library Nav Control + Download Center Live Transfer Telemetry (Mar 19, 2026)
+
+### Library Playlist Panel Behavior (No More Forced Hover Collapse)
+* `LibraryPage.axaml` hover expand/collapse commands are now gated by ViewModel logic instead of always forcing collapse on pointer-exit.
+* `LibraryViewModel.cs` + `LibraryViewModel.Commands.cs` now track manual collapse intent and only arm hover auto-hide after repeated explicit user collapses.
+* New persisted settings in `AppConfig`/`ConfigManager`:
+  * `LibraryNavigationAutoHideEnabled` (default: `false`)
+  * `LibraryNavigationAutoHideActivationToggleCount` (default: `3`, min: `2`)
+* `SettingsViewModel.cs` + `SettingsPage.axaml` add a dedicated **Library Navigation** block to control hover auto-hide and activation threshold.
+
+### Download Center: Active Transfer Visibility + Per-Track Live Diagnostics
+* `DownloadManager.cs` now emits structured `TrackDetailedStatusEvent` updates for transfer lifecycle events:
+  * transfer start,
+  * resume offset,
+  * periodic transfer progress nudges,
+  * finalize summary.
+* `UnifiedTrackViewModel.cs` now parses structured per-track message fields (`user`, `file`, `speed`, `bitrate`, `format`) and surfaces latest live nudge state (`LatestIncoming*` properties).
+* `StandardTrackRow.axaml` now shows a compact live nudge strip directly on active rows (timestamp + state badge + latest message), so downloads no longer feel static while collapsed.
+* Expanded row details DataGrid now includes richer columns (`Bitrate`, `Fmt`) and auto-opens on key high-signal events (matched/error).
+
+### Discovery/Retry Guardrail Alignment
+* `DownloadDiscoveryService.cs` and `DownloadManager.cs` now honor active profile format policy for MP3 fallback escalation.
+* Lossless-only profiles explicitly skip MP3 fallback and report this state via live status messages.
+
+### Validation
+* `dotnet build` ✅
+
+---
+
 ## [0.1.0-alpha.39] - Settings/Download Center Profile Unification (Mar 17, 2026)
 
 ### Unified Search Profile Model

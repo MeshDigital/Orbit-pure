@@ -96,6 +96,8 @@ public class AppConfig
     
     // Library UI - Column Order Persistence
     public string LibraryColumnOrder { get; set; } = ""; // Comma-separated column IDs (empty = use default)
+    public bool LibraryNavigationAutoHideEnabled { get; set; } = false; // Disabled by default: explicit user control only
+    public int LibraryNavigationAutoHideActivationToggleCount { get; set; } = 3; // Require repeated manual collapses before hover behavior arms
 
     // Phase 8: Upgrade Scout (Self-Healing Library)
     public bool UpgradeScoutEnabled { get; set; } = false; // Background upgrading

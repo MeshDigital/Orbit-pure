@@ -118,10 +118,25 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
 
     // 2026 workstation default: start in slim-rail mode (icons-first) to maximize grid space
     private bool _isNavigationCollapsed = true;
+    private int _manualNavigationCollapseCount;
+
+    public bool IsNavigationHoverAutoHideEnabled => _appConfig.LibraryNavigationAutoHideEnabled;
+
+    public int NavigationHoverAutoHideActivationCount => Math.Max(2, _appConfig.LibraryNavigationAutoHideActivationToggleCount);
+
+    public bool IsNavigationHoverAutoHideArmed =>
+        IsNavigationHoverAutoHideEnabled && _manualNavigationCollapseCount >= NavigationHoverAutoHideActivationCount;
+
     public bool IsNavigationCollapsed
     {
         get => _isNavigationCollapsed;
         set { SetProperty(ref _isNavigationCollapsed, value); }
+    }
+
+    private void RegisterManualNavigationCollapse()
+    {
+        _manualNavigationCollapseCount++;
+        OnPropertyChanged(nameof(IsNavigationHoverAutoHideArmed));
     }
 
     // 2026 workstation default: card hub as primary playlist surface

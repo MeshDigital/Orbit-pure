@@ -91,6 +91,7 @@ public class DownloadDiscoveryService
 
         var tiers = _autoCleaner.Clean($"{track.Artist} - {track.Title}");
         var log = new SearchAttemptLog();
+        var allowMp3Fallback = IsMp3FallbackAllowed(track);
         
         // Phase 3D: Integrated Fallback - try lossless tiers first, then a single MP3 fallback if needed
         var queryTiers = new[] { tiers.Dirty, tiers.Smart, tiers.Aggressive };
@@ -116,7 +117,7 @@ public class DownloadDiscoveryService
                 // Hyper-Drive: Hedged Search
                 // Run first FLAC lane and a delayed MP3 hedge in parallel.
                 // Winner is whichever produces an acceptable match first.
-                if (i == 0 && _config.EnableHedgedSearch && track.Status != TrackStatus.OnHold)
+                if (i == 0 && _config.EnableHedgedSearch && allowMp3Fallback && track.Status != TrackStatus.OnHold)
                 {
                     var flacLog = new SearchAttemptLog();
                     var hedgeLog = new SearchAttemptLog();
@@ -192,7 +193,7 @@ public class DownloadDiscoveryService
             // Phase 3D: High-Efficiency Fallback
             // If we found NOTHING in FLAC and we are not already strictly searching for MP3 (OnHold),
             // perform one last "Safety Tier" with MP3 within the same discovery session.
-            if (track.Status != TrackStatus.OnHold && !timedCt.IsCancellationRequested)
+            if (allowMp3Fallback && track.Status != TrackStatus.OnHold && !timedCt.IsCancellationRequested)
             {
                 _logger.LogInformation("🥈 Lossless discovery yielded no matches. Triggering integrated MP3 Fallback Pass for: {Title}", track.Title);
                 _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "🥈 Lossless tiers failed. Trying MP3 fallback..."));
@@ -214,6 +215,11 @@ public class DownloadDiscoveryService
                         return fallbackResult;
                     }
                 }
+            }
+            else if (!allowMp3Fallback && !timedCt.IsCancellationRequested)
+            {
+                _logger.LogInformation("🛡️ MP3 fallback disabled by active profile for {Title}; staying in lossless-only discovery.", track.Title);
+                _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "🛡️ MP3 fallback disabled by active profile. Staying lossless-only."));
             }
         }
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
@@ -244,10 +250,11 @@ public class DownloadDiscoveryService
                 // Connection check inside tier as well (redundant but safe)
                 if (!await WaitForConnectionAsync(ct)) return new DiscoveryResult(null, log);
             }
+            var allowMp3Fallback = IsMp3FallbackAllowed(track);
             // 1. Configure preferences (Respect per-track overrides)
             // Phase 21: FLAC-First Policy. If OnHold OR forceMp3, we ONLY want MP3.
             List<string> formatsList;
-            if (track.Status == TrackStatus.OnHold || forceMp3)
+            if ((track.Status == TrackStatus.OnHold || forceMp3) && allowMp3Fallback)
             {
                 formatsList = new List<string> { "mp3" };
                 _logger.LogInformation("🛠️ MP3 Mode: Searching strictly for MP3 fallback for {Title} (Reason: {Reason})", 
@@ -278,6 +285,11 @@ public class DownloadDiscoveryService
                 if (!formatsList.Any())
                 {
                     formatsList.Add("flac");
+                }
+
+                if ((track.Status == TrackStatus.OnHold || forceMp3) && !allowMp3Fallback)
+                {
+                    _logger.LogInformation("🛡️ Ignoring MP3 lane request for {Title} because active formats do not allow mp3.", track.Title);
                 }
             }
             
@@ -675,6 +687,15 @@ public class DownloadDiscoveryService
             _logger.LogError(ex, "Search tier failed for {Query}", query);
             return new DiscoveryResult(null, log);
         }
+    }
+
+    private bool IsMp3FallbackAllowed(PlaylistTrack track)
+    {
+        // Profile overwrite is authoritative: fallback behavior follows active app profile,
+        // not stale per-track historical overrides.
+        var formats = _config.PreferredFormats ?? new List<string>();
+
+        return formats.Any(f => string.Equals(f?.Trim(), "mp3", StringComparison.OrdinalIgnoreCase));
     }
 
     private static string? BuildDiscoveryReason(string? scoreBreakdown, bool useFastLane, int queueLength)

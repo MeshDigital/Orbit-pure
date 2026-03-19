@@ -700,14 +700,14 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         TrackStatus.Downloaded => PlaylistTrackState.Completed,
                         TrackStatus.Failed => PlaylistTrackState.Failed,
                         TrackStatus.Skipped => PlaylistTrackState.Cancelled,
-                        TrackStatus.OnHold => PlaylistTrackState.Paused, // OnHold tracks start paused
+                        TrackStatus.OnHold => IsMp3FallbackAllowed(model) ? PlaylistTrackState.Paused : PlaylistTrackState.Pending,
                         // If it was pending/downloading/searching, we make it Pending to restart
                         _ => PlaylistTrackState.Pending 
                     };
                 }
 
                 // Phase 21: Auto-escalate to OnHold if restart limit reached
-                if (model.NotFoundRestartCount >= 3 && model.Status != TrackStatus.Downloaded)
+                if (model.NotFoundRestartCount >= 3 && model.Status != TrackStatus.Downloaded && IsMp3FallbackAllowed(model))
                 {
                     model.Status = TrackStatus.OnHold;
                     ctx.State = PlaylistTrackState.Paused;
@@ -1431,6 +1431,15 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }
 
         return true;
+    }
+
+    private bool IsMp3FallbackAllowed(PlaylistTrack track)
+    {
+        // Profile overwrite is authoritative: fallback behavior follows active app profile,
+        // not stale per-track historical overrides.
+        var formats = _config.PreferredFormats ?? new List<string>();
+
+        return formats.Any(f => string.Equals(f?.Trim(), "mp3", StringComparison.OrdinalIgnoreCase));
     }
 
     public async Task StartAsync(CancellationToken ct = default)
@@ -2194,7 +2203,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         }
 
                         // 3 sessions x 3 retries = 9 total (FLAC lane)
-                        if (ctx.Model.NotFoundRestartCount >= 3)
+                        if (ctx.Model.NotFoundRestartCount >= 3 && IsMp3FallbackAllowed(ctx.Model))
                         {
                             _logger.LogWarning("🎵 MP3 FALLBACK: {Title} exhausted all FLAC attempts. Auto-escalating to MP3 search lane.", ctx.Model.Title);
                             ctx.Model.Status = TrackStatus.OnHold;
@@ -2204,6 +2213,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                             ctx.NextRetryTime = DateTime.UtcNow.AddMinutes(5); // Small delay before MP3 attempt
                             _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, "🎵 FLAC not found after 9 attempts — switching to MP3 fallback lane automatically."));
                             await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "FLAC failed (9x) → Auto MP3 Fallback queued");
+                        }
+                        else if (ctx.Model.NotFoundRestartCount >= 3)
+                        {
+                            _logger.LogWarning("🛡️ Lossless-only profile active for {Title}; skipping MP3 fallback escalation after FLAC exhaustion.", ctx.Model.Title);
+                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, "🛡️ Lossless-only profile active. MP3 fallback skipped."));
+                            await UpdateStateAsync(ctx, PlaylistTrackState.Failed, $"Lossless-only search exhausted ({failureReason}). MP3 fallback disabled by profile.");
                         }
                         else
                         {
@@ -2375,6 +2390,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         await UpdateStateAsync(ctx, PlaylistTrackState.Downloading);
         _peerReliability.RecordDownloadStarted(bestMatch.Username);
 
+        static string FormatBytes(long value)
+        {
+            if (value >= 1024L * 1024L * 1024L) return $"{value / 1024d / 1024d / 1024d:F2} GB";
+            if (value >= 1024L * 1024L) return $"{value / 1024d / 1024d:F2} MB";
+            if (value >= 1024L) return $"{value / 1024d:F1} KB";
+            return $"{value} B";
+        }
+
+        _eventBus.Publish(new Events.TrackDetailedStatusEvent(
+            ctx.GlobalId,
+            $"📥 Transfer started | user:{bestMatch.Username} | file:{bestMatch.Filename} | bitrate:{bestMatch.Bitrate}kbps | format:{bestMatch.Format ?? "unknown"}"));
+
         ctx.Model.Bitrate = bestMatch.Bitrate;
         if (!string.IsNullOrWhiteSpace(bestMatch.Filename))
         {
@@ -2495,6 +2522,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             
             _logger.LogInformation("Resuming download from byte {Position} for {Track} (Journal Confirmed: {Confirmed})", 
                 startPosition, ctx.Model.Title, confirmedBytes);
+
+            _eventBus.Publish(new Events.TrackDetailedStatusEvent(
+                ctx.GlobalId,
+                $"♻️ Resuming transfer | user:{bestMatch.Username} | file:{bestMatch.Filename} | offset:{FormatBytes(startPosition)}"));
         }
         else
         {
@@ -2623,6 +2654,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         {
             // STEP 4: Progress tracking with 100ms throttling
         var lastNotificationTime = DateTime.MinValue;
+        var lastDetailedProgressTime = DateTime.MinValue;
         var totalFileSize = bestMatch.Size ?? 1;  // Avoid division by zero
         var progress = new Progress<double>(p =>
         {
@@ -2640,6 +2672,15 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 ));
                 
                 lastNotificationTime = DateTime.Now;
+            }
+
+            if ((DateTime.Now - lastDetailedProgressTime).TotalSeconds >= 3)
+            {
+                var speedBytesPerSecond = Math.Max(0, (long)ctx.CurrentSpeed);
+                _eventBus.Publish(new Events.TrackDetailedStatusEvent(
+                    ctx.GlobalId,
+                    $"↔ Transfer progress | user:{bestMatch.Username} | file:{bestMatch.Filename} | speed:{FormatBytes(speedBytesPerSecond)}/s | received:{FormatBytes(ctx.BytesReceived)} | total:{FormatBytes(ctx.TotalBytes)}"));
+                lastDetailedProgressTime = DateTime.Now;
             }
         });
 
@@ -2703,6 +2744,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 
                 _logger.LogInformation("Atomic move complete: {Part} â†’ {Final}", 
                     Path.GetFileName(partPath), Path.GetFileName(finalPath));
+
+                _eventBus.Publish(new Events.TrackDetailedStatusEvent(
+                    ctx.GlobalId,
+                    $"✅ Transfer finalized | user:{bestMatch.Username} | file:{Path.GetFileName(finalPath)} | total:{FormatBytes(finalPartSize)}"));
 
                 // Phase 1A: POST-DOWNLOAD VERIFICATION
                 // Verify the downloaded file is valid before adding to library

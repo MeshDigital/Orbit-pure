@@ -178,6 +178,43 @@
                 </StackPanel>
             </Border>
 
+            <!-- Library Navigation Behavior -->
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+                <StackPanel Spacing="16">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Library Navigation" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
+                        <TextBlock Text="Control whether the library playlist panel reacts to mouse hover." Foreground="#AAA" FontSize="12"/>
+                    </StackPanel>
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Enable Hover Auto-Hide" FontWeight="SemiBold" Foreground="#DDD"/>
+                            <TextBlock Text="When off, the playlist panel only opens/closes when you click the arrow." Foreground="#666" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1"
+                                      IsChecked="{Binding LibraryNavigationAutoHideEnabled, Mode=TwoWay}"
+                                      VerticalAlignment="Center"
+                                      OffContent="Off"
+                                      OnContent="On"/>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,120"
+                          IsEnabled="{Binding LibraryNavigationAutoHideEnabled}">
+                        <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,12,0">
+                            <TextBlock Text="Activation Clicks" FontWeight="SemiBold" Foreground="#DDD"/>
+                            <TextBlock Text="Hover behavior activates only after you manually collapse the panel this many times." Foreground="#666" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <NumericUpDown Grid.Column="1"
+                                       Value="{Binding LibraryNavigationAutoHideActivationToggleCount, Mode=TwoWay}"
+                                       Minimum="2"
+                                       Maximum="10"
+                                       Increment="1"
+                                       Background="#1E1E1E"
+                                       Foreground="White"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!-- Search Filter Defaults -->
             <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
                 <StackPanel Spacing="16">

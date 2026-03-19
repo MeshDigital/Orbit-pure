@@ -23,6 +23,8 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     private static readonly Regex RejectedUserRegex = new(@"^(?:Rejected|Skipped)\s+(?<user>[^:]+):\s*(?<detail>.+)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex BlacklistedUserRegex = new(@"^Skipping\s+peer\s+(?<user>[^\s]+)\s+\((?<detail>[^\)]+)\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex WinnerUserRegex = new(@"(?:winner:|match from|Selected\s+)(?<user>[A-Za-z0-9_\-\.]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex StructuredFieldRegex = new(@"(?<key>[a-zA-Z]+):\s*(?<value>[^|]+)", RegexOptions.Compiled);
+    private static readonly Regex FromUserRegex = new(@"from\s+(?<user>[A-Za-z0-9_\-\.]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private readonly DownloadManager _downloadManager;
     private readonly IEventBus _eventBus;
@@ -67,6 +69,34 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     {
         get => _isConsoleOpen;
         set => this.RaiseAndSetIfChanged(ref _isConsoleOpen, value);
+    }
+
+    private string _latestIncomingMessage = "No peer messages yet";
+    public string LatestIncomingMessage
+    {
+        get => _latestIncomingMessage;
+        private set => this.RaiseAndSetIfChanged(ref _latestIncomingMessage, value);
+    }
+
+    private string _latestIncomingStateLabel = "Idle";
+    public string LatestIncomingStateLabel
+    {
+        get => _latestIncomingStateLabel;
+        private set => this.RaiseAndSetIfChanged(ref _latestIncomingStateLabel, value);
+    }
+
+    private string _latestIncomingStateColor = "#666666";
+    public string LatestIncomingStateColor
+    {
+        get => _latestIncomingStateColor;
+        private set => this.RaiseAndSetIfChanged(ref _latestIncomingStateColor, value);
+    }
+
+    private string _latestIncomingTimeDisplay = "--:--:--";
+    public string LatestIncomingTimeDisplay
+    {
+        get => _latestIncomingTimeDisplay;
+        private set => this.RaiseAndSetIfChanged(ref _latestIncomingTimeDisplay, value);
     }
 
     public int IncomingResultCount => IncomingResults.Count;
@@ -123,6 +153,11 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         _eventBus = eventBus ?? throw new ArgumentNullException(nameof(eventBus));
         _artworkCache = artworkCache ?? throw new ArgumentNullException(nameof(artworkCache));
         _libraryService = libraryService ?? throw new ArgumentNullException(nameof(libraryService));
+
+        if (string.IsNullOrWhiteSpace(Model.TrackUniqueHash))
+        {
+            Model.TrackUniqueHash = Model.Id.ToString("N");
+        }
 
         // Initialize State from Model
         _state = (PlaylistTrackState)model.Status; // Best effort mapping if simple cast works, otherwise logic needed
@@ -206,7 +241,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             .DisposeWith(_disposables);
 
         _eventBus.GetEvent<TrackProgressChangedEvent>()
-            .Where(e => e.TrackGlobalId == GlobalId)
+            .Where(e => IsSameTrackId(e.TrackGlobalId))
             .Sample(TimeSpan.FromMilliseconds(250)) // Throttle: ~4 events/sec to prevent UI thread starvation
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(OnProgressChanged)
@@ -347,7 +382,9 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
 
     // IDisplayableTrack Implementation
-    public string GlobalId => Model.TrackUniqueHash;
+    public string GlobalId => !string.IsNullOrWhiteSpace(Model.TrackUniqueHash)
+        ? Model.TrackUniqueHash
+        : Model.Id.ToString("N");
     public string ArtistName => !string.IsNullOrWhiteSpace(Model.Artist) ? Model.Artist : "Unknown Artist";
     public string TrackTitle => !string.IsNullOrWhiteSpace(Model.Title) ? Model.Title : "Unknown Title";
     public string AlbumName => !string.IsNullOrWhiteSpace(Model.Album) ? Model.Album : "Unknown Album";
@@ -1096,7 +1133,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     // Event Handlers
     private void OnStateChanged(TrackStateChangedEvent e)
     {
-        if (e.TrackGlobalId != GlobalId) return;
+        if (!IsSameTrackId(e.TrackGlobalId)) return;
         
         System.Diagnostics.Debug.WriteLine($"[UnifiedTrackVM] {GlobalId} State Changed: {e.State} (Error: {e.Error})");
         State = e.State;
@@ -1168,7 +1205,13 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     private void OnDetailedStatus(TrackDetailedStatusEvent e)
     {
         // Already filtered by TrackHash in the Rx subscription (Where clause)
-        AppendIncomingResult(ParseIncomingResult(e));
+        var parsed = ParseIncomingResult(e);
+        AppendIncomingResult(parsed);
+
+        if (!IsConsoleOpen && (parsed.State == TrackPeerResultState.Error || parsed.State == TrackPeerResultState.Matched))
+        {
+            IsConsoleOpen = true;
+        }
 
         if (e.Message.Contains("Fast lane", StringComparison.OrdinalIgnoreCase))
         {
@@ -1194,6 +1237,10 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         }
 
         IncomingResults.Add(entry);
+        LatestIncomingMessage = entry.Detail;
+        LatestIncomingStateLabel = entry.StateLabel;
+        LatestIncomingStateColor = entry.StateColor;
+        LatestIncomingTimeDisplay = entry.TimeDisplay;
         this.RaisePropertyChanged(nameof(IncomingResultCount));
         this.RaisePropertyChanged(nameof(HasIncomingResults));
         this.RaisePropertyChanged(nameof(IncomingResultsSummary));
@@ -1205,6 +1252,44 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         var user = string.Empty;
         var detail = message;
         var state = e.IsError ? TrackPeerResultState.Error : TrackPeerResultState.Update;
+        string? filename = null;
+        string? speed = null;
+        int? bitrateKbps = null;
+        string? format = null;
+
+        var structured = StructuredFieldRegex.Matches(message);
+        if (structured.Count > 0)
+        {
+            foreach (Match match in structured)
+            {
+                var key = match.Groups["key"].Value.Trim().ToLowerInvariant();
+                var value = match.Groups["value"].Value.Trim();
+                if (string.IsNullOrWhiteSpace(value))
+                    continue;
+
+                switch (key)
+                {
+                    case "user":
+                        user = value;
+                        break;
+                    case "file":
+                        filename = value;
+                        break;
+                    case "speed":
+                        speed = value;
+                        break;
+                    case "bitrate":
+                        if (int.TryParse(value.Replace("kbps", "", StringComparison.OrdinalIgnoreCase).Trim(), out var parsedBitrate))
+                        {
+                            bitrateKbps = parsedBitrate;
+                        }
+                        break;
+                    case "format":
+                        format = value;
+                        break;
+                }
+            }
+        }
 
         var rejectedMatch = RejectedUserRegex.Match(message);
         if (rejectedMatch.Success)
@@ -1235,15 +1320,29 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
                 state = TrackPeerResultState.Matched;
             }
+            else if (message.Contains("Transfer started", StringComparison.OrdinalIgnoreCase))
+            {
+                state = TrackPeerResultState.Matched;
+            }
             else if (message.Contains("queue", StringComparison.OrdinalIgnoreCase) ||
                      message.Contains("timeout", StringComparison.OrdinalIgnoreCase) ||
-                     message.Contains("fallback", StringComparison.OrdinalIgnoreCase))
+                     message.Contains("fallback", StringComparison.OrdinalIgnoreCase) ||
+                     message.Contains("resuming", StringComparison.OrdinalIgnoreCase))
             {
                 state = TrackPeerResultState.Queued;
             }
         }
 
-        return new TrackPeerResultViewModel(DateTime.Now, user, state, detail, e.IsError);
+        if (string.IsNullOrWhiteSpace(user))
+        {
+            var fromUserMatch = FromUserRegex.Match(message);
+            if (fromUserMatch.Success)
+            {
+                user = fromUserMatch.Groups["user"].Value.Trim();
+            }
+        }
+
+        return new TrackPeerResultViewModel(DateTime.Now, user, state, detail, e.IsError, filename, speed, bitrateKbps, format);
     }
 
     private bool IsSameTrackId(string? candidateTrackId)
@@ -1287,7 +1386,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
     private void OnProgressChanged(TrackProgressChangedEvent e)
     {
-        if (e.TrackGlobalId != GlobalId) return;
+        if (!IsSameTrackId(e.TrackGlobalId)) return;
         
         // Auto-heal ghost stall if improved
         if (State == PlaylistTrackState.Stalled)
@@ -1329,7 +1428,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
     private void OnMetadataUpdated(TrackMetadataUpdatedEvent e)
     {
-        if (e.TrackGlobalId != GlobalId) return;
+        if (!IsSameTrackId(e.TrackGlobalId)) return;
         
         // Reload from DB to ensure Model has new IDs (SpotifyAlbumId etc.)
         Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
