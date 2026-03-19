@@ -230,4 +230,59 @@ public class NetworkHealthServiceTests
         // Assert
         Assert.True(signal.IsDegraded);
     }
+
+    [Fact]
+    public void RecordConnectionKick_IncrementsCounterAndSetsFailureState()
+    {
+        // Act
+        _healthService.RecordConnectionKick("Kicked from server by admin policy");
+
+        // Assert
+        var counters = _healthService.GetReliabilityCounters();
+        var signal = _healthService.GetCurrentHealth();
+        Assert.Equal(1, counters.KickedEventCount);
+        Assert.Equal(ConnectionFailureStatus.ConnectionRefused, signal.LastFailureStatus);
+        Assert.Contains("Kicked", signal.LastFailureMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void RecordSearchFiltering_AccumulatesAllFilterCounters()
+    {
+        // Act
+        _healthService.RecordSearchFiltering(3, 4, 5, 6, 7, 8);
+        _healthService.RecordExcludedPhraseQueryBlock();
+
+        // Assert
+        var counters = _healthService.GetReliabilityCounters();
+        Assert.Equal(3, counters.FilteredByFormatCount);
+        Assert.Equal(4, counters.FilteredByBitrateCount);
+        Assert.Equal(5, counters.FilteredBySampleRateCount);
+        Assert.Equal(6, counters.FilteredByQueueCount);
+        Assert.Equal(7, counters.FilteredByDedupCount);
+        Assert.Equal(8, counters.FilteredByExcludedPhraseCount);
+        Assert.Equal(1, counters.ExcludedPhraseQueryBlocks);
+    }
+
+    [Fact]
+    public void ResetDiagnostics_AlsoClearsReliabilityCounters()
+    {
+        // Arrange
+        _healthService.RecordConnectionKick();
+        _healthService.RecordExcludedPhraseQueryBlock();
+        _healthService.RecordSearchFiltering(1, 1, 1, 1, 1, 1);
+
+        // Act
+        _healthService.ResetDiagnostics();
+
+        // Assert
+        var counters = _healthService.GetReliabilityCounters();
+        Assert.Equal(0, counters.KickedEventCount);
+        Assert.Equal(0, counters.ExcludedPhraseQueryBlocks);
+        Assert.Equal(0, counters.FilteredByFormatCount);
+        Assert.Equal(0, counters.FilteredByBitrateCount);
+        Assert.Equal(0, counters.FilteredBySampleRateCount);
+        Assert.Equal(0, counters.FilteredByQueueCount);
+        Assert.Equal(0, counters.FilteredByDedupCount);
+        Assert.Equal(0, counters.FilteredByExcludedPhraseCount);
+    }
 }

@@ -186,6 +186,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             client.KickedFromServer += (sender, args) =>
             {
                 _logger.LogWarning("Soulseek server kicked this session. Enforcing reconnect cooldown.");
+                _healthService.RecordConnectionKick("KickedFromServer event");
                 _eventBus.Publish(new SoulseekConnectionStatusEvent("kicked", _config.Username ?? "Unknown"));
             };
 
@@ -435,6 +436,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                      if (lowerQuery.Contains(phrase))
                      {
                          _logger.LogWarning("🚨 [NETWORK SAFETY] Aborting search to prevent soft-ban: Query '{Query}' contains banned phrase '{Phrase}'", query, phrase);
+                         _healthService.RecordExcludedPhraseQueryBlock();
                          return 0;
                      }
                  }
@@ -641,6 +643,14 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 resultCount, totalFilesReceived, filteredByFormat, filteredByBitrate,
                 filteredBySampleRate, filteredByQueue, filteredByDedup);
 
+            _healthService.RecordSearchFiltering(
+                filteredByFormat,
+                filteredByBitrate,
+                filteredBySampleRate,
+                filteredByQueue,
+                filteredByDedup,
+                0);
+
             // Record search results for health diagnostics
             _healthService.RecordSearch(query, totalFilesReceived, resultCount, true);
             
@@ -660,11 +670,25 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                  (state.Value.HasFlag(SoulseekClientStates.Disconnected) || state.Value.HasFlag(SoulseekClientStates.Disconnecting)))
              {
                  _logger.LogWarning("Search aborted for query {SearchQuery} due to connection shutdown: {Message}", query, ex.Message);
+                 _healthService.RecordSearchFiltering(
+                     filteredByFormat,
+                     filteredByBitrate,
+                     filteredBySampleRate,
+                     filteredByQueue,
+                     filteredByDedup,
+                     0);
                  _healthService.RecordSearch(query, totalFilesReceived, resultCount, false, "Connection shutdown");
                  return resultCount; 
              }
              
              _logger.LogError(ex, "Search failed for query {SearchQuery} with mode {SearchMode}", query, mode);
+             _healthService.RecordSearchFiltering(
+                 filteredByFormat,
+                 filteredByBitrate,
+                 filteredBySampleRate,
+                 filteredByQueue,
+                 filteredByDedup,
+                 0);
              _healthService.RecordSearch(query, totalFilesReceived, resultCount, false, ex.Message);
              // Re-throw if it's not a shutdown scenario? 
              // Actually, returning 0 or partial results is safer than crashing the flow if the search fails.

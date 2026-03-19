@@ -31,6 +31,16 @@ public class NetworkHealthService : INetworkHealthService
     private DateTime? _throttleSuspectedSince;
     private DateTime? _banSuspectedSince;
 
+    // Reliability counters
+    private int _kickedEventCount;
+    private int _excludedPhraseQueryBlocks;
+    private int _filteredByFormatCount;
+    private int _filteredByBitrateCount;
+    private int _filteredBySampleRateCount;
+    private int _filteredByQueueCount;
+    private int _filteredByDedupCount;
+    private int _filteredByExcludedPhraseCount;
+
     public NetworkHealthService(ILogger<NetworkHealthService> logger)
     {
         _logger = logger;
@@ -103,6 +113,55 @@ public class NetworkHealthService : INetworkHealthService
         _lastFailureMessage = null;
         _throttleSuspectedSince = null;
         _banSuspectedSince = null;
+        _kickedEventCount = 0;
+        _excludedPhraseQueryBlocks = 0;
+        _filteredByFormatCount = 0;
+        _filteredByBitrateCount = 0;
+        _filteredBySampleRateCount = 0;
+        _filteredByQueueCount = 0;
+        _filteredByDedupCount = 0;
+        _filteredByExcludedPhraseCount = 0;
+    }
+
+    public void RecordSearchFiltering(
+        int filteredByFormat,
+        int filteredByBitrate,
+        int filteredBySampleRate,
+        int filteredByQueue,
+        int filteredByDedup,
+        int filteredByExcludedPhrase)
+    {
+        _filteredByFormatCount += Math.Max(0, filteredByFormat);
+        _filteredByBitrateCount += Math.Max(0, filteredByBitrate);
+        _filteredBySampleRateCount += Math.Max(0, filteredBySampleRate);
+        _filteredByQueueCount += Math.Max(0, filteredByQueue);
+        _filteredByDedupCount += Math.Max(0, filteredByDedup);
+        _filteredByExcludedPhraseCount += Math.Max(0, filteredByExcludedPhrase);
+    }
+
+    public void RecordConnectionKick(string? message = null)
+    {
+        _kickedEventCount++;
+        _lastFailureStatus = ConnectionFailureStatus.ConnectionRefused;
+        _lastFailureMessage = message ?? "Kicked from server";
+    }
+
+    public void RecordExcludedPhraseQueryBlock()
+    {
+        _excludedPhraseQueryBlocks++;
+    }
+
+    public NetworkReliabilityCounters GetReliabilityCounters()
+    {
+        return new NetworkReliabilityCounters(
+            KickedEventCount: _kickedEventCount,
+            ExcludedPhraseQueryBlocks: _excludedPhraseQueryBlocks,
+            FilteredByFormatCount: _filteredByFormatCount,
+            FilteredByBitrateCount: _filteredByBitrateCount,
+            FilteredBySampleRateCount: _filteredBySampleRateCount,
+            FilteredByQueueCount: _filteredByQueueCount,
+            FilteredByDedupCount: _filteredByDedupCount,
+            FilteredByExcludedPhraseCount: _filteredByExcludedPhraseCount);
     }
 
     public NetworkHealthSignal GetCurrentHealth()

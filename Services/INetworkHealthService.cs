@@ -36,4 +36,30 @@ public interface INetworkHealthService
     /// Get detailed history for debugging
     /// </summary>
     IReadOnlyList<NetworkHealthDataPoint> GetRecentHistory(int maxEntries = 100);
+
+    /// <summary>
+    /// Record aggregate search filtering statistics.
+    /// </summary>
+    void RecordSearchFiltering(
+        int filteredByFormat,
+        int filteredByBitrate,
+        int filteredBySampleRate,
+        int filteredByQueue,
+        int filteredByDedup,
+        int filteredByExcludedPhrase);
+
+    /// <summary>
+    /// Record a server kick event.
+    /// </summary>
+    void RecordConnectionKick(string? message = null);
+
+    /// <summary>
+    /// Record a search query blocked by excluded phrase policy before dispatch.
+    /// </summary>
+    void RecordExcludedPhraseQueryBlock();
+
+    /// <summary>
+    /// Get aggregate reliability counters.
+    /// </summary>
+    NetworkReliabilityCounters GetReliabilityCounters();
 }
