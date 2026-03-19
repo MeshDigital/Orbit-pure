@@ -49,7 +49,7 @@ Primary outcomes:
 - ✅ **Phase B — Connection manager refactor:** Complete (`B1` explicit lifecycle state machine via `ConnectionLifecycleService`; `B2` quick-retry cap + kick cooldown + jittered reconnect backoff; `B3` runtime reconfiguration via `ReconfigureOptionsAsync` for connect-timeout + listen-port without reconnect — scoped to what Soulseek.NET 9.1.0 exposes in `SoulseekClientOptionsPatch`)
 - ✅ **Phase C — Search pipeline hardening:** Complete (`C1` strict-first cascade with short-circuit on high-confidence match; `C2` unified `SearchFilterPolicy` — single source of truth for bitrate/format/queue/excluded-phrase filtering; `C3` pressure-aware load shedding across Normal/Elevated/Critical levels)
 - ✅ **Phase D — Transfer and queue reliability:** Complete (`D1` enqueue-first semantics via `TransferLifecyclePhase` callback — `RemoteQueued` vs `Transferring` states surfaced to UI; `D2` already satisfied by existing `.part` file streaming + atomic rename path; `D3` five-class retry taxonomy via `ClassifyTransferFailure` — `RemoteAccessDenied`, `RemoteQueueDenied`, `NetworkError`, `Timeout`, `PeerRejected` with per-class retry/hedge/delay policy)
-- 🟨 **Phase E — Observability + diagnostics:** Mostly complete (reliability counters + adaptive lane live UI + rolling decision history; pressure-level logging active; correlation ID flow wired across discovery/status/progress and surfaced in live console; E3 diagnostics snapshot copy delivered; E1 transfer-outcome counters delivered in `NetworkHealthService` via `RecordTransferOutcome`/`GetTransferCounters`; targeted tests added for transfer classification and transfer metrics; remaining work is E5 telemetry stress validation + final log field normalization)
+- 🟨 **Phase E — Observability + diagnostics:** Mostly complete (reliability counters + adaptive lane live UI + rolling decision history; pressure-level logging active; correlation ID flow wired across discovery/status/progress and surfaced in live console; E3 diagnostics snapshot copy delivered; E1 transfer-outcome counters delivered in `NetworkHealthService` via `RecordTransferOutcome`/`GetTransferCounters`; targeted tests added for transfer classification and transfer metrics; structured warn/error field normalization now applied in `ConnectionLifecycleService` + transfer-critical `DownloadManager` paths; remaining work is E5 telemetry stress validation and completing log-field normalization sweep across lower-priority call sites)
 
 ## Phase A — Stabilization baseline (Complete / in progress)
 ### Delivered
@@ -371,7 +371,7 @@ All planned work through Phase D has been delivered and merged to `master`.
 
 ## P1 — Phase E stretch goals
 1. E5 telemetry stress validation — 30-minute run confirming no missing metrics, stable diagnostics UI, bounded history.
-2. Structured log field normalization across all warn/error sites (`reason` + `correlationId` at minimum).
+2. 🟨 Structured log field normalization across all warn/error sites (`reason` + `correlationId` at minimum). Status: transfer-critical `DownloadManager` + `ConnectionLifecycleService` covered; broad sweep for remaining low-priority sites pending.
 3. DownloadManager DI cleanup — inject `ISoulseekAdapter` interface instead of concrete `SoulseekAdapter` for full DI compliance.
 
 ---

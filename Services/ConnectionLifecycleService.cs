@@ -145,7 +145,11 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lifecycle: ConnectAsync failed. corr={Corr}", correlationId ?? "-");
+                _logger.LogError(
+                    ex,
+                    "Lifecycle: ConnectAsync failed. reason={Reason} correlationId={CorrelationId}",
+                    ex.Message,
+                    correlationId ?? "-");
                 // Guard: only transition if we haven't already moved to LoggedIn/CoolingDown
                 if (_state is ConnectionLifecycleState.Connecting or ConnectionLifecycleState.LoggingIn)
                     TryTransition(ConnectionLifecycleState.Disconnected, $"connect failed: {ex.Message}", correlationId);
@@ -297,7 +301,11 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Lifecycle: auto-reconnect loop encountered an error.");
+                _logger.LogWarning(
+                    ex,
+                    "Lifecycle: auto-reconnect loop encountered an error. reason={Reason} correlationId={CorrelationId}",
+                    ex.Message,
+                    correlationId ?? "-");
             }
             finally
             {

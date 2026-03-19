@@ -2220,14 +2220,22 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                 // Otherwise it's an unexpected cancellation (health monitor, timeout, etc.)
                 cancellationReason = "System/timeout cancellation";
-                _logger.LogWarning("⚠️ Unexpected cancellation for {Title} in state {State}. Marking as cancelled. Reason: {Reason}", 
-                    ctx.Model.Title, ctx.State, cancellationReason);
+                _logger.LogWarning(
+                    "Unexpected cancellation for {Title} in state {State}. reason={Reason} correlationId={CorrelationId}",
+                    ctx.Model.Title,
+                    ctx.State,
+                    cancellationReason,
+                    ctx.CorrelationId ?? "-");
                 await UpdateStateAsync(ctx, PlaylistTrackState.Cancelled);
             }
             catch (TimeoutException tex)
             {
                 // Phase 3: Stalled Detection
-                _logger.LogWarning("🐢 Download stall detected for {Title}: {Message}. Dropping peer and re-searching.", ctx.Model.Title, tex.Message);
+                _logger.LogWarning(
+                    "Download stall detected for {Title}. reason={Reason} correlationId={CorrelationId}",
+                    ctx.Model.Title,
+                    tex.Message,
+                    ctx.CorrelationId ?? "-");
 
                 if (await TryRunHedgeFailoverAsync(ctx, trackCt, "primary transfer stalled"))
                 {
@@ -2256,7 +2264,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             }
             catch (SearchRejectedException srex)
             {
-                _logger.LogWarning("Search Rejected for {Title}: {Message}", ctx.Model.Title, srex.Message);
+                _logger.LogWarning(
+                    "Search rejected for {Title}. reason={Reason} correlationId={CorrelationId}",
+                    ctx.Model.Title,
+                    srex.Message,
+                    ctx.CorrelationId ?? "-");
                 
                 // 1. Capture Diagnostics
                 if (srex.SearchLog != null)
@@ -2288,7 +2300,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                 if (transferDisposition.AllowHedgeFailover)
                 {
-                    _logger.LogWarning("Peer transfer failure for {Title}: {Message}. Triggering hedge/retry logic.", ctx.Model.Title, ex.Message);
+                    _logger.LogWarning(
+                        "Peer transfer failure for {Title}. reason={Reason} correlationId={CorrelationId}",
+                        ctx.Model.Title,
+                        ex.Message,
+                        ctx.CorrelationId ?? "-");
 
                     if (await TryRunHedgeFailoverAsync(ctx, trackCt, "primary transfer was rejected"))
                     {
@@ -2297,7 +2313,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 }
                 else
                 {
-                    _logger.LogError(ex, "ProcessTrackAsync error for {GlobalId}", ctx.GlobalId);
+                    _logger.LogError(
+                        ex,
+                        "ProcessTrackAsync error for {GlobalId}. reason={Reason} correlationId={CorrelationId}",
+                        ctx.GlobalId,
+                        ex.Message,
+                        ctx.CorrelationId ?? "-");
                 }
 
                 // FIX: Blacklist the failing peer so we don't pick them again instantly
@@ -2307,7 +2328,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     {
                         if (ctx.BlacklistedUsers.Add(ctx.CurrentUsername))
                         {
-                            _logger.LogWarning("ðŸš« Blacklisted peer {User} for {Track} due to error", ctx.CurrentUsername, ctx.Model.Title);
+                            _logger.LogWarning(
+                                "Blacklisted peer {User} for {Track}. reason={Reason} correlationId={CorrelationId}",
+                                ctx.CurrentUsername,
+                                ctx.Model.Title,
+                                transferDisposition.OperatorMessage,
+                                ctx.CorrelationId ?? "-");
                         }
                     }
                 }
@@ -2661,7 +2687,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Heartbeat error for {GlobalId}", ctx.GlobalId);
+                _logger.LogError(
+                    ex,
+                    "Heartbeat error for {GlobalId}. reason={Reason} correlationId={CorrelationId}",
+                    ctx.GlobalId,
+                    ex.Message,
+                    ctx.CorrelationId ?? "-");
             }
         }, heartbeatCts.Token);
 
@@ -2930,10 +2961,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             }
         }
 
-        _logger.LogWarning("⚡ Hedge failover for {Title}: switching to runner-up peer {User} after {Reason}.",
+        _logger.LogWarning("Hedge failover for {Title}: switching to runner-up peer {User}. reason={Reason} correlationId={CorrelationId}",
             ctx.Model.Title,
             hedgeMatch.Username,
-            reason);
+            reason,
+            ctx.CorrelationId ?? "-");
 
         _eventBus.Publish(new Events.TrackDetailedStatusEvent(
             ctx.GlobalId,
@@ -2948,7 +2980,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Hedge failover attempt failed for {Title}", ctx.Model.Title);
+            _logger.LogWarning(
+                ex,
+                "Hedge failover attempt failed for {Title}. reason={Reason} correlationId={CorrelationId}",
+                ctx.Model.Title,
+                ex.Message,
+                ctx.CorrelationId ?? "-");
             return false;
         }
     }
@@ -3264,7 +3301,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to clean up files during hard retry for {Title}", ctx.Model.Title);
+            _logger.LogWarning(
+                ex,
+                "Failed to clean up files during hard retry for {Title}. reason={Reason} correlationId={CorrelationId}",
+                ctx.Model.Title,
+                ex.Message,
+                ctx.CorrelationId ?? "-");
         }
 
         // 3. Reset to Pending to trigger immediate pickup
