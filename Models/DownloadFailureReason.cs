@@ -21,6 +21,9 @@ public enum DownloadFailureReason
     Timeout,
     DiskFull,
     PermissionDenied,
+    RemoteQueueDenied,
+    RemoteAccessDenied,
+    PeerRejected,
     UserCancelled,
     Interrupted,        // App closed mid-download
     DiscoveryTimeout    // 90s search timeout
@@ -49,6 +52,9 @@ public static class DownloadFailureReasonExtensions
             DownloadFailureReason.Timeout => "Operation timed out (stalled)",
             DownloadFailureReason.DiskFull => "System error: No space left on device",
             DownloadFailureReason.PermissionDenied => "System error: Permission denied",
+            DownloadFailureReason.RemoteQueueDenied => "Peer queue rejected transfer",
+            DownloadFailureReason.RemoteAccessDenied => "Peer denied transfer access",
+            DownloadFailureReason.PeerRejected => "Peer rejected transfer",
             DownloadFailureReason.UserCancelled => "Cancelled by user",
             DownloadFailureReason.Interrupted => "App closed during download (Incomplete)",
             DownloadFailureReason.DiscoveryTimeout => "Search timed out after 90s",
@@ -70,6 +76,10 @@ public static class DownloadFailureReasonExtensions
                 "Review your user blacklist in Settings",
             DownloadFailureReason.NetworkError => 
                 "Ensure your firewall allows Soulseek connections",
+            DownloadFailureReason.RemoteQueueDenied =>
+                "Peer is overloaded. ORBIT will retry another lane later",
+            DownloadFailureReason.RemoteAccessDenied =>
+                "Peer denied access. Try another uploader",
             DownloadFailureReason.DiskFull => 
                 "Free up disk space in your download directory",
             DownloadFailureReason.AtomicRenameFailed => 
@@ -94,6 +104,7 @@ public static class DownloadFailureReasonExtensions
             DownloadFailureReason.UserCancelled => false,
             DownloadFailureReason.DiskFull => false,
             DownloadFailureReason.PermissionDenied => false,
+            DownloadFailureReason.RemoteAccessDenied => false,
             DownloadFailureReason.Interrupted => true,       // Should retry on next boot
             DownloadFailureReason.DiscoveryTimeout => true,  // Should retry with different timing
             _ => true

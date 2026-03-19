@@ -48,7 +48,7 @@ Primary outcomes:
 - ✅ **Phase A — Stabilization baseline:** Complete
 - 🟨 **Phase B — Connection manager refactor:** Mostly complete (`B1` state-machine service delivered; `B2` quick-retry cap + kick cooldown + jitter wired; `B3` runtime reconfiguration path delivered where Soulseek.NET supports live patching — connect timeout + listen port; remaining work is broader call-site migration)
 - 🟨 **Phase C — Search pipeline hardening:** Mostly complete (`C1` strict-first + `C2` unified filter policy + `C3` load shedding delivered)
-- ⏳ **Phase D — Transfer and queue reliability:** Not started
+- 🟨 **Phase D — Transfer and queue reliability:** Partially complete (`D1` enqueue-first remote queue vs transferring semantics delivered; `D3` basic transfer retry taxonomy wired for queue denial vs access denial vs transient network errors; `D2` stream standardization already in place via `.part` file streaming path)
 - 🟨 **Phase E — Observability + diagnostics:** Partially complete (reliability counters + adaptive lane live UI + rolling decision history; pressure-level logging active; correlation ID flow wired across discovery/status/progress and surfaced in live console; E3 diagnostics snapshot copy delivered)
 
 ## Phase A — Stabilization baseline (Complete / in progress)

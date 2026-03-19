@@ -37,6 +37,7 @@ public interface ISoulseekAdapter
         string outputPath,
         long? size = null,
         IProgress<double>? progress = null,
+        Action<TransferLifecycleUpdate>? lifecycleUpdate = null,
         CancellationToken ct = default,
         long startOffset = 0);
 
@@ -56,6 +57,14 @@ public interface ISoulseekAdapter
     event EventHandler<DownloadProgressEventArgs>? DownloadProgressChanged;
     event EventHandler<DownloadCompletedEventArgs>? DownloadCompleted;
 }
+
+public enum TransferLifecyclePhase
+{
+    RemoteQueued,
+    Transferring
+}
+
+public sealed record TransferLifecycleUpdate(TransferLifecyclePhase Phase, string? Detail = null);
 
 public class DownloadProgressEventArgs : EventArgs
 {

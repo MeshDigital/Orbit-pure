@@ -2268,9 +2268,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             }
             catch (Exception ex)
             {
-                if (ex.GetType().Name.Contains("TransferRejectedException") || ex.Message.Contains("Too many files"))
+                var transferDisposition = ClassifyTransferFailure(ex);
+
+                if (transferDisposition.AllowHedgeFailover)
                 {
-                    _logger.LogWarning("Peer Limit Reached for {Title}: {Message}. Triggering Retry Logic.", ctx.Model.Title, ex.Message);
+                    _logger.LogWarning("Peer transfer failure for {Title}: {Message}. Triggering hedge/retry logic.", ctx.Model.Title, ex.Message);
 
                     if (await TryRunHedgeFailoverAsync(ctx, trackCt, "primary transfer was rejected"))
                     {
@@ -2293,23 +2295,89 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         }
                     }
                 }
+
+                if (!transferDisposition.RetryFailureReason.ShouldAutoRetry())
+                {
+                    await UpdateStateAsync(ctx, PlaylistTrackState.Failed, transferDisposition.RetryFailureReason);
+                    return;
+                }
                 
-                // Exponential Backoff Logic (Phase 7)
+                // Exponential / classified backoff logic
                 ctx.RetryCount++;
                 if (ctx.RetryCount < _config.MaxDownloadRetries)
                 {
-                    var delayMinutes = Math.Pow(2, ctx.RetryCount); // 2, 4, 8, 16...
+                    var delayMinutes = transferDisposition.DelayMinutes ?? Math.Pow(2, ctx.RetryCount); // 2, 4, 8, 16...
                     ctx.NextRetryTime = DateTime.UtcNow.AddMinutes(delayMinutes);
                     ctx.Model.Priority = 20; // LOW PRIORITY: Send retries to back of queue (fresh downloads = priority 10)
-                    await UpdateStateAsync(ctx, PlaylistTrackState.Pending, $"Retrying in {delayMinutes}m: {ex.Message}");
+                    await UpdateStateAsync(ctx, PlaylistTrackState.Pending, $"Retrying in {delayMinutes}m: {transferDisposition.OperatorMessage}");
                     _logger.LogInformation("Scheduled retry #{Count} for {GlobalId} at {Time} (low priority)", ctx.RetryCount, ctx.GlobalId, ctx.NextRetryTime);
                 }
                 else
                 {
-                    await UpdateStateAsync(ctx, PlaylistTrackState.Failed, DownloadFailureReason.MaxRetriesExceeded);
+                    await UpdateStateAsync(ctx, PlaylistTrackState.Failed, transferDisposition.RetryFailureReason);
                 }
             }
         }
+    }
+
+    private sealed record TransferFailureDisposition(
+        DownloadFailureReason RetryFailureReason,
+        bool AllowHedgeFailover,
+        double? DelayMinutes,
+        string OperatorMessage);
+
+    private static TransferFailureDisposition ClassifyTransferFailure(Exception ex)
+    {
+        var message = ex.Message ?? string.Empty;
+
+        if (message.Contains("banned", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("not authorized", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("access denied", StringComparison.OrdinalIgnoreCase))
+        {
+            return new TransferFailureDisposition(
+                DownloadFailureReason.RemoteAccessDenied,
+                AllowHedgeFailover: false,
+                DelayMinutes: null,
+                OperatorMessage: "peer denied transfer access");
+        }
+
+        if (ex.GetType().Name.Contains("TransferRejectedException", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("Too many files", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("queue", StringComparison.OrdinalIgnoreCase))
+        {
+            return new TransferFailureDisposition(
+                DownloadFailureReason.RemoteQueueDenied,
+                AllowHedgeFailover: true,
+                DelayMinutes: 2,
+                OperatorMessage: "peer queue rejected transfer");
+        }
+
+        if (message.Contains("refused", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("aborted", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("Unable to read", StringComparison.OrdinalIgnoreCase) ||
+            ex is IOException)
+        {
+            return new TransferFailureDisposition(
+                DownloadFailureReason.NetworkError,
+                AllowHedgeFailover: true,
+                DelayMinutes: 2,
+                OperatorMessage: "network transfer error");
+        }
+
+        if (ex is TimeoutException)
+        {
+            return new TransferFailureDisposition(
+                DownloadFailureReason.Timeout,
+                AllowHedgeFailover: true,
+                DelayMinutes: 1,
+                OperatorMessage: "transfer timeout");
+        }
+
+        return new TransferFailureDisposition(
+            DownloadFailureReason.PeerRejected,
+            AllowHedgeFailover: false,
+            DelayMinutes: null,
+            OperatorMessage: string.IsNullOrWhiteSpace(message) ? "peer rejected transfer" : message);
     }
 
     private async Task DownloadFileAsync(DownloadContext ctx, Track bestMatch, CancellationToken ct)
@@ -2628,8 +2696,25 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 partPath,          // Download to .part file
                 bestMatch.Size,
                 progress,
-                stallMonitorCts.Token,
-                startPosition      // Resume from existing bytes
+                lifecycleUpdate: update =>
+                {
+                    switch (update.Phase)
+                    {
+                        case TransferLifecyclePhase.RemoteQueued:
+                            _ = UpdateStateAsync(ctx, PlaylistTrackState.Queued, update.Detail ?? "Queued remotely by peer");
+                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(
+                                ctx.GlobalId,
+                                $"⏳ Remote queue: {bestMatch.Username} is holding the transfer in queue.",
+                                false,
+                                ctx.CorrelationId));
+                            break;
+                        case TransferLifecyclePhase.Transferring:
+                            _ = UpdateStateAsync(ctx, PlaylistTrackState.Downloading, update.Detail);
+                            break;
+                    }
+                },
+                ct: stallMonitorCts.Token,
+                startOffset: startPosition      // Resume from existing bytes
             );
         }
         catch (OperationCanceledException) when (stalledByMonitor)

@@ -1152,6 +1152,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         string outputPath,
         long? size = null,
         IProgress<double>? progress = null,
+        Action<TransferLifecycleUpdate>? lifecycleUpdate = null,
         CancellationToken ct = default,
         long startOffset = 0)  // Phase 2.5: Add resume support
     {
@@ -1176,6 +1177,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             DateTime lastActivity = DateTime.UtcNow;
             long lastBytes = startOffset;  // Start from existing bytes
             bool isQueued = false;
+            TransferLifecyclePhase? lastPhase = null;
 
             var downloadOptions = new TransferOptions(
                 stateChanged: (args) =>
@@ -1184,10 +1186,24 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     if (args.Transfer.State.HasFlag(TransferStates.Queued))
                     {
                         isQueued = true;
+                        if (lastPhase != TransferLifecyclePhase.RemoteQueued)
+                        {
+                            lastPhase = TransferLifecyclePhase.RemoteQueued;
+                            lifecycleUpdate?.Invoke(new TransferLifecycleUpdate(
+                                TransferLifecyclePhase.RemoteQueued,
+                                "Queued remotely by peer"));
+                        }
                     }
                     else if (args.Transfer.State.HasFlag(TransferStates.InProgress))
                     {
                         isQueued = false;
+                        if (lastPhase != TransferLifecyclePhase.Transferring)
+                        {
+                            lastPhase = TransferLifecyclePhase.Transferring;
+                            lifecycleUpdate?.Invoke(new TransferLifecycleUpdate(
+                                TransferLifecyclePhase.Transferring,
+                                startOffset > 0 ? "Transfer resumed" : "Transfer started"));
+                        }
                         
                         // Check for progress activity
                         if (args.Transfer.BytesTransferred > lastBytes)
