@@ -8,6 +8,7 @@ using System.Linq;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 namespace SLSKDONET.Services;
 
@@ -16,6 +17,11 @@ namespace SLSKDONET.Services;
 /// </summary>
 public class SoulseekAdapter : ISoulseekAdapter, IDisposable
 {
+    private static readonly HashSet<string> NonMetadataPathTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "desktop", "downloads", "download", "temp", "incoming", "new folder", "music", "audio"
+    };
+
     private readonly ILogger<SoulseekAdapter> _logger;
     private readonly AppConfig _config;
     private readonly IEventBus _eventBus;
@@ -418,7 +424,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         var formatSet = formatFilter?.Select(f => f.ToLowerInvariant()).ToHashSet();
         // Beta 2026: Result fingerprinting — deduplicate by (FileName + FileSize + Duration) within one search.
         // Reduces noise by up to 70% on popular tracks shared by many peers.
-        var seenThisSearch = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+        var seenThisSearch = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         try
         {
@@ -477,16 +483,6 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 {
                     _logger.LogDebug("Received response from {User} with {Count} files", response.Username, response.Files.Count());
 
-                    // Workstation 2026: pre-filter high queue peers at ingress to avoid
-                    // expensive parsing/matching on low-likelihood responses.
-                    if (response.QueueLength > _config.MaxPeerQueueLength)
-                    {
-                        filteredByQueue += response.Files.Count();
-                        _logger.LogTrace("[QUEUE FILTER] Skipping response from {User} (queue {QueueLength} > {MaxQueue})",
-                            response.Username, response.QueueLength, _config.MaxPeerQueueLength);
-                        return;
-                    }
-                    
                     var foundTracksInResponse = new List<Track>();
 
                     // Process each search response
@@ -567,13 +563,24 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                                 continue;
                             }
 
-                            // Beta 2026: Fingerprint dedup — skip identical files from different peers.
-                            // This cuts scoring overhead on heavily-shared tracks by ~70%.
+                            // Beta 2026: Fingerprint dedup with peer-awareness.
+                            // Keep duplicates only when they come from a better queue peer.
                             var fpKey = _resultFingerprinter.Create(file.Filename, file.Size, rawDurationSeconds);
-                            if (!seenThisSearch.TryAdd(fpKey, 0))
+                            if (seenThisSearch.TryGetValue(fpKey, out var existingQueue))
                             {
-                                filteredByDedup++;
-                                continue;
+                                if (response.QueueLength < existingQueue)
+                                {
+                                    seenThisSearch[fpKey] = response.QueueLength;
+                                }
+                                else
+                                {
+                                    filteredByDedup++;
+                                    continue;
+                                }
+                            }
+                            else
+                            {
+                                seenThisSearch.TryAdd(fpKey, response.QueueLength);
                             }
 
                             // Memory Optimization: Only allocate Track object for files that survive the filters
@@ -857,34 +864,65 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         var bitDepthAttr = file.Attributes?.FirstOrDefault(a => a.Type == FileAttributeType.BitDepth);
         var bitDepth = bitDepthAttr?.Value;
 
-        // Path-Aware Extraction: Split full path into segments for context scoring
-        var pathSegments = file.Filename.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries).ToList();
+        var pathSegments = file.Filename
+            .Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(segment => segment.Trim())
+            .Where(segment => !string.IsNullOrWhiteSpace(segment))
+            .ToList();
 
-        // Parse filename for raw metadata
         var rawFilename = Path.GetFileNameWithoutExtension(file.Filename);
-        
-        // Basic cleanup of leading numbers (e.g. "01 - ", "01.")
-        var cleanFilename = System.Text.RegularExpressions.Regex.Replace(rawFilename, @"^\d+[\s\-_\.]+", "").Trim();
-
-        // Simplified splitting: many Soulseek files follow "Artist - Title" or "Artist-Title"
-        var parts = cleanFilename.Split(new[] { " - ", " -", "- ", "-" }, 2, StringSplitOptions.RemoveEmptyEntries);
+        var cleanFilename = CleanTrackToken(rawFilename);
 
         string artist = "Unknown Artist";
         string title = cleanFilename;
-        string album = "";
+        string album = string.Empty;
 
-        if (parts.Length >= 2)
+        // Path-first intelligence: treat directory chain as primary metadata source.
+        if (pathSegments.Count >= 2)
         {
-            artist = parts[0].Trim();
-            title = parts[1].Trim();
+            var parentAlbum = CleanTrackToken(pathSegments[^2]);
+            if (IsLikelyMetadataSegment(parentAlbum))
+            {
+                album = parentAlbum;
+            }
         }
-        else if (pathSegments.Count >= 2)
+
+        if (pathSegments.Count >= 3)
         {
-            // Folder structure fallback: .../Artist/Album/Track.mp3
-            // The Scoring Engine will look deep into pathSegments, 
-            // but we provide a "best guess" here for the UI.
-            album = pathSegments[^2];
-            if (pathSegments.Count >= 3) artist = pathSegments[^3];
+            var parentArtist = CleanTrackToken(pathSegments[^3]);
+            if (IsLikelyMetadataSegment(parentArtist))
+            {
+                artist = parentArtist;
+            }
+        }
+
+        // Safe filename fallback: only split when explicit artist-title delimiter exists.
+        var filenameParts = Regex.Split(cleanFilename, @"\s[-–—]\s", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+        if (filenameParts.Length >= 2)
+        {
+            var filenameArtist = CleanTrackToken(filenameParts[0]);
+            var filenameTitle = CleanTrackToken(string.Join(" - ", filenameParts.Skip(1)));
+
+            if (!string.IsNullOrWhiteSpace(filenameTitle))
+            {
+                // If path artist is unavailable or generic, trust filename artist.
+                if (artist == "Unknown Artist" || !IsLikelyMetadataSegment(artist))
+                {
+                    artist = string.IsNullOrWhiteSpace(filenameArtist) ? artist : filenameArtist;
+                }
+
+                title = filenameTitle;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            title = rawFilename;
+        }
+
+        if (string.IsNullOrWhiteSpace(album) && pathSegments.Count >= 2)
+        {
+            album = CleanTrackToken(pathSegments[^2]);
         }
 
         var track = new Track
@@ -910,6 +948,29 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         };
 
         return track;
+    }
+
+    private static string CleanTrackToken(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var cleaned = Regex.Replace(value, @"^\d{1,3}[\s\-_.]+", string.Empty, RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+        cleaned = Regex.Replace(cleaned, @"\[[^\]]*\]|\([^\)]*\)", " ", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+        cleaned = Regex.Replace(cleaned, @"\s{2,}", " ", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+        return cleaned.Trim();
+    }
+
+    private static bool IsLikelyMetadataSegment(string segment)
+    {
+        if (string.IsNullOrWhiteSpace(segment))
+            return false;
+
+        var normalized = segment.Trim();
+        if (NonMetadataPathTokens.Contains(normalized))
+            return false;
+
+        return normalized.Length >= 2;
     }
 
     private string[] ResolveShareFolders()

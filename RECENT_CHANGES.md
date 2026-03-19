@@ -1,5 +1,26 @@
 # Recent Changes
 
+## [0.1.0-alpha.41] - Brain Structural Traps Fixed (Mar 19, 2026)
+
+### Search Discovery Engine Hardening
+* `SoulseekAdapter.cs` deduplication now keeps the best peer candidate per fingerprint (`filename + size + duration`) by comparing queue length instead of blindly dropping later duplicates.
+* This prevents early slow peers from permanently shadowing later fast peers for identical files.
+* Removed the hard ingress-level queue drop in `SoulseekAdapter.SearchAsync(...)` so high-queue rare results remain discoverable when no better alternatives exist.
+
+### Brain Buffer Ranking Flow (Curator, not Pipe)
+* `SearchOrchestrationService.StreamAndRankResultsAsync(...)` now uses a 3-second cognitive buffer to collect initial network burst results.
+* Buffered candidates are ranked as a pool via `RankTrackResults(...)` using the weighted matrix and then curated to top winners before emitting to UI.
+* Result flow now favors actionable sorted candidates over raw response arrival order.
+
+### Foundation Alignment
+* Search pre-filter negative-token injection remains active for strict-lossless intent (lossless format-only and/or `min bitrate >= 701`) to ask cleaner data from the network up front.
+* Path-intelligent metadata parsing in `SoulseekAdapter.cs` remains in place: path-first artist/album inference with safe filename fallback.
+
+### Validation
+* `dotnet build SLSKDONET.sln` ✅
+
+---
+
 ## [0.1.0-alpha.40] - Library Nav Control + Download Center Live Transfer Telemetry (Mar 19, 2026)
 
 ### Library Playlist Panel Behavior (No More Forced Hover Collapse)

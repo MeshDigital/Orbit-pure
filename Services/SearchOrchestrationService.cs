@@ -21,6 +21,16 @@ namespace SLSKDONET.Services;
 /// </summary>
 public class SearchOrchestrationService
 {
+    private static readonly HashSet<string> LosslessFormats = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "flac", "wav", "aif", "aiff", "ape", "alac"
+    };
+
+    private static readonly string[] StrictLosslessNegativeTokens =
+    {
+        "-mp3", "-aac", "-m4a", "-ogg", "-opus", "-wma", "-youtube", "-yt"
+    };
+
     private readonly ILogger<SearchOrchestrationService> _logger;
     private readonly ISoulseekAdapter _soulseek;
     private readonly SearchQueryNormalizer _searchQueryNormalizer;
@@ -188,34 +198,75 @@ public class SearchOrchestrationService
         int maxBitrate,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        const int brainBufferSeconds = 3;
+        const int brainWinnerCount = 5;
+
         var formatFilter = preferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var searchTrack = new Track { Title = normalizedQuery };
-        var evaluator = new FileConditionEvaluator();
-        
-        if (formatFilter.Length > 0)
+        var networkQuery = BuildNetworkQuery(normalizedQuery, formatFilter, minBitrate);
+        var bufferedTracks = new List<Track>();
+        using var brainBufferCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        brainBufferCts.CancelAfter(TimeSpan.FromSeconds(brainBufferSeconds));
+
+        try
         {
-            evaluator.AddRequired(new FormatCondition { AllowedFormats = formatFilter.ToList() });
+            await foreach (var track in _soulseek.StreamResultsAsync(
+                networkQuery,
+                formatFilter,
+                (minBitrate, maxBitrate),
+                DownloadMode.Normal,
+                brainBufferCts.Token))
+            {
+                _safetyFilter.EvaluateSafety(track, normalizedQuery);
+                bufferedTracks.Add(track);
+            }
         }
-        if (minBitrate > 0 || maxBitrate > 0)
+        catch (OperationCanceledException) when (brainBufferCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            evaluator.AddPreferred(new BitrateCondition 
-            { 
-                MinBitrate = minBitrate > 0 ? minBitrate : null, 
-                MaxBitrate = maxBitrate > 0 ? maxBitrate : null 
-            });
+            _logger.LogDebug("Brain buffer window elapsed for query '{Query}'. Ranking {Count} buffered candidates.",
+                normalizedQuery,
+                bufferedTracks.Count);
         }
 
-        await foreach (var track in _soulseek.StreamResultsAsync(
-            normalizedQuery,
-            formatFilter,
-            (minBitrate, maxBitrate),
-            DownloadMode.Normal,
-            cancellationToken))
+        if (bufferedTracks.Count == 0)
         {
-            _safetyFilter.EvaluateSafety(track, normalizedQuery);
-            ResultSorter.CalculateRank(track, searchTrack, evaluator);
+            yield break;
+        }
+
+        var ranked = RankTrackResults(bufferedTracks, normalizedQuery, formatFilter, minBitrate, maxBitrate)
+            .Take(brainWinnerCount)
+            .ToList();
+
+        foreach (var track in ranked)
+        {
             yield return track;
         }
+    }
+
+    private static string BuildNetworkQuery(string normalizedQuery, string[] formatFilter, int minBitrate)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedQuery))
+            return normalizedQuery;
+
+        var hasStrictLosslessFormatFilter = formatFilter.Length > 0 && formatFilter.All(format =>
+            LosslessFormats.Contains(format));
+        var hasStrictLosslessBitrate = minBitrate >= 701;
+        var shouldInjectNegatives = hasStrictLosslessFormatFilter || hasStrictLosslessBitrate;
+
+        if (!shouldInjectNegatives)
+            return normalizedQuery;
+
+        var existingTokens = normalizedQuery
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var missingNegatives = StrictLosslessNegativeTokens
+            .Where(token => !existingTokens.Contains(token))
+            .ToArray();
+
+        if (missingNegatives.Length == 0)
+            return normalizedQuery;
+
+        return $"{normalizedQuery} {string.Join(" ", missingNegatives)}";
     }
     
     private List<Track> RankTrackResults(
