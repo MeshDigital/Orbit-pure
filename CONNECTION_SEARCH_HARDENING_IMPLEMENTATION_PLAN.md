@@ -1,0 +1,245 @@
+# ORBIT Connection + Search Hardening Plan (Soulseek.NET Deep Dive)
+
+## 1) Purpose
+This document defines an implementation plan to harden ORBIT’s Soulseek connectivity and search behavior using Soulseek.NET best practices and the findings from recent production disconnect/search-flood incidents.
+
+Primary outcomes:
+- Eliminate login-timeout/reconnect storm behavior.
+- Reduce network flood risk during discovery/search bursts.
+- Improve transfer reliability and queue fairness.
+- Add observability so failures are diagnosable in minutes, not days.
+
+---
+
+## 2) Current-state diagnosis (what we learned)
+
+### 2.1 Confirmed failure patterns
+- Login handshake can fail on short wait windows (historically seen as 5s timeout symptom).
+- Search lanes can generate bursty cascades under concurrent discovery, stressing server/session state.
+- Reconnect loops can re-enter too aggressively after forced disconnect or kick.
+
+### 2.2 Soulseek.NET facts relevant to ORBIT
+- `minorVersion` is required and should uniquely identify client behavior.
+- `SoulseekClientOptions.messageTimeout` is critical for handshake/message waits.
+- `SoulseekClientOptions.maximumConcurrentSearches` already provides robust internal gating.
+- `SearchOptions` supports strong server/response-side filtering:
+  - `maximumPeerQueueLength`
+  - `filterResponses`
+  - `minimumResponseFileCount`
+  - `removeSingleCharacterSearchTerms`
+  - `fileFilter` / `responseFilter`
+- `KickedFromServer` event exists and should drive reconnect cooldown.
+- Transfer semantics include duplicate token/duplicate transfer protections, enqueue APIs, and stream-based downloads.
+
+---
+
+## 3) Design principles
+- **Single source of truth for concurrency:** rely on library-level search semaphore first; app-level gates only where they serve a distinct purpose (lane orchestration, not duplicate throttling).
+- **Fail soft, recover predictably:** cooldown/backoff on kicks and repeated failures.
+- **Filter early:** reject bad candidates at `SearchOptions` and protocol level before expensive scoring/allocation.
+- **Observable by default:** key counters/events for state transitions, queue pressure, and filter reasons.
+- **Safe rollout:** introduce in phases with measurable guardrails and rollback paths.
+
+---
+
+## 4) Implementation roadmap (phased)
+
+## Phase A — Stabilization baseline (Complete / in progress)
+### Delivered
+- Hardened `SoulseekClientOptions` usage:
+  - `messageTimeout`
+  - `maximumConcurrentSearches`
+  - `maximumConcurrentDownloads`
+- Added kick-aware reconnect cooldown path.
+- Added search-side `SearchOptions` filtering and bounded variation fan-out.
+
+### Verify now
+- 24h run with no reconnect storms.
+- No login timeout loops under concurrent discovery load.
+
+---
+
+## Phase B — Connection manager refactor (1 sprint)
+
+### B1. Centralized connection state machine
+Create explicit state machine wrapper around adapter states:
+- States: `Disconnected`, `Connecting`, `LoggingIn`, `LoggedIn`, `CoolingDown`, `Disconnecting`.
+- Transitions guarded by one serialized command queue.
+- Explicit transition reasons (manual, network error, kicked, timeout).
+
+**Deliverables**
+- `ConnectionLifecycleService` with deterministic transition table.
+- Replace ad-hoc reconnect triggers from multiple call sites.
+
+**Acceptance criteria**
+- Never more than one active connect attempt.
+- No connect call executes while state is `CoolingDown`.
+- State transition logs include previous/current/reason/correlation id.
+
+### B2. Reconnect policy hardening
+- Keep existing exponential backoff.
+- Add policy dimensions:
+  - immediate retry cap (e.g., max 3 quick retries)
+  - hard cooldown after kick (already present)
+  - jitter for distributed clients
+
+**Acceptance criteria**
+- Reconnect attempt cadence remains bounded even under repeated faults.
+
+### B3. Dynamic reconfiguration path
+Use Soulseek.NET `ReconfigureOptionsAsync` where applicable for runtime tuning (timeouts, speed caps, listener settings), avoiding full client recycle where safe.
+
+---
+
+## Phase C — Search pipeline hardening (1–2 sprints)
+
+### C1. Query strategy simplification
+- Keep current normalization intelligence.
+- Enforce bounded query variation count (`MaxSearchVariations`).
+- Add adaptive policy:
+  - strict query first
+  - relaxed query only if strict returns under threshold
+  - no further expansion if early high-confidence match found
+
+### C2. Unified filtering policy object
+Introduce `SearchFilterPolicy` to remove duplicated filter logic.
+- Inputs: preferred formats, bitrate range, sample-rate ceiling, queue cap, excluded phrases.
+- Outputs: `SearchOptions` and local fallback filters.
+
+**Acceptance criteria**
+- Filter logic lives in one place and is used by all search entry points.
+
+### C3. Load shedding under pressure
+When active discovery/search exceeds thresholds:
+- Reduce response/file limits dynamically.
+- Increase per-query delay minimally.
+- Skip low-value relaxed variations.
+
+---
+
+## Phase D — Transfer and queue reliability (1 sprint)
+
+### D1. Enqueue-first transfer flow
+Adopt enqueue-first semantics where possible for better UX/telemetry:
+- distinguish `queued remotely` vs `transferring`
+- better cancellation and retry intent
+
+### D2. Streamed download standardization
+Standardize on stream-based downloads for large files to reduce memory spikes and partial-failure risk.
+
+### D3. Retry taxonomy
+Use error-class based retry matrix:
+- retry: transient network timeout, remote queue denial with backoff
+- no retry: auth rejection, persistent banned phrase policy failures
+
+---
+
+## Phase E — Observability + diagnostics (parallel track)
+
+### E1. Required metrics
+Emit counters/timers for:
+- connection attempts/success/failure by reason
+- kicks and cooldown activations
+- search requests started/completed/cancelled
+- response/file rejection reasons (format, bitrate, queue, excluded phrase, safety)
+- transfer outcomes by state (`Succeeded`, `Rejected`, `TimedOut`, `Errored`, `Cancelled`)
+
+### E2. Correlation ids
+Attach operation IDs across:
+- playlist track
+- discovery tier
+- search query variation
+- transfer token
+
+### E3. Structured logs
+Standardize key log fields:
+- `state`, `reason`, `attempt`, `cooldownUntil`, `queryHash`, `tier`, `peer`, `token`
+
+---
+
+## 5) Security and compliance hardening
+- Preserve strict handling for server-sent excluded phrases.
+- Keep search query hardening before dispatch.
+- Add explicit audit event when a query/path is blocked by excluded phrase policy.
+- Add optional “safe mode” profile that narrows response/file limits and disables aggressive tiers.
+
+---
+
+## 6) Test strategy
+
+## Unit tests
+1. Kick event triggers cooldown and blocks reconnect until expiry.
+2. Variation cap truncates generated list deterministically.
+3. `SearchOptions.fileFilter` rejects by each criterion independently.
+4. Excluded phrase query/path block path works as expected.
+
+## Integration tests
+1. Concurrent discovery load does not exceed effective search concurrency limits.
+2. Reconnect behavior under forced disconnect + kick simulation.
+3. Transfer resume and cancellation semantics with queued remote state.
+
+## Non-functional tests
+- 30-minute stress run (multi-lane discovery bursts).
+- Memory profile during stream downloads.
+
+---
+
+## 7) Rollout and rollback
+
+## Rollout
+- Feature-flag risky behavior changes:
+  - adaptive load shedding
+  - dynamic reconfigure path
+- Deploy in stages:
+  1) baseline hardening
+  2) observability validation
+  3) adaptive controls
+
+## Rollback
+- Runtime switch to conservative profile:
+  - `MaxSearchVariations=1`
+  - lower `SearchResponseLimit`
+  - fixed reconnect delay
+- Fallback to stable previous adapter options preset.
+
+---
+
+## 8) Priority backlog (next actionable items)
+
+## P0 (this week)
+1. Add `ConnectionLifecycleService` state machine skeleton and wire existing reconnect path into it.
+2. Add metrics events/counters for kick, cooldown, search rejections.
+3. Add tests for cooldown + variation cap.
+
+## P1 (next sprint)
+1. Introduce `SearchFilterPolicy` and remove duplicate filter branches.
+2. Implement enqueue-first transfer status handling for better queue UX.
+3. Add correlation IDs to discovery/search/transfer logs.
+
+## P2 (following sprint)
+1. Adaptive load shedding and runtime option reconfigure.
+2. Full transfer retry taxonomy and policy tuning by failure class.
+
+---
+
+## 9) Definition of done
+This initiative is complete when all are true:
+- No reconnect storms observed in stress/integration runs.
+- Kick cooldown and backoff behavior are deterministic and tested.
+- Search fan-out and filtering are bounded and observable.
+- Transfer reliability metrics show improved success/timeout ratio.
+- Playbook exists for tuning/rollback without code changes.
+
+---
+
+## 10) Operational tuning defaults (recommended)
+- `ConnectTimeout`: 60_000 ms
+- `messageTimeout`: max(15_000, `ConnectTimeout`)
+- `MaxConcurrentSearches` (library): 2–3
+- `MaxSearchVariations`: 2
+- `SearchResponseLimit`: 100
+- `SearchFileLimit`: 100
+- `MaxPeerQueueLength`: 50 (tune lower for speed profiles)
+- Kick cooldown: 60s
+
+These defaults prioritize reliability under mixed home-network conditions while keeping discovery speed acceptable.
