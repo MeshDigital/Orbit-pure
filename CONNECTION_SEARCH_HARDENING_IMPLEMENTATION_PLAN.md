@@ -44,6 +44,13 @@ Primary outcomes:
 
 ## 4) Implementation roadmap (phased)
 
+### Execution status snapshot (2026-03-19)
+- ✅ **Phase A — Stabilization baseline:** Complete
+- ⏳ **Phase B — Connection manager refactor:** Not started
+- 🟨 **Phase C — Search pipeline hardening:** Partially complete (variation cap + adaptive lane behavior delivered)
+- ⏳ **Phase D — Transfer and queue reliability:** Not started
+- 🟨 **Phase E — Observability + diagnostics:** Partially complete (reliability counters + adaptive lane live UI + rolling decision history)
+
 ## Phase A — Stabilization baseline (Complete / in progress)
 ### Delivered
 - Hardened `SoulseekClientOptions` usage:
@@ -93,6 +100,74 @@ Use Soulseek.NET `ReconfigureOptionsAsync` where applicable for runtime tuning (
 
 ## Phase C — Search pipeline hardening (1–2 sprints)
 
+### Phase C execution plan (detailed)
+
+#### C.0 Scope and guardrails
+- Keep user-facing search UX unchanged unless explicitly needed for reliability.
+- Prefer config-driven knobs over hardcoded thresholds.
+- Ensure every search expansion decision is observable (reason + counters).
+
+#### C.1 Workstream: query strategy control
+**Implementation tasks**
+1. Enforce `MaxSearchVariations` at a single orchestration boundary.
+2. Add strict-first cascade contract:
+   - run strict variation first
+   - run relaxed variation only when strict result quality/volume is below threshold
+3. Add short-circuit rule when a high-confidence match is found early.
+
+**Deliverables**
+- Deterministic variation planner with explicit decision reasons.
+- Config knobs for strict-result threshold and short-circuit confidence.
+
+**Acceptance criteria**
+- No query generates more than configured max variations.
+- Relaxed variation is skipped when strict variation already satisfies quality threshold.
+
+#### C.2 Workstream: unified filtering policy
+**Implementation tasks**
+1. Introduce `SearchFilterPolicy` as the only builder for `SearchOptions` + local fallback predicates.
+2. Migrate all search entry points to consume that policy object.
+3. Keep excluded-phrase and queue-pressure filtering centralized in this policy path.
+
+**Deliverables**
+- Single policy module for bitrate/format/queue/excluded-phrase decisions.
+- Removal of duplicated filter branches across orchestration paths.
+
+**Acceptance criteria**
+- One source of truth for search filtering.
+- Filter changes require edits in one location only.
+
+#### C.3 Workstream: pressure-aware load shedding
+**Implementation tasks**
+1. Define pressure levels (`Normal`, `Elevated`, `Critical`) from active lanes + rejection counters.
+2. Map each level to dynamic limits:
+   - response/file caps
+   - relaxed variation suppression
+   - minimal inter-query pacing increase
+3. Emit pressure-level transitions via diagnostics events.
+
+**Deliverables**
+- Runtime load-shedding policy with bounded degradation behavior.
+- Evented state transitions for diagnostics panel and logs.
+
+**Acceptance criteria**
+- Under stress, fan-out and payload size reduce automatically.
+- Recovery returns policy to baseline when pressure subsides.
+
+#### C.4 Validation plan
+- Unit tests:
+  - strict-first and short-circuit behavior
+  - policy-level filter inclusion/exclusion rules
+  - pressure-level transitions and limit mapping
+- Integration tests:
+  - concurrent discovery load honors variation and pressure limits
+  - quality outcomes remain acceptable after adaptive shedding
+
+#### C.5 Exit criteria for Phase C
+- Search fan-out is deterministic and bounded.
+- Filtering logic is centralized and fully observable.
+- Stress runs show lower rejection churn and stable completion latency.
+
 ### C1. Query strategy simplification
 - Keep current normalization intelligence.
 - Enforce bounded query variation count (`MaxSearchVariations`).
@@ -135,6 +210,84 @@ Use error-class based retry matrix:
 ---
 
 ## Phase E — Observability + diagnostics (parallel track)
+
+### Phase E execution plan (detailed)
+
+#### E.0 Scope and telemetry contract
+- Every adaptive decision must have a human-readable reason.
+- Metrics must support both realtime UI insight and log-based incident review.
+- Keep diagnostics lightweight and non-blocking on UI thread.
+
+#### E.1 Workstream: metrics coverage completion
+**Implementation tasks**
+1. Finalize counter set for:
+   - connection attempts/success/failure by reason
+   - kick and cooldown activations
+   - search started/completed/cancelled
+   - filter/rejection reasons by category
+   - transfer outcomes by terminal state
+2. Standardize label dimensions (`reason`, `tier`, `pressureLevel`, `peerClass`).
+
+**Deliverables**
+- Stable metrics schema + naming contract.
+- One diagnostics service surface for counters/snapshots.
+
+**Acceptance criteria**
+- No critical transition path lacks a metric.
+- Metric labels remain bounded (no high-cardinality explosions).
+
+#### E.2 Workstream: correlation and traceability
+**Implementation tasks**
+1. Generate operation correlation ID at track/discovery start.
+2. Propagate correlation through search variation and transfer lifecycle events.
+3. Include correlation IDs in structured logs and key diagnostics events.
+
+**Deliverables**
+- End-to-end trace path: track → discovery → search → transfer.
+
+**Acceptance criteria**
+- Any failed transfer can be traced back to originating search decisions in one query path.
+
+#### E.3 Workstream: diagnostics UI hardening
+**Implementation tasks**
+1. Keep current adaptive lane status readout and rolling history (last 10 decisions).
+2. Add compact health summary card (current pressure level, cooldown active flag, recent rejection mix).
+3. Add operator actions:
+   - clear local diagnostics feed
+   - copy diagnostics snapshot to clipboard/log bundle
+
+**Deliverables**
+- Settings diagnostics pane with realtime summary + short history context.
+
+**Acceptance criteria**
+- Operator can identify why lanes changed without opening raw logs.
+- Diagnostics render remains responsive during stress runs.
+
+#### E.4 Structured logging standardization
+**Implementation tasks**
+1. Normalize log fields: `state`, `reason`, `attempt`, `cooldownUntil`, `queryHash`, `tier`, `peer`, `token`, `correlationId`.
+2. Ensure all warnings/errors include at least `reason` + `correlationId` when available.
+
+**Deliverables**
+- Consistent log schema for troubleshooting and postmortem analysis.
+
+**Acceptance criteria**
+- Incident review no longer depends on ad-hoc message text parsing.
+
+#### E.5 Validation and operational readiness
+- Add telemetry-focused tests:
+  - event emission on adaptive lane transitions
+  - bounded history behavior (size cap + ordering)
+  - correlation ID propagation across search/transfer events
+- Run 30-minute stress pass and confirm:
+  - no missing critical metrics
+  - diagnostics UI remains stable
+  - lane decision reasons stay understandable
+
+#### E.6 Exit criteria for Phase E
+- Critical paths are measurable and traceable end-to-end.
+- Operators can diagnose search/connection pressure from diagnostics UI + logs in minutes.
+- Telemetry schema is stable enough for long-term dashboards/alerts.
 
 ### E1. Required metrics
 Emit counters/timers for:
@@ -207,9 +360,9 @@ Standardize key log fields:
 ## 8) Priority backlog (next actionable items)
 
 ## P0 (this week)
-1. Add `ConnectionLifecycleService` state machine skeleton and wire existing reconnect path into it.
-2. Add metrics events/counters for kick, cooldown, search rejections.
-3. Add tests for cooldown + variation cap.
+1. ⏳ Add `ConnectionLifecycleService` state machine skeleton and wire existing reconnect path into it.
+2. ✅ Add metrics events/counters for kick, cooldown, search rejections.
+3. ✅ Add tests for cooldown + variation cap.
 
 ## P1 (next sprint)
 1. Introduce `SearchFilterPolicy` and remove duplicate filter branches.
