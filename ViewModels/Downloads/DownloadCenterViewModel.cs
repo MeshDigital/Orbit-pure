@@ -586,10 +586,12 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             })
             .DisposeWith(_subscriptions);
 
-        // Phase 2: Grouping Pipeline (On-Deck / Waiting / Stalled Only)
+        // Phase 2: Grouping Pipeline (On-Deck: Queued + Actively Searching + Stalled)
+        // Shows items that are either waiting to be processed or actively being searched
+        // Concurrency is controlled by DownloadManager's worker slots (MaxConcurrentSearches/MaxConcurrentDownloads)
         // Group by Source/Origin (e.g. Spotify Playlist ID or Search Session ID)
         sharedSource
-            .Filter(x => x.IsWaiting || x.IsStalled) // Match on-deck groups, exclude strictly active (searching/downloading)
+            .Filter(x => x.IsWaiting || x.IsStalled || x.State == PlaylistTrackState.Searching) // Include searching for transparency + visibility
             .Group(x => x.Model.SourcePlaylistId ?? x.Model.PlaylistId)
             .Transform((IGroup<UnifiedTrackViewModel, string, Guid> group) => new DownloadGroupViewModel(group))
             .DisposeMany() 
