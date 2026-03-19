@@ -1,5 +1,63 @@
 # Recent Changes
 
+## [0.1.0-alpha.43] - Network Health Diagnostics (Throttle/Ban Detection) (Mar 19, 2026)
+
+### Network Diagnostics Architecture
+* Created `Models/NetworkHealthSignal.cs` with comprehensive health monitoring structures:
+  * `NetworkHealthSignal`: Real-time diagnostic snapshot (connection state, throttle/ban status, search fertility metrics)
+  * `NetworkHealthDataPoint`: Historical record for pattern analysis
+  * `ThrottleStatus` enum: `None` → `Suspected` (>80% zero results) → `Confirmed` (>95% + 5min persistence)
+  * `BanStatus` enum: `None` → `Suspected` (2+ refused) → `Confirmed` (sustained refusals)
+  * `ConnectionFailureStatus` enum: 6 discrete failure modes (timeout, refused, network timeout, unexpected disconnect, etc.)
+
+### Health Service Integration
+* Implemented `INetworkHealthService` interface and `NetworkHealthService` for:
+  * Real-time tracking of searches (raw results, accepted results, zero-result percentage)
+  * Connection state and failure history (5-minute rolling window)
+  * Throttle/ban detection algorithms with time-persistence checks
+  * Diagnostic messaging that explains why network is healthy/degraded/throttled/possibly banned
+
+### SoulseekAdapter Wiring
+* Added `INetworkHealthService` dependency injection to `SoulseekAdapter.cs`
+* Hooked health tracking into:
+  * `StateChanged` event → records connection state transitions
+  * `ConnectAsync` error handling → diagnoses failure type and records it
+  * `SearchAsync` success path → records search result metrics
+  * `SearchAsync` error path → records failed searches with error context
+  * Added `DiagnoseConnectionFailure()` helper to map exceptions to failure enums
+
+### DI Registration
+* Registered `INetworkHealthService` singleton in `App.axaml.cs` service configuration
+
+### Regression Coverage (Network Diagnostics)
+* 12 new unit tests in `NetworkHealthServiceTests.cs`:
+  * Initial state verification (no throttle/ban)
+  * Connection state transitions clearing failure status
+  * Search metric aggregation (zero results, successful searches, timing)
+  * Throttle detection tuning (80%+ → suspected, 95%+ sustained → confirmed)
+  * Ban detection via repeated refusals
+  * Dedup logic (resets throttle on results)
+  * History retention (max 100 entries default)
+  * Degradation indicators (timeouts, no results > 10 min)
+  
+### Diagnostics Signals Provided
+- `IsHealthy`: Combined signal (connected + not throttled + not banned + <3 timeouts)
+- `IsDegraded`: Any fault state detected
+- `IsThrottled` / `IsBanned`: Boolean shortcuts
+- `DiagnosticMessage`: Human-readable status explaining current state
+
+### Validation
+* `dotnet build SLSKDONET.sln -c Debug` ✅ (0 errors, 8 pre-existing warnings)
+* `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj -c Debug` ✅ (`34/34` passing, including 12 new NetworkHealthService tests)
+
+### Future Opportunities
+- Expose diagnostics to UI (SettingsViewModel, status bar, or modal)
+- Use throttle/ban signals to trigger fallback strategies (e.g., give up + schedule retry in 30 min)
+- Publish analytics: graph throttle/ban frequency per user session for pattern correlation
+- Correlate with server-side policies or IP reputation systems
+
+---
+
 ## [0.1.0-alpha.42] - Search Brain Audit Telemetry + Least-Bad Winner Regression (Mar 19, 2026)
 
 ### Decision Transparency (SearchSelectionAudit)

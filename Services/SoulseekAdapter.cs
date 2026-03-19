@@ -41,13 +41,15 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
     private readonly Network.ProtocolHardeningService _hardeningService;
     private readonly ConcurrentDictionary<string, byte> _excludedPhrases = new();
+    private readonly INetworkHealthService _healthService;
 
-    public SoulseekAdapter(ILogger<SoulseekAdapter> logger, AppConfig config, Network.ProtocolHardeningService hardeningService, IEventBus eventBus)
+    public SoulseekAdapter(ILogger<SoulseekAdapter> logger, AppConfig config, Network.ProtocolHardeningService hardeningService, IEventBus eventBus, INetworkHealthService healthService)
     {
         _logger = logger;
         _config = config;
         _hardeningService = hardeningService;
         _eventBus = eventBus;
+        _healthService = healthService;
     }
 
     private SoulseekClient? _client;
@@ -92,6 +94,8 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             {
                 _logger.LogInformation("Soulseek state change: {State} (was {PreviousState})", 
                     args.State, args.PreviousState);
+                
+                _healthService.RecordConnectionStateChange(args.State.ToString());
                 
                 _eventBus.Publish(new SoulseekStateChangedEvent(
                     args.State.ToString(), 
@@ -170,6 +174,11 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to connect to Soulseek: {Message}", ex.Message);
+            
+            // Diagnose connection failure type
+            var failureStatus = DiagnoseConnectionFailure(ex);
+            _healthService.RecordConnectionFailure(failureStatus, ex.Message);
+            
             throw;
         }
         finally
@@ -639,6 +648,9 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             while (_recentSearchSamples.Count > 12)
                 _recentSearchSamples.TryDequeue(out _);
             
+            // Record search results for health diagnostics
+            _healthService.RecordSearch(query, totalFilesReceived, resultCount, true);
+            
             return resultCount;
         }
         catch (OperationCanceledException)
@@ -652,10 +664,12 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
              if (ct.IsCancellationRequested || _client?.State == SoulseekClientStates.Disconnected || _client?.State == SoulseekClientStates.Disconnecting)
              {
                  _logger.LogWarning("Search aborted for query {SearchQuery} due to connection shutdown: {Message}", query, ex.Message);
+                 _healthService.RecordSearch(query, totalFilesReceived, resultCount, false, "Connection shutdown");
                  return resultCount; 
              }
              
              _logger.LogError(ex, "Search failed for query {SearchQuery} with mode {SearchMode}", query, mode);
+             _healthService.RecordSearch(query, totalFilesReceived, resultCount, false, ex.Message);
              // Re-throw if it's not a shutdown scenario? 
              // Actually, returning 0 or partial results is safer than crashing the flow if the search fails.
              // But let's stick to previous logic: throw if it's a real error.
@@ -1198,6 +1212,38 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             _logger.LogError(ex, "Failed to browse user shares for {Username}: {Message}", username, ex.Message);
             return Enumerable.Empty<Track>();
         }
+    }
+
+    /// <summary>
+    /// Diagnose the type of connection failure from an exception
+    /// </summary>
+    private ConnectionFailureStatus DiagnoseConnectionFailure(Exception ex)
+    {
+        var message = ex.Message.ToLowerInvariant();
+        
+        if (ex.InnerException != null)
+            message += " " + ex.InnerException.Message.ToLowerInvariant();
+        
+        // Timeout patterns
+        if (message.Contains("timeout") || message.Contains("timed out"))
+            return ConnectionFailureStatus.AuthenticationTimeout;
+        
+        // Connection refused patterns
+        if (message.Contains("refused") || message.Contains("no connection could be made") || 
+            message.Contains("econnrefused"))
+            return ConnectionFailureStatus.ConnectionRefused;
+        
+        // Network timeout patterns
+        if (message.Contains("network unreachable") || message.Contains("no route to host") ||
+            message.Contains("ehostunreach"))
+            return ConnectionFailureStatus.NetworkTimeout;
+        
+        // Unexpected disconnection
+        if (message.Contains("disconnected") || message.Contains("connection closed"))
+            return ConnectionFailureStatus.UnexpectedDisconnection;
+        
+        // Default to other
+        return ConnectionFailureStatus.Other;
     }
 
     public void Dispose()

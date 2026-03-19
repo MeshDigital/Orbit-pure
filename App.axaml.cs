@@ -390,6 +390,7 @@ public partial class App : Application
 
 
         // Services
+        services.AddSingleton<INetworkHealthService, NetworkHealthService>();
         services.AddSingleton<SoulseekAdapter>();
         services.AddSingleton<ISoulseekAdapter>(sp => sp.GetRequiredService<SoulseekAdapter>());
         services.AddSingleton<FileNameFormatter>();
