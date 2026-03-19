@@ -1320,7 +1320,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         };
 
         _eventBus.Publish(new Events.TrackDetailedStatusEvent(globalId,
-            $"🛠 Manual force: starting direct download from {username}."));
+            $"🛠 Manual force: starting direct download from {username}.",
+            false,
+            ctx.CorrelationId));
 
         await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "Manual force candidate selected");
 
@@ -2114,7 +2116,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         if (ctx.Model.Status == TrackStatus.OnHold && ctx.Model.NotFoundRestartCount >= 3)
                         {
                             _logger.LogError("🚫 TERMINAL: {Title} failed all FLAC AND MP3 attempts. Marking as permanently Failed.", ctx.Model.Title);
-                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, "🚫 Not found on network — tried FLAC + MP3 across multiple sessions."));
+                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, "🚫 Not found on network — tried FLAC + MP3 across multiple sessions.", false, ctx.CorrelationId));
                             await UpdateStateAsync(ctx, PlaylistTrackState.Failed, "Terminal: Not found (FLAC + MP3 exhausted)");
                             return;
                         }
@@ -2128,13 +2130,13 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                             ctx.Model.SearchRetryCount = 0;
                             ctx.Model.Priority = 15; // Slightly lower priority in the queue
                             ctx.NextRetryTime = DateTime.UtcNow.AddMinutes(5); // Small delay before MP3 attempt
-                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, "🎵 FLAC not found after 9 attempts — switching to MP3 fallback lane automatically."));
+                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, "🎵 FLAC not found after 9 attempts — switching to MP3 fallback lane automatically.", false, ctx.CorrelationId));
                             await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "FLAC failed (9x) → Auto MP3 Fallback queued");
                         }
                         else if (ctx.Model.NotFoundRestartCount >= 3)
                         {
                             _logger.LogWarning("🛡️ Lossless-only profile active for {Title}; skipping MP3 fallback escalation after FLAC exhaustion.", ctx.Model.Title);
-                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, "🛡️ Lossless-only profile active. MP3 fallback skipped."));
+                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, "🛡️ Lossless-only profile active. MP3 fallback skipped.", false, ctx.CorrelationId));
                             await UpdateStateAsync(ctx, PlaylistTrackState.Failed, $"Lossless-only search exhausted ({failureReason}). MP3 fallback disabled by profile.");
                         }
                         else
@@ -2679,7 +2681,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                 _eventBus.Publish(new Events.TrackDetailedStatusEvent(
                     ctx.GlobalId,
-                    $"✅ Transfer finalized | user:{bestMatch.Username} | file:{Path.GetFileName(finalPath)} | total:{FormatBytes(finalPartSize)}"));
+                    $"✅ Transfer finalized | user:{bestMatch.Username} | file:{Path.GetFileName(finalPath)} | total:{FormatBytes(finalPartSize)}",
+                    false,
+                    ctx.CorrelationId));
 
                 // Phase 1A: POST-DOWNLOAD VERIFICATION
                 // Verify the downloaded file is valid before adding to library
@@ -2832,7 +2836,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
         _eventBus.Publish(new Events.TrackDetailedStatusEvent(
             ctx.GlobalId,
-            $"⚡ Switching to runner-up peer {hedgeMatch.Username} ({reason})."));
+            $"⚡ Switching to runner-up peer {hedgeMatch.Username} ({reason}).",
+            false,
+            ctx.CorrelationId));
 
         try
         {

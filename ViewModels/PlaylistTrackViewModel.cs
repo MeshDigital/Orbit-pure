@@ -1090,7 +1090,10 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
              
              string timeStamp = DateTime.Now.ToString("HH:mm:ss");
              string prefix = evt.IsError ? "❌" : "ℹ️";
-             LiveConsoleLog.Add($"[{timeStamp}] {prefix} {evt.Message}");
+             var correlationSuffix = string.IsNullOrWhiteSpace(evt.CorrelationId)
+                 ? string.Empty
+                 : $" [corr:{evt.CorrelationId[..Math.Min(8, evt.CorrelationId.Length)]}]";
+             LiveConsoleLog.Add($"[{timeStamp}] {prefix}{correlationSuffix} {evt.Message}");
              
              // If we get an error detailed status and we are searching, we could optionally update the main StatusText too,
              // but staying focused on LiveConsoleLog for the granular details is preferred.

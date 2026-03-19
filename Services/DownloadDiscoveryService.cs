@@ -525,8 +525,7 @@ public class DownloadDiscoveryService
                         _logger.LogInformation("🏁 GOLDEN CRITERIA hit ({Score}/100): {File} [{Bitrate}kbps {Format}] - ending tier early.",
                             score, searchTrack.Filename, searchTrack.Bitrate, searchTrack.Format);
 
-                        _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash,
-                            $"🏁 Golden match: {searchTrack.Username} ({searchTrack.Bitrate}kbps FLAC)."));
+                        PublishStatus($"🏁 Golden match: {searchTrack.Username} ({searchTrack.Bitrate}kbps FLAC).");
 
                         // Beta 2026: Cancel the tier's search stream — no need to wait for timeout
                         tierCts.Cancel();
@@ -551,8 +550,7 @@ public class DownloadDiscoveryService
                             searchTrack.Format,
                             queueLength);
 
-                        _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash,
-                            $"⚡ Fast lane winner: {searchTrack.Username} ({searchTrack.Bitrate}kbps, queue {queueLength})."));
+                        PublishStatus($"⚡ Fast lane winner: {searchTrack.Username} ({searchTrack.Bitrate}kbps, queue {queueLength}).");
 
                         tierCts.Cancel();
                         return new DiscoveryResult(searchTrack, log, runnerUpSilverMatch);
@@ -563,7 +561,7 @@ public class DownloadDiscoveryService
                         _logger.LogInformation("🚀 QUICK STRIKE: Found high-confidence match ({Score}/100) early! Skipping rest of search. File: {File}",
                             score, searchTrack.Filename);
 
-                        _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"🚀 Found high-confidence match from {searchTrack.Username} ({score:F0}/100)"));
+                        PublishStatus($"🚀 Found high-confidence match from {searchTrack.Username} ({score:F0}/100)");
                         return new DiscoveryResult(searchTrack, log, runnerUpSilverMatch);
                     }
 
@@ -582,7 +580,7 @@ public class DownloadDiscoveryService
 
                     if (score < 40 && allTracks.Count < 30)
                     {
-                        _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"Rejected {searchTrack.Username}: {matchResult.ShortReason}", true));
+                        PublishStatus($"Rejected {searchTrack.Username}: {matchResult.ShortReason}", true);
                     }
 
                     allTracks.Add(searchTrack);
