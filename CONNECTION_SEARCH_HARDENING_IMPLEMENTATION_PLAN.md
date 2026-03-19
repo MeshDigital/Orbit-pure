@@ -46,10 +46,10 @@ Primary outcomes:
 
 ### Execution status snapshot (2026-03-19)
 - ✅ **Phase A — Stabilization baseline:** Complete
-- 🟨 **Phase B — Connection manager refactor:** Mostly complete (`B1` state-machine service delivered; `B2` quick-retry cap + kick cooldown + jitter wired; `B3` runtime reconfiguration path delivered where Soulseek.NET supports live patching — connect timeout + listen port; remaining work is broader call-site migration)
-- 🟨 **Phase C — Search pipeline hardening:** Mostly complete (`C1` strict-first + `C2` unified filter policy + `C3` load shedding delivered)
-- 🟨 **Phase D — Transfer and queue reliability:** Partially complete (`D1` enqueue-first remote queue vs transferring semantics delivered; `D3` basic transfer retry taxonomy wired for queue denial vs access denial vs transient network errors; `D2` stream standardization already in place via `.part` file streaming path)
-- 🟨 **Phase E — Observability + diagnostics:** Partially complete (reliability counters + adaptive lane live UI + rolling decision history; pressure-level logging active; correlation ID flow wired across discovery/status/progress and surfaced in live console; E3 diagnostics snapshot copy delivered)
+- ✅ **Phase B — Connection manager refactor:** Complete (`B1` explicit lifecycle state machine via `ConnectionLifecycleService`; `B2` quick-retry cap + kick cooldown + jittered reconnect backoff; `B3` runtime reconfiguration via `ReconfigureOptionsAsync` for connect-timeout + listen-port without reconnect — scoped to what Soulseek.NET 9.1.0 exposes in `SoulseekClientOptionsPatch`)
+- ✅ **Phase C — Search pipeline hardening:** Complete (`C1` strict-first cascade with short-circuit on high-confidence match; `C2` unified `SearchFilterPolicy` — single source of truth for bitrate/format/queue/excluded-phrase filtering; `C3` pressure-aware load shedding across Normal/Elevated/Critical levels)
+- ✅ **Phase D — Transfer and queue reliability:** Complete (`D1` enqueue-first semantics via `TransferLifecyclePhase` callback — `RemoteQueued` vs `Transferring` states surfaced to UI; `D2` already satisfied by existing `.part` file streaming + atomic rename path; `D3` five-class retry taxonomy via `ClassifyTransferFailure` — `RemoteAccessDenied`, `RemoteQueueDenied`, `NetworkError`, `Timeout`, `PeerRejected` with per-class retry/hedge/delay policy)
+- 🟨 **Phase E — Observability + diagnostics:** Partially complete (reliability counters + adaptive lane live UI + rolling decision history; pressure-level logging active; correlation ID flow wired across discovery/status/progress and surfaced in live console; E3 diagnostics snapshot copy delivered; E1 metrics schema finalization + E5 telemetry-focused tests still pending)
 
 ## Phase A — Stabilization baseline (Complete / in progress)
 ### Delivered
@@ -359,19 +359,20 @@ Standardize key log fields:
 
 ## 8) Priority backlog (next actionable items)
 
-## P0 (this week)
-1. ⏳ Add `ConnectionLifecycleService` state machine skeleton and wire existing reconnect path into it.
-2. ✅ Add metrics events/counters for kick, cooldown, search rejections.
-3. ✅ Add tests for cooldown + variation cap.
+## Phases A–D — Completed ✅
+All planned work through Phase D has been delivered and merged to `master`.
+- Commits: `6f0023d` (B1/B2), `e12536a` (B3), `80e2353` (D1/D3)
+- Test suite: 57/57 passing, 0 build errors
 
-## P1 (next sprint)
-1. Introduce `SearchFilterPolicy` and remove duplicate filter branches.
-2. Implement enqueue-first transfer status handling for better queue UX.
-3. Add correlation IDs to discovery/search/transfer logs.
+## P0 — Phase E remaining work
+1. ⏳ **E1 metrics schema finalization** — standardize label dimensions (`reason`, `tier`, `pressureLevel`, `peerClass`); ensure no critical transition path lacks a metric.
+2. ⏳ **Transfer classification unit tests** — pure unit tests for all 5 `ClassifyTransferFailure` branches (`RemoteAccessDenied` no-retry, `TransferRejectedException` hedge allowed, `IOException` network retry, `TimeoutException` timeout+hedge, generic `PeerRejected`).
+3. ⏳ **`UnifiedTrackViewModel` Queued state enrichment** — show "Waiting in peer queue…" text + distinct icon/color for `PlaylistTrackState.Queued` vs local queue; add `Queued` to `IsActive` predicate.
 
-## P2 (following sprint)
-1. Adaptive load shedding and runtime option reconfigure.
-2. Full transfer retry taxonomy and policy tuning by failure class.
+## P1 — Phase E stretch goals
+1. E5 telemetry stress validation — 30-minute run confirming no missing metrics, stable diagnostics UI, bounded history.
+2. Structured log field normalization across all warn/error sites (`reason` + `correlationId` at minimum).
+3. DownloadManager DI cleanup — inject `ISoulseekAdapter` interface instead of concrete `SoulseekAdapter` for full DI compliance.
 
 ---
 
