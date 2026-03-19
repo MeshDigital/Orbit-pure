@@ -62,4 +62,15 @@ public interface INetworkHealthService
     /// Get aggregate reliability counters.
     /// </summary>
     NetworkReliabilityCounters GetReliabilityCounters();
+
+    /// <summary>
+    /// Record the terminal outcome of a single transfer attempt.
+    /// Pass null reason to indicate a successful completion.
+    /// </summary>
+    void RecordTransferOutcome(DownloadFailureReason? reason);
+
+    /// <summary>
+    /// Get aggregate transfer outcome counters.
+    /// </summary>
+    NetworkTransferCounters GetTransferCounters();
 }

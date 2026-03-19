@@ -285,4 +285,51 @@ public class NetworkHealthServiceTests
         Assert.Equal(0, counters.FilteredByDedupCount);
         Assert.Equal(0, counters.FilteredByExcludedPhraseCount);
     }
+
+    [Fact]
+    public void RecordTransferOutcome_TracksSucceededAndFailedBuckets()
+    {
+        // Arrange
+        _healthService.RecordTransferOutcome(null);
+        _healthService.RecordTransferOutcome(DownloadFailureReason.RemoteQueueDenied);
+        _healthService.RecordTransferOutcome(DownloadFailureReason.RemoteAccessDenied);
+        _healthService.RecordTransferOutcome(DownloadFailureReason.NetworkError);
+        _healthService.RecordTransferOutcome(DownloadFailureReason.Timeout);
+        _healthService.RecordTransferOutcome(DownloadFailureReason.PeerRejected);
+        _healthService.RecordTransferOutcome(DownloadFailureReason.UserCancelled);
+        _healthService.RecordTransferOutcome(DownloadFailureReason.TransferFailed);
+
+        // Act
+        var transfer = _healthService.GetTransferCounters();
+
+        // Assert
+        Assert.Equal(1, transfer.Succeeded);
+        Assert.Equal(1, transfer.RemoteQueueDenied);
+        Assert.Equal(1, transfer.RemoteAccessDenied);
+        Assert.Equal(1, transfer.NetworkError);
+        Assert.Equal(1, transfer.Timeout);
+        Assert.Equal(1, transfer.PeerRejected);
+        Assert.Equal(1, transfer.Cancelled);
+        Assert.Equal(1, transfer.OtherFailure);
+        Assert.Equal(8, transfer.Total);
+        Assert.Equal(7, transfer.TotalFailed);
+    }
+
+    [Fact]
+    public void ResetDiagnostics_AlsoClearsTransferCounters()
+    {
+        // Arrange
+        _healthService.RecordTransferOutcome(null);
+        _healthService.RecordTransferOutcome(DownloadFailureReason.NetworkError);
+
+        // Act
+        _healthService.ResetDiagnostics();
+
+        // Assert
+        var transfer = _healthService.GetTransferCounters();
+        Assert.Equal(0, transfer.Succeeded);
+        Assert.Equal(0, transfer.NetworkError);
+        Assert.Equal(0, transfer.Total);
+        Assert.Equal(0, transfer.TotalFailed);
+    }
 }

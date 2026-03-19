@@ -52,6 +52,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     private readonly IFileWriteService _fileWriteService; // Phase 1A
     private readonly CrashRecoveryJournal _crashJournal;
     private readonly PeerReliabilityService _peerReliability;
+    private readonly INetworkHealthService _networkHealth;
 
 
     // Phase 2: Parallel Pre-Search Cache
@@ -140,7 +141,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         PathProviderService pathProvider,
         IFileWriteService fileWriteService,
         CrashRecoveryJournal crashJournal,
-        PeerReliabilityService peerReliability) // Phase 1: Engine Overhaul
+        PeerReliabilityService peerReliability,
+        INetworkHealthService networkHealth) // Phase 1: Engine Overhaul
 
     {
         _logger = logger;
@@ -156,6 +158,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         _fileWriteService = fileWriteService;
         _crashJournal = crashJournal; 
         _peerReliability = peerReliability;
+        _networkHealth = networkHealth;
 
 
         // CONCURRENCY CONTROL ARCHITECTURE:
@@ -923,6 +926,19 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         if (newState == PlaylistTrackState.Completed || newState == PlaylistTrackState.Failed || newState == PlaylistTrackState.Cancelled)
         {
             ctx.Model.CompletedAt = DateTime.UtcNow;
+
+            if (newState == PlaylistTrackState.Completed)
+            {
+                _networkHealth.RecordTransferOutcome(null);
+            }
+            else if (newState == PlaylistTrackState.Cancelled)
+            {
+                _networkHealth.RecordTransferOutcome(DownloadFailureReason.TransferCancelled);
+            }
+            else
+            {
+                _networkHealth.RecordTransferOutcome(ctx.FailureReason ?? DownloadFailureReason.TransferFailed);
+            }
         }
         
         // Publish with ProjectId for targeted updates

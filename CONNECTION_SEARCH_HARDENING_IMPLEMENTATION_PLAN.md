@@ -49,7 +49,7 @@ Primary outcomes:
 - ✅ **Phase B — Connection manager refactor:** Complete (`B1` explicit lifecycle state machine via `ConnectionLifecycleService`; `B2` quick-retry cap + kick cooldown + jittered reconnect backoff; `B3` runtime reconfiguration via `ReconfigureOptionsAsync` for connect-timeout + listen-port without reconnect — scoped to what Soulseek.NET 9.1.0 exposes in `SoulseekClientOptionsPatch`)
 - ✅ **Phase C — Search pipeline hardening:** Complete (`C1` strict-first cascade with short-circuit on high-confidence match; `C2` unified `SearchFilterPolicy` — single source of truth for bitrate/format/queue/excluded-phrase filtering; `C3` pressure-aware load shedding across Normal/Elevated/Critical levels)
 - ✅ **Phase D — Transfer and queue reliability:** Complete (`D1` enqueue-first semantics via `TransferLifecyclePhase` callback — `RemoteQueued` vs `Transferring` states surfaced to UI; `D2` already satisfied by existing `.part` file streaming + atomic rename path; `D3` five-class retry taxonomy via `ClassifyTransferFailure` — `RemoteAccessDenied`, `RemoteQueueDenied`, `NetworkError`, `Timeout`, `PeerRejected` with per-class retry/hedge/delay policy)
-- 🟨 **Phase E — Observability + diagnostics:** Partially complete (reliability counters + adaptive lane live UI + rolling decision history; pressure-level logging active; correlation ID flow wired across discovery/status/progress and surfaced in live console; E3 diagnostics snapshot copy delivered; E1 metrics schema finalization + E5 telemetry-focused tests still pending)
+- 🟨 **Phase E — Observability + diagnostics:** Mostly complete (reliability counters + adaptive lane live UI + rolling decision history; pressure-level logging active; correlation ID flow wired across discovery/status/progress and surfaced in live console; E3 diagnostics snapshot copy delivered; E1 transfer-outcome counters delivered in `NetworkHealthService` via `RecordTransferOutcome`/`GetTransferCounters`; targeted tests added for transfer classification and transfer metrics; remaining work is E5 telemetry stress validation + final log field normalization)
 
 ## Phase A — Stabilization baseline (Complete / in progress)
 ### Delivered
@@ -361,13 +361,13 @@ Standardize key log fields:
 
 ## Phases A–D — Completed ✅
 All planned work through Phase D has been delivered and merged to `master`.
-- Commits: `6f0023d` (B1/B2), `e12536a` (B3), `80e2353` (D1/D3)
-- Test suite: 57/57 passing, 0 build errors
+- Commits: `6f0023d` (B1/B2), `e12536a` (B3), `80e2353` (D1/D3), `59b6f05` (D3 classification tests), `9ad60dd` (queued-state UX polish)
+- Test suite: 88/88 passing, 0 build errors
 
 ## P0 — Phase E remaining work
-1. ⏳ **E1 metrics schema finalization** — standardize label dimensions (`reason`, `tier`, `pressureLevel`, `peerClass`); ensure no critical transition path lacks a metric.
-2. ⏳ **Transfer classification unit tests** — pure unit tests for all 5 `ClassifyTransferFailure` branches (`RemoteAccessDenied` no-retry, `TransferRejectedException` hedge allowed, `IOException` network retry, `TimeoutException` timeout+hedge, generic `PeerRejected`).
-3. ⏳ **`UnifiedTrackViewModel` Queued state enrichment** — show "Waiting in peer queue…" text + distinct icon/color for `PlaylistTrackState.Queued` vs local queue; add `Queued` to `IsActive` predicate.
+1. ✅ **E1 transfer metrics coverage** — transfer terminal outcomes now tracked in `NetworkHealthService` (`Succeeded`, `RemoteQueueDenied`, `RemoteAccessDenied`, `NetworkError`, `Timeout`, `PeerRejected`, `Cancelled`, `OtherFailure`) and reset with diagnostics.
+2. ✅ **Transfer classification unit tests** — all 5 `ClassifyTransferFailure` branches covered (+ priority-ordering test and `ShouldAutoRetry` cross-check).
+3. ✅ **`UnifiedTrackViewModel` Queued state enrichment** — "Waiting in peer queue…" status, distinct queued color, queued included in `IsActive`, and `IsRemoteQueued` helper exposed.
 
 ## P1 — Phase E stretch goals
 1. E5 telemetry stress validation — 30-minute run confirming no missing metrics, stable diagnostics UI, bounded history.

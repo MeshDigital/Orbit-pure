@@ -41,6 +41,16 @@ public class NetworkHealthService : INetworkHealthService
     private int _filteredByDedupCount;
     private int _filteredByExcludedPhraseCount;
 
+    // Transfer terminal counters
+    private int _transferSucceededCount;
+    private int _transferRemoteQueueDeniedCount;
+    private int _transferRemoteAccessDeniedCount;
+    private int _transferNetworkErrorCount;
+    private int _transferTimeoutCount;
+    private int _transferPeerRejectedCount;
+    private int _transferCancelledCount;
+    private int _transferOtherFailureCount;
+
     public NetworkHealthService(ILogger<NetworkHealthService> logger)
     {
         _logger = logger;
@@ -121,6 +131,14 @@ public class NetworkHealthService : INetworkHealthService
         _filteredByQueueCount = 0;
         _filteredByDedupCount = 0;
         _filteredByExcludedPhraseCount = 0;
+        _transferSucceededCount = 0;
+        _transferRemoteQueueDeniedCount = 0;
+        _transferRemoteAccessDeniedCount = 0;
+        _transferNetworkErrorCount = 0;
+        _transferTimeoutCount = 0;
+        _transferPeerRejectedCount = 0;
+        _transferCancelledCount = 0;
+        _transferOtherFailureCount = 0;
     }
 
     public void RecordSearchFiltering(
@@ -162,6 +180,55 @@ public class NetworkHealthService : INetworkHealthService
             FilteredByQueueCount: _filteredByQueueCount,
             FilteredByDedupCount: _filteredByDedupCount,
             FilteredByExcludedPhraseCount: _filteredByExcludedPhraseCount);
+    }
+
+    public void RecordTransferOutcome(DownloadFailureReason? reason)
+    {
+        if (reason is null)
+        {
+            _transferSucceededCount++;
+            return;
+        }
+
+        switch (reason.Value)
+        {
+            case DownloadFailureReason.RemoteQueueDenied:
+                _transferRemoteQueueDeniedCount++;
+                break;
+            case DownloadFailureReason.RemoteAccessDenied:
+                _transferRemoteAccessDeniedCount++;
+                break;
+            case DownloadFailureReason.NetworkError:
+                _transferNetworkErrorCount++;
+                break;
+            case DownloadFailureReason.Timeout:
+                _transferTimeoutCount++;
+                break;
+            case DownloadFailureReason.PeerRejected:
+                _transferPeerRejectedCount++;
+                break;
+            case DownloadFailureReason.TransferCancelled:
+            case DownloadFailureReason.UserCancelled:
+            case DownloadFailureReason.Interrupted:
+                _transferCancelledCount++;
+                break;
+            default:
+                _transferOtherFailureCount++;
+                break;
+        }
+    }
+
+    public NetworkTransferCounters GetTransferCounters()
+    {
+        return new NetworkTransferCounters(
+            Succeeded: _transferSucceededCount,
+            RemoteQueueDenied: _transferRemoteQueueDeniedCount,
+            RemoteAccessDenied: _transferRemoteAccessDeniedCount,
+            NetworkError: _transferNetworkErrorCount,
+            Timeout: _transferTimeoutCount,
+            PeerRejected: _transferPeerRejectedCount,
+            Cancelled: _transferCancelledCount,
+            OtherFailure: _transferOtherFailureCount);
     }
 
     public NetworkHealthSignal GetCurrentHealth()
