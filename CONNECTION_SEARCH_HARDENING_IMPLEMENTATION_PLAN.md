@@ -370,7 +370,7 @@ All planned work through Phase D has been delivered and merged to `master`.
 3. ✅ **`UnifiedTrackViewModel` Queued state enrichment** — "Waiting in peer queue…" status, distinct queued color, queued included in `IsActive`, and `IsRemoteQueued` helper exposed.
 
 ## P1 — Phase E stretch goals
-1. 🟨 E5 telemetry stress validation — automated stress-style tests delivered (`NetworkHealthServiceTests`: high-volume recording, bounded/ordered history slice, exact transfer aggregation). Remaining: live 30-minute run confirming diagnostics UI behavior under sustained runtime load.
+1. 🟨 E5 telemetry stress validation — automated stress-style tests delivered (`NetworkHealthServiceTests`: high-volume recording, bounded/ordered history slice, exact transfer aggregation) and live runtime soak sampled (app boots, reconnect loop + discovery lanes + diagnostics logging active). Remaining: dedicated 30-minute single-instance run confirming sustained diagnostics UI behavior without listener-port contention.
 2. 🟨 Structured log field normalization across all warn/error sites (`reason` + `correlationId` at minimum). Status: transfer-critical `DownloadManager` + `ConnectionLifecycleService` covered; broad sweep for remaining low-priority sites pending.
 3. ✅ DownloadManager DI cleanup — `ISoulseekAdapter` now injected instead of concrete `SoulseekAdapter` for full DI compliance.
 
