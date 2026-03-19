@@ -332,4 +332,99 @@ public class NetworkHealthServiceTests
         Assert.Equal(0, transfer.Total);
         Assert.Equal(0, transfer.TotalFailed);
     }
+
+    [Fact]
+    public void TelemetryStress_HighVolumeRecording_PreservesCountersAndHistorySlice()
+    {
+        // Arrange
+        const int searchCount = 5000;
+
+        for (int i = 0; i < searchCount; i++)
+        {
+            int accepted = i % 5 == 0 ? 0 : (i % 11) + 1;
+            _healthService.RecordSearch($"StressQuery{i}", rawResultCount: 100, acceptedResultCount: accepted, searchCompleted: true);
+        }
+
+        _healthService.RecordConnectionKick("stress kick");
+        _healthService.RecordExcludedPhraseQueryBlock();
+        _healthService.RecordSearchFiltering(100, 200, 300, 400, 500, 600);
+
+        // Act
+        var signal = _healthService.GetCurrentHealth();
+        var counters = _healthService.GetReliabilityCounters();
+        var history = _healthService.GetRecentHistory(100);
+
+        // Assert
+        Assert.Equal(searchCount, signal.TotalSearchCount);
+        Assert.Equal(1000, signal.ZeroResultSearchCount); // Every 5th query has zero accepted results.
+
+        Assert.Equal(1, counters.KickedEventCount);
+        Assert.Equal(1, counters.ExcludedPhraseQueryBlocks);
+        Assert.Equal(100, counters.FilteredByFormatCount);
+        Assert.Equal(200, counters.FilteredByBitrateCount);
+        Assert.Equal(300, counters.FilteredBySampleRateCount);
+        Assert.Equal(400, counters.FilteredByQueueCount);
+        Assert.Equal(500, counters.FilteredByDedupCount);
+        Assert.Equal(600, counters.FilteredByExcludedPhraseCount);
+
+        Assert.Equal(100, history.Count);
+        Assert.StartsWith("StressQuery", history[0].Query);
+        Assert.StartsWith("StressQuery", history[^1].Query);
+    }
+
+    [Fact]
+    public void GetRecentHistory_ReturnsLatestSliceInChronologicalOrder()
+    {
+        // Arrange
+        for (int i = 0; i < 5; i++)
+        {
+            _healthService.RecordSearch($"Chrono{i}", 10, 1, true);
+            Thread.Sleep(2); // Ensure strictly increasing timestamps on fast machines.
+        }
+
+        // Act
+        var history = _healthService.GetRecentHistory(3);
+
+        // Assert (latest 3 entries, oldest->newest within the slice)
+        Assert.Equal(3, history.Count);
+        Assert.Equal("Chrono2", history[0].Query);
+        Assert.Equal("Chrono3", history[1].Query);
+        Assert.Equal("Chrono4", history[2].Query);
+        Assert.True(history[0].TimestampUtc <= history[1].TimestampUtc);
+        Assert.True(history[1].TimestampUtc <= history[2].TimestampUtc);
+    }
+
+    [Fact]
+    public void TransferTelemetryStress_HighVolumeOutcomes_AggregateExactly()
+    {
+        // Arrange
+        const int iterations = 2000;
+
+        for (int i = 0; i < iterations; i++)
+        {
+            _healthService.RecordTransferOutcome(null);
+            _healthService.RecordTransferOutcome(DownloadFailureReason.RemoteQueueDenied);
+            _healthService.RecordTransferOutcome(DownloadFailureReason.RemoteAccessDenied);
+            _healthService.RecordTransferOutcome(DownloadFailureReason.NetworkError);
+            _healthService.RecordTransferOutcome(DownloadFailureReason.Timeout);
+            _healthService.RecordTransferOutcome(DownloadFailureReason.PeerRejected);
+            _healthService.RecordTransferOutcome(DownloadFailureReason.UserCancelled);
+            _healthService.RecordTransferOutcome(DownloadFailureReason.TransferFailed);
+        }
+
+        // Act
+        var transfer = _healthService.GetTransferCounters();
+
+        // Assert
+        Assert.Equal(iterations, transfer.Succeeded);
+        Assert.Equal(iterations, transfer.RemoteQueueDenied);
+        Assert.Equal(iterations, transfer.RemoteAccessDenied);
+        Assert.Equal(iterations, transfer.NetworkError);
+        Assert.Equal(iterations, transfer.Timeout);
+        Assert.Equal(iterations, transfer.PeerRejected);
+        Assert.Equal(iterations, transfer.Cancelled);
+        Assert.Equal(iterations, transfer.OtherFailure);
+        Assert.Equal(iterations * 8, transfer.Total);
+        Assert.Equal(iterations * 7, transfer.TotalFailed);
+    }
 }
