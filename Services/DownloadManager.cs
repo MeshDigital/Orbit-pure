@@ -1238,16 +1238,14 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
         _logger.LogInformation("🚀 Force Start (VIP) triggered for {Title}", ctx.Model.Title);
         
-        // 1. Mark as VIP so it bypasses semaphore waits
+        // 1. Mark as VIP and bump priority so it is selected first by queue order
         ctx.IsVip = true;
         ctx.Model.Priority = 0; // Bump to top of swimlanes
         
-        // 2. Proactive Start: If not already active, start it immediately bypassing the loop
+        // 2. Keep strict slot accounting: queue loop will start it when a worker slot is available.
         if (ctx.State != PlaylistTrackState.Downloading && ctx.State != PlaylistTrackState.Searching)
         {
             await UpdateStateAsync(ctx, PlaylistTrackState.Pending);
-            // Bypassing loop logic: start the process task directly
-            _ = Task.Run(() => ProcessTrackAsync(ctx, _globalCts.Token));
         }
     }
 
@@ -1269,8 +1267,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         // Reset failures and logs to give it a fresh start
         ctx.ErrorMessage = null;
         ctx.SearchAttempts.Clear();
-        
-        _ = Task.Run(() => ProcessTrackAsync(ctx, _globalCts.Token));
+
+        // Keep strict slot accounting: queue loop starts this within configured concurrency.
     }
 
     public async Task ForceDownloadSpecificCandidateAsync(string globalId, string username, string filename, int? bitrate = null, string? format = null)
@@ -1326,23 +1324,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
         await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "Manual force candidate selected");
 
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await DownloadFileAsync(ctx, candidate, ctx.CancellationTokenSource.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                _logger.LogInformation("Manual force download was cancelled for {Title}", ctx.Model.Title);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Manual force download failed for {Title}", ctx.Model.Title);
-                ctx.FailureReason = DownloadFailureReason.TransferFailed;
-                await UpdateStateAsync(ctx, PlaylistTrackState.Failed, ex.Message);
-            }
-        });
+        // Keep strict slot accounting: queue loop starts this within configured concurrency.
+        // Preserve manual candidate intent by recording it for the next discovery/download cycle.
+        ctx.OverrideCandidate = candidate;
     }
     
     public async Task UpdateTrackFiltersAsync(string globalId, string formats, int minBitrate)
@@ -1535,19 +1519,15 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                 if (snapshot.CompletionRatio < 0.45 || snapshot.StallRatio > 0.45)
                 {
-                    targetDownloadLanes = Math.Max(_config.MinAdaptiveDownloadLanes, MaxActiveDownloads - 1);
                     targetSearchLanes = Math.Max(_config.MinAdaptiveSearchLanes, _currentSearchLanes - 1);
                 }
                 else if (snapshot.CompletionRatio > 0.80 && snapshot.StallRatio < 0.20)
                 {
-                    targetDownloadLanes = Math.Min(_config.MaxAdaptiveDownloadLanes, MaxActiveDownloads + 1);
                     targetSearchLanes = Math.Min(_config.MaxAdaptiveSearchLanes, _currentSearchLanes + 1);
                 }
 
-                if (targetDownloadLanes != MaxActiveDownloads)
-                {
-                    MaxActiveDownloads = targetDownloadLanes;
-                }
+                // STRICT CONCURRENCY: keep download worker slots pinned to user slider.
+                _ = targetDownloadLanes;
 
                 ResizeSearchLanes(targetSearchLanes);
 
@@ -1866,8 +1846,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                             activeByPriority[ctx.Model.Priority] = activeByPriority.GetValueOrDefault(ctx.Model.Priority) + 1;
                         }
                         else if (ctx.State == PlaylistTrackState.Pending && 
-                                (!ctx.NextRetryTime.HasValue || ctx.NextRetryTime.Value <= DateTime.UtcNow) &&
-                                (ctx.Model.IsEnriched || ctx.IsVip || (DateTime.UtcNow - ctx.Model.AddedAt).TotalSeconds > 20))
+                            (!ctx.NextRetryTime.HasValue || ctx.NextRetryTime.Value <= DateTime.UtcNow))
                         {
                             eligibleTracks.Add(ctx);
                         }
@@ -1888,28 +1867,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                          _ = Task.Run(() => RefillQueueAsync());
                     }
 
-                    // Phase 2: Parallel Pre-Search Trigger (Fire & Forget)
-                    if (eligibleTracks.Any())
-                    {
-                        var topCandidates = eligibleTracks
-                            .OrderBy(t => t.Model.Priority)
-                            .ThenBy(t => t.Model.AddedAt)
-                            .Take(_currentSearchLanes)
-                            .ToList();
-
-                        foreach (var track in topCandidates)
-                        {
-                            EnqueuePreSearch(track);
-                        }
-                        
-                        // Cleanup old tasks for tracks no longer in eligible list
-                        var eligibleIds = new HashSet<string>(eligibleTracks.Select(t => t.GlobalId));
-                        var staleKeys = _preSearchTasks.Keys.Where(k => !eligibleIds.Contains(k)).ToList();
-                        foreach(var key in staleKeys)
-                        {
-                            _preSearchTasks.TryRemove(key, out _);
-                        }
-                    }
+                    // Pre-search is intentionally disabled in strict-concurrency mode.
                 }
 
                 if (nextContext == null)
@@ -1923,23 +1881,14 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     nextContext.Model.Title, nextContext.Model.Priority, nextContext.IsVip);
 
                 bool tookSemaphoreSlot = false;
-                if (!nextContext.IsVip)
+                // STRICT CONCURRENCY: every track lifecycle (search -> match -> download) consumes exactly one worker slot.
+                // No VIP bypass here; slider value is authoritative for "no more, no less" active tracks.
+                if (!_downloadSemaphore.Wait(0))
                 {
-                    // NON-BLOCKING: Try to acquire a slot without waiting.
-                    // If no slot is available, yield the loop and retry on the next cycle.
-                    // This prevents the orchestrator from stalling when all slots are full,
-                    // keeping it responsive for VIP tracks, pre-searches, and UI updates.
-                    if (!_downloadSemaphore.Wait(0))
-                    {
-                        await Task.Delay(200, token);
-                        continue;
-                    }
-                    tookSemaphoreSlot = true;
+                    await Task.Delay(200, token);
+                    continue;
                 }
-                else
-                {
-                    _logger.LogDebug("VIP bypass path selected in loop for '{Title}'", nextContext.Model.Title);
-                }
+                tookSemaphoreSlot = true;
 
                 OnPropertyChanged(nameof(ActiveWorkerSlots));
 
@@ -1971,25 +1920,6 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     continue;
                 }
 
-                // Race Condition Safety Checks
-                if (!tookSemaphoreSlot && !confirmedContext.IsVip)
-                {
-                    // We bypassed the semaphore wait because initial track was VIP, 
-                    // but the confirmed track is a normal track. We must acquire a slot, 
-                    // but doing so safely requires yielding the loop to re-evaluate state.
-                    _logger.LogDebug("Race Condition: Need a slot for confirmed non-VIP track but didn't wait. Yielding loop.");
-                    continue; 
-                }
-
-                if (tookSemaphoreSlot && confirmedContext.IsVip)
-                {
-                    // We acquired a slot for a normal track, but selected a VIP track. 
-                    // Release the slot immediately so another track can use it.
-                    _logger.LogDebug("Race Condition: Got a slot for a normal track, but selected a VIP track. Releasing slot.");
-                    _downloadSemaphore.Release();
-                    tookSemaphoreSlot = false; // Important: Prevents finally block from double-releasing!
-                }
-
                 // If we switched tracks (e.g. a higher priority one came in), use the new one.
                 // If confirmedContext matches nextContext, great. If not, confirmedContext is better.
                 nextContext = confirmedContext;
@@ -2011,8 +1941,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         if (finalTookSlot)
                         {
                             _downloadSemaphore.Release();
-                            _logger.LogDebug("Released semaphore slot. Available slots: {Available}/4", 
-                                _downloadSemaphore.CurrentCount);
+                            _logger.LogDebug("Released semaphore slot. Available slots: {Available}/{Total}", 
+                                _downloadSemaphore.CurrentCount, _maxActiveDownloads);
                         }
                         OnPropertyChanged(nameof(ActiveWorkerSlots));
                     }
@@ -2032,43 +1962,15 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
     private void EnqueuePreSearch(DownloadContext track)
     {
-        if (_preSearchTasks.ContainsKey(track.GlobalId))
-            return;
-
-        var searchTask = Task.Run(async () =>
-        {
-            await _searchSemaphore.WaitAsync(_globalCts.Token);
-            try
-            {
-                return await _discoveryService.FindBestMatchAsync(track.Model, _globalCts.Token, track.BlacklistedUsers);
-            }
-            finally
-            {
-                _searchSemaphore.Release();
-            }
-        }, _globalCts.Token);
-
-        _preSearchTasks.TryAdd(track.GlobalId, searchTask);
-        _logger.LogDebug("Pre-Search queued for {Title}", track.Model.Title);
+        // STRICT CONCURRENCY MODE:
+        // Pre-search can create extra parallel network searches outside worker slots.
+        // Keep discovery inside ProcessTrackAsync so total active network work equals slider value.
+        _ = track;
     }
 
     private void PrimePipelineSearchForNextTrack(string currentTrackGlobalId)
     {
-        lock (_collectionLock)
-        {
-            var nextCandidate = _downloads
-                .Where(t => t.GlobalId != currentTrackGlobalId &&
-                            t.State == PlaylistTrackState.Pending &&
-                            (!t.NextRetryTime.HasValue || t.NextRetryTime.Value <= DateTime.UtcNow))
-                .OrderBy(t => t.Model.Priority)
-                .ThenBy(t => t.Model.AddedAt)
-                .FirstOrDefault();
-
-            if (nextCandidate != null)
-            {
-                EnqueuePreSearch(nextCandidate);
-            }
-        }
+        _ = currentTrackGlobalId;
     }
 
     private async Task ProcessTrackAsync(DownloadContext ctx, CancellationToken ct)
@@ -2108,17 +2010,27 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 // Phase 2: Parallel Pre-Search Integration
                 // Check if we already have a running search task for this track
                 DownloadDiscoveryService.DiscoveryResult discoveryResult;
-                if (_preSearchTasks.TryRemove(ctx.GlobalId, out var existingTask))
+                Track? bestMatch;
+
+                if (ctx.OverrideCandidate != null)
+                {
+                    bestMatch = ctx.OverrideCandidate;
+                    ctx.OverrideCandidate = null;
+                    discoveryResult = new DownloadDiscoveryService.DiscoveryResult(bestMatch, null, null);
+                    _logger.LogInformation("Using manual override candidate for {Title}", ctx.Model.Title);
+                }
+                else if (_preSearchTasks.TryRemove(ctx.GlobalId, out var existingTask))
                 {
                     _logger.LogDebug("⚡ Using Pre-Search result for {Title}", ctx.Model.Title);
                     discoveryResult = await existingTask; // Await the already running task
+                    bestMatch = discoveryResult.BestMatch;
                 }
                 else
                 {
                     // Fallback to normal execution if not pre-searched
                     discoveryResult = await _discoveryService.FindBestMatchAsync(ctx.Model, trackCt, ctx.BlacklistedUsers);
+                    bestMatch = discoveryResult.BestMatch;
                 }
-                var bestMatch = discoveryResult.BestMatch;
                 ctx.HedgeAttempted = false;
                 ctx.HedgeMatch = null;
 
@@ -2979,9 +2891,6 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     // Phase 3C: Multi-Lane Priority Engine
     // ========================================
 
-    private const int HIGH_PRIORITY_SLOTS = 2;
-    private const int STANDARD_PRIORITY_SLOTS = 2;
-
     /// <summary>
     /// Gets count of active downloads grouped by priority level.
     /// Returns dictionary: Priority -> Count
@@ -2997,10 +2906,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
-    /// Selects next track respecting lane allocation limits.
-    /// Lane A (Priority 0): 2 slots max
-    /// Lane B (Priority 1): 2 slots max  
-    /// Lane C (Priority 10+): Remaining slots
+    /// Selects next track by queue priority only.
+    /// Concurrency is enforced exclusively by the global worker-slot semaphore.
     /// </summary>
     private DownloadContext? SelectNextTrackWithLaneAllocation(
         List<DownloadContext> eligibleTracks,
@@ -3008,40 +2915,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     {
         if (!eligibleTracks.Any()) return null;
 
-        // Count current in-flight activity by lane
-        // We consider Searching and Downloading as "consuming" lane capacity
-        var inFlight = _downloads.Where(d => d.State == PlaylistTrackState.Searching || d.State == PlaylistTrackState.Downloading).ToList();
-        
-        var laneA_Count = inFlight.Count(d => d.Model.Priority == 0); // Express/VIP
-        var laneB_Count = inFlight.Count(d => d.Model.Priority > 0 && d.Model.Priority < 10); // Standard
-        var laneC_Count = inFlight.Count(d => d.Model.Priority >= 10); // Bulk
-
-        foreach (var track in eligibleTracks)
-        {
-            // VIPs (Marked explicitly) always bypass lane limits and semaphore
-            if (track.IsVip) return track;
-
-            // Lane A: Express (Priority 0) - Max 2 slots
-            if (track.Model.Priority == 0)
-            {
-                if (laneA_Count < 2) return track;
-                continue; 
-            }
-
-            // Lane B: Standard (Priority 1-9) - Max 2 slots
-            if (track.Model.Priority > 0 && track.Model.Priority < 10)
-            {
-                if (laneB_Count < 2) return track;
-                continue;
-            }
-
-            // Lane C: Everything else (Bulk, P10+) - Remaining capacity
-            // Bulk tracks only run if they don't block high priority lanes?
-            // Actually, the semaphore already limits total. We just allow them here if no high priority is ready.
-            return track;
-        }
-
-        return null; // All lanes saturated
+        _ = activeByPriority;
+        return eligibleTracks
+            .OrderBy(t => t.Model.Priority)
+            .ThenBy(t => t.Model.AddedAt)
+            .FirstOrDefault();
     }
 
     public void BumpTrackToTop(string globalId)

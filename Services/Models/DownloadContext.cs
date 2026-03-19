@@ -27,6 +27,7 @@ public class DownloadContext
     public HashSet<string> BlacklistedUsers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public string? CurrentUsername { get; set; } // Track active peer for Health Monitor
     public Track? HedgeMatch { get; set; }
+    public Track? OverrideCandidate { get; set; }
     public bool HedgeAttempted { get; set; }
 
     // Phase 2.5: Resumable Download Tracking
@@ -70,7 +71,7 @@ public class DownloadContext
     public List<SearchAttemptLog> SearchAttempts { get; set; } = new();
     public string? DetailedFailureMessage { get; set; }
     public string? StalledReason { get; set; } // [NEW] Overhaul Phase
-    public bool IsVip { get; set; } // [NEW] Overhaul Phase: Bypasses semaphore
+    public bool IsVip { get; set; } // [NEW] Overhaul Phase: prioritizes queue selection
     public DateTime? SearchStartedAt { get; set; } // Phase 10
 
     public DownloadContext(PlaylistTrack model)
