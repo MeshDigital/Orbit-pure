@@ -1359,12 +1359,25 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             _configManager.Save(_config);
+            _ = ApplySoulseekRuntimeConfigurationAsync();
             // TODO: Show toast notification?
             _logger.LogInformation("Settings saved");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save settings");
+        }
+    }
+
+    private async Task ApplySoulseekRuntimeConfigurationAsync()
+    {
+        try
+        {
+            await _soulseek.ApplyRuntimeNetworkConfigurationAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to apply Soulseek runtime network configuration after settings save.");
         }
     }
 

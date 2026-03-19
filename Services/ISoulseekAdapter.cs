@@ -11,6 +11,7 @@ public interface ISoulseekAdapter
     bool IsLoggedIn { get; }
     int SharedFileCount { get; }
     Task ConnectAsync(string? password = null, CancellationToken ct = default);
+    Task<bool> ApplyRuntimeNetworkConfigurationAsync(CancellationToken ct = default);
     Task DisconnectAsync();
     void Disconnect();
     Task RefreshShareStateAsync(CancellationToken ct = default);

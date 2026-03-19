@@ -10,6 +10,7 @@ using System.Runtime.CompilerServices;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Collections.ObjectModel;
+using System.Net;
 
 namespace SLSKDONET.Services;
 
@@ -18,6 +19,8 @@ namespace SLSKDONET.Services;
 /// </summary>
 public class SoulseekAdapter : ISoulseekAdapter, IDisposable
 {
+    private sealed record RuntimeNetworkConfigSnapshot(int ConnectTimeout, int ListenPort);
+
     private static readonly HashSet<string> NonMetadataPathTokens = new(StringComparer.OrdinalIgnoreCase)
     {
         "desktop", "downloads", "download", "temp", "incoming", "new folder", "music", "audio"
@@ -47,6 +50,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
     private readonly Network.ProtocolHardeningService _hardeningService;
     private readonly ConcurrentDictionary<string, byte> _excludedPhrases = new();
     private readonly INetworkHealthService _healthService;
+    private RuntimeNetworkConfigSnapshot? _lastAppliedRuntimeNetworkConfig;
 
     public SoulseekAdapter(ILogger<SoulseekAdapter> logger, AppConfig config, Network.ProtocolHardeningService hardeningService, IEventBus eventBus, INetworkHealthService healthService)
     {
@@ -60,6 +64,43 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
     private SoulseekClient? _client;
 
     private readonly ResultFingerprinter _resultFingerprinter = new();
+
+    private static int GetEffectiveConnectTimeout(int configuredTimeout)
+        => Math.Max(15_000, configuredTimeout);
+
+    private static int GetEffectiveListenPort(int configuredListenPort)
+        => Math.Clamp(configuredListenPort, 1_024, 65_535);
+
+    private RuntimeNetworkConfigSnapshot CreateRuntimeNetworkConfigSnapshot()
+        => new(
+            ConnectTimeout: GetEffectiveConnectTimeout(_config.ConnectTimeout),
+            ListenPort: GetEffectiveListenPort(_config.ListenPort));
+
+    private SoulseekClientOptions CreateClientOptions()
+    {
+        var runtime = CreateRuntimeNetworkConfigSnapshot();
+        var serverConnectionOptions = new ConnectionOptions(connectTimeout: runtime.ConnectTimeout);
+
+        return new SoulseekClientOptions(
+            enableListener: true,
+            listenIPAddress: IPAddress.Any,
+            listenPort: runtime.ListenPort,
+            serverConnectionOptions: serverConnectionOptions,
+            messageTimeout: runtime.ConnectTimeout,
+            maximumConcurrentSearches: Math.Clamp(_config.MaxConcurrentSearches, 1, 3),
+            maximumConcurrentDownloads: Math.Clamp(_config.MaxConcurrentDownloads, 1, 10));
+    }
+
+    private SoulseekClientOptionsPatch CreateRuntimeNetworkOptionsPatch(RuntimeNetworkConfigSnapshot runtime)
+    {
+        var serverConnectionOptions = new ConnectionOptions(connectTimeout: runtime.ConnectTimeout);
+
+        return new SoulseekClientOptionsPatch(
+            enableListener: true,
+            listenIPAddress: IPAddress.Any,
+            listenPort: runtime.ListenPort,
+            serverConnectionOptions: serverConnectionOptions);
+    }
 
     private void SafeDisposeClient(SoulseekClient client, string reason)
     {
@@ -150,19 +191,17 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 SafeDisposeClient(oldClient, "connect swap");
             }
 
-            var serverConnectionOptions = new ConnectionOptions(connectTimeout: _config.ConnectTimeout);
-            var clientOptions = new SoulseekClientOptions(
-                serverConnectionOptions: serverConnectionOptions,
-                messageTimeout: Math.Max(15_000, _config.ConnectTimeout),
-                maximumConcurrentSearches: Math.Clamp(_config.MaxConcurrentSearches, 1, 3),
-                maximumConcurrentDownloads: Math.Clamp(_config.MaxConcurrentDownloads, 1, 10));
+            var runtime = CreateRuntimeNetworkConfigSnapshot();
+            var clientOptions = CreateClientOptions();
             var client = new SoulseekClient(minorVersion: _config.SoulseekMinorVersion, options: clientOptions);
             _client = client;
+            _lastAppliedRuntimeNetworkConfig = runtime;
 
             _logger.LogInformation(
-                "Soulseek client configured: minorVersion={MinorVersion}, messageTimeout={MessageTimeout}ms, maxSearches={MaxSearches}, maxDownloads={MaxDownloads}",
+                "Soulseek client configured: minorVersion={MinorVersion}, messageTimeout={MessageTimeout}ms, listenPort={ListenPort}, maxSearches={MaxSearches}, maxDownloads={MaxDownloads}",
                 _config.SoulseekMinorVersion,
-                Math.Max(15_000, _config.ConnectTimeout),
+                runtime.ConnectTimeout,
+                runtime.ListenPort,
                 Math.Clamp(_config.MaxConcurrentSearches, 1, 3),
                 Math.Clamp(_config.MaxConcurrentDownloads, 1, 10));
             
@@ -269,6 +308,53 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         {
             _connectLock.Release();
         }
+    }
+
+    public async Task<bool> ApplyRuntimeNetworkConfigurationAsync(CancellationToken ct = default)
+    {
+        var client = _client;
+        if (client == null)
+        {
+            _logger.LogDebug("Runtime network reconfigure skipped because Soulseek client has not been created yet.");
+            return false;
+        }
+
+        var runtime = CreateRuntimeNetworkConfigSnapshot();
+        if (_lastAppliedRuntimeNetworkConfig == runtime)
+        {
+            _logger.LogDebug(
+                "Runtime network reconfigure skipped because connectTimeout={ConnectTimeout}ms and listenPort={ListenPort} are unchanged.",
+                runtime.ConnectTimeout,
+                runtime.ListenPort);
+            return false;
+        }
+
+        var isOperational = client.State.HasFlag(SoulseekClientStates.Connected) &&
+                            !client.State.HasFlag(SoulseekClientStates.Disconnecting) &&
+                            !client.State.HasFlag(SoulseekClientStates.Disconnected);
+
+        if (!isOperational)
+        {
+            _lastAppliedRuntimeNetworkConfig = runtime;
+            _logger.LogInformation(
+                "Deferred runtime network reconfigure until next Soulseek connect (connectTimeout={ConnectTimeout}ms, listenPort={ListenPort}, state={State}).",
+                runtime.ConnectTimeout,
+                runtime.ListenPort,
+                client.State);
+            return false;
+        }
+
+        var patch = CreateRuntimeNetworkOptionsPatch(runtime);
+        var changed = await client.ReconfigureOptionsAsync(patch, ct);
+        _lastAppliedRuntimeNetworkConfig = runtime;
+
+        _logger.LogInformation(
+            "Applied Soulseek runtime network reconfigure: changed={Changed}, connectTimeout={ConnectTimeout}ms, listenPort={ListenPort}",
+            changed,
+            runtime.ConnectTimeout,
+            runtime.ListenPort);
+
+        return changed;
     }
 
     public async Task RefreshShareStateAsync(CancellationToken ct = default)
