@@ -38,7 +38,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     private readonly ILogger<DownloadManager> _logger;
     private readonly AppConfig _config;
     private readonly ConfigManager _configManager; // Persistence
-    private readonly SoulseekAdapter _soulseek;
+    private readonly ISoulseekAdapter _soulseek;
     private readonly FileNameFormatter _fileNameFormatter;
     // Removed ITaggerService dependency (moved to Enricher)
     private readonly DatabaseService _databaseService;
@@ -132,7 +132,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         ILogger<DownloadManager> logger,
         AppConfig config,
         ConfigManager configManager, // Injected
-        SoulseekAdapter soulseek,
+        ISoulseekAdapter soulseek,
         FileNameFormatter fileNameFormatter,
         DatabaseService databaseService,
         ILibraryService libraryService,
