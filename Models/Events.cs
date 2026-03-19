@@ -20,6 +20,12 @@ public record DownloadManagerHydratedEvent(int TrackCount);
 // Soulseek Adapter Events
 public record SoulseekStateChangedEvent(string State, bool IsConnected);
 public record SoulseekConnectionStatusEvent(string Status, string Username);
+// Phase B: Connection lifecycle state machine
+public record ConnectionLifecycleStateChangedEvent(
+    string Previous,
+    string Current,
+    string Reason,
+    string? CorrelationId = null);
 public record ExcludedSearchPhrasesUpdatedEvent(IReadOnlyCollection<string> Phrases, int AddedCount, int TotalCount);
 public record TransferProgressEvent(string Filename, string Username, long BytesTransferred, long TotalBytes);
 public record TransferFinishedEvent(string Filename, string Username);

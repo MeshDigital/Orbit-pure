@@ -22,8 +22,8 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
     private readonly ISoulseekAdapter _soulseek;
     private readonly ISoulseekCredentialService _credentialService;
     private readonly SpotifyAuthService _spotifyAuthService;
-    private IDisposable? _stateChangedSubscription;
-    private IDisposable? _connectionStatusSubscription;
+    private readonly IConnectionLifecycleService _lifecycle;
+    private IDisposable? _lifecycleChangedSubscription;
     private EventHandler<bool>? _spotifyAuthHandler;
 
     // Connection State
@@ -62,10 +62,8 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         set => SetProperty(ref _isInitializing, value);
     }
 
-    private int _reconnectRetryCount = 0; // Exponential backoff counter
-    private bool _manualDisconnectRequested;
-    private int _reconnectLoopActive;
-    private DateTime _reconnectCooldownUntilUtc = DateTime.MinValue;
+    // Reconnect state is now owned by ConnectionLifecycleService.
+    // These local flags exist only for UI suppression (overlay / status text).
 
     // Login Overlay State
     private bool _isLoginOverlayVisible;
@@ -86,7 +84,11 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
     public bool AutoConnectEnabled
     {
         get => _autoConnectEnabled;
-        set => SetProperty(ref _autoConnectEnabled, value);
+        set
+        {
+            if (SetProperty(ref _autoConnectEnabled, value))
+                _lifecycle.AutoReconnectEnabled = value;
+        }
     }
 
     // Commands
@@ -104,7 +106,8 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         ISoulseekAdapter soulseek,
         ISoulseekCredentialService credentialService,
         SpotifyAuthService spotifyAuthService,
-        IEventBus eventBus)
+        IEventBus eventBus,
+        IConnectionLifecycleService lifecycle)
     {
         _logger = logger;
         _config = config;
@@ -112,11 +115,14 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         _soulseek = soulseek;
         _credentialService = credentialService;
         _spotifyAuthService = spotifyAuthService;
+        _lifecycle = lifecycle;
 
         // Initialize state from config
         Username = _config.Username ?? "";
         RememberPassword = _config.RememberPassword;
         AutoConnectEnabled = _config.AutoConnectEnabled;
+        // Sync auto-reconnect policy with the lifecycle service
+        _lifecycle.AutoReconnectEnabled = AutoConnectEnabled;
         
         // Show login overlay if not auto-connecting or if credentials missing
         IsLoginOverlayVisible = !_config.AutoConnectEnabled || string.IsNullOrEmpty(_config.Username);
@@ -126,41 +132,17 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         DismissLoginCommand = new RelayCommand(DismissLogin);
         DisconnectCommand = new RelayCommand(Disconnect);
 
-        // Subscribe to Soulseek state changes
-        // Subscribe to Soulseek state changes
-        _stateChangedSubscription = eventBus.GetEvent<SoulseekStateChangedEvent>().Subscribe(evt =>
+        // Subscribe to lifecycle state changes — lifecycle service owns reconnect loop and state machine
+        _lifecycleChangedSubscription = eventBus.GetEvent<ConnectionLifecycleStateChangedEvent>().Subscribe(evt =>
         {
             try
             {
-                bool wasConnected = IsConnected;
-                if (evt.IsConnected)
-                {
-                    HandleStateChange("Connected");
-                }
-                else
-                {
-                    HandleStateChange(evt.State);
-                    
-                    // Auto-reconnect logic with exponential backoff (Phase 13.5)
-                    // Only auto-reconnect if permitted and not currently connecting
-                    if (wasConnected && AutoConnectEnabled && !IsInitializing && !_manualDisconnectRequested)
-                    {
-                        StartAutoReconnectLoop();
-                    }
-                }
+                HandleLifecycleChange(evt);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to handle state change event: {State}", evt.State);
+                _logger.LogWarning(ex, "Failed to handle lifecycle state change event: {State}", evt.Current);
             }
-        });
-
-        _connectionStatusSubscription = eventBus.GetEvent<SoulseekConnectionStatusEvent>().Subscribe(evt =>
-        {
-            if (!string.Equals(evt.Status, "kicked", StringComparison.OrdinalIgnoreCase))
-                return;
-
-            ApplyKickCooldown(60);
         });
 
         // Initialize Auto-Connect
@@ -247,25 +229,19 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
             _config.RememberPassword = RememberPassword;
             _config.AutoConnectEnabled = AutoConnectEnabled;
 
-            await _soulseek.ConnectAsync(passwordToUse);
-            
-            // Check immediate status in case event is delayed
-            if (_soulseek.IsConnected)
-            {
-                 HandleStateChange("Connected");
-            }
+            await _lifecycle.RequestConnectAsync(passwordToUse);
 
-            if (_soulseek.IsConnected)
+            if (_lifecycle.CurrentState == ConnectionLifecycleState.LoggedIn)
             {
-                Dispatcher.UIThread.Post(() => 
+                Dispatcher.UIThread.Post(() =>
                 {
                     IsLoginOverlayVisible = false;
-                    IsInitializing = false; 
+                    IsInitializing = false;
                 });
-                
+
                 // Persistence
                 _configManager.Save(_config);
-                
+
                 if (RememberPassword)
                 {
                     await _credentialService.SaveCredentialsAsync(Username, passwordToUse);
@@ -277,11 +253,9 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
             }
             else
             {
-                // Likely waiting for event, but if not connected instantly, just hide overlay and let event handle it?
-                // Or keep overlay? Better to hide and let status text show "Connecting..." or error.
-                // Keeping overlay hidden matching old logic optimization
-                 Dispatcher.UIThread.Post(() => IsLoginOverlayVisible = false); 
-                 _configManager.Save(_config);
+                // Connection still in progress or failed; hide overlay and let lifecycle events drive UI
+                Dispatcher.UIThread.Post(() => IsLoginOverlayVisible = false);
+                _configManager.Save(_config);
             }
 
         }
@@ -308,18 +282,18 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
 
     public void Disconnect()
     {
-        _manualDisconnectRequested = true;
-        _soulseek.Disconnect();
+        _lifecycle.NotifyManualDisconnect();
         IsConnected = false;
         StatusText = "Disconnected";
-
-        // Do not force the login overlay here. Users can reopen it explicitly,
-        // and transient reconnect cycles should never look like credential loss.
+        _ = _lifecycle.RequestDisconnectAsync("manual disconnect");
+        // Do not force the login overlay here; transient reconnect cycles should
+        // never look like credential loss.
     }
 
     public void Shutdown()
     {
         AutoConnectEnabled = false; // Prevent auto-reconnect
+        _lifecycle.AutoReconnectEnabled = false;
         Disconnect();
     }
 
@@ -333,14 +307,10 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
                     IsConnected = true;
                     StatusText = $"Connected as {Username}";
                     IsLoginOverlayVisible = false;
-                    _manualDisconnectRequested = false;
-                    _reconnectRetryCount = 0; // Reset retry counter on successful connection
                     break;
                 case "Disconnected":
                     IsConnected = false;
                     StatusText = "Disconnected";
-                    // Keep the current overlay state. Only explicit login actions or
-                    // missing startup credentials should surface the login prompt.
                     break;
                 default:
                     StatusText = state;
@@ -349,46 +319,60 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         });
     }
 
-    private void StartAutoReconnectLoop()
+    /// <summary>
+    /// Translates <see cref="ConnectionLifecycleStateChangedEvent"/> from the lifecycle
+    /// service into UI state (IsConnected, StatusText, IsInitializing).
+    /// Auto-reconnect is fully owned by <see cref="IConnectionLifecycleService"/>.
+    /// </summary>
+    private void HandleLifecycleChange(ConnectionLifecycleStateChangedEvent evt)
     {
-        if (Interlocked.CompareExchange(ref _reconnectLoopActive, 1, 0) != 0)
-            return;
-
-        _ = Task.Run(async () =>
+        Dispatcher.UIThread.Post(() =>
         {
-            try
+            switch (evt.Current)
             {
-                while (!IsConnected && AutoConnectEnabled && !_manualDisconnectRequested)
-                {
-                    var now = DateTime.UtcNow;
-                    if (_reconnectCooldownUntilUtc > now)
-                    {
-                        var cooldownDelay = _reconnectCooldownUntilUtc - now;
-                        _logger.LogInformation("Reconnect cooldown active. Waiting {Delay}s before next reconnect attempt.", Math.Ceiling(cooldownDelay.TotalSeconds));
-                        await Task.Delay(cooldownDelay);
-                    }
+                case "LoggedIn":
+                    IsConnected = true;
+                    IsInitializing = false;
+                    StatusText = $"Connected as {Username}";
+                    IsLoginOverlayVisible = false;
+                    break;
 
-                    _reconnectRetryCount++;
-                    var delayMs = CalculateReconnectDelay(_reconnectRetryCount);
-                    _logger.LogInformation("Soulseek connection lost. Auto-reconnect attempt #{Attempt} in {Delay}s...", _reconnectRetryCount, delayMs / 1000);
+                case "Connecting":
+                    IsConnected = false;
+                    IsInitializing = true;
+                    StatusText = "Connecting...";
+                    break;
 
-                    await Task.Delay(delayMs);
+                case "LoggingIn":
+                    IsInitializing = true;
+                    StatusText = "Logging in...";
+                    break;
 
-                    if (IsConnected || !AutoConnectEnabled || _manualDisconnectRequested)
-                        break;
+                case "CoolingDown":
+                    IsConnected = false;
+                    IsInitializing = false;
+                    StatusText = "Disconnected by server — cooling down before reconnect...";
+                    break;
 
-                    await AttemptAutoConnect();
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Auto-reconnect loop encountered an error");
-            }
-            finally
-            {
-                Interlocked.Exchange(ref _reconnectLoopActive, 0);
+                case "Disconnecting":
+                    IsInitializing = false;
+                    StatusText = "Disconnecting...";
+                    break;
+
+                case "Disconnected":
+                    IsConnected = false;
+                    IsInitializing = false;
+                    StatusText = "Disconnected";
+                    break;
             }
         });
+    }
+
+    private void StartAutoReconnectLoop()
+    {
+        // Auto-reconnect is now owned by ConnectionLifecycleService.
+        // This stub is kept to avoid build errors from any remaining call sites
+        // and will be removed in a follow-up cleanup.
     }
 
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
@@ -404,40 +388,9 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         return true;
     }
 
-    /// <summary>
-    /// Calculates exponential backoff delay for reconnection attempts.
-    /// Delays: 5s, 15s, 60s, then caps at 60s to prevent excessive waiting.
-    /// </summary>
-    private int CalculateReconnectDelay(int attemptNumber)
-    {
-        // Exponential backoff: 5s * 3^(attempt-1), capped at 60s
-        var delaySeconds = 5 * Math.Pow(3, attemptNumber - 1);
-        return Math.Min((int)delaySeconds, 60) * 1000; // Convert to milliseconds
-    }
-
-    private void ApplyKickCooldown(int seconds)
-    {
-        _reconnectCooldownUntilUtc = DateTime.UtcNow.AddSeconds(seconds);
-        _logger.LogWarning("Received 'kicked' status. Auto-reconnect cooldown active until {CooldownUtc}.", _reconnectCooldownUntilUtc);
-
-        try
-        {
-            Dispatcher.UIThread.Post(() =>
-            {
-                IsConnected = false;
-                StatusText = $"Disconnected by server. Waiting {seconds}s before reconnect...";
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Unable to post kick cooldown status to UI dispatcher in current context.");
-        }
-    }
-
     public void Dispose()
     {
-        _stateChangedSubscription?.Dispose();
-        _connectionStatusSubscription?.Dispose();
+        _lifecycleChangedSubscription?.Dispose();
         if (_spotifyAuthHandler != null)
         {
             _spotifyAuthService.AuthenticationChanged -= _spotifyAuthHandler;

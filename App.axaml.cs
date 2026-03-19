@@ -393,6 +393,9 @@ public partial class App : Application
         services.AddSingleton<INetworkHealthService, NetworkHealthService>();
         services.AddSingleton<SoulseekAdapter>();
         services.AddSingleton<ISoulseekAdapter>(sp => sp.GetRequiredService<SoulseekAdapter>());
+        // Phase B: Connection lifecycle state machine
+        services.AddSingleton<ConnectionLifecycleService>();
+        services.AddSingleton<IConnectionLifecycleService>(sp => sp.GetRequiredService<ConnectionLifecycleService>());
         services.AddSingleton<FileNameFormatter>();
         services.AddSingleton<ProtectedDataService>();
         services.AddSingleton<ISoulseekCredentialService, SoulseekCredentialService>();
