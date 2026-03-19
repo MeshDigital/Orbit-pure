@@ -904,6 +904,22 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ObservableCollection<AdaptiveLaneDecisionEntryViewModel> AdaptiveLaneDecisionHistory { get; } = new();
     private IDisposable? _securityAuditSubscription;
     private IDisposable? _adaptiveLaneStatusSubscription;
+    private IDisposable? _searchPressureSubscription;
+
+    // Phase E3: snapshot state
+    private SearchPressureStatusEvent? _lastSearchPressure;
+    private string _diagnosticsSnapshotStatus = "";
+    public string DiagnosticsSnapshotStatus
+    {
+        get => _diagnosticsSnapshotStatus;
+        private set
+        {
+            SetProperty(ref _diagnosticsSnapshotStatus, value);
+            OnPropertyChanged(nameof(HasDiagnosticsSnapshotStatus));
+        }
+    }
+    public bool HasDiagnosticsSnapshotStatus => !string.IsNullOrEmpty(_diagnosticsSnapshotStatus);
+
     private void OnSecurityAuditEvent(SecurityAuditEvent e)
     {
         Dispatcher.UIThread.Post(() =>
@@ -924,7 +940,13 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         });
     }
 
+    private void OnSearchPressureStatusEvent(SearchPressureStatusEvent e)
+    {
+        _lastSearchPressure = e;
+    }
+
     public ICommand ClearSecurityAuditCommand { get; private set; } = null!;
+    public ICommand CopyDiagnosticsSnapshotCommand { get; private set; } = null!;
 
     // Phase 6: Live Share Status (bound in Settings page)
     private int    _shareFileCount;
@@ -1013,6 +1035,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         AddLibraryFolderCommand = new AsyncRelayCommand(AddLibraryFolderAsync);
         RemoveLibraryFolderCommand = new AsyncRelayCommand(RemoveLibraryFolderAsync, () => SelectedLibraryFolder != null);
         ClearSecurityAuditCommand = new RelayCommand(() => SecurityAuditFeed.Clear());
+        CopyDiagnosticsSnapshotCommand = new AsyncRelayCommand(CopyDiagnosticsSnapshotAsync);
         RefreshShareNowCommand = new AsyncRelayCommand(async () =>
         {
             try
@@ -1053,6 +1076,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         // Phase 6: Security Audit Feed subscription
         _securityAuditSubscription = _eventBus.GetEvent<SecurityAuditEvent>().Subscribe(OnSecurityAuditEvent);
         _adaptiveLaneStatusSubscription = _eventBus.GetEvent<AdaptiveLaneStatusEvent>().Subscribe(OnAdaptiveLaneStatusEvent);
+        _searchPressureSubscription = _eventBus.GetEvent<SearchPressureStatusEvent>().Subscribe(OnSearchPressureStatusEvent);
         
         // Force update of derived properties to ensure UI booleans are in sync with SpotifyState
         UpdateDerivedProperties(SpotifyState);
@@ -1473,6 +1497,9 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _adaptiveLaneStatusSubscription?.Dispose();
         _adaptiveLaneStatusSubscription = null;
 
+        _searchPressureSubscription?.Dispose();
+        _searchPressureSubscription = null;
+
         _shareHealthSubscription?.Dispose();
         _shareHealthSubscription = null;
         
@@ -1485,6 +1512,79 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _connectCts = null;
 
         _isDisposed = true;
+    }
+
+    // Phase E3: Diagnostics snapshot
+    private async Task CopyDiagnosticsSnapshotAsync()
+    {
+        try
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"=== ORBIT Diagnostics Snapshot — {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
+            sb.AppendLine();
+
+            // Search pressure
+            if (_lastSearchPressure is { } p)
+            {
+                sb.AppendLine("[Search Pressure]");
+                sb.AppendLine($"  Level         : {p.PressureLevel}");
+                sb.AppendLine($"  Response cap  : {p.ResponseLimit}");
+                sb.AppendLine($"  File cap      : {p.FileLimit}");
+                sb.AppendLine($"  Variation cap : {p.VariationCap}");
+                sb.AppendLine($"  Extra delay   : {p.AdditionalDelayMs} ms");
+            }
+            else
+            {
+                sb.AppendLine("[Search Pressure]");
+                sb.AppendLine("  No pressure data recorded yet (no search performed).");
+            }
+            sb.AppendLine();
+
+            // Adaptive lane decisions
+            sb.AppendLine("[Adaptive Lane Decisions (newest first)]");
+            if (AdaptiveLaneDecisionHistory.Count == 0)
+            {
+                sb.AppendLine("  None recorded.");
+            }
+            else
+            {
+                foreach (var entry in AdaptiveLaneDecisionHistory)
+                    sb.AppendLine($"  {entry.TimeLabel}  {entry.LaneLabel,-12}  {entry.Reason}");
+            }
+            sb.AppendLine();
+
+            // Share health
+            sb.AppendLine("[Share Health]");
+            sb.AppendLine($"  {ShareStatusSummary}");
+            sb.AppendLine();
+
+            // FFmpeg
+            sb.AppendLine("[FFmpeg]");
+            sb.AppendLine($"  {FfmpegStatus}{(!string.IsNullOrWhiteSpace(FfmpegVersion) ? " — " + FfmpegVersion : "")}");
+
+            var snapshot = sb.ToString();
+
+            if (Avalonia.Application.Current?.ApplicationLifetime is
+                Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop
+                && desktop.MainWindow?.Clipboard is { } clipboard)
+            {
+                await clipboard.SetTextAsync(snapshot);
+                DiagnosticsSnapshotStatus = "✅ Copied to clipboard";
+            }
+            else
+            {
+                DiagnosticsSnapshotStatus = "⚠️ Clipboard unavailable";
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to copy diagnostics snapshot.");
+            DiagnosticsSnapshotStatus = "❌ Copy failed";
+        }
+
+        // Auto-clear status after 3 s
+        await Task.Delay(3000);
+        DiagnosticsSnapshotStatus = "";
     }
 
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)

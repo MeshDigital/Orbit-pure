@@ -861,6 +861,39 @@
                         </ScrollViewer>
                     </StackPanel>
 
+                    <!-- Phase E3: Copy diagnostics snapshot -->
+                    <Separator Background="#1B263B" Height="1"/>
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="System Snapshot" FontWeight="SemiBold" Foreground="#E0E1DD"/>
+                            <TextBlock Text="Copy current pressure level, lane decisions, share health and FFmpeg status to clipboard."
+                                       Foreground="#778DA9" FontSize="11" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding DiagnosticsSnapshotStatus}"
+                                       Foreground="#D7BA7D"
+                                       FontSize="11"
+                                       FontFamily="Consolas,Courier New,monospace"
+                                       IsVisible="{Binding HasDiagnosticsSnapshotStatus}"/>
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                                Command="{Binding CopyDiagnosticsSnapshotCommand}"
+                                Background="#1B263B"
+                                Foreground="#D7BA7D"
+                                BorderBrush="#D7BA7D"
+                                BorderThickness="1"
+                                FontWeight="SemiBold"
+                                Padding="14,8"
+                                CornerRadius="6"
+                                VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="📋"/>
+                                <TextBlock Text="Copy Snapshot"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <Separator Background="#1B263B" Height="1"/>
+
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
                             <TextBlock Text="Redline Performance Test" FontWeight="SemiBold" Foreground="#E0E1DD"/>
