@@ -2320,13 +2320,13 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private sealed record TransferFailureDisposition(
+    internal sealed record TransferFailureDisposition(
         DownloadFailureReason RetryFailureReason,
         bool AllowHedgeFailover,
         double? DelayMinutes,
         string OperatorMessage);
 
-    private static TransferFailureDisposition ClassifyTransferFailure(Exception ex)
+    internal static TransferFailureDisposition ClassifyTransferFailure(Exception ex)
     {
         var message = ex.Message ?? string.Empty;
 
