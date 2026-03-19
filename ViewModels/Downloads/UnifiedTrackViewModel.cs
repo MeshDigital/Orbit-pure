@@ -33,9 +33,6 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     private readonly CompositeDisposable _disposables = new();
     private string? _discoveryReasonOverride;
 
-    private bool _hasPerformedHeadCheck5;
-    private bool _hasPerformedHeadCheck15;
-
     // Core Data
     public PlaylistTrack Model { get; }
     
@@ -412,6 +409,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(IsIndeterminate));
                 this.RaisePropertyChanged(nameof(IsFailed));
                 this.RaisePropertyChanged(nameof(IsActive));
+                this.RaisePropertyChanged(nameof(IsRemoteQueued));
                 this.RaisePropertyChanged(nameof(IsWaiting));
                 this.RaisePropertyChanged(nameof(IsSearching));
                 this.RaisePropertyChanged(nameof(IsDownloading));
@@ -452,7 +450,9 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         PlaylistTrackState.Searching => !string.IsNullOrEmpty(DetailedSearchStatus) 
             ? DetailedSearchStatus 
             : (SearchAttemptCount > 1 ? $"Searching... ({SearchAttemptCount})" : "Searching..."),
-        PlaylistTrackState.Queued => "Queued",
+        PlaylistTrackState.Queued => !string.IsNullOrEmpty(DetailedSearchStatus)
+            ? DetailedSearchStatus
+            : "Waiting in peer queue\u2026",
         PlaylistTrackState.Failed => !string.IsNullOrEmpty(FailureReason) ? FailureReason : 
                                      (FailureEnum != DownloadFailureReason.None ? FailureEnum.ToDisplayMessage() : "Failed"),
         PlaylistTrackState.Paused => "Paused",
@@ -469,6 +469,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         PlaylistTrackState.Failed => Avalonia.Media.Brushes.OrangeRed,
         PlaylistTrackState.Cancelled => Avalonia.Media.Brushes.Gray,
         PlaylistTrackState.Downloading => Avalonia.Media.Brushes.Cyan,
+        PlaylistTrackState.Queued => Avalonia.Media.Brushes.CornflowerBlue,
         PlaylistTrackState.Searching => Avalonia.Media.Brushes.Yellow,
         PlaylistTrackState.Stalled => Avalonia.Media.Brushes.Orange,
         PlaylistTrackState.WaitingForConnection => Avalonia.Media.Brushes.DarkGray,
@@ -478,7 +479,9 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     // Fix: Detailed tooltip text
     public string DetailedStatusText => IsFailed 
         ? $"Failed: {FailureReason ?? "Unknown Error"}\n(Click Retry to search for a new peer)" 
-        : StatusText;
+        : State == PlaylistTrackState.Queued
+            ? $"Waiting in peer queue\u2026\n{DetailedSearchStatus}"
+            : StatusText;
 
     private double _progress;
     public double Progress
@@ -491,8 +494,12 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public bool IsFailed => State == PlaylistTrackState.Failed || State == PlaylistTrackState.Cancelled;
     public bool IsPaused => State == PlaylistTrackState.Paused;
     
-    // Phase 6 & 9: Refined IsActive for "Direct Active" swimlane (strictly downloading/searching)
-    public bool IsActive => State == PlaylistTrackState.Downloading || State == PlaylistTrackState.Searching || State == PlaylistTrackState.WaitingForConnection;
+    // Phase 6 & 9: Refined IsActive for "Direct Active" swimlane (strictly downloading/searching/queued remotely)
+    public bool IsActive => State == PlaylistTrackState.Downloading || State == PlaylistTrackState.Searching
+        || State == PlaylistTrackState.WaitingForConnection || State == PlaylistTrackState.Queued;
+
+    /// <summary>True when the track is held in a remote peer's upload queue (not locally queued).</summary>
+    public bool IsRemoteQueued => State == PlaylistTrackState.Queued;
 
     // Phase 11: Specific activity flags
     public bool IsSearching => State == PlaylistTrackState.Searching;
