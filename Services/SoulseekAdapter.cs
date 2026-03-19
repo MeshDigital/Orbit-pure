@@ -566,11 +566,13 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                             // Beta 2026: Fingerprint dedup with peer-awareness.
                             // Keep duplicates only when they come from a better queue peer.
                             var fpKey = _resultFingerprinter.Create(file.Filename, file.Size, rawDurationSeconds);
+                            var isDedupReplacement = false;
                             if (seenThisSearch.TryGetValue(fpKey, out var existingQueue))
                             {
                                 if (response.QueueLength < existingQueue)
                                 {
                                     seenThisSearch[fpKey] = response.QueueLength;
+                                    isDedupReplacement = true;
                                 }
                                 else
                                 {
@@ -586,6 +588,8 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                             // Memory Optimization: Only allocate Track object for files that survive the filters
                             // Use the helper method to parse metadata correctly
                             var track = ParseTrackFromFile(file, response);
+                            track.Metadata ??= new Dictionary<string, object>();
+                            track.Metadata["IsDedup"] = isDedupReplacement;
 
                             if (resultCount <= 3) // Log first 3 matches
                             {

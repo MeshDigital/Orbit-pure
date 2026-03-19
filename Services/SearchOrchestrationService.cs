@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -236,6 +237,17 @@ public class SearchOrchestrationService
             .Take(brainWinnerCount)
             .ToList();
 
+        var audit = BuildSelectionAudit(
+            normalizedQuery,
+            networkQuery,
+            brainBufferSeconds,
+            minBitrate,
+            maxBitrate,
+            formatFilter,
+            bufferedTracks,
+            ranked);
+        LogSelectionAudit(audit);
+
         foreach (var track in ranked)
         {
             yield return track;
@@ -305,6 +317,80 @@ public class SearchOrchestrationService
         
         _logger.LogInformation("Results ranked successfully");
         return rankedResults.ToList();
+    }
+
+    private SearchSelectionAudit BuildSelectionAudit(
+        string normalizedQuery,
+        string networkQuery,
+        int bufferSeconds,
+        int minBitrate,
+        int maxBitrate,
+        string[] formatFilter,
+        List<Track> candidates,
+        List<Track> winners)
+    {
+        return new SearchSelectionAudit
+        {
+            TimestampUtc = DateTime.UtcNow,
+            Query = normalizedQuery,
+            NetworkQuery = networkQuery,
+            BufferSeconds = bufferSeconds,
+            CandidateCount = candidates.Count,
+            WinnerCount = winners.Count,
+            MinBitrate = minBitrate > 0 ? minBitrate : null,
+            MaxBitrate = maxBitrate > 0 ? maxBitrate : null,
+            PreferredFormats = formatFilter,
+            Candidates = candidates.Select(MapAuditCandidate).ToList(),
+            Winners = winners.Select(MapAuditCandidate).ToList()
+        };
+    }
+
+    private static SearchSelectionAuditCandidate MapAuditCandidate(Track track)
+    {
+        return new SearchSelectionAuditCandidate
+        {
+            Username = track.Username ?? string.Empty,
+            Filename = track.Filename ?? string.Empty,
+            Format = track.Format ?? track.GetExtension(),
+            Bitrate = track.Bitrate,
+            QueuePos = track.QueueLength,
+            PeerSpeed = track.UploadSpeed,
+            IsDedup = TryGetDedupSignal(track),
+            IsFlagged = track.IsFlagged,
+            Rank = track.CurrentRank,
+            ScoreBreakdown = track.ScoreBreakdown ?? string.Empty
+        };
+    }
+
+    private static bool TryGetDedupSignal(Track track)
+    {
+        if (track.Metadata == null ||
+            !track.Metadata.TryGetValue("IsDedup", out var isDedupRaw) ||
+            isDedupRaw is null)
+        {
+            return false;
+        }
+
+        return isDedupRaw switch
+        {
+            bool boolValue => boolValue,
+            string stringValue when bool.TryParse(stringValue, out var parsed) => parsed,
+            _ => false
+        };
+    }
+
+    private void LogSelectionAudit(SearchSelectionAudit audit)
+    {
+        _logger.LogInformation(
+            "[SEARCH_AUDIT] Query='{Query}' NetworkQuery='{NetworkQuery}' Candidates={CandidateCount} Winners={WinnerCount} Buffer={BufferSeconds}s",
+            audit.Query,
+            audit.NetworkQuery,
+            audit.CandidateCount,
+            audit.WinnerCount,
+            audit.BufferSeconds);
+
+        _logger.LogDebug("[SEARCH_AUDIT] Candidates {Payload}", JsonSerializer.Serialize(audit.Candidates));
+        _logger.LogDebug("[SEARCH_AUDIT] Winners {Payload}", JsonSerializer.Serialize(audit.Winners));
     }
     
 

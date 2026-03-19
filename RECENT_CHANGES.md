@@ -1,5 +1,30 @@
 # Recent Changes
 
+## [0.1.0-alpha.42] - Search Brain Audit Telemetry + Least-Bad Winner Regression (Mar 19, 2026)
+
+### Decision Transparency (SearchSelectionAudit)
+* Added structured telemetry models in `Models/SearchSelectionAudit.cs`:
+  * `SearchSelectionAudit`
+  * `SearchSelectionAuditCandidate`
+* Audit schema captures query context and candidate/winner details including `PeerSpeed`, `QueuePos`, `Bitrate`, `Format`, `IsDedup`, `Rank`, and score breakdown.
+
+### Orchestration Audit Hooks
+* `SearchOrchestrationService.cs` now builds and logs a structured per-search selection audit after buffered ranking and winner curation.
+* Added explicit `[SEARCH_AUDIT]` telemetry lines for summary and serialized candidate/winner payloads.
+
+### Dedup Signal Propagation
+* `SoulseekAdapter.cs` now tags accepted tracks with dedup replacement context (`Metadata["IsDedup"]`) so audit logs can distinguish baseline candidates from peer-improved dedup replacements.
+
+### Regression Coverage (Search Brain)
+* Added `SearchOrchestrationServiceTests.cs` with a deterministic orchestration regression:
+  * verifies the engine prefers the actionable low-queue/fast peer over a high-bitrate but extreme-queue candidate.
+* This protects against regressions where arrival order or naive bitrate bias would select an impractical winner.
+
+### Validation
+* `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj -c Debug` ✅ (`21/21` passing)
+
+---
+
 ## [0.1.0-alpha.41] - Brain Structural Traps Fixed (Mar 19, 2026)
 
 ### Search Discovery Engine Hardening
