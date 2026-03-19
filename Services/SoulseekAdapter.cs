@@ -460,6 +460,15 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             var searchQuery = Soulseek.SearchQuery.FromText(query);
             var responseLimit = executionProfile?.EffectiveResponseLimit ?? Math.Max(20, _config.SearchResponseLimit);
             var fileLimit = executionProfile?.EffectiveFileLimit ?? Math.Max(20, _config.SearchFileLimit);
+            if (executionProfile != null)
+            {
+                _eventBus.Publish(new SearchPressureStatusEvent(
+                    executionProfile.PressureLevel.ToString(),
+                    Math.Max(20, responseLimit),
+                    Math.Max(20, fileLimit),
+                    Math.Max(1, executionProfile.EffectiveVariationCap),
+                    Math.Max(0, executionProfile.AdditionalThrottleDelayMs)));
+            }
             var options = new SearchOptions(
                 searchTimeout: Math.Max(5000, _config.SearchTimeout),
                 responseLimit: Math.Max(20, responseLimit),

@@ -116,6 +116,7 @@ public record RecoveryCompletedEvent(
 // Phase 10: Connectivity & Background Events
 public record GlobalStatusEvent(string Message, bool IsActive, bool IsError = false);
 public record AdaptiveLaneStatusEvent(int CurrentLanes, int ActiveLanes, string Reason);
+public record SearchPressureStatusEvent(string PressureLevel, int ResponseLimit, int FileLimit, int VariationCap, int AdditionalDelayMs);
 
 // Phase 6: Share Health & Security Transparency
 /// <summary>

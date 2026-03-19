@@ -178,6 +178,16 @@
                                Foreground="#9CDCFE"
                                VerticalAlignment="Center"/>
                         </Border>
+
+                        <Border Background="#252526"
+                            CornerRadius="4"
+                            Padding="6,2"
+                            ToolTip.Tip="{Binding StatusBar.SearchPressureTooltip}">
+                        <TextBlock Text="{Binding StatusBar.SearchPressureReadout}"
+                               FontSize="11"
+                               Foreground="#D7BA7D"
+                               VerticalAlignment="Center"/>
+                        </Border>
                                
                     <Button Command="{Binding ExecuteBrainTestCommand}"
                             Background="Transparent"

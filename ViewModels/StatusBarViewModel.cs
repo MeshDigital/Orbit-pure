@@ -199,6 +199,11 @@ public class StatusBarViewModel : ReactiveObject, IDisposable
     private int _adaptiveLaneLimit;
     private int _adaptiveLaneActive;
     private string _adaptiveLaneReason = "Adaptive lane telemetry unavailable";
+    private string _searchPressureLevel = "Normal";
+    private int _searchPressureResponseLimit;
+    private int _searchPressureFileLimit;
+    private int _searchPressureVariationCap;
+    private int _searchPressureAdditionalDelayMs;
 
     public bool IsBulkOperationRunning
     {
@@ -267,6 +272,62 @@ public class StatusBarViewModel : ReactiveObject, IDisposable
         : "Lanes --";
 
     public string AdaptiveLaneTooltip => $"Adaptive lane tuning: {AdaptiveLaneReadout}. {AdaptiveLaneReason}";
+
+    public string SearchPressureLevel
+    {
+        get => _searchPressureLevel;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _searchPressureLevel, value);
+            this.RaisePropertyChanged(nameof(SearchPressureReadout));
+            this.RaisePropertyChanged(nameof(SearchPressureTooltip));
+        }
+    }
+
+    public int SearchPressureResponseLimit
+    {
+        get => _searchPressureResponseLimit;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _searchPressureResponseLimit, value);
+            this.RaisePropertyChanged(nameof(SearchPressureTooltip));
+        }
+    }
+
+    public int SearchPressureFileLimit
+    {
+        get => _searchPressureFileLimit;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _searchPressureFileLimit, value);
+            this.RaisePropertyChanged(nameof(SearchPressureTooltip));
+        }
+    }
+
+    public int SearchPressureVariationCap
+    {
+        get => _searchPressureVariationCap;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _searchPressureVariationCap, value);
+            this.RaisePropertyChanged(nameof(SearchPressureTooltip));
+        }
+    }
+
+    public int SearchPressureAdditionalDelayMs
+    {
+        get => _searchPressureAdditionalDelayMs;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _searchPressureAdditionalDelayMs, value);
+            this.RaisePropertyChanged(nameof(SearchPressureTooltip));
+        }
+    }
+
+    public string SearchPressureReadout => $"Pressure {SearchPressureLevel}";
+
+    public string SearchPressureTooltip =>
+        $"Search pressure: {SearchPressureLevel}. Caps {SearchPressureResponseLimit}/{SearchPressureFileLimit}, variation cap {SearchPressureVariationCap}, extra delay {SearchPressureAdditionalDelayMs} ms.";
 
     // Computed properties
     public string StatusText
@@ -353,6 +414,18 @@ public class StatusBarViewModel : ReactiveObject, IDisposable
                 AdaptiveLaneLimit = e.CurrentLanes;
                 AdaptiveLaneActive = e.ActiveLanes;
                 AdaptiveLaneReason = e.Reason;
+            })
+            .DisposeWith(_disposables);
+
+        eventBus.GetEvent<SearchPressureStatusEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e =>
+            {
+                SearchPressureLevel = e.PressureLevel;
+                SearchPressureResponseLimit = e.ResponseLimit;
+                SearchPressureFileLimit = e.FileLimit;
+                SearchPressureVariationCap = e.VariationCap;
+                SearchPressureAdditionalDelayMs = e.AdditionalDelayMs;
             })
             .DisposeWith(_disposables);
             
