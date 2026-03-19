@@ -153,9 +153,6 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         }
         else if (RememberPassword)
         {
-        }
-        else if (RememberPassword)
-        {
              Dispatcher.UIThread.Post(async () => await LoadUsernameOnly());
         }
 

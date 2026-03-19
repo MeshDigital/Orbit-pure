@@ -953,6 +953,27 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private string _shareReputationLabel = "Unknown";
     private IDisposable? _shareHealthSubscription;
 
+    // Soulseek connection live state
+    private IDisposable? _soulseekLifecycleSubscription;
+    private bool _soulseekIsConnected;
+    public bool SoulseekIsConnected
+    {
+        get => _soulseekIsConnected;
+        private set
+        {
+            if (SetProperty(ref _soulseekIsConnected, value))
+                OnPropertyChanged(nameof(SoulseekIsDisconnected));
+        }
+    }
+    public bool SoulseekIsDisconnected => !_soulseekIsConnected;
+
+    private string _soulseekConnectionStatusText = "";
+    public string SoulseekConnectionStatusText
+    {
+        get => _soulseekConnectionStatusText;
+        private set => SetProperty(ref _soulseekConnectionStatusText, value);
+    }
+
     public int ShareFileCount
     {
         get => _shareFileCount;
@@ -1052,6 +1073,12 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         SoulseekConnectCommand = new AsyncRelayCommand(SoulseekConnectAsync, () => !_soulseek.IsConnected);
         SoulseekDisconnectCommand = new RelayCommand(SoulseekDisconnect, () => _soulseek.IsConnected);
         SoulseekReconnectCommand = new AsyncRelayCommand(SoulseekReconnectAsync, () => _soulseek.IsConnected);
+
+        // Initialize connected state and subscribe to lifecycle events
+        SoulseekIsConnected = _soulseek.IsConnected;
+        _soulseekLifecycleSubscription = _eventBus
+            .GetEvent<ConnectionLifecycleStateChangedEvent>()
+            .Subscribe(OnSoulseekLifecycleChanged);
 
         // Subscribe to live share health updates
         _shareHealthSubscription = _eventBus.GetEvent<ShareHealthUpdatedEvent>().Subscribe(OnShareHealthUpdated);
@@ -1515,6 +1542,9 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
         _shareHealthSubscription?.Dispose();
         _shareHealthSubscription = null;
+
+        _soulseekLifecycleSubscription?.Dispose();
+        _soulseekLifecycleSubscription = null;
         
         _authWatchdogCts?.Cancel();
         _authWatchdogCts?.Dispose();
@@ -1784,6 +1814,29 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    private void OnSoulseekLifecycleChanged(ConnectionLifecycleStateChangedEvent evt)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            SoulseekIsConnected = evt.Current == "LoggedIn";
+            SoulseekConnectionStatusText = evt.Current switch
+            {
+                "LoggedIn"     => $"Connected as {SoulseekUsername}",
+                "Connecting"   => "Connecting…",
+                "LoggingIn"    => "Logging in…",
+                "CoolingDown"  => "Cooling down before reconnect…",
+                "Disconnecting" => "Disconnecting…",
+                "Disconnected" => "Disconnected",
+                _              => evt.Current
+            };
+
+            // Re-evaluate button enabled state
+            ((AsyncRelayCommand)SoulseekConnectCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)SoulseekDisconnectCommand).RaiseCanExecuteChanged();
+            ((AsyncRelayCommand)SoulseekReconnectCommand).RaiseCanExecuteChanged();
+        });
+    }
+
     // Soulseek Connection Methods
     private async Task SoulseekConnectAsync()
     {
@@ -1793,15 +1846,18 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             var creds = await _credentialService.LoadCredentialsAsync();
             if (!string.IsNullOrEmpty(creds.Password) && !string.IsNullOrEmpty(creds.Username))
             {
+                SoulseekConnectionStatusText = "Connecting…";
                 await _soulseek.ConnectAsync(creds.Password);
             }
             else
             {
+                SoulseekConnectionStatusText = "No stored credentials — use the Sign In overlay to connect first.";
                 _logger.LogWarning("No stored credentials available for Soulseek connection");
             }
         }
         catch (Exception ex)
         {
+            SoulseekConnectionStatusText = $"Connection failed: {ex.Message}";
             _logger.LogError(ex, "Failed to connect to Soulseek from settings");
         }
     }
