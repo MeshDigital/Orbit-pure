@@ -91,8 +91,12 @@ public class DownloadDiscoveryService
     /// "Smart defaults, user overrides" - respect per-track overrides (PreferredFormats)
     /// "Trust but verify" - use forensics to filter fakes before presenting to user
     /// </summary>
-    public async Task<DiscoveryResult> FindBestMatchAsync(PlaylistTrack track, CancellationToken ct, HashSet<string>? blacklistedUsers = null)
+    public async Task<DiscoveryResult> FindBestMatchAsync(PlaylistTrack track, CancellationToken ct, HashSet<string>? blacklistedUsers = null, string? correlationId = null)
     {
+        var operationCorrelationId = string.IsNullOrWhiteSpace(correlationId)
+            ? Guid.NewGuid().ToString("N")
+            : correlationId;
+
         await AcquireDiscoveryLaneAsync(ct);
         try
         {
@@ -107,7 +111,7 @@ public class DownloadDiscoveryService
         var timedCt = timeoutCts.Token;
 
         var tiers = _autoCleaner.Clean($"{track.Artist} - {track.Title}");
-        var log = new SearchAttemptLog();
+        var log = new SearchAttemptLog { CorrelationId = operationCorrelationId };
         var allowMp3Fallback = IsMp3FallbackAllowed(track);
         
         // Phase 3D: Integrated Fallback - try lossless tiers first, then a single MP3 fallback if needed
@@ -144,13 +148,13 @@ public class DownloadDiscoveryService
                     var hardenedHedgeQuery = _hardeningService.NormalizeSearchQuery(hedgeRawQuery);
 
                     using var hedgeCts = CancellationTokenSource.CreateLinkedTokenSource(timedCt);
-                    var flacTask = PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, flacLog, forceMp3: false);
+                    var flacTask = PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, flacLog, operationCorrelationId, forceMp3: false);
                     var hedgeTask = Task.Run(async () =>
                     {
                         try
                         {
                             await Task.Delay(TimeSpan.FromSeconds(Math.Max(3, _config.HedgedSearchDelaySeconds)), hedgeCts.Token);
-                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "⚡ Hedge activated: launching MP3 lane in parallel."));
+                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "⚡ Hedge activated: launching MP3 lane in parallel.", false, operationCorrelationId));
                             if (hardenedHedgeQuery == null)
                             {
                                 // Banned phrase in hedge query — skip rather than abort the whole search
@@ -158,7 +162,7 @@ public class DownloadDiscoveryService
                                 return new DiscoveryResult(null, hedgeLog);
                             }
                             _logger.LogInformation("[TIER MP3-Hedge] MP3 search: '{Query}' for {Title}", hardenedHedgeQuery, track.Title);
-                            return await PerformSearchTierAsync(track, hardenedHedgeQuery, "MP3-Hedge", hedgeCts.Token, blacklistedUsers, hedgeLog, forceMp3: true);
+                            return await PerformSearchTierAsync(track, hardenedHedgeQuery, "MP3-Hedge", hedgeCts.Token, blacklistedUsers, hedgeLog, operationCorrelationId, forceMp3: true);
                         }
                         catch (OperationCanceledException)
                         {
@@ -197,7 +201,7 @@ public class DownloadDiscoveryService
                 }
 
                 _logger.LogInformation("Discovery Tier {Tier} (Lossless) for: {Query}", tierNames[i], hardenedQuery);
-                var result = await PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, log, forceMp3: false);
+                var result = await PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, log, operationCorrelationId, forceMp3: false);
 
                 if (result.BestMatch != null) return result;
                 if (timedCt.IsCancellationRequested) break;
@@ -213,7 +217,7 @@ public class DownloadDiscoveryService
             if (allowMp3Fallback && track.Status != TrackStatus.OnHold && !timedCt.IsCancellationRequested)
             {
                 _logger.LogInformation("🥈 Lossless discovery yielded no matches. Triggering integrated MP3 Fallback Pass for: {Title}", track.Title);
-                _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "🥈 Lossless tiers failed. Trying MP3 fallback..."));
+                _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "🥈 Lossless tiers failed. Trying MP3 fallback...", false, operationCorrelationId));
 
                 // Harden the fallback query through the Shield before sending it to the network.
                 var fallbackRawQuery = tiers.Smart;
@@ -225,7 +229,7 @@ public class DownloadDiscoveryService
                 else
                 {
                     _logger.LogInformation("[TIER MP3-Fallback] MP3 search: '{Query}' for {Title}", hardenedFallbackQuery, track.Title);
-                    var fallbackResult = await PerformSearchTierAsync(track, hardenedFallbackQuery, "MP3-Fallback", timedCt, blacklistedUsers, log, forceMp3: true);
+                    var fallbackResult = await PerformSearchTierAsync(track, hardenedFallbackQuery, "MP3-Fallback", timedCt, blacklistedUsers, log, operationCorrelationId, forceMp3: true);
                     if (fallbackResult.BestMatch != null)
                     {
                         _logger.LogInformation("✅ MP3 Fallback SUCCESS for {Title}.", track.Title);
@@ -236,7 +240,7 @@ public class DownloadDiscoveryService
             else if (!allowMp3Fallback && !timedCt.IsCancellationRequested)
             {
                 _logger.LogInformation("🛡️ MP3 fallback disabled by active profile for {Title}; staying in lossless-only discovery.", track.Title);
-                _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "🛡️ MP3 fallback disabled by active profile. Staying lossless-only."));
+                _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "🛡️ MP3 fallback disabled by active profile. Staying lossless-only.", false, operationCorrelationId));
             }
         }
         catch (DiscoveryConnectionUnavailableException)
@@ -246,7 +250,7 @@ public class DownloadDiscoveryService
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
         {
             _logger.LogWarning("⏱️ Discovery TIMEOUT for {Title}.", track.Title);
-            _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "⏱️ Search timed out."));
+            _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "⏱️ Search timed out.", false, operationCorrelationId));
             log.TimedOut = true;
         }
 
@@ -347,8 +351,11 @@ public class DownloadDiscoveryService
         return "Network degraded; tuning lanes conservatively";
     }
 
-    private async Task<DiscoveryResult> PerformSearchTierAsync(PlaylistTrack track, string query, string tierName, CancellationToken ct, HashSet<string>? blacklistedUsers, SearchAttemptLog log, bool forceMp3 = false)
+    private async Task<DiscoveryResult> PerformSearchTierAsync(PlaylistTrack track, string query, string tierName, CancellationToken ct, HashSet<string>? blacklistedUsers, SearchAttemptLog log, string correlationId, bool forceMp3 = false)
     {
+        void PublishStatus(string message, bool isError = false)
+            => _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, message, isError, correlationId));
+
         // Beta 2026: Per-tier CTS — cancels the underlying search stream the moment a
         // golden match is found, freeing the lane for the next playlist track immediately.
         using var tierCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -600,8 +607,7 @@ public class DownloadDiscoveryService
                     track.Priority,
                     track.Status,
                     forceMp3);
-                _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash,
-                    "⚡ Fast lane active: preferring idle peers that meet minimum quality."));
+                PublishStatus("⚡ Fast lane active: preferring idle peers that meet minimum quality.");
             }
 
             // Consume the stream
@@ -622,7 +628,7 @@ public class DownloadDiscoveryService
                     blacklistedUsers.Contains(searchTrack.Username))
                 {
                     log.RejectedByBlacklist++;
-                    _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"Skipping peer {searchTrack.Username} (Blacklisted)", true));
+                    PublishStatus($"Skipping peer {searchTrack.Username} (Blacklisted)", true);
                     // Phase 6: Security audit trail
                     _eventBus.Publish(new SecurityAuditEvent(
                         Category: SecurityAuditCategory.Blacklist,
@@ -648,7 +654,7 @@ public class DownloadDiscoveryService
                 {
                     log.RejectedByForensics++;
                     // Log the rejection to the persistent audit trail
-                    _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"Rejected {searchTrack.Username}: {safety.Reason}", true));
+                    PublishStatus($"Rejected {searchTrack.Username}: {safety.Reason}", true);
                     // Phase 6: Security audit trail
                     _eventBus.Publish(new SecurityAuditEvent(
                         Category: SecurityAuditCategory.Gate,
@@ -663,7 +669,7 @@ public class DownloadDiscoveryService
                 {
                     log.RejectedByForensics++;
                     var suspiciousReason = "Suspicious FLAC transcode detected (Low bitrate).";
-                    _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"Skipped {searchTrack.Username}: {suspiciousReason}", true));
+                    PublishStatus($"Skipped {searchTrack.Username}: {suspiciousReason}", true);
                     // Phase 6: Security audit trail
                     _eventBus.Publish(new SecurityAuditEvent(
                         Category: SecurityAuditCategory.ForensicLab,
@@ -696,7 +702,7 @@ public class DownloadDiscoveryService
                         _logger.LogInformation("🥈 SPECULATIVE TRIGGER: 3s timeout reached with match ({Score}/100). Starting download. File: {File}",
                             bestSilverScore, bestSilverMatch.Filename);
 
-                        _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"⏳ 3s timeout reached. Processing silver match from {bestSilverMatch.Username}"));
+                        PublishStatus($"⏳ 3s timeout reached. Processing silver match from {bestSilverMatch.Username}");
                         return new DiscoveryResult(bestSilverMatch, log, runnerUpSilverMatch);
                     }
                 }
@@ -708,7 +714,7 @@ public class DownloadDiscoveryService
             if (!allTracks.Any())
             {
                 _logger.LogWarning("No results found for {Query}", query);
-                _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"❌ No results found on network for this query.", true));
+                PublishStatus("❌ No results found on network for this query.", true);
                 return new DiscoveryResult(null, log);
             }
 
@@ -730,7 +736,7 @@ public class DownloadDiscoveryService
             if (bestMatch != null)
             {
                 _logger.LogInformation("🧠 BRAIN: Unified Matcher selected: {Filename}", bestMatch.Filename);
-                _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"🧠 Selected {bestMatch.Username}'s file"));
+                PublishStatus($"🧠 Selected {bestMatch.Username}'s file");
                 return new DiscoveryResult(bestMatch, log, runnerUpMatch);
             }
 
@@ -743,7 +749,7 @@ public class DownloadDiscoveryService
                 if (track.Status != TrackStatus.OnHold && formatsList.Contains("flac") && !formatsList.Contains("mp3"))
                 {
                      _logger.LogInformation("🧠 BRAIN: FLAC-only tier {Tier} failed — no relaxation. Will escalate to MP3 after 9 FLAC attempts.", tierName);
-                     _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"🎵 No FLAC found in {tierName} tier — MP3 fallback queues after 9 attempts."));
+                     PublishStatus($"🎵 No FLAC found in {tierName} tier — MP3 fallback queues after 9 attempts.");
                      return new DiscoveryResult(null, log);
                 }
 
@@ -781,7 +787,7 @@ public class DownloadDiscoveryService
             }
 
             _logger.LogWarning("🧠 BRAIN: No suitable match found for query tier. {Summary}", log.GetSummary());
-            _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, $"❌ No acceptable match found in {tierName} tier.", true));
+            PublishStatus($"❌ No acceptable match found in {tierName} tier.", true);
             return new DiscoveryResult(null, log);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -879,8 +885,9 @@ public class DownloadDiscoveryService
     /// </summary>
     public async Task DiscoverAndQueueTrackAsync(PlaylistTrack track, CancellationToken ct = default, HashSet<string>? blacklistedUsers = null)
     {
+        var correlationId = Guid.NewGuid().ToString("N");
         // Step T.1: Pass model directly
-        var result = await FindBestMatchAsync(track, ct, blacklistedUsers);
+        var result = await FindBestMatchAsync(track, ct, blacklistedUsers, correlationId);
         var bestMatch = result.BestMatch;
         if (bestMatch == null) return;
 
@@ -900,18 +907,18 @@ public class DownloadDiscoveryService
 
                 if (_config.UpgradeAutoQueueEnabled)
                 {
-                    _eventBus.Publish(new AutoDownloadUpgradeEvent(track.TrackUniqueHash, bestMatch));
+                    _eventBus.Publish(new AutoDownloadUpgradeEvent(track.TrackUniqueHash, bestMatch, correlationId));
                 }
                 else
                 {
-                    _eventBus.Publish(new UpgradeAvailableEvent(track.TrackUniqueHash, bestMatch));
+                    _eventBus.Publish(new UpgradeAvailableEvent(track.TrackUniqueHash, bestMatch, correlationId));
                 }
             }
         }
         else
         {
             // Standard missing track discovery - auto download is assumed here for automation flows
-            _eventBus.Publish(new AutoDownloadTrackEvent(track.TrackUniqueHash, bestMatch));
+            _eventBus.Publish(new AutoDownloadTrackEvent(track.TrackUniqueHash, bestMatch, correlationId));
         }
     }
 }

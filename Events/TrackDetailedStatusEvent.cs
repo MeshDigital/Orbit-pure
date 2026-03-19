@@ -6,4 +6,5 @@ namespace SLSKDONET.Events;
 public record TrackDetailedStatusEvent(
     string TrackHash, 
     string Message, 
-    bool IsError = false);
+    bool IsError = false,
+    string? CorrelationId = null);

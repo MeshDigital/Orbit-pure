@@ -6,6 +6,7 @@ namespace SLSKDONET.Models;
 /// </summary>
 public class SearchAttemptLog
 {
+    public string? CorrelationId { get; set; }
     public string QueryString { get; set; } = "";
     public int ResultsCount { get; set; }
     public int RejectedByQuality { get; set; }

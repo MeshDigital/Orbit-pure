@@ -62,7 +62,7 @@ public record TrackRemovedEvent(string TrackGlobalId);
 public record TrackMovedEvent(string TrackGlobalId, Guid OldProjectId, Guid NewProjectId);
 public record TrackStateChangedEvent(string TrackGlobalId, Guid ProjectId, PlaylistTrackState State, DownloadFailureReason FailureReason = DownloadFailureReason.None, string? Error = null, SearchAttemptLog? SearchLog = null, string? PeerName = null);
 // Phase 2.5: Enhanced with byte-level progress tracking
-public record TrackProgressChangedEvent(string TrackGlobalId, double Progress, long BytesReceived, long TotalBytes);
+public record TrackProgressChangedEvent(string TrackGlobalId, double Progress, long BytesReceived, long TotalBytes, string? CorrelationId = null);
 public record TrackMetadataUpdatedEvent(string TrackGlobalId);
 public record ForceStartRequestEvent(string TrackGlobalId);
 public record BumpToTopRequestEvent(string TrackGlobalId); // [NEW] Overhaul Phase
@@ -102,9 +102,9 @@ public record AnalysisCompletedEvent(
 public record NetworkHealthWarningEvent(double SearchFertilityRate, string Message);
 
 // Phase 8: Automation & Upgrade Events
-public record AutoDownloadTrackEvent(string TrackGlobalId, Track BestMatch);
-public record AutoDownloadUpgradeEvent(string TrackGlobalId, Track BestMatch);
-public record UpgradeAvailableEvent(string TrackGlobalId, Track BestMatch);
+public record AutoDownloadTrackEvent(string TrackGlobalId, Track BestMatch, string? CorrelationId = null);
+public record AutoDownloadUpgradeEvent(string TrackGlobalId, Track BestMatch, string? CorrelationId = null);
+public record UpgradeAvailableEvent(string TrackGlobalId, Track BestMatch, string? CorrelationId = null);
 
 // Phase 2A: Crash Recovery Events
 public record RecoveryCompletedEvent(

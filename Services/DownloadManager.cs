@@ -1979,6 +1979,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         var trackCt = ctx.CancellationTokenSource.Token;
 
         using (LogContext.PushProperty("TrackHash", ctx.GlobalId))
+        using (LogContext.PushProperty("CorrelationId", ctx.CorrelationId))
         {
             try
             {
@@ -2028,7 +2029,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 else
                 {
                     // Fallback to normal execution if not pre-searched
-                    discoveryResult = await _discoveryService.FindBestMatchAsync(ctx.Model, trackCt, ctx.BlacklistedUsers);
+                    discoveryResult = await _discoveryService.FindBestMatchAsync(ctx.Model, trackCt, ctx.BlacklistedUsers, ctx.CorrelationId);
                     bestMatch = discoveryResult.BestMatch;
                 }
                 ctx.HedgeAttempted = false;
@@ -2048,6 +2049,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 // Capture search diagnostics
                 if (discoveryResult.Log != null)
                 {
+                    if (string.IsNullOrWhiteSpace(discoveryResult.Log.CorrelationId))
+                    {
+                        discoveryResult.Log.CorrelationId = ctx.CorrelationId;
+                    }
                     ctx.SearchAttempts.Add(discoveryResult.Log);
                 }
 
@@ -2320,7 +2325,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
         _eventBus.Publish(new Events.TrackDetailedStatusEvent(
             ctx.GlobalId,
-            $"📥 Transfer started | user:{bestMatch.Username} | file:{bestMatch.Filename} | bitrate:{bestMatch.Bitrate}kbps | format:{bestMatch.Format ?? "unknown"}"));
+            $"📥 Transfer started | user:{bestMatch.Username} | file:{bestMatch.Filename} | bitrate:{bestMatch.Bitrate}kbps | format:{bestMatch.Format ?? "unknown"}",
+            false,
+            ctx.CorrelationId));
 
         ctx.Model.Bitrate = bestMatch.Bitrate;
         if (!string.IsNullOrWhiteSpace(bestMatch.Filename))
@@ -2445,7 +2452,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
             _eventBus.Publish(new Events.TrackDetailedStatusEvent(
                 ctx.GlobalId,
-                $"♻️ Resuming transfer | user:{bestMatch.Username} | file:{bestMatch.Filename} | offset:{FormatBytes(startPosition)}"));
+                $"♻️ Resuming transfer | user:{bestMatch.Username} | file:{bestMatch.Filename} | offset:{FormatBytes(startPosition)}",
+                false,
+                ctx.CorrelationId));
         }
         else
         {
@@ -2588,7 +2597,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     ctx.GlobalId, 
                     ctx.Progress,
                     ctx.BytesReceived,
-                    ctx.TotalBytes
+                    ctx.TotalBytes,
+                    ctx.CorrelationId
                 ));
                 
                 lastNotificationTime = DateTime.Now;
@@ -2599,7 +2609,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 var speedBytesPerSecond = Math.Max(0, (long)ctx.CurrentSpeed);
                 _eventBus.Publish(new Events.TrackDetailedStatusEvent(
                     ctx.GlobalId,
-                    $"↔ Transfer progress | user:{bestMatch.Username} | file:{bestMatch.Filename} | speed:{FormatBytes(speedBytesPerSecond)}/s | received:{FormatBytes(ctx.BytesReceived)} | total:{FormatBytes(ctx.TotalBytes)}"));
+                    $"↔ Transfer progress | user:{bestMatch.Username} | file:{bestMatch.Filename} | speed:{FormatBytes(speedBytesPerSecond)}/s | received:{FormatBytes(ctx.BytesReceived)} | total:{FormatBytes(ctx.TotalBytes)}",
+                    false,
+                    ctx.CorrelationId));
                 lastDetailedProgressTime = DateTime.Now;
             }
         });
@@ -2845,6 +2857,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         lock (_collectionLock) ctx = _downloads.FirstOrDefault(d => d.GlobalId == e.TrackGlobalId);
         if (ctx == null) return;
 
+        if (!string.IsNullOrWhiteSpace(e.CorrelationId))
+        {
+            ctx.CorrelationId = e.CorrelationId!;
+        }
+
         _ = Task.Run(async () => 
         {
             // Phase 3C Hardening: Enforce Priority 0 (Express Lane) and persistence
@@ -2866,6 +2883,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         DownloadContext? ctx;
         lock (_collectionLock) ctx = _downloads.FirstOrDefault(d => d.GlobalId == e.TrackGlobalId);
         if (ctx == null) return;
+
+        if (!string.IsNullOrWhiteSpace(e.CorrelationId))
+        {
+            ctx.CorrelationId = e.CorrelationId!;
+        }
 
         _ = Task.Run(async () => 
         {

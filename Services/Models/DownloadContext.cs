@@ -11,6 +11,7 @@ namespace SLSKDONET.Services.Models;
 public class DownloadContext
 {
     public PlaylistTrack Model { get; }
+    public string CorrelationId { get; set; }
     public CancellationTokenSource CancellationTokenSource { get; set; } = new();
     
     // Transient State
@@ -77,6 +78,7 @@ public class DownloadContext
     public DownloadContext(PlaylistTrack model)
     {
         Model = model;
+        CorrelationId = Guid.NewGuid().ToString("N");
         SearchStartedAt = model.SearchStartedAt;
         
         // Map initial state from persistence
