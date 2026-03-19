@@ -15,6 +15,70 @@ namespace SLSKDONET.Tests.Services;
 public class SearchOrchestrationServiceTests
 {
     [Fact]
+    public async Task SearchAsync_RespectsVariationCap_WhenManyVariationsGenerated()
+    {
+        var config = new AppConfig
+        {
+            MaxConcurrentSearches = 2,
+            MaxSearchVariations = 2,
+            SearchThrottleDelayMs = 10,
+            PreferredFormats = new List<string> { "flac", "mp3" },
+            PreferredMinBitrate = 320
+        };
+
+        var eventBus = new EventBusService();
+        var hardening = new ProtocolHardeningService(
+            NullLogger<ProtocolHardeningService>.Instance,
+            config,
+            eventBus);
+
+        var soulseek = new Mock<ISoulseekAdapter>();
+        soulseek.SetupGet(s => s.IsConnected).Returns(true);
+        var invocationCount = 0;
+        soulseek
+            .Setup(s => s.StreamResultsAsync(
+                It.IsAny<string>(),
+                It.IsAny<IEnumerable<string>>(),
+                It.IsAny<(int? Min, int? Max)>(),
+                It.IsAny<DownloadMode>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, CancellationToken token) =>
+            {
+                invocationCount++;
+                return StreamCandidates(Array.Empty<Track>(), token);
+            });
+
+        var safety = new Mock<ISafetyFilterService>();
+        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>()));
+
+        var library = new Mock<ILibraryService>();
+
+        var sut = new SearchOrchestrationService(
+            NullLogger<SearchOrchestrationService>.Instance,
+            soulseek.Object,
+            new SearchQueryNormalizer(),
+            new SearchNormalizationService(NullLogger<SearchNormalizationService>.Instance),
+            safety.Object,
+            config,
+            hardening,
+            library.Object);
+
+        await foreach (var _ in sut.SearchAsync(
+            query: "Artist - Track (Original Mix)",
+            preferredFormats: "flac,mp3",
+            minBitrate: 320,
+            maxBitrate: 0,
+            isAlbumSearch: false,
+            fastClearance: false,
+            cancellationToken: CancellationToken.None))
+        {
+            // no-op
+        }
+
+        Assert.Equal(2, invocationCount);
+    }
+
+    [Fact]
     public async Task SearchAsync_ShouldPreferLeastBadPeer_WhenHighQualityPeerHasExtremeQueue()
     {
         var config = new AppConfig

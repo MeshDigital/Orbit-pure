@@ -17,8 +17,7 @@ namespace SLSKDONET.Services;
 /// </summary>
 public class DownloadDiscoveryService
 {
-    // Hyper-Drive: 5 concurrent discovery lanes max (professional beta target).
-    private static readonly SemaphoreSlim _searchLaneSemaphore = new(5, 5);
+    private readonly SemaphoreSlim _searchLaneSemaphore;
 
     private readonly ILogger<DownloadDiscoveryService> _logger;
     private readonly SearchOrchestrationService _searchOrchestrator;
@@ -50,6 +49,10 @@ public class DownloadDiscoveryService
         _autoCleaner = autoCleaner;
         _hardeningService = hardeningService;
         _peerReliability = peerReliability;
+
+        var configuredDiscoveryLanes = Math.Clamp(_config.MaxDiscoveryLanes, 1, 8);
+        _searchLaneSemaphore = new SemaphoreSlim(configuredDiscoveryLanes, 8);
+        _logger.LogInformation("Discovery lane semaphore initialized with {LaneCount} lanes.", configuredDiscoveryLanes);
     }
 
     public record DiscoveryResult(Track? BestMatch, SearchAttemptLog? Log, Track? RunnerUpMatch = null)

@@ -160,13 +160,7 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
             if (!string.Equals(evt.Status, "kicked", StringComparison.OrdinalIgnoreCase))
                 return;
 
-            _reconnectCooldownUntilUtc = DateTime.UtcNow.AddSeconds(60);
-            _logger.LogWarning("Received 'kicked' status. Auto-reconnect cooldown active until {CooldownUtc}.", _reconnectCooldownUntilUtc);
-            Dispatcher.UIThread.Post(() =>
-            {
-                IsConnected = false;
-                StatusText = "Disconnected by server. Waiting 60s before reconnect...";
-            });
+            ApplyKickCooldown(60);
         });
 
         // Initialize Auto-Connect
@@ -419,6 +413,25 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         // Exponential backoff: 5s * 3^(attempt-1), capped at 60s
         var delaySeconds = 5 * Math.Pow(3, attemptNumber - 1);
         return Math.Min((int)delaySeconds, 60) * 1000; // Convert to milliseconds
+    }
+
+    private void ApplyKickCooldown(int seconds)
+    {
+        _reconnectCooldownUntilUtc = DateTime.UtcNow.AddSeconds(seconds);
+        _logger.LogWarning("Received 'kicked' status. Auto-reconnect cooldown active until {CooldownUtc}.", _reconnectCooldownUntilUtc);
+
+        try
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                IsConnected = false;
+                StatusText = $"Disconnected by server. Waiting {seconds}s before reconnect...";
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Unable to post kick cooldown status to UI dispatcher in current context.");
+        }
     }
 
     public void Dispose()

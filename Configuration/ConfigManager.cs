@@ -102,6 +102,7 @@ public class ConfigManager
                 SearchFileLimit = int.TryParse(config["Search:SearchFileLimit"], out var sfl) ? sfl : 100,
                 MaxPeerQueueLength = int.TryParse(config["Search:MaxPeerQueueLength"], out var mpql) ? mpql : 50,
                 MaxConcurrentSearches = int.TryParse(config["Search:MaxConcurrentSearches"], out var mcs) ? mcs : 3,
+                MaxDiscoveryLanes = int.TryParse(config["Search:MaxDiscoveryLanes"], out var mdl) ? mdl : 5,
                 MaxSearchVariations = int.TryParse(config["Search:MaxSearchVariations"], out var msv) ? msv : 2,
 
                 // [Library] & Upgrade Scout
@@ -188,6 +189,7 @@ public class ConfigManager
         iniContent.AppendLine($"SearchFileLimit = {config.SearchFileLimit}");
         iniContent.AppendLine($"MaxPeerQueueLength = {config.MaxPeerQueueLength}");
         iniContent.AppendLine($"MaxConcurrentSearches = {config.MaxConcurrentSearches}");
+        iniContent.AppendLine($"MaxDiscoveryLanes = {config.MaxDiscoveryLanes}");
         iniContent.AppendLine($"MaxSearchVariations = {config.MaxSearchVariations}");
 
         iniContent.AppendLine();

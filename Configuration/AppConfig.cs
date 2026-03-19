@@ -17,6 +17,7 @@ public class AppConfig
     public int ConnectTimeout { get; set; } = 20000; // ms
     public int SearchTimeout { get; set; } = 6000; // ms
     public int MaxConcurrentSearches { get; set; } = 5; // Throttling to prevent bans
+    public int MaxDiscoveryLanes { get; set; } = 5; // Concurrent discovery jobs for seeker pipeline
     public int MaxSearchVariations { get; set; } = 2; // Cap cascade fan-out to avoid flooding
     public int SearchThrottleDelayMs { get; set; } = 200; // Protocol pacing to prevent flood protection
     public int SearchResponseLimit { get; set; } = 100; // Workstation 2026: cap response batches for fast winner selection
