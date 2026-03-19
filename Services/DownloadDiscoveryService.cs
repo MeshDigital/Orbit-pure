@@ -17,7 +17,9 @@ namespace SLSKDONET.Services;
 /// </summary>
 public class DownloadDiscoveryService
 {
-    private readonly SemaphoreSlim _searchLaneSemaphore;
+    private int _activeDiscoveryLanes;
+    private int _currentLaneLimit;
+    private DateTime _nextLaneTuneAtUtc = DateTime.MinValue;
 
     private readonly ILogger<DownloadDiscoveryService> _logger;
     private readonly SearchOrchestrationService _searchOrchestrator;
@@ -28,6 +30,7 @@ public class DownloadDiscoveryService
     private readonly Import.AutoCleanerService _autoCleaner;
     private readonly Network.ProtocolHardeningService _hardeningService;
     private readonly PeerReliabilityService _peerReliability;
+    private readonly INetworkHealthService _healthService;
 
     public DownloadDiscoveryService(
         ILogger<DownloadDiscoveryService> logger,
@@ -38,7 +41,8 @@ public class DownloadDiscoveryService
         ISafetyFilterService safetyFilter,
         Import.AutoCleanerService autoCleaner,
         Network.ProtocolHardeningService hardeningService,
-        PeerReliabilityService peerReliability)
+        PeerReliabilityService peerReliability,
+        INetworkHealthService healthService)
     {
         _logger = logger;
         _searchOrchestrator = searchOrchestrator;
@@ -49,10 +53,12 @@ public class DownloadDiscoveryService
         _autoCleaner = autoCleaner;
         _hardeningService = hardeningService;
         _peerReliability = peerReliability;
+        _healthService = healthService;
 
-        var configuredDiscoveryLanes = Math.Clamp(_config.MaxDiscoveryLanes, 1, 8);
-        _searchLaneSemaphore = new SemaphoreSlim(configuredDiscoveryLanes, 8);
-        _logger.LogInformation("Discovery lane semaphore initialized with {LaneCount} lanes.", configuredDiscoveryLanes);
+        var minLane = Math.Clamp(_config.MinAdaptiveSearchLanes, 1, 8);
+        var maxLane = Math.Clamp(_config.MaxAdaptiveSearchLanes, minLane, 8);
+        _currentLaneLimit = Math.Clamp(_config.MaxDiscoveryLanes, minLane, maxLane);
+        _logger.LogInformation("Discovery lane limiter initialized with {LaneCount} lanes (adaptive={Adaptive}).", _currentLaneLimit, _config.EnableAdaptiveLanes);
     }
 
     public record DiscoveryResult(Track? BestMatch, SearchAttemptLog? Log, Track? RunnerUpMatch = null)
@@ -86,7 +92,7 @@ public class DownloadDiscoveryService
     /// </summary>
     public async Task<DiscoveryResult> FindBestMatchAsync(PlaylistTrack track, CancellationToken ct, HashSet<string>? blacklistedUsers = null)
     {
-        await _searchLaneSemaphore.WaitAsync(ct);
+        await AcquireDiscoveryLaneAsync(ct);
         try
         {
         if (string.IsNullOrWhiteSpace(track.TrackUniqueHash))
@@ -247,7 +253,70 @@ public class DownloadDiscoveryService
         }
         finally
         {
-            _searchLaneSemaphore.Release();
+            ReleaseDiscoveryLane();
+        }
+    }
+
+    private async Task AcquireDiscoveryLaneAsync(CancellationToken ct)
+    {
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            TuneLaneLimitIfNeeded();
+
+            var laneLimit = Volatile.Read(ref _currentLaneLimit);
+            var active = Interlocked.Increment(ref _activeDiscoveryLanes);
+            if (active <= laneLimit)
+            {
+                return;
+            }
+
+            Interlocked.Decrement(ref _activeDiscoveryLanes);
+            await Task.Delay(75, ct);
+        }
+    }
+
+    private void ReleaseDiscoveryLane()
+    {
+        var remaining = Interlocked.Decrement(ref _activeDiscoveryLanes);
+        if (remaining < 0)
+        {
+            Interlocked.Exchange(ref _activeDiscoveryLanes, 0);
+        }
+    }
+
+    private void TuneLaneLimitIfNeeded()
+    {
+        if (!_config.EnableAdaptiveLanes)
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        if (now < _nextLaneTuneAtUtc)
+        {
+            return;
+        }
+
+        _nextLaneTuneAtUtc = now.AddSeconds(10);
+
+        var signal = _healthService.GetCurrentHealth();
+        var counters = _healthService.GetReliabilityCounters();
+        var current = Volatile.Read(ref _currentLaneLimit);
+        var next = AdaptiveLaneTuner.ComputeNextLaneLimit(_config, signal, counters, current);
+
+        if (next != current)
+        {
+            Volatile.Write(ref _currentLaneLimit, next);
+            _logger.LogInformation(
+                "Adaptive discovery lanes tuned {Previous}->{Next} (Healthy={Healthy}, Throttle={Throttle}, Ban={Ban}, Timeouts={Timeouts}, Kicks={Kicks})",
+                current,
+                next,
+                signal.IsHealthy,
+                signal.ThrottleStatus,
+                signal.BanStatus,
+                signal.RecentTimeoutCount,
+                counters.KickedEventCount);
         }
     }
 
