@@ -59,6 +59,7 @@ public class DownloadDiscoveryService
         var maxLane = Math.Clamp(_config.MaxAdaptiveSearchLanes, minLane, 8);
         _currentLaneLimit = Math.Clamp(_config.MaxDiscoveryLanes, minLane, maxLane);
         _logger.LogInformation("Discovery lane limiter initialized with {LaneCount} lanes (adaptive={Adaptive}).", _currentLaneLimit, _config.EnableAdaptiveLanes);
+        _eventBus.Publish(new AdaptiveLaneStatusEvent(_currentLaneLimit, 0, _config.EnableAdaptiveLanes ? "Adaptive tuning enabled" : "Adaptive tuning disabled"));
     }
 
     public record DiscoveryResult(Track? BestMatch, SearchAttemptLog? Log, Track? RunnerUpMatch = null)
@@ -268,6 +269,7 @@ public class DownloadDiscoveryService
             var active = Interlocked.Increment(ref _activeDiscoveryLanes);
             if (active <= laneLimit)
             {
+                _eventBus.Publish(new AdaptiveLaneStatusEvent(laneLimit, active, "Lane acquired"));
                 return;
             }
 
@@ -282,7 +284,10 @@ public class DownloadDiscoveryService
         if (remaining < 0)
         {
             Interlocked.Exchange(ref _activeDiscoveryLanes, 0);
+            remaining = 0;
         }
+
+        _eventBus.Publish(new AdaptiveLaneStatusEvent(Volatile.Read(ref _currentLaneLimit), remaining, "Lane released"));
     }
 
     private void TuneLaneLimitIfNeeded()
@@ -308,6 +313,7 @@ public class DownloadDiscoveryService
         if (next != current)
         {
             Volatile.Write(ref _currentLaneLimit, next);
+            var reason = BuildAdaptiveReason(signal, counters);
             _logger.LogInformation(
                 "Adaptive discovery lanes tuned {Previous}->{Next} (Healthy={Healthy}, Throttle={Throttle}, Ban={Ban}, Timeouts={Timeouts}, Kicks={Kicks})",
                 current,
@@ -317,7 +323,28 @@ public class DownloadDiscoveryService
                 signal.BanStatus,
                 signal.RecentTimeoutCount,
                 counters.KickedEventCount);
+            _eventBus.Publish(new AdaptiveLaneStatusEvent(next, Volatile.Read(ref _activeDiscoveryLanes), reason));
         }
+    }
+
+    private static string BuildAdaptiveReason(NetworkHealthSignal signal, NetworkReliabilityCounters counters)
+    {
+        if (!signal.IsConnected)
+            return "Disconnected; reducing lanes";
+
+        if (signal.BanStatus != BanStatus.None || counters.KickedEventCount > 0)
+            return "Kick/ban risk detected; reducing lanes";
+
+        if (signal.ThrottleStatus == ThrottleStatus.Confirmed)
+            return "Confirmed throttle; reducing lanes";
+
+        if (signal.ThrottleStatus == ThrottleStatus.Suspected)
+            return "Suspected throttle; lowering pressure";
+
+        if (signal.IsHealthy)
+            return "Healthy network; increasing lanes";
+
+        return "Network degraded; tuning lanes conservatively";
     }
 
     private async Task<DiscoveryResult> PerformSearchTierAsync(PlaylistTrack track, string query, string tierName, CancellationToken ct, HashSet<string>? blacklistedUsers, SearchAttemptLog log, bool forceMp3 = false)

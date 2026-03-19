@@ -168,6 +168,16 @@
                                Foreground="#DDD" 
                                FontWeight="SemiBold"
                                VerticalAlignment="Center"/>
+
+                        <Border Background="#252526"
+                            CornerRadius="4"
+                            Padding="6,2"
+                            ToolTip.Tip="{Binding StatusBar.AdaptiveLaneTooltip}">
+                        <TextBlock Text="{Binding StatusBar.AdaptiveLaneReadout}"
+                               FontSize="11"
+                               Foreground="#9CDCFE"
+                               VerticalAlignment="Center"/>
+                        </Border>
                                
                     <Button Command="{Binding ExecuteBrainTestCommand}"
                             Background="Transparent"

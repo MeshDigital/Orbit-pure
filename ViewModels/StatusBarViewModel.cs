@@ -196,6 +196,9 @@ public class StatusBarViewModel : ReactiveObject, IDisposable
     private bool _isBulkOperationRunning;
     private string _bulkOperationTitle = string.Empty;
     private int _bulkOperationProgress;
+    private int _adaptiveLaneLimit;
+    private int _adaptiveLaneActive;
+    private string _adaptiveLaneReason = "Adaptive lane telemetry unavailable";
 
     public bool IsBulkOperationRunning
     {
@@ -226,6 +229,44 @@ public class StatusBarViewModel : ReactiveObject, IDisposable
             this.RaisePropertyChanged(nameof(StatusText));
         }
     }
+
+    public int AdaptiveLaneLimit
+    {
+        get => _adaptiveLaneLimit;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _adaptiveLaneLimit, value);
+            this.RaisePropertyChanged(nameof(AdaptiveLaneReadout));
+            this.RaisePropertyChanged(nameof(AdaptiveLaneTooltip));
+        }
+    }
+
+    public int AdaptiveLaneActive
+    {
+        get => _adaptiveLaneActive;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _adaptiveLaneActive, value);
+            this.RaisePropertyChanged(nameof(AdaptiveLaneReadout));
+            this.RaisePropertyChanged(nameof(AdaptiveLaneTooltip));
+        }
+    }
+
+    public string AdaptiveLaneReason
+    {
+        get => _adaptiveLaneReason;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _adaptiveLaneReason, value);
+            this.RaisePropertyChanged(nameof(AdaptiveLaneTooltip));
+        }
+    }
+
+    public string AdaptiveLaneReadout => AdaptiveLaneLimit > 0
+        ? $"Lanes {AdaptiveLaneActive}/{AdaptiveLaneLimit}"
+        : "Lanes --";
+
+    public string AdaptiveLaneTooltip => $"Adaptive lane tuning: {AdaptiveLaneReadout}. {AdaptiveLaneReason}";
 
     // Computed properties
     public string StatusText
@@ -302,6 +343,16 @@ public class StatusBarViewModel : ReactiveObject, IDisposable
             .Subscribe(e =>
             {
                 IsBulkOperationRunning = false;
+            })
+            .DisposeWith(_disposables);
+
+        eventBus.GetEvent<AdaptiveLaneStatusEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e =>
+            {
+                AdaptiveLaneLimit = e.CurrentLanes;
+                AdaptiveLaneActive = e.ActiveLanes;
+                AdaptiveLaneReason = e.Reason;
             })
             .DisposeWith(_disposables);
             
