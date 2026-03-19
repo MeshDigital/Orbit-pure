@@ -27,6 +27,7 @@ public interface ISoulseekAdapter
         IEnumerable<string>? formatFilter,
         (int? Min, int? Max) bitrateFilter,
         DownloadMode mode,
+        SearchExecutionProfile? executionProfile = null,
         CancellationToken ct = default);
 
     Task<bool> DownloadAsync(

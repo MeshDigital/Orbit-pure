@@ -80,8 +80,11 @@ public class SearchOrchestrationService
         bool fastClearance = false,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        var activeNow = Math.Max(1, Volatile.Read(ref _activeSearchCount) + 1);
+        var executionProfile = SearchLoadSheddingPolicy.Compute(_config, activeNow);
+
         var generatedVariations = _searchNormalization.GenerateSearchVariations(query);
-        var variationCap = Math.Max(1, _config.MaxSearchVariations);
+        var variationCap = Math.Max(1, executionProfile.EffectiveVariationCap);
         var variations = generatedVariations.Take(variationCap).ToList();
         if (generatedVariations.Count > variations.Count)
         {
@@ -91,8 +94,22 @@ public class SearchOrchestrationService
                 variations.Count,
                 generatedVariations.Count);
         }
+
+            if (executionProfile.PressureLevel != SearchPressureLevel.Normal)
+            {
+                _logger.LogInformation(
+                "Search load shedding active ({Pressure}) for '{Query}': responseLimit={ResponseLimit}, fileLimit={FileLimit}, variationCap={VariationCap}, extraDelayMs={ExtraDelayMs}",
+                executionProfile.PressureLevel,
+                query,
+                executionProfile.EffectiveResponseLimit,
+                executionProfile.EffectiveFileLimit,
+                executionProfile.EffectiveVariationCap,
+                executionProfile.AdditionalThrottleDelayMs);
+            }
+
         var seenHashes = new HashSet<string>();
         var formatFilter = preferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var strictSufficientResultCount = Math.Max(1, _config.StrictSearchSufficientResultCount);
         int totalFound = 0;
 
         bool countedAsActive = false;
@@ -108,6 +125,7 @@ public class SearchOrchestrationService
                     variation, variationIndex + 1, variations.Count);
 
                 bool foundInThisVariation = false;
+                bool strictHighConfidenceWinnerFound = false;
                 
                 var hardenedVariation = _hardeningService.NormalizeSearchQuery(variation);
                 if (hardenedVariation == null) continue; // Skip banned query
@@ -116,7 +134,8 @@ public class SearchOrchestrationService
                     hardenedVariation, 
                     preferredFormats, 
                     minBitrate, 
-                    maxBitrate, 
+                    maxBitrate,
+                    executionProfile,
                     cancellationToken))
                 {
                     if (seenHashes.Add(track.UniqueHash))
@@ -124,6 +143,11 @@ public class SearchOrchestrationService
                         yield return track;
                         totalFound++;
                         foundInThisVariation = true;
+
+                        if (!isAlbumSearch && variationIndex == 0 && IsFastLaneWinner(track, formatFilter, minBitrate))
+                        {
+                            strictHighConfidenceWinnerFound = true;
+                        }
 
                         if (fastClearance && !isAlbumSearch && IsFastLaneWinner(track, formatFilter, minBitrate))
                         {
@@ -138,9 +162,28 @@ public class SearchOrchestrationService
                     }
                 }
 
+                if (!isAlbumSearch && variationIndex == 0)
+                {
+                    if (_config.EnableStrictHighConfidenceShortCircuit && strictHighConfidenceWinnerFound)
+                    {
+                        _logger.LogInformation(
+                            "Cascade Search: Strict variation produced a high-confidence winner. Skipping relaxed fallbacks.");
+                        break;
+                    }
+
+                    if (totalFound >= strictSufficientResultCount)
+                    {
+                        _logger.LogInformation(
+                            "Cascade Search: Strict variation reached sufficient result threshold ({Count}/{Threshold}). Skipping relaxed fallbacks.",
+                            totalFound,
+                            strictSufficientResultCount);
+                        break;
+                    }
+                }
+
                 // Smart Stop: If we found hits with a better strategy, don't fallback to noisier ones
                 // Unless it's an album search where we want as much coverage as possible.
-                if (foundInThisVariation && !isAlbumSearch && totalFound >= 5)
+                if (foundInThisVariation && !isAlbumSearch && totalFound >= strictSufficientResultCount)
                 {
                     _logger.LogInformation("Cascade Search: Found {Count} results for '{Variation}'. Stopping cascade.", totalFound, variation);
                     break;
@@ -149,7 +192,8 @@ public class SearchOrchestrationService
                 if (!foundInThisVariation && variationIndex < variations.Count - 1)
                 {
                     _logger.LogInformation("Cascade Search: No new results for '{Variation}'. Trying next variation...", variation);
-                    await Task.Delay(Math.Max(50, _config.SearchThrottleDelayMs), cancellationToken); // Stagger
+                    var delayMs = Math.Max(50, _config.SearchThrottleDelayMs + executionProfile.AdditionalThrottleDelayMs);
+                    await Task.Delay(delayMs, cancellationToken); // Stagger
                 }
             }
         }
@@ -194,6 +238,7 @@ public class SearchOrchestrationService
         string preferredFormats,
         int minBitrate,
         int maxBitrate,
+        SearchExecutionProfile executionProfile,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         const int brainBufferSeconds = 3;
@@ -212,6 +257,7 @@ public class SearchOrchestrationService
                 formatFilter,
                 (minBitrate, maxBitrate),
                 DownloadMode.Normal,
+                executionProfile,
                 brainBufferCts.Token))
             {
                 _safetyFilter.EvaluateSafety(track, normalizedQuery);

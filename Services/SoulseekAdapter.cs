@@ -9,6 +9,7 @@ using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.Collections.ObjectModel;
 
 namespace SLSKDONET.Services;
 
@@ -374,6 +375,18 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         Action<IEnumerable<Track>> onTracksFound,
         CancellationToken ct = default)
     {
+        return await SearchCoreAsync(query, formatFilter, bitrateFilter, mode, onTracksFound, null, ct);
+    }
+
+    private async Task<int> SearchCoreAsync(
+        string query,
+        IEnumerable<string>? formatFilter,
+        (int? Min, int? Max) bitrateFilter,
+        DownloadMode mode,
+        Action<IEnumerable<Track>> onTracksFound,
+        SearchExecutionProfile? executionProfile,
+        CancellationToken ct)
+    {
         if (string.IsNullOrWhiteSpace(query))
         {
             _logger.LogDebug("Search skipped because query was empty.");
@@ -395,7 +408,8 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         var filteredBySampleRate = 0;
         var filteredByQueue = 0;
         var filteredByDedup = 0;
-        var formatSet = formatFilter?.Select(f => f.ToLowerInvariant()).ToHashSet();
+        var formatSet = formatFilter?.Select(f => f.ToLowerInvariant()).ToHashSet() ?? new HashSet<string>();
+        var excludedPhraseSet = new ReadOnlyCollection<string>(_excludedPhrases.Keys.ToList());
         // Beta 2026: Result fingerprinting — deduplicate by (FileName + FileSize + Duration) within one search.
         // Reduces noise by up to 70% on popular tracks shared by many peers.
         var seenThisSearch = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -409,7 +423,8 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             await _rateLimitLock.WaitAsync(ct);
             try
             {
-                var throttleMs = Math.Max(50, _config.SearchThrottleDelayMs);
+                var extraDelay = executionProfile?.AdditionalThrottleDelayMs ?? 0;
+                var throttleMs = Math.Max(50, _config.SearchThrottleDelayMs + Math.Max(0, extraDelay));
                 var timeSinceLast = DateTime.UtcNow - _lastSearchTime;
                 if (timeSinceLast.TotalMilliseconds < throttleMs)
                 {
@@ -443,53 +458,25 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             }
             
             var searchQuery = Soulseek.SearchQuery.FromText(query);
+            var responseLimit = executionProfile?.EffectiveResponseLimit ?? Math.Max(20, _config.SearchResponseLimit);
+            var fileLimit = executionProfile?.EffectiveFileLimit ?? Math.Max(20, _config.SearchFileLimit);
             var options = new SearchOptions(
                 searchTimeout: Math.Max(5000, _config.SearchTimeout),
-                responseLimit: Math.Max(20, _config.SearchResponseLimit),
+                responseLimit: Math.Max(20, responseLimit),
                 filterResponses: true,
                 minimumResponseFileCount: 1,
                 maximumPeerQueueLength: Math.Max(0, _config.MaxPeerQueueLength),
-                fileLimit: Math.Max(20, _config.SearchFileLimit),
+                fileLimit: Math.Max(20, fileLimit),
                 removeSingleCharacterSearchTerms: true,
                 fileFilter: file =>
                 {
-                    var extension = Path.GetExtension(file.Filename)?.TrimStart('.').ToLowerInvariant() ?? string.Empty;
-                    if (formatSet != null && formatSet.Any() && !formatSet.Contains(extension))
-                    {
-                        return false;
-                    }
-
-                    var bitrateAttr = file.Attributes?.FirstOrDefault(a => a.Type == Soulseek.FileAttributeType.BitRate);
-                    var rawBitrate = bitrateAttr?.Value ?? 0;
-                    if (bitrateFilter.Min.HasValue && rawBitrate < bitrateFilter.Min.Value)
-                    {
-                        return false;
-                    }
-                    if (bitrateFilter.Max.HasValue && bitrateFilter.Max.Value > 0 && rawBitrate > bitrateFilter.Max.Value)
-                    {
-                        return false;
-                    }
-
-                    var sampleRateAttr = file.Attributes?.FirstOrDefault(a => a.Type == Soulseek.FileAttributeType.SampleRate);
-                    var rawSampleRate = sampleRateAttr?.Value ?? 0;
-                    if (_config.PreferredMaxSampleRate > 0 && rawSampleRate > _config.PreferredMaxSampleRate)
-                    {
-                        return false;
-                    }
-
-                    if (_excludedPhrases.Count > 0)
-                    {
-                        var lowerPath = file.Filename.ToLowerInvariant();
-                        foreach (var phrase in _excludedPhrases.Keys)
-                        {
-                            if (lowerPath.Contains(phrase))
-                            {
-                                return false;
-                            }
-                        }
-                    }
-
-                    return true;
+                    var decision = SearchFilterPolicy.EvaluateFile(
+                        file,
+                        formatSet,
+                        bitrateFilter,
+                        _config.PreferredMaxSampleRate,
+                        excludedPhraseSet);
+                    return decision.IsAccepted;
                 }
             );
 
@@ -521,66 +508,42 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                         else // Normal mode
                         {
                             totalFilesReceived++;
-                            
-                            // Apply format filter
                             var extension = Path.GetExtension(file.Filename)?.TrimStart('.').ToLowerInvariant();
-                            if (formatSet != null && formatSet.Any() && !formatSet.Contains(extension ?? ""))
+                            var fileDecision = SearchFilterPolicy.EvaluateFile(
+                                file,
+                                formatSet,
+                                bitrateFilter,
+                                _config.PreferredMaxSampleRate,
+                                excludedPhraseSet,
+                                Math.Max(0, _config.MaxPeerQueueLength),
+                                response.QueueLength);
+
+                            if (!fileDecision.IsAccepted)
                             {
-                                filteredByFormat++;
-                                if (filteredByFormat <= 3) // Log first 3 filtered items
+                                switch (fileDecision.Reason)
                                 {
-                                    _logger.LogInformation("[FILTER] Rejected by format: {File} (extension: {Ext}, allowed: {Formats})", file.Filename, extension, string.Join(", ", formatSet));
+                                    case SearchRejectionReason.Format:
+                                        filteredByFormat++;
+                                        if (filteredByFormat <= 3)
+                                        {
+                                            _logger.LogInformation("[FILTER] Rejected by format: {File} (extension: {Ext}, allowed: {Formats})", file.Filename, extension, string.Join(", ", formatSet));
+                                        }
+                                        break;
+                                    case SearchRejectionReason.Bitrate:
+                                        filteredByBitrate++;
+                                        break;
+                                    case SearchRejectionReason.SampleRate:
+                                        filteredBySampleRate++;
+                                        break;
+                                    case SearchRejectionReason.Queue:
+                                        filteredByQueue++;
+                                        break;
                                 }
                                 continue;
                             }
 
-                            // Soulseek Network Adherence: Filter out excluded phrases
-                            if (_excludedPhrases.Count > 0)
-                            {
-                                bool isExcluded = false;
-                                var lowerPath = file.Filename.ToLowerInvariant();
-                                foreach (var phrase in _excludedPhrases.Keys)
-                                {
-                                    if (lowerPath.Contains(phrase))
-                                    {
-                                        isExcluded = true;
-                                        break;
-                                    }
-                                }
-                                if (isExcluded)
-                                {
-                                    continue;
-                                }
-                            }
-
-                            // NEW Phase 12.3: Extract Bitrate quickly to avoid allocating full Track object if it fails filters
-                            var bitrateAttr = file.Attributes?.FirstOrDefault(a => a.Type == Soulseek.FileAttributeType.BitRate);
-                            var rawBitrate = bitrateAttr?.Value ?? 0;
                             var lengthAttr = file.Attributes?.FirstOrDefault(a => a.Type == Soulseek.FileAttributeType.Length);
                             var rawDurationSeconds = lengthAttr?.Value ?? 0;
-                            var sampleRateAttr = file.Attributes?.FirstOrDefault(a => a.Type == Soulseek.FileAttributeType.SampleRate);
-                            var rawSampleRate = sampleRateAttr?.Value ?? 0;
-                            
-                            // Apply bitrate filter BEFORE object allocation
-                            if (bitrateFilter.Min.HasValue && rawBitrate < bitrateFilter.Min.Value)
-                            {
-                                filteredByBitrate++;
-                                _logger.LogTrace("Filtered by bitrate (too low): {File} ({Bitrate} < {Min})", file.Filename, rawBitrate, bitrateFilter.Min.Value);
-                                continue;
-                            }
-                            if (bitrateFilter.Max.HasValue && rawBitrate > bitrateFilter.Max.Value && bitrateFilter.Max.Value > 0)
-                            {
-                                filteredByBitrate++;
-                                _logger.LogTrace("Filtered by bitrate (too high): {File} ({Bitrate} > {Max})", file.Filename, rawBitrate, bitrateFilter.Max.Value);
-                                continue;
-                            }
-
-                            if (_config.PreferredMaxSampleRate > 0 && rawSampleRate > _config.PreferredMaxSampleRate)
-                            {
-                                filteredBySampleRate++;
-                                _logger.LogTrace("Filtered by sample rate (too high): {File} ({SampleRate} > {MaxSampleRate})", file.Filename, rawSampleRate, _config.PreferredMaxSampleRate);
-                                continue;
-                            }
 
                             // Beta 2026: Fingerprint dedup with peer-awareness.
                             // Keep duplicates only when they come from a better queue peer.
@@ -759,6 +722,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         IEnumerable<string>? formatFilter,
         (int? Min, int? Max) bitrateFilter,
         DownloadMode mode,
+        SearchExecutionProfile? executionProfile = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var channel = System.Threading.Channels.Channel.CreateUnbounded<Track>();
@@ -770,13 +734,13 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         {
             try
             {
-                await SearchAsync(query, formatFilter, bitrateFilter, mode, (tracks) =>
+                await SearchCoreAsync(query, formatFilter, bitrateFilter, mode, (tracks) =>
                 {
                     foreach (var track in tracks)
                     {
                         channel.Writer.TryWrite(track);
                     }
-                }, searchCts.Token);
+                }, executionProfile, searchCts.Token);
             }
             catch (OperationCanceledException)
             {

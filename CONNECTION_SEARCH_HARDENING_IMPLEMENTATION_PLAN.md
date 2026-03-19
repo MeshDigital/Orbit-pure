@@ -47,9 +47,9 @@ Primary outcomes:
 ### Execution status snapshot (2026-03-19)
 - ✅ **Phase A — Stabilization baseline:** Complete
 - ⏳ **Phase B — Connection manager refactor:** Not started
-- 🟨 **Phase C — Search pipeline hardening:** Partially complete (variation cap + adaptive lane behavior delivered)
+- 🟨 **Phase C — Search pipeline hardening:** Mostly complete (`C1` strict-first + `C2` unified filter policy + `C3` load shedding delivered)
 - ⏳ **Phase D — Transfer and queue reliability:** Not started
-- 🟨 **Phase E — Observability + diagnostics:** Partially complete (reliability counters + adaptive lane live UI + rolling decision history)
+- 🟨 **Phase E — Observability + diagnostics:** Partially complete (reliability counters + adaptive lane live UI + rolling decision history; pressure-level logging active)
 
 ## Phase A — Stabilization baseline (Complete / in progress)
 ### Delivered

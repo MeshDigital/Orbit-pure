@@ -104,6 +104,17 @@ public class ConfigManager
                 MaxConcurrentSearches = int.TryParse(config["Search:MaxConcurrentSearches"], out var mcs) ? mcs : 3,
                 MaxDiscoveryLanes = int.TryParse(config["Search:MaxDiscoveryLanes"], out var mdl) ? mdl : 5,
                 MaxSearchVariations = int.TryParse(config["Search:MaxSearchVariations"], out var msv) ? msv : 2,
+                StrictSearchSufficientResultCount = int.TryParse(config["Search:StrictSearchSufficientResultCount"], out var ssrc) ? ssrc : 5,
+                EnableStrictHighConfidenceShortCircuit = !bool.TryParse(config["Search:EnableStrictHighConfidenceShortCircuit"], out var eshcs) || eshcs,
+                EnableSearchLoadShedding = !bool.TryParse(config["Search:EnableSearchLoadShedding"], out var esls) || esls,
+                ElevatedSearchPressureActiveSearches = int.TryParse(config["Search:ElevatedSearchPressureActiveSearches"], out var espas) ? espas : 3,
+                CriticalSearchPressureActiveSearches = int.TryParse(config["Search:CriticalSearchPressureActiveSearches"], out var cspas) ? cspas : 5,
+                ElevatedSearchResponseLimitPercent = int.TryParse(config["Search:ElevatedSearchResponseLimitPercent"], out var esrlp) ? esrlp : 75,
+                CriticalSearchResponseLimitPercent = int.TryParse(config["Search:CriticalSearchResponseLimitPercent"], out var csrlp) ? csrlp : 50,
+                ElevatedSearchFileLimitPercent = int.TryParse(config["Search:ElevatedSearchFileLimitPercent"], out var esflp) ? esflp : 75,
+                CriticalSearchFileLimitPercent = int.TryParse(config["Search:CriticalSearchFileLimitPercent"], out var csflp) ? csflp : 50,
+                ElevatedSearchExtraDelayMs = int.TryParse(config["Search:ElevatedSearchExtraDelayMs"], out var esed) ? esed : 75,
+                CriticalSearchExtraDelayMs = int.TryParse(config["Search:CriticalSearchExtraDelayMs"], out var csed) ? csed : 200,
 
                 // [Library] & Upgrade Scout
                 LibraryColumnOrder = config["Library:ColumnOrder"] ?? "",
@@ -191,6 +202,17 @@ public class ConfigManager
         iniContent.AppendLine($"MaxConcurrentSearches = {config.MaxConcurrentSearches}");
         iniContent.AppendLine($"MaxDiscoveryLanes = {config.MaxDiscoveryLanes}");
         iniContent.AppendLine($"MaxSearchVariations = {config.MaxSearchVariations}");
+        iniContent.AppendLine($"StrictSearchSufficientResultCount = {Math.Max(1, config.StrictSearchSufficientResultCount)}");
+        iniContent.AppendLine($"EnableStrictHighConfidenceShortCircuit = {config.EnableStrictHighConfidenceShortCircuit}");
+        iniContent.AppendLine($"EnableSearchLoadShedding = {config.EnableSearchLoadShedding}");
+        iniContent.AppendLine($"ElevatedSearchPressureActiveSearches = {Math.Max(1, config.ElevatedSearchPressureActiveSearches)}");
+        iniContent.AppendLine($"CriticalSearchPressureActiveSearches = {Math.Max(config.ElevatedSearchPressureActiveSearches, config.CriticalSearchPressureActiveSearches)}");
+        iniContent.AppendLine($"ElevatedSearchResponseLimitPercent = {Math.Clamp(config.ElevatedSearchResponseLimitPercent, 10, 100)}");
+        iniContent.AppendLine($"CriticalSearchResponseLimitPercent = {Math.Clamp(config.CriticalSearchResponseLimitPercent, 10, 100)}");
+        iniContent.AppendLine($"ElevatedSearchFileLimitPercent = {Math.Clamp(config.ElevatedSearchFileLimitPercent, 10, 100)}");
+        iniContent.AppendLine($"CriticalSearchFileLimitPercent = {Math.Clamp(config.CriticalSearchFileLimitPercent, 10, 100)}");
+        iniContent.AppendLine($"ElevatedSearchExtraDelayMs = {Math.Max(0, config.ElevatedSearchExtraDelayMs)}");
+        iniContent.AppendLine($"CriticalSearchExtraDelayMs = {Math.Max(0, config.CriticalSearchExtraDelayMs)}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[MusicalIntelligence]");

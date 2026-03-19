@@ -41,8 +41,9 @@ public class SearchOrchestrationServiceTests
                 It.IsAny<IEnumerable<string>>(),
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
+                It.IsAny<SearchExecutionProfile?>(),
                 It.IsAny<CancellationToken>()))
-            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, CancellationToken token) =>
+            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token) =>
             {
                 invocationCount++;
                 return StreamCandidates(Array.Empty<Track>(), token);
@@ -131,8 +132,9 @@ public class SearchOrchestrationServiceTests
                 It.IsAny<IEnumerable<string>>(),
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
+                It.IsAny<SearchExecutionProfile?>(),
                 It.IsAny<CancellationToken>()))
-            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, CancellationToken token) =>
+            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token) =>
                 StreamCandidates(candidates, token));
 
         var safety = new Mock<ISafetyFilterService>();
@@ -169,6 +171,162 @@ public class SearchOrchestrationServiceTests
         Assert.Equal("fast-peer", winner.Username);
         Assert.True(winner.QueueLength <= 1, "Expected queue-aware winner selection.");
         Assert.True(winner.CurrentRank > 0, "Winner should be scored by ranking matrix.");
+    }
+
+    [Fact]
+    public async Task SearchAsync_StrictFirstStopsRelaxed_WhenStrictThresholdReached()
+    {
+        var config = new AppConfig
+        {
+            MaxConcurrentSearches = 2,
+            MaxSearchVariations = 3,
+            StrictSearchSufficientResultCount = 1,
+            EnableStrictHighConfidenceShortCircuit = false,
+            SearchThrottleDelayMs = 10,
+            PreferredFormats = new List<string> { "mp3" },
+            PreferredMinBitrate = 192
+        };
+
+        var eventBus = new EventBusService();
+        var hardening = new ProtocolHardeningService(
+            NullLogger<ProtocolHardeningService>.Instance,
+            config,
+            eventBus);
+
+        var invocationCount = 0;
+        var soulseek = new Mock<ISoulseekAdapter>();
+        soulseek.SetupGet(s => s.IsConnected).Returns(true);
+        soulseek
+            .Setup(s => s.StreamResultsAsync(
+                It.IsAny<string>(),
+                It.IsAny<IEnumerable<string>>(),
+                It.IsAny<(int? Min, int? Max)>(),
+                It.IsAny<DownloadMode>(),
+                It.IsAny<SearchExecutionProfile?>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token) =>
+            {
+                invocationCount++;
+                var firstVariationTrack = new Track
+                {
+                    Artist = "Artist",
+                    Title = "Track",
+                    Filename = "Artist - Track.mp3",
+                    Format = "mp3",
+                    Bitrate = 320,
+                    QueueLength = 3,
+                    UploadSpeed = 120000,
+                    Username = "peer-a",
+                    HasFreeUploadSlot = true
+                };
+                return StreamCandidates(new[] { firstVariationTrack }, token);
+            });
+
+        var safety = new Mock<ISafetyFilterService>();
+        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>()));
+
+        var library = new Mock<ILibraryService>();
+
+        var sut = new SearchOrchestrationService(
+            NullLogger<SearchOrchestrationService>.Instance,
+            soulseek.Object,
+            new SearchQueryNormalizer(),
+            new SearchNormalizationService(NullLogger<SearchNormalizationService>.Instance),
+            safety.Object,
+            config,
+            hardening,
+            library.Object);
+
+        await foreach (var _ in sut.SearchAsync(
+            query: "Artist - Track (Original Mix)",
+            preferredFormats: "mp3",
+            minBitrate: 192,
+            maxBitrate: 0,
+            isAlbumSearch: false,
+            fastClearance: false,
+            cancellationToken: CancellationToken.None))
+        {
+        }
+
+        Assert.Equal(1, invocationCount);
+    }
+
+    [Fact]
+    public async Task SearchAsync_StrictFirstStopsRelaxed_WhenHighConfidenceWinnerFound()
+    {
+        var config = new AppConfig
+        {
+            MaxConcurrentSearches = 2,
+            MaxSearchVariations = 3,
+            StrictSearchSufficientResultCount = 999,
+            EnableStrictHighConfidenceShortCircuit = true,
+            SearchThrottleDelayMs = 10,
+            PreferredFormats = new List<string> { "mp3" },
+            PreferredMinBitrate = 192
+        };
+
+        var eventBus = new EventBusService();
+        var hardening = new ProtocolHardeningService(
+            NullLogger<ProtocolHardeningService>.Instance,
+            config,
+            eventBus);
+
+        var invocationCount = 0;
+        var soulseek = new Mock<ISoulseekAdapter>();
+        soulseek.SetupGet(s => s.IsConnected).Returns(true);
+        soulseek
+            .Setup(s => s.StreamResultsAsync(
+                It.IsAny<string>(),
+                It.IsAny<IEnumerable<string>>(),
+                It.IsAny<(int? Min, int? Max)>(),
+                It.IsAny<DownloadMode>(),
+                It.IsAny<SearchExecutionProfile?>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token) =>
+            {
+                invocationCount++;
+                var strictWinner = new Track
+                {
+                    Artist = "Artist",
+                    Title = "Track",
+                    Filename = "Artist - Track.mp3",
+                    Format = "mp3",
+                    Bitrate = 320,
+                    QueueLength = 0,
+                    UploadSpeed = 250000,
+                    Username = "peer-fast",
+                    HasFreeUploadSlot = true
+                };
+                return StreamCandidates(new[] { strictWinner }, token);
+            });
+
+        var safety = new Mock<ISafetyFilterService>();
+        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>()));
+
+        var library = new Mock<ILibraryService>();
+
+        var sut = new SearchOrchestrationService(
+            NullLogger<SearchOrchestrationService>.Instance,
+            soulseek.Object,
+            new SearchQueryNormalizer(),
+            new SearchNormalizationService(NullLogger<SearchNormalizationService>.Instance),
+            safety.Object,
+            config,
+            hardening,
+            library.Object);
+
+        await foreach (var _ in sut.SearchAsync(
+            query: "Artist - Track (Original Mix)",
+            preferredFormats: "mp3",
+            minBitrate: 192,
+            maxBitrate: 0,
+            isAlbumSearch: false,
+            fastClearance: false,
+            cancellationToken: CancellationToken.None))
+        {
+        }
+
+        Assert.Equal(1, invocationCount);
     }
 
     private static async IAsyncEnumerable<Track> StreamCandidates(
