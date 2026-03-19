@@ -143,10 +143,12 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             _logger.LogInformation("Successfully connected to Soulseek as {Username}", _config.Username);
             _eventBus.Publish(new SoulseekConnectionStatusEvent("connected", _config.Username ?? "Unknown"));
 
-            // Start distributed parent health monitor
-            _healthMonitorCts?.Cancel();
-            _healthMonitorCts = new CancellationTokenSource();
-            _ = Task.Run(() => MonitorParentHealthAsync(_healthMonitorCts.Token));
+            // Parent health monitor disabled - was causing aggressive reconnections during startup
+            // when 3 consecutive searches had 0 results. This is normal during initialization.
+            // The NetworkHealthService provides better telemetry without triggering action.
+            // _healthMonitorCts?.Cancel();
+            // _healthMonitorCts = new CancellationTokenSource();
+            // _ = Task.Run(() => MonitorParentHealthAsync(_healthMonitorCts.Token));
             
             // Phase 5: Protocol Mastery - Reciprocal Sharing
             if (_config.EnableLibrarySharing)
