@@ -8,6 +8,7 @@ namespace SLSKDONET.Services;
 public interface ISoulseekAdapter
 {
     bool IsConnected { get; }
+    bool IsLoggedIn { get; }
     int SharedFileCount { get; }
     Task ConnectAsync(string? password = null, CancellationToken ct = default);
     Task DisconnectAsync();

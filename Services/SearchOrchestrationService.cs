@@ -42,9 +42,6 @@ public class SearchOrchestrationService
     
     private readonly ILibraryService _libraryService;
 
-    // Throttling: Prevent getting banned by issuing too many searches at once
-    private readonly SemaphoreSlim _searchSemaphore;
-    
     public SearchOrchestrationService(
         ILogger<SearchOrchestrationService> logger,
         ISoulseekAdapter soulseek,
@@ -64,18 +61,10 @@ public class SearchOrchestrationService
         _config = config;
         _libraryService = libraryService;
         
-        // Initialize simple signaling semaphore
-        // Golden Rule: Baseline max 5 search lanes (optionally doubled for supporter accounts).
-        int maxSearches = Math.Clamp(_config.MaxConcurrentSearches, 1, 5);
-        if (_config.IsSoulseekSupporter)
-        {
-            var multiplier = Math.Max(1, _config.SupporterSearchLaneMultiplier);
-            maxSearches = Math.Clamp(maxSearches * multiplier, 1, 10);
-        }
-        _searchSemaphore = new SemaphoreSlim(maxSearches);
     }
     
     public bool IsConnected => _soulseek.IsConnected;
+    public bool IsLoggedIn => _soulseek.IsLoggedIn;
     private int _activeSearchCount = 0;
     public int GetActiveSearchCount() => _activeSearchCount;
 
@@ -91,23 +80,32 @@ public class SearchOrchestrationService
         bool fastClearance = false,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var variations = _searchNormalization.GenerateSearchVariations(query);
+        var generatedVariations = _searchNormalization.GenerateSearchVariations(query);
+        var variationCap = Math.Max(1, _config.MaxSearchVariations);
+        var variations = generatedVariations.Take(variationCap).ToList();
+        if (generatedVariations.Count > variations.Count)
+        {
+            _logger.LogInformation(
+                "Cascade variation cap applied for query '{Query}': using {Used}/{Generated} variations.",
+                query,
+                variations.Count,
+                generatedVariations.Count);
+        }
         var seenHashes = new HashSet<string>();
         var formatFilter = preferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         int totalFound = 0;
 
-        // Throttling Check (Acquire once for the entire cascade)
-        bool acquired = false;
+        bool countedAsActive = false;
         try 
         {
-            await _searchSemaphore.WaitAsync(cancellationToken);
-            acquired = true;
             Interlocked.Increment(ref _activeSearchCount);
+            countedAsActive = true;
 
-            foreach (var variation in variations)
+            for (var variationIndex = 0; variationIndex < variations.Count; variationIndex++)
             {
+                var variation = variations[variationIndex];
                 _logger.LogInformation("Cascade Search: Attempting variation '{Variation}' (Attempting {Idx} of {Count})", 
-                    variation, variations.IndexOf(variation) + 1, variations.Count);
+                    variation, variationIndex + 1, variations.Count);
 
                 bool foundInThisVariation = false;
                 
@@ -148,7 +146,7 @@ public class SearchOrchestrationService
                     break;
                 }
 
-                if (!foundInThisVariation && variations.IndexOf(variation) < variations.Count - 1)
+                if (!foundInThisVariation && variationIndex < variations.Count - 1)
                 {
                     _logger.LogInformation("Cascade Search: No new results for '{Variation}'. Trying next variation...", variation);
                     await Task.Delay(Math.Max(50, _config.SearchThrottleDelayMs), cancellationToken); // Stagger
@@ -157,10 +155,9 @@ public class SearchOrchestrationService
         }
         finally
         {
-            if (acquired)
+            if (countedAsActive)
             {
                 Interlocked.Decrement(ref _activeSearchCount);
-                _searchSemaphore.Release();
             }
         }
     }

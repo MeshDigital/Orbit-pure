@@ -229,6 +229,10 @@ public class DownloadDiscoveryService
                 _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "🛡️ MP3 fallback disabled by active profile. Staying lossless-only."));
             }
         }
+        catch (DiscoveryConnectionUnavailableException)
+        {
+            throw;
+        }
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
         {
             _logger.LogWarning("⏱️ Discovery TIMEOUT for {Title}.", track.Title);
@@ -692,6 +696,10 @@ public class DownloadDiscoveryService
             // If we somehow end up here it's due to enumerator cleanup; return clean empty result.
             return new DiscoveryResult(null, log);
         }
+        catch (DiscoveryConnectionUnavailableException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Search tier failed for {Query}", query);
@@ -727,7 +735,7 @@ public class DownloadDiscoveryService
         _logger.LogInformation("Waiting for Soulseek connection (max 10s) before continuing discovery tier...");
         var waitStart = DateTime.UtcNow;
         var nextProgressLogAtSeconds = 2;
-        while (!_searchOrchestrator.IsConnected && (DateTime.UtcNow - waitStart).TotalSeconds < 10)
+        while (!_searchOrchestrator.IsLoggedIn && (DateTime.UtcNow - waitStart).TotalSeconds < 10)
         {
             if (ct.IsCancellationRequested) return false;
             await Task.Delay(500, ct);
@@ -740,9 +748,9 @@ public class DownloadDiscoveryService
             }
         }
 
-        if (!_searchOrchestrator.IsConnected)
+        if (!_searchOrchestrator.IsLoggedIn)
         {
-            _logger.LogWarning("Timeout waiting for Soulseek connection after 10s; discovery will be retried as a transient connectivity issue.");
+            _logger.LogWarning("Timeout waiting for Soulseek login (LoggedIn state) after 10s; discovery will be retried as a transient connectivity issue.");
             return false;
         }
         return true;

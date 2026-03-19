@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Avalonia.Threading;
@@ -22,6 +23,7 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
     private readonly ISoulseekCredentialService _credentialService;
     private readonly SpotifyAuthService _spotifyAuthService;
     private IDisposable? _stateChangedSubscription;
+    private IDisposable? _connectionStatusSubscription;
     private EventHandler<bool>? _spotifyAuthHandler;
 
     // Connection State
@@ -62,6 +64,8 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
 
     private int _reconnectRetryCount = 0; // Exponential backoff counter
     private bool _manualDisconnectRequested;
+    private int _reconnectLoopActive;
+    private DateTime _reconnectCooldownUntilUtc = DateTime.MinValue;
 
     // Login Overlay State
     private bool _isLoginOverlayVisible;
@@ -141,18 +145,7 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
                     // Only auto-reconnect if permitted and not currently connecting
                     if (wasConnected && AutoConnectEnabled && !IsInitializing && !_manualDisconnectRequested)
                     {
-                        _reconnectRetryCount++;
-                        var delayMs = CalculateReconnectDelay(_reconnectRetryCount);
-                        _logger.LogInformation("Soulseek connection lost. Auto-reconnect attempt #{Attempt} in {Delay}s...", _reconnectRetryCount, delayMs / 1000);
-                        
-                        Task.Run(async () => {
-                            await Task.Delay(delayMs);
-                            // Check AutoConnectEnabled again in case Disconnect/Shutdown disabled it during the delay
-                            if (!IsConnected && AutoConnectEnabled)
-                            {
-                                await AttemptAutoConnect();
-                            }
-                        });
+                        StartAutoReconnectLoop();
                     }
                 }
             }
@@ -160,6 +153,20 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
             {
                 _logger.LogWarning(ex, "Failed to handle state change event: {State}", evt.State);
             }
+        });
+
+        _connectionStatusSubscription = eventBus.GetEvent<SoulseekConnectionStatusEvent>().Subscribe(evt =>
+        {
+            if (!string.Equals(evt.Status, "kicked", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            _reconnectCooldownUntilUtc = DateTime.UtcNow.AddSeconds(60);
+            _logger.LogWarning("Received 'kicked' status. Auto-reconnect cooldown active until {CooldownUtc}.", _reconnectCooldownUntilUtc);
+            Dispatcher.UIThread.Post(() =>
+            {
+                IsConnected = false;
+                StatusText = "Disconnected by server. Waiting 60s before reconnect...";
+            });
         });
 
         // Initialize Auto-Connect
@@ -348,6 +355,48 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         });
     }
 
+    private void StartAutoReconnectLoop()
+    {
+        if (Interlocked.CompareExchange(ref _reconnectLoopActive, 1, 0) != 0)
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!IsConnected && AutoConnectEnabled && !_manualDisconnectRequested)
+                {
+                    var now = DateTime.UtcNow;
+                    if (_reconnectCooldownUntilUtc > now)
+                    {
+                        var cooldownDelay = _reconnectCooldownUntilUtc - now;
+                        _logger.LogInformation("Reconnect cooldown active. Waiting {Delay}s before next reconnect attempt.", Math.Ceiling(cooldownDelay.TotalSeconds));
+                        await Task.Delay(cooldownDelay);
+                    }
+
+                    _reconnectRetryCount++;
+                    var delayMs = CalculateReconnectDelay(_reconnectRetryCount);
+                    _logger.LogInformation("Soulseek connection lost. Auto-reconnect attempt #{Attempt} in {Delay}s...", _reconnectRetryCount, delayMs / 1000);
+
+                    await Task.Delay(delayMs);
+
+                    if (IsConnected || !AutoConnectEnabled || _manualDisconnectRequested)
+                        break;
+
+                    await AttemptAutoConnect();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Auto-reconnect loop encountered an error");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _reconnectLoopActive, 0);
+            }
+        });
+    }
+
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
@@ -375,6 +424,7 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
     public void Dispose()
     {
         _stateChangedSubscription?.Dispose();
+        _connectionStatusSubscription?.Dispose();
         if (_spotifyAuthHandler != null)
         {
             _spotifyAuthService.AuthenticationChanged -= _spotifyAuthHandler;

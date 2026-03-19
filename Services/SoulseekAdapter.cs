@@ -25,7 +25,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
     private readonly ILogger<SoulseekAdapter> _logger;
     private readonly AppConfig _config;
     private readonly IEventBus _eventBus;
-    private static readonly SemaphoreSlim _connectLock = new(1, 1);
+    private readonly SemaphoreSlim _connectLock = new(1, 1);
     public bool IsConnected => _client?.State.HasFlag(SoulseekClientStates.Connected) == true && 
                               !_client.State.HasFlag(SoulseekClientStates.Disconnecting);
     public int SharedFileCount { get; private set; }
@@ -36,8 +36,12 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
     public event EventHandler<DownloadCompletedEventArgs>? DownloadCompleted;
 
     // Rate Limiting
-    private static readonly SemaphoreSlim _rateLimitLock = new(1, 1);
+    private readonly SemaphoreSlim _rateLimitLock = new(1, 1);
     private DateTime _lastSearchTime = DateTime.MinValue;
+    private static readonly TimeSpan ShareCountCacheTtl = TimeSpan.FromSeconds(45);
+    private DateTime _lastShareCountComputedAtUtc = DateTime.MinValue;
+    private int _lastShareFileCount;
+    private string _lastShareFolderFingerprint = string.Empty;
 
     private readonly Network.ProtocolHardeningService _hardeningService;
     private readonly ConcurrentDictionary<string, byte> _excludedPhrases = new();
@@ -54,22 +58,51 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
     private SoulseekClient? _client;
 
-    // Beta 2026: Parent Health Monitor — richer fertility tracker.
-    // IMPORTANT: Accepted (post-filter) result count can be zero even when network is healthy
-    // (e.g., strict FLAC-only lanes). We track both accepted and raw response volume.
-    private readonly ConcurrentQueue<SearchFertilitySample> _recentSearchSamples = new();
-    private CancellationTokenSource? _healthMonitorCts;
     private readonly ResultFingerprinter _resultFingerprinter = new();
 
-    private sealed record SearchFertilitySample(
-        DateTime TimestampUtc,
-        string Query,
-        int AcceptedResults,
-        int RawFiles,
-        int FormatFiltered,
-        int QueueFiltered,
-        int DedupFiltered,
-        string ClientState);
+    private void SafeDisposeClient(SoulseekClient client, string reason)
+    {
+        try
+        {
+            if (!client.State.HasFlag(SoulseekClientStates.Disconnected) &&
+                !client.State.HasFlag(SoulseekClientStates.Disconnecting))
+            {
+                client.Disconnect();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Soulseek disconnect during {Reason} failed non-fatally", reason);
+        }
+
+        try
+        {
+            client.Dispose();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Soulseek dispose during {Reason} failed non-fatally", reason);
+        }
+    }
+
+    private int GetSharedFileCountWithCache(string[] shareFolders)
+    {
+        var folderFingerprint = string.Join("|", shareFolders.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        var cacheIsValid =
+            string.Equals(folderFingerprint, _lastShareFolderFingerprint, StringComparison.OrdinalIgnoreCase) &&
+            DateTime.UtcNow - _lastShareCountComputedAtUtc < ShareCountCacheTtl;
+
+        if (cacheIsValid)
+        {
+            return _lastShareFileCount;
+        }
+
+        var sharedFileCount = shareFolders.Sum(folder => System.IO.Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Count());
+        _lastShareFolderFingerprint = folderFingerprint;
+        _lastShareFileCount = sharedFileCount;
+        _lastShareCountComputedAtUtc = DateTime.UtcNow;
+        return sharedFileCount;
+    }
 
     public async Task ConnectAsync(string? password = null, CancellationToken ct = default)
     {
@@ -82,15 +115,58 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 return;
             }
 
-            if (_client != null)
+            var existingClient = _client;
+            if (existingClient != null)
             {
-                try { _client.Disconnect(); _client.Dispose(); } catch { }
+                var existingState = existingClient.State;
+                var isActiveConnectAttempt =
+                    existingState.HasFlag(SoulseekClientStates.Connecting) ||
+                    (existingState.HasFlag(SoulseekClientStates.Connected) &&
+                     !existingState.HasFlag(SoulseekClientStates.Disconnecting) &&
+                     !existingState.HasFlag(SoulseekClientStates.Disconnected) &&
+                     !existingState.HasFlag(SoulseekClientStates.LoggedIn));
+
+                if (isActiveConnectAttempt)
+                {
+                    _logger.LogInformation(
+                        "Connect requested while Soulseek login is already in progress (State: {State}). Waiting for existing attempt.",
+                        existingState);
+
+                    var readyClient = await WaitForReadyClientAsync(ct);
+                    if (readyClient != null)
+                    {
+                        _logger.LogInformation("Soulseek became ready via existing login attempt; skipping client recycle.");
+                        return;
+                    }
+
+                    _logger.LogWarning("Existing Soulseek login attempt did not reach ready state. Recycling client for a fresh connect attempt.");
+                }
             }
 
-            _client = new SoulseekClient(minorVersion: _config.SoulseekMinorVersion);
+            var oldClient = _client;
+            if (oldClient != null)
+            {
+                SafeDisposeClient(oldClient, "connect swap");
+            }
+
+            var serverConnectionOptions = new ConnectionOptions(connectTimeout: _config.ConnectTimeout);
+            var clientOptions = new SoulseekClientOptions(
+                serverConnectionOptions: serverConnectionOptions,
+                messageTimeout: Math.Max(15_000, _config.ConnectTimeout),
+                maximumConcurrentSearches: Math.Clamp(_config.MaxConcurrentSearches, 1, 3),
+                maximumConcurrentDownloads: Math.Clamp(_config.MaxConcurrentDownloads, 1, 10));
+            var client = new SoulseekClient(minorVersion: _config.SoulseekMinorVersion, options: clientOptions);
+            _client = client;
+
+            _logger.LogInformation(
+                "Soulseek client configured: minorVersion={MinorVersion}, messageTimeout={MessageTimeout}ms, maxSearches={MaxSearches}, maxDownloads={MaxDownloads}",
+                _config.SoulseekMinorVersion,
+                Math.Max(15_000, _config.ConnectTimeout),
+                Math.Clamp(_config.MaxConcurrentSearches, 1, 3),
+                Math.Clamp(_config.MaxConcurrentDownloads, 1, 10));
             
             // Subscribe to state changes BEFORE connecting to catch early login states
-            _client.StateChanged += (sender, args) =>
+            client.StateChanged += (sender, args) =>
             {
                 _logger.LogInformation("Soulseek state change: {State} (was {PreviousState})", 
                     args.State, args.PreviousState);
@@ -102,8 +178,19 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     args.State.HasFlag(SoulseekClientStates.Connected) && !args.State.HasFlag(SoulseekClientStates.Disconnecting)));
             };
 
+            client.DiagnosticGenerated += (sender, args) =>
+            {
+                _logger.LogDebug("[SoulseekLib] {Level}: {Message}", args.Level, args.Message);
+            };
+
+            client.KickedFromServer += (sender, args) =>
+            {
+                _logger.LogWarning("Soulseek server kicked this session. Enforcing reconnect cooldown.");
+                _eventBus.Publish(new SoulseekConnectionStatusEvent("kicked", _config.Username ?? "Unknown"));
+            };
+
             // Phase 5/10: Adhere to new global exclusions from Soulseek Server
-            _client.ExcludedSearchPhrasesReceived += (sender, phrases) =>
+            client.ExcludedSearchPhrasesReceived += (sender, phrases) =>
             {
                 var phraseList = phrases
                     .Where(p => !string.IsNullOrWhiteSpace(p))
@@ -133,7 +220,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             _logger.LogInformation("Connecting to Soulseek as {Username} on {Server}:{Port}...", 
                 _config.Username, _config.SoulseekServer, _config.SoulseekPort);
             
-            await _client.ConnectAsync(
+            await client.ConnectAsync(
                 _config.SoulseekServer ?? "server.slsknet.org", 
                 _config.SoulseekPort == 0 ? 2242 : _config.SoulseekPort, 
                 _config.Username, 
@@ -143,13 +230,6 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             _logger.LogInformation("Successfully connected to Soulseek as {Username}", _config.Username);
             _eventBus.Publish(new SoulseekConnectionStatusEvent("connected", _config.Username ?? "Unknown"));
 
-            // Parent health monitor disabled - was causing aggressive reconnections during startup
-            // when 3 consecutive searches had 0 results. This is normal during initialization.
-            // The NetworkHealthService provides better telemetry without triggering action.
-            // _healthMonitorCts?.Cancel();
-            // _healthMonitorCts = new CancellationTokenSource();
-            // _ = Task.Run(() => MonitorParentHealthAsync(_healthMonitorCts.Token));
-            
             // Phase 5: Protocol Mastery - Reciprocal Sharing
             if (_config.EnableLibrarySharing)
             {
@@ -223,7 +303,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         }
 
         _logger.LogInformation("Refreshing reciprocal sharing for {Count} folder(s): {Folders}", shareFolders.Length, string.Join(", ", shareFolders));
-        var sharedFileCount = shareFolders.Sum(folder => System.IO.Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Count());
+        var sharedFileCount = GetSharedFileCountWithCache(shareFolders);
         SharedFileCount = sharedFileCount;
 
         try
@@ -250,14 +330,12 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
     public async Task DisconnectAsync()
     {
-        _healthMonitorCts?.Cancel();
         TryDisconnectClient("manual async disconnect");
         await Task.CompletedTask;
     }
 
     public void Disconnect()
     {
-        _healthMonitorCts?.Cancel();
         TryDisconnectClient("manual disconnect");
     }
 
@@ -287,121 +365,6 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         }
     }
 
-    /// <summary>
-    /// Beta 2026: Monitors search fertility every 60s. If avg results/search drops below
-    /// threshold, the distributed parent connection has likely degraded — cycle the connection
-    /// to negotiate a new parent and restore full network visibility.
-    /// </summary>
-    private async Task MonitorParentHealthAsync(CancellationToken ct)
-    {
-        const int consecutiveZeroThreshold = 3;
-
-        while (!ct.IsCancellationRequested)
-        {
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(60), ct);
-
-                var samples = _recentSearchSamples.ToArray();
-                if (samples.Length < consecutiveZeroThreshold) continue;
-
-                var lastThree = samples.TakeLast(consecutiveZeroThreshold).ToArray();
-                var hasThreeConsecutiveZeroAccepted = lastThree.All(s => s.AcceptedResults == 0);
-                if (hasThreeConsecutiveZeroAccepted)
-                {
-                    var avgAccepted = lastThree.Average(s => s.AcceptedResults);
-                    var avgRaw = lastThree.Average(s => s.RawFiles);
-                    var hadAnyRawResponses = lastThree.Any(s => s.RawFiles > 0);
-
-                    if (hadAnyRawResponses)
-                    {
-                        _logger.LogInformation(
-                            "[PARENT HEALTH] 3 zero-accepted searches observed, but network is responsive (avg raw files {AvgRaw:F1}). " +
-                            "Skipping reconnect; likely strict local filtering. Last samples: {Samples}",
-                            avgRaw,
-                            string.Join(" | ", lastThree.Select(s => $"'{s.Query}' acc={s.AcceptedResults},raw={s.RawFiles},fmt={s.FormatFiltered},q={s.QueueFiltered}")));
-
-                        while (_recentSearchSamples.TryDequeue(out _)) { }
-                        continue;
-                    }
-
-                    _logger.LogWarning(
-                        "⚠️ [PARENT HEALTH] 3 consecutive zero-accepted searches with zero raw network files detected. " +
-                        "Attempting parent refresh/re-init. Last samples: {Samples}",
-                        string.Join(" | ", lastThree.Select(s => $"'{s.Query}' acc={s.AcceptedResults},raw={s.RawFiles},fmt={s.FormatFiltered},q={s.QueueFiltered}")));
-
-                    _eventBus.Publish(new NetworkHealthWarningEvent(
-                        SearchFertilityRate: avgAccepted,
-                        Message: "3 consecutive zero-accepted searches with zero raw responses. Reinitializing distributed parent negotiation."));
-
-                    try
-                    {
-                        var requested = await TryRequestPotentialParentsAsync(ct);
-                        if (!requested)
-                        {
-                            var disconnected = TryDisconnectClient("parent health recovery");
-                            _logger.LogInformation("[PARENT HEALTH] Fallback reconnect action result: disconnected={Disconnected}", disconnected);
-                            // DownloadManager's reconnect-loop will handle re-establishment
-                        }
-                        else
-                        {
-                            _logger.LogInformation("[PARENT HEALTH] Potential-parent refresh API call succeeded; skipping hard reconnect cycle.");
-                        }
-                    }
-                    catch (Exception cycleEx)
-                    {
-                        _logger.LogError(cycleEx, "[PARENT HEALTH] Error cycling connection.");
-                    }
-
-                    // Clear stale fertility data so the next window is fresh
-                    while (_recentSearchSamples.TryDequeue(out _)) { }
-                }
-            }
-            catch (OperationCanceledException) { break; }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[PARENT HEALTH] Unexpected error in health monitor loop.");
-            }
-        }
-    }
-
-    private async Task<bool> TryRequestPotentialParentsAsync(CancellationToken ct)
-    {
-        if (_client == null) return false;
-
-        try
-        {
-            var managerProp = _client.GetType().GetProperty("DistributedConnectionManager");
-            var manager = managerProp?.GetValue(_client);
-            if (manager == null) return false;
-
-            var managerType = manager.GetType();
-            var method = managerType.GetMethod("RequestPotentialParentsAsync", new[] { typeof(CancellationToken) })
-                         ?? managerType.GetMethod("RequestPotentialParentsAsync")
-                         ?? managerType.GetMethod("RequestPotentialParents");
-
-            if (method == null) return false;
-
-            var parameters = method.GetParameters().Length == 1
-                ? new object?[] { ct }
-                : Array.Empty<object?>();
-
-            var result = method.Invoke(manager, parameters);
-            if (result is Task task)
-            {
-                await task;
-            }
-
-            _logger.LogInformation("[PARENT HEALTH] Requested fresh potential-parents list.");
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "[PARENT HEALTH] Potential-parents request API unavailable; falling back to reconnect cycle.");
-            return false;
-        }
-    }
-
     public async Task<int> SearchAsync(
         string query,
         IEnumerable<string>? formatFilter,
@@ -410,45 +373,17 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         Action<IEnumerable<Track>> onTracksFound,
         CancellationToken ct = default)
     {
-        // Wait briefly for the client to be created if ConnectAsync is still initializing
-        int initWait = 0;
-        const int maxInitWait = 10; // ~2s total
-        while (_client == null && initWait < maxInitWait)
+        if (string.IsNullOrWhiteSpace(query))
         {
-            _logger.LogInformation("Waiting for Soulseek client initialization (retry {Attempt}/{Max})...", initWait + 1, maxInitWait);
-            await Task.Delay(200, ct);
-            initWait++;
-        }
-
-        if (_client == null)
-        {
-            throw new InvalidOperationException("Soulseek client not initialized yet. ConnectAsync may not have completed.");
-        }
-
-        if (_client.State.HasFlag(SoulseekClientStates.Disconnecting) || _client.State.HasFlag(SoulseekClientStates.Disconnected))
-        {
-            _logger.LogInformation("Search skipped for query {SearchQuery} because Soulseek is reconnecting/disconnected (State: {State})", query, _client.State);
+            _logger.LogDebug("Search skipped because query was empty.");
             return 0;
         }
 
-        // Wait for Soulseek to be fully logged in before searching
-        // Fixes: "The server connection must be connected and logged in" error on startup
-        int waitRetries = 0;
-        const int maxWaitRetries = 20; // Increased to 10s (20 * 500ms)
-        const int retryDelayMs = 500;
-        
-        // Wait until we are Connected AND LoggedIn (and not LoggingIn)
-        while ((!_client.State.HasFlag(SoulseekClientStates.LoggedIn)) && waitRetries < maxWaitRetries)
+        var client = await WaitForReadyClientAsync(ct);
+        if (client == null)
         {
-            _logger.LogInformation("Waiting for Soulseek login... (State: {State}, Attempt {Attempt}/{Max})", _client.State, waitRetries + 1, maxWaitRetries);
-            await Task.Delay(retryDelayMs, ct);
-            waitRetries++;
-        }
-
-        if (!_client.State.HasFlag(SoulseekClientStates.LoggedIn))
-        {
-            _logger.LogError("Soulseek failed to login within {Seconds} seconds. State: {State}", maxWaitRetries * retryDelayMs / 1000.0, _client.State);
-            throw new InvalidOperationException($"Soulseek failed to login in time. State: {_client.State}. Cannot perform search.");
+            _logger.LogInformation("Search skipped for query {SearchQuery} because Soulseek client is not ready.", query);
+            return 0;
         }
 
         var directories = new ConcurrentDictionary<string, List<Soulseek.File>>();
@@ -509,13 +444,57 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             var options = new SearchOptions(
                 searchTimeout: Math.Max(5000, _config.SearchTimeout),
                 responseLimit: Math.Max(20, _config.SearchResponseLimit),
-                fileLimit: Math.Max(20, _config.SearchFileLimit)
+                filterResponses: true,
+                minimumResponseFileCount: 1,
+                maximumPeerQueueLength: Math.Max(0, _config.MaxPeerQueueLength),
+                fileLimit: Math.Max(20, _config.SearchFileLimit),
+                removeSingleCharacterSearchTerms: true,
+                fileFilter: file =>
+                {
+                    var extension = Path.GetExtension(file.Filename)?.TrimStart('.').ToLowerInvariant() ?? string.Empty;
+                    if (formatSet != null && formatSet.Any() && !formatSet.Contains(extension))
+                    {
+                        return false;
+                    }
+
+                    var bitrateAttr = file.Attributes?.FirstOrDefault(a => a.Type == Soulseek.FileAttributeType.BitRate);
+                    var rawBitrate = bitrateAttr?.Value ?? 0;
+                    if (bitrateFilter.Min.HasValue && rawBitrate < bitrateFilter.Min.Value)
+                    {
+                        return false;
+                    }
+                    if (bitrateFilter.Max.HasValue && bitrateFilter.Max.Value > 0 && rawBitrate > bitrateFilter.Max.Value)
+                    {
+                        return false;
+                    }
+
+                    var sampleRateAttr = file.Attributes?.FirstOrDefault(a => a.Type == Soulseek.FileAttributeType.SampleRate);
+                    var rawSampleRate = sampleRateAttr?.Value ?? 0;
+                    if (_config.PreferredMaxSampleRate > 0 && rawSampleRate > _config.PreferredMaxSampleRate)
+                    {
+                        return false;
+                    }
+
+                    if (_excludedPhrases.Count > 0)
+                    {
+                        var lowerPath = file.Filename.ToLowerInvariant();
+                        foreach (var phrase in _excludedPhrases.Keys)
+                        {
+                            if (lowerPath.Contains(phrase))
+                            {
+                                return false;
+                            }
+                        }
+                    }
+
+                    return true;
+                }
             );
 
             // The SearchAsync method in the library (or wrapper) seems to handle the waiting internally 
             // based on the stack trace showing SearchToCallbackAsync waiting.
             // So we just await the search initialization/execution.
-            var searchResult = await _client!.SearchAsync(
+            await client.SearchAsync(
                 searchQuery,
                 (response) =>
                 {
@@ -662,21 +641,6 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 resultCount, totalFilesReceived, filteredByFormat, filteredByBitrate,
                 filteredBySampleRate, filteredByQueue, filteredByDedup);
 
-            // Fertility tracking: include both accepted and raw response volume to avoid
-            // false reconnects when strict local filters produce accepted=0.
-            _recentSearchSamples.Enqueue(new SearchFertilitySample(
-                TimestampUtc: DateTime.UtcNow,
-                Query: query,
-                AcceptedResults: resultCount,
-                RawFiles: totalFilesReceived,
-                FormatFiltered: filteredByFormat,
-                QueueFiltered: filteredByQueue,
-                DedupFiltered: filteredByDedup,
-                ClientState: _client?.State.ToString() ?? "Unknown"));
-
-            while (_recentSearchSamples.Count > 12)
-                _recentSearchSamples.TryDequeue(out _);
-            
             // Record search results for health diagnostics
             _healthService.RecordSearch(query, totalFilesReceived, resultCount, true);
             
@@ -690,7 +654,10 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         catch (Exception ex)
         {
              // Check if we are shutting down or disconnected
-             if (ct.IsCancellationRequested || _client?.State == SoulseekClientStates.Disconnected || _client?.State == SoulseekClientStates.Disconnecting)
+             var state = _client?.State;
+             if (ct.IsCancellationRequested ||
+                 state.HasValue &&
+                 (state.Value.HasFlag(SoulseekClientStates.Disconnected) || state.Value.HasFlag(SoulseekClientStates.Disconnecting)))
              {
                  _logger.LogWarning("Search aborted for query {SearchQuery} due to connection shutdown: {Message}", query, ex.Message);
                  _healthService.RecordSearch(query, totalFilesReceived, resultCount, false, "Connection shutdown");
@@ -704,6 +671,63 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
              // But let's stick to previous logic: throw if it's a real error.
              throw; 
         }
+    }
+
+    private async Task<SoulseekClient?> WaitForReadyClientAsync(CancellationToken ct)
+    {
+        int initWait = 0;
+        const int maxInitWait = 10;
+        while (_client == null && initWait < maxInitWait)
+        {
+            _logger.LogDebug("Waiting for Soulseek client initialization (attempt {Attempt}/{Max})", initWait + 1, maxInitWait);
+            await Task.Delay(200, ct);
+            initWait++;
+        }
+
+        var client = _client;
+        if (client == null)
+            return null;
+
+        if (client.State.HasFlag(SoulseekClientStates.Disconnecting) || client.State.HasFlag(SoulseekClientStates.Disconnected))
+            return null;
+
+        int waitRetries = 0;
+        const int maxWaitRetries = 20;
+        const int retryDelayMs = 500;
+        var waitStartUtc = DateTime.UtcNow;
+        var nextProgressLogAtSeconds = 2 + Random.Shared.Next(0, 2);
+
+        while (!client.State.HasFlag(SoulseekClientStates.LoggedIn) && waitRetries < maxWaitRetries)
+        {
+            await Task.Delay(retryDelayMs, ct);
+            waitRetries++;
+
+            var elapsedSeconds = (int)(DateTime.UtcNow - waitStartUtc).TotalSeconds;
+            if (elapsedSeconds >= nextProgressLogAtSeconds)
+            {
+                _logger.LogDebug(
+                    "Waiting for Soulseek login... (State: {State}, Elapsed: {Elapsed}s, Attempt {Attempt}/{Max})",
+                    client.State,
+                    elapsedSeconds,
+                    waitRetries,
+                    maxWaitRetries);
+                nextProgressLogAtSeconds += 2 + Random.Shared.Next(0, 2);
+            }
+
+            client = _client;
+            if (client == null)
+                return null;
+            if (client.State.HasFlag(SoulseekClientStates.Disconnecting) || client.State.HasFlag(SoulseekClientStates.Disconnected))
+                return null;
+        }
+
+        if (!client.State.HasFlag(SoulseekClientStates.LoggedIn))
+        {
+            _logger.LogInformation("Soulseek not logged in yet after readiness wait (State: {State})", client.State);
+            return null;
+        }
+
+        return client;
     }
 
     public async IAsyncEnumerable<Track> StreamResultsAsync(
@@ -736,7 +760,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             }
             catch (Exception ex)
             {
-                if (ct.IsCancellationRequested || _client?.State != SoulseekClientStates.LoggedIn)
+                if (ct.IsCancellationRequested || !(_client?.State.HasFlag(SoulseekClientStates.LoggedIn) ?? false))
                 {
                     _logger.LogWarning("Background stream search stopped: {Message}", ex.Message);
                 }
@@ -1277,16 +1301,16 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
     public void Dispose()
     {
-        _healthMonitorCts?.Cancel();
-        _healthMonitorCts?.Dispose();
-        try
+        var client = _client;
+        _client = null;
+
+        if (client != null)
         {
-            _client?.Disconnect();
-            _client?.Dispose();
+            SafeDisposeClient(client, "adapter dispose");
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error disposing SoulseekClient");
-        }
+
+        _connectLock.Dispose();
+        _rateLimitLock.Dispose();
     }
+
 }

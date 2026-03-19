@@ -101,6 +101,8 @@ public class ConfigManager
                 SearchResponseLimit = int.TryParse(config["Search:SearchResponseLimit"], out var srl) ? srl : 100,
                 SearchFileLimit = int.TryParse(config["Search:SearchFileLimit"], out var sfl) ? sfl : 100,
                 MaxPeerQueueLength = int.TryParse(config["Search:MaxPeerQueueLength"], out var mpql) ? mpql : 50,
+                MaxConcurrentSearches = int.TryParse(config["Search:MaxConcurrentSearches"], out var mcs) ? mcs : 3,
+                MaxSearchVariations = int.TryParse(config["Search:MaxSearchVariations"], out var msv) ? msv : 2,
 
                 // [Library] & Upgrade Scout
                 LibraryColumnOrder = config["Library:ColumnOrder"] ?? "",
@@ -185,6 +187,8 @@ public class ConfigManager
         iniContent.AppendLine($"SearchResponseLimit = {config.SearchResponseLimit}");
         iniContent.AppendLine($"SearchFileLimit = {config.SearchFileLimit}");
         iniContent.AppendLine($"MaxPeerQueueLength = {config.MaxPeerQueueLength}");
+        iniContent.AppendLine($"MaxConcurrentSearches = {config.MaxConcurrentSearches}");
+        iniContent.AppendLine($"MaxSearchVariations = {config.MaxSearchVariations}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[MusicalIntelligence]");
