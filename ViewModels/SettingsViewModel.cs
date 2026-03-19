@@ -755,8 +755,10 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         get => _isAuthenticating;
         set
         {
-            _logger.LogInformation("IsAuthenticating changing from {Old} to {New} (StackTrace: {Trace})", 
-                _isAuthenticating, value, Environment.StackTrace);
+            if (_isAuthenticating == value)
+                return;
+
+            _logger.LogDebug("IsAuthenticating changing from {Old} to {New}", _isAuthenticating, value);
                 
             if (SetProperty(ref _isAuthenticating, value))
             {
@@ -897,8 +899,11 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
     // Phase 6: Security Audit Feed
     private const int AuditFeedMaxEntries = 100;
+    private const int AdaptiveLaneHistoryMaxEntries = 10;
     public ObservableCollection<SecurityAuditEntryViewModel> SecurityAuditFeed { get; } = new();
+    public ObservableCollection<AdaptiveLaneDecisionEntryViewModel> AdaptiveLaneDecisionHistory { get; } = new();
     private IDisposable? _securityAuditSubscription;
+    private IDisposable? _adaptiveLaneStatusSubscription;
     private void OnSecurityAuditEvent(SecurityAuditEvent e)
     {
         Dispatcher.UIThread.Post(() =>
@@ -908,6 +913,17 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 SecurityAuditFeed.RemoveAt(SecurityAuditFeed.Count - 1);
         });
     }
+
+    private void OnAdaptiveLaneStatusEvent(AdaptiveLaneStatusEvent e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            AdaptiveLaneDecisionHistory.Insert(0, new AdaptiveLaneDecisionEntryViewModel(e));
+            while (AdaptiveLaneDecisionHistory.Count > AdaptiveLaneHistoryMaxEntries)
+                AdaptiveLaneDecisionHistory.RemoveAt(AdaptiveLaneDecisionHistory.Count - 1);
+        });
+    }
+
     public ICommand ClearSecurityAuditCommand { get; private set; } = null!;
 
     // Phase 6: Live Share Status (bound in Settings page)
@@ -1036,6 +1052,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
         // Phase 6: Security Audit Feed subscription
         _securityAuditSubscription = _eventBus.GetEvent<SecurityAuditEvent>().Subscribe(OnSecurityAuditEvent);
+        _adaptiveLaneStatusSubscription = _eventBus.GetEvent<AdaptiveLaneStatusEvent>().Subscribe(OnAdaptiveLaneStatusEvent);
         
         // Force update of derived properties to ensure UI booleans are in sync with SpotifyState
         UpdateDerivedProperties(SpotifyState);
@@ -1452,6 +1469,9 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         // Phase 6: Security audit subscription
         _securityAuditSubscription?.Dispose();
         _securityAuditSubscription = null;
+
+        _adaptiveLaneStatusSubscription?.Dispose();
+        _adaptiveLaneStatusSubscription = null;
 
         _shareHealthSubscription?.Dispose();
         _shareHealthSubscription = null;

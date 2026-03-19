@@ -805,6 +805,62 @@
 
                     <Separator Background="#1B263B" Height="1"/>
 
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Adaptive Lane Decisions"
+                                   FontWeight="SemiBold"
+                                   Foreground="#E0E1DD"/>
+                        <TextBlock Text="Last 10 automatic lane tuning decisions (newest first)."
+                                   Foreground="#778DA9"
+                                   FontSize="11"/>
+
+                        <TextBlock Text="No lane decisions recorded yet."
+                                   Foreground="#516A86"
+                                   FontSize="11"
+                                   FontStyle="Italic"
+                                   IsVisible="{Binding !AdaptiveLaneDecisionHistory.Count}"/>
+
+                        <ScrollViewer MaxHeight="170"
+                                      VerticalScrollBarVisibility="Auto"
+                                      IsVisible="{Binding AdaptiveLaneDecisionHistory.Count}">
+                            <ItemsControl ItemsSource="{Binding AdaptiveLaneDecisionHistory}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#111F2F"
+                                                BorderBrush="#22364C"
+                                                BorderThickness="1"
+                                                CornerRadius="4"
+                                                Padding="8,6"
+                                                Margin="0,2">
+                                            <Grid ColumnDefinitions="Auto,Auto,*">
+                                                <TextBlock Grid.Column="0"
+                                                           Text="{Binding TimeLabel}"
+                                                           Foreground="#6C87A6"
+                                                           FontSize="10"
+                                                           FontFamily="Consolas,Courier New,monospace"
+                                                           VerticalAlignment="Center"
+                                                           Margin="0,0,10,0"/>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="{Binding LaneLabel}"
+                                                           Foreground="#A7D8FF"
+                                                           FontSize="10"
+                                                           FontWeight="SemiBold"
+                                                           VerticalAlignment="Center"
+                                                           Margin="0,0,10,0"/>
+                                                <TextBlock Grid.Column="2"
+                                                           Text="{Binding Reason}"
+                                                           Foreground="#C7D4E2"
+                                                           FontSize="10"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           TextWrapping="NoWrap"
+                                                           VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </StackPanel>
+
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
                             <TextBlock Text="Redline Performance Test" FontWeight="SemiBold" Foreground="#E0E1DD"/>
