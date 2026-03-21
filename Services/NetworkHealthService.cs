@@ -83,9 +83,8 @@ public class NetworkHealthService : INetworkHealthService
     {
         _currentConnectionState = newState;
         
-        // If we successfully logged in, reset failure status
-        if (newState.Contains("LoggedIn", StringComparison.OrdinalIgnoreCase) || 
-            newState.Contains("Connected", StringComparison.OrdinalIgnoreCase))
+        // Only a fully logged-in state clears prior failures.
+        if (newState.Contains("LoggedIn", StringComparison.OrdinalIgnoreCase))
         {
             _lastFailureStatus = ConnectionFailureStatus.Healthy;
             _lastFailureMessage = null;
@@ -260,8 +259,7 @@ public class NetworkHealthService : INetworkHealthService
             ? (TimeSpan?)(now - lastSuccess.TimestampUtc)
             : null;
         
-        bool isConnected = _currentConnectionState.Contains("Connected", StringComparison.OrdinalIgnoreCase) &&
-                          !_currentConnectionState.Contains("Disconnecting", StringComparison.OrdinalIgnoreCase) &&
+        bool isConnected = _currentConnectionState.Contains("LoggedIn", StringComparison.OrdinalIgnoreCase) &&
                           _lastFailureStatus == ConnectionFailureStatus.Healthy;
         
         // Detect throttle status

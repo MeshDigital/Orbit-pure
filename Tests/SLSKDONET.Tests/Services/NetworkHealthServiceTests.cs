@@ -46,6 +46,22 @@ public class NetworkHealthServiceTests
     }
 
     [Fact]
+    public void RecordConnectionStateChange_ConnectedLoggingIn_DoesNotClearFailureStatus()
+    {
+        // Arrange
+        _healthService.RecordConnectionFailure(ConnectionFailureStatus.AuthenticationTimeout, "Test timeout");
+
+        // Act
+        _healthService.RecordConnectionStateChange("Connected, LoggingIn");
+
+        // Assert
+        var signal = _healthService.GetCurrentHealth();
+        Assert.Equal(ConnectionFailureStatus.AuthenticationTimeout, signal.LastFailureStatus);
+        Assert.Equal("Test timeout", signal.LastFailureMessage);
+        Assert.False(signal.IsConnected);
+    }
+
+    [Fact]
     public void RecordSearch_SuccessfulSearch_IncreasesMetrics()
     {
         // Act
@@ -63,6 +79,8 @@ public class NetworkHealthServiceTests
     public void DetectThrottleStatus_Suspected_WhenOver80PercentZeroResults()
     {
         // Arrange - Create 10 searches, 9 with zero results
+        _healthService.RecordConnectionStateChange("Connected, LoggedIn");
+
         for (int i = 0; i < 9; i++)
         {
             _healthService.RecordSearch($"Query{i}", 10, 0, true);

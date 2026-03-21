@@ -178,7 +178,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         // Subscribe to EventBus events
         // Subscribe to EventBus events
         _disposables.Add(_eventBus.GetEvent<TrackUpdatedEvent>().Subscribe(evt => OnTrackUpdated(this, evt.Track)));
-        _disposables.Add(_eventBus.GetEvent<SoulseekStateChangedEvent>().Subscribe(evt => HandleStateChange(evt.State)));
+        _disposables.Add(_eventBus.GetEvent<ConnectionLifecycleStateChangedEvent>().Subscribe(HandleConnectionLifecycleChanged));
         _disposables.Add(_eventBus.GetEvent<TrackAddedEvent>().Subscribe(evt => OnTrackAdded(evt.TrackModel)));
         _disposables.Add(_eventBus.GetEvent<TrackRemovedEvent>().Subscribe(evt => OnTrackRemoved(evt.TrackGlobalId)));
         
@@ -796,18 +796,31 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         });
     }
 
-    private void HandleStateChange(string state)
+    private void HandleConnectionLifecycleChanged(ConnectionLifecycleStateChangedEvent evt)
     {
-        // Update connection status on UI thread
         global::Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => 
         {
-            if (state.Contains("Login failed", StringComparison.OrdinalIgnoreCase))
-            {
-                StatusText = "Login failed";
-            }
-            else if (state.Contains("Connected", StringComparison.OrdinalIgnoreCase))
+            if (evt.Current == nameof(ConnectionLifecycleState.LoggedIn))
             {
                 StatusText = "Ready";
+            }
+            else if (evt.Current == nameof(ConnectionLifecycleState.Connecting))
+            {
+                StatusText = "Connecting...";
+            }
+            else if (evt.Current == nameof(ConnectionLifecycleState.LoggingIn))
+            {
+                StatusText = "Logging in...";
+            }
+            else if (evt.Current == nameof(ConnectionLifecycleState.CoolingDown))
+            {
+                StatusText = "Cooling down before reconnect...";
+            }
+            else if (evt.Current == nameof(ConnectionLifecycleState.Disconnected)
+                  && (evt.Reason.StartsWith("login rejected:", StringComparison.OrdinalIgnoreCase)
+                   || evt.Reason.StartsWith("connect failed:", StringComparison.OrdinalIgnoreCase)))
+            {
+                StatusText = "Connection failed";
             }
         });
     }
