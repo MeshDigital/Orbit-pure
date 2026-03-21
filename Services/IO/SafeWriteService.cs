@@ -1,20 +1,35 @@
 using System;
+using System.Buffers;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Services;
 
 namespace SLSKDONET.Services.IO
 {
-    public class SafeWriteService : IFileWriteService
+    public class SafeWriteService : IFileWriteService, IDisposable
     {
+        private sealed class FileWriteRequest
+        {
+            public required FileStream Stream { get; init; }
+            public required byte[] Buffer { get; init; }
+            public required int Count { get; init; }
+            public required CancellationToken CancellationToken { get; init; }
+            public required TaskCompletionSource<bool> Completion { get; init; }
+        }
+
         private readonly ILogger<SafeWriteService> _logger;
         private readonly CrashRecoveryJournal _crashJournal;
         private readonly SemaphoreSlim _fileLock = new(1, 1); // Prevent concurrent writes to same file
+        private const int PooledCopyBufferSize = 64 * 1024;
+        private readonly Channel<FileWriteRequest> _writeQueue;
+        private readonly CancellationTokenSource _writerCts = new();
+        private readonly Task _writerTask;
 
         public SafeWriteService(
             ILogger<SafeWriteService> logger,
@@ -22,7 +37,57 @@ namespace SLSKDONET.Services.IO
         {
             _logger = logger;
             _crashJournal = crashJournal;
+            _writeQueue = Channel.CreateBounded<FileWriteRequest>(new BoundedChannelOptions(256)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.Wait
+            });
+            _writerTask = Task.Run(() => ProcessWriteQueueAsync(_writerCts.Token));
         }
+        private async Task ProcessWriteQueueAsync(CancellationToken ct)
+        {
+            try
+            {
+                await foreach (var request in _writeQueue.Reader.ReadAllAsync(ct))
+                {
+                    try
+                    {
+                        await request.Stream.WriteAsync(request.Buffer.AsMemory(0, request.Count), request.CancellationToken);
+                        request.Completion.TrySetResult(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        request.Completion.TrySetException(ex);
+                    }
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(request.Buffer);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // normal shutdown
+            }
+        }
+
+        private async Task QueueWriteAsync(FileStream destination, byte[] buffer, int count, CancellationToken cancellationToken)
+        {
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var request = new FileWriteRequest
+            {
+                Stream = destination,
+                Buffer = buffer,
+                Count = count,
+                CancellationToken = cancellationToken,
+                Completion = completion
+            };
+
+            await _writeQueue.Writer.WriteAsync(request, cancellationToken);
+            await completion.Task;
+        }
+
 
         public async Task<bool> WriteAtomicAsync(
             string targetPath,
@@ -346,11 +411,36 @@ namespace SLSKDONET.Services.IO
             string destination,
             CancellationToken cancellationToken)
         {
-            const int bufferSize = 81920; // 80KB buffer
-            using var sourceStream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize, useAsync: true);
-            using var destStream = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize, useAsync: true);
+            using var sourceStream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, PooledCopyBufferSize, useAsync: true);
+            using var destStream = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, PooledCopyBufferSize, useAsync: true);
 
-            await sourceStream.CopyToAsync(destStream, bufferSize, cancellationToken);
+            while (true)
+            {
+                var buffer = ArrayPool<byte>.Shared.Rent(PooledCopyBufferSize);
+                var handedOffToQueue = false;
+                try
+                {
+                    var bytesRead = await sourceStream.ReadAsync(buffer.AsMemory(0, PooledCopyBufferSize), cancellationToken);
+                    if (bytesRead <= 0)
+                    {
+                        ArrayPool<byte>.Shared.Return(buffer);
+                        break;
+                    }
+
+                    await QueueWriteAsync(destStream, buffer, bytesRead, cancellationToken);
+                    handedOffToQueue = true;
+                }
+                catch
+                {
+                    if (!handedOffToQueue)
+                    {
+                        ArrayPool<byte>.Shared.Return(buffer);
+                    }
+                    throw;
+                }
+            }
+
+            await destStream.FlushAsync(cancellationToken);
         }
 
         public async Task<bool> MoveAtomicAsync(
@@ -395,6 +485,24 @@ namespace SLSKDONET.Services.IO
             }
 
             return success;
+        }
+
+        public void Dispose()
+        {
+            _writerCts.Cancel();
+            _writeQueue.Writer.TryComplete();
+
+            try
+            {
+                _writerTask.GetAwaiter().GetResult();
+            }
+            catch
+            {
+                // Suppress shutdown exceptions
+            }
+
+            _writerCts.Dispose();
+            _fileLock.Dispose();
         }
     }
 }

@@ -1708,9 +1708,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                             _logger.LogWarning("⚠️ Truncation Guard: Truncating {Track} from {Disk} to {Journal} bytes.", 
                                 state.Title, info.Length, state.BytesDownloaded);
                                 
-                            using (var fs = new FileStream(state.PartFilePath, FileMode.Open, FileAccess.Write, FileShare.None))
+                            await using (var fs = new FileStream(state.PartFilePath, FileMode.Open, FileAccess.Write, FileShare.None, 4096, useAsync: true))
                             {
                                 fs.SetLength(state.BytesDownloaded);
+                                await fs.FlushAsync();
                             }
                         }
                         catch (IOException ioEx)
@@ -2543,9 +2544,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 _logger.LogWarning("âš ï¸ Atomic Resume: Truncating {Diff} bytes of unconfirmed data for {Track}", 
                     diskBytes - confirmedBytes, ctx.Model.Title);
                     
-                using (var fs = File.OpenWrite(partPath))
+                await using (var fs = new FileStream(partPath, FileMode.Open, FileAccess.Write, FileShare.None, 4096, useAsync: true))
                 {
                     fs.SetLength(confirmedBytes);
+                    await fs.FlushAsync();
                 }
                 startPosition = confirmedBytes;
             }

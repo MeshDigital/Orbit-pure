@@ -17,6 +17,7 @@ public class TrackRepository : ITrackRepository
 {
     private readonly ILogger<TrackRepository> _logger;
     private static readonly SemaphoreSlim _writeSemaphore = new SemaphoreSlim(1, 1);
+    private const int PlaylistTrackUpsertBatchSize = 500;
 
     public TrackRepository(ILogger<TrackRepository> logger)
     {
@@ -497,17 +498,58 @@ public class TrackRepository : ITrackRepository
 
     public async Task SavePlaylistTracksAsync(IEnumerable<PlaylistTrackEntity> tracks)
     {
+        if (tracks == null)
+        {
+            return;
+        }
+
+        var trackList = tracks as IList<PlaylistTrackEntity> ?? tracks.ToList();
+        if (trackList.Count == 0)
+        {
+            return;
+        }
+
         await _writeSemaphore.WaitAsync();
         try
         {
             using var context = new AppDbContext();
-            foreach (var t in tracks)
+            var originalAutoDetectChanges = context.ChangeTracker.AutoDetectChangesEnabled;
+            context.ChangeTracker.AutoDetectChangesEnabled = false;
+
+            try
             {
-                var existing = await context.PlaylistTracks.FindAsync(t.Id);
-                if (existing == null) context.PlaylistTracks.Add(t);
-                else context.Entry(existing).CurrentValues.SetValues(t);
+                for (var offset = 0; offset < trackList.Count; offset += PlaylistTrackUpsertBatchSize)
+                {
+                    var batch = trackList
+                        .Skip(offset)
+                        .Take(PlaylistTrackUpsertBatchSize)
+                        .ToList();
+
+                    var batchIds = batch.Select(t => t.Id).ToList();
+                    var existingById = await context.PlaylistTracks
+                        .Where(t => batchIds.Contains(t.Id))
+                        .ToDictionaryAsync(t => t.Id);
+
+                    foreach (var track in batch)
+                    {
+                        if (existingById.TryGetValue(track.Id, out var existing))
+                        {
+                            context.Entry(existing).CurrentValues.SetValues(track);
+                        }
+                        else
+                        {
+                            context.PlaylistTracks.Add(track);
+                        }
+                    }
+
+                    await context.SaveChangesAsync();
+                    context.ChangeTracker.Clear();
+                }
             }
-            await context.SaveChangesAsync();
+            finally
+            {
+                context.ChangeTracker.AutoDetectChangesEnabled = originalAutoDetectChanges;
+            }
         }
         finally
         {

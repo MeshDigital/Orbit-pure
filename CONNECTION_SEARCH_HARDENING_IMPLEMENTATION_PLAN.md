@@ -63,6 +63,15 @@ Primary outcomes:
 - ✅ UI firehose pressure reduction:
   - search result callback emission is now bounded in batches (`50`) to reduce render/update flood behavior.
 
+### Post-network throughput addendum (completed 2026-03-21)
+- ✅ Database write-amplification mitigation:
+  - `TrackRepository.SavePlaylistTracksAsync(...)` now performs batched set-based upserts with chunked commits and change-tracker reset between batches.
+- ✅ Disk writer serialization + pooling:
+  - `SafeWriteService` now routes copy/move write chunks through a bounded single-writer channel.
+  - write chunks use pooled 64KB buffers (`ArrayPool<byte>`) to reduce repeated transient allocations and LOH-adjacent pressure.
+- ✅ Recovery truncation I/O hardening:
+  - `DownloadManager` journal truncation paths now use async `FileStream` + `FlushAsync` for cleaner heavy-load behavior.
+
 ## Phase A — Stabilization baseline (Complete / in progress)
 ### Delivered
 - Hardened `SoulseekClientOptions` usage:

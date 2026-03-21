@@ -1,5 +1,31 @@
 # Recent Changes
 
+## [0.1.0-alpha.47] - Post-Network Throughput Optimizations (Mar 21, 2026)
+
+### Database Write Amplification Reduction
+* `TrackRepository.SavePlaylistTracksAsync(...)` now uses batched set-based upserts instead of per-row `FindAsync` loops.
+* Added bulk-oriented EF write path controls for heavy playlist influxes:
+  * chunked processing (`500` rows per batch),
+  * one batched existing-row lookup per chunk,
+  * temporary `AutoDetectChanges` disable,
+  * `ChangeTracker.Clear()` between batches.
+* Result: lower SQLite lock duration and reduced change-tracker pressure during large ingest sessions.
+
+### Disk I/O + Allocation Hardening
+* `SafeWriteService.cs` now uses a bounded single-writer channel to serialize disk writes through one dedicated worker.
+* Copy/move data flow now uses `ArrayPool<byte>.Shared` with 64KB pooled buffers (below LOH threshold) and explicit async flush behavior.
+* `DownloadManager.cs` truncation paths were upgraded to async `FileStream` + `FlushAsync` in journal recovery/resume correction branches.
+
+### Impact Summary
+* Improves sustained throughput under high-concurrency download/finalization scenarios.
+* Reduces disk-head thrash risk and decreases GC pressure from repeated large transient byte-array allocations.
+
+### Validation
+* `dotnet build SLSKDONET.sln -c Debug` ✅
+* `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj --nologo` ✅ (`94/94`)
+
+---
+
 ## [0.1.0-alpha.46] - Enterprise-Grade Connection Hardening (Mar 21, 2026)
 
 ### Advanced Disconnect-Killer Mitigations
