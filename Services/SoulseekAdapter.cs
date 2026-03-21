@@ -1375,6 +1375,15 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         
         if (ex.InnerException != null)
             message += " " + ex.InnerException.Message.ToLowerInvariant();
+
+        if (ex is LoginRejectedException ||
+            message.Contains("login rejected") ||
+            message.Contains("incorrect password") ||
+            message.Contains("invalid password") ||
+            message.Contains("invalid credentials"))
+        {
+            return ConnectionFailureStatus.LoginRejected;
+        }
         
         // Timeout patterns
         if (message.Contains("timeout") || message.Contains("timed out"))

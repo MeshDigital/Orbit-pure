@@ -1818,6 +1818,17 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     {
         Dispatcher.UIThread.Post(() =>
         {
+            static string ToFriendlyFailureMessage(string reason)
+            {
+                if (reason.StartsWith("login rejected:", StringComparison.OrdinalIgnoreCase))
+                    return $"Sign-in failed: {reason["login rejected:".Length..].Trim()}";
+
+                if (reason.StartsWith("connect failed:", StringComparison.OrdinalIgnoreCase))
+                    return $"Connection failed: {reason["connect failed:".Length..].Trim()}";
+
+                return "Disconnected";
+            }
+
             SoulseekIsConnected = evt.Current == "LoggedIn";
             SoulseekConnectionStatusText = evt.Current switch
             {
@@ -1826,7 +1837,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 "LoggingIn"    => "Logging in…",
                 "CoolingDown"  => "Cooling down before reconnect…",
                 "Disconnecting" => "Disconnecting…",
-                "Disconnected" => "Disconnected",
+                "Disconnected" => ToFriendlyFailureMessage(evt.Reason),
                 _              => evt.Current
             };
 

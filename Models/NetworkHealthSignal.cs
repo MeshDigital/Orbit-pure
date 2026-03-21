@@ -42,6 +42,9 @@ public enum ConnectionFailureStatus
     
     /// <summary>Login timeout or authentication failure</summary>
     AuthenticationTimeout,
+
+    /// <summary>Login was explicitly rejected by the server (e.g. bad credentials)</summary>
+    LoginRejected,
     
     /// <summary>Connection refused by server</summary>
     ConnectionRefused,

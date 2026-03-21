@@ -325,6 +325,17 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
     {
         Dispatcher.UIThread.Post(() =>
         {
+            static string ToFriendlyFailureMessage(string reason)
+            {
+                if (reason.StartsWith("login rejected:", StringComparison.OrdinalIgnoreCase))
+                    return $"Sign-in failed: {reason["login rejected:".Length..].Trim()}";
+
+                if (reason.StartsWith("connect failed:", StringComparison.OrdinalIgnoreCase))
+                    return $"Connection failed: {reason["connect failed:".Length..].Trim()}";
+
+                return "Disconnected";
+            }
+
             switch (evt.Current)
             {
                 case "LoggedIn":
@@ -359,7 +370,9 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
                 case "Disconnected":
                     IsConnected = false;
                     IsInitializing = false;
-                    StatusText = "Disconnected";
+                    StatusText = ToFriendlyFailureMessage(evt.Reason);
+                    if (evt.Reason.StartsWith("login rejected:", StringComparison.OrdinalIgnoreCase))
+                        IsLoginOverlayVisible = true;
                     break;
             }
         });

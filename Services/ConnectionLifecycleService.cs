@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Configuration;
 using SLSKDONET.Models;
+using Soulseek;
 
 namespace SLSKDONET.Services;
 
@@ -145,6 +146,14 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
             }
             catch (Exception ex)
             {
+                var isLoginRejected = ex is LoginRejectedException;
+                if (isLoginRejected)
+                {
+                    // Invalid credentials are not a transient network failure.
+                    // Suppress reconnect looping until the user explicitly retries.
+                    _manualDisconnect = true;
+                }
+
                 _logger.LogError(
                     ex,
                     "Lifecycle: ConnectAsync failed. reason={Reason} correlationId={CorrelationId}",
@@ -152,7 +161,10 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
                     correlationId ?? "-");
                 // Guard: only transition if we haven't already moved to LoggedIn/CoolingDown
                 if (_state is ConnectionLifecycleState.Connecting or ConnectionLifecycleState.LoggingIn)
-                    TryTransition(ConnectionLifecycleState.Disconnected, $"connect failed: {ex.Message}", correlationId);
+                    TryTransition(
+                        ConnectionLifecycleState.Disconnected,
+                        isLoginRejected ? $"login rejected: {ex.Message}" : $"connect failed: {ex.Message}",
+                        correlationId);
             }
         }
         finally
