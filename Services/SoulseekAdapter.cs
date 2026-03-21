@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Collections.ObjectModel;
 using System.Net;
+using System.Reflection;
 
 namespace SLSKDONET.Services;
 
@@ -52,6 +53,15 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
     private readonly INetworkHealthService _healthService;
     private RuntimeNetworkConfigSnapshot? _lastAppliedRuntimeNetworkConfig;
     private string? _pendingDisconnectReason;
+    private string? _lastDiagnosticMessage;
+    private int _outboundSearchInFlight;
+    private static readonly string[] ClientEventNamesToClear =
+    {
+        "StateChanged",
+        "DiagnosticGenerated",
+        "KickedFromServer",
+        "ExcludedSearchPhrasesReceived"
+    };
 
     public SoulseekAdapter(ILogger<SoulseekAdapter> logger, AppConfig config, Network.ProtocolHardeningService hardeningService, IEventBus eventBus, INetworkHealthService healthService)
     {
@@ -97,6 +107,66 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         return string.IsNullOrWhiteSpace(pendingReason) ? fallback : pendingReason;
     }
 
+    private string ClassifyDisconnectBucket(string? contextMessage, SoulseekClientStates previousState)
+    {
+        var message = contextMessage?.ToLowerInvariant() ?? string.Empty;
+
+        if (message.Contains("connection reset"))
+            return "TRANSPORT_FAULT_CONNECTION_RESET";
+        if (message.Contains("timed out") || message.Contains("timeout"))
+            return "KEEP_ALIVE_TIMEOUT";
+        if (message.Contains("unable to read") || message.Contains("ioexception") || message.Contains("stream"))
+            return "STREAM_IO_FAULT";
+        if (message.Contains("end of stream") || message.Contains("argumentoutofrange") || message.Contains("outofmemory") || message.Contains("message length") || message.Contains("buffer"))
+            return "PROTOCOL_VIOLATION";
+        if (message.Contains("disposed"))
+            return "LOCAL_CLIENT_DISPOSED";
+        if (message.Contains("login rejected") || message.Contains("invalid password") || message.Contains("invalid credentials"))
+            return "SERVER_AUTH_REJECTED";
+        if (message.Contains("refused") || message.Contains("econnrefused"))
+            return "SERVER_REFUSED_TCP";
+
+        if (previousState.HasFlag(SoulseekClientStates.LoggedIn))
+            return "UNKNOWN_UNPLANNED_DROP_LOGGED_IN";
+
+        return "UNKNOWN_UNPLANNED_DROP";
+    }
+
+    private string ClassifyConnectFailureBucket(Exception ex)
+    {
+        var message = ex.ToString().ToLowerInvariant();
+        if (message.Contains("address already in use") || message.Contains("only one usage of each socket address"))
+            return "LISTEN_PORT_BIND_IN_USE";
+        if (message.Contains("end of stream") || message.Contains("argumentoutofrange") || message.Contains("outofmemory") || message.Contains("message length") || message.Contains("buffer"))
+            return "PROTOCOL_VIOLATION";
+
+        var failure = DiagnoseConnectionFailure(ex);
+        return failure switch
+        {
+            ConnectionFailureStatus.LoginRejected => "SERVER_AUTH_REJECTED",
+            ConnectionFailureStatus.ConnectionRefused => "SERVER_REFUSED_TCP",
+            ConnectionFailureStatus.NetworkTimeout => "TRANSPORT_FAULT_NETWORK_TIMEOUT",
+            ConnectionFailureStatus.AuthenticationTimeout => "KEEP_ALIVE_TIMEOUT",
+            ConnectionFailureStatus.UnexpectedDisconnection => "TRANSPORT_FAULT_UNEXPECTED_DISCONNECT",
+            _ => "UNKNOWN_CONNECT_FAILURE"
+        };
+    }
+
+    private void QueueLibraryCallback(string callbackName, Action work)
+    {
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                work();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unhandled exception in Soulseek callback {CallbackName}", callbackName);
+            }
+        });
+    }
+
     private SoulseekClientOptions CreateClientOptions()
     {
         var runtime = CreateRuntimeNetworkConfigSnapshot();
@@ -126,6 +196,8 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
     private void SafeDisposeClient(SoulseekClient client, string reason)
     {
+        ClearClientEventHandlers(client, reason);
+
         try
         {
             if (!client.State.HasFlag(SoulseekClientStates.Disconnected) &&
@@ -146,6 +218,43 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Soulseek dispose during {Reason} failed non-fatally", reason);
+        }
+    }
+
+    private void ClearClientEventHandlers(SoulseekClient client, string reason)
+    {
+        foreach (var eventName in ClientEventNamesToClear)
+        {
+            try
+            {
+                var field = typeof(SoulseekClient).GetField(eventName, BindingFlags.Instance | BindingFlags.NonPublic);
+                if (field?.FieldType != null && typeof(MulticastDelegate).IsAssignableFrom(field.FieldType))
+                {
+                    field.SetValue(client, null);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Unable to clear Soulseek client event handler '{EventName}' during {Reason}", eventName, reason);
+            }
+        }
+    }
+
+    private static void PublishTracksInBatches(Action<IEnumerable<Track>> onTracksFound, List<Track> tracks, int batchSize)
+    {
+        if (tracks.Count <= 0)
+            return;
+
+        if (tracks.Count <= batchSize)
+        {
+            onTracksFound(tracks);
+            return;
+        }
+
+        for (var offset = 0; offset < tracks.Count; offset += batchSize)
+        {
+            var take = Math.Min(batchSize, tracks.Count - offset);
+            onTracksFound(tracks.GetRange(offset, take));
         }
     }
 
@@ -212,6 +321,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             var oldClient = _client;
             if (oldClient != null)
             {
+                _client = null;
                 SafeDisposeClient(oldClient, "connect swap");
             }
 
@@ -242,29 +352,46 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     return;
                 }
 
-                _logger.LogInformation("Soulseek state change: {State} (was {PreviousState})", 
-                    args.State, args.PreviousState);
-
-                var disconnectingFallback = $"unplanned disconnecting while previous={args.PreviousState}";
-                var disconnectedFallback = $"unplanned disconnected while previous={args.PreviousState}";
-
-                if (args.State.HasFlag(SoulseekClientStates.Disconnecting))
+                var state = args.State;
+                var previousState = args.PreviousState;
+                QueueLibraryCallback("StateChanged", () =>
                 {
-                    var reason = PeekPendingDisconnectReasonOrDefault(disconnectingFallback);
-                    _eventBus.Publish(new SoulseekConnectionStatusEvent("disconnecting", _config.Username ?? "Unknown", reason));
-                }
+                    _logger.LogInformation("Soulseek state change: {State} (was {PreviousState})",
+                        state, previousState);
 
-                if (args.State.HasFlag(SoulseekClientStates.Disconnected))
-                {
-                    var reason = ConsumePendingDisconnectReasonOrDefault(disconnectedFallback);
-                    _eventBus.Publish(new SoulseekConnectionStatusEvent("disconnected", _config.Username ?? "Unknown", reason));
-                }
-                
-                _healthService.RecordConnectionStateChange(args.State.ToString());
-                
-                _eventBus.Publish(new SoulseekStateChangedEvent(
-                    args.State.ToString(), 
-                    args.State.HasFlag(SoulseekClientStates.Connected) && !args.State.HasFlag(SoulseekClientStates.Disconnecting)));
+                    var disconnectBucket = ClassifyDisconnectBucket(
+                        Interlocked.CompareExchange(ref _lastDiagnosticMessage, null, null),
+                        previousState);
+
+                    var disconnectingFallback = $"DROP:[{disconnectBucket}] unplanned disconnecting while previous={previousState}";
+                    var disconnectedFallback = $"DROP:[{disconnectBucket}] unplanned disconnected while previous={previousState}";
+
+                    if (state.HasFlag(SoulseekClientStates.Disconnecting))
+                    {
+                        var reason = PeekPendingDisconnectReasonOrDefault(disconnectingFallback);
+                        _eventBus.Publish(new SoulseekConnectionStatusEvent("disconnecting", _config.Username ?? "Unknown", reason));
+                    }
+
+                    if (state.HasFlag(SoulseekClientStates.Disconnected))
+                    {
+                        var reason = ConsumePendingDisconnectReasonOrDefault(disconnectedFallback);
+                        _eventBus.Publish(new SoulseekConnectionStatusEvent("disconnected", _config.Username ?? "Unknown", reason));
+                    }
+
+                    _healthService.RecordConnectionStateChange(state.ToString());
+
+                    _eventBus.Publish(new SoulseekStateChangedEvent(
+                        State: state.ToString(),
+                        IsConnected: state.HasFlag(SoulseekClientStates.Connected) && !state.HasFlag(SoulseekClientStates.Disconnecting),
+                        IsConnecting: state.HasFlag(SoulseekClientStates.Connecting),
+                        IsLoggingIn: state.HasFlag(SoulseekClientStates.Connected)
+                                     && !state.HasFlag(SoulseekClientStates.LoggedIn)
+                                     && !state.HasFlag(SoulseekClientStates.Disconnecting)
+                                     && !state.HasFlag(SoulseekClientStates.Disconnected),
+                        IsLoggedIn: state.HasFlag(SoulseekClientStates.LoggedIn),
+                        IsDisconnecting: state.HasFlag(SoulseekClientStates.Disconnecting),
+                        IsDisconnected: state.HasFlag(SoulseekClientStates.Disconnected)));
+                });
             };
 
             client.DiagnosticGenerated += (sender, args) =>
@@ -274,6 +401,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     return;
                 }
 
+                Interlocked.Exchange(ref _lastDiagnosticMessage, args.Message);
                 _logger.LogDebug("[SoulseekLib] {Level}: {Message}", args.Level, args.Message);
             };
 
@@ -284,10 +412,13 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     return;
                 }
 
-                _logger.LogWarning("Soulseek server kicked this session. Enforcing reconnect cooldown.");
-                MarkPendingDisconnectReason("kicked from server");
-                _healthService.RecordConnectionKick("KickedFromServer event");
-                _eventBus.Publish(new SoulseekConnectionStatusEvent("kicked", _config.Username ?? "Unknown", "kicked from server"));
+                QueueLibraryCallback("KickedFromServer", () =>
+                {
+                    _logger.LogWarning("Soulseek server kicked this session. Enforcing reconnect cooldown.");
+                    MarkPendingDisconnectReason("kicked from server");
+                    _healthService.RecordConnectionKick("KickedFromServer event");
+                    _eventBus.Publish(new SoulseekConnectionStatusEvent("kicked", _config.Username ?? "Unknown", "kicked from server"));
+                });
             };
 
             // Phase 5/10: Adhere to new global exclusions from Soulseek Server
@@ -298,29 +429,33 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     return;
                 }
 
-                var phraseList = phrases
-                    .Where(p => !string.IsNullOrWhiteSpace(p))
-                    .Select(p => p.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                int added = 0;
-                foreach (var phrase in phraseList)
+                var phraseSnapshot = phrases?.ToArray() ?? Array.Empty<string>();
+                QueueLibraryCallback("ExcludedSearchPhrasesReceived", () =>
                 {
-                    if (_excludedPhrases.TryAdd(phrase.ToLowerInvariant(), 0))
-                        added++;
-                }
+                    var phraseList = phraseSnapshot
+                        .Where(p => !string.IsNullOrWhiteSpace(p))
+                        .Select(p => p.Trim())
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
 
-                if (phraseList.Count > 0)
-                {
-                    _hardeningService.UpdateExcludedPhrases(phraseList);
-                    _eventBus.Publish(new ExcludedSearchPhrasesUpdatedEvent(phraseList, added, _excludedPhrases.Count));
-
-                    if (added > 0)
+                    int added = 0;
+                    foreach (var phrase in phraseList)
                     {
-                        _logger.LogInformation("Added {Added} new excluded search phrases. Total known exclusions: {Total}", added, _excludedPhrases.Count);
+                        if (_excludedPhrases.TryAdd(phrase.ToLowerInvariant(), 0))
+                            added++;
                     }
-                }
+
+                    if (phraseList.Count > 0)
+                    {
+                        _hardeningService.UpdateExcludedPhrases(phraseList);
+                        _eventBus.Publish(new ExcludedSearchPhrasesUpdatedEvent(phraseList, added, _excludedPhrases.Count));
+
+                        if (added > 0)
+                        {
+                            _logger.LogInformation("Added {Added} new excluded search phrases. Total known exclusions: {Total}", added, _excludedPhrases.Count);
+                        }
+                    }
+                });
             };
 
             _logger.LogInformation("Connecting to Soulseek as {Username} on {Server}:{Port}...", 
@@ -366,11 +501,12 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to connect to Soulseek: {Message}", ex.Message);
+            var bucket = ClassifyConnectFailureBucket(ex);
+            _logger.LogError(ex, "Failed to connect to Soulseek: {Message}. Bucket=[{Bucket}]", ex.Message, bucket);
             
             // Diagnose connection failure type
             var failureStatus = DiagnoseConnectionFailure(ex);
-            _healthService.RecordConnectionFailure(failureStatus, ex.Message);
+            _healthService.RecordConnectionFailure(failureStatus, $"DROP:[{bucket}] {ex.Message}");
             
             throw;
         }
@@ -548,6 +684,20 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         {
             _logger.LogDebug("Search skipped because query was empty.");
             return 0;
+        }
+
+        var maxOutboundSearches = Math.Clamp(_config.MaxConcurrentSearches, 1, 3);
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            var currentInFlight = Volatile.Read(ref _outboundSearchInFlight);
+            if (currentInFlight < maxOutboundSearches
+                && Interlocked.CompareExchange(ref _outboundSearchInFlight, currentInFlight + 1, currentInFlight) == currentInFlight)
+            {
+                break;
+            }
+
+            await Task.Delay(25, ct);
         }
 
         var client = await WaitForReadyClientAsync(ct);
@@ -750,7 +900,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
                     if (foundTracksInResponse.Any())
                     {
-                        onTracksFound(foundTracksInResponse);
+                        PublishTracksInBatches(onTracksFound, foundTracksInResponse, 50);
                     }
                 },
                 options: options,
@@ -824,6 +974,10 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
              // But let's stick to previous logic: throw if it's a real error.
              throw; 
         }
+        finally
+        {
+            Interlocked.Decrement(ref _outboundSearchInFlight);
+        }
     }
 
     private async Task<SoulseekClient?> WaitForReadyClientAsync(CancellationToken ct)
@@ -845,8 +999,8 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             return null;
 
         int waitRetries = 0;
-        const int maxWaitRetries = 20;
         const int retryDelayMs = 500;
+        var maxWaitRetries = Math.Max(20, GetEffectiveConnectTimeout(_config.ConnectTimeout) / retryDelayMs);
         var waitStartUtc = DateTime.UtcNow;
         var nextProgressLogAtSeconds = 2 + Random.Shared.Next(0, 2);
 

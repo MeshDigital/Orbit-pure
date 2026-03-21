@@ -1,5 +1,36 @@
 # Recent Changes
 
+## [0.1.0-alpha.46] - Enterprise-Grade Connection Hardening (Mar 21, 2026)
+
+### Advanced Disconnect-Killer Mitigations
+* `SoulseekAdapter.cs` now offloads critical Soulseek client callbacks (`StateChanged`, `KickedFromServer`, `ExcludedSearchPhrasesReceived`) via `Task.Run`-backed callback queuing so heavy downstream processing cannot block the library reader thread.
+* Added proactive host-signal recovery in `ConnectionLifecycleService.cs`:
+  * reacts to `NetworkChange.NetworkAddressChanged`
+  * reacts to Windows `SystemEvents.PowerModeChanged` (Suspend/Resume)
+  * performs controlled disconnect + clean auto-recovery to avoid zombie post-sleep sockets.
+* Added thread-pool capacity snapshot logging on lifecycle transitions to `Disconnected` for starvation diagnostics.
+
+### Adapter Resilience + Memory Hygiene
+* `SoulseekAdapter.cs` now classifies protocol-desync style faults (`end of stream`, `buffer`, `argument out of range`, `out of memory`) into `PROTOCOL_VIOLATION` disconnect/connect-failure buckets.
+* Added explicit outbound search in-flight gating in adapter search execution (bounded to configured max), preventing hidden search oversubscription under discovery pressure.
+* `SafeDisposeClient(...)` now performs aggressive event-handler cleanup before disposal to reduce ghost-client retention risk during reconnect churn.
+
+### UI/Consumer Pressure Reduction
+* Search callback fan-out now publishes in bounded batches (`50` items per chunk) before passing to upstream consumers, reducing render/update flood pressure on UI-facing paths.
+
+### Reconnect Ban-Risk Hardening
+* `ConnectionLifecycleService.cs` reconnect backoff progression updated to jittered exponential doubling with cap:
+  * `5s, 10s, 20s, ...` up to `120s` max
+  * maintains ±20% jitter for thundering-herd reduction during server-wide outages.
+
+### Platform Integration
+* Added `Microsoft.Win32.SystemEvents` package reference to support Windows power-state lifecycle hooks.
+
+### Validation
+* `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj --nologo --filter "FullyQualifiedName~ConnectionLifecycle|FullyQualifiedName~ConnectionViewModel"` ✅ (`13/13`)
+
+---
+
 ## [0.1.0-alpha.45] - Connection Lifecycle Recovery + Disconnect Cause Attribution (Mar 21, 2026)
 
 ### Lifecycle Reconnect Recovery Hardening

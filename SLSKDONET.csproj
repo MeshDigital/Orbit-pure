@@ -84,6 +84,7 @@
 
     <!-- Async/Concurrency -->
     <PackageReference Include="System.Reactive" Version="6.1.0" />
+    <PackageReference Include="Microsoft.Win32.SystemEvents" Version="9.0.0" />
 
     <!-- Data/CSV handling -->
     <PackageReference Include="CsvHelper" Version="33.1.0" />

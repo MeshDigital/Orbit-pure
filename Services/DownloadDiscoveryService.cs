@@ -835,28 +835,51 @@ public class DownloadDiscoveryService
 
     private async Task<bool> WaitForConnectionAsync(CancellationToken ct)
     {
-        _logger.LogInformation("Waiting for Soulseek connection (max 10s) before continuing discovery tier...");
+        var timeoutMs = _config.ConnectTimeout > 0
+            ? Math.Max(10_000, _config.ConnectTimeout)
+            : 60_000;
+
+        using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        waitCts.CancelAfter(timeoutMs);
+
+        _logger.LogInformation(
+            "Waiting for Soulseek connection readiness before continuing discovery tier (timeout={TimeoutSeconds}s)...",
+            timeoutMs / 1000);
+
         var waitStart = DateTime.UtcNow;
         var nextProgressLogAtSeconds = 2;
-        while (!_searchOrchestrator.IsLoggedIn && (DateTime.UtcNow - waitStart).TotalSeconds < 10)
-        {
-            if (ct.IsCancellationRequested) return false;
-            await Task.Delay(500, ct);
 
-            var waitedSeconds = (int)(DateTime.UtcNow - waitStart).TotalSeconds;
-            if (waitedSeconds >= nextProgressLogAtSeconds)
+        try
+        {
+            while (!_searchOrchestrator.IsLoggedIn)
             {
-                _logger.LogDebug("Still waiting for Soulseek connection... ({Waited}s elapsed)", waitedSeconds);
-                nextProgressLogAtSeconds += 2;
-            }
-        }
+                waitCts.Token.ThrowIfCancellationRequested();
+                await Task.Delay(500, waitCts.Token);
 
-        if (!_searchOrchestrator.IsLoggedIn)
+                var waitedSeconds = (int)(DateTime.UtcNow - waitStart).TotalSeconds;
+                if (waitedSeconds >= nextProgressLogAtSeconds)
+                {
+                    _logger.LogDebug(
+                        "Still waiting for Soulseek connection... ({Waited}s elapsed of {Timeout}s)",
+                        waitedSeconds,
+                        timeoutMs / 1000);
+                    nextProgressLogAtSeconds += 2;
+                }
+            }
+
+            return true;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            _logger.LogWarning("Timeout waiting for Soulseek login (LoggedIn state) after 10s; discovery will be retried as a transient connectivity issue.");
+            _logger.LogWarning(
+                "Timeout waiting for Soulseek login (LoggedIn state) after {Seconds}s; discovery will be retried as a transient connectivity issue.",
+                timeoutMs / 1000);
             return false;
         }
-        return true;
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
     }
 
     private static void MergeAttemptLog(SearchAttemptLog target, SearchAttemptLog source)

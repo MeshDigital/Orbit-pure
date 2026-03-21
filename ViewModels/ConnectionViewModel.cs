@@ -25,6 +25,7 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
     private readonly IConnectionLifecycleService _lifecycle;
     private IDisposable? _lifecycleChangedSubscription;
     private EventHandler<bool>? _spotifyAuthHandler;
+    private string? _pendingSavePassword;
 
     // Connection State
     private string _username = "";
@@ -192,7 +193,7 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
 
     public async Task LoginAsync(string? password)
     {
-         if (string.IsNullOrWhiteSpace(Username))
+        if (string.IsNullOrWhiteSpace(Username))
         {
             StatusText = "Please enter a username";
             return;
@@ -225,40 +226,15 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
             _config.Username = Username;
             _config.RememberPassword = RememberPassword;
             _config.AutoConnectEnabled = AutoConnectEnabled;
+            _configManager.Save(_config);
+            _pendingSavePassword = passwordToUse;
 
             await _lifecycle.RequestConnectAsync(passwordToUse);
-
-            if (_lifecycle.CurrentState == ConnectionLifecycleState.LoggedIn)
-            {
-                Dispatcher.UIThread.Post(() =>
-                {
-                    IsLoginOverlayVisible = false;
-                    IsInitializing = false;
-                });
-
-                // Persistence
-                _configManager.Save(_config);
-
-                if (RememberPassword)
-                {
-                    await _credentialService.SaveCredentialsAsync(Username, passwordToUse);
-                }
-                else
-                {
-                    await _credentialService.DeleteCredentialsAsync();
-                }
-            }
-            else
-            {
-                // Connection still in progress or failed; hide overlay and let lifecycle events drive UI
-                Dispatcher.UIThread.Post(() => IsLoginOverlayVisible = false);
-                _configManager.Save(_config);
-            }
-
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Login failed");
+            _pendingSavePassword = null;
             Dispatcher.UIThread.Post(() => StatusText = $"Login error: {ex.Message}");
         }
         finally
@@ -343,6 +319,31 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
                     IsInitializing = false;
                     StatusText = $"Connected as {Username}";
                     IsLoginOverlayVisible = false;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            if (RememberPassword)
+                            {
+                                if (!string.IsNullOrEmpty(_pendingSavePassword))
+                                {
+                                    await _credentialService.SaveCredentialsAsync(Username, _pendingSavePassword);
+                                }
+                            }
+                            else
+                            {
+                                await _credentialService.DeleteCredentialsAsync();
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to persist Soulseek credentials after LoggedIn transition");
+                        }
+                        finally
+                        {
+                            _pendingSavePassword = null;
+                        }
+                    });
                     break;
 
                 case "Connecting":
@@ -371,7 +372,8 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
                     IsConnected = false;
                     IsInitializing = false;
                     StatusText = ToFriendlyFailureMessage(evt.Reason);
-                    if (evt.Reason.StartsWith("login rejected:", StringComparison.OrdinalIgnoreCase))
+                    if (evt.Reason.StartsWith("login rejected:", StringComparison.OrdinalIgnoreCase)
+                     || !AutoConnectEnabled)
                         IsLoginOverlayVisible = true;
                     break;
             }

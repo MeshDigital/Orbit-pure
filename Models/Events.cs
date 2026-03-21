@@ -18,7 +18,14 @@ public record ProjectDeletedEvent(Guid ProjectId);
 public record DownloadManagerHydratedEvent(int TrackCount);
 
 // Soulseek Adapter Events
-public record SoulseekStateChangedEvent(string State, bool IsConnected);
+public record SoulseekStateChangedEvent(
+    string State,
+    bool IsConnected,
+    bool? IsConnecting = null,
+    bool? IsLoggingIn = null,
+    bool? IsLoggedIn = null,
+    bool? IsDisconnecting = null,
+    bool? IsDisconnected = null);
 public record SoulseekConnectionStatusEvent(string Status, string Username, string? Reason = null);
 // Phase B: Connection lifecycle state machine
 public record ConnectionLifecycleStateChangedEvent(

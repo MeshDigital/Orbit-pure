@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Net.NetworkInformation;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Win32;
 using SLSKDONET.Configuration;
 using SLSKDONET.Models;
 using Soulseek;
@@ -71,6 +74,9 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
     private readonly Random _rng = new();
     private CancellationTokenSource? _activeConnectCts;
     private string? _lastDisconnectStatusReason;
+    private DateTime _lastHostSignalRecoveryUtc = DateTime.MinValue;
+    private static readonly TimeSpan HostSignalRecoveryCooldown = TimeSpan.FromSeconds(10);
+    private readonly bool _powerEventsSubscribed;
     private bool _disposed;
 
     public ConnectionLifecycleState CurrentState => _state;
@@ -93,6 +99,14 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
         _kickedSub = _eventBus
             .GetEvent<SoulseekConnectionStatusEvent>()
             .Subscribe(OnSoulseekConnectionStatus);
+
+        NetworkChange.NetworkAddressChanged += OnNetworkAddressChanged;
+
+        if (OperatingSystem.IsWindows())
+        {
+            SystemEvents.PowerModeChanged += OnPowerModeChanged;
+            _powerEventsSubscribed = true;
+        }
     }
 
     // ── public API ───────────────────────────────────────────────────────
@@ -224,9 +238,17 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
     private void OnSoulseekStateChanged(SoulseekStateChangedEvent evt)
     {
         var raw = evt.State;
+        var isLoggedIn = evt.IsLoggedIn ?? raw.Contains("LoggedIn", StringComparison.OrdinalIgnoreCase);
+        var isDisconnecting = evt.IsDisconnecting ?? raw.Contains("Disconnecting", StringComparison.OrdinalIgnoreCase);
+        var isDisconnected = evt.IsDisconnected ?? raw.Contains("Disconnected", StringComparison.OrdinalIgnoreCase);
+        var isConnecting = evt.IsConnecting ?? raw.Contains("Connecting", StringComparison.OrdinalIgnoreCase);
+        var isLoggingIn = evt.IsLoggingIn
+            ?? (raw.Contains("LoggingIn", StringComparison.OrdinalIgnoreCase)
+             || (raw.Contains("Connected", StringComparison.OrdinalIgnoreCase)
+                 && !raw.Contains("Disconnecting", StringComparison.OrdinalIgnoreCase)
+                 && !raw.Contains("Disconnected", StringComparison.OrdinalIgnoreCase)));
 
-        // Map Soulseek raw flags string → lifecycle state
-        if (raw.Contains("LoggedIn", StringComparison.OrdinalIgnoreCase))
+        if (isLoggedIn)
         {
             var wasLoggedIn = _state == ConnectionLifecycleState.LoggedIn;
             TryTransition(ConnectionLifecycleState.LoggedIn, "soulseek reported LoggedIn");
@@ -238,13 +260,13 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
                 _quickRetryCount     = 0;
             }
         }
-        else if (raw.Contains("Disconnecting", StringComparison.OrdinalIgnoreCase))
+        else if (isDisconnecting)
         {
             TryTransition(
                 ConnectionLifecycleState.Disconnecting,
                 ComposeDisconnectReason("soulseek reported Disconnecting", consume: false));
         }
-        else if (raw.Contains("Disconnected", StringComparison.OrdinalIgnoreCase))
+        else if (isDisconnected)
         {
             var wasActive = _state is ConnectionLifecycleState.LoggedIn
                                    or ConnectionLifecycleState.LoggingIn
@@ -260,13 +282,11 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
                 StartAutoReconnectLoop(correlationId: null);
             }
         }
-        else if (raw.Contains("Connecting", StringComparison.OrdinalIgnoreCase))
+        else if (isConnecting)
         {
             TryTransition(ConnectionLifecycleState.Connecting, "soulseek reported Connecting");
         }
-        else if (raw.Contains("LoggingIn", StringComparison.OrdinalIgnoreCase)
-              || (raw.Contains("Connected", StringComparison.OrdinalIgnoreCase)
-                  && !raw.Contains("Disconnecting", StringComparison.OrdinalIgnoreCase)))
+        else if (isLoggingIn)
         {
             TryTransition(ConnectionLifecycleState.LoggingIn, "soulseek reported Connected/LoggingIn");
         }
@@ -299,6 +319,8 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
             _logger.LogInformation("Lifecycle: cancelling in-flight connect attempt. reason={Reason}", reason);
             activeCts.Cancel();
         }
+
+        activeCts.Dispose();
     }
 
     private void OnSoulseekConnectionStatus(SoulseekConnectionStatusEvent evt)
@@ -347,6 +369,77 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
             : Interlocked.CompareExchange(ref _lastDisconnectStatusReason, null, null);
 
         return string.IsNullOrWhiteSpace(detail) ? fallback : $"{fallback}: {detail}";
+    }
+
+    private void OnNetworkAddressChanged(object? sender, EventArgs args)
+        => TriggerHostSignalRecovery("host network interface changed");
+
+    [SupportedOSPlatform("windows")]
+    private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs args)
+    {
+        if (args.Mode == PowerModes.Resume)
+        {
+            TriggerHostSignalRecovery("system resumed from sleep/hibernate");
+        }
+        else if (args.Mode == PowerModes.Suspend)
+        {
+            TriggerHostSignalRecovery("system entering sleep/hibernate");
+        }
+    }
+
+    private void TriggerHostSignalRecovery(string reason)
+    {
+        if (_disposed || _manualDisconnect)
+            return;
+
+        var now = DateTime.UtcNow;
+        var previous = _lastHostSignalRecoveryUtc;
+        if (previous != DateTime.MinValue && now - previous < HostSignalRecoveryCooldown)
+            return;
+
+        _lastHostSignalRecoveryUtc = now;
+        _ = Task.Run(() => ForceDisconnectAndRecoverAsync(reason));
+    }
+
+    private async Task ForceDisconnectAndRecoverAsync(string reason)
+    {
+        await _commandLock.WaitAsync();
+        try
+        {
+            if (_disposed || _manualDisconnect)
+                return;
+
+            if (_state is ConnectionLifecycleState.Disconnected or ConnectionLifecycleState.Disconnecting)
+                return;
+
+            _logger.LogWarning(
+                "Lifecycle: host signal detected ({Reason}). Proactively severing Soulseek connection for clean reconnect.",
+                reason);
+
+            CancelActiveConnectAttempt($"host signal: {reason}");
+
+            TryTransition(ConnectionLifecycleState.Disconnecting, $"host signal: {reason}", correlationId: "host-signal");
+
+            try
+            {
+                await _soulseek.DisconnectAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Lifecycle: proactive disconnect encountered an error after host signal ({Reason})", reason);
+            }
+
+            TryTransition(ConnectionLifecycleState.Disconnected, $"host signal reset: {reason}", correlationId: "host-signal");
+
+            if (AutoReconnectEnabled && !_manualDisconnect)
+            {
+                StartAutoReconnectLoop("host-signal");
+            }
+        }
+        finally
+        {
+            _commandLock.Release();
+        }
     }
 
     // ── auto-reconnect loop ───────────────────────────────────────────────
@@ -437,6 +530,19 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
             "Lifecycle: {From} → {To} | reason={Reason} corr={Corr}",
             from, to, reason, correlationId ?? "-");
 
+        if (to == ConnectionLifecycleState.Disconnected)
+        {
+            ThreadPool.GetAvailableThreads(out var availableWorkers, out var availableIo);
+            ThreadPool.GetMaxThreads(out var maxWorkers, out var maxIo);
+            _logger.LogWarning(
+                "[LIFECYCLE] Network state dropped to Disconnected. Diagnostics: {Reason}. ThreadPool={AvailW}/{MaxW} workers, {AvailIO}/{MaxIO} IO. Entering automated recovery protocol.",
+                reason,
+                availableWorkers,
+                maxWorkers,
+                availableIo,
+                maxIo);
+        }
+
         _eventBus.Publish(new ConnectionLifecycleStateChangedEvent(
             Previous:      from.ToString(),
             Current:       to.ToString(),
@@ -446,19 +552,24 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
 
     /// <summary>
     /// Exponential backoff kicking in after the quick-retry budget is exhausted.
-    /// 5 s × 3^(effective_attempt−1), capped at 60 s.
+    /// 5 s × 2^(effective_attempt), capped at 120 s.
     /// </summary>
     private static int CalculateBackoffMs(int attempt)
     {
         var effectiveAttempt = Math.Max(0, attempt - MaxQuickRetries - 1);
-        var seconds = 5.0 * Math.Pow(3.0, effectiveAttempt);
-        return (int)Math.Min(seconds, 60.0) * 1_000;
+        var seconds = 5.0 * Math.Pow(2.0, effectiveAttempt);
+        return (int)Math.Min(seconds, 120.0) * 1_000;
     }
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        NetworkChange.NetworkAddressChanged -= OnNetworkAddressChanged;
+        if (OperatingSystem.IsWindows() && _powerEventsSubscribed)
+        {
+            SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        }
         _stateChangedSub.Dispose();
         _kickedSub.Dispose();
         CancelActiveConnectAttempt("lifecycle dispose");
