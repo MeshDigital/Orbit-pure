@@ -69,6 +69,8 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
     private DateTime _coolingUntilUtc = DateTime.MinValue;
     private int _reconnectLoopActive;
     private readonly Random _rng = new();
+    private CancellationTokenSource? _activeConnectCts;
+    private string? _lastDisconnectStatusReason;
     private bool _disposed;
 
     public ConnectionLifecycleState CurrentState => _state;
@@ -135,17 +137,38 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
 
             try
             {
-                await _soulseek.ConnectAsync(_lastPassword, ct);
+                using var linkedConnectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                var previousConnectCts = Interlocked.Exchange(ref _activeConnectCts, linkedConnectCts);
+                previousConnectCts?.Cancel();
+
+                await _soulseek.ConnectAsync(_lastPassword, linkedConnectCts.Token);
+
+                if (ReferenceEquals(_activeConnectCts, linkedConnectCts))
+                {
+                    Interlocked.Exchange(ref _activeConnectCts, null);
+                }
                 // Successful connection — state is advanced by the SoulseekStateChangedEvent
                 // handler; no explicit transition needed here.
             }
             catch (OperationCanceledException)
             {
-                TryTransition(ConnectionLifecycleState.Disconnected, "connect cancelled", correlationId);
-                throw;
+                Interlocked.Exchange(ref _activeConnectCts, null);
+                var cancelledByCaller = ct.IsCancellationRequested;
+                TryTransition(
+                    ConnectionLifecycleState.Disconnected,
+                    cancelledByCaller ? "connect cancelled" : "connect interrupted",
+                    correlationId);
+
+                if (cancelledByCaller)
+                    throw;
+
+                _logger.LogInformation(
+                    "Lifecycle: connect attempt interrupted by connection state change. corr={Corr}",
+                    correlationId ?? "-");
             }
             catch (Exception ex)
             {
+                Interlocked.Exchange(ref _activeConnectCts, null);
                 var isLoginRejected = ex is LoginRejectedException;
                 if (isLoginRejected)
                 {
@@ -193,6 +216,7 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
     public void NotifyManualDisconnect()
     {
         _manualDisconnect = true;
+        CancelActiveConnectAttempt("manual disconnect");
     }
 
     // ── Soulseek event callbacks ──────────────────────────────────────────
@@ -216,7 +240,9 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
         }
         else if (raw.Contains("Disconnecting", StringComparison.OrdinalIgnoreCase))
         {
-            TryTransition(ConnectionLifecycleState.Disconnecting, "soulseek reported Disconnecting");
+            TryTransition(
+                ConnectionLifecycleState.Disconnecting,
+                ComposeDisconnectReason("soulseek reported Disconnecting", consume: false));
         }
         else if (raw.Contains("Disconnected", StringComparison.OrdinalIgnoreCase))
         {
@@ -224,10 +250,15 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
                                    or ConnectionLifecycleState.LoggingIn
                                    or ConnectionLifecycleState.Connecting;
 
-            TryTransition(ConnectionLifecycleState.Disconnected, "soulseek reported Disconnected");
+            TryTransition(
+                ConnectionLifecycleState.Disconnected,
+                ComposeDisconnectReason("soulseek reported Disconnected", consume: true));
 
             if (wasActive && AutoReconnectEnabled && !_manualDisconnect)
+            {
+                CancelActiveConnectAttempt("soulseek reported disconnected");
                 StartAutoReconnectLoop(correlationId: null);
+            }
         }
         else if (raw.Contains("Connecting", StringComparison.OrdinalIgnoreCase))
         {
@@ -245,15 +276,49 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
                                    or ConnectionLifecycleState.LoggingIn
                                    or ConnectionLifecycleState.Connecting;
 
-            TryTransition(ConnectionLifecycleState.Disconnected, "soulseek reported not connected");
+            TryTransition(
+                ConnectionLifecycleState.Disconnected,
+                ComposeDisconnectReason("soulseek reported not connected", consume: true));
 
             if (wasActive && AutoReconnectEnabled && !_manualDisconnect)
+            {
+                CancelActiveConnectAttempt("soulseek reported not connected");
                 StartAutoReconnectLoop(correlationId: null);
+            }
+        }
+    }
+
+    private void CancelActiveConnectAttempt(string reason)
+    {
+        var activeCts = Interlocked.Exchange(ref _activeConnectCts, null);
+        if (activeCts == null)
+            return;
+
+        if (!activeCts.IsCancellationRequested)
+        {
+            _logger.LogInformation("Lifecycle: cancelling in-flight connect attempt. reason={Reason}", reason);
+            activeCts.Cancel();
         }
     }
 
     private void OnSoulseekConnectionStatus(SoulseekConnectionStatusEvent evt)
     {
+        if (string.Equals(evt.Status, "connected", StringComparison.OrdinalIgnoreCase))
+        {
+            Interlocked.Exchange(ref _lastDisconnectStatusReason, null);
+            return;
+        }
+
+        if (string.Equals(evt.Status, "disconnecting", StringComparison.OrdinalIgnoreCase)
+         || string.Equals(evt.Status, "disconnected", StringComparison.OrdinalIgnoreCase)
+         || string.Equals(evt.Status, "kicked", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(evt.Reason))
+            {
+                Interlocked.Exchange(ref _lastDisconnectStatusReason, evt.Reason);
+            }
+        }
+
         if (!string.Equals(evt.Status, "kicked", StringComparison.OrdinalIgnoreCase))
             return;
 
@@ -273,6 +338,15 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
                 StartAutoReconnectLoop(correlationId: null);
             }
         });
+    }
+
+    private string ComposeDisconnectReason(string fallback, bool consume)
+    {
+        string? detail = consume
+            ? Interlocked.Exchange(ref _lastDisconnectStatusReason, null)
+            : Interlocked.CompareExchange(ref _lastDisconnectStatusReason, null, null);
+
+        return string.IsNullOrWhiteSpace(detail) ? fallback : $"{fallback}: {detail}";
     }
 
     // ── auto-reconnect loop ───────────────────────────────────────────────
@@ -387,6 +461,7 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
         _disposed = true;
         _stateChangedSub.Dispose();
         _kickedSub.Dispose();
+        CancelActiveConnectAttempt("lifecycle dispose");
         _commandLock.Dispose();
     }
 }

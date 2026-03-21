@@ -23,6 +23,8 @@ public class DatabaseService
     
     // Semaphore to serialize database write operations and prevent SQLite locking issues
     private static readonly SemaphoreSlim _writeSemaphore = new SemaphoreSlim(1, 1);
+    private readonly SemaphoreSlim _initSemaphore = new SemaphoreSlim(1, 1);
+    private bool _isInitialized;
 
     public DatabaseService(
         ILogger<DatabaseService> logger, 
@@ -127,7 +129,22 @@ public class DatabaseService
 
     public async Task InitAsync()
     {
-        await _schemaMigrator.InitializeDatabaseAsync();
+        if (_isInitialized)
+            return;
+
+        await _initSemaphore.WaitAsync();
+        try
+        {
+            if (_isInitialized)
+                return;
+
+            await _schemaMigrator.InitializeDatabaseAsync();
+            _isInitialized = true;
+        }
+        finally
+        {
+            _initSemaphore.Release();
+        }
     }
 
     // ===== PendingOrchestration Methods =====

@@ -168,6 +168,26 @@ public class ConnectionLifecycleServiceTests
     }
 
     [Fact]
+    public async Task SoulseekStateChangedEvent_Disconnected_UsesStatusReasonWhenAvailable()
+    {
+        var (service, eventBus, soulseek) = CreateService();
+        service.AutoReconnectEnabled = false;
+        var captured = new List<ConnectionLifecycleStateChangedEvent>();
+        eventBus.GetEvent<ConnectionLifecycleStateChangedEvent>().Subscribe(e => captured.Add(e));
+
+        await DriveToLoggedIn(service, eventBus, soulseek);
+
+        eventBus.Publish(new SoulseekConnectionStatusEvent("disconnected", "test", "remote socket close"));
+        eventBus.Publish(new SoulseekStateChangedEvent("Disconnected", false));
+
+        var disconnectedEvent = Assert.Single(captured, e => e.Current == "Disconnected");
+        Assert.Contains("remote socket close", disconnectedEvent.Reason, StringComparison.OrdinalIgnoreCase);
+
+        service.Dispose();
+        eventBus.Dispose();
+    }
+
+    [Fact]
     public async Task KickedEvent_WhenLoggedIn_TransitionsToCoolingDown()
     {
         var (service, eventBus, soulseek) = CreateService();

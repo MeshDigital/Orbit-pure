@@ -19,7 +19,7 @@ public record DownloadManagerHydratedEvent(int TrackCount);
 
 // Soulseek Adapter Events
 public record SoulseekStateChangedEvent(string State, bool IsConnected);
-public record SoulseekConnectionStatusEvent(string Status, string Username);
+public record SoulseekConnectionStatusEvent(string Status, string Username, string? Reason = null);
 // Phase B: Connection lifecycle state machine
 public record ConnectionLifecycleStateChangedEvent(
     string Previous,

@@ -63,6 +63,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private readonly IEventBus _eventBus;
     private readonly ISoulseekAdapter _soulseek;
     private readonly ISoulseekCredentialService _credentialService;
+    private readonly IConnectionLifecycleService _lifecycle;
 
     // Hardcoded public client ID provided by user/project
     // Ideally this would be in a secured config, but for this desktop app scenario it's acceptable as a default.
@@ -1018,7 +1019,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         LibraryFolderScannerService libraryFolderScannerService,
         IEventBus eventBus,
         ISoulseekAdapter soulseek,
-        ISoulseekCredentialService credentialService)
+        ISoulseekCredentialService credentialService,
+        IConnectionLifecycleService lifecycle)
     {
         _logger = logger;
         _config = config;
@@ -1031,6 +1033,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _eventBus = eventBus;
         _soulseek = soulseek;
         _credentialService = credentialService;
+        _lifecycle = lifecycle;
 
         // Ensure default Client ID is set if empty
         if (string.IsNullOrEmpty(_config.SpotifyClientId))
@@ -1858,7 +1861,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             if (!string.IsNullOrEmpty(creds.Password) && !string.IsNullOrEmpty(creds.Username))
             {
                 SoulseekConnectionStatusText = "Connecting…";
-                await _soulseek.ConnectAsync(creds.Password);
+                await _lifecycle.RequestConnectAsync(creds.Password);
             }
             else
             {
@@ -1877,7 +1880,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     {
         try
         {
-            _soulseek.Disconnect();
+            _lifecycle.NotifyManualDisconnect();
+            _ = _lifecycle.RequestDisconnectAsync("manual settings disconnect");
         }
         catch (Exception ex)
         {

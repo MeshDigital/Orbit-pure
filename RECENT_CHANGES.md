@@ -1,5 +1,66 @@
 # Recent Changes
 
+## [0.1.0-alpha.45] - Connection Lifecycle Recovery + Disconnect Cause Attribution (Mar 21, 2026)
+
+### Lifecycle Reconnect Recovery Hardening
+* `ConnectionLifecycleService.cs` now tracks and cancels in-flight connect attempts when disconnect/manual-disconnect arrives, preventing reconnect loops from being blocked by stale login waits.
+* Connect interruption caused by lifecycle-driven cancellation is now treated as expected control flow (`connect interrupted`) rather than a fatal reconnect-loop error.
+* Added disconnect-reason composition so lifecycle transitions include adapter-provided cause details when available.
+
+### Adapter State Hygiene + Timeout Reliability
+* `SoulseekAdapter.cs` now ignores stale/disposed client event emissions (`StateChanged`, diagnostics, kick/excluded phrase handlers) so old instances cannot corrupt current lifecycle state.
+* Introduced a protocol message-timeout floor (`>=120s`) separate from connect timeout, and corrected startup diagnostics logging to report the effective message timeout value.
+* Adapter now publishes `SoulseekConnectionStatusEvent` for `disconnecting`/`disconnected` with reason metadata and tracks pending disconnect reasons through state transitions.
+
+### Event Contract + Regression Coverage
+* `Models/Events.cs` extends `SoulseekConnectionStatusEvent` with optional `Reason` payload.
+* `ConnectionLifecycleServiceTests.cs` adds regression coverage to verify lifecycle `Disconnected` reason includes propagated status reason details.
+
+### Supporting Stability Updates
+* `SettingsViewModel.cs` routes connect/disconnect through `IConnectionLifecycleService` to respect centralized lifecycle coordination.
+* `DatabaseService.cs` `InitAsync()` is now idempotent/concurrency-safe via `_initSemaphore` + `_isInitialized` guard.
+
+### Validation
+* `dotnet test Tests/SLSKDONET.Tests/ -v q` ✅
+* `dotnet test Tests/SLSKDONET.Tests/ -v q --filter "FullyQualifiedName~ConnectionLifecycleServiceTests"` ✅
+* Runtime logs confirm reason-attributed lifecycle transitions (for example, `Disconnected: unplanned disconnected while previous=Disconnecting`).
+
+---
+
+## [0.1.0-alpha.44] - Soulseek Adapter Hardening + Startup Noise Reduction (Mar 19, 2026)
+
+### Soulseek Adapter Deep Hardening
+* `SoulseekAdapter.cs` was simplified and hardened for reconnect-heavy sessions:
+  * Removed disabled/dead parent-health monitor plumbing and related stale lifecycle code.
+  * Added robust readiness gating (`WaitForReadyClientAsync`) so searches skip cleanly when client/login state is not ready (instead of throwing noisy exceptions).
+  * Improved state checks to use flag-based disconnected detection for combined states.
+  * Replaced ad-hoc client teardown with a centralized safe-dispose path during connect swap and adapter dispose.
+  * Added lightweight shared-file count caching (TTL + folder fingerprint) to avoid repeated expensive recursive scans during frequent share refreshes.
+  * Reduced login-wait telemetry spam with periodic aggregated debug logs.
+
+### Reconnect Crash Prevention (Settings/Share Refresh)
+* `RefreshShareStateAsync(...)` now verifies connected+logged-in state before publishing shared counts.
+* Mid-flight disconnect race during `SetSharedCountsAsync(...)` is now handled as a non-fatal warning instead of bubbling a fatal exception.
+* Settings “Refresh Share Now” command path is guarded for reconnect races.
+* Async command execution no longer rethrows on the UI thread (prevents app teardown from command exceptions).
+
+### Discovery Retry Semantics During Disconnect
+* Discovery connection wait timeout is now classified as transient connectivity rather than “no-match”.
+* Download retry behavior for connectivity interruptions now uses short retry windows and preserves no-match attempt budget.
+
+### Startup Noise / Duplicate Init Cleanup
+* `SettingsViewModel.IsAuthenticating` setter now short-circuits unchanged values and no longer logs full stack traces.
+* `DatabaseService.InitAsync()` is now idempotent and concurrency-safe (`_isInitialized` + `_initSemaphore`) so duplicate startup callers do not rerun schema initialization.
+
+### Validation
+* `dotnet build SLSKDONET.sln -c Debug` ✅
+* Runtime startup log check confirms:
+  * single schema init start marker,
+  * no `IsAuthenticating changing from False to False (StackTrace...)` spam,
+  * no share-refresh reconnect crash path.
+
+---
+
 ## [0.1.0-alpha.43] - Network Health Diagnostics (Throttle/Ban Detection) (Mar 19, 2026)
 
 ### Network Diagnostics Architecture

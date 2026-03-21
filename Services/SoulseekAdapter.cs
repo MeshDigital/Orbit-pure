@@ -51,6 +51,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
     private readonly ConcurrentDictionary<string, byte> _excludedPhrases = new();
     private readonly INetworkHealthService _healthService;
     private RuntimeNetworkConfigSnapshot? _lastAppliedRuntimeNetworkConfig;
+    private string? _pendingDisconnectReason;
 
     public SoulseekAdapter(ILogger<SoulseekAdapter> logger, AppConfig config, Network.ProtocolHardeningService hardeningService, IEventBus eventBus, INetworkHealthService healthService)
     {
@@ -68,6 +69,9 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
     private static int GetEffectiveConnectTimeout(int configuredTimeout)
         => Math.Max(60_000, configuredTimeout);
 
+    private static int GetEffectiveMessageTimeout(int effectiveConnectTimeout)
+        => Math.Max(120_000, effectiveConnectTimeout);
+
     private static int GetEffectiveListenPort(int configuredListenPort)
         => Math.Clamp(configuredListenPort, 1_024, 65_535);
 
@@ -76,17 +80,35 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             ConnectTimeout: GetEffectiveConnectTimeout(_config.ConnectTimeout),
             ListenPort: GetEffectiveListenPort(_config.ListenPort));
 
+    private void MarkPendingDisconnectReason(string reason)
+    {
+        Interlocked.Exchange(ref _pendingDisconnectReason, reason);
+    }
+
+    private string PeekPendingDisconnectReasonOrDefault(string fallback)
+    {
+        var pendingReason = Interlocked.CompareExchange(ref _pendingDisconnectReason, null, null);
+        return string.IsNullOrWhiteSpace(pendingReason) ? fallback : pendingReason;
+    }
+
+    private string ConsumePendingDisconnectReasonOrDefault(string fallback)
+    {
+        var pendingReason = Interlocked.Exchange(ref _pendingDisconnectReason, null);
+        return string.IsNullOrWhiteSpace(pendingReason) ? fallback : pendingReason;
+    }
+
     private SoulseekClientOptions CreateClientOptions()
     {
         var runtime = CreateRuntimeNetworkConfigSnapshot();
         var serverConnectionOptions = new ConnectionOptions(connectTimeout: runtime.ConnectTimeout);
+        var messageTimeout = GetEffectiveMessageTimeout(runtime.ConnectTimeout);
 
         return new SoulseekClientOptions(
             enableListener: true,
             listenIPAddress: IPAddress.Any,
             listenPort: runtime.ListenPort,
             serverConnectionOptions: serverConnectionOptions,
-            messageTimeout: runtime.ConnectTimeout,
+            messageTimeout: messageTimeout,
             maximumConcurrentSearches: Math.Clamp(_config.MaxConcurrentSearches, 1, 3),
             maximumConcurrentDownloads: Math.Clamp(_config.MaxConcurrentDownloads, 1, 10));
     }
@@ -151,6 +173,8 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         await _connectLock.WaitAsync(ct);
         try
         {
+            Interlocked.Exchange(ref _pendingDisconnectReason, null);
+
             if (IsConnected && IsLoggedIn) 
             {
                 _logger.LogInformation("Already connected and logged in as {Username}.", _config.Username);
@@ -193,6 +217,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
             var runtime = CreateRuntimeNetworkConfigSnapshot();
             var clientOptions = CreateClientOptions();
+            var effectiveMessageTimeout = GetEffectiveMessageTimeout(runtime.ConnectTimeout);
             var client = new SoulseekClient(minorVersion: _config.SoulseekMinorVersion, options: clientOptions);
             _client = client;
             _lastAppliedRuntimeNetworkConfig = runtime;
@@ -200,7 +225,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             _logger.LogInformation(
                 "Soulseek client configured: minorVersion={MinorVersion}, messageTimeout={MessageTimeout}ms, listenPort={ListenPort}, maxSearches={MaxSearches}, maxDownloads={MaxDownloads}",
                 _config.SoulseekMinorVersion,
-                runtime.ConnectTimeout,
+                effectiveMessageTimeout,
                 runtime.ListenPort,
                 Math.Clamp(_config.MaxConcurrentSearches, 1, 3),
                 Math.Clamp(_config.MaxConcurrentDownloads, 1, 10));
@@ -208,8 +233,32 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             // Subscribe to state changes BEFORE connecting to catch early login states
             client.StateChanged += (sender, args) =>
             {
+                if (!ReferenceEquals(sender, _client))
+                {
+                    _logger.LogDebug(
+                        "Ignoring Soulseek state change from stale client instance: {State} (was {PreviousState})",
+                        args.State,
+                        args.PreviousState);
+                    return;
+                }
+
                 _logger.LogInformation("Soulseek state change: {State} (was {PreviousState})", 
                     args.State, args.PreviousState);
+
+                var disconnectingFallback = $"unplanned disconnecting while previous={args.PreviousState}";
+                var disconnectedFallback = $"unplanned disconnected while previous={args.PreviousState}";
+
+                if (args.State.HasFlag(SoulseekClientStates.Disconnecting))
+                {
+                    var reason = PeekPendingDisconnectReasonOrDefault(disconnectingFallback);
+                    _eventBus.Publish(new SoulseekConnectionStatusEvent("disconnecting", _config.Username ?? "Unknown", reason));
+                }
+
+                if (args.State.HasFlag(SoulseekClientStates.Disconnected))
+                {
+                    var reason = ConsumePendingDisconnectReasonOrDefault(disconnectedFallback);
+                    _eventBus.Publish(new SoulseekConnectionStatusEvent("disconnected", _config.Username ?? "Unknown", reason));
+                }
                 
                 _healthService.RecordConnectionStateChange(args.State.ToString());
                 
@@ -220,19 +269,35 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
             client.DiagnosticGenerated += (sender, args) =>
             {
+                if (!ReferenceEquals(sender, _client))
+                {
+                    return;
+                }
+
                 _logger.LogDebug("[SoulseekLib] {Level}: {Message}", args.Level, args.Message);
             };
 
             client.KickedFromServer += (sender, args) =>
             {
+                if (!ReferenceEquals(sender, _client))
+                {
+                    return;
+                }
+
                 _logger.LogWarning("Soulseek server kicked this session. Enforcing reconnect cooldown.");
+                MarkPendingDisconnectReason("kicked from server");
                 _healthService.RecordConnectionKick("KickedFromServer event");
-                _eventBus.Publish(new SoulseekConnectionStatusEvent("kicked", _config.Username ?? "Unknown"));
+                _eventBus.Publish(new SoulseekConnectionStatusEvent("kicked", _config.Username ?? "Unknown", "kicked from server"));
             };
 
             // Phase 5/10: Adhere to new global exclusions from Soulseek Server
             client.ExcludedSearchPhrasesReceived += (sender, phrases) =>
             {
+                if (!ReferenceEquals(sender, _client))
+                {
+                    return;
+                }
+
                 var phraseList = phrases
                     .Where(p => !string.IsNullOrWhiteSpace(p))
                     .Select(p => p.Trim())
@@ -293,6 +358,11 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     IsSharing: false,
                     Note: "Sharing is disabled. Enable in Settings to contribute to the network."));
             }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Soulseek connect attempt was cancelled.");
+            throw;
         }
         catch (Exception ex)
         {
@@ -442,6 +512,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         try
         {
             _logger.LogInformation("[DISCONNECT] Executing Soulseek disconnect for reason '{Reason}' (State: {State})", reason, state);
+            MarkPendingDisconnectReason(reason);
             _client.Disconnect();
             _logger.LogInformation("Disconnected from Soulseek ({Reason})", reason);
             return true;
