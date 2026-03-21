@@ -28,6 +28,7 @@
 - **[DOCS/DATABASE_LIBRARY_FLOW.md](DOCS/DATABASE_LIBRARY_FLOW.md)** - How DB state flows into Library/Playlists/Queue UI (Dec 2025)
 - **[DOCS/FILE_PATH_RESOLUTION.md](DOCS/FILE_PATH_RESOLUTION.md)** - File path resolution with fuzzy matching ✨
 - **[DOCS/PHASE8_TECHNICAL.md](DOCS/PHASE8_TECHNICAL.md)** - Phase 8 sonic integrity & automation (Dec 2025) ✨
+- **[SOULSEEK_LOGIN_AND_SERVICE_SIGNALS_TECHNICAL.md](SOULSEEK_LOGIN_AND_SERVICE_SIGNALS_TECHNICAL.md)** - Deep technical reference for Soulseek login flow, lifecycle state machine, and EventBus signals (Mar 2026) ✨ NEW
 - **[DOCS/HIGH_FIDELITY_AUDIO.md](DOCS/HIGH_FIDELITY_AUDIO.md)** - NAudio engine, VU meters, & waveforms (Dec 2025) ✨ NEW
 - **[DOCS/SPOTIFY_ENRICHMENT_PIPELINE.md](DOCS/SPOTIFY_ENRICHMENT_PIPELINE.md)** - Deep musical intelligence worker ✨ NEW
 - **[DOCS/ML_ENGINE_ARCHITECTURE.md](DOCS/ML_ENGINE_ARCHITECTURE.md)** - ML.NET/LightGBM classification engine (Jan 2026) ✨ NEW
