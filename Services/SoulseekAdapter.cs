@@ -66,7 +66,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
     private readonly ResultFingerprinter _resultFingerprinter = new();
 
     private static int GetEffectiveConnectTimeout(int configuredTimeout)
-        => Math.Max(15_000, configuredTimeout);
+        => Math.Max(60_000, configuredTimeout);
 
     private static int GetEffectiveListenPort(int configuredListenPort)
         => Math.Clamp(configuredListenPort, 1_024, 65_535);

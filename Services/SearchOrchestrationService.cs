@@ -63,7 +63,7 @@ public class SearchOrchestrationService
         
     }
     
-    public bool IsConnected => _soulseek.IsConnected;
+    public bool IsConnected => _soulseek.IsLoggedIn;
     public bool IsLoggedIn => _soulseek.IsLoggedIn;
     private int _activeSearchCount = 0;
     public int GetActiveSearchCount() => _activeSearchCount;

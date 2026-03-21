@@ -206,7 +206,7 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
         {
             TryTransition(ConnectionLifecycleState.Disconnecting, "soulseek reported Disconnecting");
         }
-        else if (raw.Contains("Disconnected", StringComparison.OrdinalIgnoreCase) || !evt.IsConnected)
+        else if (raw.Contains("Disconnected", StringComparison.OrdinalIgnoreCase))
         {
             var wasActive = _state is ConnectionLifecycleState.LoggedIn
                                    or ConnectionLifecycleState.LoggingIn
@@ -217,11 +217,26 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
             if (wasActive && AutoReconnectEnabled && !_manualDisconnect)
                 StartAutoReconnectLoop(correlationId: null);
         }
+        else if (raw.Contains("Connecting", StringComparison.OrdinalIgnoreCase))
+        {
+            TryTransition(ConnectionLifecycleState.Connecting, "soulseek reported Connecting");
+        }
         else if (raw.Contains("LoggingIn", StringComparison.OrdinalIgnoreCase)
               || (raw.Contains("Connected", StringComparison.OrdinalIgnoreCase)
                   && !raw.Contains("Disconnecting", StringComparison.OrdinalIgnoreCase)))
         {
             TryTransition(ConnectionLifecycleState.LoggingIn, "soulseek reported Connected/LoggingIn");
+        }
+        else if (!evt.IsConnected)
+        {
+            var wasActive = _state is ConnectionLifecycleState.LoggedIn
+                                   or ConnectionLifecycleState.LoggingIn
+                                   or ConnectionLifecycleState.Connecting;
+
+            TryTransition(ConnectionLifecycleState.Disconnected, "soulseek reported not connected");
+
+            if (wasActive && AutoReconnectEnabled && !_manualDisconnect)
+                StartAutoReconnectLoop(correlationId: null);
         }
     }
 

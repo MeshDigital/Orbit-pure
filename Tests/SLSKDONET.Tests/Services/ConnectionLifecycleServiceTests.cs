@@ -126,6 +126,32 @@ public class ConnectionLifecycleServiceTests
     }
 
     [Fact]
+    public async Task SoulseekStateChangedEvent_ConnectingFalse_DoesNotForceDisconnectedBeforeLoggedIn()
+    {
+        var (service, eventBus, soulseek) = CreateService();
+        service.AutoReconnectEnabled = false;
+
+        soulseek.Setup(s => s.ConnectAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+        await service.RequestConnectAsync("password");
+
+        Assert.Equal(ConnectionLifecycleState.Connecting, service.CurrentState);
+
+        eventBus.Publish(new SoulseekStateChangedEvent("Connecting", false));
+        Assert.Equal(ConnectionLifecycleState.Connecting, service.CurrentState);
+
+        eventBus.Publish(new SoulseekStateChangedEvent("Connected, LoggingIn", true));
+        Assert.Equal(ConnectionLifecycleState.LoggingIn, service.CurrentState);
+
+        eventBus.Publish(new SoulseekStateChangedEvent("Connected, LoggedIn", true));
+        Assert.Equal(ConnectionLifecycleState.LoggedIn, service.CurrentState);
+
+        service.Dispose();
+        eventBus.Dispose();
+    }
+
+    [Fact]
     public async Task SoulseekStateChangedEvent_Disconnected_WhenLoggedIn_TransitionsToDisconnected()
     {
         var (service, eventBus, soulseek) = CreateService();

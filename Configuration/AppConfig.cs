@@ -14,7 +14,7 @@ public class AppConfig
     public bool AutoConnectEnabled { get; set; }
     public int ListenPort { get; set; } = 49998;
     public bool UseUPnP { get; set; } = false;
-    public int ConnectTimeout { get; set; } = 20000; // ms
+    public int ConnectTimeout { get; set; } = 60000; // ms
     public int SearchTimeout { get; set; } = 6000; // ms
     public int MaxConcurrentSearches { get; set; } = 5; // Throttling to prevent bans
     public int MaxDiscoveryLanes { get; set; } = 5; // Concurrent discovery jobs for seeker pipeline

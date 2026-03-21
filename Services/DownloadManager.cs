@@ -124,7 +124,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
     public int ActiveWorkerSlots => _maxActiveDownloads - _downloadSemaphore.CurrentCount;
     public int TotalWorkerSlots => _maxActiveDownloads;
-    public bool SoulseekConnected => _soulseek.IsConnected;
+    public bool SoulseekConnected => _soulseek.IsLoggedIn;
     public bool IsBackingOff => CurrentBackoffSeconds > 0;
     public int CurrentBackoffSeconds { get; private set; }
 
@@ -1793,7 +1793,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     continue;
                 }
                 // Phase 0.9: Circuit Breaker
-                if (!_soulseek.IsConnected)
+                if (!_soulseek.IsLoggedIn)
                 {
                     if (disconnectBackoff == 0)
                     {
