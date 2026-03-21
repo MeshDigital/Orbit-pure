@@ -1,5 +1,30 @@
 # Recent Changes
 
+## [0.1.0-alpha.48] - P2P Etiquette Finalization (Mar 21, 2026)
+
+### Search Load-Shedding Enforcement (Token Bucket)
+* `SearchLoadSheddingPolicy.cs` now includes token-bucket parameters in `SearchExecutionProfile` (`TokenBucketCapacity`, `TokenRefillIntervalMs`) and computes pressure-aware refill windows for `Normal` / `Elevated` / `Critical` states.
+* `SoulseekAdapter.SearchCoreAsync(...)` now enforces outbound dispatch via a strict token bucket under `_rateLimitLock`.
+* Result: outbound searches are paced deterministically during pressure spikes instead of relying on only fixed-delay throttling.
+
+### Peer Fail-Fast + Stall Timeout Hardening
+* Added config knobs in `AppConfig.cs`:
+  * `PeerConnectFailFastSeconds` (default `10s`)
+  * `TransferStallTimeoutSeconds` (default `60s`)
+* `SoulseekAdapter.DownloadFileAsync(...)` now:
+  * fails fast when peer never transitions to queued/transferring within the fail-fast window,
+  * applies configurable stalled-transfer timeout once active/queue state has been established.
+
+### Automated UPnP + Staged Share Publication
+* Added `Open.NAT.Core` dependency and integrated best-effort automatic UPnP TCP listener mapping in `SoulseekAdapter.ConnectAsync(...)` (with bounded discovery timeout and retry cooldown).
+* `RefreshShareStateAsync(...)` now publishes shared counts in staged increments before final totals to avoid abrupt share-state bursts during login/connect churn.
+
+### Validation
+* `dotnet build SLSKDONET.sln` ✅
+* `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj --no-build` ✅ (`94/94`)
+
+---
+
 ## [0.1.0-alpha.47] - Post-Network Throughput Optimizations (Mar 21, 2026)
 
 ### Database Write Amplification Reduction

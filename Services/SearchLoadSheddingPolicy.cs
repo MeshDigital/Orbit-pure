@@ -15,7 +15,9 @@ public sealed record SearchExecutionProfile(
     int EffectiveResponseLimit,
     int EffectiveFileLimit,
     int EffectiveVariationCap,
-    int AdditionalThrottleDelayMs);
+    int AdditionalThrottleDelayMs,
+    int TokenBucketCapacity,
+    int TokenRefillIntervalMs);
 
 public static class SearchLoadSheddingPolicy
 {
@@ -32,7 +34,9 @@ public static class SearchLoadSheddingPolicy
                 baseResponseLimit,
                 baseFileLimit,
                 baseVariationCap,
-                0);
+                0,
+                Math.Max(1, config.SearchTokenBucketCapacity),
+                Math.Max(500, config.SearchTokenBucketRefillMs));
         }
 
         var elevatedThreshold = Math.Max(1, config.ElevatedSearchPressureActiveSearches);
@@ -51,21 +55,27 @@ public static class SearchLoadSheddingPolicy
                 ApplyPercent(baseResponseLimit, config.CriticalSearchResponseLimitPercent),
                 ApplyPercent(baseFileLimit, config.CriticalSearchFileLimitPercent),
                 1,
-                Math.Max(0, config.CriticalSearchExtraDelayMs)),
+                Math.Max(0, config.CriticalSearchExtraDelayMs),
+                1,
+                Math.Max(500, config.CriticalSearchTokenBucketRefillMs)),
 
             SearchPressureLevel.Elevated => new SearchExecutionProfile(
                 pressure,
                 ApplyPercent(baseResponseLimit, config.ElevatedSearchResponseLimitPercent),
                 ApplyPercent(baseFileLimit, config.ElevatedSearchFileLimitPercent),
                 Math.Min(baseVariationCap, 2),
-                Math.Max(0, config.ElevatedSearchExtraDelayMs)),
+                Math.Max(0, config.ElevatedSearchExtraDelayMs),
+                1,
+                Math.Max(500, config.ElevatedSearchTokenBucketRefillMs)),
 
             _ => new SearchExecutionProfile(
                 pressure,
                 baseResponseLimit,
                 baseFileLimit,
                 baseVariationCap,
-                0)
+                0,
+                Math.Max(1, config.SearchTokenBucketCapacity),
+                Math.Max(500, config.SearchTokenBucketRefillMs))
         };
     }
 

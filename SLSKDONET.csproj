@@ -45,6 +45,7 @@
     <PackageReference Include="Avalonia.Controls.Skia" Version="11.2.0" />
     <PackageReference Include="DynamicData" Version="9.4.1" />
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
+    <PackageReference Include="Open.NAT.Core" Version="2.1.0.5" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>

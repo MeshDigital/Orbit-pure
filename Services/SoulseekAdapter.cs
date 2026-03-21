@@ -12,6 +12,7 @@ using System.Text.RegularExpressions;
 using System.Collections.ObjectModel;
 using System.Net;
 using System.Reflection;
+using Open.Nat;
 
 namespace SLSKDONET.Services;
 
@@ -42,7 +43,12 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
     // Rate Limiting
     private readonly SemaphoreSlim _rateLimitLock = new(1, 1);
-    private DateTime _lastSearchTime = DateTime.MinValue;
+    private DateTime _searchBucketLastRefillUtc = DateTime.UtcNow;
+    private double _searchBucketTokens = 1d;
+    private readonly SemaphoreSlim _upnpLock = new(1, 1);
+    private bool _upnpPortMapped;
+    private DateTime _lastUpnpAttemptUtc = DateTime.MinValue;
+    private static readonly TimeSpan UpnpAttemptCooldown = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan ShareCountCacheTtl = TimeSpan.FromSeconds(45);
     private DateTime _lastShareCountComputedAtUtc = DateTime.MinValue;
     private int _lastShareFileCount;
@@ -84,6 +90,128 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
     private static int GetEffectiveListenPort(int configuredListenPort)
         => Math.Clamp(configuredListenPort, 1_024, 65_535);
+
+    private void RefillSearchTokens(int capacity, int refillIntervalMs)
+    {
+        var now = DateTime.UtcNow;
+        var elapsedMs = (now - _searchBucketLastRefillUtc).TotalMilliseconds;
+        if (elapsedMs <= 0)
+            return;
+
+        var refillTokens = elapsedMs / Math.Max(1, refillIntervalMs);
+        if (refillTokens <= 0)
+            return;
+
+        _searchBucketTokens = Math.Min(capacity, _searchBucketTokens + refillTokens);
+        _searchBucketLastRefillUtc = now;
+    }
+
+    private int MillisecondsUntilNextToken(int refillIntervalMs)
+    {
+        if (_searchBucketTokens >= 1d)
+            return 0;
+
+        var missing = 1d - _searchBucketTokens;
+        return Math.Max(25, (int)Math.Ceiling(missing * Math.Max(1, refillIntervalMs)));
+    }
+
+    private async Task EnsureUpnpPortMappingAsync(CancellationToken ct)
+    {
+        if (!_config.UseUPnP || _upnpPortMapped)
+            return;
+
+        if (DateTime.UtcNow - _lastUpnpAttemptUtc < UpnpAttemptCooldown)
+            return;
+
+        await _upnpLock.WaitAsync(ct);
+        try
+        {
+            if (!_config.UseUPnP || _upnpPortMapped)
+                return;
+
+            if (DateTime.UtcNow - _lastUpnpAttemptUtc < UpnpAttemptCooldown)
+                return;
+
+            _lastUpnpAttemptUtc = DateTime.UtcNow;
+            var listenPort = GetEffectiveListenPort(_config.ListenPort);
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(8));
+
+            try
+            {
+                var discoverer = new NatDiscoverer();
+                var natDevice = await discoverer.DiscoverDeviceAsync(PortMapper.Upnp, timeoutCts);
+                var mapping = new Mapping(Open.Nat.Protocol.Tcp, listenPort, listenPort, 3600, "ORBIT Soulseek listener");
+                await natDevice.CreatePortMapAsync(mapping);
+
+                _upnpPortMapped = true;
+                _logger.LogInformation("UPnP port mapping established for Soulseek listener on TCP {Port}", listenPort);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                _logger.LogInformation("UPnP discovery timed out for Soulseek listener mapping (TCP {Port})", listenPort);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation(ex, "UPnP mapping skipped or failed non-fatally for TCP {Port}", listenPort);
+            }
+        }
+        finally
+        {
+            _upnpLock.Release();
+        }
+    }
+
+    private static int[] BuildStagedSharePublishPlan(int totalFileCount)
+    {
+        if (totalFileCount <= 0)
+            return new[] { 0 };
+
+        if (totalFileCount >= 200)
+        {
+            return new[]
+            {
+                Math.Min(50, totalFileCount),
+                Math.Min((int)Math.Ceiling(totalFileCount * 0.35), totalFileCount),
+                totalFileCount
+            };
+        }
+
+        if (totalFileCount >= 50)
+        {
+            return new[]
+            {
+                Math.Min(25, totalFileCount),
+                totalFileCount
+            };
+        }
+
+        return new[] { totalFileCount };
+    }
+
+    private async Task PublishSharedCountsStagedAsync(int sharedFolderCount, int sharedFileCount, CancellationToken ct)
+    {
+        if (_client == null)
+            return;
+
+        var plan = BuildStagedSharePublishPlan(sharedFileCount);
+        var lastPublishedCount = -1;
+
+        foreach (var count in plan)
+        {
+            if (count <= lastPublishedCount)
+                continue;
+
+            await _client.SetSharedCountsAsync(sharedFolderCount, count, ct);
+            lastPublishedCount = count;
+
+            if (count < sharedFileCount)
+            {
+                await Task.Delay(300, ct);
+            }
+        }
+    }
 
     private RuntimeNetworkConfigSnapshot CreateRuntimeNetworkConfigSnapshot()
         => new(
@@ -467,6 +595,8 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 _config.Username, 
                 password, 
                 ct);
+
+            await EnsureUpnpPortMappingAsync(ct);
             
             _logger.LogInformation("Successfully connected to Soulseek as {Username}", _config.Username);
             _eventBus.Publish(new SoulseekConnectionStatusEvent("connected", _config.Username ?? "Unknown"));
@@ -602,7 +732,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
         try
         {
-            await _client.SetSharedCountsAsync(shareFolders.Length, sharedFileCount, ct);
+            await PublishSharedCountsStagedAsync(shareFolders.Length, sharedFileCount, ct);
         }
         catch (InvalidOperationException ex)
         {
@@ -727,23 +857,37 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             var maxBitrateStr = (bitrateFilter.Max == null || bitrateFilter.Max == 0) ? "∞" : bitrateFilter.Max.ToString()!;
 
             // Golden Rule: Rate Limiting (configurable global delay, default 200ms)
-            await _rateLimitLock.WaitAsync(ct);
-            try
+            while (true)
             {
-                var extraDelay = executionProfile?.AdditionalThrottleDelayMs ?? 0;
-                var throttleMs = Math.Max(50, _config.SearchThrottleDelayMs + Math.Max(0, extraDelay));
-                var timeSinceLast = DateTime.UtcNow - _lastSearchTime;
-                if (timeSinceLast.TotalMilliseconds < throttleMs)
+                var extraDelay = Math.Max(0, executionProfile?.AdditionalThrottleDelayMs ?? 0);
+                var tokenCapacity = Math.Max(1, executionProfile?.TokenBucketCapacity ?? _config.SearchTokenBucketCapacity);
+                var tokenRefillMs = Math.Max(500, executionProfile?.TokenRefillIntervalMs ?? _config.SearchTokenBucketRefillMs);
+                var waitMs = 0;
+
+                await _rateLimitLock.WaitAsync(ct);
+                try
                 {
-                    var delay = throttleMs - (int)timeSinceLast.TotalMilliseconds;
-                    _logger.LogDebug("Rate Limiting: Delaying search by {Ms}ms", delay);
-                    await Task.Delay(delay, ct);
+                    RefillSearchTokens(tokenCapacity, tokenRefillMs);
+                    if (_searchBucketTokens >= 1d)
+                    {
+                        _searchBucketTokens -= 1d;
+                        break;
+                    }
+
+                    waitMs = MillisecondsUntilNextToken(tokenRefillMs) + extraDelay;
+                    _logger.LogDebug(
+                        "Search token bucket empty. Waiting {WaitMs}ms before dispatch (capacity={Capacity}, refill={RefillMs}ms).",
+                        waitMs,
+                        tokenCapacity,
+                        tokenRefillMs);
                 }
-                _lastSearchTime = DateTime.UtcNow;
-            }
-            finally
-            {
-                _rateLimitLock.Release();
+
+                finally
+                {
+                    _rateLimitLock.Release();
+                }
+
+                await Task.Delay(waitMs, ct);
             }
 
             _logger.LogInformation("Search started for query {SearchQuery} with mode {SearchMode}, format filter {FormatFilter}, bitrate range {MinBitrate}-{MaxBitrate}",
@@ -1402,7 +1546,10 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             DateTime lastActivity = DateTime.UtcNow;
             long lastBytes = startOffset;  // Start from existing bytes
             bool isQueued = false;
+            bool transferStartedOrQueued = false;
             TransferLifecyclePhase? lastPhase = null;
+            var connectFailFastSeconds = Math.Clamp(_config.PeerConnectFailFastSeconds, 5, 30);
+            var stallTimeoutSeconds = Math.Clamp(_config.TransferStallTimeoutSeconds, 15, 180);
 
             var downloadOptions = new TransferOptions(
                 stateChanged: (args) =>
@@ -1411,6 +1558,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     if (args.Transfer.State.HasFlag(TransferStates.Queued))
                     {
                         isQueued = true;
+                        transferStartedOrQueued = true;
                         if (lastPhase != TransferLifecyclePhase.RemoteQueued)
                         {
                             lastPhase = TransferLifecyclePhase.RemoteQueued;
@@ -1422,6 +1570,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     else if (args.Transfer.State.HasFlag(TransferStates.InProgress))
                     {
                         isQueued = false;
+                        transferStartedOrQueued = true;
                         if (lastPhase != TransferLifecyclePhase.Transferring)
                         {
                             lastPhase = TransferLifecyclePhase.Transferring;
@@ -1466,12 +1615,18 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             // Monitoring Loop
             while (!downloadTask.IsCompleted)
             {
-                // Check if we should time out
-                // Modified: Only timeout if NOT queued and no activity for 60s
-                if (!isQueued && (DateTime.UtcNow - lastActivity).TotalSeconds > 60)
+                var idleSeconds = (DateTime.UtcNow - lastActivity).TotalSeconds;
+                if (!transferStartedOrQueued && idleSeconds > connectFailFastSeconds)
                 {
-                    // STALLED: Not queued, but no bytes moved for 60s
-                    throw new TimeoutException("Transfer stalled for 60 seconds (0 bytes received).");
+                    throw new TimeoutException($"Peer did not respond within {connectFailFastSeconds} seconds.");
+                }
+
+                // Check if we should time out
+                // Modified: Only timeout if NOT queued and no activity for configured stall window
+                if (!isQueued && idleSeconds > stallTimeoutSeconds)
+                {
+                    // STALLED: Not queued, but no bytes moved for configured timeout
+                    throw new TimeoutException($"Transfer stalled for {stallTimeoutSeconds} seconds (0 bytes received).");
                 }
                 
                 // If we are queued, we WAIT INDEFINITELY (or until user cancels)

@@ -31,6 +31,10 @@ public class AppConfig
     public int CriticalSearchFileLimitPercent { get; set; } = 50;
     public int ElevatedSearchExtraDelayMs { get; set; } = 75;
     public int CriticalSearchExtraDelayMs { get; set; } = 200;
+    public int SearchTokenBucketCapacity { get; set; } = 1;
+    public int SearchTokenBucketRefillMs { get; set; } = 3500;
+    public int ElevatedSearchTokenBucketRefillMs { get; set; } = 4000;
+    public int CriticalSearchTokenBucketRefillMs { get; set; } = 5000;
     public int SearchResponseLimit { get; set; } = 100; // Workstation 2026: cap response batches for fast winner selection
     public int SearchFileLimit { get; set; } = 100; // Workstation 2026: cap files per search for memory/CPU efficiency
     public int MaxPeerQueueLength { get; set; } = 50; // Ignore peers with very long queue lengths
@@ -77,6 +81,8 @@ public class AppConfig
     public int MaxSearchAttempts { get; set; } = 3; // Max progressive search attempts per track
     public bool AutoRetryFailedDownloads { get; set; } = true;
     public int MaxDownloadRetries { get; set; } = 2;
+    public int PeerConnectFailFastSeconds { get; set; } = 10;
+    public int TransferStallTimeoutSeconds { get; set; } = 60;
     // Brain 2.0 & Quality Guard
     public SearchPolicy SearchPolicy { get; set; } = SearchPolicy.QualityFirst(); // [NEW] The "Biggers App" Search Policy
 

@@ -72,6 +72,18 @@ Primary outcomes:
 - ✅ Recovery truncation I/O hardening:
   - `DownloadManager` journal truncation paths now use async `FileStream` + `FlushAsync` for cleaner heavy-load behavior.
 
+### P2P etiquette finalization addendum (completed 2026-03-21)
+- ✅ Strict search pacing with token-bucket enforcement:
+  - `SearchLoadSheddingPolicy` now supplies pressure-aware token bucket parameters (`capacity` + `refill interval`).
+  - `SoulseekAdapter.SearchCoreAsync(...)` enforces dispatch via token consumption under lock, with adaptive wait when depleted.
+- ✅ Peer fail-fast timeout behavior:
+  - download initiation now fails quickly when peer never transitions into queued/transferring state within configured window.
+- ✅ Configurable transfer-stall timeout behavior:
+  - in-progress transfers now use config-driven stall timeout instead of fixed hardcoded timeout.
+- ✅ Automated UPnP + staged share publishing:
+  - adapter now performs best-effort UPnP listener mapping (non-fatal, timeout-bounded, cooldown-limited).
+  - shared-count publication now ramps in staged steps before final totals.
+
 ## Phase A — Stabilization baseline (Complete / in progress)
 ### Delivered
 - Hardened `SoulseekClientOptions` usage:
