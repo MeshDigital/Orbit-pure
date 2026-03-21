@@ -15,6 +15,12 @@ namespace SLSKDONET.Services;
 /// </summary>
 public class SearchResultMatcher
 {
+    public enum SearchMatchProfile
+    {
+        StrictLossless,
+        LossyFallback
+    }
+
     private static readonly string[] QualityBoosters =
     [
         "WEB", "CD", "VINYL", "LOSSLESS", "REMASTER", "REMASTERED", "24BIT", "24-BIT", "AUDIOPHILE", "DELUXE"
@@ -41,16 +47,27 @@ public class SearchResultMatcher
 
     public record MatchResult(double Score, string? ScoreBreakdown = null, string? RejectionReason = null, string? ShortReason = null);
 
+    public record MatchOptions(SearchMatchProfile Profile, int DurationToleranceSeconds)
+    {
+        public static MatchOptions StrictLossless(int durationToleranceSeconds) => new(SearchMatchProfile.StrictLossless, durationToleranceSeconds);
+        public static MatchOptions LossyFallback(int durationToleranceSeconds) => new(SearchMatchProfile.LossyFallback, durationToleranceSeconds);
+    }
+
     /// <summary>
     /// Finds the best matching track from a list of candidates.
     /// Returns null if no acceptable match is found.
     /// </summary>
     public Track? FindBestMatch(PlaylistTrack model, IEnumerable<Track> candidates)
     {
-        return FindBestMatchWithDiagnostics(model, candidates).BestMatch;
+        return FindBestMatch(model, candidates, MatchOptions.StrictLossless(GetDurationToleranceSeconds())).BestMatch;
     }
 
     public (Track? BestMatch, SearchAttemptLog Log) FindBestMatchWithDiagnostics(PlaylistTrack model, IEnumerable<Track> candidates)
+    {
+        return FindBestMatch(model, candidates, MatchOptions.StrictLossless(GetDurationToleranceSeconds()));
+    }
+
+    public (Track? BestMatch, SearchAttemptLog Log) FindBestMatch(PlaylistTrack model, IEnumerable<Track> candidates, MatchOptions options)
     {
         var log = new SearchAttemptLog
         {
@@ -65,7 +82,7 @@ public class SearchResultMatcher
 
         foreach (var candidate in candidates)
         {
-            var result = CalculateMatchResult(model, candidate);
+            var result = CalculateMatchResult(model, candidate, options);
             if (result.Score >= 70) // Phase 1.1: Threshold is 70/100
             {
                 matches.Add((candidate, result));
@@ -124,15 +141,18 @@ public class SearchResultMatcher
 
     public MatchResult CalculateMatchResult(PlaylistTrack model, Track candidate)
     {
+        return CalculateMatchResult(model, candidate, MatchOptions.StrictLossless(GetDurationToleranceSeconds()));
+    }
+
+    public MatchResult CalculateMatchResult(PlaylistTrack model, Track candidate, MatchOptions options)
+    {
         double score = 0;
         var breakdown = new List<string>();
 
         var ext = Path.GetExtension(candidate.Filename ?? string.Empty).ToLowerInvariant();
         var format = (candidate.Format ?? string.Empty).ToLowerInvariant();
 
-        // Purist hard reject: lossy formats are never valid autonomous winners.
-        if (ext is ".mp3" or ".m4a" or ".mp4" or ".ogg" or ".wma" ||
-            format is "mp3" or "m4a" or "mp4" or "ogg" or "wma")
+        if (options.Profile == SearchMatchProfile.StrictLossless && IsLossyCandidate(ext, format))
         {
             return new MatchResult(
                 0,
@@ -141,32 +161,46 @@ public class SearchResultMatcher
                 "Format Rejected");
         }
 
+        if (options.Profile == SearchMatchProfile.LossyFallback)
+        {
+            breakdown.Add("Profile: Lossy fallback enabled (+0)");
+        }
+
         // 1. Duration Match (Max 40 pts)
         if (model.CanonicalDuration.HasValue && candidate.Length.HasValue)
         {
             var expectedSec = model.CanonicalDuration.Value / 1000;
             var actualSec = candidate.Length.Value;
             var diff = Math.Abs(expectedSec - actualSec);
-            
-            if (diff <= 2) 
+
+            if (!IsDurationAcceptable(expectedSec, actualSec, options.DurationToleranceSeconds))
+            {
+                return new MatchResult(
+                    0,
+                    $"Duration: Outside tolerance (expected {expectedSec}s, actual {actualSec}s, tolerance ±{options.DurationToleranceSeconds}s)",
+                    $"Duration outside ±{options.DurationToleranceSeconds}s tolerance.",
+                    "Duration Rejected");
+            }
+
+            if (diff <= 1)
             {
                 score += 40;
                 breakdown.Add("Duration: Exact/Close (+40)");
             }
-            else if (diff <= 5) 
+            else if (diff <= Math.Min(2, options.DurationToleranceSeconds))
             {
-                score += 20;
-                breakdown.Add("Duration: Minor Mismatch (+20)");
-            }
-            else if (diff <= 15)
-            {
-                score += 5;
-                breakdown.Add("Duration: Large Mismatch (+5)");
+                score += 35;
+                breakdown.Add("Duration: Tight tolerance (+35)");
             }
             else
             {
-                breakdown.Add("Duration: Unacceptable (0)");
+                score += 20;
+                breakdown.Add("Duration: Within tolerance (+20)");
             }
+        }
+        else if (model.CanonicalDuration.HasValue)
+        {
+            breakdown.Add("Duration: Missing on candidate (+0)");
         }
 
         // 2. Artist Match (Max 30 pts)
@@ -277,6 +311,13 @@ public class SearchResultMatcher
 
         return new MatchResult(score, breakdownStr, rejection, score < 40 ? "Low Score" : null);
     }
+
+    private int GetDurationToleranceSeconds()
+        => Math.Max(0, _config.SearchLengthToleranceSeconds);
+
+    private static bool IsLossyCandidate(string ext, string format)
+        => ext is ".mp3" or ".m4a" or ".mp4" or ".ogg" or ".wma" ||
+           format is "mp3" or "m4a" or "mp4" or "ogg" or "wma";
 
     private static double CalculateContextScore(Track candidate, List<string> breakdown)
     {

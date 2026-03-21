@@ -54,7 +54,7 @@ public class SearchResultMatcherTests
         { 
             Artist = "Artist", 
             Title = "Title", 
-            Length = 205, // 5s mismatch -> 20 pts (not 40)
+            Length = 203, // 3s mismatch -> still inside strict tolerance window
             Filename = "Artist - Title.flac",
             PathSegments = new List<string> { "Artist" }
         };
@@ -63,7 +63,7 @@ public class SearchResultMatcherTests
         var result = _matcher.CalculateMatchResult(model, candidate);
 
         // Assert
-        // Duration: 20 pts, Artist: 30 pts, Title: 20 pts -> 70 pts
+        // Duration: 20 pts, Artist: 30 pts, Title: 20 pts -> 70 pts minimum
         Assert.True(result.Score >= 70, $"Score should be acceptable for minor duration mismatch. Actual: {result.Score}");
     }
 
@@ -106,6 +106,50 @@ public class SearchResultMatcherTests
         // Assert
         // Duration: 0, Artist: 30, Title: 20 -> 50 pts (below 70 threshold)
         Assert.True(result.Score < 70);
+        Assert.Equal("Duration Rejected", result.ShortReason);
+    }
+
+    [Fact]
+    public void CalculateMatchResult_ShouldHardRejectDurationOutsideTolerance()
+    {
+        var model = new PlaylistTrack { Artist = "Artist", Title = "Title", CanonicalDuration = 200000 };
+        var candidate = new Track
+        {
+            Artist = "Artist",
+            Title = "Title",
+            Length = 206,
+            Filename = "Artist - Title.flac",
+            Format = "flac"
+        };
+
+        var result = _matcher.CalculateMatchResult(model, candidate);
+
+        Assert.Equal(0, result.Score);
+        Assert.Equal("Duration Rejected", result.ShortReason);
+        Assert.Contains("tolerance", result.RejectionReason);
+    }
+
+    [Fact]
+    public void CalculateMatchResult_ShouldAcceptMp3WhenLossyFallbackRequested()
+    {
+        var model = new PlaylistTrack { Artist = "Artist", Title = "Title", CanonicalDuration = 200000 };
+        var candidate = new Track
+        {
+            Artist = "Artist",
+            Title = "Title",
+            Length = 200,
+            Bitrate = 320,
+            Filename = "Artist - Title.mp3",
+            Format = "mp3"
+        };
+
+        var result = _matcher.CalculateMatchResult(
+            model,
+            candidate,
+            SearchResultMatcher.MatchOptions.LossyFallback(_config.SearchLengthToleranceSeconds));
+
+        Assert.True(result.Score >= 70, $"Lossy fallback should allow MP3 candidates. Actual: {result.Score}");
+        Assert.DoesNotContain("Lossy format rejected", result.RejectionReason ?? string.Empty);
     }
 
     [Fact]

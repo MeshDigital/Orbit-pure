@@ -460,7 +460,10 @@ public class DownloadDiscoveryService
             Track? runnerUpSilverMatch = null;
             double runnerUpSilverScore = 0;
             var pendingCandidates = new List<Track>(8);
-            var minSearchDurationSeconds = Math.Clamp(_config.MinSearchDurationSeconds, 3, 5);
+            var minSearchDurationSeconds = Math.Clamp(_config.MinSearchDurationSeconds, 3, 8);
+            var matchOptions = forceMp3
+                ? SearchResultMatcher.MatchOptions.LossyFallback(Math.Max(0, _config.SearchLengthToleranceSeconds))
+                : SearchResultMatcher.MatchOptions.StrictLossless(Math.Max(0, _config.SearchLengthToleranceSeconds));
 
             void UpdateTopSilverCandidates(Track candidate, double score)
             {
@@ -493,7 +496,7 @@ public class DownloadDiscoveryService
                 var scoredBatch = await Task.WhenAll(batch.Select(candidate =>
                     Task.Run(() =>
                     {
-                        var localResult = _matcher.CalculateMatchResult(track, candidate);
+                        var localResult = _matcher.CalculateMatchResult(track, candidate, matchOptions);
                         return (Candidate: candidate, Result: localResult, Score: localResult.Score);
                     }, ct)));
 
@@ -764,7 +767,7 @@ public class DownloadDiscoveryService
                 {
                     _logger.LogInformation("🧠 BRAIN: Relaxation Tier 1: Lowering bitrate floor to 256kbps");
                     var relaxedTracks = allTracks.Where(t => t.Bitrate >= 256).ToList();
-                    bestMatch = _matcher.FindBestMatch(track, relaxedTracks);
+                    bestMatch = _matcher.FindBestMatch(track, relaxedTracks, matchOptions).BestMatch;
                     if (bestMatch != null)
                     {
                         _logger.LogInformation("🧠 BRAIN: Tier 1 match found: {Filename}", bestMatch.Filename);
