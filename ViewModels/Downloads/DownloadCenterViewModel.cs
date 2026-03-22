@@ -545,6 +545,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             .AutoRefresh(x => x.IsActive) // FIX: UI lists bind to IsActive etc.
             .AutoRefresh(x => x.IsCompleted)
             .AutoRefresh(x => x.IsFailed)
+            .AutoRefresh(x => x.PeerName)
             .AutoRefresh(x => x.IsClearedFromDownloadCenter) // Soft Clear
             .Publish(); // Share subscription
 
@@ -716,8 +717,8 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
         // Beta 2026: Peer Lane Dashboard — group downloading/searching tracks by their peer name
         sharedSource
-            .Filter(x => x.IsActive && !string.IsNullOrEmpty(x.PeerName))
-            .Group(x => x.PeerName!)
+            .Filter(x => x.IsActive && !string.IsNullOrWhiteSpace(x.PeerName))
+            .Group(GetPeerLaneGroupKey)
             .Transform((IGroup<UnifiedTrackViewModel, string, string> group) => new PeerLaneViewModel(group))
             .DisposeMany()
             .SortAndBind(out _byPeerGroups,
@@ -869,6 +870,13 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Select(x => x.Trim().ToLowerInvariant())
             .ToHashSet();
+    }
+
+    private static string GetPeerLaneGroupKey(UnifiedTrackViewModel track)
+    {
+        return string.IsNullOrWhiteSpace(track.PeerName)
+            ? string.Empty
+            : track.PeerName.Trim();
     }
 
     private Func<UnifiedTrackViewModel, bool> BuildFilter(string searchText)

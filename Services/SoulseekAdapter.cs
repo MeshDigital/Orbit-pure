@@ -1734,6 +1734,9 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             // Phase 2.5: Use Append mode if resuming, Create if starting fresh
             var fileMode = startOffset > 0 ? FileMode.Append : FileMode.Create;
             FileStream? fileStream = null;
+            using var downloadCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            Task? downloadTask = null;
+            var transferCompleted = false;
             
             try
             {
@@ -1741,14 +1744,14 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 
                 // We wrap the Soulseek DownloadAsync in our own task to enforce our custom timeout logic
                 // The underlying client has some timeout logic, but we want granular control over "Stalled vs Queued"
-                var downloadTask = this._client.DownloadAsync(
+                downloadTask = this._client.DownloadAsync(
                     username,
                     filename,
                     () => Task.FromResult((Stream)fileStream),
                     size,
                     startOffset: startOffset,  // Pass the offset to Soulseek client
                     options: downloadOptions,
-                    cancellationToken: ct);
+                    cancellationToken: downloadCts.Token);
 
                 // Monitoring Loop
                 while (!downloadTask.IsCompleted)
@@ -1756,6 +1759,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     var idleSeconds = (DateTime.UtcNow - lastActivity).TotalSeconds;
                     if (!transferStartedOrQueued && idleSeconds > connectFailFastSeconds)
                     {
+                        downloadCts.Cancel();
                         throw new TimeoutException($"Peer did not respond within {connectFailFastSeconds} seconds.");
                     }
 
@@ -1764,6 +1768,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     if (!isQueued && idleSeconds > stallTimeoutSeconds)
                     {
                         // STALLED: Not queued, but no bytes moved for configured timeout
+                        downloadCts.Cancel();
                         throw new TimeoutException($"Transfer stalled for {stallTimeoutSeconds} seconds (0 bytes received).");
                     }
                     
@@ -1771,6 +1776,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     // Even if queued, if peer doesn't start transfer after 5 minutes, drop it
                     if (isQueued && (DateTime.UtcNow - queueStartTime).TotalSeconds > QUEUE_TIMEOUT_SECONDS)
                     {
+                        downloadCts.Cancel();
                         throw new TimeoutException($"Peer stuck in queue for {QUEUE_TIMEOUT_SECONDS} seconds (zombie peer detected). Dropping peer.");
                     }
                     
@@ -1781,10 +1787,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 }
 
                 await downloadTask; // Propagate exceptions/completion
-
-                // CRITICAL: Flush all buffered data before closing
-                // Ensures all bytes written to FileStream are persisted to disk
-                await fileStream.FlushAsync();
+                transferCompleted = true;
                 
                 this._logger.LogInformation("Download completed: {Filename}", filename);
                 progress?.Report(1.0);
@@ -1796,23 +1799,39 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             }
             finally
             {
+                if (!transferCompleted && downloadTask != null)
+                {
+                    try
+                    {
+                        if (!downloadCts.IsCancellationRequested)
+                        {
+                            downloadCts.Cancel();
+                        }
+
+                        await downloadTask.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (downloadCts.IsCancellationRequested)
+                    {
+                    }
+                    catch (TimeoutException)
+                    {
+                        this._logger.LogWarning("Timed out while awaiting terminal transfer task cleanup for {Filename}", filename);
+                    }
+                    catch (Exception ex) when (
+                        downloadCts.IsCancellationRequested ||
+                        ex.Message.Contains("Transfer complete", StringComparison.OrdinalIgnoreCase))
+                    {
+                        this._logger.LogDebug(ex, "Ignoring terminal download task exception during cleanup for {Filename}", filename);
+                    }
+                }
+
                 // CRITICAL: Ensure FileStream is always closed properly, even on exception
                 // This prevents "file in use" errors on retry attempts
                 if (fileStream != null)
                 {
                     try
                     {
-                        // Flush one more time to ensure all pending writes are committed
-                        await fileStream.FlushAsync(ct).ConfigureAwait(false);
-                    }
-                    catch (Exception flushEx)
-                    {
-                        this._logger.LogWarning(flushEx, "Error flushing stream for {Filename}", filename);
-                    }
-
-                    try
-                    {
-                        fileStream.Dispose();
+                        await fileStream.DisposeAsync().ConfigureAwait(false);
                         this._logger.LogDebug("FileStream closed for {Filename}", filename);
                     }
                     catch (Exception disposeEx)

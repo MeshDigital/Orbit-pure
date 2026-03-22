@@ -68,6 +68,12 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         set => this.RaiseAndSetIfChanged(ref _isConsoleOpen, value);
     }
 
+    private DateTime? _searchStartedAtUtc;
+    private DateTime? _searchEndedAtUtc;
+    private bool _searchUsedMp3Fallback;
+    private bool _searchFoundNothing;
+    private bool _searchFoundMatch;
+
     private string _latestIncomingMessage = "No peer messages yet";
     public string LatestIncomingMessage
     {
@@ -98,6 +104,78 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
     public int IncomingResultCount => IncomingResults.Count;
     public bool HasIncomingResults => IncomingResults.Count > 0;
+    public bool HasSearchTelemetry => _searchStartedAtUtc.HasValue || HasIncomingResults || !string.IsNullOrWhiteSpace(DetailedSearchStatus);
+    public int SearchMatchedCount => IncomingResults.Count(x => x.State == TrackPeerResultState.Matched);
+    public int SearchQueuedCount => IncomingResults.Count(x => x.State == TrackPeerResultState.Queued);
+    public int SearchFilteredCount => IncomingResults.Count(x => x.State == TrackPeerResultState.Filtered);
+    public string SearchDurationDisplay
+    {
+        get
+        {
+            if (!_searchStartedAtUtc.HasValue)
+                return "—";
+
+            var effectiveEnd = _searchEndedAtUtc ?? DateTime.UtcNow;
+            var duration = effectiveEnd - _searchStartedAtUtc.Value;
+            if (duration.TotalHours >= 1)
+                return duration.ToString(@"h\:mm\:ss");
+            if (duration.TotalMinutes >= 1)
+                return duration.ToString(@"m\:ss");
+            return $"{Math.Max(0, Math.Round(duration.TotalSeconds)):0}s";
+        }
+    }
+
+    public string SearchOutcomeLabel
+    {
+        get
+        {
+            if (_searchFoundMatch || IsCompleted || State == PlaylistTrackState.Downloading || State == PlaylistTrackState.Queued)
+                return "Match Found";
+
+            if (_searchFoundNothing)
+                return "No Results";
+
+            if (State == PlaylistTrackState.Searching)
+                return "Searching";
+
+            if (HasIncomingResults)
+                return "Evaluated";
+
+            return "Pending";
+        }
+    }
+
+    public string SearchOutcomeColor => SearchOutcomeLabel switch
+    {
+        "Match Found" => "#4CAF50",
+        "No Results" => "#F44336",
+        "Searching" => "#00BCD4",
+        "Evaluated" => "#FFB300",
+        _ => "#888888"
+    };
+
+    public string SearchPathSummary => _searchUsedMp3Fallback ? "MP3 fallback used" : "Lossless path only";
+    public string SearchResultBreakdown => $"{SearchMatchedCount} matched • {SearchQueuedCount} queued • {SearchFilteredCount} filtered";
+    public string SearchKnowledgeSummary
+    {
+        get
+        {
+            var parts = new List<string>();
+
+            if (_searchStartedAtUtc.HasValue)
+                parts.Add($"runtime {SearchDurationDisplay}");
+
+            parts.Add(SearchOutcomeLabel);
+
+            if (HasIncomingResults)
+                parts.Add(SearchResultBreakdown);
+
+            parts.Add(SearchPathSummary);
+
+            return string.Join(" • ", parts.Where(x => !string.IsNullOrWhiteSpace(x)));
+        }
+    }
+
     public string IncomingResultsSummary
     {
         get
@@ -400,7 +478,17 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         set { 
             if (_state != value)
             {
+                var previousState = _state;
                 this.RaiseAndSetIfChanged(ref _state, value);
+
+                if (value == PlaylistTrackState.Searching)
+                {
+                    EnsureSearchStarted();
+                }
+                else if (previousState == PlaylistTrackState.Searching && value != PlaylistTrackState.Searching)
+                {
+                    MarkSearchEnded();
+                }
                 
                 // Core state flags
                 this.RaisePropertyChanged(nameof(StatusText));
@@ -431,6 +519,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(HasGenre));
                 this.RaisePropertyChanged(nameof(IsHighRisk));
                 this.RaisePropertyChanged(nameof(MatchConfidence));
+                RaiseSearchTelemetryProperties();
                 
                 // Clear detailed status when leaving search state
                 if (value != PlaylistTrackState.Searching)
@@ -1198,14 +1287,6 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
              // Clear diagnostics on retry/restart
              RejectionDetails = null;
              HasRejectionDetails = false;
-
-             if (State == PlaylistTrackState.Searching)
-             {
-                 IncomingResults.Clear();
-                 this.RaisePropertyChanged(nameof(IncomingResultCount));
-                 this.RaisePropertyChanged(nameof(HasIncomingResults));
-                 this.RaisePropertyChanged(nameof(IncomingResultsSummary));
-             }
         }
     }
 
@@ -1213,6 +1294,25 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     {
         // Already filtered by TrackHash in the Rx subscription (Where clause)
         var parsed = ParseIncomingResult(e);
+
+        EnsureSearchStarted();
+        UpdateSearchTelemetry(parsed, e.Message);
+
+        var staleNoResultsAfterWinner =
+            parsed.State == TrackPeerResultState.Error &&
+            parsed.Detail.Contains("No results found on network", StringComparison.OrdinalIgnoreCase) &&
+            (State == PlaylistTrackState.Downloading ||
+             State == PlaylistTrackState.Queued ||
+             State == PlaylistTrackState.Completed ||
+             IncomingResults.Any(x =>
+                 x.State == TrackPeerResultState.Matched ||
+                 x.Detail.Contains("Transfer started", StringComparison.OrdinalIgnoreCase)));
+
+        if (staleNoResultsAfterWinner)
+        {
+            return;
+        }
+
         AppendIncomingResult(parsed);
 
         if (!IsConsoleOpen && (parsed.State == TrackPeerResultState.Error || parsed.State == TrackPeerResultState.Matched))
@@ -1251,6 +1351,91 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         this.RaisePropertyChanged(nameof(IncomingResultCount));
         this.RaisePropertyChanged(nameof(HasIncomingResults));
         this.RaisePropertyChanged(nameof(IncomingResultsSummary));
+        RaiseSearchTelemetryProperties();
+    }
+
+    private void EnsureSearchStarted()
+    {
+        if (_searchStartedAtUtc.HasValue)
+            return;
+
+        _searchStartedAtUtc = DateTime.UtcNow;
+        _searchEndedAtUtc = null;
+        RaiseSearchTelemetryProperties();
+    }
+
+    private void MarkSearchEnded()
+    {
+        if (!_searchStartedAtUtc.HasValue)
+            return;
+
+        _searchEndedAtUtc ??= DateTime.UtcNow;
+        RaiseSearchTelemetryProperties();
+    }
+
+    private void UpdateSearchTelemetry(TrackPeerResultViewModel entry, string? rawMessage)
+    {
+        var message = rawMessage ?? entry.Detail;
+
+        if (entry.State == TrackPeerResultState.Matched)
+        {
+            _searchFoundMatch = true;
+        }
+
+        if (entry.State == TrackPeerResultState.Filtered || entry.State == TrackPeerResultState.Queued)
+        {
+        }
+
+        if (message.Contains("MP3 fallback", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("MP3 lane", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("MP3 Mode", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("forceMp3", StringComparison.OrdinalIgnoreCase))
+        {
+            _searchUsedMp3Fallback = true;
+        }
+
+        if (message.Contains("No results found on network", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("Not found on network", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!_searchFoundMatch)
+            {
+                _searchFoundNothing = true;
+            }
+
+            MarkSearchEnded();
+        }
+
+        if (message.Contains("Transfer started", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("winner", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("Golden match", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("Selected", StringComparison.OrdinalIgnoreCase))
+        {
+            _searchFoundMatch = true;
+            _searchFoundNothing = false;
+            MarkSearchEnded();
+        }
+
+        if (message.Contains("Search timed out", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("timed out", StringComparison.OrdinalIgnoreCase))
+        {
+            MarkSearchEnded();
+        }
+
+        RaiseSearchTelemetryProperties();
+    }
+
+    private void RaiseSearchTelemetryProperties()
+    {
+        this.RaisePropertyChanged(nameof(HasSearchTelemetry));
+        this.RaisePropertyChanged(nameof(SearchMatchedCount));
+        this.RaisePropertyChanged(nameof(SearchQueuedCount));
+        this.RaisePropertyChanged(nameof(SearchFilteredCount));
+        this.RaisePropertyChanged(nameof(SearchDurationDisplay));
+        this.RaisePropertyChanged(nameof(SearchOutcomeLabel));
+        this.RaisePropertyChanged(nameof(SearchOutcomeColor));
+        this.RaisePropertyChanged(nameof(SearchPathSummary));
+        this.RaisePropertyChanged(nameof(SearchResultBreakdown));
+        this.RaisePropertyChanged(nameof(SearchKnowledgeSummary));
     }
 
     private static TrackPeerResultViewModel ParseIncomingResult(TrackDetailedStatusEvent e)

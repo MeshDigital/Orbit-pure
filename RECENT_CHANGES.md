@@ -1,5 +1,57 @@
 # Recent Changes
 
+## [0.1.0-alpha.51] - Download Center Knowledge Hub + Transfer Cleanup Hardening (Mar 22, 2026)
+
+### Overview
+Transforms the Download Center into a per-track knowledge and progress hub, surfacing search intelligence (duration, outcome, result counts, MP3 fallback flag) across all three tabs (Active, Completed, Failed). Also hardens the adapter's download-finalization path to eliminate file-handle leaks and race conditions on transfer completion.
+
+### 1) Per-Track Search Telemetry in All Three Download Center Tabs
+
+**`UnifiedTrackViewModel`:**
+- Added `_searchStartedAtUtc`, `_searchEndedAtUtc`, `_searchUsedMp3Fallback`, `_searchFoundNothing`, `_searchFoundMatch` backing fields.
+- Added derived reactive properties: `HasSearchTelemetry`, `SearchMatchedCount`, `SearchQueuedCount`, `SearchFilteredCount`, `SearchDurationDisplay`, `SearchOutcomeLabel`, `SearchOutcomeColor`, `SearchPathSummary`, `SearchResultBreakdown`, `SearchKnowledgeSummary`.
+- Wired `EnsureSearchStarted()` / `MarkSearchEnded()` into the `State` setter.
+- Wired `UpdateSearchTelemetry()` and stale-event suppression into `OnDetailedStatus`.
+- Removed `IncomingResults.Clear()` on search restart — history is now preserved across retry cycles.
+- Added stale-event guard: drops "No results found on network" error entries when a winner/transfer is already established.
+
+**`StandardTrackRow.axaml` (Active tab):**
+- Expander header now shows `SearchKnowledgeSummary` instead of `IncomingResultsSummary`.
+- Added a knowledge bar inside the Expander showing Duration / Outcome / Results / Path, visible when `HasSearchTelemetry` is true.
+
+**`DownloadsPage.axaml` (Completed + Failed tabs):**
+- Both `DownloadItemTemplate` (Completed) and `FailedDownloadItemTemplate` (Failed) now include:
+  - An inline `LOG` strip bar with `SearchKnowledgeSummary`, `LatestIncomingMessage`, `LatestIncomingTimeDisplay`, and a Details `ToggleButton`.
+  - An expandable `Expander` (bound to `IsConsoleOpen`) showing a scrollable per-event log with Time / Username / StateLabel / Detail columns.
+  - A knowledge bar panel showing Duration / Outcome / Results / Path (shown when `HasSearchTelemetry` is true).
+
+### 2) Adapter Transfer Finalization Hardening
+
+**`SoulseekAdapter.cs`:**
+- Introduced `downloadCts` (linked token source) that is explicitly cancelled before throwing timeout exceptions, ensuring the underlying Soulseek download task terminates cleanly.
+- Added `transferCompleted` flag to distinguish clean vs. error-path finalization.
+- On error path in `finally`: waits up to 5 seconds for the download task to complete after cancellation; suppresses expected `OperationCanceledException` and "Transfer complete" race exceptions.
+- Replaced `fileStream.Dispose()` with `await fileStream.DisposeAsync()` to avoid blocking.
+- Removed redundant intermediate `FlushAsync()` call (file is properly closed via `DisposeAsync`).
+
+### 3) Peer Lane Grouping Fix
+
+**`DownloadCenterViewModel.cs`:**
+- Added `AutoRefresh(x => x.PeerName)` to the shared source pipeline to keep the Peer Lane Dashboard reactive to peer name updates.
+- Replaced inline `.Group(x => x.PeerName!)` lambda with `GetPeerLaneGroupKey(track)` helper that correctly handles whitespace-only peer names.
+- Updated filter from `!string.IsNullOrEmpty(x.PeerName)` to `!string.IsNullOrWhiteSpace(x.PeerName)`.
+
+### 4) ErrorStreamWindow Lifecycle Fix
+
+**`App.axaml.cs`:**
+- Extracted `CreateErrorStreamWindow()` factory method that wires up a `Closed` handler to null out the reference, preventing stale window reuse.
+- Added suppression for "Transfer failed: Transfer complete" and "Transfer complete" exception messages in the global exception filter — these are benign race artifacts from the adapter finalization path.
+
+### Validation
+- `dotnet build SLSKDONET.sln -c Debug` → **Build succeeded** with 6 pre-existing warnings, no new warnings.
+
+---
+
 ## [0.1.0-alpha.50] - Reactive Search Runtime Hardening (Mar 22, 2026)
 
 ### Overview

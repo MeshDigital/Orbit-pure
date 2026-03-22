@@ -701,6 +701,10 @@ public partial class App : Application
         if (ex is OperationCanceledException)
             return true;
 
+        if (ex.Message.Contains("Transfer failed: Transfer complete", StringComparison.OrdinalIgnoreCase) ||
+            ex.Message.Contains("Transfer complete", StringComparison.OrdinalIgnoreCase))
+            return true;
+
         if (ex is InvalidOperationException ioe &&
             ioe.Message.Contains("Not listening. You must call the Start() method before calling this method.", StringComparison.OrdinalIgnoreCase))
             return true;
@@ -740,6 +744,20 @@ public partial class App : Application
         return false;
     }
 
+    private Views.Avalonia.ErrorStreamWindow CreateErrorStreamWindow()
+    {
+        var window = new Views.Avalonia.ErrorStreamWindow();
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_errorStreamWindow, window))
+            {
+                _errorStreamWindow = null;
+            }
+        };
+
+        return window;
+    }
+
     private async void HandleGlobalException(Exception? exception, string source, bool isTerminating)
     {
         try
@@ -772,7 +790,7 @@ public partial class App : Application
                     // Create window if needed
                     if (_errorStreamWindow == null)
                     {
-                        _errorStreamWindow = new Views.Avalonia.ErrorStreamWindow();
+                        _errorStreamWindow = CreateErrorStreamWindow();
                     }
 
                     // Add the error
