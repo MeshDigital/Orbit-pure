@@ -439,26 +439,32 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         ClearCompletedCommand = ReactiveCommand.CreateFromTask(async () =>
         {
             var completedItems = _downloadsSource.Items
-                .Where(x => x.State == PlaylistTrackState.Completed && !x.IsClearedFromDownloadCenter)
+                .Where(x => x.IsCompleted && !x.IsClearedFromDownloadCenter)
                 .ToList();
-            
-            // Mark as cleared and remove from source
+
+            // Soft-clear: flip the VM flag — DynamicData AutoRefresh + !IsClearedFromDownloadCenter
+            // filter removes the row from the session ledger without destroying the VM.
             foreach (var item in completedItems)
             {
+                item.IsClearedFromDownloadCenter = true;
                 item.Model.IsClearedFromDownloadCenter = true;
                 await _libraryService.UpdatePlaylistTrackAsync(item.Model);
-                _downloadsSource.Remove(item.GlobalId); // Remove from UI immediately
             }
         });
         
         ClearFailedCommand = ReactiveCommand.Create(() => 
         {
             var failedItems = _downloadsSource.Items
-                .Where(x => x.State == PlaylistTrackState.Failed || x.State == PlaylistTrackState.Cancelled || x.State == PlaylistTrackState.Stalled)
+                .Where(x => (x.IsFailed || x.IsStalled) && !x.IsClearedFromDownloadCenter)
                 .ToList();
-            
-            // Remove all failed/cancelled/stalled items from UI
-            _downloadsSource.Remove(failedItems);
+
+            // Soft-clear: flip the VM flag — DynamicData AutoRefresh + !IsClearedFromDownloadCenter
+            // filter removes the row from the session ledger without destroying the VM.
+            foreach (var item in failedItems)
+            {
+                item.IsClearedFromDownloadCenter = true;
+                item.Model.IsClearedFromDownloadCenter = true;
+            }
         });
 
         RetryAllFailedCommand = ReactiveCommand.CreateFromTask(async () => 
@@ -629,14 +635,14 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             .Subscribe()
             .DisposeWith(_subscriptions);
 
-        // Phase 9: Direct Active Tracks (Searching or Downloading - Flat List)
-        // Phase 11: Prioritize Downloading over Searching
+        // Unified Session Ledger: all non-cleared tracks, newest first — no dancing, no jumping.
+        // Tracks morph in-place (Searching → Downloading → Completed/Failed) and only leave
+        // when the user explicitly presses "Clear Completed" or "Clear Failed".
         var directActiveComparer = SortExpressionComparer<UnifiedTrackViewModel>
-            .Descending(x => x.State == PlaylistTrackState.Downloading)
-            .ThenByDescending(x => x.Model.AddedAt);
-            
+            .Descending(x => x.Model.AddedAt);
+
         sharedSource
-            .Filter(x => x.IsActive && x.State != PlaylistTrackState.Stalled) // estrictly exclude stalled from active
+            .Filter(x => !x.IsClearedFromDownloadCenter)
             .SortAndBind(out _activeTracks, directActiveComparer)
             .Subscribe()
             .DisposeWith(_subscriptions);

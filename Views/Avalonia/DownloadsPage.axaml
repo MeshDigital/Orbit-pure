@@ -632,8 +632,8 @@
                 </Style>
             </TabControl.Styles>
 
-            <!-- Active Downloads Tab -->
-            <TabItem Header="Active">
+            <!-- Current Session Tab -->
+            <TabItem Header="Current Session">
                 <Grid RowDefinitions="Auto,*">
                     <!-- Global Status Indicator (Info) -->
                     <Border Grid.Row="0"
@@ -721,15 +721,37 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Unified Active View -->
+                    <!-- Unified Session Ledger -->
                     <Grid Grid.Row="1" RowDefinitions="Auto, *" IsVisible="{Binding HasAnyActiveOrQueued}">
-                        
+
+                        <!-- Session toolbar: clear buttons -->
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="24,12,24,0">
+                            <Button Command="{Binding ClearCompletedCommand}"
+                                    Background="#0D1DB954" BorderBrush="#2A4D35" BorderThickness="1"
+                                    CornerRadius="6" Padding="12,6" Foreground="#4CAF50" FontSize="12"
+                                    ToolTip.Tip="Remove completed tracks from this session view">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="🧹" FontSize="12" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Clear Completed" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding ClearFailedCommand}"
+                                    Background="#1A2C1F1F" BorderBrush="#501B1B" BorderThickness="1"
+                                    CornerRadius="6" Padding="12,6" Foreground="#FF5252" FontSize="12"
+                                    ToolTip.Tip="Remove failed tracks from this session view">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="🗑️" FontSize="12" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Clear Failed" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+
                         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                             <StackPanel Spacing="32" Margin="24,16">
-                                <!-- SECTION 1: MOVING NOW (Searching & Downloading) -->
+                                <!-- CURRENT SESSION: all non-cleared tracks morph in-place -->
                                 <StackPanel Spacing="12">
                                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,8">
-                                        <TextBlock Text="MOVING NOW" FontSize="10" FontWeight="Black" Foreground="#00BCD4" LetterSpacing="1"/>
+                                        <TextBlock Text="CURRENT SESSION" FontSize="10" FontWeight="Black" Foreground="#00BCD4" LetterSpacing="1"/>
                                         <Border Background="#00BCD4" Width="40" Height="2" VerticalAlignment="Center" Opacity="0.3"/>
                                     </StackPanel>
                                     
@@ -838,7 +860,7 @@
 
 
             <!-- Completed Downloads Tab -->
-            <TabItem Header="Completed">
+            <TabItem Header="Completed History">
                 <Grid RowDefinitions="Auto,*">
                     <!-- Actions Bar (Search + Clear) -->
                     <Border Grid.Row="0" Background="#1E1E1E" Padding="16,12" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
@@ -897,7 +919,7 @@
             </TabItem>
 
             <!-- Failed Downloads Tab -->
-            <TabItem Header="Failed">
+            <TabItem Header="Failed History">
                 <Grid RowDefinitions="Auto,*">
                     <!-- Actions Bar (Search + Actions) -->
                     <Border Grid.Row="0" Background="#1E1E1E" Padding="16,12" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">

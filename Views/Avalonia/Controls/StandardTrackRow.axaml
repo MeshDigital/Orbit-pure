@@ -159,9 +159,32 @@
             </Style.Animations>
         </Style>
 
+        <!-- Unified Session Ledger: completed row — faint green tint, dimmed -->
+        <Style Selector="Border.root.completed">
+            <Setter Property="Opacity" Value="0.65"/>
+            <Setter Property="Background" Value="#0D1DB954"/>
+        </Style>
+
+        <!-- Unified Session Ledger: failed row — faint red tint -->
+        <Style Selector="Border.root.failed">
+            <Setter Property="Background" Value="#1A2C1F1F"/>
+        </Style>
+
+        <!-- Always reveal action hub for terminal states so the user can act without hovering -->
+        <Style Selector="Border.root.completed StackPanel.ActionHub">
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+        <Style Selector="Border.root.failed StackPanel.ActionHub">
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+
     </UserControl.Styles>
 
-    <Border Classes="root" Classes.active="{Binding IsDownloading}" Classes.stalled="{Binding IsStalled}">
+    <Border Classes="root"
+            Classes.active="{Binding IsDownloading}"
+            Classes.stalled="{Binding IsStalled}"
+            Classes.completed="{Binding IsCompleted}"
+            Classes.failed="{Binding IsFailed}">
         <StackPanel>
             <!-- Phase 5B: Removed waveform underlay - was visually noisy in list context -->
             
@@ -513,8 +536,15 @@
                 <TextBlock Text="{Binding DownloadDurationDisplay}" FontSize="9" Foreground="#666" VerticalAlignment="Center" IsVisible="{Binding IsCompleted}"/>
             </StackPanel>
 
-            <!-- Column 6: Action Hub (Refined Phase 12) -->
+            <!-- Column 6: Action Hub (Unified Session Ledger) -->
             <StackPanel Grid.Column="6" Classes="ActionHub" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center" Margin="0,0,8,0">
+                <!-- Session Ledger: terminal state badges -->
+                <TextBlock Text="✓" FontSize="13" FontWeight="Black" Foreground="#4CAF50"
+                           VerticalAlignment="Center" Margin="0,0,4,0"
+                           IsVisible="{Binding IsCompleted}" ToolTip.Tip="Downloaded successfully"/>
+                <TextBlock Text="✗" FontSize="13" FontWeight="Black" Foreground="#FF5252"
+                           VerticalAlignment="Center" Margin="0,0,4,0"
+                           IsVisible="{Binding IsFailed}" ToolTip.Tip="Download failed"/>
                 <!-- Group 1: Success/Playback -->
                 <Button Classes="ActionBtn" Command="{Binding PlayCommand}" IsVisible="{Binding IsCompleted}" ToolTip.Tip="Play"><PathIcon Data="{StaticResource play_circle_regular}" Width="18" Height="18" Foreground="{StaticResource AccentBrush}"/></Button>
                 <Button Classes="ActionBtn" Command="{Binding RevealFileCommand}" IsVisible="{Binding IsCompleted}" ToolTip.Tip="Open Folder"><PathIcon Data="{StaticResource folder_open_regular}" Width="16" Height="16"/></Button>
