@@ -905,14 +905,16 @@
                     </Border>
 
                     <!-- Completed List -->
-                    <ItemsRepeater Grid.Row="1" ItemsSource="{Binding CompletedDownloads}">
-                        <ItemsRepeater.Layout>
-                            <StackLayout Spacing="0"/>
-                        </ItemsRepeater.Layout>
-                        <ItemsRepeater.ItemTemplate>
-                            <StaticResource ResourceKey="DownloadItemTemplate"/>
-                        </ItemsRepeater.ItemTemplate>
-                    </ItemsRepeater>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ItemsRepeater Margin="16,12" ItemsSource="{Binding CompletedDownloads}">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Spacing="0"/>
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <StaticResource ResourceKey="DownloadItemTemplate"/>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </ScrollViewer>
                 </Grid>
             </TabItem>
 
@@ -976,14 +978,16 @@
                     </Border>
 
                     <!-- Failed List -->
-                    <ItemsRepeater Grid.Row="1" ItemsSource="{Binding FailedDownloads}">
-                        <ItemsRepeater.Layout>
-                            <StackLayout Spacing="0"/>
-                        </ItemsRepeater.Layout>
-                        <ItemsRepeater.ItemTemplate>
-                            <StaticResource ResourceKey="FailedDownloadItemTemplate"/>
-                        </ItemsRepeater.ItemTemplate>
-                    </ItemsRepeater>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ItemsRepeater Margin="16,12" ItemsSource="{Binding FailedDownloads}">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Spacing="0"/>
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <StaticResource ResourceKey="FailedDownloadItemTemplate"/>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </ScrollViewer>
                 </Grid>
             </TabItem>
 

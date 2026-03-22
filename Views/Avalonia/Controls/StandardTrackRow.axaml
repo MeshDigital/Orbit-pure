@@ -6,7 +6,6 @@
              xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              xmlns:converters="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
-             xmlns:dg="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.DataGrid"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="60"
              x:Class="SLSKDONET.Views.Avalonia.Controls.StandardTrackRow"
              x:Name="RootControl">
@@ -578,88 +577,6 @@
 
         </Grid>
 
-        <!-- Row Details: Click-expand live incoming peer/search updates -->
-        <Expander IsExpanded="{Binding IsConsoleOpen, Mode=TwoWay}" Margin="52,0,8,8" Background="#0A000000" BorderBrush="#1AFFFFFF" BorderThickness="1" CornerRadius="4">
-            <Expander.Header>
-                <StackPanel Orientation="Horizontal" Spacing="8" Margin="10,6">
-                    <TextBlock Text="Live Peer Results" FontSize="11" FontWeight="Bold" Foreground="#DDD"/>
-                    <TextBlock Text="{Binding SearchKnowledgeSummary}" FontSize="10" Foreground="#888"/>
-                    <TextBlock Text="•" FontSize="10" Foreground="#444"/>
-                    <TextBlock Text="{Binding LatestIncomingTimeDisplay}" FontSize="10" Foreground="#666"/>
-                </StackPanel>
-            </Expander.Header>
-
-            <StackPanel Spacing="8" Margin="10,0,10,10">
-                <Border Background="#141A20" BorderBrush="#24303A" BorderThickness="1" CornerRadius="4" Padding="8,6" IsVisible="{Binding HasSearchTelemetry}">
-                    <WrapPanel Orientation="Horizontal">
-                        <TextBlock Text="Duration:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
-                        <TextBlock Text="{Binding SearchDurationDisplay}" FontSize="10" Foreground="#D0D7DE" FontWeight="SemiBold" Margin="0,0,12,0"/>
-                        <TextBlock Text="Time Left:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
-                        <TextBlock Text="{Binding SearchCountdownDisplay}" FontSize="10" Foreground="#8BD2FF" FontWeight="SemiBold" Margin="0,0,12,0"/>
-                        <TextBlock Text="Outcome:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
-                        <TextBlock Text="{Binding SearchOutcomeLabel}" FontSize="10" Foreground="{Binding SearchOutcomeColor}" FontWeight="Bold" Margin="0,0,12,0"/>
-                        <TextBlock Text="Results:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
-                        <TextBlock Text="{Binding SearchResultBreakdown}" FontSize="10" Foreground="#B0BEC5" Margin="0,0,12,0"/>
-                        <TextBlock Text="Path:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
-                        <TextBlock Text="{Binding SearchPathSummary}" FontSize="10" Foreground="#B0BEC5"/>
-                    </WrapPanel>
-                </Border>
-
-                <dg:DataGrid ItemsSource="{Binding IncomingResults}"
-                             AutoGenerateColumns="False"
-                             Height="220"
-                             CanUserResizeColumns="True"
-                             CanUserSortColumns="False"
-                             GridLinesVisibility="Horizontal"
-                             HeadersVisibility="Column"
-                             IsReadOnly="True"
-                             SelectionMode="Single">
-                    <dg:DataGrid.Columns>
-                        <dg:DataGridTextColumn Header="Time" Binding="{Binding TimeDisplay}" Width="90"/>
-                        <dg:DataGridTextColumn Header="User" Binding="{Binding Username}" Width="130"/>
-
-                        <dg:DataGridTemplateColumn Header="State" Width="100">
-                            <dg:DataGridTemplateColumn.CellTemplate>
-                                <DataTemplate>
-                                    <Border Background="#1D2228" BorderBrush="{Binding StateColor}" BorderThickness="1" CornerRadius="3" Padding="6,1" HorizontalAlignment="Left" VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding StateLabel}" FontSize="9" FontWeight="Bold" Foreground="{Binding StateColor}"/>
-                                    </Border>
-                                </DataTemplate>
-                            </dg:DataGridTemplateColumn.CellTemplate>
-                        </dg:DataGridTemplateColumn>
-
-                        <dg:DataGridTextColumn Header="Detail" Binding="{Binding Detail}" Width="*"/>
-                        <dg:DataGridTextColumn Header="Speed" Binding="{Binding Speed}" Width="90"/>
-                        <dg:DataGridTextColumn Header="Bitrate" Binding="{Binding BitrateKbps}" Width="70"/>
-                        <dg:DataGridTextColumn Header="Fmt" Binding="{Binding Format}" Width="55"/>
-                        <dg:DataGridTextColumn Header="File" Binding="{Binding Filename}" Width="170"/>
-
-                        <dg:DataGridTemplateColumn Header="Action" Width="88">
-                            <dg:DataGridTemplateColumn.CellTemplate>
-                                <DataTemplate>
-                                    <Button Classes="ActionBtn"
-                                            IsVisible="{Binding CanForceDownload}"
-                                            Command="{Binding $parent[UserControl].DataContext.ForceDownloadCandidateCommand}"
-                                            CommandParameter="{Binding}"
-                                            ToolTip.Tip="{Binding ForceDownloadTooltip}"
-                                            Padding="6,2"
-                                            HorizontalAlignment="Left"
-                                            VerticalAlignment="Center">
-                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <TextBlock Text="⬇" FontSize="9" Foreground="#00BFFF"/>
-                                            <TextBlock Text="Force" FontSize="9" FontWeight="Bold" Foreground="#00BFFF"/>
-                                        </StackPanel>
-                                    </Button>
-                                </DataTemplate>
-                            </dg:DataGridTemplateColumn.CellTemplate>
-                        </dg:DataGridTemplateColumn>
-                    </dg:DataGrid.Columns>
-                </dg:DataGrid>
-
-                <TextBlock IsVisible="{Binding !HasIncomingResults}" Text="No peer messages yet for this track." FontSize="10" Foreground="#666"/>
-            </StackPanel>
-        </Expander>
-        
         </StackPanel>
     </Border>
 </UserControl>
