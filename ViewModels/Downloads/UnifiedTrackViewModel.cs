@@ -293,7 +293,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             _downloadManager.CancelTrack(GlobalId);
             IsClearedFromDownloadCenter = true;
             Model.IsClearedFromDownloadCenter = true;
-        }, this.WhenAnyValue(x => x.IsActive));
+        }, this.WhenAnyValue(x => x.CanRemoveFromQueue));
 
         RetryCommand = ReactiveCommand.Create(() => 
             _downloadManager.HardRetryTrack(GlobalId),
@@ -521,6 +521,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(CanRetry));
                 this.RaisePropertyChanged(nameof(CanResume));
                 this.RaisePropertyChanged(nameof(CanBumpToTop));
+                this.RaisePropertyChanged(nameof(CanRemoveFromQueue));
                 
                 // Display properties
                 this.RaisePropertyChanged(nameof(TechnicalSummary));
@@ -616,6 +617,16 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public bool CanRetry => IsFailed || State == PlaylistTrackState.Stalled;
     public bool CanResume => State == PlaylistTrackState.Paused;
     public bool CanForceStart => State == PlaylistTrackState.Pending || State == PlaylistTrackState.Stalled || State == PlaylistTrackState.Paused;
+    public bool CanRemoveFromQueue =>
+        !IsCompleted &&
+        !IsFailed &&
+        (State == PlaylistTrackState.Pending ||
+         State == PlaylistTrackState.Searching ||
+         State == PlaylistTrackState.Downloading ||
+         State == PlaylistTrackState.Queued ||
+         State == PlaylistTrackState.WaitingForConnection ||
+         State == PlaylistTrackState.Stalled ||
+         State == PlaylistTrackState.Paused);
 
     // Phase 12: Priority Control
     public bool CanBumpToTop => (State == PlaylistTrackState.Pending || State == PlaylistTrackState.Paused || State == PlaylistTrackState.Stalled) && !IsCompleted;
