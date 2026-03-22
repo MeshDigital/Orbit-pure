@@ -707,6 +707,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             this.RaiseAndSetIfChanged(ref _failureReason, value);
             this.RaisePropertyChanged(nameof(StatusText));
             this.RaisePropertyChanged(nameof(DetailedStatusText));
+            this.RaisePropertyChanged(nameof(HasFailureReason));
         }
     }
 
@@ -736,6 +737,9 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     }
     
     public string FailureActionSuggestion => FailureEnum.ToActionableSuggestion();
+
+    /// <summary>True when a raw failure reason string (detailed error message) is available for display.</summary>
+    public bool HasFailureReason => !string.IsNullOrEmpty(FailureReason);
 
     // Phase 0.5: Search Diagnostics
     private System.Collections.ObjectModel.ObservableCollection<RejectedResult>? _rejectionDetails;

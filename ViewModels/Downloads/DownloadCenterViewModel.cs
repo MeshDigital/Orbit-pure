@@ -209,49 +209,25 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     public bool SessionFilterLive
     {
         get => SessionFilterMode == "Live";
-        set
-        {
-            if (value)
-            {
-                SessionFilterMode = "Live";
-            }
-        }
+        set => SessionFilterMode = value ? "Live" : "All";
     }
 
     public bool SessionFilterQueued
     {
         get => SessionFilterMode == "Queued";
-        set
-        {
-            if (value)
-            {
-                SessionFilterMode = "Queued";
-            }
-        }
+        set => SessionFilterMode = value ? "Queued" : "All";
     }
 
     public bool SessionFilterDone
     {
         get => SessionFilterMode == "Done";
-        set
-        {
-            if (value)
-            {
-                SessionFilterMode = "Done";
-            }
-        }
+        set => SessionFilterMode = value ? "Done" : "All";
     }
 
     public bool SessionFilterFailed
     {
         get => SessionFilterMode == "Failed";
-        set
-        {
-            if (value)
-            {
-                SessionFilterMode = "Failed";
-            }
-        }
+        set => SessionFilterMode = value ? "Failed" : "All";
     }
 
     public int SessionLedgerCount => _activeTracks?.Count ?? 0;
@@ -792,8 +768,10 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         sharedSource
             .Filter(x => x.State == PlaylistTrackState.Completed && !x.IsClearedFromDownloadCenter)
             .Filter(completedFilter)
-            .SortAndBind(out _completedDownloads, SortExpressionComparer<UnifiedTrackViewModel>.Descending(x => x.Model.AddedAt))
-            .Subscribe();
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .SortAndBind(out _completedDownloads, SortExpressionComparer<UnifiedTrackViewModel>.Descending(x => x.Model.CompletedAt ?? x.Model.AddedAt))
+            .Subscribe()
+            .DisposeWith(_subscriptions);
 
         _completedDownloads.ToObservableChangeSet()
             .ObserveOn(RxApp.MainThreadScheduler)
@@ -803,9 +781,11 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         // Failed Pipeline
         sharedSource
             .Filter(x => (x.State == PlaylistTrackState.Failed || x.State == PlaylistTrackState.Cancelled || x.State == PlaylistTrackState.Stalled) && !x.IsClearedFromDownloadCenter)
-            .Filter(completedFilter) // Reuse filter for now
-            .Bind(out _failedDownloads)
-            .Subscribe();
+            .Filter(completedFilter)
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .SortAndBind(out _failedDownloads, SortExpressionComparer<UnifiedTrackViewModel>.Descending(x => x.Model.CompletedAt ?? x.Model.AddedAt))
+            .Subscribe()
+            .DisposeWith(_subscriptions);
 
         _failedDownloads.ToObservableChangeSet()
             .ObserveOn(RxApp.MainThreadScheduler)
