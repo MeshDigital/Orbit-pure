@@ -30,8 +30,10 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     private readonly IEventBus _eventBus;
     private readonly ArtworkCacheService _artworkCache;
     private readonly ILibraryService _libraryService;
+    private readonly DatabaseService _databaseService;
     private readonly CompositeDisposable _disposables = new();
     private string? _discoveryReasonOverride;
+    private bool _historyRecorded;
 
     // Core Data
     public PlaylistTrack Model { get; }
@@ -221,13 +223,15 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         DownloadManager downloadManager, 
         IEventBus eventBus,
         ArtworkCacheService artworkCache,
-        ILibraryService libraryService)
+        ILibraryService libraryService,
+        DatabaseService databaseService)
     {
         Model = model ?? throw new ArgumentNullException(nameof(model));
         _downloadManager = downloadManager ?? throw new ArgumentNullException(nameof(downloadManager));
         _eventBus = eventBus ?? throw new ArgumentNullException(nameof(eventBus));
         _artworkCache = artworkCache ?? throw new ArgumentNullException(nameof(artworkCache));
         _libraryService = libraryService ?? throw new ArgumentNullException(nameof(libraryService));
+        _databaseService = databaseService ?? throw new ArgumentNullException(nameof(databaseService));
 
         if (string.IsNullOrWhiteSpace(Model.TrackUniqueHash))
         {
@@ -524,6 +528,13 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 // Clear detailed status when leaving search state
                 if (value != PlaylistTrackState.Searching)
                     DetailedSearchStatus = null;
+
+                // Persist download history once on first terminal-state transition
+                if ((IsCompleted || IsFailed) && !_historyRecorded)
+                {
+                    _historyRecorded = true;
+                    _ = FlushDownloadHistoryAsync();
+                }
 
                 // Lazy synergy check: fire once when track first reaches a failed/cancelled
                 // terminal state. This avoids the constructor-time DB flood during bulk hydration.
@@ -1436,6 +1447,43 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         this.RaisePropertyChanged(nameof(SearchPathSummary));
         this.RaisePropertyChanged(nameof(SearchResultBreakdown));
         this.RaisePropertyChanged(nameof(SearchKnowledgeSummary));
+    }
+
+    private async Task FlushDownloadHistoryAsync()
+    {
+        try
+        {
+            // Extract details from the last Matched event (the winner)
+            var matchedEntry = IncomingResults.LastOrDefault(x => x.State == TrackPeerResultState.Matched);
+
+            var entity = new Data.Entities.DownloadHistoryEntity
+            {
+                TrackHash      = GlobalId,
+                Artist         = Model.Artist ?? string.Empty,
+                Title          = Model.Title ?? string.Empty,
+                ProjectId      = Model.PlaylistId != Guid.Empty ? Model.PlaylistId.ToString("N") : null,
+                SearchAttemptCount = SearchAttemptCount,
+                SearchStartedAt    = _searchStartedAtUtc,
+                SearchEndedAt      = _searchEndedAtUtc,
+                SearchOutcome      = SearchOutcomeLabel,
+                UsedMp3Fallback    = _searchUsedMp3Fallback,
+                MatchedCount       = SearchMatchedCount,
+                QueuedCount        = SearchQueuedCount,
+                FilteredCount      = SearchFilteredCount,
+                PeerUsername       = matchedEntry?.Username ?? PeerName,
+                DownloadedFilename = matchedEntry?.Filename,
+                DownloadedFormat   = matchedEntry?.Format,
+                DownloadedBitrateKbps = matchedEntry?.BitrateKbps,
+                FinalState         = IsCompleted ? "Completed" : "Failed",
+                RecordedAt         = DateTime.UtcNow,
+            };
+
+            await _databaseService.RecordDownloadHistoryAsync(entity).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[DownloadHistory] Failed to persist history for {GlobalId}: {ex.Message}");
+        }
     }
 
     private static TrackPeerResultViewModel ParseIncomingResult(TrackDetailedStatusEvent e)

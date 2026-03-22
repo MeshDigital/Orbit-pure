@@ -40,6 +40,7 @@ public class AppDbContext : DbContext
     public DbSet<Entities.SetTrackEntity> SetTracks { get; set; } // Phase 3: Set-Prep Intelligence
     public DbSet<Entities.StemPreferenceEntity> StemPreferences { get; set; } // Phase 5: Engagement
     public DbSet<Entities.PeerReliabilityEntity> PeerReliability { get; set; } // Phase 9: Hedged Resilience
+    public DbSet<Entities.DownloadHistoryEntity> DownloadHistory { get; set; } // Download intelligence log
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {

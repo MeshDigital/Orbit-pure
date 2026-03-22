@@ -48,6 +48,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     private readonly DownloadManager _downloadManager;
     private readonly IEventBus _eventBus;
     private readonly AppConfig _config;
+    private readonly DatabaseService _databaseService;
     private readonly CompositeDisposable _subscriptions = new();
     private DispatcherTimer? _uiBatchTimer;
     private bool _hasPendingUiRefresh;
@@ -367,12 +368,14 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         IEventBus eventBus,
         AppConfig config,
         ArtworkCacheService artworkCache,
-        ILibraryService libraryService)
+        ILibraryService libraryService,
+        DatabaseService databaseService)
     {
         _downloadManager = downloadManager;
         _eventBus = eventBus;
         _artworkCache = artworkCache;
         _libraryService = libraryService;
+        _databaseService = databaseService;
         _config = config;
         _isAutoEnrichEnabled = _config.IsAutoEnrichEnabled;
         
@@ -905,7 +908,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             var track = e.TrackModel;
             
             // Phase 2.5: Create Smart View Model
-            var viewModel = new UnifiedTrackViewModel(track, _downloadManager, _eventBus, _artworkCache, _libraryService);
+            var viewModel = new UnifiedTrackViewModel(track, _downloadManager, _eventBus, _artworkCache, _libraryService, _databaseService);
             
             // Phase 12.3: Monitor Selection
             viewModel.WhenAnyValue(x => x.IsSelected)
@@ -943,7 +946,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             foreach (var (track, initialState) in e.Tracks)
             {
                 // Phase 2.5: Create Smart View Model
-                var viewModel = new UnifiedTrackViewModel(track, _downloadManager, _eventBus, _artworkCache, _libraryService);
+                var viewModel = new UnifiedTrackViewModel(track, _downloadManager, _eventBus, _artworkCache, _libraryService, _databaseService);
                 
                 // Phase 12.3: Monitor Selection
                 viewModel.WhenAnyValue(x => x.IsSelected)

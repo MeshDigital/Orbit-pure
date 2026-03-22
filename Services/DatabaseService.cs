@@ -1775,6 +1775,59 @@ public class DatabaseService
         }
         context.SaveChanges();
     }
+
+    // ── Download History ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Persists a single completed or failed download attempt to the DownloadHistory table.
+    /// Called fire-and-forget from UnifiedTrackViewModel on first terminal-state transition.
+    /// </summary>
+    public async Task RecordDownloadHistoryAsync(Data.Entities.DownloadHistoryEntity entity)
+    {
+        await _writeSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            context.DownloadHistory.Add(entity);
+            await context.SaveChangesAsync().ConfigureAwait(false);
+            _logger.LogDebug("[DownloadHistory] Recorded {State} for {Artist} - {Title} (peer: {Peer})",
+                entity.FinalState, entity.Artist, entity.Title, entity.PeerUsername ?? "(none)");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[DownloadHistory] Failed to record download history for {TrackHash}", entity.TrackHash);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Returns the most recent download history entries, newest first.
+    /// </summary>
+    public async Task<List<Data.Entities.DownloadHistoryEntity>> GetRecentDownloadHistoryAsync(int limit = 500)
+    {
+        using var context = new AppDbContext();
+        return await context.DownloadHistory
+            .OrderByDescending(x => x.RecordedAt)
+            .Take(limit)
+            .ToListAsync()
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Returns download history for a specific track hash.
+    /// </summary>
+    public async Task<List<Data.Entities.DownloadHistoryEntity>> GetDownloadHistoryForTrackAsync(string trackHash)
+    {
+        using var context = new AppDbContext();
+        return await context.DownloadHistory
+            .Where(x => x.TrackHash == trackHash)
+            .OrderByDescending(x => x.RecordedAt)
+            .ToListAsync()
+            .ConfigureAwait(false);
+    }
 }
 
 

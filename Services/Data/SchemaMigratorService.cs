@@ -2239,6 +2239,40 @@ public class SchemaMigratorService
                 catch (Exception ex) { _logger.LogWarning(ex, "Failed to patch DeepTextureEmbedding"); }
             }
 
+            // 17. Download Intelligence History
+            if (!TableExists("DownloadHistory"))
+            {
+                _logger.LogInformation("Patching Schema: Creating DownloadHistory table...");
+                command.CommandText = @"
+                    CREATE TABLE ""DownloadHistory"" (
+                        ""Id""                   TEXT NOT NULL CONSTRAINT ""PK_DownloadHistory"" PRIMARY KEY,
+                        ""TrackHash""            TEXT NOT NULL,
+                        ""Artist""               TEXT NOT NULL DEFAULT '',
+                        ""Title""                TEXT NOT NULL DEFAULT '',
+                        ""ProjectId""            TEXT NULL,
+                        ""SearchAttemptCount""   INTEGER NOT NULL DEFAULT 0,
+                        ""SearchStartedAt""      TEXT NULL,
+                        ""SearchEndedAt""        TEXT NULL,
+                        ""SearchOutcome""        TEXT NOT NULL DEFAULT 'Unknown',
+                        ""UsedMp3Fallback""      INTEGER NOT NULL DEFAULT 0,
+                        ""MatchedCount""         INTEGER NOT NULL DEFAULT 0,
+                        ""QueuedCount""          INTEGER NOT NULL DEFAULT 0,
+                        ""FilteredCount""        INTEGER NOT NULL DEFAULT 0,
+                        ""PeerUsername""         TEXT NULL,
+                        ""DownloadedFilename""   TEXT NULL,
+                        ""DownloadedFormat""     TEXT NULL,
+                        ""DownloadedBitrateKbps"" INTEGER NULL,
+                        ""FinalState""           TEXT NOT NULL DEFAULT '',
+                        ""RecordedAt""           TEXT NOT NULL
+                    );
+                    CREATE INDEX ""IX_DownloadHistory_TrackHash"" ON ""DownloadHistory"" (""TrackHash"");
+                    CREATE INDEX ""IX_DownloadHistory_RecordedAt"" ON ""DownloadHistory"" (""RecordedAt"" DESC);
+                    CREATE INDEX ""IX_DownloadHistory_PeerUsername"" ON ""DownloadHistory"" (""PeerUsername"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ DownloadHistory table created.");
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)
