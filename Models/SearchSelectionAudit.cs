@@ -34,5 +34,9 @@ public sealed class SearchSelectionAuditCandidate
     public bool IsDedup { get; init; }
     public bool IsFlagged { get; init; }
     public double Rank { get; init; }
+    public double? BlendMatchScore { get; init; }
+    public double? BlendFitScore { get; init; }
+    public double? BlendReliability { get; init; }
+    public double? BlendFinalScore { get; init; }
     public string ScoreBreakdown { get; init; } = string.Empty;
 }

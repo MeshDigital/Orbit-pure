@@ -96,7 +96,7 @@
         <Border DockPanel.Dock="Top" Background="#252526" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="24,20" VerticalAlignment="Top">
             <StackPanel Spacing="20">
                 <!-- Search Input Row -->
-                <Grid ColumnDefinitions="*,Auto,Auto">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                     <!-- Search Box -->
                     <Border Grid.Column="0" Background="#1E1E1E" CornerRadius="14" BorderBrush="#333" BorderThickness="1" Height="56" MaxWidth="800" HorizontalAlignment="Stretch">
                         <Grid ColumnDefinitions="Auto,*,Auto">
@@ -135,16 +135,69 @@
                             <TextBlock Text="➡️" FontSize="16"/>
                         </StackPanel>
                     </Button>
+
+                    <!-- Stop Listening Button (final/cancel semantics) -->
+                    <Button Grid.Column="3"
+                            Command="{Binding CancelSearchCommand}"
+                            IsEnabled="{Binding IsListening}"
+                            Classes="secondary"
+                            Margin="10,0,0,0"
+                            Padding="20,0"
+                            Height="56"
+                            CornerRadius="12"
+                            ToolTip.Tip="Stop current stream listening (final for this search)">
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock Text="⏹" FontSize="14"/>
+                            <TextBlock Text="STOP LISTENING" FontWeight="SemiBold" FontSize="12"/>
+                        </StackPanel>
+                    </Button>
                 </Grid>
 
-                <!-- Presets Row -->
-                <StackPanel Orientation="Horizontal" Spacing="16">
-                    <TextBlock Text="Presets:" VerticalAlignment="Center" Foreground="#888" FontWeight="SemiBold" FontSize="13"/>
-                    <Button Command="{Binding ApplyPresetCommand}" CommandParameter="Deep Dive" Classes="pill" Content="🌊 Deep Dive" ToolTip.Tip="Match Priority, low bitrate threshold"/>
-                    <Button Command="{Binding ApplyPresetCommand}" CommandParameter="Quick Grab" Classes="pill" Content="⚡ Quick Grab" ToolTip.Tip="Reliability &amp; Speed Priority"/>
-                    <Button Command="{Binding ApplyPresetCommand}" CommandParameter="High Fidelity" Classes="pill" Content="💎 High Fidelity" ToolTip.Tip="Strict Quality, FLAC only"/>
-                    <Button Command="{Binding ApplyPresetCommand}" CommandParameter="Balanced" Classes="pill" Content="⚖️ Balanced" ToolTip.Tip="Reset to defaults"/>
-                </StackPanel>
+                <!-- Search Style Scale -->
+                <Border Background="#181818" CornerRadius="14" BorderBrush="#2F2F2F" BorderThickness="1" Padding="16,14">
+                    <StackPanel Spacing="10">
+                        <Grid ColumnDefinitions="Auto,*">
+                            <TextBlock Text="Search style" Foreground="#D8D8D8" FontWeight="Bold" FontSize="13" VerticalAlignment="Top"/>
+                            <StackPanel Grid.Column="1" Margin="16,0,0,0" Spacing="4">
+                                <TextBlock Text="Move left for faster/easier hits, right for stricter quality." Foreground="#9C9C9C" FontSize="12"/>
+                                <Border Classes="pill" Background="#222B36" BorderBrush="#35506E" HorizontalAlignment="Left">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="{Binding SelectedQualityPresetIcon}" FontSize="14"/>
+                                        <StackPanel Spacing="1">
+                                            <TextBlock Text="{Binding SelectedQualityPresetName}" Foreground="#F3F6FA" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding SelectedQualityPresetSubtitle}" Foreground="#AEB9C5" FontSize="11" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
+
+                        <Slider Minimum="0"
+                                Maximum="3"
+                                Value="{Binding QualityPresetSliderValue, Mode=TwoWay}"
+                                SmallChange="1"
+                                LargeChange="1"/>
+
+                        <Grid ColumnDefinitions="*,*,*,*" Margin="2,0,2,0">
+                            <StackPanel Grid.Column="0" Spacing="2">
+                                <TextBlock Text="⚡ Fast" Foreground="#EDEDED" FontWeight="SemiBold" FontSize="11"/>
+                                <TextBlock Text="Reliable + speedy" Foreground="#8E8E8E" FontSize="10"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="2" HorizontalAlignment="Center">
+                                <TextBlock Text="⚖️ Balanced" Foreground="#EDEDED" FontWeight="SemiBold" FontSize="11"/>
+                                <TextBlock Text="Best default" Foreground="#8E8E8E" FontSize="10"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Spacing="2" HorizontalAlignment="Center">
+                                <TextBlock Text="🌊 Deep Search" Foreground="#EDEDED" FontWeight="SemiBold" FontSize="11"/>
+                                <TextBlock Text="Wider matching" Foreground="#8E8E8E" FontSize="10"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="3" Spacing="2" HorizontalAlignment="Right">
+                                <TextBlock Text="💎 Lossless" Foreground="#EDEDED" FontWeight="SemiBold" FontSize="11"/>
+                                <TextBlock Text="Strict quality" Foreground="#8E8E8E" FontSize="10"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </Border>
 

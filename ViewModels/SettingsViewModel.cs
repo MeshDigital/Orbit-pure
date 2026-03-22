@@ -242,14 +242,11 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         get => _config.PreferredMinBitrate;
         set
         {
-            if (_config.PreferredMinBitrate != value)
-            {
-                _config.PreferredMinBitrate = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(SearchProfileNonStrict));
-                OnPropertyChanged(nameof(SearchProfileStrict));
-                OnPropertyChanged(nameof(SearchProfileStricter));
-                OnPropertyChanged(nameof(SearchProfileModeText));
+                // Enforce minimum base kbps of 320
+                var clampedValue = Math.Max(value, 320);
+                if (_config.PreferredMinBitrate != clampedValue)
+                {
+                    _config.PreferredMinBitrate = clampedValue;
                 SaveSettings();
             }
         }
@@ -665,7 +662,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             _config.SearchPolicy = new SearchPolicy 
             { 
                 Priority = SearchPriority.QualityFirst, 
-                PreferredMinBitrate = 192,
+                PreferredMinBitrate = 320,
                 RelaxationParams = new() // Moderate relaxation
             };
         }

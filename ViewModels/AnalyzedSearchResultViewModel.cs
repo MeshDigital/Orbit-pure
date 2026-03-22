@@ -44,8 +44,8 @@ namespace SLSKDONET.ViewModels
         public bool SlotFree => _result.SlotFree;
         
         // Phase 19: Sonic Match Reason
-        public string? MatchReason => _result.Model.MatchReason;
-        public bool HasMatchReason => !string.IsNullOrEmpty(MatchReason);
+        public string? MatchReason => _result.PreferredReason;
+        public bool HasMatchReason => _result.HasPreferredReason;
         
         // Formatted Values
         public string DisplayLength => Length.HasValue ? TimeSpan.FromSeconds(Length.Value).ToString(@"mm\:ss") : "--:--";

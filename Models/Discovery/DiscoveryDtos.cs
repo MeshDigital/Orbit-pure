@@ -120,6 +120,14 @@ public record DiscoverySearchResultDto
 
     /// <summary>Match reasoning / discovery logic</summary>
     public string? MatchReason { get; init; }
+
+    /// <summary>
+    /// Preferred reason for display: explicit match reason first, fallback to track score breakdown.
+    /// </summary>
+    public string? PreferredReason
+        => !string.IsNullOrWhiteSpace(MatchReason)
+            ? MatchReason
+            : Track?.ScoreBreakdown;
 }
 
 /// <summary>
@@ -133,4 +141,9 @@ public record DiscoveryTrack
     public string? MusicBrainzId { get; init; }
     public string? MatchReason { get; init; }
     public string? ImageUrl { get; init; }
+
+    /// <summary>
+    /// Preferred reason for display in discovery cards.
+    /// </summary>
+    public string? PreferredReason => MatchReason;
 }

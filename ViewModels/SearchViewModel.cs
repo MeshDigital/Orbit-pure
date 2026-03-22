@@ -6,6 +6,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Avalonia.Controls;
@@ -20,6 +21,8 @@ using SLSKDONET.Views;
 using DynamicData;
 using DynamicData.Binding;
 using ReactiveUI;
+using System.Reactive.Concurrency;
+using System.Reactive.Subjects;
 using System.Reactive.Linq;
 using SLSKDONET.Configuration;
 using System.Reactive.Disposables;
@@ -28,6 +31,16 @@ namespace SLSKDONET.ViewModels;
 
 public partial class SearchViewModel : ReactiveObject, IDisposable
 {
+    private sealed record SearchPresetDefinition(string Id, string DisplayName, string Subtitle, string Icon);
+
+    private static readonly SearchPresetDefinition[] SearchPresetScale =
+    {
+        new("Quick Grab", "Fast", "Prioritize reliable, fast-to-download results.", "⚡"),
+        new("Balanced", "Balanced", "Best default mix of quality, trust, and match strength.", "⚖️"),
+        new("Deep Dive", "Deep Search", "Search wider and lean harder on title/metadata matching.", "🌊"),
+        new("High Fidelity", "Lossless", "Strict quality-first mode with FLAC preference.", "💎")
+    };
+
     private readonly ILogger<SearchViewModel> _logger;
     private readonly SoulseekAdapter _soulseek;
     private readonly AppConfig _config;
@@ -46,7 +59,13 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     
     // Cleanup
     private readonly CompositeDisposable _disposables = new();
+    private readonly SerialDisposable _searchSubscription = new();
+    private readonly SerialDisposable _searchIdleMonitor = new();
+    private readonly object _searchSessionGate = new();
     private bool _isDisposed;
+    private bool _isApplyingPreset;
+    private CancellationTokenSource? _activeSearchCts;
+    private Guid? _currentSearchSessionId;
 
     public IEnumerable<string> PreferredFormats => new[] { "mp3", "flac", "m4a", "wav" }; // TODO: Load from config
 
@@ -79,7 +98,6 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         {
             if (SetProperty(ref _showFilteredOutResults, value))
             {
-                SyncSearchResultsView();
                 this.RaisePropertyChanged(nameof(ShowHiddenResultsButtonText));
             }
         }
@@ -129,6 +147,36 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         get => _isSearching;
         set => SetProperty(ref _isSearching, value);
     }
+
+    private bool _isListening;
+    public bool IsListening
+    {
+        get => _isListening;
+        set => SetProperty(ref _isListening, value);
+    }
+
+    public string CurrentSearchSessionId => _currentSearchSessionId?.ToString("N") ?? string.Empty;
+
+    private double _resultsPerSecond;
+    public double ResultsPerSecond
+    {
+        get => _resultsPerSecond;
+        set => SetProperty(ref _resultsPerSecond, value);
+    }
+
+    private int _totalResultsReceived;
+    public int TotalResultsReceived
+    {
+        get => _totalResultsReceived;
+        set => SetProperty(ref _totalResultsReceived, value);
+    }
+
+    private DateTime? _lastResultAtUtc;
+    public DateTime? LastResultAtUtc
+    {
+        get => _lastResultAtUtc;
+        set => SetProperty(ref _lastResultAtUtc, value);
+    }
     
     private string _statusText = "";
     public string StatusText
@@ -147,9 +195,9 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     // Reactive State
     private readonly SourceList<AnalyzedSearchResultViewModel> _searchResults = new();
     private readonly ReadOnlyObservableCollection<AnalyzedSearchResultViewModel> _publicSearchResults;
-    private readonly ObservableCollection<AnalyzedSearchResultViewModel> _searchResultsView = new();
+    private readonly ReadOnlyObservableCollection<AnalyzedSearchResultViewModel> _searchResultsView;
     public ReadOnlyObservableCollection<AnalyzedSearchResultViewModel> SearchResults => _publicSearchResults;
-    public ObservableCollection<AnalyzedSearchResultViewModel> SearchResultsView => _searchResultsView;
+    public ReadOnlyObservableCollection<AnalyzedSearchResultViewModel> SearchResultsView => _searchResultsView;
     
     // Phase 19: Search 2.0 Dense Grid Source
 
@@ -169,6 +217,26 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         set => this.RaiseAndSetIfChanged(ref _maxBitrate, value);
     }
 
+    private int _qualityPresetIndex = 1;
+    public double QualityPresetSliderValue
+    {
+        get => _qualityPresetIndex;
+        set
+        {
+            var roundedIndex = Math.Clamp((int)Math.Round(value, MidpointRounding.AwayFromZero), 0, SearchPresetScale.Length - 1);
+            if (_qualityPresetIndex == roundedIndex)
+                return;
+
+            _qualityPresetIndex = roundedIndex;
+            RaiseQualityPresetPropertiesChanged();
+            ApplyPresetByIndex(roundedIndex);
+        }
+    }
+
+    public string SelectedQualityPresetName => SearchPresetScale[_qualityPresetIndex].DisplayName;
+    public string SelectedQualityPresetSubtitle => SearchPresetScale[_qualityPresetIndex].Subtitle;
+    public string SelectedQualityPresetIcon => SearchPresetScale[_qualityPresetIndex].Icon;
+
     // Phase 5: Ranking Weights (Control Surface)
     public double BitrateWeight
     {
@@ -177,8 +245,12 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         { 
             _config.CustomWeights.QualityWeight = value;
             this.RaisePropertyChanged();
-            OnRankingWeightsChanged();
-            _configManager.Save(_config);
+            if (!_isApplyingPreset)
+            {
+                OnRankingWeightsChanged();
+                _configManager.Save(_config);
+                SyncQualityPresetFromCurrentSettings();
+            }
         }
     }
 
@@ -189,8 +261,12 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         { 
             _config.CustomWeights.AvailabilityWeight = value;
             this.RaisePropertyChanged(); // Notify UI
-            OnRankingWeightsChanged();
-            _configManager.Save(_config);
+            if (!_isApplyingPreset)
+            {
+                OnRankingWeightsChanged();
+                _configManager.Save(_config);
+                SyncQualityPresetFromCurrentSettings();
+            }
         }
     }
 
@@ -204,8 +280,12 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             _config.CustomWeights.StringWeight = value;
             
             this.RaisePropertyChanged();
-            OnRankingWeightsChanged();
-            _configManager.Save(_config);
+            if (!_isApplyingPreset)
+            {
+                OnRankingWeightsChanged();
+                _configManager.Save(_config);
+                SyncQualityPresetFromCurrentSettings();
+            }
         }
     }
 
@@ -213,19 +293,46 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     public bool IsFlacEnabled
     {
         get => FilterViewModel.FilterFlac;
-        set { FilterViewModel.FilterFlac = value; this.RaisePropertyChanged(); OnRankingWeightsChanged(); }
+        set
+        {
+            FilterViewModel.FilterFlac = value;
+            this.RaisePropertyChanged();
+            if (!_isApplyingPreset)
+            {
+                OnRankingWeightsChanged();
+                SyncQualityPresetFromCurrentSettings();
+            }
+        }
     }
     
     public bool IsMp3Enabled
     {
         get => FilterViewModel.FilterMp3;
-        set { FilterViewModel.FilterMp3 = value; this.RaisePropertyChanged(); OnRankingWeightsChanged(); }
+        set
+        {
+            FilterViewModel.FilterMp3 = value;
+            this.RaisePropertyChanged();
+            if (!_isApplyingPreset)
+            {
+                OnRankingWeightsChanged();
+                SyncQualityPresetFromCurrentSettings();
+            }
+        }
     }
 
     public bool IsWavEnabled
     {
         get => FilterViewModel.FilterWav;
-        set { FilterViewModel.FilterWav = value; this.RaisePropertyChanged(); OnRankingWeightsChanged(); }
+        set
+        {
+            FilterViewModel.FilterWav = value;
+            this.RaisePropertyChanged();
+            if (!_isApplyingPreset)
+            {
+                OnRankingWeightsChanged();
+                SyncQualityPresetFromCurrentSettings();
+            }
+        }
     }
 
 
@@ -294,19 +401,43 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         // Phase 6: Removed FindSimilarRequestEvent
 
         // --- Reactive Pipeline Setup ---
-        var filterPredicate = FilterViewModel.FilterChanged;
+        _searchSubscription.DisposeWith(_disposables);
+        _searchIdleMonitor.DisposeWith(_disposables);
 
         _searchResults.Connect()
-            .Filter(FilterViewModel.FilterChanged.Select(f => new Func<AnalyzedSearchResultViewModel, bool>(vm => f(vm.RawResult))))
-            .Sort(SortExpressionComparer<AnalyzedSearchResultViewModel>.Descending(t => t.TrustScore))
             .ObserveOn(RxApp.MainThreadScheduler)
             .Bind(out _publicSearchResults)
-            .DisposeMany() 
-            .Subscribe(_ => 
+            .DisposeMany()
+            .Subscribe(_ =>
             {
-                HiddenResultsCount = _searchResults.Count - _publicSearchResults.Count;
-                SyncSearchResultsView();
-                this.RaisePropertyChanged(nameof(SearchResults)); 
+                this.RaisePropertyChanged(nameof(SearchResults));
+            })
+            .DisposeWith(_disposables);
+
+        var visibilityPredicate = this
+            .WhenAnyValue(x => x.ShowFilteredOutResults)
+            .StartWith(false)
+            .CombineLatest(
+                FilterViewModel.FilterChanged.StartWith(FilterViewModel.GetFilterPredicate()),
+                (showFiltered, filter) => new Func<AnalyzedSearchResultViewModel, bool>(vm =>
+                {
+                    var isVisible = filter(vm.RawResult);
+                    var reason = isVisible ? null : FilterViewModel.GetHiddenReason(vm.RawResult);
+                    vm.SetFilterVisibility(!isVisible, reason);
+                    return showFiltered || isVisible;
+                }));
+
+        _searchResults.Connect()
+            .Filter(visibilityPredicate)
+            .Sort(SortExpressionComparer<AnalyzedSearchResultViewModel>.Descending(t => t.TrustScore))
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Bind(out _searchResultsView)
+            .DisposeMany()
+            .Subscribe(_ =>
+            {
+                HiddenResultsCount = _publicSearchResults.Count(vm => vm.IsFilteredOut);
+                this.RaisePropertyChanged(nameof(DisplayedResultsCount));
+                this.RaisePropertyChanged(nameof(HasDisplayedResults));
             })
             .DisposeWith(_disposables);
 
@@ -317,7 +448,13 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         var canSearch = this.WhenAnyValue(x => x.SearchQuery, query => !string.IsNullOrWhiteSpace(query));
         
         UnifiedSearchCommand = ReactiveCommand.CreateFromTask(ExecuteUnifiedSearchAsync, canSearch);
-        ClearSearchCommand = ReactiveCommand.Create(() => { SearchQuery = ""; _searchResults.Clear(); });
+        ClearSearchCommand = ReactiveCommand.Create(() =>
+        {
+            ExecuteCancelSearch();
+            SearchQuery = "";
+            _searchResults.Clear();
+            ResetTelemetry();
+        });
         BrowseCsvCommand = ReactiveCommand.CreateFromTask(ExecuteBrowseCsvAsync);
         PasteTracklistCommand = ReactiveCommand.CreateFromTask(ExecutePasteTracklistAsync);
         CancelSearchCommand = ReactiveCommand.Create(ExecuteCancelSearch);
@@ -331,6 +468,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         RelaxFiltersCommand = ReactiveCommand.Create(RelaxFilters);
         
         FilterViewModel.OnTokenSyncRequested = HandleTokenSync;
+
+        SyncQualityPresetFromCurrentSettings();
     }
 
     private void HandleTokenSync(string token, bool shouldAdd)
@@ -422,14 +561,61 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             SearchQuery = effectiveQuery;
         }
 
+        var cts = BeginNewSearchSession();
+        var sessionId = _currentSearchSessionId;
+
         IsSearching = true;
+        IsListening = true;
         StatusText = "Searching...";
-        await RunOnUiThreadAsync(() =>
-        {
-            _searchResults.Clear();
-        });
+        _searchResults.Clear();
         HiddenResultsCount = 0;
         ShowFilteredOutResults = false;
+        ResetTelemetry();
+
+        using var incomingTrackStream = new Subject<Track>();
+        var streamDrainTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var windowStartAt = DateTime.UtcNow;
+
+        _searchSubscription.Disposable = incomingTrackStream
+            .ObserveOn(TaskPoolScheduler.Default)
+            .Select(track => new AnalyzedSearchResultViewModel(new SearchResult(track)))
+            .Buffer(TimeSpan.FromMilliseconds(250), 50)
+            .Where(batch => batch.Count > 0)
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(batch =>
+            {
+                if (_currentSearchSessionId != sessionId)
+                    return;
+
+                foreach (var item in batch)
+                {
+                    ApplyActiveDownloadStatus(item.RawResult);
+                }
+
+                _searchResults.AddRange(batch);
+
+                TotalResultsReceived += batch.Count;
+                LastResultAtUtc = DateTime.UtcNow;
+                var elapsedMs = Math.Max(1.0, (LastResultAtUtc.Value - windowStartAt).TotalMilliseconds);
+                ResultsPerSecond = Math.Round(batch.Count * 1000.0 / elapsedMs, 1);
+                windowStartAt = LastResultAtUtc.Value;
+                StatusText = $"Found {TotalResultsReceived} files (streaming at {ResultsPerSecond:0.#} results/sec)";
+            },
+            ex => streamDrainTcs.TrySetException(ex),
+            () => streamDrainTcs.TrySetResult());
+
+        _searchIdleMonitor.Disposable = Observable.Interval(TimeSpan.FromSeconds(1), RxApp.MainThreadScheduler)
+            .Subscribe(_ =>
+            {
+                if (!IsListening || !LastResultAtUtc.HasValue)
+                    return;
+
+                if (DateTime.UtcNow - LastResultAtUtc.Value >= TimeSpan.FromSeconds(5))
+                {
+                    ResultsPerSecond = 0;
+                    StatusText = $"Found {TotalResultsReceived} files (stream idle)";
+                }
+            });
 
         try
         {
@@ -437,6 +623,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             if (provider != null)
             {
                 StatusText = $"Importing via {provider.Name}...";
+                EndActiveSearchSession(cancelNetwork: true);
                 IsSearching = false;
                 await _importOrchestrator.StartImportWithPreviewAsync(provider, SearchQuery);
                 StatusText = "Ready";
@@ -444,14 +631,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             }
 
             StatusText = $"Listening for vibes: {effectiveQuery}...";
-            
-            var cts = new System.Threading.CancellationTokenSource();
-            
-            var buffer = new List<AnalyzedSearchResultViewModel>();
-            var lastUpdate = DateTime.UtcNow;
-            int totalFound = 0;
 
-            try 
+            try
             {
                 await foreach (var track in _searchOrchestration.SearchAsync(
                     query: effectiveQuery,
@@ -461,59 +642,63 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                     isAlbumSearch: IsAlbumSearch,
                     cancellationToken: cts.Token))
                 {
-                    var result = new SearchResult(track);
-                    
-                    var existing = _downloadManager.ActiveDownloads.FirstOrDefault(d => d.GlobalId == track.UniqueHash);
-                    if (existing != null)
+                    if (_currentSearchSessionId != sessionId)
                     {
-                        result.Status = (existing.State == PlaylistTrackState.Completed) ? TrackStatus.Downloaded :
-                                        (existing.State == PlaylistTrackState.Failed) ? TrackStatus.Failed : 
-                                        TrackStatus.Missing;
+                        break;
                     }
-                    
-                    // WRAP IN VIEWMODEL
-                    var vm = new AnalyzedSearchResultViewModel(result);
-                    
-                    buffer.Add(vm);
-                    totalFound++;
 
-                    if ((DateTime.UtcNow - lastUpdate).TotalMilliseconds > 250 || buffer.Count >= 50)
-                    {
-                        var toAdd = buffer.ToList();
-                        buffer.Clear();
-                        await RunOnUiThreadAsync(() => _searchResults.AddRange(toAdd));
-                        lastUpdate = DateTime.UtcNow;
-                        StatusText = $"Found {totalFound} tracks...";
-                    }
+                    incomingTrackStream.OnNext(track);
                 }
 
-                if (buffer.Any())
-                {
-                    var toAdd = buffer.ToList();
-                    buffer.Clear();
-                    await RunOnUiThreadAsync(() => _searchResults.AddRange(toAdd));
-                }
+                incomingTrackStream.OnCompleted();
             }
             catch (OperationCanceledException)
             {
-                StatusText = "Cancelled";
+                incomingTrackStream.OnCompleted();
+                if (_currentSearchSessionId == sessionId)
+                {
+                    StatusText = "Stopped listening";
+                }
             }
             finally
             {
-                IsSearching = false;
-                if (totalFound > 0)
+                if (_currentSearchSessionId == sessionId)
                 {
-                    ApplyPercentileScoring(); // Updated for AnalyzedSearchResultViewModel
-                    StatusText = $"Found {totalFound} items";
+                    await streamDrainTcs.Task;
+
+                    IsSearching = false;
+                    IsListening = false;
+
+                    if (TotalResultsReceived > 0)
+                    {
+                        ApplyPercentileScoring();
+                        ResultsPerSecond = 0;
+                        StatusText = $"Found {TotalResultsReceived} files (stream idle)";
+                    }
+                    else
+                    {
+                        StatusText = "No results found";
+                    }
+
+                    EndActiveSearchSession(cancelNetwork: false, disposeSubscription: false);
                 }
-                else StatusText = "No results found";
             }
+        }
+        catch (SearchLimitExceededException ex)
+        {
+            IsSearching = false;
+            IsListening = false;
+            ResultsPerSecond = 0;
+            EndActiveSearchSession(cancelNetwork: true);
+            StatusText = $"⚠️ Showing first {ex.HardResultCap:N0} results. Please use a more specific search.";
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Search failed");
             StatusText = $"Error: {ex.Message}";
             IsSearching = false;
+            IsListening = false;
+            EndActiveSearchSession(cancelNetwork: true);
         }
     }
 
@@ -613,8 +798,83 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
 
     private void ExecuteCancelSearch()
     {
+        EndActiveSearchSession(cancelNetwork: true);
         IsSearching = false;
-        StatusText = "Cancelled";
+        IsListening = false;
+        ResultsPerSecond = 0;
+        StatusText = "Stopped listening";
+    }
+
+    private CancellationTokenSource BeginNewSearchSession()
+    {
+        lock (_searchSessionGate)
+        {
+            EndActiveSearchSession(cancelNetwork: true);
+
+            _activeSearchCts = new CancellationTokenSource();
+            _currentSearchSessionId = Guid.NewGuid();
+            this.RaisePropertyChanged(nameof(CurrentSearchSessionId));
+            return _activeSearchCts;
+        }
+    }
+
+    private void EndActiveSearchSession(bool cancelNetwork, bool disposeSubscription = true)
+    {
+        CancellationTokenSource? cts;
+        lock (_searchSessionGate)
+        {
+            cts = _activeSearchCts;
+            _activeSearchCts = null;
+            if (disposeSubscription)
+            {
+                _searchSubscription.Disposable = null;
+            }
+            _searchIdleMonitor.Disposable = null;
+            _currentSearchSessionId = null;
+            this.RaisePropertyChanged(nameof(CurrentSearchSessionId));
+        }
+
+        if (cts == null)
+            return;
+
+        try
+        {
+            if (cancelNetwork)
+            {
+                cts.Cancel();
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        finally
+        {
+            cts.Dispose();
+        }
+    }
+
+    private void ResetTelemetry()
+    {
+        ResultsPerSecond = 0;
+        TotalResultsReceived = 0;
+        LastResultAtUtc = null;
+    }
+
+    private void ApplyActiveDownloadStatus(SearchResult result)
+    {
+        if (_downloadManager is null)
+            return;
+
+        var existing = _downloadManager.ActiveDownloads.FirstOrDefault(d => d.GlobalId == result.Model.UniqueHash);
+        if (existing == null)
+            return;
+
+        result.Status = existing.State switch
+        {
+            PlaylistTrackState.Completed => TrackStatus.Downloaded,
+            PlaylistTrackState.Failed => TrackStatus.Failed,
+            _ => TrackStatus.Missing
+        };
     }
 
     private async Task ExecuteAddToDownloadsAsync()
@@ -655,44 +915,161 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
 
     public void ResetState()
     {
+        ExecuteCancelSearch();
         SearchQuery = "";
         IsSearching = false;
         IsUserCollectionBrowserOpen = false;
         _searchResults.Clear();
+        ResetTelemetry();
         StatusText = "Ready";
     }
 
     private void ExecuteApplyPreset(string presetName)
     {
-        switch (presetName)
+        var presetIndex = Array.FindIndex(SearchPresetScale, preset => string.Equals(preset.Id, presetName, StringComparison.OrdinalIgnoreCase));
+        if (presetIndex < 0)
         {
-            case "Deep Dive":
-                BitrateWeight = 0.5;
-                ReliabilityWeight = 0.5;
-                MatchWeight = 2.0;
-                IsFlacEnabled = false; 
-                break;
-            case "Quick Grab":
-                BitrateWeight = 1.5;
-                ReliabilityWeight = 2.0;
-                MatchWeight = 1.0;
-                break;
-            case "High Fidelity":
-                BitrateWeight = 2.0;
-                ReliabilityWeight = 1.0;
-                MatchWeight = 1.0;
-                IsFlacEnabled = true;
-                IsMp3Enabled = false;
-                break;
-             case "Balanced":
-             default:
-                BitrateWeight = 1.0;
-                ReliabilityWeight = 1.0;
-                MatchWeight = 1.0;
-                IsFlacEnabled = false;
-                IsMp3Enabled = false;
-                break;
+            presetIndex = 1;
         }
+
+        if (_qualityPresetIndex != presetIndex)
+        {
+            _qualityPresetIndex = presetIndex;
+            RaiseQualityPresetPropertiesChanged();
+        }
+
+        ApplyPresetByIndex(presetIndex);
+    }
+
+    private void ApplyPresetByIndex(int presetIndex)
+    {
+        presetIndex = Math.Clamp(presetIndex, 0, SearchPresetScale.Length - 1);
+        _isApplyingPreset = true;
+
+        try
+        {
+            switch (SearchPresetScale[presetIndex].Id)
+            {
+                case "Deep Dive":
+                    _config.CustomWeights.QualityWeight = 0.5;
+                    _config.CustomWeights.AvailabilityWeight = 0.5;
+                    _config.CustomWeights.MusicalWeight = 2.0;
+                    _config.CustomWeights.MetadataWeight = 2.0;
+                    _config.CustomWeights.StringWeight = 2.0;
+                    FilterViewModel.FilterFlac = false;
+                    FilterViewModel.FilterMp3 = true;
+                    FilterViewModel.FilterWav = true;
+                    break;
+                case "Quick Grab":
+                    _config.CustomWeights.QualityWeight = 1.5;
+                    _config.CustomWeights.AvailabilityWeight = 2.0;
+                    _config.CustomWeights.MusicalWeight = 1.0;
+                    _config.CustomWeights.MetadataWeight = 1.0;
+                    _config.CustomWeights.StringWeight = 1.0;
+                    FilterViewModel.FilterFlac = true;
+                    FilterViewModel.FilterMp3 = true;
+                    FilterViewModel.FilterWav = true;
+                    break;
+                case "High Fidelity":
+                    _config.CustomWeights.QualityWeight = 2.0;
+                    _config.CustomWeights.AvailabilityWeight = 1.0;
+                    _config.CustomWeights.MusicalWeight = 1.0;
+                    _config.CustomWeights.MetadataWeight = 1.0;
+                    _config.CustomWeights.StringWeight = 1.0;
+                    FilterViewModel.FilterFlac = true;
+                    FilterViewModel.FilterMp3 = false;
+                    FilterViewModel.FilterWav = true;
+                    break;
+                case "Balanced":
+                default:
+                    _config.CustomWeights.QualityWeight = 1.0;
+                    _config.CustomWeights.AvailabilityWeight = 1.0;
+                    _config.CustomWeights.MusicalWeight = 1.0;
+                    _config.CustomWeights.MetadataWeight = 1.0;
+                    _config.CustomWeights.StringWeight = 1.0;
+                    FilterViewModel.FilterFlac = true;
+                    FilterViewModel.FilterMp3 = true;
+                    FilterViewModel.FilterWav = true;
+                    break;
+            }
+        }
+        finally
+        {
+            _isApplyingPreset = false;
+        }
+
+        this.RaisePropertyChanged(nameof(BitrateWeight));
+        this.RaisePropertyChanged(nameof(ReliabilityWeight));
+        this.RaisePropertyChanged(nameof(MatchWeight));
+        this.RaisePropertyChanged(nameof(IsFlacEnabled));
+        this.RaisePropertyChanged(nameof(IsMp3Enabled));
+        this.RaisePropertyChanged(nameof(IsWavEnabled));
+
+        OnRankingWeightsChanged();
+        _configManager.Save(_config);
+    }
+
+    private void SyncQualityPresetFromCurrentSettings()
+    {
+        var matchedIndex = GetMatchingPresetIndex();
+        if (_qualityPresetIndex == matchedIndex)
+            return;
+
+        _qualityPresetIndex = matchedIndex;
+        RaiseQualityPresetPropertiesChanged();
+    }
+
+    private int GetMatchingPresetIndex()
+    {
+        if (Math.Abs(BitrateWeight - 1.5) < 0.001 &&
+            Math.Abs(ReliabilityWeight - 2.0) < 0.001 &&
+            Math.Abs(MatchWeight - 1.0) < 0.001 &&
+            IsFlacEnabled &&
+            IsMp3Enabled &&
+            IsWavEnabled)
+        {
+            return 0;
+        }
+
+        if (Math.Abs(BitrateWeight - 1.0) < 0.001 &&
+            Math.Abs(ReliabilityWeight - 1.0) < 0.001 &&
+            Math.Abs(MatchWeight - 1.0) < 0.001 &&
+            IsFlacEnabled &&
+            IsMp3Enabled &&
+            IsWavEnabled)
+        {
+            return 1;
+        }
+
+        if (Math.Abs(BitrateWeight - 0.5) < 0.001 &&
+            Math.Abs(ReliabilityWeight - 0.5) < 0.001 &&
+            Math.Abs(MatchWeight - 2.0) < 0.001 &&
+            !IsFlacEnabled &&
+            IsMp3Enabled &&
+            IsWavEnabled)
+        {
+            return 2;
+        }
+
+        if (Math.Abs(BitrateWeight - 2.0) < 0.001 &&
+            Math.Abs(ReliabilityWeight - 1.0) < 0.001 &&
+            Math.Abs(MatchWeight - 1.0) < 0.001 &&
+            IsFlacEnabled &&
+            !IsMp3Enabled &&
+            IsWavEnabled)
+        {
+            return 3;
+        }
+
+        return 1;
+    }
+
+    private void RaiseQualityPresetPropertiesChanged()
+    {
+        this.RaisePropertyChanged(nameof(QualityPresetSliderValue));
+        this.RaisePropertyChanged(nameof(SelectedQualityPresetName));
+        this.RaisePropertyChanged(nameof(SelectedQualityPresetSubtitle));
+        this.RaisePropertyChanged(nameof(SelectedQualityPresetIcon));
     }
 
     private void ToggleHiddenResults()
@@ -720,55 +1097,6 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         });
 
         StatusText = "Relaxed filters for the cached result set. Hidden matches are now visible without a new network search.";
-    }
-
-    private void SyncSearchResultsView()
-    {
-        var filter = FilterViewModel.GetFilterPredicate();
-        var sortedResults = _searchResults.Items
-            .OrderByDescending(result => result.TrustScore)
-            .ToList();
-
-        var displayedResults = new List<AnalyzedSearchResultViewModel>(sortedResults.Count);
-        var hiddenCount = 0;
-
-        foreach (var result in sortedResults)
-        {
-            var isVisible = filter(result.RawResult);
-            var hiddenReason = isVisible ? null : FilterViewModel.GetHiddenReason(result.RawResult);
-            result.SetFilterVisibility(!isVisible, hiddenReason);
-
-            if (!isVisible)
-            {
-                hiddenCount++;
-            }
-
-            if (isVisible || ShowFilteredOutResults)
-            {
-                displayedResults.Add(result);
-            }
-        }
-
-        HiddenResultsCount = hiddenCount;
-        _searchResultsView.Clear();
-        foreach (var result in displayedResults)
-        {
-            _searchResultsView.Add(result);
-        }
-
-        this.RaisePropertyChanged(nameof(DisplayedResultsCount));
-        this.RaisePropertyChanged(nameof(HasDisplayedResults));
-    }
-
-    private static async Task RunOnUiThreadAsync(Action action)
-    {
-        if (Dispatcher.UIThread.CheckAccess())
-        {
-            action();
-            return;
-        }
-
-        await Dispatcher.UIThread.InvokeAsync(action);
     }
 
     private void OnTrackStateChanged(TrackStateChangedEvent evt)
@@ -855,11 +1183,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         {
             _disposables.Dispose();
             _searchResults.Dispose();
-            // Cancel any active search
-            if (IsSearching)
-            {
-                ExecuteCancelSearch();
-            }
+            EndActiveSearchSession(cancelNetwork: true);
         }
 
         _isDisposed = true;

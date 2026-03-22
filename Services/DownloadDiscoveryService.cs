@@ -434,11 +434,14 @@ public class DownloadDiscoveryService
                 forceMp3,
                 track.Status);
             
-            // Workstation 2026: enforce network-side quality gate for lossless lanes.
-            // This pushes filtering upstream to Soulseek and reduces local scoring overhead.
+            // Network-side quality gate for lossless lanes: raise the floor to 320 kbps so the
+            // Soulseek protocol rejects obvious low-quality garbage at the source.
+            // The previous hard floor of 701 kbps was too aggressive — it rejected legitimate
+            // 16-bit/44.1 kHz FLAC files that report 500–700 kbps. The app-level transcode
+            // guard (Bitrate < 400 kbps → rejected) is the real anti-transcode safeguard.
             if (!forceMp3 && formatsList.Contains("flac", StringComparer.OrdinalIgnoreCase))
             {
-                minBitrate = Math.Max(minBitrate, 701);
+                minBitrate = Math.Max(minBitrate, 320);
             }
 
             // null = no upper limit. Explicit 0 was previously used but printed as "320-0" in logs,
@@ -460,10 +463,18 @@ public class DownloadDiscoveryService
             Track? runnerUpSilverMatch = null;
             double runnerUpSilverScore = 0;
             var pendingCandidates = new List<Track>(8);
-            var minSearchDurationSeconds = Math.Clamp(_config.MinSearchDurationSeconds, 3, 8);
+            // Speculative trigger: fire only after enough time to collect a meaningful candidate set.
+            // Old clamp (3–8 s) was too aggressive — accept a silver score after just 3 s is too soon.
+            // Aligned to the brain buffer floor: half of SearchTimeout is a reasonable speculative window.
+            var minSearchDurationSeconds = Math.Clamp(_config.MinSearchDurationSeconds / 2, 6, 15);
             var matchOptions = forceMp3
                 ? SearchResultMatcher.MatchOptions.LossyFallback(Math.Max(0, _config.SearchLengthToleranceSeconds))
                 : SearchResultMatcher.MatchOptions.StrictLossless(Math.Max(0, _config.SearchLengthToleranceSeconds));
+            var targetMetadata = new InputParsers.TargetMetadata(
+                track.Artist,
+                track.Title,
+                track.Album,
+                track.CanonicalDuration.HasValue ? Math.Max(0, track.CanonicalDuration.Value / 1000) : null);
 
             void UpdateTopSilverCandidates(Track candidate, double score)
             {
@@ -505,16 +516,29 @@ public class DownloadDiscoveryService
                     var searchTrack = scored.Candidate;
                     var matchResult = scored.Result;
                     var reliability = _peerReliability.GetReliabilityScore(searchTrack.Username);
-                    var reliabilityBonus = (reliability - 0.5) * 10.0;
                     var queueLength = Math.Max(0, searchTrack.QueueLength);
-                    var queuePenalty = queueLength > 10
-                        ? Math.Min(20.0, (queueLength - 10) * 0.25)
-                        : 0.0;
-                    var score = scored.Score + reliabilityBonus - queuePenalty;
+                    var fitScore = SearchCandidateFitScorer.CalculateScore(
+                        searchTrack,
+                        targetMetadata,
+                        formatsList,
+                        minBitrate,
+                        _config.SearchLengthToleranceSeconds);
+                    var score = SearchCandidateRankingPolicy.CalculateFinalScore(
+                        scored.Score,
+                        fitScore,
+                        reliability,
+                        queueLength);
+                    EnsureBlendTelemetryMetadata(searchTrack, scored.Score, fitScore, reliability, score);
 
-                    searchTrack.ScoreBreakdown = matchResult.ScoreBreakdown;
+                    searchTrack.ScoreBreakdown = BuildCompositeScoreBreakdown(
+                        matchResult.ScoreBreakdown,
+                        scored.Score,
+                        fitScore,
+                        reliability,
+                        queueLength,
+                        score);
                     searchTrack.CurrentRank = score;
-                    searchTrack.MatchReason = BuildDiscoveryReason(matchResult.ScoreBreakdown, useFastLane, queueLength);
+                    searchTrack.MatchReason = BuildDiscoveryReason(searchTrack, matchResult.ScoreBreakdown, useFastLane, queueLength);
 
                     var isGoldenCriteria = !forceMp3 &&
                                            string.Equals(searchTrack.Format, "flac", StringComparison.OrdinalIgnoreCase) &&
@@ -613,6 +637,7 @@ public class DownloadDiscoveryService
 
             // Consume the stream
             await foreach (Track searchTrack in _searchOrchestrator.SearchAsync(
+                track,
                 query,
                 preferredFormats,
                 minBitrate,
@@ -653,17 +678,28 @@ public class DownloadDiscoveryService
                 
                 if (!safety.IsSafe && !track.IgnoreSafetyGuards)
                 {
-                    log.RejectedByForensics++;
-                    // Log the rejection to the persistent audit trail
-                    PublishStatus($"Rejected {searchTrack.Username}: {safety.Reason}", true);
-                    // Phase 6: Security audit trail
-                    _eventBus.Publish(new SecurityAuditEvent(
-                        Category: SecurityAuditCategory.Gate,
-                        Severity: SecurityAuditSeverity.Block,
-                        Summary: $"Gate blocked: {safety.Reason}",
-                        Detail: $"Peer: {searchTrack.Username} | {safety.TechnicalDetails ?? $"Bitrate: {searchTrack.Bitrate}kbps"}",
-                        AssociatedHash: track.TrackUniqueHash));
-                    continue; 
+                    var toleratedMp3FallbackReason = forceMp3 && IsToleratedMp3FallbackSafetyReason(safety.Reason);
+                    if (!toleratedMp3FallbackReason)
+                    {
+                        log.RejectedByForensics++;
+                        // Log the rejection to the persistent audit trail
+                        PublishStatus($"Rejected {searchTrack.Username}: {safety.Reason}", true);
+                        // Phase 6: Security audit trail
+                        _eventBus.Publish(new SecurityAuditEvent(
+                            Category: SecurityAuditCategory.Gate,
+                            Severity: SecurityAuditSeverity.Block,
+                            Summary: $"Gate blocked: {safety.Reason}",
+                            Detail: $"Peer: {searchTrack.Username} | {safety.TechnicalDetails ?? $"Bitrate: {searchTrack.Bitrate}kbps"}",
+                            AssociatedHash: track.TrackUniqueHash));
+                        continue;
+                    }
+
+                    _logger.LogDebug(
+                        "[TIER {Tier}] MP3 fallback lane tolerated strict-lossless safety reason '{Reason}' for candidate {File} from {User}.",
+                        tierName,
+                        safety.Reason,
+                        searchTrack.Filename,
+                        searchTrack.Username);
                 }
 
                 if (!forceMp3 && !track.IgnoreSafetyGuards && (searchTrack.Format == "flac" && searchTrack.Bitrate < 400))
@@ -815,17 +851,36 @@ public class DownloadDiscoveryService
 
     private bool IsMp3FallbackAllowed(PlaylistTrack track)
     {
-        // Profile overwrite is authoritative: fallback behavior follows active app profile,
-        // not stale per-track historical overrides.
-        var formats = _config.PreferredFormats ?? new List<string>();
+        // EnableMp3Fallback is the primary gate: when true, MP3 fallback/hedge are always allowed
+        // regardless of which lossless formats are listed in PreferredFormats.
+        // This prevents a config like ["flac","wav"] from silently disabling MP3 recovery entirely.
+        if (_config.EnableMp3Fallback)
+            return true;
 
+        // Legacy path: if "mp3" is explicitly listed in PreferredFormats, honour it.
+        var formats = _config.PreferredFormats ?? new List<string>();
         return formats.Any(f => string.Equals(f?.Trim(), "mp3", StringComparison.OrdinalIgnoreCase));
     }
 
-    private static string? BuildDiscoveryReason(string? scoreBreakdown, bool useFastLane, int queueLength)
+    private static bool IsToleratedMp3FallbackSafetyReason(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            return false;
+
+        return reason.Equals("Lossy Extension Rejected", StringComparison.OrdinalIgnoreCase) ||
+               reason.Equals("Unsupported Extension", StringComparison.OrdinalIgnoreCase) ||
+               reason.Equals("Bitrate Too Low", StringComparison.OrdinalIgnoreCase) ||
+               reason.Equals("Sample Rate Too Low", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? BuildDiscoveryReason(Track track, string? scoreBreakdown, bool useFastLane, int queueLength)
     {
         if (useFastLane && queueLength == 0)
             return "⚡ Fast lane: idle peer match";
+
+        var compactReason = SearchBlendReasonFormatter.BuildCompactReason(track.Metadata);
+        if (!string.IsNullOrWhiteSpace(compactReason))
+            return compactReason;
 
         if (string.IsNullOrWhiteSpace(scoreBreakdown))
             return null;
@@ -834,6 +889,30 @@ public class DownloadDiscoveryService
             return "🗂 Curated release context";
 
         return null;
+    }
+
+    private static string BuildCompositeScoreBreakdown(
+        string? matcherBreakdown,
+        double matchScore,
+        double fitScore,
+        double reliability,
+        int queueLength,
+        double finalScore)
+    {
+        var prefix = string.IsNullOrWhiteSpace(matcherBreakdown)
+            ? string.Empty
+            : $"{matcherBreakdown}; ";
+
+        return $"{prefix}Blend: Match={matchScore:F1}, Fit={fitScore:F1}, Rel={reliability:F2}, Queue={queueLength}, Final={finalScore:F1}";
+    }
+
+    private static void EnsureBlendTelemetryMetadata(Track track, double matchScore, double fitScore, double reliability, double finalScore)
+    {
+        track.Metadata ??= new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        track.Metadata["BlendMatchScore"] = matchScore;
+        track.Metadata["BlendFitScore"] = fitScore;
+        track.Metadata["BlendReliability"] = reliability;
+        track.Metadata["BlendFinalScore"] = finalScore;
     }
 
     private async Task<bool> WaitForConnectionAsync(CancellationToken ct)

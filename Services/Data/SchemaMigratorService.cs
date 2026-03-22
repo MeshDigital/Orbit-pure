@@ -20,6 +20,136 @@ public class SchemaMigratorService
         _logger = logger;
     }
 
+    private async Task<bool> IsSqliteDatabaseHealthyAsync(string dbPath)
+    {
+        if (!System.IO.File.Exists(dbPath))
+            return false;
+
+        try
+        {
+            var cs = new SqliteConnectionStringBuilder
+            {
+                DataSource = dbPath,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false,
+                DefaultTimeout = 5
+            }.ToString();
+
+            using var conn = new SqliteConnection(cs);
+            await conn.OpenAsync().ConfigureAwait(false);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "PRAGMA quick_check(1);";
+            var result = (await cmd.ExecuteScalarAsync().ConfigureAwait(false))?.ToString();
+            return string.Equals(result, "ok", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "SQLite health check failed for {DbPath}", dbPath);
+            return false;
+        }
+    }
+
+    private async Task<bool> TryRestoreLatestHealthyBackupAsync(string backupDir, string dbPath)
+    {
+        if (!System.IO.Directory.Exists(backupDir))
+            return false;
+
+        var backups = new System.IO.DirectoryInfo(backupDir)
+            .GetFiles("library.backup.*.db")
+            .OrderByDescending(f => f.CreationTime)
+            .ToList();
+
+        foreach (var backup in backups)
+        {
+            if (await IsSqliteDatabaseHealthyAsync(backup.FullName).ConfigureAwait(false))
+            {
+                DeleteDatabaseFiles(dbPath);
+                System.IO.File.Copy(backup.FullName, dbPath, overwrite: true);
+                _logger.LogInformation("✅ Database restored from healthy backup: {Backup}", backup.Name);
+                return true;
+            }
+
+            // quick_check failed — try REINDEX repair (handles index corruption with intact table data)
+            _logger.LogWarning("Backup {Backup} failed quick_check. Attempting REINDEX repair...", backup.Name);
+            var repairedPath = backup.FullName + ".repair-attempt.db";
+            try
+            {
+                System.IO.File.Copy(backup.FullName, repairedPath, overwrite: true);
+                var rwCs = new SqliteConnectionStringBuilder
+                {
+                    DataSource = repairedPath,
+                    Mode = SqliteOpenMode.ReadWrite,
+                    Pooling = false,
+                    DefaultTimeout = 30
+                }.ToString();
+
+                using (var repairConn = new SqliteConnection(rwCs))
+                {
+                    await repairConn.OpenAsync().ConfigureAwait(false);
+                    using var repairCmd = repairConn.CreateCommand();
+                    repairCmd.CommandText = "REINDEX;";
+                    await repairCmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                    repairCmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                    await repairCmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                }
+
+                SqliteConnection.ClearAllPools();
+
+                if (await IsSqliteDatabaseHealthyAsync(repairedPath).ConfigureAwait(false))
+                {
+                    DeleteDatabaseFiles(dbPath);
+                    System.IO.File.Copy(repairedPath, dbPath, overwrite: true);
+                    _logger.LogInformation("✅ Database restored from repaired backup: {Backup}", backup.Name);
+                    return true;
+                }
+
+                _logger.LogWarning("Skipping corrupt backup candidate (repair failed): {Backup}", backup.Name);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Repair attempt failed for backup: {Backup}", backup.Name);
+            }
+            finally
+            {
+                if (System.IO.File.Exists(repairedPath))
+                    System.IO.File.Delete(repairedPath);
+            }
+        }
+
+        return false;
+    }
+
+    private void DeleteDatabaseFiles(string dbPath)
+    {
+        SqliteConnection.ClearAllPools();
+
+        var files = new[]
+        {
+            dbPath,
+            dbPath + "-wal",
+            dbPath + "-shm"
+        };
+
+        foreach (var file in files)
+        {
+            if (!System.IO.File.Exists(file))
+                continue;
+
+            for (int i = 0; i < 3; i++)
+            {
+                try
+                {
+                    System.IO.File.Delete(file);
+                    break;
+                }
+                catch when (i < 2)
+                {
+                    System.Threading.Thread.Sleep(150);
+                }
+            }
+        }
+    }
+
     private async Task PerformBackupAsync()
     {
         try
@@ -33,21 +163,22 @@ public class SchemaMigratorService
                 // Auto-Restore Logic
                 if (System.IO.Directory.Exists(backupDir))
                 {
-                    var latestBackup = new System.IO.DirectoryInfo(backupDir)
-                        .GetFiles("library.backup.*.db")
-                        .OrderByDescending(f => f.CreationTime)
-                        .FirstOrDefault();
-
-                    if (latestBackup != null)
+                    var restored = await TryRestoreLatestHealthyBackupAsync(backupDir, dbPath).ConfigureAwait(false);
+                    if (restored)
                     {
-                        _logger.LogWarning("⚠️ Database missing! Implementing Auto-Restore from: {Backup}", latestBackup.Name);
-                        System.IO.File.Copy(latestBackup.FullName, dbPath);
-                        _logger.LogInformation("✅ Database restored successfully. Initialization will now patch schema.");
+                        _logger.LogWarning("⚠️ Database missing! Auto-restore succeeded from healthy backup.");
+                        _logger.LogInformation("Initialization will now patch schema.");
                         return; // Done, we restored. No need to backup the thing we just restored immediately.
                     }
                 }
 
                 _logger.LogInformation("No existing database and no backups found. Starting fresh.");
+                return;
+            }
+
+            if (!await IsSqliteDatabaseHealthyAsync(dbPath).ConfigureAwait(false))
+            {
+                _logger.LogWarning("Skipping backup creation because active database is malformed: {DbPath}", dbPath);
                 return;
             }
 
@@ -149,6 +280,35 @@ public class SchemaMigratorService
         // Phase 24: Automatic Database Backup & Recovery
         await CheckForForceResetAsync().ConfigureAwait(false); // Step 1: Check if user requested reset
         await PerformBackupAsync().ConfigureAwait(false);      // Step 2: Backup existing or Restore if missing
+
+        // Validate active DB before any migration/PRAGMA work.
+        // If malformed, try healthy backup fallback; otherwise start fresh.
+        if (System.IO.File.Exists(dbPath))
+        {
+            var isHealthy = await IsSqliteDatabaseHealthyAsync(dbPath).ConfigureAwait(false);
+            if (!isHealthy)
+            {
+                _logger.LogWarning("Active database is malformed. Attempting recovery from healthy backup before migrations.");
+
+                var backupDir = System.IO.Path.Combine(appData, "ORBIT", "Backups");
+                var restored = await TryRestoreLatestHealthyBackupAsync(backupDir, dbPath).ConfigureAwait(false);
+
+                if (!restored)
+                {
+                    _logger.LogWarning("No healthy backup found. Recreating database from scratch.");
+                    DeleteDatabaseFiles(dbPath);
+                }
+                else
+                {
+                    var restoredHealthy = await IsSqliteDatabaseHealthyAsync(dbPath).ConfigureAwait(false);
+                    if (!restoredHealthy)
+                    {
+                        _logger.LogWarning("Recovered backup still malformed. Recreating database from scratch.");
+                        DeleteDatabaseFiles(dbPath);
+                    }
+                }
+            }
+        }
 
         // Use a dedicated connection string WITHOUT pooling for the ENTIRE initialization process
         // This prevents lingering locks from pooled connections between migration steps.
@@ -302,6 +462,10 @@ public class SchemaMigratorService
         // Phase 12: Transition to EF Core Migrations
         var migrationOptions = new DbContextOptionsBuilder<AppDbContext>()
             .UseSqlite(initConnectionString)
+            .ConfigureWarnings(warnings =>
+            {
+                warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning);
+            })
             .Options;
 
         List<string> pending;

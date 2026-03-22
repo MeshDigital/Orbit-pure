@@ -25,7 +25,7 @@ namespace SLSKDONET.ViewModels.Downloads;
 public class DownloadCenterViewModel : ReactiveObject, IDisposable
 {
     private const string NonStrictPreferredFormats = "flac,wav,aiff,aif,mp3";
-    private const int NonStrictMinBitrate = 192;
+    private const int NonStrictMinBitrate = 320;
     private const int NonStrictMaxBitrate = 0;
     private const int NonStrictSearchResponseLimit = 300;
     private const int NonStrictSearchFileLimit = 300;
@@ -183,15 +183,32 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     public bool IsGlobalStatusVisible
     {
         get => _isGlobalStatusVisible;
-        set => this.RaiseAndSetIfChanged(ref _isGlobalStatusVisible, value);
+        set
+        {
+            if (this.RaiseAndSetIfChanged(ref _isGlobalStatusVisible, value))
+            {
+                this.RaisePropertyChanged(nameof(IsGlobalStatusInfoVisible));
+                this.RaisePropertyChanged(nameof(IsGlobalStatusErrorVisible));
+            }
+        }
     }
 
     private bool _isGlobalStatusError;
     public bool IsGlobalStatusError
     {
         get => _isGlobalStatusError;
-        set => this.RaiseAndSetIfChanged(ref _isGlobalStatusError, value);
+        set
+        {
+            if (this.RaiseAndSetIfChanged(ref _isGlobalStatusError, value))
+            {
+                this.RaisePropertyChanged(nameof(IsGlobalStatusInfoVisible));
+                this.RaisePropertyChanged(nameof(IsGlobalStatusErrorVisible));
+            }
+        }
     }
+
+    public bool IsGlobalStatusInfoVisible => IsGlobalStatusVisible && !IsGlobalStatusError;
+    public bool IsGlobalStatusErrorVisible => IsGlobalStatusVisible && IsGlobalStatusError;
 
     private bool _showEngineLogs;
     public bool ShowEngineLogs
@@ -322,7 +339,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         ? "STRICTER overwrite: FLAC-only + 701kbps floor"
         : DownloadProfileStrict
             ? "STRICT overwrite: FLAC/WAV/AIFF/AIF + 320kbps floor"
-            : "NON-STRICT overwrite: expanded formats + 192kbps floor";
+            : "NON-STRICT overwrite: expanded formats + 320kbps floor";
     
     // Commands
     public ICommand PauseAllCommand { get; }
@@ -421,16 +438,25 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             var completedItems = _downloadsSource.Items
                 .Where(x => x.State == PlaylistTrackState.Completed && !x.IsClearedFromDownloadCenter)
                 .ToList();
+            
+            // Mark as cleared and remove from source
             foreach (var item in completedItems)
             {
-                item.IsClearedFromDownloadCenter = true;
                 item.Model.IsClearedFromDownloadCenter = true;
                 await _libraryService.UpdatePlaylistTrackAsync(item.Model);
+                _downloadsSource.Remove(item.GlobalId); // Remove from UI immediately
             }
         });
         
         ClearFailedCommand = ReactiveCommand.Create(() => 
-            _downloadsSource.Remove(_downloadsSource.Items.Where(x => x.State == PlaylistTrackState.Failed).ToList()));
+        {
+            var failedItems = _downloadsSource.Items
+                .Where(x => x.State == PlaylistTrackState.Failed || x.State == PlaylistTrackState.Cancelled || x.State == PlaylistTrackState.Stalled)
+                .ToList();
+            
+            // Remove all failed/cancelled/stalled items from UI
+            _downloadsSource.Remove(failedItems);
+        });
 
         RetryAllFailedCommand = ReactiveCommand.CreateFromTask(async () => 
         {
@@ -713,6 +739,11 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         _eventBus.GetEvent<TrackAddedEvent>()
             .Subscribe(OnTrackAdded)
             .DisposeWith(_subscriptions);
+        
+        // Issue #4: Subscribe to batch track additions from imports
+        _eventBus.GetEvent<BatchTracksAddedEvent>()
+            .Subscribe(OnBatchTracksAdded)
+            .DisposeWith(_subscriptions);
             
         // Used to catch removals (e.g. Delete command from within VM)
         _eventBus.GetEvent<TrackRemovedEvent>()
@@ -890,6 +921,45 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             }
             
             _downloadsSource.AddOrUpdate(viewModel);
+        });
+    }
+    
+    /// <summary>
+    /// Issue #4: Batch handler for bulk track additions from imports or hydration.
+    /// Processes all tracks in one UI update cycle to prevent freeze during large imports.
+    /// </summary>
+    private void OnBatchTracksAdded(BatchTracksAddedEvent e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            foreach (var (track, initialState) in e.Tracks)
+            {
+                // Phase 2.5: Create Smart View Model
+                var viewModel = new UnifiedTrackViewModel(track, _downloadManager, _eventBus, _artworkCache, _libraryService);
+                
+                // Phase 12.3: Monitor Selection
+                viewModel.WhenAnyValue(x => x.IsSelected)
+                    .Subscribe(selected =>
+                    {
+                        if (selected) 
+                        {
+                            if (!SelectedItems.Contains(viewModel)) SelectedItems.Add(viewModel);
+                        }
+                        else 
+                        {
+                            SelectedItems.Remove(viewModel);
+                        }
+                    })
+                    .DisposeWith(_subscriptions);
+
+                // Set initial state override if needed
+                if (initialState.HasValue)
+                {
+                    viewModel.State = initialState.Value;
+                }
+                
+                _downloadsSource.AddOrUpdate(viewModel);
+            }
         });
     }
     

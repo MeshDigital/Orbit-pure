@@ -180,6 +180,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _disposables.Add(_eventBus.GetEvent<TrackUpdatedEvent>().Subscribe(evt => OnTrackUpdated(this, evt.Track)));
         _disposables.Add(_eventBus.GetEvent<ConnectionLifecycleStateChangedEvent>().Subscribe(HandleConnectionLifecycleChanged));
         _disposables.Add(_eventBus.GetEvent<TrackAddedEvent>().Subscribe(evt => OnTrackAdded(evt.TrackModel)));
+        _disposables.Add(_eventBus.GetEvent<BatchTracksAddedEvent>().Subscribe(evt => OnBatchTracksAdded(evt.Tracks))); // Issue #4: Batch UI updates
         _disposables.Add(_eventBus.GetEvent<TrackRemovedEvent>().Subscribe(evt => OnTrackRemoved(evt.TrackGlobalId)));
         
         
@@ -832,6 +833,23 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             var vm = new PlaylistTrackViewModel(trackModel, _eventBus);
             AllGlobalTracks.Add(vm);
             UpdateDownloadsFilter(); // Refresh filter
+        });
+    }
+    
+    /// <summary>
+    /// Issue #4: Batch handler for bulk track additions from imports or hydration.
+    /// Processes all tracks in one UI update cycle to prevent freeze.
+    /// </summary>
+    private void OnBatchTracksAdded(System.Collections.Generic.IReadOnlyList<(PlaylistTrack Track, PlaylistTrackState? InitialState)> tracksData)
+    {
+        global::Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => 
+        {
+            foreach (var (track, _) in tracksData)
+            {
+                var vm = new PlaylistTrackViewModel(track, _eventBus);
+                AllGlobalTracks.Add(vm);
+            }
+            UpdateDownloadsFilter(); // Single refresh for all tracks
         });
     }
 

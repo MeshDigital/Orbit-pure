@@ -14,19 +14,21 @@ namespace SLSKDONET.ViewModels;
 
 public class SearchFilterViewModel : ReactiveObject
 {
-    // Throttled Bitrate
-    private int _minBitrate = 128;
+    // Throttled Bitrate (minimum 320 kbps enforced)
+    private int _minBitrate = 320;
     public int MinBitrate 
     { 
         get => _minBitrate; 
         set
         {
-            if (_minBitrate == value) return;
-            this.RaiseAndSetIfChanged(ref _minBitrate, value);
+            // Enforce minimum base kbps of 320
+            var clampedValue = Math.Max(value, 320);
+            if (_minBitrate == clampedValue) return;
+            this.RaiseAndSetIfChanged(ref _minBitrate, clampedValue);
             
             // Phase 12.6: Sync bitrate as "320+" style token
             if (!_isSyncingFromQuery)
-                OnTokenSyncRequested?.Invoke($"{value}+", true);
+                OnTokenSyncRequested?.Invoke($"{clampedValue}+", true);
         }
     }
 

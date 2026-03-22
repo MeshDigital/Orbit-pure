@@ -15,6 +15,35 @@
              <Setter Property="BorderBrush" Value="#FFD700"/>
              <Setter Property="BorderThickness" Value="1"/>
         </Style>
+        <Style Selector="ToggleButton.profileChip">
+            <Setter Property="Background" Value="#242424"/>
+            <Setter Property="BorderBrush" Value="#3A3A3A"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="Foreground" Value="#D8D8D8"/>
+            <Setter Property="MinWidth" Value="126"/>
+        </Style>
+        <Style Selector="ToggleButton.profileChip:pointerover">
+            <Setter Property="Background" Value="#303030"/>
+            <Setter Property="BorderBrush" Value="#4A4A4A"/>
+        </Style>
+        <Style Selector="ToggleButton.profileChip:checked">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
+        <Style Selector="ToggleButton.profileChip.nonStrict:checked">
+            <Setter Property="Background" Value="#20322A"/>
+            <Setter Property="BorderBrush" Value="#4CAF50"/>
+        </Style>
+        <Style Selector="ToggleButton.profileChip.strict:checked">
+            <Setter Property="Background" Value="#112A3A"/>
+            <Setter Property="BorderBrush" Value="#00BFFF"/>
+        </Style>
+        <Style Selector="ToggleButton.profileChip.stricter:checked">
+            <Setter Property="Background" Value="#3A2D11"/>
+            <Setter Property="BorderBrush" Value="#FFB300"/>
+        </Style>
     </UserControl.Styles>
 
     <UserControl.Resources>
@@ -291,20 +320,29 @@
                              <TextBlock Text="{Binding MaxConcurrentDownloads}" FontSize="12" FontWeight="Bold" Foreground="#00BFFF" Width="20" TextAlignment="Center"/>
                         </StackPanel>
 
-                        <StackPanel Orientation="Vertical" Spacing="6" HorizontalAlignment="Right">
+                        <StackPanel Orientation="Vertical" Spacing="8" HorizontalAlignment="Right">
                             <TextBlock Text="DOWNLOAD PROFILE OVERWRITE" FontSize="10" Foreground="#555" HorizontalAlignment="Right"/>
-                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
-                                <ToggleButton IsChecked="{Binding DownloadProfileNonStrict, Mode=TwoWay}" Background="#2D2D2D" BorderBrush="#555" BorderThickness="1" CornerRadius="4" Padding="10,4">
-                                    <TextBlock Text="Non-Strict" FontSize="10" Foreground="#DDD"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                                <ToggleButton Classes="profileChip nonStrict" IsChecked="{Binding DownloadProfileNonStrict, Mode=TwoWay}">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="Non-Strict" FontSize="11" FontWeight="SemiBold"/>
+                                        <TextBlock Text="FLAC + MP3" FontSize="10" Opacity="0.8"/>
+                                    </StackPanel>
                                 </ToggleButton>
-                                <ToggleButton IsChecked="{Binding DownloadProfileStrict, Mode=TwoWay}" Background="#2D2D2D" BorderBrush="#00BFFF" BorderThickness="1" CornerRadius="4" Padding="10,4">
-                                    <TextBlock Text="Strict" FontSize="10" Foreground="#00BFFF" FontWeight="SemiBold"/>
+                                <ToggleButton Classes="profileChip strict" IsChecked="{Binding DownloadProfileStrict, Mode=TwoWay}">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="Strict" FontSize="11" FontWeight="SemiBold"/>
+                                        <TextBlock Text="Lossless Focus" FontSize="10" Opacity="0.8"/>
+                                    </StackPanel>
                                 </ToggleButton>
-                                <ToggleButton IsChecked="{Binding DownloadProfileStricter, Mode=TwoWay}" Background="#2D2D2D" BorderBrush="#FFB300" BorderThickness="1" CornerRadius="4" Padding="10,4">
-                                    <TextBlock Text="Stricter" FontSize="10" Foreground="#FFB300" FontWeight="SemiBold"/>
+                                <ToggleButton Classes="profileChip stricter" IsChecked="{Binding DownloadProfileStricter, Mode=TwoWay}">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="Stricter" FontSize="11" FontWeight="SemiBold"/>
+                                        <TextBlock Text="FLAC Only" FontSize="10" Opacity="0.8"/>
+                                    </StackPanel>
                                 </ToggleButton>
                             </StackPanel>
-                            <TextBlock Text="{Binding DownloadProfileModeText}" FontSize="10" Foreground="#777" HorizontalAlignment="Right"/>
+                            <TextBlock Text="{Binding DownloadProfileModeText}" FontSize="11" Foreground="#9AA3AD" FontWeight="SemiBold" HorizontalAlignment="Right"/>
                         </StackPanel>
                 </StackPanel>
                 </Grid>
@@ -387,28 +425,50 @@
             <!-- Active Downloads Tab -->
             <TabItem Header="Active">
                 <Grid RowDefinitions="Auto,*">
-                    <!-- Global Status Indicator (Circuit Breaker / Connection Alerts) -->
-                    <Border Grid.Row="0" 
-                            IsVisible="{Binding IsGlobalStatusVisible}"
-                               Background="{Binding IsGlobalStatusError, Converter={StaticResource BoolToErrorColorConverter}}"
-                            Opacity="0.8"
+                    <!-- Global Status Indicator (Info) -->
+                    <Border Grid.Row="0"
+                            IsVisible="{Binding IsGlobalStatusInfoVisible}"
+                            Background="#112236"
+                            Opacity="0.92"
                             Margin="16,16,16,0"
                             Padding="16,10"
                             CornerRadius="8"
                             BorderThickness="1"
-                            BorderBrush="#44FFFFFF">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <TextBlock Text="⚠️" FontSize="16" VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding GlobalStatusMessage}" 
-                                       Foreground="White" 
-                                       FontWeight="SemiBold" 
-                                       VerticalAlignment="Center"/>
-                            <ProgressBar IsIndeterminate="True" 
-                                         Width="100" 
-                                         Height="2" 
-                                         VerticalAlignment="Center" 
-                                         Margin="12,0,0,0"
-                                         IsVisible="{Binding IsGlobalStatusError}"/>
+                            BorderBrush="#2C5D8A">
+                        <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Stretch">
+                            <TextBlock Text="ℹ️" FontSize="15" VerticalAlignment="Center" MinHeight="0"/>
+                            <TextBlock Text="{Binding GlobalStatusMessage}"
+                                       Foreground="#D9ECFF"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       TextWrapping="Wrap"
+                                       HorizontalAlignment="Left"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Global Status Indicator (Error) -->
+                    <Border Grid.Row="0"
+                            IsVisible="{Binding IsGlobalStatusErrorVisible}"
+                            Background="#3A1C1C"
+                            Opacity="0.92"
+                            Margin="16,16,16,0"
+                            Padding="16,10"
+                            CornerRadius="8"
+                            BorderThickness="1"
+                            BorderBrush="#B14646">
+                        <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Stretch">
+                            <TextBlock Text="⚠️" FontSize="16" VerticalAlignment="Top" Margin="0,2,0,0" MinHeight="0"/>
+                            <TextBlock Text="{Binding GlobalStatusMessage}"
+                                       Foreground="White"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Top"
+                                       TextWrapping="Wrap"
+                                       HorizontalAlignment="Left"/>
+                            <ProgressBar IsIndeterminate="True"
+                                         Width="100"
+                                         Height="2"
+                                         VerticalAlignment="Center"
+                                         Margin="12,0,0,0"/>
                         </StackPanel>
                     </Border>
 

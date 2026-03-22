@@ -33,6 +33,7 @@ public record ConnectionLifecycleStateChangedEvent(
     string Current,
     string Reason,
     string? CorrelationId = null);
+public record SearchHardCapTriggeredEvent(string Query, int HardResultCap, int HardFileCap, string Reason);
 public record ExcludedSearchPhrasesUpdatedEvent(IReadOnlyCollection<string> Phrases, int AddedCount, int TotalCount);
 public record TransferProgressEvent(string Filename, string Username, long BytesTransferred, long TotalBytes);
 public record TransferFinishedEvent(string Filename, string Username);
@@ -71,6 +72,7 @@ public record SeekToSecondsRequestEvent(double Seconds);
 
 // Explicit Track Events (missing in record list but used in code)
 public record TrackAddedEvent(PlaylistTrack TrackModel, PlaylistTrackState? InitialState = null);
+public record BatchTracksAddedEvent(System.Collections.Generic.IReadOnlyList<(PlaylistTrack Track, PlaylistTrackState? InitialState)> Tracks); // Issue #4: Batch event for bulk imports
 public record TrackRemovedEvent(string TrackGlobalId);
 public record TrackMovedEvent(string TrackGlobalId, Guid OldProjectId, Guid NewProjectId);
 public record TrackStateChangedEvent(string TrackGlobalId, Guid ProjectId, PlaylistTrackState State, DownloadFailureReason FailureReason = DownloadFailureReason.None, string? Error = null, SearchAttemptLog? SearchLog = null, string? PeerName = null);

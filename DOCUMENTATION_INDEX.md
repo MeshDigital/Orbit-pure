@@ -8,6 +8,8 @@
   - Usage examples for all features
   - Keyboard shortcuts and troubleshooting
   - Component reference guide
+- **[RECENT_CHANGES.md](RECENT_CHANGES.md)** 🆕 Latest release notes and implementation deltas (includes `0.1.0-alpha.49` heuristic search upgrade)
+- **[DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md](DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md)** 🆕 Deep technical guide for the reactive search runtime, firehose handling, blend scoring, and search session control (Mar 2026)
 
 ### 🎯 Implementation Audit & Documentation Status
 
@@ -29,6 +31,8 @@
 - **[DOCS/FILE_PATH_RESOLUTION.md](DOCS/FILE_PATH_RESOLUTION.md)** - File path resolution with fuzzy matching ✨
 - **[DOCS/PHASE8_TECHNICAL.md](DOCS/PHASE8_TECHNICAL.md)** - Phase 8 sonic integrity & automation (Dec 2025) ✨
 - **[SOULSEEK_LOGIN_AND_SERVICE_SIGNALS_TECHNICAL.md](SOULSEEK_LOGIN_AND_SERVICE_SIGNALS_TECHNICAL.md)** - Deep technical reference for Soulseek login flow, lifecycle state machine, and EventBus signals (Mar 2026) ✨ NEW
+- **[DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md](DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md)** - Search runtime architecture: lane planning, fit/rank blend model, buffered UI ingestion, hard caps, and telemetry (Mar 2026) ✨ NEW
+- **[DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md](DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md)** - Search firehose hardening plan and acceptance criteria (Mar 2026) ✨ NEW
 - **[DOCS/HIGH_FIDELITY_AUDIO.md](DOCS/HIGH_FIDELITY_AUDIO.md)** - NAudio engine, VU meters, & waveforms (Dec 2025) ✨ NEW
 - **[DOCS/SPOTIFY_ENRICHMENT_PIPELINE.md](DOCS/SPOTIFY_ENRICHMENT_PIPELINE.md)** - Deep musical intelligence worker ✨ NEW
 - **[DOCS/ML_ENGINE_ARCHITECTURE.md](DOCS/ML_ENGINE_ARCHITECTURE.md)** - ML.NET/LightGBM classification engine (Jan 2026) ✨ NEW
@@ -144,6 +148,11 @@
 → Read [ARCHITECTURE.md](ARCHITECTURE.md) (5 min)  
 → Read [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) (10 min)
 
+#### **Understand the new search runtime**
+→ Read [DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md](DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md)  
+→ Read [DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md](DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md)  
+→ Read [RECENT_CHANGES.md](RECENT_CHANGES.md) → newest `0.1.0-alpha.*` entry at top
+
 #### **Set up development environment**
 → Read [DEVELOPMENT.md](DEVELOPMENT.md)  
 → Read [BUILD_REFERENCE.md](BUILD_REFERENCE.md)
@@ -166,6 +175,9 @@
 
 #### **Learn what's been implemented**
 → Read [CHECKLIST.md](CHECKLIST.md) → Phase 1 & 4 sections (all checked ✅)
+
+#### **See latest release changes**
+→ Read [RECENT_CHANGES.md](RECENT_CHANGES.md) → newest `0.1.0-alpha.*` entry at top
 
 #### **See what's coming next**
 → Read [CHECKLIST.md](CHECKLIST.md) → Phase 5 & 6 sections  

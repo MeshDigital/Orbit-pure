@@ -74,6 +74,9 @@ public class DownloadContext
     public string? StalledReason { get; set; } // [NEW] Overhaul Phase
     public bool IsVip { get; set; } // [NEW] Overhaul Phase: prioritizes queue selection
     public DateTime? SearchStartedAt { get; set; } // Phase 10
+    
+    // Issue #9: State lifecycle tracking for stale queue sweeper
+    public DateTime LastStateChangeTime { get; set; } = DateTime.UtcNow; // Tracks when current state was entered
 
     public DownloadContext(PlaylistTrack model)
     {

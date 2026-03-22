@@ -40,11 +40,17 @@ public class SearchResult : INotifyPropertyChanged
     // Rank is updated on the Model by ResultSorter, we just expose it
     public double CurrentRank => Model.CurrentRank;
     public string ScoreBreakdown => Model.ScoreBreakdown ?? $"Rank: {CurrentRank:F1}";
+    public string PreferredReason => !string.IsNullOrWhiteSpace(Model.MatchReason)
+        ? Model.MatchReason!
+        : ScoreBreakdown;
+    public bool HasPreferredReason => !string.IsNullOrWhiteSpace(PreferredReason);
 
     public void RefreshRank()
     {
         OnPropertyChanged(nameof(CurrentRank));
         OnPropertyChanged(nameof(ScoreBreakdown));
+        OnPropertyChanged(nameof(PreferredReason));
+        OnPropertyChanged(nameof(HasPreferredReason));
     }
 
     // Phase 12.6: Multi-line row template properties

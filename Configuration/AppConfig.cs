@@ -15,7 +15,8 @@ public class AppConfig
     public int ListenPort { get; set; } = 49998;
     public bool UseUPnP { get; set; } = false;
     public int ConnectTimeout { get; set; } = 60000; // ms
-    public int SearchTimeout { get; set; } = 6000; // ms
+    public int SearchTimeout { get; set; } = 12000; // ms; longer idle window improves late peer discovery for lossless searches
+    public int SearchAccumulatorWindowSeconds { get; set; } = 30; // Cap broad-search accumulation to a bounded stale-time window
     public int MaxConcurrentSearches { get; set; } = 5; // Throttling to prevent bans
     public int MaxDiscoveryLanes { get; set; } = 5; // Concurrent discovery jobs for seeker pipeline
     public int MaxSearchVariations { get; set; } = 2; // Cap cascade fan-out to avoid flooding
@@ -37,10 +38,13 @@ public class AppConfig
     public int CriticalSearchTokenBucketRefillMs { get; set; } = 5000;
     public int SearchResponseLimit { get; set; } = 100; // Workstation 2026: cap response batches for fast winner selection
     public int SearchFileLimit { get; set; } = 100; // Workstation 2026: cap files per search for memory/CPU efficiency
+    public int SearchHardResultCap { get; set; } = 10000; // Absolute per-search circuit breaker for accepted candidates
+    public int SearchHardFileCap { get; set; } = 50000; // Absolute per-search circuit breaker for inbound files (0 disables)
     public int MaxPeerQueueLength { get; set; } = 50; // Ignore peers with very long queue lengths
-    public int MinSearchDurationSeconds { get; set; } = 3; // Keep lanes open briefly to capture late high-quality peers
+    public int MinSearchDurationSeconds { get; set; } = 16; // Brain buffer floor: must be >= (SearchTimeout/1000 + 4) so queued searches get their full network window
     public bool EnableHedgedSearch { get; set; } = true;
-    public int HedgedSearchDelaySeconds { get; set; } = 5;
+    public int HedgedSearchDelaySeconds { get; set; } = 8; // Delay MP3 hedge so FLAC lanes get first chance to settle
+    public bool EnableMp3Fallback { get; set; } = true; // Allow MP3 download when lossless is unavailable; set false for strict lossless-only
     public bool EnableHedgedDownloadFailover { get; set; } = true;
     public bool IsSoulseekSupporter { get; set; } = false;
     public int SupporterSearchLaneMultiplier { get; set; } = 2;
@@ -89,7 +93,7 @@ public class AppConfig
     public bool EnableFuzzyNormalization { get; set; } = true; // Strip special chars, normalize feat.
     public bool EnableRelaxationStrategy { get; set; } = true; // Progressive threshold widening
     public bool EnableVbrFraudDetection { get; set; } = true; // Upscale protection
-    public int RelaxationTimeoutSeconds { get; set; } = 5; // Optimized: was 10s, reduced for faster fallback
+    public int RelaxationTimeoutSeconds { get; set; } = 8; // Quality-first default: wait longer before relaxing strict lossless criteria
     public bool IsAutoEnrichEnabled { get; set; } = true; // Phase 8: Auto-Enrich on completion
     
     // Phase 10: Profile Persistence

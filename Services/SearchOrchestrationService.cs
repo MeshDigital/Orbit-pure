@@ -80,19 +80,82 @@ public class SearchOrchestrationService
         bool fastClearance = false,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        var searchPlan = _searchNormalization.BuildSearchPlan(query);
+        await foreach (var track in SearchAsyncCore(
+            query,
+            searchPlan,
+            preferredFormats,
+            minBitrate,
+            maxBitrate,
+            isAlbumSearch,
+            fastClearance,
+            cancellationToken))
+        {
+            yield return track;
+        }
+    }
+
+    public async IAsyncEnumerable<Track> SearchAsync(
+        PlaylistTrack target,
+        string query,
+        string preferredFormats,
+        int minBitrate,
+        int maxBitrate,
+        bool isAlbumSearch,
+        bool fastClearance = false,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var searchPlan = _searchNormalization.BuildSearchPlan(target, query);
+        await foreach (var track in SearchAsyncCore(
+            query,
+            searchPlan,
+            preferredFormats,
+            minBitrate,
+            maxBitrate,
+            isAlbumSearch,
+            fastClearance,
+            cancellationToken))
+        {
+            yield return track;
+        }
+    }
+
+    private async IAsyncEnumerable<Track> SearchAsyncCore(
+        string query,
+        SearchPlan searchPlan,
+        string preferredFormats,
+        int minBitrate,
+        int maxBitrate,
+        bool isAlbumSearch,
+        bool fastClearance,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         var activeNow = Math.Max(1, Volatile.Read(ref _activeSearchCount) + 1);
         var executionProfile = SearchLoadSheddingPolicy.Compute(_config, activeNow);
 
-        var generatedVariations = _searchNormalization.GenerateSearchVariations(query);
+        var generatedLanes = searchPlan.EnumerateLanes().ToList();
+
+        if (generatedLanes.Count == 0)
+        {
+            generatedLanes = _searchNormalization.GenerateSearchVariations(query)
+                .Select((variation, index) => new PlannedSearchLane(index switch
+                {
+                    0 => SearchQueryLane.Strict,
+                    1 => SearchQueryLane.Standard,
+                    _ => SearchQueryLane.Desperate
+                }, variation))
+                .ToList();
+        }
+
         var variationCap = Math.Max(1, executionProfile.EffectiveVariationCap);
-        var variations = generatedVariations.Take(variationCap).ToList();
-        if (generatedVariations.Count > variations.Count)
+        var variations = generatedLanes.Take(variationCap).ToList();
+        if (generatedLanes.Count > variations.Count)
         {
             _logger.LogInformation(
                 "Cascade variation cap applied for query '{Query}': using {Used}/{Generated} variations.",
                 query,
                 variations.Count,
-                generatedVariations.Count);
+                generatedLanes.Count);
         }
 
             if (executionProfile.PressureLevel != SearchPressureLevel.Normal)
@@ -120,9 +183,31 @@ public class SearchOrchestrationService
 
             for (var variationIndex = 0; variationIndex < variations.Count; variationIndex++)
             {
-                var variation = variations[variationIndex];
-                _logger.LogInformation("Cascade Search: Attempting variation '{Variation}' (Attempting {Idx} of {Count})", 
-                    variation, variationIndex + 1, variations.Count);
+                var plannedLane = variations[variationIndex];
+                var variation = plannedLane.Query;
+                _logger.LogInformation("Cascade Search: Attempting {Lane} variation '{Variation}' (Attempting {Idx} of {Count})", 
+                    plannedLane.Lane, variation, variationIndex + 1, variations.Count);
+
+                if (plannedLane.Lane == SearchQueryLane.Desperate && !isAlbumSearch && totalFound > 0)
+                {
+                    _logger.LogInformation(
+                        "Cascade Search: Skipping desperate fallback for '{Query}' because accepted results already exist ({Count}).",
+                        query,
+                        totalFound);
+                    break;
+                }
+
+                if (plannedLane.Lane == SearchQueryLane.Desperate)
+                {
+                    var desperateDelayMs = Math.Max(
+                        _config.SearchThrottleDelayMs + executionProfile.AdditionalThrottleDelayMs,
+                        Math.Clamp(_config.RelaxationTimeoutSeconds, 1, 30) * 1000);
+                    _logger.LogInformation(
+                        "Cascade Search: Escalating to desperate lane for '{Query}' after {DelayMs}ms of prior misses.",
+                        query,
+                        desperateDelayMs);
+                    await Task.Delay(desperateDelayMs, cancellationToken);
+                }
 
                 bool foundInThisVariation = false;
                 bool strictHighConfidenceWinnerFound = false;
@@ -132,6 +217,8 @@ public class SearchOrchestrationService
                 
                 await foreach (var track in StreamAndRankResultsAsync(
                     hardenedVariation, 
+                    searchPlan.Target,
+                    plannedLane.Lane,
                     preferredFormats, 
                     minBitrate, 
                     maxBitrate,
@@ -211,6 +298,10 @@ public class SearchOrchestrationService
         if (track.IsFlagged)
             return false;
 
+        var minimumScore = Math.Min(ScoringConstants.Availability.FastLaneMinMatchScore, 50);
+        if (track.CurrentRank < minimumScore)
+            return false;
+
         if (track.QueueLength > ScoringConstants.Availability.FastLaneMaxQueue)
             return false;
 
@@ -235,14 +326,26 @@ public class SearchOrchestrationService
 
     private async IAsyncEnumerable<Track> StreamAndRankResultsAsync(
         string normalizedQuery,
+        TargetMetadata target,
+        SearchQueryLane lane,
         string preferredFormats,
         int minBitrate,
         int maxBitrate,
         SearchExecutionProfile executionProfile,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        const int brainBufferSeconds = 3;
-        const int brainWinnerCount = 5;
+        // Brain buffer: desperate lanes get the full accumulator window.
+        // Non-desperate lanes get the full SearchTimeout + overhead so the Soulseek network
+        // reply window isn't cut off by the CTS before responses arrive.
+        // Previous clamp (3–6 s) was shorter than the token-bucket refill (3.5 s/search),
+        // causing the 2nd queued search to only get ~1.5 s of actual network time.
+        var searchTimeoutSeconds = Math.Max(5, _config.SearchTimeout / 1000);
+        var brainBufferSeconds = lane == SearchQueryLane.Desperate
+            ? Math.Clamp(_config.SearchAccumulatorWindowSeconds, 5, 30)
+            : Math.Clamp(_config.MinSearchDurationSeconds, searchTimeoutSeconds + 4, 30);
+        var brainWinnerCount = lane == SearchQueryLane.Desperate
+            ? Math.Max(5, _config.StrictSearchSufficientResultCount)
+            : 5;
 
         var formatFilter = preferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var networkQuery = BuildNetworkQuery(normalizedQuery, formatFilter, minBitrate);
@@ -252,21 +355,46 @@ public class SearchOrchestrationService
 
         try
         {
-            await foreach (var track in _soulseek.StreamResultsAsync(
-                networkQuery,
-                formatFilter,
-                (minBitrate, maxBitrate),
-                DownloadMode.Normal,
-                executionProfile,
-                brainBufferCts.Token))
+            if (lane == SearchQueryLane.Desperate)
             {
-                _safetyFilter.EvaluateSafety(track, normalizedQuery);
-                bufferedTracks.Add(track);
+                bufferedTracks = await CollectDesperateLaneCandidatesAsync(
+                    normalizedQuery,
+                    networkQuery,
+                    target,
+                    formatFilter,
+                    minBitrate,
+                    maxBitrate,
+                    executionProfile,
+                    brainBufferCts.Token);
+            }
+            else
+            {
+                await foreach (var track in _soulseek.StreamResultsAsync(
+                    networkQuery,
+                    formatFilter,
+                    (minBitrate, maxBitrate),
+                    DownloadMode.Normal,
+                    executionProfile,
+                    brainBufferCts.Token))
+                {
+                    _safetyFilter.EvaluateSafety(track, normalizedQuery);
+                    bufferedTracks.Add(track);
+
+                    if (IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
+                    {
+                        _logger.LogInformation(
+                            "Search accumulator short-circuit: found ideal candidate for '{Query}' from {User}.",
+                            normalizedQuery,
+                            track.Username ?? "Unknown");
+                        break;
+                    }
+                }
             }
         }
         catch (OperationCanceledException) when (brainBufferCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            _logger.LogDebug("Brain buffer window elapsed for query '{Query}'. Ranking {Count} buffered candidates.",
+            _logger.LogDebug("Brain buffer window elapsed for {Lane} query '{Query}'. Ranking {Count} buffered candidates.",
+                lane,
                 normalizedQuery,
                 bufferedTracks.Count);
         }
@@ -276,7 +404,7 @@ public class SearchOrchestrationService
             yield break;
         }
 
-        var ranked = RankTrackResults(bufferedTracks, normalizedQuery, formatFilter, minBitrate, maxBitrate)
+        var ranked = RankTrackResults(bufferedTracks, target, normalizedQuery, formatFilter, minBitrate, maxBitrate)
             .Take(brainWinnerCount)
             .ToList();
 
@@ -295,6 +423,123 @@ public class SearchOrchestrationService
         {
             yield return track;
         }
+    }
+
+    private async Task<List<Track>> CollectDesperateLaneCandidatesAsync(
+        string normalizedQuery,
+        string networkQuery,
+        TargetMetadata target,
+        string[] formatFilter,
+        int minBitrate,
+        int maxBitrate,
+        SearchExecutionProfile executionProfile,
+        CancellationToken cancellationToken)
+    {
+        var capacity = Math.Max(32, executionProfile.EffectiveFileLimit);
+        var channel = Channel.CreateBounded<Track>(new BoundedChannelOptions(capacity)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = true
+        });
+
+        var producer = Task.Run(async () =>
+        {
+            Exception? failure = null;
+            try
+            {
+                await foreach (var track in _soulseek.StreamResultsAsync(
+                    networkQuery,
+                    formatFilter,
+                    (minBitrate, maxBitrate),
+                    DownloadMode.Normal,
+                    executionProfile,
+                    cancellationToken))
+                {
+                    _safetyFilter.EvaluateSafety(track, normalizedQuery);
+                    await channel.Writer.WriteAsync(track, cancellationToken);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+            finally
+            {
+                channel.Writer.TryComplete(failure);
+            }
+        }, cancellationToken);
+
+        var bufferedTracks = new List<Track>();
+        try
+        {
+            await foreach (var track in channel.Reader.ReadAllAsync(cancellationToken))
+            {
+                bufferedTracks.Add(track);
+
+                if (IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
+                {
+                    _logger.LogInformation(
+                        "Desperate lane short-circuit: found ideal candidate for '{Query}' from {User}.",
+                        normalizedQuery,
+                        track.Username ?? "Unknown");
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            try
+            {
+                await producer;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+        }
+
+        return bufferedTracks;
+    }
+
+    private bool IsPerfectAccumulatorWinner(
+        Track track,
+        TargetMetadata target,
+        string[] formatFilter,
+        int minBitrate)
+    {
+        if (track.IsFlagged)
+            return false;
+
+        if (!IsFastLaneWinner(track, formatFilter, minBitrate))
+            return false;
+
+        var fitScore = CalculateAccumulatorFitScore(track, target, formatFilter, minBitrate);
+        if (fitScore < 85)
+            return false;
+
+        return track.QueueLength == 0 || track.HasFreeUploadSlot;
+    }
+
+    private double CalculateAccumulatorFitScore(
+        Track candidate,
+        TargetMetadata target,
+        string[] formatFilter,
+        int minBitrate)
+    {
+        return SearchCandidateFitScorer.CalculateScore(
+            candidate,
+            target,
+            formatFilter,
+            minBitrate,
+            _config.SearchLengthToleranceSeconds);
+    }
+
+    private static bool ContainsNormalizedToken(string? candidate, string expected)
+    {
+        return SearchCandidateFitScorer.ContainsNormalizedToken(candidate, expected);
     }
 
     private static string BuildNetworkQuery(string normalizedQuery, string[] formatFilter, int minBitrate)
@@ -326,6 +571,7 @@ public class SearchOrchestrationService
     
     private List<Track> RankTrackResults(
         List<Track> results, 
+        TargetMetadata target,
         string normalizedQuery, 
         string[] formatFilter, 
         int minBitrate, 
@@ -356,7 +602,30 @@ public class SearchOrchestrationService
         }
         
         // Rank the results
-        var rankedResults = ResultSorter.OrderResults(results, searchTrack, evaluator);
+        var rankedResults = ResultSorter.OrderResults(results, searchTrack, evaluator)
+            .Select(track =>
+            {
+                var fitScore = CalculateAccumulatorFitScore(track, target, formatFilter, minBitrate);
+                var baseMatchScore = SearchCandidateRankingPolicy.MatchScoreFromRank(track.CurrentRank);
+                var finalScore = SearchCandidateRankingPolicy.CalculateFinalScore(
+                    baseMatchScore,
+                    fitScore,
+                    reliability: 0.5,
+                    queueLength: track.QueueLength);
+                EnsureBlendTelemetryMetadata(track, baseMatchScore, fitScore, 0.5, finalScore);
+                var existingBreakdown = track.ScoreBreakdown;
+                var blendBreakdown = $"Blend: Match={baseMatchScore:F1}, Fit={fitScore:F1}, Rel=0.50, Queue={track.QueueLength}, Final={finalScore:F1}";
+                track.ScoreBreakdown = string.IsNullOrWhiteSpace(existingBreakdown)
+                    ? blendBreakdown
+                    : $"{existingBreakdown}; {blendBreakdown}";
+                track.MatchReason ??= SearchBlendReasonFormatter.BuildCompactReason(track.Metadata);
+                track.CurrentRank = finalScore;
+                return track;
+            })
+            .OrderByDescending(track => track.CurrentRank)
+            .ThenBy(track => track.QueueLength)
+            .ThenByDescending(track => track.Bitrate)
+            .ToList();
         
         _logger.LogInformation("Results ranked successfully");
         return rankedResults.ToList();
@@ -401,8 +670,21 @@ public class SearchOrchestrationService
             IsDedup = TryGetDedupSignal(track),
             IsFlagged = track.IsFlagged,
             Rank = track.CurrentRank,
+            BlendMatchScore = TryGetMetadataDouble(track, "BlendMatchScore"),
+            BlendFitScore = TryGetMetadataDouble(track, "BlendFitScore"),
+            BlendReliability = TryGetMetadataDouble(track, "BlendReliability"),
+            BlendFinalScore = TryGetMetadataDouble(track, "BlendFinalScore"),
             ScoreBreakdown = track.ScoreBreakdown ?? string.Empty
         };
+    }
+
+    private static void EnsureBlendTelemetryMetadata(Track track, double matchScore, double fitScore, double reliability, double finalScore)
+    {
+        track.Metadata ??= new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        track.Metadata["BlendMatchScore"] = matchScore;
+        track.Metadata["BlendFitScore"] = fitScore;
+        track.Metadata["BlendReliability"] = reliability;
+        track.Metadata["BlendFinalScore"] = finalScore;
     }
 
     private static bool TryGetDedupSignal(Track track)
@@ -419,6 +701,27 @@ public class SearchOrchestrationService
             bool boolValue => boolValue,
             string stringValue when bool.TryParse(stringValue, out var parsed) => parsed,
             _ => false
+        };
+    }
+
+    private static double? TryGetMetadataDouble(Track track, string key)
+    {
+        if (track.Metadata == null ||
+            !track.Metadata.TryGetValue(key, out var raw) ||
+            raw is null)
+        {
+            return null;
+        }
+
+        return raw switch
+        {
+            double d => d,
+            float f => f,
+            int i => i,
+            long l => l,
+            decimal m => (double)m,
+            string s when double.TryParse(s, out var parsed) => parsed,
+            _ => null
         };
     }
 

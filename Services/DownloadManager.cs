@@ -660,6 +660,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     {
         lock (_collectionLock)
         {
+            var batchBuffer = new List<(PlaylistTrack, PlaylistTrackState?)>();
+            
             foreach (var t in entities)
             {
                 // Map PlaylistTrackEntity -> PlaylistTrack Model
@@ -718,8 +720,14 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                 _downloads.Add(ctx);
                 
-                // Publish event with initial state
-                _eventBus.Publish(new TrackAddedEvent(model, ctx.State));
+                // Issue #4: Batch track events instead of firing per-track to prevent UI freeze
+                batchBuffer.Add((model, ctx.State));
+            }
+            
+            // Issue #4: Publish all tracks in single batch event for efficient UI update
+            if (batchBuffer.Count > 0)
+            {
+                _eventBus.Publish(new BatchTracksAddedEvent(batchBuffer.AsReadOnly()));
             }
         }
     }
@@ -1403,7 +1411,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         return true;
     }
 
-    private bool TryValidateTrackForQueue(Track track, out string reason, int? minBitrateOverride = null)
+    private bool TryValidateTrackForQueue(Track track, out string reason, int? minBitrateOverride = null, bool allowFallbackFormat = false)
     {
         reason = string.Empty;
 
@@ -1413,7 +1421,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             .ToHashSet() ?? new HashSet<string>();
 
         var extension = (track.Format ?? track.GetExtension())?.Trim().TrimStart('.').ToLowerInvariant() ?? string.Empty;
-        if (preferredFormats.Count > 0 && !string.IsNullOrEmpty(extension) && !preferredFormats.Contains(extension))
+        var allowMp3FormatFallback = allowFallbackFormat &&
+                                     _config.EnableMp3Fallback &&
+                                     string.Equals(extension, "mp3", StringComparison.OrdinalIgnoreCase);
+
+        if (preferredFormats.Count > 0 && !string.IsNullOrEmpty(extension) && !preferredFormats.Contains(extension) && !allowMp3FormatFallback)
         {
             reason = $"format '{extension}' not allowed";
             return false;
@@ -1437,8 +1449,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
     private bool IsMp3FallbackAllowed(PlaylistTrack track)
     {
-        // Profile overwrite is authoritative: fallback behavior follows active app profile,
-        // not stale per-track historical overrides.
+        if (_config.EnableMp3Fallback)
+            return true;
+
+        // Legacy profile compatibility path
         var formats = _config.PreferredFormats ?? new List<string>();
 
         return formats.Any(f => string.Equals(f?.Trim(), "mp3", StringComparison.OrdinalIgnoreCase));
@@ -2002,6 +2016,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         {
             try
             {
+                // Pre-check: File already exists at resolved destination path (global filesystem dedup)
+                if (!string.IsNullOrWhiteSpace(ctx.Model.ResolvedFilePath) && File.Exists(ctx.Model.ResolvedFilePath))
+                {
+                    _logger.LogInformation("Track already exists on disk, reusing local file: {Artist} - {Title} => {Path}",
+                        ctx.Model.Artist, ctx.Model.Title, ctx.Model.ResolvedFilePath);
+
+                    ctx.Model.Status = TrackStatus.Downloaded;
+                    await _libraryService.UpdatePlaylistTrackAsync(ctx.Model);
+                    await UpdateStateAsync(ctx, PlaylistTrackState.Completed);
+                    return;
+                }
+
                 // Pre-check: Already downloaded in this project
                 if (ctx.Model.Status == TrackStatus.Downloaded && File.Exists(ctx.Model.ResolvedFilePath))
                 {
@@ -2010,7 +2036,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 }
 
                 // Phase 0: Check if file already exists in global library (cross-project deduplication)
-                var existingEntry = await _libraryService.FindLibraryEntryAsync(ctx.Model.TrackUniqueHash);
+                var existingEntry = string.IsNullOrWhiteSpace(ctx.Model.TrackUniqueHash)
+                    ? null
+                    : await _libraryService.FindLibraryEntryAsync(ctx.Model.TrackUniqueHash);
                 if (existingEntry != null && File.Exists(existingEntry.FilePath))
                 {
                     _logger.LogInformation("â™»ï¸ Track already in library: {Artist} - {Title}, reusing file: {Path}", 
@@ -2167,7 +2195,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 }
 
                 // Phase 3.1: Download Logic (Downloading State)
-                if (!TryValidateTrackForQueue(bestMatch, out var validationReason, ctx.Model.MinBitrateOverride))
+                if (!TryValidateTrackForQueue(
+                    bestMatch,
+                    out var validationReason,
+                    ctx.Model.MinBitrateOverride,
+                    allowFallbackFormat: IsMp3FallbackAllowed(ctx.Model)))
                 {
                     _logger.LogWarning("Rejected candidate before download for {Title}: {Reason}. Candidate: {Filename}",
                         ctx.Model.Title, validationReason, bestMatch.Filename);
@@ -2423,6 +2455,24 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             OperatorMessage: string.IsNullOrWhiteSpace(message) ? "peer rejected transfer" : message);
     }
 
+    internal static string? ResolveDiscoveryReason(string? sourceProvenance, string? matchReason, string? scoreBreakdown)
+    {
+        var preferredDiscoveryReason = !string.IsNullOrWhiteSpace(matchReason)
+            ? matchReason
+            : scoreBreakdown;
+
+        if (string.Equals(sourceProvenance, "ShieldSanitized", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.IsNullOrWhiteSpace(preferredDiscoveryReason)
+                ? "🛡 Shield sanitized search"
+                : $"🛡 Shield sanitized · {preferredDiscoveryReason}";
+        }
+
+        return string.IsNullOrWhiteSpace(preferredDiscoveryReason)
+            ? null
+            : preferredDiscoveryReason;
+    }
+
     private async Task DownloadFileAsync(DownloadContext ctx, Track bestMatch, CancellationToken ct)
     {
         await UpdateStateAsync(ctx, PlaylistTrackState.Downloading);
@@ -2452,16 +2502,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             }
         }
         ctx.Model.QualityDetails = $"{bestMatch.Bitrate}kbps|{bestMatch.BitDepth ?? 0}bit|{bestMatch.SampleRate ?? 0}Hz";
-        if (string.Equals(ctx.Model.SourceProvenance, "ShieldSanitized", StringComparison.OrdinalIgnoreCase))
-        {
-            ctx.Model.DiscoveryReason = string.IsNullOrWhiteSpace(bestMatch.MatchReason)
-                ? "🛡 Shield sanitized search"
-                : $"🛡 Shield sanitized · {bestMatch.MatchReason}";
-        }
-        else if (!string.IsNullOrWhiteSpace(bestMatch.MatchReason))
-        {
-            ctx.Model.DiscoveryReason = bestMatch.MatchReason;
-        }
+        ctx.Model.DiscoveryReason = ResolveDiscoveryReason(
+            ctx.Model.SourceProvenance,
+            bestMatch.MatchReason,
+            bestMatch.ScoreBreakdown);
 
         PrimePipelineSearchForNextTrack(ctx.GlobalId);
         

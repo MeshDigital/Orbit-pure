@@ -1,5 +1,164 @@
 # Recent Changes
 
+## [0.1.0-alpha.50] - Reactive Search Runtime Hardening (Mar 22, 2026)
+
+### Overview
+This release turns ORBIT’s search path into a more explicit workstation-style runtime: planned search lanes, shared blend scoring, firehose-safe UI ingestion, hard-cap stream shutdown, and deeper regression coverage around cancellation and stream completion.
+
+### 1) Reactive Search Session Lifecycle
+* `SearchViewModel` now owns a real session model with:
+  * `_activeSearchCts`
+  * `_currentSearchSessionId`
+  * `SerialDisposable` ownership for active stream and idle monitor
+  * `IsListening`, `ResultsPerSecond`, `TotalResultsReceived`, `LastResultAtUtc`
+* `CancelSearchCommand` now stops the actual active search session instead of only flipping UI flags.
+* Search completion now waits for the buffered stream pipeline to drain before final cleanup, preventing the last batch from being dropped.
+
+### 2) Firehose-Safe UI Ingestion
+* Search results are now projected off the UI thread and buffered into chunked updates (`250ms` or `50` items) before being added to the visible collection.
+* `SearchResultsView` is now backed by DynamicData binding instead of manual full-grid rebuild logic.
+* Hidden-result visibility and filter reasoning now flow through the reactive list binding instead of `Clear()` + re-add cycles.
+
+### 3) Adapter Hard Cap / Circuit Breaker
+* Added absolute per-search safety knobs in `Configuration/AppConfig.cs`:
+  * `SearchHardResultCap`
+  * `SearchHardFileCap`
+* `SoulseekAdapter` now:
+  * enforces hard accepted-result/file caps,
+  * publishes `SearchHardCapTriggeredEvent`,
+  * throws `SearchLimitExceededException` through stream mode,
+  * links cap shutdown to the active search lifetime token.
+
+### 4) Search Runtime Explainability and Telemetry
+* Search and discovery now share compact preferred-reason formatting and structured blend telemetry.
+* Search status text can now distinguish between:
+  * active streaming,
+  * explicit stop-listening,
+  * idle completion,
+  * hard-cap truncation.
+* The search page now exposes a dedicated **STOP LISTENING** control for the current stream.
+
+### 5) In-Depth Documentation Added
+* Added deep technical documentation for the new systems:
+  * `DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md`
+  * `DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md`
+* Updated `README.md` and `DOCUMENTATION_INDEX.md` so the new runtime architecture is discoverable from the repo entry points.
+
+### 6) Regression Coverage Expansion
+Added focused coverage for:
+* search lane planning and lane escalation,
+* fit scoring and final ranking policy,
+* compact reason formatting,
+* preferred-reason propagation,
+* adapter hard-cap propagation,
+* search view-model cancellation and batched UI updates.
+
+### 7) Validation Snapshot
+* Focused search runtime validation:
+  * `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj --filter "FullyQualifiedName~SearchViewModelTests|FullyQualifiedName~SearchOrchestrationServiceTests"` ✅ (`11/11`)
+
+### Notes
+* Search dispatch remains correctness-first and serialized at the adapter boundary until per-query callback isolation is available.
+* This release is primarily about bounded streaming, operator control, and trustworthy result presentation under high-volume search conditions.
+
+---
+
+## [0.1.0-alpha.49] - Heuristic Search Engine Upgrade (Mar 21, 2026)
+
+### Overview
+This release completes a multi-phase upgrade of the search and discovery intelligence pipeline with stricter matching discipline, metadata-aware query planning, lane-based orchestration, unified fit/ranking policy, structured blend telemetry, and end-to-end human-readable reason propagation.
+
+### 1) Metadata-Driven Query Planning (Strict → Standard → Desperate)
+* Added explicit planning models in `Services/InputParsers/SearchPlanningModels.cs`:
+  * `TargetMetadata`
+  * `SearchPlan`
+  * `SearchQueryLane` + `PlannedSearchLane`
+* `SearchNormalizationService` now produces lane-aware plans from:
+  * raw query strings,
+  * `SearchQuery`,
+  * `PlaylistTrack` metadata (artist/title/album/canonical duration).
+* Planner behavior now separates:
+  * **Strict query** (identity-preserving),
+  * **Standard query** (relaxed title noise removal),
+  * **Desperate query** (artist/title/album fallback logic).
+
+### 2) Orchestration Lane Logic + Controlled Escalation
+* `SearchOrchestrationService` now runs lane-based execution with explicit `Strict`, `Standard`, `Desperate` semantics.
+* Added controlled escalation behavior:
+  * skips desperate lane if accepted results already exist for non-album search,
+  * applies deliberate escalation delay before desperate lane,
+  * bounds accumulation windows by lane (`MinSearchDurationSeconds` vs `SearchAccumulatorWindowSeconds`).
+* Added bounded desperate buffering via channel-based candidate collection to prevent stale or unbounded accumulation pressure.
+* Added lane-level short-circuit logic when a high-confidence perfect accumulator candidate appears.
+
+### 3) Shared Candidate Fit + Shared Ranking Policy
+* Added shared scoring primitives:
+  * `Services/SearchCandidateFitScorer.cs`
+  * `Services/SearchCandidateRankingPolicy.cs`
+* Unified both orchestration and discovery paths to use the same blend model:
+  * base match score,
+  * metadata/format/duration fit score,
+  * peer reliability,
+  * queue pressure penalty,
+  * final blended score.
+* Fast-lane gating now aligns with blended score thresholds (instead of inconsistent path-local heuristics).
+
+### 4) Discovery Tier Alignment + Reason Generation
+* `DownloadDiscoveryService` now consumes metadata-aware orchestration entry points and shared blend policy.
+* Discovery candidates now emit consistent blend breakdown strings and metadata stamps.
+* Added compact reason formatter:
+  * `Services/SearchBlendReasonFormatter.cs`
+  * emits concise user-facing reasons (for example: fit + peer trust + final score).
+
+### 5) Structured Blend Telemetry for Auditability
+* Extended `Models/SearchSelectionAudit.cs` candidate schema with typed blend telemetry fields:
+  * `BlendMatchScore`
+  * `BlendFitScore`
+  * `BlendReliability`
+  * `BlendFinalScore`
+* `SearchOrchestrationService` and `DownloadDiscoveryService` now stamp these metrics into track metadata and audit payloads, improving explainability and post-run diagnostics.
+
+### 6) End-to-End Preferred Reason Propagation (UI + DTO + Persistence)
+* Added preferred-reason semantics in UI and DTO surfaces:
+  * `ViewModels/SearchResult.cs` now exposes `PreferredReason` / `HasPreferredReason`
+  * `ViewModels/AnalyzedSearchResultViewModel.cs` now prefers `PreferredReason`
+  * `Models/Discovery/DiscoveryDtos.cs` now exposes `PreferredReason` for discovery cards/results
+* Download persistence fallback was centralized in `DownloadManager`:
+  * added `ResolveDiscoveryReason(sourceProvenance, matchReason, scoreBreakdown)`
+  * preserves ShieldSanitized prefix semantics,
+  * prefers compact `MatchReason`, falls back to `ScoreBreakdown`, then to shield default text when applicable.
+
+### 7) Search/Discovery Tuning Defaults
+* Updated quality-first timing/config defaults in `Configuration/AppConfig.cs`:
+  * `SearchTimeout` increased to improve late high-quality peer capture,
+  * added `SearchAccumulatorWindowSeconds`,
+  * increased `MinSearchDurationSeconds`,
+  * increased `HedgedSearchDelaySeconds`,
+  * increased `RelaxationTimeoutSeconds`.
+
+### 8) Regression Test Expansion
+Added focused test coverage for planner, scorer, ranking, lane behavior, reason formatting, DTO reason preference, and persistence fallback:
+* `Tests/SLSKDONET.Tests/Services/SearchNormalizationServiceTests.cs`
+* `Tests/SLSKDONET.Tests/Services/SearchCandidateFitScorerTests.cs`
+* `Tests/SLSKDONET.Tests/Services/SearchCandidateRankingPolicyTests.cs`
+* `Tests/SLSKDONET.Tests/Services/SearchOrchestrationServiceTests.cs`
+* `Tests/SLSKDONET.Tests/Services/SearchBlendReasonFormatterTests.cs`
+* `Tests/SLSKDONET.Tests/ViewModels/SearchResultReasonPreferenceTests.cs`
+* `Tests/SLSKDONET.Tests/Models/Discovery/DiscoveryDtosTests.cs`
+* `Tests/SLSKDONET.Tests/Services/DownloadManagerDiscoveryReasonTests.cs`
+
+### 9) Validation Snapshot
+* Focused persistence-fallback suite:
+  * `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj --filter DownloadManagerDiscoveryReasonTests` ✅ (`4/4`)
+* Adjacent DownloadManager regression suite:
+  * `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj --filter DownloadManager` ✅
+
+### Notes
+* Existing non-blocking compiler warnings remain in unrelated files and were not expanded as part of this release scope.
+* This release is intentionally focused on search/discovery intelligence consistency, explainability, and deterministic fallback behavior.
+
+---
+
 ## [0.1.0-alpha.48] - P2P Etiquette Finalization (Mar 21, 2026)
 
 ### Search Load-Shedding Enforcement (Token Bucket)

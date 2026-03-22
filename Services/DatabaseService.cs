@@ -139,12 +139,35 @@ public class DatabaseService
                 return;
 
             await _schemaMigrator.InitializeDatabaseAsync();
+            await EnsureDownloadQueueTableAsync();
             _isInitialized = true;
         }
         finally
         {
             _initSemaphore.Release();
         }
+    }
+
+    private async Task EnsureDownloadQueueTableAsync()
+    {
+        using var context = new AppDbContext();
+
+        const string sql = @"
+            CREATE TABLE IF NOT EXISTS DownloadQueueItems (
+                Id TEXT NOT NULL PRIMARY KEY,
+                PlaylistTrackId TEXT NOT NULL,
+                QueuePosition INTEGER NOT NULL,
+                EnqueuedAt TEXT NOT NULL
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS IX_DownloadQueueItems_PlaylistTrackId
+            ON DownloadQueueItems (PlaylistTrackId);
+
+            CREATE INDEX IF NOT EXISTS IX_DownloadQueueItems_QueuePosition
+            ON DownloadQueueItems (QueuePosition);
+        ";
+
+        await context.Database.ExecuteSqlRawAsync(sql);
     }
 
     // ===== PendingOrchestration Methods =====
@@ -1062,6 +1085,152 @@ public class DatabaseService
             context.PlaylistTracks.RemoveRange(tracks);
             await context.SaveChangesAsync();
         }
+    }
+
+    /// <summary>
+    /// Persists current download queue order (pending tracks only).
+    /// Replaces previous snapshot atomically in a serialized write section.
+    /// </summary>
+    public async Task SaveDownloadQueueSnapshotAsync(List<Guid> orderedTrackIds)
+    {
+        await _writeSemaphore.WaitAsync();
+        try
+        {
+            using var context = new AppDbContext();
+
+            await context.Database.ExecuteSqlRawAsync("DELETE FROM DownloadQueueItems");
+
+            for (var index = 0; index < orderedTrackIds.Count; index++)
+            {
+                await context.Database.ExecuteSqlRawAsync(
+                    "INSERT INTO DownloadQueueItems (Id, PlaylistTrackId, QueuePosition, EnqueuedAt) VALUES ({0}, {1}, {2}, {3})",
+                    Guid.NewGuid().ToString(),
+                    orderedTrackIds[index].ToString(),
+                    index,
+                    DateTime.UtcNow.ToString("o"));
+            }
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Removes a track from persisted download queue (best effort).
+    /// </summary>
+    public async Task RemoveFromDownloadQueueAsync(Guid playlistTrackId)
+    {
+        await _writeSemaphore.WaitAsync();
+        try
+        {
+            using var context = new AppDbContext();
+            await context.Database.ExecuteSqlRawAsync(
+                "DELETE FROM DownloadQueueItems WHERE PlaylistTrackId = {0}",
+                playlistTrackId.ToString());
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Loads persisted download queue tracks in stable queue order.
+    /// Tracks missing from PlaylistTracks are automatically pruned.
+    /// </summary>
+    public async Task<List<PlaylistTrackEntity>> LoadPersistedDownloadQueueTracksAsync()
+    {
+        using var context = new AppDbContext();
+
+        var queueRows = new List<(Guid TrackId, int Position)>();
+        var staleTrackIds = new List<string>();
+
+        var connection = context.Database.GetDbConnection();
+        await connection.OpenAsync();
+        try
+        {
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT PlaylistTrackId, QueuePosition FROM DownloadQueueItems ORDER BY QueuePosition ASC";
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var rawTrackId = reader.GetString(0);
+                if (Guid.TryParse(rawTrackId, out var trackId))
+                {
+                    queueRows.Add((trackId, reader.GetInt32(1)));
+                }
+                else
+                {
+                    staleTrackIds.Add(rawTrackId);
+                }
+            }
+        }
+        finally
+        {
+            await connection.CloseAsync();
+        }
+
+        if (staleTrackIds.Count > 0)
+        {
+            await _writeSemaphore.WaitAsync();
+            try
+            {
+                using var cleanupContext = new AppDbContext();
+                foreach (var staleId in staleTrackIds)
+                {
+                    await cleanupContext.Database.ExecuteSqlRawAsync(
+                        "DELETE FROM DownloadQueueItems WHERE PlaylistTrackId = {0}", staleId);
+                }
+            }
+            finally
+            {
+                _writeSemaphore.Release();
+            }
+        }
+
+        if (!queueRows.Any())
+        {
+            return new List<PlaylistTrackEntity>();
+        }
+
+        var trackIds = queueRows.Select(x => x.TrackId).ToList();
+
+        var trackEntities = await context.PlaylistTracks
+            .AsNoTracking()
+            .Where(t => trackIds.Contains(t.Id) && t.Status == TrackStatus.Missing)
+            .ToListAsync();
+
+        var trackById = trackEntities.ToDictionary(t => t.Id);
+
+        var missingFromPlaylist = queueRows
+            .Where(x => !trackById.ContainsKey(x.TrackId))
+            .Select(x => x.TrackId.ToString())
+            .ToList();
+
+        if (missingFromPlaylist.Count > 0)
+        {
+            await _writeSemaphore.WaitAsync();
+            try
+            {
+                using var cleanupContext = new AppDbContext();
+                foreach (var missingId in missingFromPlaylist)
+                {
+                    await cleanupContext.Database.ExecuteSqlRawAsync(
+                        "DELETE FROM DownloadQueueItems WHERE PlaylistTrackId = {0}", missingId);
+                }
+            }
+            finally
+            {
+                _writeSemaphore.Release();
+            }
+        }
+
+        return queueRows
+            .Where(x => trackById.ContainsKey(x.TrackId))
+            .OrderBy(x => x.Position)
+            .Select(x => trackById[x.TrackId])
+            .ToList();
     }
 
 

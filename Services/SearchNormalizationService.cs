@@ -1,6 +1,8 @@
 using System;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
+using SLSKDONET.Models;
+using SLSKDONET.Services.InputParsers;
 
 namespace SLSKDONET.Services;
 
@@ -12,6 +14,34 @@ namespace SLSKDONET.Services;
 public class SearchNormalizationService
 {
     private readonly ILogger<SearchNormalizationService> _logger;
+
+    private static readonly HashSet<string> ArtistStopWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "the",
+        "a",
+        "an",
+        "unknown",
+        "unknown artist",
+        "various",
+        "various artists",
+        "va"
+    };
+
+    private static readonly string[] RelaxedTitleNoisePatterns =
+    {
+        @"\boriginal mix\b",
+        @"\bextended mix\b",
+        @"\bradio edit\b",
+        @"\bclub mix\b",
+        @"\boriginal version\b",
+        @"\bfeat\.?\s+[^\-\(\)\[\]]+",
+        @"\bft\.?\s+[^\-\(\)\[\]]+",
+        @"\bfeaturing\s+[^\-\(\)\[\]]+",
+        @"\bremix\b",
+        @"\bbootleg\b",
+        @"\bdub\b",
+        @"\bedit\b"
+    };
 
     // Musical Identity Patterns (KEEP these - they define the track version)
     private static readonly string[] MusicalIdentityPatterns = new[]
@@ -181,69 +211,186 @@ public class SearchNormalizationService
         return withoutExt.Trim();
     }
 
+    public SearchPlan BuildSearchPlan(string rawInput)
+    {
+        var target = ExtractTargetMetadata(rawInput);
+
+        return BuildSearchPlan(target, strictQueryOverride: null);
+    }
+
+    public SearchPlan BuildSearchPlan(SearchQuery query)
+    {
+        var target = ExtractTargetMetadata(query);
+        return BuildSearchPlan(target, strictQueryOverride: null);
+    }
+
+    public SearchPlan BuildSearchPlan(PlaylistTrack track, string? strictQueryOverride = null)
+    {
+        var target = ExtractTargetMetadata(track);
+        return BuildSearchPlan(target, strictQueryOverride);
+    }
+
+    public SearchPlan BuildSearchPlan(TargetMetadata target, string? strictQueryOverride = null)
+    {
+        var strictQuery = !string.IsNullOrWhiteSpace(strictQueryOverride)
+            ? strictQueryOverride.Trim()
+            : JoinNonEmpty(target.NormalizedArtist, target.NormalizedTitle);
+
+        var relaxedTitle = BuildRelaxedTitle(target.NormalizedTitle);
+        var standardQuery = JoinNonEmpty(target.NormalizedArtist, relaxedTitle);
+
+        if (string.IsNullOrWhiteSpace(standardQuery) && !string.IsNullOrWhiteSpace(target.Album))
+        {
+            standardQuery = JoinNonEmpty(target.NormalizedArtist, target.Album!);
+        }
+
+        if (string.IsNullOrWhiteSpace(standardQuery))
+        {
+            standardQuery = strictQuery;
+        }
+
+        var desperateQuery = BuildDesperateQuery(target, standardQuery);
+
+        return new SearchPlan(target, strictQuery, standardQuery, desperateQuery);
+    }
+
+    public TargetMetadata ExtractTargetMetadata(string rawInput)
+    {
+        if (string.IsNullOrWhiteSpace(rawInput))
+        {
+            return new TargetMetadata(null, null);
+        }
+
+        var clean = rawInput.Trim();
+
+        string? artist = null;
+        string? title = null;
+
+        var dashedParts = clean.Split(" - ", 2, StringSplitOptions.TrimEntries);
+        if (dashedParts.Length == 2)
+        {
+            artist = dashedParts[0];
+            title = dashedParts[1];
+        }
+        else
+        {
+            var hyphenParts = clean.Split('-', 2, StringSplitOptions.TrimEntries);
+            if (hyphenParts.Length == 2)
+            {
+                artist = hyphenParts[0];
+                title = hyphenParts[1];
+            }
+            else
+            {
+                title = clean;
+            }
+        }
+
+        var normalized = NormalizeForSoulseek(artist ?? string.Empty, title ?? string.Empty);
+        return new TargetMetadata(
+            string.IsNullOrWhiteSpace(normalized.NormalizedArtist) ? null : normalized.NormalizedArtist,
+            string.IsNullOrWhiteSpace(normalized.NormalizedTitle) ? null : normalized.NormalizedTitle);
+    }
+
+    public TargetMetadata ExtractTargetMetadata(SearchQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        var normalized = NormalizeForSoulseek(query.Artist ?? string.Empty, query.Title ?? string.Empty);
+        return new TargetMetadata(
+            string.IsNullOrWhiteSpace(normalized.NormalizedArtist) ? null : normalized.NormalizedArtist,
+            string.IsNullOrWhiteSpace(normalized.NormalizedTitle) ? null : normalized.NormalizedTitle,
+            string.IsNullOrWhiteSpace(query.Album) ? null : query.Album.Trim(),
+            query.CanonicalDuration.HasValue ? Math.Max(0, query.CanonicalDuration.Value / 1000) : query.Length);
+    }
+
+    public TargetMetadata ExtractTargetMetadata(PlaylistTrack track)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+
+        var normalized = NormalizeForSoulseek(track.Artist ?? string.Empty, track.Title ?? string.Empty);
+        return new TargetMetadata(
+            string.IsNullOrWhiteSpace(normalized.NormalizedArtist) ? null : normalized.NormalizedArtist,
+            string.IsNullOrWhiteSpace(normalized.NormalizedTitle) ? null : normalized.NormalizedTitle,
+            string.IsNullOrWhiteSpace(track.Album) ? null : track.Album.Trim(),
+            track.CanonicalDuration.HasValue ? Math.Max(0, track.CanonicalDuration.Value / 1000) : null);
+    }
+
     /// <summary>
     /// Generates a prioritized list of search queries to maximize P2P hits.
     /// Solves the "Artist - Title" (hyphen) issue and handles common "garbage" terms.
     /// </summary>
     public System.Collections.Generic.List<string> GenerateSearchVariations(string rawInput)
     {
-        var variations = new System.Collections.Generic.List<string>();
-        if (string.IsNullOrWhiteSpace(rawInput)) return variations;
-
-        // 1. Exact Input (Cleaned)
-        var clean = rawInput.Trim();
-        variations.Add(clean);
-
-        // 2. Hyphen Handling (The "Basstripper" Fix)
-        if (clean.Contains("-"))
+        if (string.IsNullOrWhiteSpace(rawInput))
         {
-            // Replace hyphen with space
-            var noHyphen = clean.Replace("-", " ");
-            variations.Add(Regex.Replace(noHyphen, @"\s+", " ").Trim());
-
-            // Split and Swap (Artist - Title -> Title Artist)
-            var parts = clean.Split('-', StringSplitOptions.RemoveEmptyEntries).Select(p => p.Trim()).ToList();
-            if (parts.Count == 2)
-            {
-                variations.Add($"{parts[0]} {parts[1]}"); // Artist Title
-                variations.Add($"{parts[1]} {parts[0]}"); // Title Artist
-            }
+            return new System.Collections.Generic.List<string>();
         }
 
-        // 3. Remove "Noise" Terms (Mix names, feats, etc.)
-        var noisePatterns = new[] 
-        { 
-            @"\boriginal mix\b", 
-            @"\bextended mix\b", 
-            @"\bfeat\.?\b", 
-            @"\bft\.?\b", 
-            @"\bofficial video\b", 
-            @"\blyrics\b",
-            @"\bremix\b",
-            @"\(\)" // Empty brackets
-        };
+        var plan = BuildSearchPlan(rawInput);
+        var variations = plan.EnumerateQueries().ToList();
 
-        var stripped = clean;
-        foreach (var pattern in noisePatterns)
-        {
-            stripped = Regex.Replace(stripped, pattern, "", RegexOptions.IgnoreCase);
-        }
-        
-        // Clean up double spaces
-        stripped = Regex.Replace(stripped, @"\s+", " ").Trim();
-
-        if (!string.Equals(stripped, clean, StringComparison.OrdinalIgnoreCase) && stripped.Length > 3)
-        {
-            variations.Add(stripped);
-        }
-
-        // 4. Alpha-Numeric Only (Nuclear Option)
-        var alphaNumeric = Regex.Replace(clean, @"[^a-zA-Z0-9\s]", "");
-        if (alphaNumeric.Length > 0 && !variations.Contains(alphaNumeric))
+        var alphaNumeric = Regex.Replace(rawInput.Trim(), @"[^a-zA-Z0-9\s]", " ");
+        alphaNumeric = Regex.Replace(alphaNumeric, @"\s+", " ").Trim();
+        if (!string.IsNullOrWhiteSpace(alphaNumeric))
         {
             variations.Add(alphaNumeric);
         }
 
-        return variations.Distinct().ToList();
+        return variations
+            .Where(query => !string.IsNullOrWhiteSpace(query))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
+
+    private static string BuildRelaxedTitle(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return string.Empty;
+        }
+
+        var relaxed = title;
+        foreach (var pattern in RelaxedTitleNoisePatterns)
+        {
+            relaxed = Regex.Replace(relaxed, pattern, " ", RegexOptions.IgnoreCase);
+        }
+
+        relaxed = Regex.Replace(relaxed, @"[\(\)\[\]\{\}]", " ");
+        relaxed = Regex.Replace(relaxed, @"\s+", " ").Trim(' ', '-', '_', '.', ',');
+        return relaxed;
+    }
+
+    private static string BuildDesperateQuery(TargetMetadata target, string fallback)
+    {
+        if (target.HasArtist && !IsCommonArtistStopWord(target.NormalizedArtist))
+        {
+            return target.NormalizedArtist;
+        }
+
+        if (target.HasTitle)
+        {
+            return target.NormalizedTitle;
+        }
+
+        if (!string.IsNullOrWhiteSpace(target.Album))
+        {
+            return target.Album.Trim();
+        }
+
+        return fallback;
+    }
+
+    private static bool IsCommonArtistStopWord(string artist)
+    {
+        if (string.IsNullOrWhiteSpace(artist))
+        {
+            return true;
+        }
+
+        return ArtistStopWords.Contains(artist.Trim());
+    }
+
+    private static string JoinNonEmpty(params string[] parts)
+        => string.Join(" ", parts.Where(part => !string.IsNullOrWhiteSpace(part)).Select(part => part.Trim()));
 }

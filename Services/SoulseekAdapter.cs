@@ -16,6 +16,19 @@ using Open.Nat;
 
 namespace SLSKDONET.Services;
 
+public sealed class SearchLimitExceededException : Exception
+{
+    public int HardResultCap { get; }
+    public int HardFileCap { get; }
+
+    public SearchLimitExceededException(string message, int hardResultCap, int hardFileCap)
+        : base(message)
+    {
+        HardResultCap = hardResultCap;
+        HardFileCap = hardFileCap;
+    }
+}
+
 /// <summary>
 /// Real Soulseek.NET adapter for network interactions.
 /// </summary>
@@ -307,7 +320,10 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             listenPort: runtime.ListenPort,
             serverConnectionOptions: serverConnectionOptions,
             messageTimeout: messageTimeout,
-            maximumConcurrentSearches: Math.Clamp(_config.MaxConcurrentSearches, 1, 3),
+            // NOTE: Keep Soulseek search concurrency at 1 for correctness.
+            // Under concurrent searches, callback payloads can be interleaved across active queries,
+            // causing false "no results" decisions in discovery despite valid candidates existing.
+            maximumConcurrentSearches: 1,
             maximumConcurrentDownloads: Math.Clamp(_config.MaxConcurrentDownloads, 1, 10));
     }
 
@@ -465,7 +481,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 _config.SoulseekMinorVersion,
                 effectiveMessageTimeout,
                 runtime.ListenPort,
-                Math.Clamp(_config.MaxConcurrentSearches, 1, 3),
+                1,
                 Math.Clamp(_config.MaxConcurrentDownloads, 1, 10));
             
             // Subscribe to state changes BEFORE connecting to catch early login states
@@ -798,7 +814,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         Action<IEnumerable<Track>> onTracksFound,
         CancellationToken ct = default)
     {
-        return await SearchCoreAsync(query, formatFilter, bitrateFilter, mode, onTracksFound, null, ct);
+        return await SearchCoreAsync(query, formatFilter, bitrateFilter, mode, onTracksFound, null, null, ct);
     }
 
     private async Task<int> SearchCoreAsync(
@@ -808,18 +824,23 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         DownloadMode mode,
         Action<IEnumerable<Track>> onTracksFound,
         SearchExecutionProfile? executionProfile,
+        Action<SearchLimitExceededException>? onLimitExceeded,
         CancellationToken ct)
     {
+        using var searchLifetimeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var effectiveCt = searchLifetimeCts.Token;
+
         if (string.IsNullOrWhiteSpace(query))
         {
             _logger.LogDebug("Search skipped because query was empty.");
             return 0;
         }
 
-        var maxOutboundSearches = Math.Clamp(_config.MaxConcurrentSearches, 1, 3);
+        // Correctness-first: serialize outbound searches until per-query callback isolation exists.
+        var maxOutboundSearches = 1;
         while (true)
         {
-            ct.ThrowIfCancellationRequested();
+            effectiveCt.ThrowIfCancellationRequested();
             var currentInFlight = Volatile.Read(ref _outboundSearchInFlight);
             if (currentInFlight < maxOutboundSearches
                 && Interlocked.CompareExchange(ref _outboundSearchInFlight, currentInFlight + 1, currentInFlight) == currentInFlight)
@@ -827,10 +848,10 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 break;
             }
 
-            await Task.Delay(25, ct);
+            await Task.Delay(25, effectiveCt);
         }
 
-        var client = await WaitForReadyClientAsync(ct);
+        var client = await WaitForReadyClientAsync(effectiveCt);
         if (client == null)
         {
             _logger.LogInformation("Search skipped for query {SearchQuery} because Soulseek client is not ready.", query);
@@ -845,7 +866,13 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         var filteredBySampleRate = 0;
         var filteredByQueue = 0;
         var filteredByDedup = 0;
+        var pendingCallbacks = 0;
+        var searchDispatchCompleted = 0;
+        var callbackDrainTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hardCapTriggered = 0;
         var formatSet = formatFilter?.Select(f => f.ToLowerInvariant()).ToHashSet() ?? new HashSet<string>();
+        var hardResultCap = Math.Max(1000, _config.SearchHardResultCap);
+        var hardFileCap = Math.Max(0, _config.SearchHardFileCap);
         var excludedPhraseSet = new ReadOnlyCollection<string>(_excludedPhrases.Keys.ToList());
         // Beta 2026: Result fingerprinting — deduplicate by (FileName + FileSize + Duration) within one search.
         // Reduces noise by up to 70% on popular tracks shared by many peers.
@@ -864,7 +891,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 var tokenRefillMs = Math.Max(500, executionProfile?.TokenRefillIntervalMs ?? _config.SearchTokenBucketRefillMs);
                 var waitMs = 0;
 
-                await _rateLimitLock.WaitAsync(ct);
+                await _rateLimitLock.WaitAsync(effectiveCt);
                 try
                 {
                     RefillSearchTokens(tokenCapacity, tokenRefillMs);
@@ -887,7 +914,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     _rateLimitLock.Release();
                 }
 
-                await Task.Delay(waitMs, ct);
+                await Task.Delay(waitMs, effectiveCt);
             }
 
             _logger.LogInformation("Search started for query {SearchQuery} with mode {SearchMode}, format filter {FormatFilter}, bitrate range {MinBitrate}-{MaxBitrate}",
@@ -943,146 +970,231 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             // The SearchAsync method in the library (or wrapper) seems to handle the waiting internally 
             // based on the stack trace showing SearchToCallbackAsync waiting.
             // So we just await the search initialization/execution.
+            void TrySignalCallbackDrain()
+            {
+                if (Volatile.Read(ref searchDispatchCompleted) == 1 && Volatile.Read(ref pendingCallbacks) == 0)
+                {
+                    callbackDrainTcs.TrySetResult();
+                }
+            }
+
             await client.SearchAsync(
                 searchQuery,
                 (response) =>
                 {
+                    Interlocked.Increment(ref pendingCallbacks);
+
                     _logger.LogDebug("Received response from {User} with {Count} files", response.Username, response.Files.Count());
 
-                    var foundTracksInResponse = new List<Track>();
-
-                    // Process each search response
-                    foreach (var file in response.Files)
+                    try
                     {
-                        if (mode == DownloadMode.Album)
-                        {
-                            var directoryName = Path.GetDirectoryName(file.Filename);
-                            if (!string.IsNullOrEmpty(directoryName))
-                            {
-                                var key = $"{response.Username}@{directoryName}";
-                                directories.AddOrUpdate(key, 
-                                    _ => new List<Soulseek.File> { file }, 
-                                    (_, list) => { list.Add(file); return list; });
-                            }
-                        }
-                        else // Normal mode
-                        {
-                            totalFilesReceived++;
-                            var extension = Path.GetExtension(file.Filename)?.TrimStart('.').ToLowerInvariant();
-                            var fileDecision = SearchFilterPolicy.EvaluateFile(
-                                file,
-                                formatSet,
-                                bitrateFilter,
-                                _config.PreferredMaxSampleRate,
-                                excludedPhraseSet,
-                                Math.Max(0, _config.MaxPeerQueueLength),
-                                response.QueueLength);
+                        var foundTracksInResponse = new List<Track>();
 
-                            if (!fileDecision.IsAccepted)
+                        // Process each search response
+                        foreach (var file in response.Files)
+                        {
+                            if (mode == DownloadMode.Album)
                             {
-                                switch (fileDecision.Reason)
+                                var directoryName = Path.GetDirectoryName(file.Filename);
+                                if (!string.IsNullOrEmpty(directoryName))
                                 {
-                                    case SearchRejectionReason.Format:
-                                        filteredByFormat++;
-                                        if (filteredByFormat <= 3)
-                                        {
-                                            _logger.LogInformation("[FILTER] Rejected by format: {File} (extension: {Ext}, allowed: {Formats})", file.Filename, extension, string.Join(", ", formatSet));
-                                        }
-                                        break;
-                                    case SearchRejectionReason.Bitrate:
-                                        filteredByBitrate++;
-                                        break;
-                                    case SearchRejectionReason.SampleRate:
-                                        filteredBySampleRate++;
-                                        break;
-                                    case SearchRejectionReason.Queue:
-                                        filteredByQueue++;
-                                        break;
+                                    var key = $"{response.Username}@{directoryName}";
+                                    directories.AddOrUpdate(key, 
+                                        _ => new List<Soulseek.File> { file }, 
+                                        (_, list) => { list.Add(file); return list; });
                                 }
-                                continue;
                             }
-
-                            var lengthAttr = file.Attributes?.FirstOrDefault(a => a.Type == Soulseek.FileAttributeType.Length);
-                            var rawDurationSeconds = lengthAttr?.Value ?? 0;
-
-                            // Beta 2026: Fingerprint dedup with peer-awareness.
-                            // Keep duplicates only when they come from a better queue peer.
-                            var fpKey = _resultFingerprinter.Create(file.Filename, file.Size, rawDurationSeconds);
-                            var isDedupReplacement = false;
-                            if (seenThisSearch.TryGetValue(fpKey, out var existingQueue))
+                            else // Normal mode
                             {
-                                if (response.QueueLength < existingQueue)
+                                var currentFileCount = Interlocked.Increment(ref totalFilesReceived);
+                                if (hardFileCap > 0 && currentFileCount > hardFileCap)
                                 {
-                                    seenThisSearch[fpKey] = response.QueueLength;
-                                    isDedupReplacement = true;
+                                    if (Interlocked.CompareExchange(ref hardCapTriggered, 1, 0) == 0)
+                                    {
+                                        var reason = $"Hard file cap reached ({hardFileCap}) for query '{query}'";
+                                        _logger.LogWarning("{Reason}", reason);
+                                        _eventBus.Publish(new SearchHardCapTriggeredEvent(query, hardResultCap, hardFileCap, reason));
+                                        onLimitExceeded?.Invoke(new SearchLimitExceededException(reason, hardResultCap, hardFileCap));
+                                        searchLifetimeCts.Cancel();
+                                    }
+
+                                    return;
+                                }
+
+                                var extension = Path.GetExtension(file.Filename)?.TrimStart('.').ToLowerInvariant();
+                                var fileDecision = SearchFilterPolicy.EvaluateFile(
+                                    file,
+                                    formatSet,
+                                    bitrateFilter,
+                                    _config.PreferredMaxSampleRate,
+                                    excludedPhraseSet,
+                                    Math.Max(0, _config.MaxPeerQueueLength),
+                                    response.QueueLength);
+
+                                if (!fileDecision.IsAccepted)
+                                {
+                                    switch (fileDecision.Reason)
+                                    {
+                                        case SearchRejectionReason.Format:
+                                            var formatRejects = Interlocked.Increment(ref filteredByFormat);
+                                            if (formatRejects <= 3)
+                                            {
+                                                _logger.LogInformation("[FILTER] Rejected by format: {File} (extension: {Ext}, allowed: {Formats})", file.Filename, extension, string.Join(", ", formatSet));
+                                            }
+                                            break;
+                                        case SearchRejectionReason.Bitrate:
+                                            Interlocked.Increment(ref filteredByBitrate);
+                                            break;
+                                        case SearchRejectionReason.SampleRate:
+                                            Interlocked.Increment(ref filteredBySampleRate);
+                                            break;
+                                        case SearchRejectionReason.Queue:
+                                            Interlocked.Increment(ref filteredByQueue);
+                                            break;
+                                    }
+                                    continue;
+                                }
+
+                                var lengthAttr = file.Attributes?.FirstOrDefault(a => a.Type == Soulseek.FileAttributeType.Length);
+                                var rawDurationSeconds = lengthAttr?.Value ?? 0;
+
+                                // Beta 2026: Fingerprint dedup with peer-awareness.
+                                // Keep duplicates only when they come from a better queue peer.
+                                var fpKey = _resultFingerprinter.Create(file.Filename, file.Size, rawDurationSeconds);
+                                var isDedupReplacement = false;
+                                if (seenThisSearch.TryGetValue(fpKey, out var existingQueue))
+                                {
+                                    if (response.QueueLength < existingQueue)
+                                    {
+                                        seenThisSearch[fpKey] = response.QueueLength;
+                                        isDedupReplacement = true;
+                                    }
+                                    else
+                                    {
+                                        Interlocked.Increment(ref filteredByDedup);
+                                        continue;
+                                    }
                                 }
                                 else
                                 {
-                                    filteredByDedup++;
-                                    continue;
+                                    seenThisSearch.TryAdd(fpKey, response.QueueLength);
                                 }
-                            }
-                            else
-                            {
-                                seenThisSearch.TryAdd(fpKey, response.QueueLength);
-                            }
 
-                            // Memory Optimization: Only allocate Track object for files that survive the filters
-                            // Use the helper method to parse metadata correctly
-                            var track = ParseTrackFromFile(file, response);
-                            track.Metadata ??= new Dictionary<string, object>();
-                            track.Metadata["IsDedup"] = isDedupReplacement;
+                                // Memory Optimization: Only allocate Track object for files that survive the filters
+                                // Use the helper method to parse metadata correctly
+                                var track = ParseTrackFromFile(file, response);
+                                track.Metadata ??= new Dictionary<string, object>();
+                                track.Metadata["IsDedup"] = isDedupReplacement;
 
-                            if (resultCount <= 3) // Log first 3 matches
-                            {
-                                _logger.LogInformation("[ACCEPT] Track passed filters: {Artist} - {Title} ({Bitrate} kbps, {Ext})", track.Artist, track.Title, track.Bitrate, extension);
+                                var acceptedCount = Interlocked.Increment(ref resultCount);
+                                if (acceptedCount > hardResultCap)
+                                {
+                                    if (Interlocked.CompareExchange(ref hardCapTriggered, 1, 0) == 0)
+                                    {
+                                        var reason = $"Hard result cap reached ({hardResultCap}) for query '{query}'";
+                                        _logger.LogWarning("{Reason}", reason);
+                                        _eventBus.Publish(new SearchHardCapTriggeredEvent(query, hardResultCap, hardFileCap, reason));
+                                        onLimitExceeded?.Invoke(new SearchLimitExceededException(reason, hardResultCap, hardFileCap));
+                                        searchLifetimeCts.Cancel();
+                                    }
+
+                                    return;
+                                }
+
+                                if (acceptedCount <= 3) // Log first 3 matches
+                                {
+                                    _logger.LogInformation("[ACCEPT] Track passed filters: {Artist} - {Title} ({Bitrate} kbps, {Ext})", track.Artist, track.Title, track.Bitrate, extension);
+                                }
+
+                                foundTracksInResponse.Add(track);
                             }
-                            foundTracksInResponse.Add(track);
-                            resultCount++;
+                        }
+                        
+                        if (foundTracksInResponse.Any())
+                        {
+                            PublishTracksInBatches(onTracksFound, foundTracksInResponse, 50);
                         }
                     }
-
-                    if (foundTracksInResponse.Any())
+                    finally
                     {
-                        PublishTracksInBatches(onTracksFound, foundTracksInResponse, 50);
+                        if (Interlocked.Decrement(ref pendingCallbacks) == 0)
+                        {
+                            TrySignalCallbackDrain();
+                        }
                     }
                 },
                 options: options,
-                cancellationToken: ct
+                cancellationToken: effectiveCt
             );
+
+            Volatile.Write(ref searchDispatchCompleted, 1);
+            TrySignalCallbackDrain();
+
+            if (Volatile.Read(ref pendingCallbacks) > 0)
+            {
+                using var callbackDrainTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(effectiveCt);
+                callbackDrainTimeoutCts.CancelAfter(TimeSpan.FromSeconds(2));
+                try
+                {
+                    await callbackDrainTcs.Task.WaitAsync(callbackDrainTimeoutCts.Token);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    _logger.LogWarning(
+                        "Search callback drain timed out for query {SearchQuery}; returning with {Pending} callback(s) still pending.",
+                        query,
+                        Volatile.Read(ref pendingCallbacks));
+                }
+            }
+
+            var finalResultCount = Volatile.Read(ref resultCount);
+            var finalTotalFilesReceived = Volatile.Read(ref totalFilesReceived);
+            var finalFilteredByFormat = Volatile.Read(ref filteredByFormat);
+            var finalFilteredByBitrate = Volatile.Read(ref filteredByBitrate);
+            var finalFilteredBySampleRate = Volatile.Read(ref filteredBySampleRate);
+            var finalFilteredByQueue = Volatile.Read(ref filteredByQueue);
+            var finalFilteredByDedup = Volatile.Read(ref filteredByDedup);
 
             if (mode == DownloadMode.Album)
             {
                 _logger.LogInformation("Found {Count} potential album directories.", directories.Count);
                 // TODO: In a future step, we would rank these directories and create album download jobs.
                 // For now, we will just log them.
-                resultCount = directories.Count;
+                finalResultCount = directories.Count;
+            }
+            else
+            {
+                finalResultCount = Math.Min(finalResultCount, hardResultCap);
+                if (hardFileCap > 0)
+                {
+                    finalTotalFilesReceived = Math.Min(finalTotalFilesReceived, hardFileCap);
+                }
             }
 
             _logger.LogInformation(
                 "Search completed: {ResultCount} results from {TotalFiles} files " +
                 "(filtered: {FormatFiltered} format, {BitrateFiltered} bitrate, {SampleRateFiltered} sample-rate, " +
                 "{QueueFiltered} queue, {DedupFiltered} dedup)",
-                resultCount, totalFilesReceived, filteredByFormat, filteredByBitrate,
-                filteredBySampleRate, filteredByQueue, filteredByDedup);
+                finalResultCount, finalTotalFilesReceived, finalFilteredByFormat, finalFilteredByBitrate,
+                finalFilteredBySampleRate, finalFilteredByQueue, finalFilteredByDedup);
 
             _healthService.RecordSearchFiltering(
-                filteredByFormat,
-                filteredByBitrate,
-                filteredBySampleRate,
-                filteredByQueue,
-                filteredByDedup,
+                finalFilteredByFormat,
+                finalFilteredByBitrate,
+                finalFilteredBySampleRate,
+                finalFilteredByQueue,
+                finalFilteredByDedup,
                 0);
 
             // Record search results for health diagnostics
-            _healthService.RecordSearch(query, totalFilesReceived, resultCount, true);
+            _healthService.RecordSearch(query, finalTotalFilesReceived, finalResultCount, true);
             
-            return resultCount;
+            return finalResultCount;
         }
         catch (OperationCanceledException)
         {
              _logger.LogInformation("Search cancelled for query {SearchQuery}", query);
-             return resultCount; // Return whatever we found before cancellation
+             return Volatile.Read(ref resultCount); // Return whatever we found before cancellation
         }
         catch (Exception ex)
         {
@@ -1191,6 +1303,8 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
     {
         var channel = System.Threading.Channels.Channel.CreateUnbounded<Track>();
         var searchCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Exception? streamFailure = null;
+        SearchLimitExceededException? capException = null;
 
         // Run the existing search logic in a background task
         // We use the existing SearchAsync but redirect its "onTracksFound" callback to write to the channel
@@ -1204,7 +1318,16 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     {
                         channel.Writer.TryWrite(track);
                     }
-                }, executionProfile, searchCts.Token);
+                }, executionProfile,
+                onLimitExceeded: ex =>
+                {
+                    capException = ex;
+                    searchCts.Cancel();
+                },
+                searchCts.Token);
+            }
+            catch (OperationCanceledException) when (capException != null)
+            {
             }
             catch (OperationCanceledException)
             {
@@ -1212,6 +1335,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             }
             catch (Exception ex)
             {
+                streamFailure = ex;
                 if (ct.IsCancellationRequested || !(_client?.State.HasFlag(SoulseekClientStates.LoggedIn) ?? false))
                 {
                     _logger.LogWarning("Background stream search stopped: {Message}", ex.Message);
@@ -1223,7 +1347,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             }
             finally
             {
-                channel.Writer.Complete();
+                channel.Writer.Complete(streamFailure ?? capException);
             }
         }, ct); // Use outer CT for Task scheduling.
 
@@ -1236,9 +1360,13 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             }
         }
 
-        // Await the task to ensure we catch any exceptions or ensure clean exit
-        // (Though we swallowed exceptions above to ensure channel closes, checking here is good hygiene)
-        // await searchTask; 
+        await searchTask;
+
+        if (streamFailure != null)
+            throw streamFailure;
+
+        if (capException != null)
+            throw capException;
     }
 
     /// <summary>
@@ -1548,8 +1676,10 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
             bool isQueued = false;
             bool transferStartedOrQueued = false;
             TransferLifecyclePhase? lastPhase = null;
+            DateTime queueStartTime = DateTime.UtcNow; // Phase 3D: Detect zombie peers stuck in queue
             var connectFailFastSeconds = Math.Clamp(_config.PeerConnectFailFastSeconds, 5, 30);
             var stallTimeoutSeconds = Math.Clamp(_config.TransferStallTimeoutSeconds, 15, 180);
+            const int QUEUE_TIMEOUT_SECONDS = 300; // 5 minute queue timeout (peer must respond or be dropped)
 
             var downloadOptions = new TransferOptions(
                 stateChanged: (args) =>
@@ -1557,6 +1687,10 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     // Update queued status
                     if (args.Transfer.State.HasFlag(TransferStates.Queued))
                     {
+                        if (!isQueued)
+                        {
+                            queueStartTime = DateTime.UtcNow; // Phase 3D: Record when queue started
+                        }
                         isQueued = true;
                         transferStartedOrQueued = true;
                         if (lastPhase != TransferLifecyclePhase.RemoteQueued)
@@ -1599,51 +1733,94 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
             // Phase 2.5: Use Append mode if resuming, Create if starting fresh
             var fileMode = startOffset > 0 ? FileMode.Append : FileMode.Create;
-            using var fileStream = new FileStream(outputPath, fileMode, FileAccess.Write, FileShare.None, 8192, useAsync: true);
+            FileStream? fileStream = null;
             
-            // We wrap the Soulseek DownloadAsync in our own task to enforce our custom timeout logic
-            // The underlying client has some timeout logic, but we want granular control over "Stalled vs Queued"
-            var downloadTask = this._client.DownloadAsync(
-                username,
-                filename,
-                () => Task.FromResult((Stream)fileStream),
-                size,
-                startOffset: startOffset,  // Pass the offset to Soulseek client
-                options: downloadOptions,
-                cancellationToken: ct);
-
-            // Monitoring Loop
-            while (!downloadTask.IsCompleted)
+            try
             {
-                var idleSeconds = (DateTime.UtcNow - lastActivity).TotalSeconds;
-                if (!transferStartedOrQueued && idleSeconds > connectFailFastSeconds)
-                {
-                    throw new TimeoutException($"Peer did not respond within {connectFailFastSeconds} seconds.");
-                }
-
-                // Check if we should time out
-                // Modified: Only timeout if NOT queued and no activity for configured stall window
-                if (!isQueued && idleSeconds > stallTimeoutSeconds)
-                {
-                    // STALLED: Not queued, but no bytes moved for configured timeout
-                    throw new TimeoutException($"Transfer stalled for {stallTimeoutSeconds} seconds (0 bytes received).");
-                }
+                fileStream = new FileStream(outputPath, fileMode, FileAccess.Write, FileShare.None, 8192, useAsync: true);
                 
-                // If we are queued, we WAIT INDEFINITELY (or until user cancels)
-                // This is the key fix: Don't timeout if we are just waiting in line.
+                // We wrap the Soulseek DownloadAsync in our own task to enforce our custom timeout logic
+                // The underlying client has some timeout logic, but we want granular control over "Stalled vs Queued"
+                var downloadTask = this._client.DownloadAsync(
+                    username,
+                    filename,
+                    () => Task.FromResult((Stream)fileStream),
+                    size,
+                    startOffset: startOffset,  // Pass the offset to Soulseek client
+                    options: downloadOptions,
+                    cancellationToken: ct);
 
-                await Task.WhenAny(downloadTask, Task.Delay(1000, ct));
+                // Monitoring Loop
+                while (!downloadTask.IsCompleted)
+                {
+                    var idleSeconds = (DateTime.UtcNow - lastActivity).TotalSeconds;
+                    if (!transferStartedOrQueued && idleSeconds > connectFailFastSeconds)
+                    {
+                        throw new TimeoutException($"Peer did not respond within {connectFailFastSeconds} seconds.");
+                    }
+
+                    // Check if we should time out
+                    // Modified: Only timeout if NOT queued and no activity for configured stall window
+                    if (!isQueued && idleSeconds > stallTimeoutSeconds)
+                    {
+                        // STALLED: Not queued, but no bytes moved for configured timeout
+                        throw new TimeoutException($"Transfer stalled for {stallTimeoutSeconds} seconds (0 bytes received).");
+                    }
+                    
+                    // Phase 3D: ZOMBIE DETECTION - Peer stuck in queue for too long
+                    // Even if queued, if peer doesn't start transfer after 5 minutes, drop it
+                    if (isQueued && (DateTime.UtcNow - queueStartTime).TotalSeconds > QUEUE_TIMEOUT_SECONDS)
+                    {
+                        throw new TimeoutException($"Peer stuck in queue for {QUEUE_TIMEOUT_SECONDS} seconds (zombie peer detected). Dropping peer.");
+                    }
+                    
+                    // If we are queued but not stuck, we wait for user cancellation
+                    // Queue timeout above prevents indefinite hanging
+
+                    await Task.WhenAny(downloadTask, Task.Delay(1000, ct));
+                }
+
+                await downloadTask; // Propagate exceptions/completion
+
+                // CRITICAL: Flush all buffered data before closing
+                // Ensures all bytes written to FileStream are persisted to disk
+                await fileStream.FlushAsync();
+                
+                this._logger.LogInformation("Download completed: {Filename}", filename);
+                progress?.Report(1.0);
+                _eventBus.Publish(new TransferFinishedEvent(filename, username));
+                
+                DownloadCompleted?.Invoke(this, new DownloadCompletedEventArgs(filename, username, true));
+                
+                return true;
             }
+            finally
+            {
+                // CRITICAL: Ensure FileStream is always closed properly, even on exception
+                // This prevents "file in use" errors on retry attempts
+                if (fileStream != null)
+                {
+                    try
+                    {
+                        // Flush one more time to ensure all pending writes are committed
+                        await fileStream.FlushAsync(ct).ConfigureAwait(false);
+                    }
+                    catch (Exception flushEx)
+                    {
+                        this._logger.LogWarning(flushEx, "Error flushing stream for {Filename}", filename);
+                    }
 
-            await downloadTask; // Propagate exceptions/completion
-
-            this._logger.LogInformation("Download completed: {Filename}", filename);
-            progress?.Report(1.0);
-            _eventBus.Publish(new TransferFinishedEvent(filename, username));
-            
-            DownloadCompleted?.Invoke(this, new DownloadCompletedEventArgs(filename, username, true));
-            
-            return true;
+                    try
+                    {
+                        fileStream.Dispose();
+                        this._logger.LogDebug("FileStream closed for {Filename}", filename);
+                    }
+                    catch (Exception disposeEx)
+                    {
+                        this._logger.LogWarning(disposeEx, "Error disposing stream for {Filename}", filename);
+                    }
+                }
+            }
         }
         catch (OperationCanceledException)
         {
