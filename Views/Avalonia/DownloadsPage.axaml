@@ -760,9 +760,7 @@
                                             <StackLayout Spacing="4"/>
                                         </ItemsRepeater.Layout>
                                         <ItemsRepeater.ItemTemplate>
-                                            <DataTemplate>
-                                                <c:StandardTrackRow Classes="card"/>
-                                            </DataTemplate>
+                                            <StaticResource ResourceKey="DownloadItemTemplate"/>
                                         </ItemsRepeater.ItemTemplate>
                                     </ItemsRepeater>
 
