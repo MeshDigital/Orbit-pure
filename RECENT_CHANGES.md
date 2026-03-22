@@ -1,5 +1,167 @@
 # Recent Changes
 
+## [0.1.0-alpha.52] - Download Center UX Overhaul: Session Chips, Badge Density, Header Compaction, Sort & Failure Clarity (Mar 23, 2026)
+
+### Overview
+Four-commit polish pass focused entirely on the Download Center's day-to-day usability. Introduces session-level chip filters so the active ledger can be narrowed to just Live / Queued / Done / Failed without switching tabs; reduces badge noise on track rows in the Download Center context via a new `MinimalBadges` styled property; compacts and reorganises the header section above the tab strip; and fixes three correctness bugs: incomplete chip toggle logic, wrong sort order on Completed/Failed history, and failure reasons that were hidden behind an expander gate.
+
+---
+
+### 1) Session Chip Filters — Current Session Ledger Narrowing
+
+**Motivation:** The session ledger (all non-cleared tracks, morphing in place from Searching → Downloading → Completed/Failed) could previously only be filtered by text search. Switching state-views required jumping to the separate Completed / Failed tabs.
+
+**`ViewModels/Downloads/DownloadCenterViewModel.cs`:**
+- Added `_sessionFilterMode` backing field and `SessionFilterMode` string property (`"All"` | `"Live"` | `"Queued"` | `"Done"` | `"Failed"`). The setter guards against no-op assignments then fires `RaisePropertyChanged` for all five chip bool properties in one go, so binding stays in sync.
+- Added five computed bool properties: `SessionFilterAll`, `SessionFilterLive`, `SessionFilterQueued`, `SessionFilterDone`, `SessionFilterFailed`. Each getter compares `SessionFilterMode` to its string; each setter is a single expression `SessionFilterMode = value ? "Mode" : "All"` — this is the correct toggle behaviour (see Bug Fix §5 below).
+- Added `SessionLedgerCount` (count of all non-cleared `_activeTracks`) and `VisibleSessionTrackCount` (count of the filtered `_sessionTracks` collection).
+- Added reactive session filter pipeline:
+  ```csharp
+  var sessionFilter = this.WhenAnyValue(x => x.SearchText, x => x.SessionFilterMode)
+      .Throttle(TimeSpan.FromMilliseconds(120))
+      .Select(tuple => new Func<UnifiedTrackViewModel, bool>(x =>
+          !x.IsClearedFromDownloadCenter &&
+          BuildFilter(tuple.Item1)(x) &&
+          MatchesSessionFilter(x, tuple.Item2)));
+
+  sharedSource
+      .Filter(sessionFilter)
+      .SortAndBind(out _sessionTracks, directActiveComparer)
+      .Subscribe()
+      .DisposeWith(_subscriptions);
+  ```
+- Added `MatchesSessionFilter(vm, mode)` static helper with a switch expression:
+  - `"Live"` → `vm.IsActive || vm.IsPaused || vm.State == Searching`
+  - `"Queued"` → `vm.IsWaiting`
+  - `"Done"` → `vm.IsCompleted`
+  - `"Failed"` → `vm.IsFailed || vm.IsStalled || vm.State == Cancelled`
+  - `_` (All) → `true`
+- Added count-notification subscriptions so `SessionLedgerCount` and `VisibleSessionTrackCount` stay live.
+
+**`Views/Avalonia/DownloadsPage.axaml`:**
+- Added `sessionChip` `ToggleButton` style: pill shape (`CornerRadius="999"`), neutral resting background (`#252526`), checked state fills to `#00BFFF` with black text, pointer-over lightens to `#2A2A2D`.
+- Session toolbar: two-row Grid inside the active session panel.
+  - Row 0: Clear Completed button · Clear Failed button · text search box (260 px, bound `SearchText`).
+  - Row 1: five `ToggleButton.sessionChip` chips (All · Live · Queued · Done · Failed) each showing a count badge; right-aligned "N visible" label showing `VisibleSessionTrackCount`.
+- Session `ItemsRepeater` changed binding from `ActiveTracks` → `SessionTracks`.
+- Empty-state hint text updated to "No session tracks match the current filters."
+
+---
+
+### 2) MinimalBadges — Context-Sensitive Badge Density on StandardTrackRow
+
+**Motivation:** In the Download Center the service-level badges (Peer, Discovery/Match, Confidence %, Curation icon, Stems, Vibe, Mood, Instrumental) add visual noise without providing actionable signal during a download. Library rows always show full badge density.
+
+**`Views/Avalonia/Controls/StandardTrackRow.axaml.cs`:**
+- Added `MinimalBadgesProperty = AvaloniaProperty.Register<StandardTrackRow, bool>(nameof(MinimalBadges), false)` and the corresponding CLR property `MinimalBadges`.
+
+**`Views/Avalonia/Controls/StandardTrackRow.axaml`:**
+- All eight low-signal badges gated with `IsVisible` driven by `MultiBinding` + `BoolConverters.And` of `!MinimalBadges` and their existing condition:
+  - Peer badge, Discovery/Match badge, Confidence %, Curation icon, Stems pill, Vibe pill, Mood pill, Instrumental pill.
+- The following high-signal badges remain always visible regardless of `MinimalBadges`:
+  - Quality pill (bitrate/format), Forensic live badge, Fake FLAC warning, Transcode warning, Shield badge, High Risk flag, Verified check.
+- Badge tray inter-item spacing tightened from `6` → `4` in minimal mode.
+
+**`Views/Avalonia/Controls/DownloadGroupRow.axaml`:**
+- `MinimalBadges="True"` set on the `StandardTrackRow` inside On Deck groups.
+
+**`Views/Avalonia/DownloadsPage.axaml`:**
+- `MinimalBadges="True"` set on all `StandardTrackRow` usages inside `DownloadItemTemplate` (active/completed rows bound to `DownloadGroupRow`).
+
+---
+
+### 3) Header Compaction — Above-Tab-Strip Panel Density
+
+**Motivation:** The area above the tab strip held excess vertical padding, large metric font sizes, and a separately stacked concurrency/profile subsection that together consumed roughly twice the necessary height.
+
+**`Views/Avalonia/DownloadsPage.axaml` — changes to the header `Border`:**
+- Container padding: `20,12` → `16,8`.
+- Status bar accent strip: `Height="4"` → `Height="2"`.
+- All `StackPanel` `Spacing` values reduced from `8` → `6` throughout.
+- Metric `TextBlock` font sizes: `20` → `16`; `FontWeight="Light"` → `FontWeight="SemiBold"` (better legibility at smaller size).
+- Action button `Padding`: `16,8` / `12,8` → `12,6` / `10,6`.
+- Concurrency slider and profile chip row merged into a single horizontal row — removed the separate "DOWNLOAD PROFILE OVERWRITE" section header.
+- Profile chips (Non-Strict / Strict / Stricter) collapsed from two-line `StackPanel` content (label + sub-label) to a single `TextBlock` with `ToolTip.Tip` carrying the detail text.
+- Inline "PROFILE" mini-label placed left of the profile chips in the same row as the concurrency slider.
+- Profile mode body text (`DownloadProfileModeText`) reduced from `FontSize="11" FontWeight="SemiBold"` to `FontSize="10"` lighter style.
+
+---
+
+### 4) Completed & Failed Sort — Newest-First by Completion Time
+
+**Root cause:** `CompletedDownloads` was sorted by `Model.AddedAt` (the time the track was enqueued), meaning the most recently *finished* track did not necessarily appear at the top. `FailedDownloads` used an unsorted `.Bind()` — no defined order at all.
+
+**`ViewModels/Downloads/DownloadCenterViewModel.cs`:**
+- `CompletedDownloads` pipeline: comparer changed to `SortExpressionComparer.Descending(x => x.Model.CompletedAt ?? x.Model.AddedAt)`. Added `.ObserveOn(RxApp.MainThreadScheduler)` and `.DisposeWith(_subscriptions)`.
+- `FailedDownloads` pipeline: replaced `.Bind(out _failedDownloads).Subscribe()` with `.ObserveOn(RxApp.MainThreadScheduler).SortAndBind(out _failedDownloads, SortExpressionComparer.Descending(x => x.Model.CompletedAt ?? x.Model.AddedAt)).Subscribe().DisposeWith(_subscriptions)`.
+
+`Model.CompletedAt` is set by `DownloadManager.UpdateTrackStateAsync()` at the moment of all terminal state transitions (Completed, Failed, Cancelled), so it accurately reflects when the download resolved, not when it was queued.
+
+---
+
+### 5) Session Chip Toggle Bug Fix
+
+**Root cause:** The `SessionFilterLive`, `SessionFilterQueued`, `SessionFilterDone`, `SessionFilterFailed` setters previously contained `if (value) { SessionFilterMode = "X"; }` — they handled `value = true` but silently swallowed `value = false`. When a user clicked an already-active chip to dismiss it, Avalonia's two-way binding would call the setter with `false`, the setter did nothing, and `SessionFilterMode` stayed on the old value. On the next click the stale binding state caused erratic filter behaviour.
+
+**Fix (`DownloadCenterViewModel.cs`):** All four setters are now a single expression:
+```csharp
+set => SessionFilterMode = value ? "Live" : "All";
+```
+Unchecking any chip now unconditionally resets the filter to "All".
+
+**Live chip count fix:** The "Live" chip displayed `DownloadingCount` (only the `Downloading` state). Changed to `ActiveCount`, which counts all live states: `Downloading`, `Searching`, `WaitingForConnection`, and remote `Queued`.
+
+---
+
+### 6) Failure Reason Always-Visible Display
+
+**Root cause:** The raw `FailureReason` string (the exact error message from the engine — e.g., "Peer did not respond within 10 seconds", "Search timed out after 90s", "All results rejected: Quality too low") was only shown inside the peer log `Expander`, which requires the user to expand it. Tracks with no incoming peer results (e.g. `NoSearchResults`) had `HasIncomingResults = false` so the expander was hidden, and the failure message was invisible.
+
+**`ViewModels/Downloads/UnifiedTrackViewModel.cs`:**
+- Added `HasFailureReason` computed property: `=> !string.IsNullOrEmpty(FailureReason)`.
+- Added `this.RaisePropertyChanged(nameof(HasFailureReason))` to the `FailureReason` setter so the visibility binding reacts when the reason is set asynchronously (via `PreservedDiagnostics()` or `OnStateChanged()`).
+
+**`Views/Avalonia/DownloadsPage.axaml` — `FailedDownloadItemTemplate`:**
+- Header row converted from `StackPanel` to `Grid (*, Auto)`: title+artist on the left, a compact failure timestamp badge on the right showing `CompletedAtDisplay` in a dark-red `#1E1A1A` / `#3A1F1F` border.
+- Always-visible failure reason box inserted between the header and the existing log `Expander`:
+  ```xml
+  <Border IsVisible="{Binding HasFailureReason}"
+          Background="#130F0F" CornerRadius="4" Padding="8,4"
+          BorderBrush="#3C1F1F" BorderThickness="1">
+      <TextBlock Text="{Binding FailureReason}"
+                 Foreground="#C06060" FontSize="10"
+                 FontFamily="Consolas,Courier New,monospace"
+                 TextWrapping="Wrap"/>
+  </Border>
+  ```
+- The existing `FailureDisplayMessage` badge (enum-based human label, e.g. "No search results found") and `FailureActionSuggestion` line remain unchanged below the header.
+
+---
+
+### Files Changed
+| File | Change Summary |
+|------|---------------|
+| `ViewModels/Downloads/DownloadCenterViewModel.cs` | Session filter pipeline, 5 chip bool props, `SessionLedgerCount`, `VisibleSessionTrackCount`, `MatchesSessionFilter()`, sort fix on Completed/Failed pipelines, chip setter one-liner fix |
+| `ViewModels/Downloads/UnifiedTrackViewModel.cs` | `HasFailureReason` property, `RaisePropertyChanged(nameof(HasFailureReason))` in `FailureReason` setter |
+| `Views/Avalonia/DownloadsPage.axaml` | `sessionChip` style, session toolbar (chips + search + counter), session repeater rebind, `MinimalBadges` applied to download rows, header compaction, failed row header → Grid + timestamp, always-visible `FailureReason` box, Live chip count → `ActiveCount` |
+| `Views/Avalonia/Controls/StandardTrackRow.axaml` | 8 low-signal badges gated with `!MinimalBadges` MultiBinding |
+| `Views/Avalonia/Controls/StandardTrackRow.axaml.cs` | `MinimalBadgesProperty` StyledProperty registration |
+| `Views/Avalonia/Controls/DownloadGroupRow.axaml` | `MinimalBadges="True"` on inner `StandardTrackRow` |
+
+### Commits
+| SHA | Message |
+|-----|---------|
+| `9bb7df7` | refactor: tighten Download Center layout and add session chip filters |
+| `6537c53` | ui: reduce Download Center badge noise via MinimalBadges mode |
+| `189872e` | ui: compact and reorganize Download Center header above tabs |
+| `9d39aac` | fix: sort failed/completed by CompletedAt, fix chip toggle, show failure reason |
+
+### Validation
+- `dotnet build SLSKDONET.sln -c Debug -p:UseAppHost=false 2>&1 | Select-String "error CS|AVLN|AXAML"` → **zero matches** (clean compile) on all four commits.
+- File-lock build failures (`MSB3027/MSB3021`) were caused by the running ORBIT process, not code errors.
+
+---
+
 ## [0.1.0-alpha.51] - Download Center Knowledge Hub + Transfer Cleanup Hardening (Mar 22, 2026)
 
 ### Overview
