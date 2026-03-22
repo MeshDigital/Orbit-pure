@@ -62,108 +62,93 @@
                     </ContextMenu>
                 </Border.ContextMenu>
 
-                <StackPanel Spacing="4">
+                <StackPanel Spacing="0">
                     <c:StandardTrackRow Classes="card"/>
 
-                    <!-- Per-track timeline (Completed/History visibility) -->
-                    <Border Background="#1A2028"
-                            BorderBrush="{Binding LatestIncomingStateColor}"
-                            BorderThickness="1"
-                            CornerRadius="4"
-                            Padding="8,5"
-                            Margin="12,0,12,0"
-                            IsVisible="{Binding HasIncomingResults}">
-                        <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
-                            <TextBlock Grid.Column="0"
-                                       Text="LOG"
-                                       Foreground="#888"
-                                       FontSize="9"
-                                       FontWeight="Bold"
-                                       VerticalAlignment="Center"
-                                       Margin="8,0,0,0"/>
-                            <TextBlock Grid.Column="1"
-                                       Text="{Binding SearchKnowledgeSummary}"
-                                       Foreground="#B0BEC5"
-                                       FontSize="10"
-                                       VerticalAlignment="Center"
-                                       Margin="8,0,0,0"/>
-                            <TextBlock Grid.Column="2"
-                                       Text="{Binding LatestIncomingMessage}"
-                                       Foreground="#C7D2D9"
-                                       FontSize="10"
-                                       TextTrimming="CharacterEllipsis"
-                                       VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="3"
-                                       Text="{Binding LatestIncomingTimeDisplay}"
-                                       Foreground="#888"
-                                       FontSize="9"
-                                       FontFamily="Consolas,Courier New,monospace"
-                                       VerticalAlignment="Center"/>
-                            <ToggleButton Grid.Column="4"
-                                          IsChecked="{Binding IsConsoleOpen, Mode=TwoWay}"
-                                          Background="Transparent"
-                                          BorderBrush="#3E4A54"
-                                          BorderThickness="1"
-                                          CornerRadius="3"
-                                          Padding="6,2"
-                                          Margin="8,0,0,0"
-                                          ToolTip.Tip="Expand/collapse track log details">
-                                <TextBlock Text="Details" FontSize="9" Foreground="#AFC1CC" FontWeight="SemiBold"/>
-                            </ToggleButton>
-                        </Grid>
-                    </Border>
-
+                    <!-- Unified log strip: single collapsible section, visible only when there is log data -->
                     <Expander IsExpanded="{Binding IsConsoleOpen, Mode=TwoWay}"
                               IsVisible="{Binding HasIncomingResults}"
-                              Margin="12,0,12,0"
-                              Background="#0F141A"
-                              BorderBrush="#27313A"
+                              Margin="12,0,12,8"
+                              Background="#0A0F14"
+                              BorderBrush="{Binding LatestIncomingStateColor}"
                               BorderThickness="1"
                               CornerRadius="4">
                         <Expander.Header>
-                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,4">
-                                <TextBlock Text="Track Log" FontSize="10" FontWeight="Bold" Foreground="#D0D7DE"/>
-                                <TextBlock Text="{Binding SearchKnowledgeSummary}" FontSize="10" Foreground="#8FA0AA"/>
-                            </StackPanel>
+                            <!-- Compact single-line summary when collapsed -->
+                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="4,0">
+                                <TextBlock Grid.Column="0"
+                                           Text="{Binding SearchKnowledgeSummary}"
+                                           Foreground="#7FA8C0"
+                                           FontSize="10"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,10,0"/>
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding LatestIncomingMessage}"
+                                           Foreground="#B0C8D8"
+                                           FontSize="10"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center"/>
+                                <Border Grid.Column="2"
+                                        Background="#1D2228"
+                                        BorderBrush="{Binding LatestIncomingStateColor}"
+                                        BorderThickness="1"
+                                        CornerRadius="3"
+                                        Padding="5,1"
+                                        Margin="8,0,0,0"
+                                        VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding LatestIncomingStateLabel}"
+                                               FontSize="9" FontWeight="Bold"
+                                               Foreground="{Binding LatestIncomingStateColor}"/>
+                                </Border>
+                                <TextBlock Grid.Column="3"
+                                           Text="{Binding LatestIncomingTimeDisplay}"
+                                           Foreground="#555"
+                                           FontSize="9"
+                                           FontFamily="Consolas,Courier New,monospace"
+                                           VerticalAlignment="Center"
+                                           Margin="8,0,6,0"/>
+                            </Grid>
                         </Expander.Header>
-                        <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                            <ItemsControl ItemsSource="{Binding IncomingResults}" Margin="8,0,8,8">
+
+                        <StackPanel Spacing="6" Margin="8,4,8,8">
+                            <!-- Telemetry row — only visible inside the expanded section -->
+                            <Border Background="#111820"
+                                    BorderBrush="#1E2C38"
+                                    BorderThickness="1"
+                                    CornerRadius="3"
+                                    Padding="8,5"
+                                    IsVisible="{Binding HasSearchTelemetry}">
+                                <WrapPanel Orientation="Horizontal">
+                                    <TextBlock Text="Duration:" FontSize="10" Foreground="#5A7080" Margin="0,0,4,0"/>
+                                    <TextBlock Text="{Binding SearchDurationDisplay}" FontSize="10" Foreground="#C0CDD5" FontWeight="SemiBold" Margin="0,0,14,0"/>
+                                    <TextBlock Text="Time Left:" FontSize="10" Foreground="#5A7080" Margin="0,0,4,0"/>
+                                    <TextBlock Text="{Binding SearchCountdownDisplay}" FontSize="10" Foreground="#8BD2FF" FontWeight="SemiBold" Margin="0,0,14,0"/>
+                                    <TextBlock Text="Outcome:" FontSize="10" Foreground="#5A7080" Margin="0,0,4,0"/>
+                                    <TextBlock Text="{Binding SearchOutcomeLabel}" FontSize="10" Foreground="{Binding SearchOutcomeColor}" FontWeight="Bold" Margin="0,0,14,0"/>
+                                    <TextBlock Text="Results:" FontSize="10" Foreground="#5A7080" Margin="0,0,4,0"/>
+                                    <TextBlock Text="{Binding SearchResultBreakdown}" FontSize="10" Foreground="#A8BAC3" Margin="0,0,14,0"/>
+                                    <TextBlock Text="Path:" FontSize="10" Foreground="#5A7080" Margin="0,0,4,0"/>
+                                    <TextBlock Text="{Binding SearchPathSummary}" FontSize="10" Foreground="#A8BAC3"/>
+                                </WrapPanel>
+                            </Border>
+
+                            <!-- Log entries -->
+                            <ItemsControl ItemsSource="{Binding IncomingResults}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Border Background="#141C24" BorderBrush="#24303A" BorderThickness="1" CornerRadius="3" Padding="6,4" Margin="0,0,0,4">
+                                        <Border Background="#0D1318" BorderBrush="#1A2530" BorderThickness="1" CornerRadius="3" Padding="6,4" Margin="0,0,0,3">
                                             <Grid ColumnDefinitions="70,70,90,*">
                                                 <TextBlock Grid.Column="0" Text="{Binding TimeDisplay}" Foreground="#8899A6" FontFamily="Consolas,Courier New,monospace" FontSize="9"/>
                                                 <TextBlock Grid.Column="1" Text="{Binding Username}" Foreground="#AFC1CC" FontSize="10" TextTrimming="CharacterEllipsis"/>
                                                 <TextBlock Grid.Column="2" Text="{Binding StateLabel}" Foreground="{Binding StateColor}" FontSize="10" FontWeight="Bold"/>
-                                                <TextBlock Grid.Column="3" Text="{Binding Detail}" Foreground="#D0D7DE" FontSize="10" TextWrapping="Wrap"/>
+                                                <TextBlock Grid.Column="3" Text="{Binding Detail}" Foreground="#C8D8E0" FontSize="10" TextWrapping="Wrap"/>
                                             </Grid>
                                         </Border>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
-                        </ScrollViewer>
+                        </StackPanel>
                     </Expander>
-
-                    <Border Background="#141A20"
-                            BorderBrush="#24303A"
-                            BorderThickness="1"
-                            CornerRadius="4"
-                            Padding="8,6"
-                            Margin="12,0,12,0"
-                            IsVisible="{Binding HasSearchTelemetry}">
-                        <WrapPanel Orientation="Horizontal">
-                            <TextBlock Text="Duration:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
-                            <TextBlock Text="{Binding SearchDurationDisplay}" FontSize="10" Foreground="#D0D7DE" FontWeight="SemiBold" Margin="0,0,12,0"/>
-                            <TextBlock Text="Time Left:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
-                            <TextBlock Text="{Binding SearchCountdownDisplay}" FontSize="10" Foreground="#8BD2FF" FontWeight="SemiBold" Margin="0,0,12,0"/>
-                            <TextBlock Text="Outcome:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
-                            <TextBlock Text="{Binding SearchOutcomeLabel}" FontSize="10" Foreground="{Binding SearchOutcomeColor}" FontWeight="Bold" Margin="0,0,12,0"/>
-                            <TextBlock Text="Results:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
-                            <TextBlock Text="{Binding SearchResultBreakdown}" FontSize="10" Foreground="#B0BEC5" Margin="0,0,12,0"/>
-                            <TextBlock Text="Path:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
-                            <TextBlock Text="{Binding SearchPathSummary}" FontSize="10" Foreground="#B0BEC5"/>
-                        </WrapPanel>
-                    </Border>
                 </StackPanel>
             </Border>
         </DataTemplate>
@@ -230,105 +215,80 @@
                                            Opacity="0.8"/>
                             </StackPanel>
 
-                            <!-- Per-track timeline visibility in Failed tab -->
-                            <Border Background="#1A2028"
-                                    BorderBrush="{Binding LatestIncomingStateColor}"
-                                    BorderThickness="1"
-                                    CornerRadius="4"
-                                    Padding="8,5"
-                                    Margin="0,6,0,0"
-                                    IsVisible="{Binding HasIncomingResults}">
-                                    <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
-                                    <TextBlock Grid.Column="0"
-                                               Text="LOG"
-                                               Foreground="#888"
-                                               FontSize="9"
-                                               FontWeight="Bold"
-                                               VerticalAlignment="Center"
-                                               Margin="8,0,0,0"/>
-                                    <TextBlock Grid.Column="1"
-                                               Text="{Binding SearchKnowledgeSummary}"
-                                               Foreground="#B0BEC5"
-                                               FontSize="10"
-                                               VerticalAlignment="Center"
-                                               Margin="8,0,0,0"/>
-                                    <TextBlock Grid.Column="2"
-                                               Text="{Binding LatestIncomingMessage}"
-                                               Foreground="#C7D2D9"
-                                               FontSize="10"
-                                               TextTrimming="CharacterEllipsis"
-                                               VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="3"
-                                               Text="{Binding LatestIncomingTimeDisplay}"
-                                               Foreground="#888"
-                                               FontSize="9"
-                                               FontFamily="Consolas,Courier New,monospace"
-                                               VerticalAlignment="Center"/>
-                                    <ToggleButton Grid.Column="4"
-                                                  IsChecked="{Binding IsConsoleOpen, Mode=TwoWay}"
-                                                  Background="Transparent"
-                                                  BorderBrush="#3E4A54"
-                                                  BorderThickness="1"
-                                                  CornerRadius="3"
-                                                  Padding="6,2"
-                                                  Margin="8,0,0,0"
-                                                  ToolTip.Tip="Expand/collapse track log details">
-                                        <TextBlock Text="Details" FontSize="9" Foreground="#AFC1CC" FontWeight="SemiBold"/>
-                                    </ToggleButton>
-                                </Grid>
-                            </Border>
-
+                            <!-- Per-track log: single collapsible strip, only when log data exists -->
                             <Expander IsExpanded="{Binding IsConsoleOpen, Mode=TwoWay}"
                                       IsVisible="{Binding HasIncomingResults}"
-                                      Margin="0,4,0,0"
-                                      Background="#0F141A"
-                                      BorderBrush="#27313A"
+                                      Margin="0,6,0,0"
+                                      Background="#0A0F14"
+                                      BorderBrush="{Binding LatestIncomingStateColor}"
                                       BorderThickness="1"
                                       CornerRadius="4">
                                 <Expander.Header>
-                                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,4">
-                                        <TextBlock Text="Track Log" FontSize="10" FontWeight="Bold" Foreground="#D0D7DE"/>
-                                        <TextBlock Text="{Binding SearchKnowledgeSummary}" FontSize="10" Foreground="#8FA0AA"/>
-                                    </StackPanel>
+                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="4,0">
+                                        <TextBlock Grid.Column="0"
+                                                   Text="{Binding SearchKnowledgeSummary}"
+                                                   Foreground="#7FA8C0"
+                                                   FontSize="10"
+                                                   VerticalAlignment="Center"
+                                                   Margin="0,0,10,0"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding LatestIncomingMessage}"
+                                                   Foreground="#B0C8D8"
+                                                   FontSize="10"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center"/>
+                                        <Border Grid.Column="2"
+                                                Background="#1D2228"
+                                                BorderBrush="{Binding LatestIncomingStateColor}"
+                                                BorderThickness="1"
+                                                CornerRadius="3"
+                                                Padding="5,1"
+                                                Margin="8,0,0,0"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding LatestIncomingStateLabel}"
+                                                       FontSize="9" FontWeight="Bold"
+                                                       Foreground="{Binding LatestIncomingStateColor}"/>
+                                        </Border>
+                                        <TextBlock Grid.Column="3"
+                                                   Text="{Binding LatestIncomingTimeDisplay}"
+                                                   Foreground="#555"
+                                                   FontSize="9"
+                                                   FontFamily="Consolas,Courier New,monospace"
+                                                   VerticalAlignment="Center"
+                                                   Margin="8,0,6,0"/>
+                                    </Grid>
                                 </Expander.Header>
-                                <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                                    <ItemsControl ItemsSource="{Binding IncomingResults}" Margin="8,0,8,8">
+                                <StackPanel Spacing="6" Margin="8,4,8,8">
+                                    <Border Background="#111820" BorderBrush="#1E2C38" BorderThickness="1" CornerRadius="3" Padding="8,5" IsVisible="{Binding HasSearchTelemetry}">
+                                        <WrapPanel Orientation="Horizontal">
+                                            <TextBlock Text="Duration:" FontSize="10" Foreground="#5A7080" Margin="0,0,4,0"/>
+                                            <TextBlock Text="{Binding SearchDurationDisplay}" FontSize="10" Foreground="#C0CDD5" FontWeight="SemiBold" Margin="0,0,14,0"/>
+                                            <TextBlock Text="Time Left:" FontSize="10" Foreground="#5A7080" Margin="0,0,4,0"/>
+                                            <TextBlock Text="{Binding SearchCountdownDisplay}" FontSize="10" Foreground="#8BD2FF" FontWeight="SemiBold" Margin="0,0,14,0"/>
+                                            <TextBlock Text="Outcome:" FontSize="10" Foreground="#5A7080" Margin="0,0,4,0"/>
+                                            <TextBlock Text="{Binding SearchOutcomeLabel}" FontSize="10" Foreground="{Binding SearchOutcomeColor}" FontWeight="Bold" Margin="0,0,14,0"/>
+                                            <TextBlock Text="Results:" FontSize="10" Foreground="#5A7080" Margin="0,0,4,0"/>
+                                            <TextBlock Text="{Binding SearchResultBreakdown}" FontSize="10" Foreground="#A8BAC3" Margin="0,0,14,0"/>
+                                            <TextBlock Text="Path:" FontSize="10" Foreground="#5A7080" Margin="0,0,4,0"/>
+                                            <TextBlock Text="{Binding SearchPathSummary}" FontSize="10" Foreground="#A8BAC3"/>
+                                        </WrapPanel>
+                                    </Border>
+                                    <ItemsControl ItemsSource="{Binding IncomingResults}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Border Background="#141C24" BorderBrush="#24303A" BorderThickness="1" CornerRadius="3" Padding="6,4" Margin="0,0,0,4">
+                                                <Border Background="#0D1318" BorderBrush="#1A2530" BorderThickness="1" CornerRadius="3" Padding="6,4" Margin="0,0,0,3">
                                                     <Grid ColumnDefinitions="70,70,90,*">
                                                         <TextBlock Grid.Column="0" Text="{Binding TimeDisplay}" Foreground="#8899A6" FontFamily="Consolas,Courier New,monospace" FontSize="9"/>
                                                         <TextBlock Grid.Column="1" Text="{Binding Username}" Foreground="#AFC1CC" FontSize="10" TextTrimming="CharacterEllipsis"/>
                                                         <TextBlock Grid.Column="2" Text="{Binding StateLabel}" Foreground="{Binding StateColor}" FontSize="10" FontWeight="Bold"/>
-                                                        <TextBlock Grid.Column="3" Text="{Binding Detail}" Foreground="#D0D7DE" FontSize="10" TextWrapping="Wrap"/>
+                                                        <TextBlock Grid.Column="3" Text="{Binding Detail}" Foreground="#C8D8E0" FontSize="10" TextWrapping="Wrap"/>
                                                     </Grid>
                                                 </Border>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
-                                </ScrollViewer>
+                                </StackPanel>
                             </Expander>
-
-                            <Border Background="#141A20"
-                                    BorderBrush="#24303A"
-                                    BorderThickness="1"
-                                    CornerRadius="4"
-                                    Padding="8,6"
-                                    Margin="0,4,0,0"
-                                    IsVisible="{Binding HasSearchTelemetry}">
-                                <WrapPanel Orientation="Horizontal">
-                                    <TextBlock Text="Duration:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
-                                    <TextBlock Text="{Binding SearchDurationDisplay}" FontSize="10" Foreground="#D0D7DE" FontWeight="SemiBold" Margin="0,0,12,0"/>
-                                    <TextBlock Text="Time Left:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
-                                    <TextBlock Text="{Binding SearchCountdownDisplay}" FontSize="10" Foreground="#8BD2FF" FontWeight="SemiBold" Margin="0,0,12,0"/>
-                                    <TextBlock Text="Outcome:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
-                                    <TextBlock Text="{Binding SearchOutcomeLabel}" FontSize="10" Foreground="{Binding SearchOutcomeColor}" FontWeight="Bold" Margin="0,0,12,0"/>
-                                    <TextBlock Text="Results:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
-                                    <TextBlock Text="{Binding SearchResultBreakdown}" FontSize="10" Foreground="#B0BEC5" Margin="0,0,12,0"/>
-                                    <TextBlock Text="Path:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
-                                    <TextBlock Text="{Binding SearchPathSummary}" FontSize="10" Foreground="#B0BEC5"/>
-                                </WrapPanel>
-                            </Border>
 
                             <TextBlock Text="{Binding DetailedStatusText}"
                                        Foreground="#8FA0AA"
