@@ -82,6 +82,9 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     private readonly ReadOnlyObservableCollection<UnifiedTrackViewModel> _activeTracks;
     public ReadOnlyObservableCollection<UnifiedTrackViewModel> ActiveTracks => _activeTracks;
 
+    private readonly ReadOnlyObservableCollection<UnifiedTrackViewModel> _sessionTracks;
+    public ReadOnlyObservableCollection<UnifiedTrackViewModel> SessionTracks => _sessionTracks;
+
     private readonly ReadOnlyObservableCollection<DownloadGroupViewModel> _expressGroups;
     public ReadOnlyObservableCollection<DownloadGroupViewModel> ExpressGroups => _expressGroups;
 
@@ -172,6 +175,87 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         get => _searchText;
         set => this.RaiseAndSetIfChanged(ref _searchText, value);
     }
+
+    private string _sessionFilterMode = "All";
+    public string SessionFilterMode
+    {
+        get => _sessionFilterMode;
+        private set
+        {
+            if (_sessionFilterMode != value)
+            {
+                this.RaiseAndSetIfChanged(ref _sessionFilterMode, value);
+                this.RaisePropertyChanged(nameof(SessionFilterAll));
+                this.RaisePropertyChanged(nameof(SessionFilterLive));
+                this.RaisePropertyChanged(nameof(SessionFilterQueued));
+                this.RaisePropertyChanged(nameof(SessionFilterDone));
+                this.RaisePropertyChanged(nameof(SessionFilterFailed));
+            }
+        }
+    }
+
+    public bool SessionFilterAll
+    {
+        get => SessionFilterMode == "All";
+        set
+        {
+            if (value)
+            {
+                SessionFilterMode = "All";
+            }
+        }
+    }
+
+    public bool SessionFilterLive
+    {
+        get => SessionFilterMode == "Live";
+        set
+        {
+            if (value)
+            {
+                SessionFilterMode = "Live";
+            }
+        }
+    }
+
+    public bool SessionFilterQueued
+    {
+        get => SessionFilterMode == "Queued";
+        set
+        {
+            if (value)
+            {
+                SessionFilterMode = "Queued";
+            }
+        }
+    }
+
+    public bool SessionFilterDone
+    {
+        get => SessionFilterMode == "Done";
+        set
+        {
+            if (value)
+            {
+                SessionFilterMode = "Done";
+            }
+        }
+    }
+
+    public bool SessionFilterFailed
+    {
+        get => SessionFilterMode == "Failed";
+        set
+        {
+            if (value)
+            {
+                SessionFilterMode = "Failed";
+            }
+        }
+    }
+
+    public int SessionLedgerCount => _activeTracks?.Count ?? 0;
+    public int VisibleSessionTrackCount => _sessionTracks?.Count ?? 0;
 
     private string? _globalStatusMessage;
     public string? GlobalStatusMessage
@@ -647,6 +731,35 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             .Subscribe()
             .DisposeWith(_subscriptions);
 
+        var sessionFilter = this.WhenAnyValue(x => x.SearchText, x => x.SessionFilterMode)
+            .Throttle(TimeSpan.FromMilliseconds(120))
+            .Select(tuple =>
+            {
+                var textFilter = BuildFilter(tuple.Item1);
+                var mode = tuple.Item2;
+
+                return new Func<UnifiedTrackViewModel, bool>(x =>
+                    !x.IsClearedFromDownloadCenter &&
+                    textFilter(x) &&
+                    MatchesSessionFilter(x, mode));
+            });
+
+        sharedSource
+            .Filter(sessionFilter)
+            .SortAndBind(out _sessionTracks, directActiveComparer)
+            .Subscribe()
+            .DisposeWith(_subscriptions);
+
+        _activeTracks.ToObservableChangeSet()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(_ => this.RaisePropertyChanged(nameof(SessionLedgerCount)))
+            .DisposeWith(_subscriptions);
+
+        _sessionTracks.ToObservableChangeSet()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(_ => this.RaisePropertyChanged(nameof(VisibleSessionTrackCount)))
+            .DisposeWith(_subscriptions);
+
         // Phase 8: Split Grouping Pipelines for Swimlanes
         // Express Groups (Priority 0 - Only if NOT actively downloading/searching, or always? 
         // User wants active on top, groups below. We keep groups for those waiting or stalled)
@@ -894,6 +1007,18 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
         return vm => vm.TrackTitle.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
                      vm.ArtistName.Contains(searchText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesSessionFilter(UnifiedTrackViewModel vm, string mode)
+    {
+        return mode switch
+        {
+            "Live" => vm.IsActive || vm.IsPaused || vm.State == PlaylistTrackState.Searching,
+            "Queued" => vm.IsWaiting,
+            "Done" => vm.IsCompleted,
+            "Failed" => vm.IsFailed || vm.IsStalled || vm.State == PlaylistTrackState.Cancelled,
+            _ => true
+        };
     }
     
     private void InitialHydration()
