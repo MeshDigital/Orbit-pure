@@ -102,7 +102,7 @@ ORBIT-Pure is a high-fidelity P2P music workstation that combines Soulseek netwo
 - **LibraryService**: Manages the core music collection database
 - **DownloadManager**: Handles P2P file transfers with resilience
 - **AudioIntegrityService**: Performs spectral analysis and forensic checks
-- **SearchOrchestrator**: Processes queries across multiple data sources
+- **SearchOrchestrationService**: Executes planned search lanes, bounded accumulation, and final winner ranking
 - **PlaylistExportService**: Generates professional CSV exports with forensic data
 
 ### Infrastructure
@@ -129,12 +129,225 @@ User Query → Query Parsing → Multi-Source Search → Ranking Algorithm → U
   Natural Language  Tokenization   Soulseek/Local     ML Scoring     Virtualized Grid
 ```
 
+### Reactive Search Runtime Flow
+```
+User Query
+   │
+   ▼
+SearchViewModel
+  • session ownership
+  • stop-listening control
+  • telemetry
+   │
+   ▼
+SearchNormalizationService
+  • TargetMetadata
+  • SearchPlan
+  • Strict / Standard / Desperate lanes
+   │
+   ▼
+SearchOrchestrationService
+  • lane execution
+  • bounded accumulation
+  • blend ranking
+   │
+   ▼
+SoulseekAdapter
+  • callback → async stream bridge
+  • filtering + dedup
+  • callback drain sync
+  • hard-cap circuit breaker
+   │
+   ▼
+Rx / DynamicData Pipeline
+  • background projection
+  • 250ms or 50-item batching
+  • incremental bound updates
+   │
+   ▼
+Avalonia Search Grid
+  • stable rows
+  • hidden reasons
+  • stream/idle status
+```
+
 ### Export Pipeline
 ```
 Playlist Selection → Forensic Data Retrieval → CSV Generation → Integrity Validation → File Output
         ↓                    ↓                      ↓                  ↓              ↓
    Database Query      Spectral Metrics        Field Escaping     Format Check    User Download
 ```
+
+---
+
+## 🔎 Reactive Search Runtime Architecture
+
+The March 2026 search upgrade introduced a layered runtime built specifically for Soulseek’s firehose-style search behavior.
+
+### Design goals
+
+- keep the UI responsive during bursty searches,
+- make cancellation final for the active stream,
+- bound pathological search growth,
+- preserve explainability from search to discovery to download provenance,
+- avoid full-grid rebuilds while results continue to arrive.
+
+### Runtime layers
+
+#### 1. `SearchViewModel`: session owner
+
+The view-model now owns explicit session state:
+
+- active cancellation token,
+- current search session identifier,
+- `SerialDisposable` ownership for stream and idle-monitor subscriptions,
+- operator-visible telemetry via `ResultsPerSecond`, `TotalResultsReceived`, and `LastResultAtUtc`.
+
+This is what makes `STOP LISTENING` a real runtime cancellation boundary.
+
+#### 2. `SearchNormalizationService`: query planner
+
+Searches are now represented with structured planning models:
+
+- `TargetMetadata`
+- `SearchPlan`
+- `SearchQueryLane`
+- `PlannedSearchLane`
+
+The planner emits deterministic lane order:
+
+- `Strict`
+- `Standard`
+- `Desperate`
+
+This gives the rest of the stack a stable search intent model instead of a loose list of variations.
+
+#### 3. `SearchOrchestrationService`: lane coordinator
+
+The orchestrator now:
+
+- executes lane plans in order,
+- delays or skips desperate fallback when appropriate,
+- applies bounded accumulation windows,
+- short-circuits on near-ideal winners,
+- ranks emitted winners through the shared blend model.
+
+#### 4. `SoulseekAdapter`: protocol boundary
+
+The adapter remains the bridge between callback-driven Soulseek responses and ORBIT async streams.
+
+Key protections now include:
+
+- serialized outbound search dispatch for correctness,
+- callback-drain synchronization before final completion,
+- explicit hard file/result caps,
+- surfaced `SearchLimitExceededException` and `SearchHardCapTriggeredEvent` for transparency.
+
+#### 5. Shared ranking and explainability
+
+The stack now shares one ranking vocabulary through:
+
+- `SearchCandidateFitScorer`
+- `SearchCandidateRankingPolicy`
+- `SearchBlendReasonFormatter`
+
+This lets search, discovery, audits, and persistence all agree on:
+
+- fit score,
+- reliability weighting,
+- final blended score,
+- compact preferred reason text.
+
+#### 6. Buffered UI ingestion
+
+The UI no longer relies on manual clear-and-rebuild behavior for live search results.
+
+Instead, incoming results are:
+
+- projected on a background scheduler,
+- buffered by time or count,
+- appended in batches,
+- exposed through DynamicData-bound filtered/sorted collections.
+
+This greatly reduces dispatcher churn under sustained result inflow.
+
+### Search runtime sequence
+
+```
+┌──────────────┐
+│ Operator UI  │
+└──────┬───────┘
+       │ search query
+       ▼
+┌────────────────────────┐
+│ SearchViewModel        │
+│ • begin session        │
+│ • reset telemetry      │
+└──────────┬─────────────┘
+           │
+           ▼
+┌────────────────────────┐
+│ SearchNormalizationSvc │
+│ • build SearchPlan     │
+└──────────┬─────────────┘
+           │ lanes
+           ▼
+┌─────────────────────────────┐
+│ SearchOrchestrationService  │
+│ • execute lanes             │
+│ • accumulate/rank winners   │
+└──────────┬──────────────────┘
+           │ network stream
+           ▼
+┌────────────────────────┐
+│ SoulseekAdapter        │
+│ • callback bridge      │
+│ • hard caps            │
+└──────────┬─────────────┘
+           │ tracks
+           ▼
+┌────────────────────────┐
+│ Rx Buffer Pipeline     │
+│ • background mapping   │
+│ • 250ms / 50 batching  │
+└──────────┬─────────────┘
+           │ batch add
+           ▼
+┌────────────────────────┐
+│ DynamicData Bound View │
+│ • filter/sort/bind     │
+└──────────┬─────────────┘
+           │
+           ▼
+┌────────────────────────┐
+│ Avalonia Search Grid   │
+│ • stable rows          │
+│ • hidden reasons       │
+│ • stream idle state    │
+└────────────────────────┘
+```
+
+### Key properties after the upgrade
+
+- cancellation stops future arrivals for the active session,
+- broad searches are bounded by circuit-breaker caps,
+- visible rows are updated in chunks rather than per item,
+- the final buffered batch drains before normal completion cleanup,
+- search and discovery use the same explainability model.
+
+### Related files
+
+- `ViewModels/SearchViewModel.cs`
+- `Views/Avalonia/SearchPage.axaml`
+- `Services/SearchNormalizationService.cs`
+- `Services/InputParsers/SearchPlanningModels.cs`
+- `Services/SearchOrchestrationService.cs`
+- `Services/SoulseekAdapter.cs`
+- `Services/SearchCandidateFitScorer.cs`
+- `Services/SearchCandidateRankingPolicy.cs`
+- `Services/SearchBlendReasonFormatter.cs`
+- `Tests/SLSKDONET.Tests/ViewModels/SearchViewModelTests.cs`
+- `Tests/SLSKDONET.Tests/Services/SearchOrchestrationServiceTests.cs`
 
 ---
 
@@ -227,11 +440,12 @@ Playlist Selection → Forensic Data Retrieval → CSV Generation → Integrity 
 ## 📚 Related Documentation
 
 - **[README.md](README.md)**: Project overview and quick start
+- **[DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md](DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md)**: Deep technical guide for the new reactive search runtime
+- **[DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md](DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md)**: Search firehose hardening plan and acceptance criteria
 - **[BETA_TESTER_GUIDE.md](BETA_TESTER_GUIDE.md)**: Comprehensive testing guide
 - **[RECENT_CHANGES.md](RECENT_CHANGES.md)**: Development changelog
 - **[TODO.md](TODO.md)**: Development roadmap and backlog
 
 ---
 
-*This architecture document reflects the current state of ORBIT-Pure as of March 2026. The system is designed for reliability, performance, and professional audio integrity verification.*</content>
-<parameter name="filePath">c:\Users\quint\OneDrive\Documenten\GitHub\ORBIT-Pure\ARCHITECTURE.md
+*This architecture document reflects the current state of ORBIT-Pure as of March 2026. The system is designed for reliability, performance, and professional audio integrity verification.*
