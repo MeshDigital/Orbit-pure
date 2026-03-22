@@ -564,6 +564,8 @@
                     <WrapPanel Orientation="Horizontal">
                         <TextBlock Text="Duration:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
                         <TextBlock Text="{Binding SearchDurationDisplay}" FontSize="10" Foreground="#D0D7DE" FontWeight="SemiBold" Margin="0,0,12,0"/>
+                        <TextBlock Text="Time Left:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
+                        <TextBlock Text="{Binding SearchCountdownDisplay}" FontSize="10" Foreground="#8BD2FF" FontWeight="SemiBold" Margin="0,0,12,0"/>
                         <TextBlock Text="Outcome:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>
                         <TextBlock Text="{Binding SearchOutcomeLabel}" FontSize="10" Foreground="{Binding SearchOutcomeColor}" FontWeight="Bold" Margin="0,0,12,0"/>
                         <TextBlock Text="Results:" FontSize="10" Foreground="#6F8190" Margin="0,0,4,0"/>

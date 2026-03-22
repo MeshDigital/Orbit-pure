@@ -908,7 +908,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             var track = e.TrackModel;
             
             // Phase 2.5: Create Smart View Model
-            var viewModel = new UnifiedTrackViewModel(track, _downloadManager, _eventBus, _artworkCache, _libraryService, _databaseService);
+            var viewModel = new UnifiedTrackViewModel(track, _downloadManager, _eventBus, _artworkCache, _libraryService, _databaseService, _config);
             
             // Phase 12.3: Monitor Selection
             viewModel.WhenAnyValue(x => x.IsSelected)
@@ -946,7 +946,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             foreach (var (track, initialState) in e.Tracks)
             {
                 // Phase 2.5: Create Smart View Model
-                var viewModel = new UnifiedTrackViewModel(track, _downloadManager, _eventBus, _artworkCache, _libraryService, _databaseService);
+                var viewModel = new UnifiedTrackViewModel(track, _downloadManager, _eventBus, _artworkCache, _libraryService, _databaseService, _config);
                 
                 // Phase 12.3: Monitor Selection
                 viewModel.WhenAnyValue(x => x.IsSelected)

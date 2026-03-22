@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using System.Windows.Input;
 using Avalonia.Threading;
 using ReactiveUI;
+using SLSKDONET.Configuration;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Events;
@@ -25,13 +26,20 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     private static readonly Regex WinnerUserRegex = new(@"(?:winner:|match from|Selected\s+)(?<user>[A-Za-z0-9_\-\.]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex StructuredFieldRegex = new(@"(?<key>[a-zA-Z]+):\s*(?<value>[^|]+)", RegexOptions.Compiled);
     private static readonly Regex FromUserRegex = new(@"from\s+(?<user>[A-Za-z0-9_\-\.]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly HashSet<string> LosslessFormats = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "flac", "wav", "aif", "aiff", "ape", "alac"
+    };
 
     private readonly DownloadManager _downloadManager;
     private readonly IEventBus _eventBus;
     private readonly ArtworkCacheService _artworkCache;
     private readonly ILibraryService _libraryService;
     private readonly DatabaseService _databaseService;
+    private readonly AppConfig _config;
     private readonly CompositeDisposable _disposables = new();
+    private readonly SerialDisposable _searchClockSubscription = new();
+    private bool _isSearchClockRunning;
     private string? _discoveryReasonOverride;
     private bool _historyRecorded;
 
@@ -157,6 +165,22 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     };
 
     public string SearchPathSummary => _searchUsedMp3Fallback ? "MP3 fallback used" : "Lossless path only";
+    public int SearchMaxWindowSeconds => ComputeSearchMaxWindowSeconds();
+    public string SearchMaxWindowDisplay => $"{SearchMaxWindowSeconds}s";
+    public string SearchCountdownDisplay
+    {
+        get
+        {
+            if (!_searchStartedAtUtc.HasValue)
+                return SearchMaxWindowDisplay;
+
+            var effectiveEnd = _searchEndedAtUtc ?? DateTime.UtcNow;
+            var elapsed = effectiveEnd - _searchStartedAtUtc.Value;
+            var remaining = Math.Max(0, SearchMaxWindowSeconds - (int)Math.Floor(elapsed.TotalSeconds));
+            return $"{remaining}s";
+        }
+    }
+
     public string SearchResultBreakdown => $"{SearchMatchedCount} matched • {SearchQueuedCount} queued • {SearchFilteredCount} filtered";
     public string SearchKnowledgeSummary
     {
@@ -224,7 +248,8 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         IEventBus eventBus,
         ArtworkCacheService artworkCache,
         ILibraryService libraryService,
-        DatabaseService databaseService)
+        DatabaseService databaseService,
+        AppConfig config)
     {
         Model = model ?? throw new ArgumentNullException(nameof(model));
         _downloadManager = downloadManager ?? throw new ArgumentNullException(nameof(downloadManager));
@@ -232,6 +257,8 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         _artworkCache = artworkCache ?? throw new ArgumentNullException(nameof(artworkCache));
         _libraryService = libraryService ?? throw new ArgumentNullException(nameof(libraryService));
         _databaseService = databaseService ?? throw new ArgumentNullException(nameof(databaseService));
+        _config = config ?? throw new ArgumentNullException(nameof(config));
+        _searchClockSubscription.DisposeWith(_disposables);
 
         if (string.IsNullOrWhiteSpace(Model.TrackUniqueHash))
         {
@@ -1391,6 +1418,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
         _searchStartedAtUtc = DateTime.UtcNow;
         _searchEndedAtUtc = null;
+        StartSearchClock();
         RaiseSearchTelemetryProperties();
     }
 
@@ -1400,7 +1428,48 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             return;
 
         _searchEndedAtUtc ??= DateTime.UtcNow;
+        StopSearchClock();
         RaiseSearchTelemetryProperties();
+    }
+
+    private void StartSearchClock()
+    {
+        if (_isSearchClockRunning)
+            return;
+
+        _isSearchClockRunning = true;
+        _searchClockSubscription.Disposable = Observable
+            .Interval(TimeSpan.FromSeconds(1), RxApp.MainThreadScheduler)
+            .Subscribe(_ => RaiseSearchTelemetryProperties());
+    }
+
+    private void StopSearchClock()
+    {
+        _isSearchClockRunning = false;
+        _searchClockSubscription.Disposable = null;
+    }
+
+    private int ComputeSearchMaxWindowSeconds()
+    {
+        var minDefault = Math.Max(5, _config.MinSearchDurationSeconds);
+        if (_searchUsedMp3Fallback)
+            return minDefault;
+
+        var effectiveFormats = !string.IsNullOrWhiteSpace(Model.PreferredFormats)
+            ? Model.PreferredFormats!
+            : string.Join(',', _config.PreferredFormats ?? new List<string>());
+
+        var formatTokens = effectiveFormats
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        var hasLossless = formatTokens.Any(x => LosslessFormats.Contains(x));
+        var hasMp3 = formatTokens.Any(x => string.Equals(x, "mp3", StringComparison.OrdinalIgnoreCase));
+        if (hasLossless && !hasMp3)
+        {
+            return Math.Max(minDefault, Math.Max(20, _config.MinLosslessSearchDurationSeconds));
+        }
+
+        return minDefault;
     }
 
     private void UpdateSearchTelemetry(TrackPeerResultViewModel entry, string? rawMessage)
@@ -1464,6 +1533,9 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         this.RaisePropertyChanged(nameof(SearchOutcomeLabel));
         this.RaisePropertyChanged(nameof(SearchOutcomeColor));
         this.RaisePropertyChanged(nameof(SearchPathSummary));
+        this.RaisePropertyChanged(nameof(SearchMaxWindowSeconds));
+        this.RaisePropertyChanged(nameof(SearchMaxWindowDisplay));
+        this.RaisePropertyChanged(nameof(SearchCountdownDisplay));
         this.RaisePropertyChanged(nameof(SearchResultBreakdown));
         this.RaisePropertyChanged(nameof(SearchKnowledgeSummary));
     }
