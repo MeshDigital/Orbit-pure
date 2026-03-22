@@ -383,7 +383,7 @@
             </Border>
 
             <!-- Column 5: Badge Tray (Flexible) -->
-            <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6" Margin="8,0" IsVisible="{Binding !IsCompact, ElementName=RootControl}">
+            <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center" Spacing="4" Margin="8,0" IsVisible="{Binding !IsCompact, ElementName=RootControl}">
                 <!-- Quality Pill -->
                 <Border IsVisible="{Binding HasQualityPill}"
                         Background="#1A1F2C" BorderBrush="#00BFFF" BorderThickness="1"
@@ -437,9 +437,14 @@
                 </Border>
 
                 <!-- Peer Info (Softer) -->
-                <Border IsVisible="{Binding PeerName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                        Background="{StaticResource GlassThinBrush}" BorderBrush="{StaticResource BorderGlowBrush}" BorderThickness="1"
+                <Border Background="{StaticResource GlassThinBrush}" BorderBrush="{StaticResource BorderGlowBrush}" BorderThickness="1"
                         CornerRadius="4" Padding="6,2" ToolTip.Tip="Active Peer">
+                    <Border.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                            <Binding Path="PeerName" Converter="{x:Static StringConverters.IsNotNullOrEmpty}"/>
+                            <Binding Path="!MinimalBadges" ElementName="RootControl"/>
+                        </MultiBinding>
+                    </Border.IsVisible>
                     <StackPanel Orientation="Horizontal" Spacing="4">
                         <TextBlock Text="👤" FontSize="10" Opacity="0.7"/>
                         <TextBlock Text="{Binding PeerName}" FontSize="10" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center"/>
@@ -447,9 +452,14 @@
                 </Border>
 
                 <!-- Match Reason (Glassy) -->
-                <Border IsVisible="{Binding DiscoveryReason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                        Background="{StaticResource GlassThinBrush}" BorderBrush="#30FFD700" BorderThickness="1"
+                <Border Background="{StaticResource GlassThinBrush}" BorderBrush="#30FFD700" BorderThickness="1"
                         CornerRadius="4" Padding="6,2" ToolTip.Tip="{Binding DiscoveryReason}">
+                    <Border.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                            <Binding Path="DiscoveryReason" Converter="{x:Static StringConverters.IsNotNullOrEmpty}"/>
+                            <Binding Path="!MinimalBadges" ElementName="RootControl"/>
+                        </MultiBinding>
+                    </Border.IsVisible>
                     <StackPanel Orientation="Horizontal" Spacing="4">
                         <TextBlock Text="✨" FontSize="10" VerticalAlignment="Center"/>
                         <TextBlock Text="{Binding DiscoveryBadgeText}" FontSize="9" FontWeight="Bold" Foreground="#FFD700" VerticalAlignment="Center"/>
@@ -457,9 +467,14 @@
                 </Border>
 
                 <!-- Curation/Confidence (Glow Pill) -->
-                <Border IsVisible="{Binding MatchConfidence, Converter={x:Static converters:NumericConverters.GreaterThan}, ConverterParameter=0}"
-                        Background="{StaticResource GlassBrush}" BorderBrush="{Binding MatchConfidenceColor}" BorderThickness="1"
+                <Border Background="{StaticResource GlassBrush}" BorderBrush="{Binding MatchConfidenceColor}" BorderThickness="1"
                         CornerRadius="10" Padding="8,1" Margin="0,0,4,0">
+                    <Border.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                            <Binding Path="MatchConfidence" Converter="{x:Static converters:NumericConverters.GreaterThan}" ConverterParameter="0"/>
+                            <Binding Path="!MinimalBadges" ElementName="RootControl"/>
+                        </MultiBinding>
+                    </Border.IsVisible>
                     <StackPanel Orientation="Horizontal" Spacing="4">
                         <TextBlock Text="🎯" FontSize="9" VerticalAlignment="Center"/>
                         <TextBlock Text="{Binding MatchConfidence, StringFormat='{}{0:0}%'}" FontSize="9" FontWeight="Bold" Foreground="{Binding MatchConfidenceColor}" VerticalAlignment="Center"/>
@@ -477,7 +492,13 @@
                     </StackPanel>
                 </Border>
 
-                <Border Background="{StaticResource GlassThinBrush}" BorderBrush="{Binding CurationColor}" BorderThickness="1" CornerRadius="4" Padding="6,2" IsVisible="{Binding CurationIcon, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                <Border Background="{StaticResource GlassThinBrush}" BorderBrush="{Binding CurationColor}" BorderThickness="1" CornerRadius="4" Padding="6,2">
+                    <Border.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                            <Binding Path="CurationIcon" Converter="{x:Static StringConverters.IsNotNullOrEmpty}"/>
+                            <Binding Path="!MinimalBadges" ElementName="RootControl"/>
+                        </MultiBinding>
+                    </Border.IsVisible>
                     <TextBlock Text="{Binding CurationIcon}" FontSize="9" VerticalAlignment="Center"/>
                 </Border>
                 <!-- Verified -->
@@ -491,7 +512,13 @@
                     <TextBlock Text="✓" FontSize="10" Foreground="#00FF00" FontWeight="Bold" VerticalAlignment="Center"/>
                 </Border>
                 <!-- Stems -->
-                <Border Background="#10E91E63" BorderBrush="#E91E63" BorderThickness="1" CornerRadius="2" Padding="3,0" IsVisible="{Binding HasStems}" Margin="0,0,4,0">
+                <Border Background="#10E91E63" BorderBrush="#E91E63" BorderThickness="1" CornerRadius="2" Padding="3,0" Margin="0,0,4,0">
+                    <Border.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                            <Binding Path="HasStems"/>
+                            <Binding Path="!MinimalBadges" ElementName="RootControl"/>
+                        </MultiBinding>
+                    </Border.IsVisible>
                     <TextBlock Text="🎹" FontSize="9"/>
                 </Border>
                 <!-- Vibe (Genre) — visible only after analysis completes -->
@@ -501,6 +528,7 @@
                         <MultiBinding Converter="{x:Static BoolConverters.And}">
                             <Binding Path="DetectedSubGenre" Converter="{x:Static StringConverters.IsNotNullOrEmpty}"/>
                             <Binding Path="IsCompleted"/>
+                            <Binding Path="!MinimalBadges" ElementName="RootControl"/>
                         </MultiBinding>
                     </Border.IsVisible>
                     <Border.Transitions>
@@ -512,9 +540,14 @@
                 </Border>
                 
                 <!-- Mood -->
-                <Border Background="#337B68EE" BorderBrush="#7B68EE" BorderThickness="1" CornerRadius="10" Padding="8,1" 
-                        IsVisible="{Binding HasMood}" Margin="0,0,4,0"
+                <Border Background="#337B68EE" BorderBrush="#7B68EE" BorderThickness="1" CornerRadius="10" Padding="8,1" Margin="0,0,4,0"
                         ToolTip.Tip="{Binding MoodTag}">
+                    <Border.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                            <Binding Path="HasMood"/>
+                            <Binding Path="!MinimalBadges" ElementName="RootControl"/>
+                        </MultiBinding>
+                    </Border.IsVisible>
                     <StackPanel Orientation="Horizontal" Spacing="4">
                         <TextBlock Text="🎭" FontSize="9"/>
                         <TextBlock Text="{Binding MoodTag}" FontSize="9" Foreground="White" FontWeight="Bold"/>
@@ -526,6 +559,7 @@
                         <MultiBinding Converter="{x:Static BoolConverters.And}">
                             <Binding Path="IsCompleted"/>
                             <Binding Path="InstrumentalProbability" Converter="{x:Static converters:NumericConverters.GreaterThan}" ConverterParameter="0.8"/>
+                            <Binding Path="!MinimalBadges" ElementName="RootControl"/>
                         </MultiBinding>
                     </Border.IsVisible>
                     <TextBlock Text="INSTR" FontSize="9" Foreground="#00CED1" FontWeight="Bold"/>

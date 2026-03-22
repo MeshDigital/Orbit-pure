@@ -119,7 +119,7 @@
                            <Grid ColumnDefinitions="24, *">
                                <!-- Branch Connector -->
                                <Path Grid.Column="0" Data="M 12,0 L 12,16 L 24,16" Stroke="#333" StrokeThickness="2" VerticalAlignment="Top"/>
-                               <controls:StandardTrackRow Grid.Column="1" Classes="InFlightRow"/>
+                               <controls:StandardTrackRow Grid.Column="1" Classes="InFlightRow" MinimalBadges="True"/>
                            </Grid>
                         </DataTemplate>
                     </ItemsRepeater.ItemTemplate>

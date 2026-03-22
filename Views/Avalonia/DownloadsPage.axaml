@@ -81,7 +81,7 @@
                 </Border.ContextMenu>
 
                 <StackPanel Spacing="0">
-                    <c:StandardTrackRow Classes="card"/>
+                    <c:StandardTrackRow Classes="card" MinimalBadges="True"/>
 
                     <!-- Unified log strip: single collapsible section, visible only when there is log data -->
                     <Expander IsExpanded="{Binding IsConsoleOpen, Mode=TwoWay}"
