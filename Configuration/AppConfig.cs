@@ -42,6 +42,7 @@ public class AppConfig
     public int SearchHardFileCap { get; set; } = 50000; // Absolute per-search circuit breaker for inbound files (0 disables)
     public int MaxPeerQueueLength { get; set; } = 50; // Ignore peers with very long queue lengths
     public int MinSearchDurationSeconds { get; set; } = 16; // Brain buffer floor: must be >= (SearchTimeout/1000 + 4) so queued searches get their full network window
+    public int MinLosslessSearchDurationSeconds { get; set; } = 20; // Ensure FLAC/lossless-only discovery streams long enough before declaring no-result
     public bool EnableHedgedSearch { get; set; } = true;
     public int HedgedSearchDelaySeconds { get; set; } = 8; // Delay MP3 hedge so FLAC lanes get first chance to settle
     public bool EnableMp3Fallback { get; set; } = true; // Allow MP3 download when lossless is unavailable; set false for strict lossless-only

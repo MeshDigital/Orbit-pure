@@ -324,6 +324,14 @@ public class SearchOrchestrationService
         return isLossless || track.Bitrate >= effectiveMinBitrate;
     }
 
+    private static bool IsLosslessFormat(string? format)
+    {
+        if (string.IsNullOrWhiteSpace(format))
+            return false;
+
+        return LosslessFormats.Contains(format.Trim());
+    }
+
     private async IAsyncEnumerable<Track> StreamAndRankResultsAsync(
         string normalizedQuery,
         TargetMetadata target,
@@ -339,15 +347,28 @@ public class SearchOrchestrationService
         // reply window isn't cut off by the CTS before responses arrive.
         // Previous clamp (3–6 s) was shorter than the token-bucket refill (3.5 s/search),
         // causing the 2nd queued search to only get ~1.5 s of actual network time.
+        var formatFilter = preferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var searchTimeoutSeconds = Math.Max(5, _config.SearchTimeout / 1000);
+        var isLosslessOnlyIntent = formatFilter.Length > 0 &&
+                                   formatFilter.Any(IsLosslessFormat) &&
+                                   !formatFilter.Contains("mp3", StringComparer.OrdinalIgnoreCase);
+
         var brainBufferSeconds = lane == SearchQueryLane.Desperate
             ? Math.Clamp(_config.SearchAccumulatorWindowSeconds, 5, 30)
             : Math.Clamp(_config.MinSearchDurationSeconds, searchTimeoutSeconds + 4, 30);
+
+        if (isLosslessOnlyIntent)
+        {
+            brainBufferSeconds = Math.Clamp(
+                Math.Max(brainBufferSeconds, _config.MinLosslessSearchDurationSeconds),
+                20,
+                30);
+        }
+
         var brainWinnerCount = lane == SearchQueryLane.Desperate
             ? Math.Max(5, _config.StrictSearchSufficientResultCount)
             : 5;
 
-        var formatFilter = preferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var networkQuery = BuildNetworkQuery(normalizedQuery, formatFilter, minBitrate);
         var bufferedTracks = new List<Track>();
         using var brainBufferCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
