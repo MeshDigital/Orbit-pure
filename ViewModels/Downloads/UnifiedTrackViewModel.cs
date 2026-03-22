@@ -288,6 +288,13 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             _downloadManager.CancelTrack(GlobalId),
             this.WhenAnyValue(x => x.IsActive));
 
+        RemoveFromQueueCommand = ReactiveCommand.Create(() =>
+        {
+            _downloadManager.CancelTrack(GlobalId);
+            IsClearedFromDownloadCenter = true;
+            Model.IsClearedFromDownloadCenter = true;
+        }, this.WhenAnyValue(x => x.IsActive));
+
         RetryCommand = ReactiveCommand.Create(() => 
             _downloadManager.HardRetryTrack(GlobalId),
             this.WhenAnyValue(x => x.IsFailed, x => x.IsStalled, (f, s) => f || s));
@@ -1138,6 +1145,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public ICommand PauseCommand { get; }
     public ICommand ResumeCommand { get; }
     public ICommand CancelCommand { get; }
+    public ICommand RemoveFromQueueCommand { get; }
     public ICommand RetryCommand { get; }
     public ICommand ForceStartCommand { get; }
     public ICommand ForceDownloadIgnoreGuardsCommand { get; }

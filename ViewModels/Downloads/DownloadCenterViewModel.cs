@@ -683,7 +683,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
         // Failed Pipeline
         sharedSource
-            .Filter(x => x.State == PlaylistTrackState.Failed || x.State == PlaylistTrackState.Cancelled || x.State == PlaylistTrackState.Stalled)
+            .Filter(x => (x.State == PlaylistTrackState.Failed || x.State == PlaylistTrackState.Cancelled || x.State == PlaylistTrackState.Stalled) && !x.IsClearedFromDownloadCenter)
             .Filter(completedFilter) // Reuse filter for now
             .Bind(out _failedDownloads)
             .Subscribe();

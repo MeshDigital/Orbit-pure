@@ -527,7 +527,8 @@
                 <!-- Group 3: Real-time State Control -->
                 <Button Classes="ActionBtn" Command="{Binding ResumeCommand}" IsVisible="{Binding CanResume}" ToolTip.Tip="Resume"><PathIcon Data="{StaticResource play_regular}" Width="14" Height="14" Foreground="#4CAF50"/></Button>
                 <Button Classes="ActionBtn" Command="{Binding PauseCommand}" IsVisible="{Binding IsActive}" ToolTip.Tip="Pause"><PathIcon Data="{StaticResource pause_regular}" Width="14" Height="14"/></Button>
-                <Button Classes="ActionBtn" Command="{Binding CancelCommand}" IsVisible="{Binding IsActive}" ToolTip.Tip="Cancel"><PathIcon Data="{StaticResource dismiss_regular}" Width="14" Height="14" Foreground="#FF6666"/></Button>
+                <Button Classes="ActionBtn" Command="{Binding CancelCommand}" IsVisible="{Binding IsActive}" ToolTip.Tip="Cancel (keeps in Failed list)"><PathIcon Data="{StaticResource dismiss_regular}" Width="14" Height="14" Foreground="#FF6666"/></Button>
+                <Button Classes="ActionBtn" Command="{Binding RemoveFromQueueCommand}" IsVisible="{Binding IsActive}" ToolTip.Tip="Remove from queue (cancel &amp; hide)"><PathIcon Data="{StaticResource delete_regular}" Width="14" Height="14" Foreground="#FF4444"/></Button>
                 <Button Classes="ActionBtn" Command="{Binding $parent[UserControl].DataContext.InitiateMp3SearchCommand}" CommandParameter="{Binding}" IsVisible="{Binding IsOnHold}" ToolTip.Tip="Manual MP3 Search (On Hold)"><PathIcon Data="{StaticResource music_regular}" Width="14" Height="14" Foreground="#818CF8"/></Button>
                 <Button Classes="ActionBtn" Command="{Binding RetryCommand}" IsVisible="{Binding CanRetry}" ToolTip.Tip="Retry"><PathIcon Data="{StaticResource arrow_counterclockwise_regular}" Width="14" Height="14" Foreground="#4CAF50"/></Button>
                 
