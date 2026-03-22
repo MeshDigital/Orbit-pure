@@ -395,7 +395,7 @@
         <Border Grid.Row="0" Background="#1E1E1E" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
             <StackPanel>
                 <!-- Master Status Bar (Ultra Slim) -->
-                <Border Height="4" Background="{Binding EngineStatusColor}" Opacity="0.6">
+                <Border Height="2" Background="{Binding EngineStatusColor}" Opacity="0.6">
                     <Border.Styles>
                         <Style Selector="Border">
                              <Style.Animations>
@@ -409,10 +409,10 @@
                     </Border.Styles>
                 </Border>
 
-                <Border Padding="20,12">
+                <Border Padding="16,8">
                     <Grid ColumnDefinitions="*, Auto">
-                    <StackPanel Spacing="8">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
+                    <StackPanel Spacing="6">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
                             <TextBlock Text="DOWNLOAD CENTER" FontSize="11" FontWeight="Black" Foreground="#666" LetterSpacing="2" VerticalAlignment="Center"/>
                             <Border Background="{Binding EngineStatusColor}" CornerRadius="12" Padding="8,2" BorderBrush="#333" BorderThickness="1">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
@@ -422,7 +422,7 @@
                             </Border>
                             
                             <!-- Phase 2: Live Engine Telemetry -->
-                            <StackPanel Orientation="Horizontal" Spacing="12" Margin="6,0,0,0">
+                            <StackPanel Orientation="Horizontal" Spacing="10" Margin="4,0,0,0">
                                 <TextBlock Text="|" Foreground="#252526" VerticalAlignment="Center"/>
                                 
                                 <!-- SoulSeek Pulse -->
@@ -447,91 +447,80 @@
                             </StackPanel>
                         </StackPanel>
                     
-                    <StackPanel Orientation="Horizontal" Spacing="24">
+                    <StackPanel Orientation="Horizontal" Spacing="18">
                             <!-- Global Metrics -->
-                            <StackPanel Spacing="4">
+                            <StackPanel Spacing="2">
                                 <TextBlock Text="THROUGHPUT" FontSize="9" FontWeight="Bold" Foreground="#555"/>
-                                <TextBlock Text="{Binding GlobalSpeed}" FontSize="20" FontWeight="Light" Foreground="#00BCD4"/>
+                                <TextBlock Text="{Binding GlobalSpeed}" FontSize="16" FontWeight="SemiBold" Foreground="#00BCD4"/>
                             </StackPanel>
 
-                            <StackPanel Spacing="4">
+                            <StackPanel Spacing="2">
                                 <TextBlock Text="ACTIVE SESSIONS" FontSize="9" FontWeight="Bold" Foreground="#555"/>
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <TextBlock Text="{Binding DownloadingCount}" FontSize="20" FontWeight="Bold" Foreground="White"/>
-                                    <TextBlock Text="/" FontSize="14" Foreground="#444" VerticalAlignment="Bottom" Margin="0,0,0,3"/>
-                                    <TextBlock Text="{Binding MaxConcurrentDownloads}" FontSize="14" Foreground="#888" VerticalAlignment="Bottom" Margin="0,0,0,3"/>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="{Binding DownloadingCount}" FontSize="16" FontWeight="Bold" Foreground="White"/>
+                                    <TextBlock Text="/" FontSize="12" Foreground="#444" VerticalAlignment="Bottom" Margin="0,0,0,2"/>
+                                    <TextBlock Text="{Binding MaxConcurrentDownloads}" FontSize="12" Foreground="#888" VerticalAlignment="Bottom" Margin="0,0,0,2"/>
                                 </StackPanel>
                             </StackPanel>
 
-                            <StackPanel Spacing="4">
+                            <StackPanel Spacing="2">
                                 <TextBlock Text="SEARCHING" FontSize="9" FontWeight="Bold" Foreground="#555"/>
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                     <TextBlock Text="{Binding SearchingCount}" FontSize="20" FontWeight="Bold" Foreground="#4EC9B0"/>
-                                     <PathIcon Data="{StaticResource search_regular}" Width="14" Height="14" Foreground="#4EC9B0" VerticalAlignment="Center" Margin="0,4,0,0" Opacity="0.5"/>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                     <TextBlock Text="{Binding SearchingCount}" FontSize="16" FontWeight="Bold" Foreground="#4EC9B0"/>
+                                     <PathIcon Data="{StaticResource search_regular}" Width="12" Height="12" Foreground="#4EC9B0" VerticalAlignment="Center" Margin="0,3,0,0" Opacity="0.5"/>
                                 </StackPanel>
                         </StackPanel>
                     </StackPanel>
                 </StackPanel>
 
                 <!-- Control Deck -->
-                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="8">
-                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="6">
+                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
                              <!-- Start/Stop/Pause -->
                              <Button Command="{Binding StartEngineCommand}" IsVisible="{Binding !IsEngineRunning}"
-                                     Background="#4CAF50" Foreground="White" Padding="16,8" CornerRadius="6">
+                                     Background="#4CAF50" Foreground="White" Padding="12,6" CornerRadius="6">
                                  <StackPanel Orientation="Horizontal" Spacing="8">
                                      <PathIcon Data="{StaticResource play_regular}" Width="14" Height="14"/>
-                                     <TextBlock Text="START ENGINE" FontWeight="Bold" FontSize="12"/>
+                                     <TextBlock Text="START ENGINE" FontWeight="Bold" FontSize="11"/>
                                  </StackPanel>
                              </Button>
 
                              <Button Command="{Binding ToggleEnginePauseCommand}" IsVisible="{Binding IsEngineRunning}"
-                                     Background="#333" BorderBrush="#FFA500" BorderThickness="1" Foreground="#FFA500" Padding="12,8" CornerRadius="6">
+                                     Background="#333" BorderBrush="#FFA500" BorderThickness="1" Foreground="#FFA500" Padding="10,6" CornerRadius="6">
                                  <TextBlock Text="{Binding IsEnginePaused, Converter={StaticResource BoolToTextConverter}, ConverterParameter='RESUME|PAUSE'}" 
-                                            FontWeight="Bold" FontSize="12"/>
+                                            FontWeight="Bold" FontSize="11"/>
                              </Button>
 
                              <Button Command="{Binding StopEngineCommand}" IsVisible="{Binding IsEngineRunning}"
-                                     Background="#2D2D2D" Foreground="#FF5252" Padding="12,8" CornerRadius="6">
+                                     Background="#2D2D2D" Foreground="#FF5252" Padding="10,6" CornerRadius="6">
                                  <PathIcon Data="{StaticResource dismiss_regular}" Width="14" Height="14"/>
                              </Button>
 
                              <ToggleButton IsChecked="{Binding ShowEngineLogs}" 
-                                           Background="#2D2D2D" BorderBrush="#444" BorderThickness="1" Padding="12,8" CornerRadius="6">
+                                           Background="#2D2D2D" BorderBrush="#444" BorderThickness="1" Padding="10,6" CornerRadius="6">
                                  <PathIcon Data="{StaticResource document_text_regular}" Width="14" Height="14" Foreground="#888"/>
                              </ToggleButton>
                         </StackPanel>
 
-                        <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
-                             <TextBlock Text="CONCURRENCY" FontSize="10" Foreground="#555" VerticalAlignment="Center"/>
-                             <Slider Width="120" Minimum="1" Maximum="20" Value="{Binding MaxConcurrentDownloads}" TickFrequency="1" IsSnapToTickEnabled="True"/>
-                             <TextBlock Text="{Binding MaxConcurrentDownloads}" FontSize="12" FontWeight="Bold" Foreground="#00BFFF" Width="20" TextAlignment="Center"/>
-                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+                             <TextBlock Text="CONCURRENCY" FontSize="9" Foreground="#555" VerticalAlignment="Center"/>
+                             <Slider Width="108" Minimum="1" Maximum="20" Value="{Binding MaxConcurrentDownloads}" TickFrequency="1" IsSnapToTickEnabled="True"/>
+                             <TextBlock Text="{Binding MaxConcurrentDownloads}" FontSize="11" FontWeight="Bold" Foreground="#00BFFF" Width="18" TextAlignment="Center"/>
 
-                        <StackPanel Orientation="Vertical" Spacing="8" HorizontalAlignment="Right">
-                            <TextBlock Text="DOWNLOAD PROFILE OVERWRITE" FontSize="10" Foreground="#555" HorizontalAlignment="Right"/>
-                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                                <ToggleButton Classes="profileChip nonStrict" IsChecked="{Binding DownloadProfileNonStrict, Mode=TwoWay}">
-                                    <StackPanel Spacing="2">
-                                        <TextBlock Text="Non-Strict" FontSize="11" FontWeight="SemiBold"/>
-                                        <TextBlock Text="FLAC + MP3" FontSize="10" Opacity="0.8"/>
-                                    </StackPanel>
+                            <TextBlock Text="PROFILE" FontSize="9" Foreground="#555" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                                <ToggleButton Classes="profileChip nonStrict" IsChecked="{Binding DownloadProfileNonStrict, Mode=TwoWay}" ToolTip.Tip="Non-Strict: FLAC + MP3">
+                                    <TextBlock Text="Non-Strict" FontSize="10" FontWeight="SemiBold"/>
                                 </ToggleButton>
-                                <ToggleButton Classes="profileChip strict" IsChecked="{Binding DownloadProfileStrict, Mode=TwoWay}">
-                                    <StackPanel Spacing="2">
-                                        <TextBlock Text="Strict" FontSize="11" FontWeight="SemiBold"/>
-                                        <TextBlock Text="Lossless Focus" FontSize="10" Opacity="0.8"/>
-                                    </StackPanel>
+                                <ToggleButton Classes="profileChip strict" IsChecked="{Binding DownloadProfileStrict, Mode=TwoWay}" ToolTip.Tip="Strict: Lossless Focus">
+                                    <TextBlock Text="Strict" FontSize="10" FontWeight="SemiBold"/>
                                 </ToggleButton>
-                                <ToggleButton Classes="profileChip stricter" IsChecked="{Binding DownloadProfileStricter, Mode=TwoWay}">
-                                    <StackPanel Spacing="2">
-                                        <TextBlock Text="Stricter" FontSize="11" FontWeight="SemiBold"/>
-                                        <TextBlock Text="FLAC Only" FontSize="10" Opacity="0.8"/>
-                                    </StackPanel>
+                                <ToggleButton Classes="profileChip stricter" IsChecked="{Binding DownloadProfileStricter, Mode=TwoWay}" ToolTip.Tip="Stricter: FLAC Only">
+                                    <TextBlock Text="Stricter" FontSize="10" FontWeight="SemiBold"/>
                                 </ToggleButton>
                             </StackPanel>
-                            <TextBlock Text="{Binding DownloadProfileModeText}" FontSize="11" Foreground="#9AA3AD" FontWeight="SemiBold" HorizontalAlignment="Right"/>
                         </StackPanel>
+                        <TextBlock Text="{Binding DownloadProfileModeText}" FontSize="10" Foreground="#768592" HorizontalAlignment="Right"/>
                 </StackPanel>
                 </Grid>
             </Border>
