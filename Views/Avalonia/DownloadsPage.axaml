@@ -44,7 +44,12 @@
             <Setter Property="Background" Value="#3A2D11"/>
             <Setter Property="BorderBrush" Value="#FFB300"/>
         </Style>
+        <Style Selector="ToggleButton.profileChip.fallback:checked">
+            <Setter Property="Background" Value="#322030"/>
+            <Setter Property="BorderBrush" Value="#E040FB"/>
+        </Style>
         <Style Selector="ToggleButton.sessionChip">
+
             <Setter Property="Background" Value="#1B1B1C"/>
             <Setter Property="BorderBrush" Value="#343436"/>
             <Setter Property="BorderThickness" Value="1"/>
@@ -61,6 +66,25 @@
             <Setter Property="Background" Value="#112A3A"/>
             <Setter Property="BorderBrush" Value="#00BFFF"/>
             <Setter Property="Foreground" Value="White"/>
+        </Style>
+
+        <Style Selector="TextBlock.pulsing">
+            <Style.Animations>
+                <Animation Duration="0:0:1.5" IterationCount="Infinite" FillMode="Forward">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="Opacity" Value="0.6"/>
+                    </KeyFrame>
+                    <KeyFrame Cue="50%">
+                        <Setter Property="Opacity" Value="1.0"/>
+                        <Setter Property="ScaleTransform.ScaleX" Value="1.02"/>
+                        <Setter Property="ScaleTransform.ScaleY" Value="1.02"/>
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="Opacity" Value="0.6"/>
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+            <Setter Property="RenderTransform" Value="scale(1)"/>
         </Style>
     </UserControl.Styles>
 
@@ -93,13 +117,14 @@
                               CornerRadius="4">
                         <Expander.Header>
                             <!-- Compact single-line summary when collapsed -->
-                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="4,0">
+                            <Grid ColumnDefinitions="160,*,70,60" Margin="4,0">
                                 <TextBlock Grid.Column="0"
                                            Text="{Binding SearchKnowledgeSummary}"
                                            Foreground="#7FA8C0"
                                            FontSize="10"
                                            VerticalAlignment="Center"
-                                           Margin="0,0,10,0"/>
+                                           Margin="0,0,10,0"
+                                           TextTrimming="CharacterEllipsis"/>
                                 <TextBlock Grid.Column="1"
                                            Text="{Binding LatestIncomingMessage}"
                                            Foreground="#B0C8D8"
@@ -107,6 +132,7 @@
                                            TextTrimming="CharacterEllipsis"
                                            VerticalAlignment="Center"/>
                                 <Border Grid.Column="2"
+                                        HorizontalAlignment="Center"
                                         Background="#1D2228"
                                         BorderBrush="{Binding LatestIncomingStateColor}"
                                         BorderThickness="1"
@@ -124,8 +150,10 @@
                                            FontSize="9"
                                            FontFamily="Consolas,Courier New,monospace"
                                            VerticalAlignment="Center"
-                                           Margin="8,0,6,0"/>
+                                           Margin="8,0,6,0"
+                                           TextAlignment="Right"/>
                             </Grid>
+
                         </Expander.Header>
 
                         <StackPanel Spacing="6" Margin="8,4,8,8">
@@ -136,18 +164,45 @@
                                     CornerRadius="3"
                                     Padding="8,5"
                                     IsVisible="{Binding HasSearchTelemetry}">
-                                <WrapPanel Orientation="Horizontal">
-                                    <TextBlock Text="Duration:" FontSize="10" Foreground="#5A7080" Margin="0,0,4,0"/>
-                                    <TextBlock Text="{Binding SearchDurationDisplay}" FontSize="10" Foreground="#C0CDD5" FontWeight="SemiBold" Margin="0,0,14,0"/>
-                                    <TextBlock Text="Time Left:" FontSize="10" Foreground="#5A7080" Margin="0,0,4,0"/>
-                                    <TextBlock Text="{Binding SearchCountdownDisplay}" FontSize="10" Foreground="#8BD2FF" FontWeight="SemiBold" Margin="0,0,14,0"/>
-                                    <TextBlock Text="Outcome:" FontSize="10" Foreground="#5A7080" Margin="0,0,4,0"/>
-                                    <TextBlock Text="{Binding SearchOutcomeLabel}" FontSize="10" Foreground="{Binding SearchOutcomeColor}" FontWeight="Bold" Margin="0,0,14,0"/>
-                                    <TextBlock Text="Results:" FontSize="10" Foreground="#5A7080" Margin="0,0,4,0"/>
-                                    <TextBlock Text="{Binding SearchResultBreakdown}" FontSize="10" Foreground="#A8BAC3" Margin="0,0,14,0"/>
-                                    <TextBlock Text="Path:" FontSize="10" Foreground="#5A7080" Margin="0,0,4,0"/>
-                                    <TextBlock Text="{Binding SearchPathSummary}" FontSize="10" Foreground="#A8BAC3"/>
-                                </WrapPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="G_TelLabel"/> <!-- Duration Label -->
+                                        <ColumnDefinition Width="50"   SharedSizeGroup="G_TelDurV"/>  <!-- Duration Value -->
+                                        <ColumnDefinition Width="12"/> <!-- Gap -->
+                                        
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="G_TelLabel"/> <!-- Time Left Label -->
+                                        <ColumnDefinition Width="40"   SharedSizeGroup="G_TelLeftV"/> <!-- Time Left Value -->
+                                        <ColumnDefinition Width="12"/> <!-- Gap -->
+                                        
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="G_TelLabel"/> <!-- Outcome Label -->
+                                        <ColumnDefinition Width="100"  SharedSizeGroup="G_TelOutV"/>  <!-- Outcome Value -->
+                                        <ColumnDefinition Width="12"/> <!-- Gap -->
+                                        
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="G_TelLabel"/> <!-- Results Label -->
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="G_TelBrkV"/>  <!-- Results Breakdown -->
+                                        <ColumnDefinition Width="*"/>   <!-- Spacer -->
+                                        
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="G_TelLabel"/> <!-- Path Label -->
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="G_TelPathV"/>  <!-- Path Summary -->
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <TextBlock Grid.Column="0" Text="Duration:" FontSize="10" Foreground="#5A7080" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding SearchDurationDisplay}" FontSize="10" Foreground="#C0CDD5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    
+                                    <TextBlock Grid.Column="3" Text="Time Left:" FontSize="10" Foreground="#5A7080" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="4" Text="{Binding SearchCountdownDisplay}" FontSize="10" Foreground="#8BD2FF" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    
+                                    <TextBlock Grid.Column="6" Text="Outcome:" FontSize="10" Foreground="#5A7080" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="7" Text="{Binding SearchOutcomeLabel}" FontSize="10" Foreground="{Binding SearchOutcomeColor}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                    
+                                    <TextBlock Grid.Column="9" Text="Results:" FontSize="10" Foreground="#5A7080" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="10" Text="{Binding SearchResultBreakdown}" FontSize="10" Foreground="#A8BAC3" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                    
+                                    <TextBlock Grid.Column="12" Text="Path:" FontSize="10" Foreground="#5A7080" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="13" Text="{Binding SearchPathSummary}" FontSize="10" Foreground="#A8BAC3" VerticalAlignment="Center"/>
+                                </Grid>
+
+
                             </Border>
 
                             <!-- Log entries -->
@@ -408,9 +463,67 @@
                 </Border>
             </Border>
         </DataTemplate>
+
+        <!-- Phase 12.8: Download Group Template (Session Ledger) -->
+        <DataTemplate x:Key="DownloadGroupTemplate" x:DataType="vm:DownloadGroupViewModel">
+            <StackPanel Spacing="1">
+                <Border Background="#252526" CornerRadius="6" Padding="12,6" Margin="0,2" BorderBrush="#333" BorderThickness="1">
+                    <Grid ColumnDefinitions="Auto, *, Auto, Auto">
+                        <ToggleButton Grid.Column="0" IsChecked="{Binding IsExpanded}" Background="Transparent" Padding="4" BorderThickness="0">
+                            <PathIcon Data="{StaticResource chevron_down_regular}" Width="10" Height="10" Foreground="#555">
+                                <PathIcon.Styles>
+                                    <Style Selector="PathIcon">
+                                        <Setter Property="RotateTransform.Angle" Value="-90"/>
+                                        <Setter Property="Transitions">
+                                            <Transitions>
+                                                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2"/>
+                                            </Transitions>
+                                        </Setter>
+                                    </Style>
+                                    <Style Selector="ToggleButton:checked PathIcon">
+                                        <Setter Property="RotateTransform.Angle" Value="0"/>
+                                    </Style>
+                                </PathIcon.Styles>
+                            </PathIcon>
+                        </ToggleButton>
+                        
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" Margin="8,0">
+                            <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="Bold" Foreground="White"/>
+                            <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="#666" VerticalAlignment="Bottom" Margin="0,0,0,1"/>
+                        </StackPanel>
+                        
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="20" VerticalAlignment="Center" Margin="0,0,20,0">
+                             <TextBlock Text="{Binding StatusText}" FontSize="10" Foreground="#888" FontWeight="SemiBold"/>
+                             <Panel VerticalAlignment="Center">
+                                 <ProgressBar Width="120" Height="4" Minimum="0" Maximum="100" Value="{Binding TotalProgress}" 
+                                              Foreground="#00BCD4" Background="#333" CornerRadius="2"/>
+                                 <TextBlock Text="{Binding TotalProgress, StringFormat='{}{0:F0}%'}" FontSize="8" FontWeight="Black" Foreground="White" 
+                                            HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0"/>
+                             </Panel>
+                        </StackPanel>
+                        
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2">
+                             <Button Command="{Binding ResumeCommand}" Background="Transparent" Padding="6" ToolTip.Tip="Resume Group"><PathIcon Data="{StaticResource play_regular}" Width="12" Height="12" Foreground="#4CAF50"/></Button>
+                             <Button Command="{Binding PauseCommand}" Background="Transparent" Padding="6" ToolTip.Tip="Pause Group"><PathIcon Data="{StaticResource pause_regular}" Width="12" Height="12"/></Button>
+                             <Button Command="{Binding CancelCommand}" Background="Transparent" Padding="6" ToolTip.Tip="Cancel Group"><PathIcon Data="{StaticResource dismiss_regular}" Width="12" Height="12" Foreground="#FF5252"/></Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                
+                <ItemsRepeater ItemsSource="{Binding Tracks}" IsVisible="{Binding IsExpanded}" Margin="32,0,0,8">
+                    <ItemsRepeater.Layout>
+                        <StackLayout Spacing="1"/>
+                    </ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate>
+                        <StaticResource ResourceKey="DownloadItemTemplate"/>
+                    </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
+            </StackPanel>
+        </DataTemplate>
+
     </UserControl.Resources>
     
-    <Grid RowDefinitions="Auto,*">
+    <Grid RowDefinitions="Auto,*" Grid.IsSharedSizeScope="True">
         
         <!-- Header: Control Center Dashboard -->
         <Border Grid.Row="0" Background="#1E1E1E" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
@@ -528,8 +641,15 @@
                              <Slider Width="108" Minimum="1" Maximum="20" Value="{Binding MaxConcurrentDownloads}" TickFrequency="1" IsSnapToTickEnabled="True"/>
                              <TextBlock Text="{Binding MaxConcurrentDownloads}" FontSize="11" FontWeight="Bold" Foreground="#00BFFF" Width="18" TextAlignment="Center"/>
 
-                            <TextBlock Text="PROFILE" FontSize="9" Foreground="#555" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                            <TextBlock Text="AUTO-FALLBACK" FontSize="9" Foreground="#555" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                            <ToggleButton Classes="profileChip fallback" IsChecked="{Binding EnableMp3Fallback}" ToolTip.Tip="Enable automatic MP3 fallback if Lossless fails 9x">
+                                <TextBlock Text="MP3 Fallback" FontSize="10" FontWeight="SemiBold"/>
+                            </ToggleButton>
+
+
+                            <TextBlock Text="PROFILE" FontSize="9" Foreground="#555" VerticalAlignment="Center" Margin="12,0,0,0"/>
                             <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+
                                 <ToggleButton Classes="profileChip nonStrict" IsChecked="{Binding DownloadProfileNonStrict, Mode=TwoWay}" ToolTip.Tip="Non-Strict: FLAC + MP3">
                                     <TextBlock Text="Non-Strict" FontSize="10" FontWeight="SemiBold"/>
                                 </ToggleButton>
@@ -593,6 +713,19 @@
                         </StackPanel>
                     </Button>
 
+                    <Button Command="{Binding BulkRevealCommand}"
+                            Background="#ECEFF1"
+                            Foreground="#455A64" 
+                            Padding="16,8"
+                            CornerRadius="6"
+                            FontWeight="Bold"
+                            ToolTip.Tip="Reveal all selected completed files in Explorer">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="📂" FontSize="14"/>
+                            <TextBlock Text="Reveal" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
                     <Button Command="{Binding CancelSelectedCommand}"
                             Background="#D32F2F"
                             Foreground="White"
@@ -608,8 +741,19 @@
             </Grid>
         </Border>
 
-        <!-- Tab Control -->
-        <TabControl Grid.Row="1" Background="Transparent" Padding="0">
+        <!-- Phase 12.8: SplitView Track Inspector Wrapper -->
+        <SplitView Grid.Row="1"
+                   DisplayMode="Overlay"
+                   PanePlacement="Right"
+                   OpenPaneLength="450"
+                   IsPaneOpen="{Binding IsInspectorOpen, Mode=TwoWay}">
+            <SplitView.Pane>
+                <c:TrackInspector DataContext="{Binding SelectedTrack}"/>
+            </SplitView.Pane>
+
+            <SplitView.Content>
+                <Grid>
+                    <TabControl Background="Transparent" Padding="0">
             <TabControl.Styles>
                 <Style Selector="TabItem">
                     <Setter Property="FontSize" Value="14"/>
@@ -803,12 +947,13 @@
                                         <Border Background="#00BCD4" Width="40" Height="2" VerticalAlignment="Center" Opacity="0.3"/>
                                     </StackPanel>
                                     
-                                    <ItemsRepeater ItemsSource="{Binding SessionTracks}">
+                                    <!-- Phase 12.8: Grouped Session Ledger (Hierarchical View) -->
+                                    <ItemsRepeater ItemsSource="{Binding SessionGroups}">
                                         <ItemsRepeater.Layout>
-                                            <StackLayout Spacing="4"/>
+                                            <StackLayout Spacing="6"/>
                                         </ItemsRepeater.Layout>
                                         <ItemsRepeater.ItemTemplate>
-                                            <StaticResource ResourceKey="DownloadItemTemplate"/>
+                                            <StaticResource ResourceKey="DownloadGroupTemplate"/>
                                         </ItemsRepeater.ItemTemplate>
                                     </ItemsRepeater>
 
@@ -1147,12 +1292,11 @@
                     </ScrollViewer>
                 </Grid>
             </TabItem>
-        </TabControl>
+                </TabControl>
 
-        <!-- Phase 2: Live Engine Feed (Collapsible Overlay) -->
-        <Border Grid.Row="1" 
-                VerticalAlignment="Bottom" 
-                Background="#161617" 
+                <!-- Phase 2: Live Engine Feed (Collapsible Overlay) -->
+                <Border VerticalAlignment="Bottom" 
+                        Background="#161617" 
                 BorderBrush="#2D2D2D" 
                 BorderThickness="0,2,0,0" 
                 Height="220" 
@@ -1192,6 +1336,9 @@
                 </ScrollViewer>
             </Grid>
         </Border>
+                </Grid>
+            </SplitView.Content>
+        </SplitView>
     </Grid>
 </UserControl>
 

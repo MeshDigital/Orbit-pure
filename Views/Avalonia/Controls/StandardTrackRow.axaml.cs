@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
+using Avalonia.VisualTree;
 using SLSKDONET.ViewModels.Downloads;
 
 namespace SLSKDONET.Views.Avalonia.Controls;
@@ -51,8 +52,40 @@ public partial class StandardTrackRow : UserControl
 
         if (DataContext is UnifiedTrackViewModel track)
         {
-            track.IsConsoleOpen = !track.IsConsoleOpen;
+            // Set global selection for Inspector
+            var page = this.FindAncestorOfType<DownloadsPage>();
+            if (page?.DataContext is DownloadCenterViewModel dc)
+            {
+                dc.SelectedTrack = track;
+            }
+
+            // Still allow toggle console if needed? 
+            // Better: clicking row opens inspector, small icon toggles log.
+            // Keeping toggle console for now as fallback.
+            // track.IsConsoleOpen = !track.IsConsoleOpen;
+            
             e.Handled = true;
+        }
+    }
+
+    private async void OnRowPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (DataContext is UnifiedTrackViewModel track && track.IsCompleted)
+        {
+            // Initiate Drag & Drop if left button is pressed
+            var props = e.GetCurrentPoint(this).Properties;
+            if (props.IsLeftButtonPressed)
+            {
+                var filePath = track.Model.ResolvedFilePath;
+                if (!string.IsNullOrEmpty(filePath) && System.IO.File.Exists(filePath))
+                {
+                    var dragData = new DataObject();
+                    dragData.Set(DataFormats.Files, new[] { filePath });
+                    
+                    // Add a tiny delay to ensure it's a deliberate drag
+                    await DragDrop.DoDragDrop(e, dragData, DragDropEffects.Copy);
+                }
+            }
         }
     }
 }

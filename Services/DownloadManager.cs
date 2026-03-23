@@ -359,7 +359,22 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }
     }
     
+    public bool EnableMp3Fallback
+    {
+        get => _config.EnableMp3Fallback;
+        set
+        {
+            if (_config.EnableMp3Fallback != value)
+            {
+                _config.EnableMp3Fallback = value;
+                _ = _configManager.SaveAsync(_config);
+                OnPropertyChanged();
+            }
+        }
+    }
+    
     public async Task InitAsync()
+
     {
         if (_isHydrated) return;
         try
@@ -2133,8 +2148,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         }
                     }
 
-                    if (ctx.Model.SearchRetryCount < 3)
+                    if (ctx.Model.SearchRetryCount < _config.MaxSearchAttempts)
                     {
+
                         // In-session retry: put at the end of the queue
                         ctx.Model.Priority = 20; // Lower priority for retries
 
@@ -2145,8 +2161,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         var delayMinutes = 20;
                         ctx.NextRetryTime = DateTime.UtcNow.AddMinutes(delayMinutes).AddSeconds(jitterSeconds);
 
-                        _logger.LogWarning("🔍 No match for {Title}. In-session retry {Count}/3. Next try at {Time} (20m ±jitter | Reason: {Reason}).", 
-                            ctx.Model.Title, ctx.Model.SearchRetryCount, ctx.NextRetryTime, failureReason);
+                        _logger.LogWarning("🔍 No match for {Title}. In-session retry {Count}/{MaxAttempts}. Next try at {Time} (20m ±jitter | Reason: {Reason}).", 
+                            ctx.Model.Title, ctx.Model.SearchRetryCount, _config.MaxSearchAttempts, ctx.NextRetryTime, failureReason);
+
 
                         await UpdateStateAsync(ctx, PlaylistTrackState.Pending, $"Retrying in ~{delayMinutes}m ({failureReason})");
                         return;
@@ -2158,7 +2175,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         ctx.Model.NotFoundRestartCount++;
 
                         // If already in OnHold (MP3 lane) and still failing → truly terminal
-                        if (ctx.Model.Status == TrackStatus.OnHold && ctx.Model.NotFoundRestartCount >= 3)
+                        if (ctx.Model.Status == TrackStatus.OnHold && ctx.Model.NotFoundRestartCount >= _config.MaxSearchAttempts)
+
                         {
                             _logger.LogError("🚫 TERMINAL: {Title} failed all FLAC AND MP3 attempts. Marking as permanently Failed.", ctx.Model.Title);
                             _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, "🚫 Not found on network — tried FLAC + MP3 across multiple sessions.", false, ctx.CorrelationId));
@@ -2167,7 +2185,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         }
 
                         // 3 sessions x 3 retries = 9 total (FLAC lane)
-                        if (ctx.Model.NotFoundRestartCount >= 3 && IsMp3FallbackAllowed(ctx.Model))
+                        if (ctx.Model.NotFoundRestartCount >= _config.MaxSearchAttempts && IsMp3FallbackAllowed(ctx.Model))
+
                         {
                             _logger.LogWarning("🎵 MP3 FALLBACK: {Title} exhausted all FLAC attempts. Auto-escalating to MP3 search lane.", ctx.Model.Title);
                             ctx.Model.Status = TrackStatus.OnHold;
@@ -2175,10 +2194,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                             ctx.Model.SearchRetryCount = 0;
                             ctx.Model.Priority = 15; // Slightly lower priority in the queue
                             ctx.NextRetryTime = DateTime.UtcNow.AddMinutes(5); // Small delay before MP3 attempt
-                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, "🎵 FLAC not found after 9 attempts — switching to MP3 fallback lane automatically.", false, ctx.CorrelationId));
-                            await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "FLAC failed (9x) → Auto MP3 Fallback queued");
+                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, $"🎵 FLAC not found after {_config.MaxSearchAttempts * _config.MaxSearchAttempts} attempts — switching to MP3 fallback lane automatically.", false, ctx.CorrelationId));
+                            await UpdateStateAsync(ctx, PlaylistTrackState.Pending, $"FLAC failed ({_config.MaxSearchAttempts * _config.MaxSearchAttempts}x) → Auto MP3 Fallback queued");
+
                         }
-                        else if (ctx.Model.NotFoundRestartCount >= 3)
+                        else if (ctx.Model.NotFoundRestartCount >= _config.MaxSearchAttempts)
+
                         {
                             _logger.LogWarning("🛡️ Lossless-only profile active for {Title}; skipping MP3 fallback escalation after FLAC exhaustion.", ctx.Model.Title);
                             _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, "🛡️ Lossless-only profile active. MP3 fallback skipped.", false, ctx.CorrelationId));

@@ -1,0 +1,139 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Downloads"
+             mc:Ignorable="d" d:DesignWidth="450" d:DesignHeight="800"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.TrackInspector"
+             x:DataType="vm:UnifiedTrackViewModel">
+    
+    <Border Background="#1A1B1C" BorderBrush="#2D2D2D" BorderThickness="1,0,0,0">
+        <Grid RowDefinitions="Auto, *, Auto">
+            
+            <!-- Header -->
+            <Border Grid.Row="0" Background="#1E1E1F" Padding="20" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1">
+                <Grid ColumnDefinitions="Auto, *, Auto">
+                    <Button Grid.Column="0" Command="{Binding $parent[SplitView].DataContext.IsInspectorOpen}"
+                            CommandParameter="False" Background="Transparent" Padding="4" Margin="-8,0,0,0">
+                        <PathIcon Data="{StaticResource dismiss_regular}" Width="16" Height="16" Foreground="#666"/>
+                    </Button>
+                    
+                    <StackPanel Grid.Column="1" Margin="12,0">
+                        <TextBlock Text="TRACK INSPECTOR" FontSize="11" FontWeight="Black" Foreground="#6E8594" LetterSpacing="2"/>
+                        <TextBlock Text="Provenance &amp; Metadata" FontSize="10" Foreground="#444"/>
+                    </StackPanel>
+                    
+                    <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                         <Border Background="{Binding StateColor}" CornerRadius="12" Padding="8,2" Opacity="0.8">
+                             <TextBlock Text="{Binding State}" FontSize="9" FontWeight="Bold" Foreground="Black"/>
+                         </Border>
+                    </StackPanel>
+                </Grid>
+            </Border>
+            
+            <!-- Content -->
+            <ScrollViewer Grid.Row="1" Padding="24">
+                <StackPanel Spacing="24">
+                    
+                    <!-- Artwork & Primary Info -->
+                    <Grid ColumnDefinitions="140, *">
+                        <Border Grid.Column="0" CornerRadius="12" ClipToBounds="True" BoxShadow="0 8 20 0 #40000000">
+                             <Panel>
+                                 <Image Source="{Binding Artwork}" Stretch="UniformToFill" Width="140" Height="140"/>
+                                 <Border Background="#50000000" IsVisible="{Binding !Artwork}"/>
+                             </Panel>
+                        </Border>
+                        
+                        <StackPanel Grid.Column="1" Margin="20,0,0,0" VerticalAlignment="Center" Spacing="8">
+                            <TextBlock Text="{Binding ArtistName}" FontSize="18" FontWeight="Light" Foreground="#AAA" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding TrackTitle}" FontSize="24" FontWeight="Bold" Foreground="White" TextWrapping="Wrap"/>
+                            
+                            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,8,0,0">
+                                <Border Background="#12FFFFFF" CornerRadius="4" Padding="6,2">
+                                     <TextBlock Text="{Binding FileFormat}" FontSize="10" FontWeight="Bold" Foreground="#4EC9B0"/>
+                                </Border>
+                                <TextBlock Text="{Binding BitrateDisplay}" FontSize="12" Foreground="#888" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+                    
+                    <Separator Background="#252526" Height="1"/>
+                    
+                    <!-- Metadata Stats -->
+                    <StackPanel Spacing="12">
+                         <TextBlock Text="TECHNICAL METADATA" FontSize="10" FontWeight="Black" Foreground="#444"/>
+                         <Grid ColumnDefinitions="*, *, *" RowDefinitions="Auto, Auto">
+                             <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                                 <TextBlock Text="SAMPLE RATE" FontSize="9" Foreground="#555"/>
+                                 <TextBlock Text="{Binding SampleRateDisplay}" FontSize="13" Foreground="#CCC"/>
+                             </StackPanel>
+                             <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                                 <TextBlock Text="DURATION" FontSize="9" Foreground="#555"/>
+                                 <TextBlock Text="{Binding DurationDisplay}" FontSize="13" Foreground="#CCC"/>
+                             </StackPanel>
+                             <StackPanel Grid.Row="0" Grid.Column="2" Spacing="4">
+                                 <TextBlock Text="FILE SIZE" FontSize="9" Foreground="#555"/>
+                                 <TextBlock Text="{Binding FileSizeDisplay}" FontSize="13" Foreground="#CCC"/>
+                             </StackPanel>
+                         </Grid>
+                    </StackPanel>
+                    
+                    <!-- Provenance / Source -->
+                    <Border Background="#12FFFFFF" CornerRadius="8" Padding="16">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="SOURCE PROVENANCE" FontSize="10" FontWeight="Black" Foreground="#666"/>
+                            <Grid ColumnDefinitions="Auto, *">
+                                <PathIcon Grid.Column="0" Data="{StaticResource person_regular}" Width="14" Height="14" Foreground="#00BFFF" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="{Binding PeerName}" Margin="10,0,0,0" FontSize="14" FontWeight="SemiBold" Foreground="#00BFFF"/>
+                            </Grid>
+                            <TextBlock Text="{Binding PeerCountry}" FontSize="11" Foreground="#666" Margin="24,0,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    
+                    <!-- Search History / Logs (Expanded) -->
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="DECISION FORENSICS &amp; HISTORY" FontSize="10" FontWeight="Black" Foreground="#444"/>
+                        <ItemsControl ItemsSource="{Binding SearchLogs}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#12FFFFFF" Margin="0,0,0,4" Padding="10,8" CornerRadius="4">
+                                        <Grid ColumnDefinitions="50, *">
+                                            <TextBlock Grid.Column="0" Text="{Binding Timestamp, StringFormat='{}{0:mm:ss}'}" FontSize="10" Foreground="#444" FontFamily="Consolas"/>
+                                            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                                <TextBlock Text="{Binding Message}" FontSize="11" Foreground="#BBB" TextWrapping="Wrap"/>
+                                                <TextBlock Text="{Binding State}" FontSize="9" Foreground="{Binding StateColor}" FontWeight="Bold" Opacity="0.7"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                    
+                </StackPanel>
+            </ScrollViewer>
+            
+            <!-- Bottom Actions -->
+            <Border Grid.Row="2" Background="#1E1E1F" Padding="20" BorderBrush="#2D2D2D" BorderThickness="0,1,0,0">
+                 <Grid ColumnDefinitions="*, Auto">
+                      <Button Grid.Column="1" Command="{Binding RevealFileCommand}" IsVisible="{Binding IsCompleted}" 
+                              Background="#00BFFF" Foreground="White" Padding="16,8" CornerRadius="6">
+                          <StackPanel Orientation="Horizontal" Spacing="8">
+                              <PathIcon Data="{StaticResource folder_open_regular}" Width="16" Height="16"/>
+                              <TextBlock Text="REVEAL IN EXPLORER" FontWeight="Bold" FontSize="11"/>
+                          </StackPanel>
+                      </Button>
+                      
+                      <Button Grid.Column="1" Command="{Binding RetryCommand}" IsVisible="{Binding CanRetry}" 
+                              Background="#4CAF50" Foreground="White" Padding="16,8" CornerRadius="6">
+                          <StackPanel Orientation="Horizontal" Spacing="8">
+                              <PathIcon Data="{StaticResource arrow_counterclockwise_regular}" Width="16" Height="16"/>
+                              <TextBlock Text="RETRY SEARCH" FontWeight="Bold" FontSize="11"/>
+                          </StackPanel>
+                      </Button>
+                 </Grid>
+            </Border>
+            
+        </Grid>
+    </Border>
+</UserControl>

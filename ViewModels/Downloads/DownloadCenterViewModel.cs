@@ -97,6 +97,10 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     private readonly ReadOnlyObservableCollection<UnifiedTrackViewModel> _backgroundItems;
     public ReadOnlyObservableCollection<UnifiedTrackViewModel> BackgroundItems => _backgroundItems;
 
+    // Phase 12.8: Grouped Session Ledger
+    private readonly ReadOnlyObservableCollection<DownloadGroupViewModel> _sessionGroups;
+    public ReadOnlyObservableCollection<DownloadGroupViewModel> SessionGroups => _sessionGroups;
+
     // Ongoing vs Queued Split
     private readonly ReadOnlyObservableCollection<UnifiedTrackViewModel> _ongoingDownloads;
     public ReadOnlyObservableCollection<UnifiedTrackViewModel> OngoingDownloads => _ongoingDownloads;
@@ -299,6 +303,25 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         set => this.RaiseAndSetIfChanged(ref _hasSelection, value);
     }
 
+    // Phase 12.8: Track Inspector / Slide-out Panel
+    private UnifiedTrackViewModel? _selectedTrack;
+    public UnifiedTrackViewModel? SelectedTrack
+    {
+        get => _selectedTrack;
+        set 
+        {
+            this.RaiseAndSetIfChanged(ref _selectedTrack, value);
+            if (value != null) IsInspectorOpen = true;
+        }
+    }
+
+    private bool _isInspectorOpen;
+    public bool IsInspectorOpen
+    {
+        get => _isInspectorOpen;
+        set => this.RaiseAndSetIfChanged(ref _isInspectorOpen, value);
+    }
+
     public bool HasAnyActiveOrQueued => ActiveCount > 0 || QueuedCount > 0;
 
     // Beta 2026: Network Health Indicator (fed by Parent Health Monitor)
@@ -360,7 +383,21 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         }
     }
 
+    public bool EnableMp3Fallback
+    {
+        get => _downloadManager.EnableMp3Fallback;
+        set 
+        {
+             if (_downloadManager.EnableMp3Fallback != value)
+             {
+                 _downloadManager.EnableMp3Fallback = value;
+                 this.RaisePropertyChanged();
+             }
+        }
+    }
+    
     public bool DownloadProfileNonStrict
+
     {
         get => IsNonStrictActive();
         set
@@ -411,6 +448,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     
     // Phase 12.3: Bulk Commands
     public ICommand VipStartSelectedCommand { get; }
+    public ICommand BulkRevealCommand { get; }
     public ICommand CancelSelectedCommand { get; }
     public ICommand PauseSelectedCommand { get; }
     public ICommand ResumeSelectedCommand { get; }
@@ -597,6 +635,19 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             HasSelection = false;
         }, this.WhenAnyValue(x => x.HasSelection));
         
+        BulkRevealCommand = ReactiveCommand.Create(() => 
+        {
+            var selectedArgs = SelectedItems.Where(x => x.IsCompleted).ToList();
+            foreach (var item in selectedArgs)
+            {
+                var path = item.Model.ResolvedFilePath;
+                if (!string.IsNullOrEmpty(path))
+                {
+                    try { System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\""); } catch { }
+                }
+            }
+        }, this.WhenAnyValue(x => x.HasSelection));
+        
         // Monitor Selection Changes
         SelectedItems.CollectionChanged += (s, e) => HasSelection = SelectedItems.Count > 0;
         
@@ -734,6 +785,21 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         _sessionTracks.ToObservableChangeSet()
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(_ => this.RaisePropertyChanged(nameof(VisibleSessionTrackCount)))
+            .DisposeWith(_subscriptions);
+
+        // Phase 12.8: Grouped Session Pipeline
+        sharedSource
+            .Filter(sessionFilter)
+            .Group(x => x.Model.SourcePlaylistId ?? x.Model.PlaylistId)
+            .Transform((IGroup<UnifiedTrackViewModel, string, Guid> group) => new DownloadGroupViewModel(group))
+            .DisposeMany()
+            .SortAndBind(out _sessionGroups, SortExpressionComparer<DownloadGroupViewModel>.Descending(x => x.LastActivity))
+            .Subscribe()
+            .DisposeWith(_subscriptions);
+
+        _sessionGroups.ToObservableChangeSet()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe()
             .DisposeWith(_subscriptions);
 
         // Phase 8: Split Grouping Pipelines for Swimlanes

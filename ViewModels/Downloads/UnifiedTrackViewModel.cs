@@ -51,7 +51,16 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public long DownloadSpeed 
     { 
         get => _downloadSpeed; 
-        set => this.RaiseAndSetIfChanged(ref _downloadSpeed, value); 
+        set 
+        {
+            if (_downloadSpeed != value)
+            {
+                // Update trend before setting new speed
+                var diff = value - _downloadSpeed;
+                SpeedTrend = diff > 1024 ? "↗" : (diff < -1024 ? "↘" : "→");
+                this.RaiseAndSetIfChanged(ref _downloadSpeed, value); 
+            }
+        }
     }
 
     private string? _peerName;
@@ -59,6 +68,14 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     {
         get => _peerName;
         set => this.RaiseAndSetIfChanged(ref _peerName, value);
+    }
+    
+    // Core QoL: Speed Trend tracking
+    private string _speedTrend = "—";
+    public string SpeedTrend
+    {
+        get => _speedTrend;
+        private set => this.RaiseAndSetIfChanged(ref _speedTrend, value);
     }
     
     // Phase 12.3: Selection State
@@ -806,25 +823,17 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     {
         get
         {
-            // "Soulseek • 320kbps • 12MB • [Time]"
-            var parts = new System.Collections.Generic.List<string>();
-            parts.Add("Soulseek"); // Source (Static for now)
+            var parts = new List<string>();
+            if (Model.Bitrate > 0) parts.Add($"{Model.Bitrate} kbps");
+            var sr = ParsedSampleRateHz;
+            if (sr > 0) parts.Add($"{sr / 1000.0:0.0} kHz");
+            if (Model.Duration > 0) parts.Add(TimeSpan.FromSeconds(Model.Duration).ToString(@"m\:ss"));
             
-            if (Model.Bitrate.HasValue) 
+            if (IsCompleted && Model.CompletedAt.HasValue && Model.SearchStartedAt.HasValue)
             {
-                 // Phase 0.6: Truth in UI
-                 string prefix = IsCompleted ? "" : "Est. ";
-                 parts.Add($"{prefix}{Model.Bitrate}kbps");
+                var diff = Model.CompletedAt.Value - Model.SearchStartedAt.Value;
+                parts.Add($"(took {diff.TotalSeconds:0}s)");
             }
-            if (!string.IsNullOrEmpty(Model.Format)) parts.Add(Model.Format.ToUpper());
-            
-            if (_totalBytes > 0) 
-                parts.Add($"{_totalBytes / 1024.0 / 1024.0:F1} MB");
-                
-            if (IsCompleted || IsFailed)
-                parts.Add(CompletedAtDisplay); 
-            else if (IsActive)
-                parts.Add(SpeedDisplay);
 
             return string.Join(" • ", parts);
         }
@@ -1063,12 +1072,12 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public bool IsPrepared => Model.IsPrepared;
     public string? PrimaryGenre => Model.PrimaryGenre;
     public string? DiscoveryReason => Model.DiscoveryReason ?? _discoveryReasonOverride;
-    public string DiscoveryBadgeText => DiscoveryReason switch
+    public string? DiscoveryBadgeText => DiscoveryReason switch
     {
         var reason when !string.IsNullOrWhiteSpace(reason) && reason.Contains("Fast lane", StringComparison.OrdinalIgnoreCase) => "FAST",
         var reason when !string.IsNullOrWhiteSpace(reason) && reason.Contains("Curated", StringComparison.OrdinalIgnoreCase) => "CURATED",
         var reason when !string.IsNullOrWhiteSpace(reason) && reason.Contains("Golden", StringComparison.OrdinalIgnoreCase) => "GOLD",
-        _ => "MATCH"
+        _ => null
     };
     public bool IsStalled => State == PlaylistTrackState.Stalled;
     public string? StalledReason => Model.StalledReason;
@@ -1417,12 +1426,25 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
     private void EnsureSearchStarted()
     {
-        if (_searchStartedAtUtc.HasValue)
-            return;
-
+        if (_isSearchClockRunning) return;
+        _isSearchClockRunning = true;
         _searchStartedAtUtc = DateTime.UtcNow;
         _searchEndedAtUtc = null;
-        StartSearchClock();
+        _searchFoundNothing = false;
+        _searchFoundMatch = false;
+
+        // Start a ticking timer to refresh the SearchCountdownDisplay property
+        var timer = Observable.Interval(TimeSpan.FromSeconds(1))
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(_ => 
+            {
+                this.RaisePropertyChanged(nameof(SearchCountdownDisplay));
+                this.RaisePropertyChanged(nameof(SearchDurationDisplay));
+                this.RaisePropertyChanged(nameof(SearchKnowledgeSummary));
+            });
+            
+        _searchClockSubscription.Disposable = timer;
+        
         RaiseSearchTelemetryProperties();
     }
 

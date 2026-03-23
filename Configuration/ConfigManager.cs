@@ -78,6 +78,8 @@ public class ConfigManager
                 MaxSearchAttempts = int.TryParse(config["Download:MaxSearchAttempts"], out var msa) ? msa : 3,
                 AutoRetryFailedDownloads = !bool.TryParse(config["Download:AutoRetryFailedDownloads"], out var arf) || arf, // Default true
                 MaxDownloadRetries = int.TryParse(config["Download:MaxDownloadRetries"], out var mdr) ? mdr : 2,
+                EnableMp3Fallback = !bool.TryParse(config["Download:EnableMp3Fallback"], out var emf) || emf, // Default true
+
 
                 // [Spotify]
                 SpotifyUsePublicOnly = !bool.TryParse(config["Spotify:SpotifyUsePublicOnly"], out var supo) || supo, // Default true
@@ -186,6 +188,8 @@ public class ConfigManager
         iniContent.AppendLine($"MaxSearchAttempts = {config.MaxSearchAttempts}");
         iniContent.AppendLine($"AutoRetryFailedDownloads = {config.AutoRetryFailedDownloads}");
         iniContent.AppendLine($"MaxDownloadRetries = {config.MaxDownloadRetries}");
+        iniContent.AppendLine($"EnableMp3Fallback = {config.EnableMp3Fallback}");
+
 
         iniContent.AppendLine();
         iniContent.AppendLine("[Search]");
