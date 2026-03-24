@@ -483,6 +483,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                             existingTrack.Popularity = track.Popularity != 0 ? track.Popularity : existingTrack.Popularity;
                             existingTrack.CanonicalDuration = track.CanonicalDuration > 0 ? track.CanonicalDuration : existingTrack.CanonicalDuration;
                             existingTrack.ReleaseDate = track.ReleaseDate ?? existingTrack.ReleaseDate;
+                            
+                            // Phase 7.1 Fix: Ensure playlist context is updated for merged tracks
+                            existingTrack.SourcePlaylistId = job.Id;
+                            existingTrack.SourcePlaylistName = job.SourceTitle;
+                            
                             existingTrack.Status = TrackStatus.Missing;
                             existingTrack.SearchRetryCount = 0;
                             existingTrack.NotFoundRestartCount = 0;
@@ -492,6 +497,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         }
                         else
                         {
+                            // Even if already downloaded, update the source metadata so it shows up in the right group if viewed
+                            existingTrack.SourcePlaylistId = job.Id;
+                            existingTrack.SourcePlaylistName = job.SourceTitle;
                             skipped++;
                         }
 
@@ -648,7 +656,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 queued++;
                 
                 _eventBus.Publish(new TrackAddedEvent(track));
-                _ = SaveTrackToDb(ctx);
+                _ = SyncDbAsync(ctx);
                 
             }
         }
@@ -1041,11 +1049,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }
     }
 
-    [Obsolete("Use SyncDbAsync for consolidated updates")]
-    private async Task SaveTrackToDb(DownloadContext ctx)
-    {
-        await SyncDbAsync(ctx);
-    }
+
 
     /// <summary>
     /// Phase 2.5: Enhanced pause with immediate cancellation and IsUserPaused tracking.
@@ -1381,7 +1385,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             ctx.Model.MinBitrateOverride = minBitrate;
             
             // Persist to DB immediately
-            await SaveTrackToDb(ctx);
+            await SyncDbAsync(ctx);
             
             // If it's a playlist track, update that entity too
             try 

@@ -1,0 +1,96 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="300" d:DesignHeight="600"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.SearchInspector"
+             x:DataType="vm:AnalyzedSearchResultViewModel">
+    <ScrollViewer Padding="20">
+        <StackPanel Spacing="20">
+            <!-- Header Section -->
+            <StackPanel Spacing="8">
+                <TextBlock Text="SEARCH RESULT" FontSize="10" FontWeight="Bold" Foreground="#888" LetterSpacing="1"/>
+                <TextBlock Text="{Binding ArtistName}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding TrackTitle}" FontSize="24" FontWeight="ExtraBold" Foreground="#1DB954" TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <Separator Background="#333"/>
+
+            <!-- Soulseek Info Card -->
+            <Border Background="#252526" CornerRadius="12" Padding="16" BorderBrush="#3E3E3E" BorderThickness="1">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="PEER INTELLIGENCE" FontSize="11" FontWeight="Bold" Foreground="#AAA"/>
+                    
+                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" Margin="0,4,0,0">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="User" Foreground="#888" Margin="0,0,16,8"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding User}" FontWeight="SemiBold" Foreground="#007ACC"/>
+                        
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Speed" Foreground="#888" Margin="0,0,16,8"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding UploadSpeedDisplay}" FontWeight="SemiBold"/>
+                        
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Queue" Foreground="#888" Margin="0,0,16,0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding QueueLength}" FontWeight="SemiBold"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Technical Specs -->
+            <StackPanel Spacing="12">
+                <TextBlock Text="TECHNICAL SPECIFICATIONS" FontSize="11" FontWeight="Bold" Foreground="#AAA"/>
+                
+                <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" Margin="0,4,0,0">
+                    <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,16">
+                        <TextBlock Text="Format" Foreground="#888" FontSize="11"/>
+                        <TextBlock Text="{Binding RawResult.FileFormat}" FontSize="14" FontWeight="SemiBold"/>
+                    </StackPanel>
+                    
+                    <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,0,16">
+                        <TextBlock Text="Bitrate" Foreground="#888" FontSize="11"/>
+                        <TextBlock Text="{Binding BitRate, StringFormat='{}{0} kbps'}" FontSize="14" FontWeight="SemiBold"/>
+                    </StackPanel>
+                    
+                    <StackPanel Grid.Row="1" Grid.Column="0">
+                        <TextBlock Text="Sample Rate" Foreground="#888" FontSize="11"/>
+                        <TextBlock Text="{Binding SampleRateDisplay}" FontSize="14" FontWeight="SemiBold"/>
+                    </StackPanel>
+                    
+                    <StackPanel Grid.Row="1" Grid.Column="1">
+                        <TextBlock Text="Size" Foreground="#888" FontSize="11"/>
+                        <TextBlock Text="{Binding DisplaySize}" FontSize="14" FontWeight="SemiBold"/>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+
+            <!-- Forensic Analysis -->
+            <StackPanel Spacing="12">
+                <TextBlock Text="FORENSIC ASSESSMENT" FontSize="11" FontWeight="Bold" Foreground="#AAA"/>
+                
+                <Border Background="#1E1E1E" CornerRadius="8" Padding="12" BorderBrush="{Binding TrustColor}" BorderThickness="1">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="Trust Score" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="1" Text="{Binding TrustScore, StringFormat='{}{0}%'}" Foreground="{Binding TrustColor}" FontWeight="Bold"/>
+                        </Grid>
+                        
+                        <ProgressBar Value="{Binding TrustScore}" Maximum="100" Height="4" Background="#333" Foreground="{Binding TrustColor}"/>
+                        
+                        <TextBlock Text="{Binding ForensicAssessment}" TextWrapping="Wrap" FontSize="12" Foreground="#CCC" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- Warnings -->
+            <Border Background="#4A2A2A" CornerRadius="8" Padding="12" IsVisible="{Binding IsHighRisk}" BorderBrush="#E91E63" BorderThickness="1">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <TextBlock Text="⚠️" FontSize="18" VerticalAlignment="Center"/>
+                    <StackPanel>
+                        <TextBlock Text="HIGH RISK DETECTED" FontWeight="Bold" Foreground="#E91E63" FontSize="12"/>
+                        <TextBlock Text="{Binding FlagReason}" FontSize="11" Foreground="#FFCDD2" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -8,6 +8,7 @@ using SLSKDONET.ViewModels.Library;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Views;
+using SLSKDONET.Events;
 
 namespace SLSKDONET.ViewModels;
 
@@ -47,10 +48,15 @@ public partial class LibraryViewModel
         }
     }
 
-    private async void OnTrackSelectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    private void OnTrackSelectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
     {
         var selectedTracks = Tracks.SelectedTracks.ToList();
-        // Core features only: no track inspector or harmonic lane
+        
+        if (selectedTracks.Count == 1)
+        {
+            var single = selectedTracks.First();
+            ReactiveUI.MessageBus.Current.SendMessage(new OpenInspectorEvent(single));
+        }
     }
 
     /// <summary>

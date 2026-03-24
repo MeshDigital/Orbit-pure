@@ -20,77 +20,7 @@
 
     <DockPanel>
 
-        <!-- ZONE B: The Brain (Sidebar) -->
-        <Border DockPanel.Dock="Left" Width="280" Background="#222" BorderBrush="#3E3E3E" BorderThickness="0,0,1,0" Padding="16">
-            <StackPanel Spacing="24">
-                <TextBlock Text="Curation Assistant" FontSize="18" FontWeight="Bold" Foreground="#DDD"/>
 
-                <!-- Expanded Selection Details (The "Brain Panel") -->
-                <Border Background="#2D2D30" CornerRadius="8" Padding="16" IsVisible="{Binding !!SelectedResults.Count}">
-                    <StackPanel Spacing="12">
-                        <TextBlock Text="Selection Intelligence" FontSize="12" FontWeight="SemiBold" Foreground="#AAA"/>
-                        <ItemsControl ItemsSource="{ReflectionBinding SelectedResults}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <StackPanel Spacing="8" Margin="0,0,0,12">
-                                        <TextBlock Text="{ReflectionBinding DisplayName}" TextTrimming="CharacterEllipsis" FontWeight="Bold"/>
-
-                                        <!-- Trust Score Bar -->
-                                        <Grid ColumnDefinitions="*,Auto">
-                                            <ProgressBar Value="{ReflectionBinding TrustScore}" Maximum="100" Height="6" Background="#444" Foreground="{ReflectionBinding TrustColor}" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                                            <TextBlock Grid.Column="1" Text="{ReflectionBinding TrustScore, StringFormat='{}{0}%'}" FontSize="12" Foreground="{ReflectionBinding TrustColor}" FontWeight="Bold"/>
-                                        </Grid>
-
-                                        <!-- Assessment -->
-                                        <TextBlock Text="{ReflectionBinding ForensicAssessment}" FontSize="11" Foreground="#CCC" TextWrapping="Wrap"/>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </Border>
-
-                <!-- Phase 19: The Bouncer -->
-                <TextBlock Text="The Bouncer" FontSize="18" FontWeight="Bold" Foreground="#DDD" Margin="0,12,0,0"/>
-
-                <StackPanel Spacing="10">
-                    <RadioButton GroupName="Bouncer" Content="Strict (Platinum/Gold)"
-                                 IsChecked="{Binding FilterViewModel.BouncerMode, Converter={x:Static converters:EnumConverters.BouncerModeEquals}, ConverterParameter={x:Static models:BouncerMode.Strict}}"
-                                 ToolTip.Tip="Only shows high quality, trusted files."/>
-
-                    <RadioButton GroupName="Bouncer" Content="Standard (No Garbage)"
-                                 IsChecked="{Binding FilterViewModel.BouncerMode, Converter={x:Static converters:EnumConverters.BouncerModeEquals}, ConverterParameter={x:Static models:BouncerMode.Standard}}"
-                                 ToolTip.Tip="Blocks fake/upscaled files and very low bitrate."/>
-
-                    <RadioButton GroupName="Bouncer" Content="Relaxed (Show All)"
-                                 IsChecked="{Binding FilterViewModel.BouncerMode, Converter={x:Static converters:EnumConverters.BouncerModeEquals}, ConverterParameter={x:Static models:BouncerMode.Relaxed}}"/>
-                </StackPanel>
-
-                <Separator Background="#333" Height="1"/>
-
-                <!-- Stats / Debug -->
-                <StackPanel Spacing="8">
-                    <TextBlock Text="Status" FontWeight="SemiBold" Foreground="#888"/>
-                    <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Foreground="White"/>
-                    <TextBlock Text="{Binding SearchResults.Count, StringFormat='Visible: {0}'}" Foreground="#888"/>
-                    <TextBlock Text="{Binding DisplayedResultsCount, StringFormat='Shown: {0}'}" Foreground="#888"/>
-
-                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasHiddenResults}">
-                        <TextBlock Text="{Binding HiddenResultsCount, StringFormat='Hidden: {0}'}" Foreground="#666" FontSize="11" VerticalAlignment="Center"/>
-                    </StackPanel>
-
-                    <StackPanel Spacing="8" IsVisible="{Binding HasHiddenResults}">
-                        <Button Command="{Binding ToggleHiddenResultsCommand}" Classes="secondary" HorizontalAlignment="Left">
-                            <TextBlock Text="{Binding ShowHiddenResultsButtonText}"/>
-                        </Button>
-                        <Button Command="{Binding RelaxFiltersCommand}" Classes="secondary" HorizontalAlignment="Left">
-                            <TextBlock Text="Relax filters for cached results"/>
-                        </Button>
-                    </StackPanel>
-                </StackPanel>
-
-            </StackPanel>
-        </Border>
 
         <!-- ZONE A: The Initiator (Top Bar) -->
         <Border DockPanel.Dock="Top" Background="#252526" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="24,20" VerticalAlignment="Top">
@@ -208,11 +138,24 @@
             <Border Grid.Row="0" Background="#1E1E1E" Padding="16,12" BorderBrush="#333" BorderThickness="0,0,0,1">
                 <Grid ColumnDefinitions="Auto,*,Auto">
                     <!-- Format Toggles -->
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="Formats:" VerticalAlignment="Center" Foreground="#888" Margin="0,0,8,0"/>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12">
+                        <TextBlock Text="FORMATS" VerticalAlignment="Center" Foreground="#888" FontWeight="Bold" FontSize="10" LetterSpacing="1" Margin="0,0,8,0"/>
                         <ToggleButton IsChecked="{Binding IsMp3Enabled}" Content="MP3" CornerRadius="4"/>
                         <ToggleButton IsChecked="{Binding IsFlacEnabled}" Content="FLAC" CornerRadius="4"/>
                         <ToggleButton IsChecked="{Binding IsWavEnabled}" Content="WAV" CornerRadius="4"/>
+                    </StackPanel>
+
+                    <!-- The Bouncer (Moved from Sidebar) -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="20" HorizontalAlignment="Center">
+                        <TextBlock Text="THE BOUNCER" VerticalAlignment="Center" Foreground="#888" FontWeight="Bold" FontSize="10" LetterSpacing="1" Margin="0,0,8,0"/>
+                        <RadioButton GroupName="Bouncer" Content="Strict"
+                                     IsChecked="{Binding FilterViewModel.BouncerMode, Converter={x:Static converters:EnumConverters.BouncerModeEquals}, ConverterParameter={x:Static models:BouncerMode.Strict}}"
+                                     ToolTip.Tip="Only shows high quality, trusted files."/>
+                        <RadioButton GroupName="Bouncer" Content="Standard"
+                                     IsChecked="{Binding FilterViewModel.BouncerMode, Converter={x:Static converters:EnumConverters.BouncerModeEquals}, ConverterParameter={x:Static models:BouncerMode.Standard}}"
+                                     ToolTip.Tip="Blocks fake/upscaled files and very low bitrate."/>
+                        <RadioButton GroupName="Bouncer" Content="Relaxed"
+                                     IsChecked="{Binding FilterViewModel.BouncerMode, Converter={x:Static converters:EnumConverters.BouncerModeEquals}, ConverterParameter={x:Static models:BouncerMode.Relaxed}}"/>
                     </StackPanel>
 
                     <!-- Safety Toggle -->
@@ -379,7 +322,9 @@
 
             <!-- Footer / Ghost Counter -->
             <Border Grid.Row="2" Background="#1A1A1A" BorderBrush="#333" BorderThickness="0,1,0,0" Padding="12,4">
-                <StackPanel Orientation="Horizontal" Spacing="16">
+                <StackPanel Orientation="Horizontal" Spacing="24">
+                    <TextBlock Text="{Binding StatusText}" Foreground="#CCC" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,20,0"/>
+
                     <StackPanel Orientation="Horizontal" Spacing="4">
                         <TextBlock Text="{Binding DisplayedResultsCount}" FontWeight="Bold" Foreground="#1DB954"/>
                         <TextBlock Text="results shown" Foreground="#888" FontSize="11" VerticalAlignment="Center"/>
@@ -389,6 +334,15 @@
                         <TextBlock Text="•" Foreground="#444"/>
                         <TextBlock Text="{Binding HiddenResultsCount}" FontWeight="Bold" Foreground="#FF9800"/>
                         <TextBlock Text="cached as filtered-out results" Foreground="#888" FontSize="11" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    
+                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasHiddenResults}" Margin="20,0,0,0">
+                        <Button Command="{Binding ToggleHiddenResultsCommand}" Classes="secondary" VerticalAlignment="Center" Padding="8,2">
+                            <TextBlock Text="{Binding ShowHiddenResultsButtonText}" FontSize="10"/>
+                        </Button>
+                        <Button Command="{Binding RelaxFiltersCommand}" Classes="secondary" VerticalAlignment="Center" Padding="8,2">
+                            <TextBlock Text="Relax Filters" FontSize="10"/>
+                        </Button>
                     </StackPanel>
                 </StackPanel>
             </Border>

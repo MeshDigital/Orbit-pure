@@ -18,6 +18,7 @@ using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Services.ImportProviders;
 using SLSKDONET.Views;
+using SLSKDONET.Events;
 using DynamicData;
 using DynamicData.Binding;
 using ReactiveUI;
@@ -26,6 +27,8 @@ using System.Reactive.Subjects;
 using System.Reactive.Linq;
 using SLSKDONET.Configuration;
 using System.Reactive.Disposables;
+
+using SLSKDONET.Events;
 
 namespace SLSKDONET.ViewModels;
 
@@ -468,6 +471,19 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         RelaxFiltersCommand = ReactiveCommand.Create(RelaxFilters);
         
         FilterViewModel.OnTokenSyncRequested = HandleTokenSync;
+
+        // Contextual Sidebar: Update Right Panel when selection changes
+        this.WhenAnyValue(x => x.SelectedResults.Count)
+            .Where(count => count == 1)
+            .Subscribe(_ => 
+            {
+                 var single = SelectedResults.FirstOrDefault();
+                 if (single != null)
+                 {
+                     MessageBus.Current.SendMessage(new OpenInspectorEvent(single));
+                 }
+            })
+            .DisposeWith(_disposables);
 
         SyncQualityPresetFromCurrentSettings();
     }

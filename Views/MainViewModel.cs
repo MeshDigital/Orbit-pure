@@ -44,6 +44,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     // Child ViewModels
     public PlayerViewModel PlayerViewModel { get; }
     public LibraryViewModel LibraryViewModel { get; }
+    public SidebarViewModel Sidebar { get; }
+    private readonly IRightPanelService _rightPanelService;
     public SearchViewModel SearchViewModel { get; }
     public ConnectionViewModel ConnectionViewModel { get; }
     public SettingsViewModel SettingsViewModel { get; }
@@ -97,7 +99,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NativeDependencyHealthService dependencyHealthService,
         IDialogService dialogService,
         ILibraryService libraryService,
-        GlobalHotkeyService globalHotkeyService)
+        GlobalHotkeyService globalHotkeyService,
+        SidebarViewModel sidebarViewModel,
+        IRightPanelService rightPanelService)
 
     {
         _logger = logger;
@@ -118,6 +122,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _libraryService = libraryService;
         _globalHotkeyService = globalHotkeyService;
 
+        Sidebar = sidebarViewModel;
+        _rightPanelService = rightPanelService;
+        
         PlayerViewModel = playerViewModel;
         LibraryViewModel = libraryViewModel;
         SearchViewModel = searchViewModel;
@@ -126,6 +133,16 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         HomeViewModel = homeViewModel;
         StatusBar = new StatusBarViewModel(eventBus, _dependencyHealthService);
         
+        // Setup Global Shell Fallbacks
+        _rightPanelService.SetFallback(PlayerViewModel, "NOW PLAYING", "🎵");
+        
+        // Listen to Global Shell Context Calls
+        _disposables.Add(ReactiveUI.MessageBus.Current.Listen<SLSKDONET.Events.OpenInspectorEvent>()
+            .Subscribe(evt =>
+            {
+                _rightPanelService.OpenPanel(evt.ViewModel, evt.Title, evt.Icon);
+            }));
+
         // Initialize commands
         NavigateHomeCommand = new RelayCommand(NavigateToHome); // Phase 6D
         NavigateSearchCommand = new RelayCommand(NavigateToSearch);
@@ -647,7 +664,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ToggleZenModeCommand { get; }
     public ICommand ToggleTopBarCommand { get; }
     
-    public bool IsGlobalSidebarOpen => false;
+    public bool IsGlobalSidebarOpen => _rightPanelService.IsPanelOpen;
 
     
     // Downloads Page Commands

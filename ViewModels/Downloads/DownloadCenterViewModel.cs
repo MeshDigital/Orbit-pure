@@ -311,16 +311,33 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         set 
         {
             this.RaiseAndSetIfChanged(ref _selectedTrack, value);
-            if (value != null) IsInspectorOpen = true;
+            if (value != null)
+            {
+                ReactiveUI.MessageBus.Current.SendMessage(new SLSKDONET.Events.OpenInspectorEvent(value, "TRACK INSPECTOR", "🔍"));
+            }
         }
     }
 
-    private bool _isInspectorOpen;
-    public bool IsInspectorOpen
+    public bool IsMp3FallbackEnabled
     {
-        get => _isInspectorOpen;
-        set => this.RaiseAndSetIfChanged(ref _isInspectorOpen, value);
+        get => _config.EnableMp3Fallback;
+        set
+        {
+            if (_config.EnableMp3Fallback != value)
+            {
+                _config.EnableMp3Fallback = value;
+                this.RaisePropertyChanged(nameof(IsMp3FallbackEnabled));
+                
+                // Persist the change
+                if (App.Current is App app && app.Services != null)
+                {
+                    var configManager = app.Services.GetService(typeof(ConfigManager)) as ConfigManager;
+                    configManager?.Save(_config);
+                }
+            }
+        }
     }
+
 
     public bool HasAnyActiveOrQueued => ActiveCount > 0 || QueuedCount > 0;
 
@@ -460,7 +477,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     
     private readonly ArtworkCacheService _artworkCache;
     private readonly ILibraryService _libraryService;
-    
+
     public DownloadCenterViewModel(
         DownloadManager downloadManager,
         IEventBus eventBus,

@@ -84,7 +84,10 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         if (!string.IsNullOrEmpty(firstTrack?.SourcePlaylistName))
         {
             Title = firstTrack.SourcePlaylistName;
-            Subtitle = string.IsNullOrEmpty(firstTrack.Artist) ? "Imported Playlist" : $"By {firstTrack.Artist}";
+            
+            // Avoid using firstTrack.Artist as it makes playlists look like individual track/album releases
+            var distinctArtists = Tracks.Select(t => t.Model.Artist).Distinct().Take(2).Count();
+            Subtitle = distinctArtists > 1 ? "Mixed Artists" : (string.IsNullOrEmpty(firstTrack?.Artist) ? "Imported Playlist" : $"By {firstTrack.Artist}");
             ArtworkUrl = firstTrack.AlbumArtUrl;
         }
         else if (GroupKey == null)
@@ -95,9 +98,10 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         }
         else
         {
-            Title = firstTrack?.Album ?? "Unknown Album";
-            Subtitle = firstTrack?.Artist ?? "Unknown Artist";
-            ArtworkUrl = firstTrack?.AlbumArtUrl; // Or locally cached path
+            Title = "Project Selection";
+            var distinctArtists = Tracks.Select(t => t.Model.Artist).Distinct().Take(2).Count();
+            Subtitle = distinctArtists > 1 ? "Mixed Artists" : (firstTrack?.Artist ?? "Various Artists");
+            ArtworkUrl = firstTrack?.AlbumArtUrl;
         }
 
         // Aggregate Progress & Speed

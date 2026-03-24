@@ -504,6 +504,10 @@ public partial class App : Application
         services.AddSingleton<DashboardService>();
         services.AddSingleton<GlobalHotkeyService>();
 
+        // Global Shell Services
+        services.AddSingleton<IRightPanelService, RightPanelService>();
+        services.AddSingleton<SidebarViewModel>();
+
         // ViewModels
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<SearchViewModel>();

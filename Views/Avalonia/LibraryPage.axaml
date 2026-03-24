@@ -39,14 +39,11 @@
         <KeyBinding Gesture="Ctrl+Alt+N" Command="{Binding ToggleNavigationCommand}"/>
     </UserControl.KeyBindings>
 
-    <SplitView IsPaneOpen="{Binding !IsNavigationCollapsed}"
-               OpenPaneLength="{Binding IsNavigationCollapsed, Converter={StaticResource BoolToWidthConverter}, ConverterParameter='60,300'}"
-               PanePlacement="Left"
-               DisplayMode="CompactInline">
-
+    <Grid ColumnDefinitions="Auto,*">
         <!-- LEFT PANE: Collapsible Playlist Navigation -->
-        <SplitView.Pane>
-            <Border Background="#1A1A1D" BorderBrush="#2A2A2E" BorderThickness="0,0,1,0">
+        <Border Grid.Column="0" 
+                Width="{Binding IsNavigationCollapsed, Converter={StaticResource BoolToWidthConverter}, ConverterParameter='60,300'}"
+                Background="#1A1A1D" BorderBrush="#2A2A2E" BorderThickness="0,0,1,0">
                 <interactivity:Interaction.Behaviors>
                     <ia:EventTriggerBehavior EventName="PointerEntered">
                         <ia:InvokeCommandAction Command="{Binding ExpandNavigationCommand}"/>
@@ -237,15 +234,14 @@
                     </Grid>
                 </Grid>
             </Border>
-        </SplitView.Pane>
 
         <!-- MAIN CONTENT AREA -->
-        <ContentControl Grid.Column="0" Content="{Binding Tracks}">
+        <ContentControl Grid.Column="1" Content="{Binding Tracks}">
             <ContentControl.DataTemplates>
                 <DataTemplate DataType="vm:Library.TrackListViewModel">
                     <views:TrackListView/>
                 </DataTemplate>
             </ContentControl.DataTemplates>
         </ContentControl>
-    </SplitView>
+    </Grid>
 </UserControl>

@@ -36,6 +36,7 @@
         <conv_root:MultiBoolToBlurConverter x:Key="MultiBoolToBlurConverter"/>
         <converters:BoolToAngleConverter x:Key="BoolToAngleConverter"/>
         <converters:BoolToTextConverter x:Key="BoolToTextConverter"/>
+        <conv_root:WidthToDisplayModeConverter x:Key="WidthToDisplayModeConverter"/>
         <converters:BoolToOrangeConverter x:Key="BoolToOrangeConverter"/>
         <converters:BooleanToRedBrushConverter x:Key="BooleanToRedBrushConverter"/>
         <converters:BooleanToBrushConverter x:Key="BooleanToBrushConverter"/>

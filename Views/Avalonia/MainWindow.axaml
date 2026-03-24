@@ -7,6 +7,7 @@
          xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
          xmlns:models="clr-namespace:SLSKDONET.Models"
          xmlns:vmCore="clr-namespace:SLSKDONET.ViewModels"
+         xmlns:vmDownloads="clr-namespace:SLSKDONET.ViewModels.Downloads"
         mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="900"
         x:Class="SLSKDONET.Views.Avalonia.MainWindow"
         x:DataType="vm:MainViewModel"
@@ -381,9 +382,9 @@
             <!-- Center Content Area with Global Contextual Sidebar -->
             <SplitView Grid.Column="1"
                        IsPaneOpen="{Binding IsGlobalSidebarOpen}"
-                       DisplayMode="Overlay"
+                       DisplayMode="{Binding #MainRoot.Bounds.Width, Converter={StaticResource WidthToDisplayModeConverter}, ConverterParameter=1100}"
                        PanePlacement="Right"
-                       OpenPaneLength="350">
+                       OpenPaneLength="450">
                 
                 <SplitView.Pane>
                     <Border Background="#252526" BorderBrush="#3E3E3E" BorderThickness="1,0,0,0">
@@ -393,19 +394,23 @@
                                     <TextBlock Text="{Binding Sidebar.ModeIcon}" FontSize="16" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                     <TextBlock Grid.Column="1" Text="{Binding Sidebar.ModeLabel}" FontWeight="Bold" VerticalAlignment="Center" Foreground="#DDD"/>
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
-                                        <Button Classes="tool" Command="{Binding Sidebar.ShowPlayerCommand}" ToolTip.Tip="Show Player">
-                                            <TextBlock Text="🎵" FontSize="12"/>
-                                        </Button>
-                                        <Button Classes="tool" Command="{Binding Sidebar.HideCommand}" Content="✖" Foreground="#888"/>
+                                        <Button Classes="tool" Command="{Binding Sidebar.Close}" Content="✖" Foreground="#888"/>
                                     </StackPanel>
                                 </Grid>
                             </Border>
                             
                             <ContentControl Grid.Row="1" Content="{Binding Sidebar.CurrentContent}">
                                 <ContentControl.DataTemplates>
-
                                     <DataTemplate DataType="vmCore:PlayerViewModel">
                                         <views:PlayerControl/>
+                                    </DataTemplate>
+                                    
+                                    <DataTemplate DataType="vmDownloads:UnifiedTrackViewModel">
+                                        <controls:TrackInspector/>
+                                    </DataTemplate>
+
+                                    <DataTemplate DataType="vmCore:AnalyzedSearchResultViewModel">
+                                        <controls:SearchInspector/>
                                     </DataTemplate>
                                 </ContentControl.DataTemplates>
                             </ContentControl>

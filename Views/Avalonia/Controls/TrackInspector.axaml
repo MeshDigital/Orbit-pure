@@ -10,27 +10,6 @@
     <Border Background="#1A1B1C" BorderBrush="#2D2D2D" BorderThickness="1,0,0,0">
         <Grid RowDefinitions="Auto, *, Auto">
             
-            <!-- Header -->
-            <Border Grid.Row="0" Background="#1E1E1F" Padding="20" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1">
-                <Grid ColumnDefinitions="Auto, *, Auto">
-                    <Button Grid.Column="0" Command="{Binding $parent[SplitView].DataContext.IsInspectorOpen}"
-                            CommandParameter="False" Background="Transparent" Padding="4" Margin="-8,0,0,0">
-                        <PathIcon Data="{StaticResource dismiss_regular}" Width="16" Height="16" Foreground="#666"/>
-                    </Button>
-                    
-                    <StackPanel Grid.Column="1" Margin="12,0">
-                        <TextBlock Text="TRACK INSPECTOR" FontSize="11" FontWeight="Black" Foreground="#6E8594" LetterSpacing="2"/>
-                        <TextBlock Text="Provenance &amp; Metadata" FontSize="10" Foreground="#444"/>
-                    </StackPanel>
-                    
-                    <StackPanel Grid.Column="2" VerticalAlignment="Center">
-                         <Border Background="{Binding StateColor}" CornerRadius="12" Padding="8,2" Opacity="0.8">
-                             <TextBlock Text="{Binding State}" FontSize="9" FontWeight="Bold" Foreground="Black"/>
-                         </Border>
-                    </StackPanel>
-                </Grid>
-            </Border>
-            
             <!-- Content -->
             <ScrollViewer Grid.Row="1" Padding="24">
                 <StackPanel Spacing="24">

@@ -741,17 +741,8 @@
             </Grid>
         </Border>
 
-        <!-- Phase 12.8: SplitView Track Inspector Wrapper -->
-        <SplitView Grid.Row="1"
-                   DisplayMode="Overlay"
-                   PanePlacement="Right"
-                   OpenPaneLength="450"
-                   IsPaneOpen="{Binding IsInspectorOpen, Mode=TwoWay}">
-            <SplitView.Pane>
-                <c:TrackInspector DataContext="{Binding SelectedTrack}"/>
-            </SplitView.Pane>
-
-            <SplitView.Content>
+        <!-- Main Center Content Area -->
+        <Grid Grid.Row="1">
                 <Grid>
                     <TabControl Background="Transparent" Padding="0">
             <TabControl.Styles>
@@ -1337,8 +1328,7 @@
             </Grid>
         </Border>
                 </Grid>
-            </SplitView.Content>
-        </SplitView>
+            </Grid>
     </Grid>
 </UserControl>
 
