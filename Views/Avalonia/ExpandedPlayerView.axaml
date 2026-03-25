@@ -1,0 +1,411 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:entertainment="clr-namespace:SLSKDONET.Models.Entertainment"
+             x:Class="SLSKDONET.Views.Avalonia.ExpandedPlayerView"
+             Background="Transparent">
+
+    <Design.DataContext>
+        <vm:PlayerViewModel />
+    </Design.DataContext>
+
+    <!-- Full-screen overlay -->
+    <Panel>
+
+        <!-- Live blurred album-art background -->
+        <controls:LiveBackground
+            Source="{Binding CurrentTrack.Artwork.Image}"
+            Energy="{Binding CurrentTrack.Energy, FallbackValue=0.5}"
+            Opacity="0.85" />
+
+        <!-- Dark vignette scrim -->
+        <Border>
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Color="#CC000000" Offset="0"/>
+                    <GradientStop Color="#88000000" Offset="0.4"/>
+                    <GradientStop Color="#CC000000" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.Background>
+        </Border>
+
+        <!-- Main Content Grid -->
+        <Grid RowDefinitions="Auto,*,Auto" Margin="0">
+
+            <!-- ── Top Bar ─────────────────────────────────────────────── -->
+            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="24,24,24,0">
+
+                <!-- Close / Collapse Button -->
+                <Button Grid.Column="0"
+                        Command="{Binding ToggleExpandedPlayerCommand}"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="8"
+                        ToolTip.Tip="Collapse player">
+                    <TextBlock Text="⌃" FontSize="22" Foreground="White" />
+                </Button>
+
+                <!-- Now Playing Label -->
+                <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="2">
+                    <TextBlock Text="NOW PLAYING"
+                               FontSize="11"
+                               LetterSpacing="3"
+                               Foreground="#80FFFFFF"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+
+                <!-- Top-right controls -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+
+                    <!-- Visualizer preset cycle -->
+                    <Button Command="{Binding CycleVisualizerPresetCommand}"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Padding="8"
+                            ToolTip.Tip="Cycle visualizer">
+                        <TextBlock Text="✦" FontSize="18" Foreground="#AAFFFFFF" />
+                    </Button>
+
+                    <!-- Metadata-driven visuals toggle -->
+                    <ToggleButton IsChecked="{Binding IsMetadataDrivenVisuals}"
+                                  Command="{Binding ToggleMetadataDrivenVisualsCommand}"
+                                  Background="Transparent"
+                                  BorderThickness="0"
+                                  Padding="8"
+                                  ToolTip.Tip="Metadata-driven visuals">
+                        <TextBlock Text="◈" FontSize="18"
+                                   Foreground="{Binding IsMetadataDrivenVisuals,
+                                       Converter={StaticResource BoolToColorConverter}}" />
+                    </ToggleButton>
+
+                    <!-- Ambient Mode toggle -->
+                    <ToggleButton IsChecked="{Binding IsAmbientMode}"
+                                  Command="{Binding ToggleAmbientModeCommand}"
+                                  Background="Transparent"
+                                  BorderThickness="0"
+                                  Padding="8"
+                                  ToolTip.Tip="Ambient Mode">
+                        <TextBlock Text="☽" FontSize="18"
+                                   Foreground="{Binding IsAmbientMode,
+                                       Converter={StaticResource BoolToColorConverter}}" />
+                    </ToggleButton>
+
+                </StackPanel>
+
+            </Grid>
+
+            <!-- ── Centre: Visualizer + Artwork ───────────────────────── -->
+            <Grid Grid.Row="1" ColumnDefinitions="*,Auto,*" Margin="0,16,0,16">
+
+                <!-- Left: Flow Path panel (visible in Flow Mode) -->
+                <Border Grid.Column="0"
+                        IsVisible="{Binding IsFlowMode}"
+                        Padding="24,0,12,0"
+                        VerticalAlignment="Center">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="FLOW PATH"
+                                   FontSize="11"
+                                   LetterSpacing="2"
+                                   Foreground="#80FFFFFF" />
+                        <ItemsControl ItemsSource="{Binding FlowModeState.FlowPathTitles}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                                        <TextBlock Text="›"
+                                                   Foreground="#4EC9B0"
+                                                   FontSize="14"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding}"
+                                                   Foreground="#CCFFFFFF"
+                                                   FontSize="13"
+                                                   TextWrapping="Wrap"
+                                                   MaxWidth="180" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!-- Next track reason -->
+                        <TextBlock Text="{Binding FlowModeState.NextTrackReason}"
+                                   FontSize="11"
+                                   Foreground="#60FFFFFF"
+                                   TextWrapping="Wrap"
+                                   MaxWidth="200"
+                                   Margin="0,8,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Centre: Visualizer canvas -->
+                <Panel Grid.Column="1" Width="500" Height="500">
+
+                    <!-- SkiaSharp Orbit Visualizer (full immersive) -->
+                    <controls:OrbitVisualizerCanvas
+                        SpectrumData="{Binding SpectrumData}"
+                        VuLeft="{Binding VuLeft}"
+                        VuRight="{Binding VuRight}"
+                        Energy="{Binding CurrentTrack.Energy, FallbackValue=0.5}"
+                        Bpm="{Binding CurrentTrack.BPM, FallbackValue=120}"
+                        MoodTag="{Binding CurrentTrack.MoodTag}"
+                        IsPlaying="{Binding IsPlaying}"
+                        Preset="{Binding CurrentVisualizerPreset}"
+                        EngineMode="{Binding VisualizerEngineMode}"
+                        AlbumHue="{Binding AlbumArtHue}"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Stretch" />
+
+                    <!-- Album Art overlay (subtle, in the centre) -->
+                    <Border Width="180" Height="180"
+                            CornerRadius="90"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Opacity="{Binding IsAmbientMode, Converter={StaticResource BoolToOpacityConverter}, ConverterParameter='0.35;0.8'}"
+                            BoxShadow="0 0 40 0 #60000000">
+                        <Panel ClipToBounds="True">
+                            <Border CornerRadius="90" ClipToBounds="True">
+                                <Image Source="{Binding CurrentTrack.Artwork.Image}"
+                                       Stretch="UniformToFill"
+                                       IsVisible="{Binding CurrentTrack.Artwork.Image,
+                                           Converter={x:Static ObjectConverters.IsNotNull}}" />
+                            </Border>
+                            <!-- Placeholder -->
+                            <Border Background="#282828" CornerRadius="90"
+                                    IsVisible="{Binding CurrentTrack.Artwork.Image,
+                                        Converter={x:Static ObjectConverters.IsNull}}">
+                                <TextBlock Text="🎵" FontSize="64"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Foreground="#404040" />
+                            </Border>
+                        </Panel>
+                    </Border>
+
+                    <!-- Floating metadata (Ambient Mode) -->
+                    <StackPanel HorizontalAlignment="Center"
+                                VerticalAlignment="Bottom"
+                                Margin="0,0,0,20"
+                                IsVisible="{Binding IsAmbientMode}"
+                                Spacing="4">
+                        <TextBlock Text="{Binding TrackTitle}"
+                                   FontSize="15"
+                                   FontWeight="SemiBold"
+                                   Foreground="#DDFFFFFF"
+                                   HorizontalAlignment="Center"
+                                   TextAlignment="Center" />
+                        <TextBlock Text="{Binding TrackArtist}"
+                                   FontSize="12"
+                                   Foreground="#88FFFFFF"
+                                   HorizontalAlignment="Center"
+                                   TextAlignment="Center" />
+                    </StackPanel>
+
+                </Panel>
+
+                <!-- Right: Queue panel -->
+                <Border Grid.Column="2"
+                        IsVisible="{Binding IsQueueOpen}"
+                        Padding="12,0,24,0"
+                        VerticalAlignment="Stretch">
+                    <Grid RowDefinitions="Auto,*">
+
+                        <TextBlock Grid.Row="0"
+                                   Text="UP NEXT"
+                                   FontSize="11"
+                                   LetterSpacing="2"
+                                   Foreground="#80FFFFFF"
+                                   Margin="0,0,0,12" />
+
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden">
+                            <ItemsControl ItemsSource="{Binding Queue}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Padding="8,6" CornerRadius="6" Margin="0,2">
+                                            <Border.Background>
+                                                <SolidColorBrush Color="#20FFFFFF" />
+                                            </Border.Background>
+                                            <StackPanel Spacing="2">
+                                                <TextBlock Text="{Binding Model.TrackTitle}"
+                                                           FontSize="13"
+                                                           Foreground="White"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           MaxWidth="180" />
+                                                <TextBlock Text="{Binding Model.ArtistName}"
+                                                           FontSize="11"
+                                                           Foreground="#80FFFFFF"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           MaxWidth="180" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+
+                    </Grid>
+                </Border>
+
+            </Grid>
+
+            <!-- ── Bottom Controls ──────────────────────────────────────── -->
+            <Grid Grid.Row="2" RowDefinitions="Auto,Auto,Auto" Margin="40,0,40,32">
+
+                <!-- Track Info -->
+                <StackPanel Grid.Row="0"
+                            HorizontalAlignment="Center"
+                            Spacing="4"
+                            Margin="0,0,0,20"
+                            IsVisible="{Binding IsAmbientMode, Converter={x:Static BoolConverters.Not}}">
+                    <TextBlock Text="{Binding TrackTitle}"
+                               FontSize="24"
+                               FontWeight="Bold"
+                               Foreground="White"
+                               HorizontalAlignment="Center"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap"
+                               MaxWidth="600" />
+                    <TextBlock Text="{Binding TrackArtist}"
+                               FontSize="16"
+                               Foreground="#AAFFFFFF"
+                               HorizontalAlignment="Center"
+                               TextAlignment="Center" />
+                </StackPanel>
+
+                <!-- Progress Bar -->
+                <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,16">
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding CurrentTimeStr}"
+                               FontSize="12"
+                               Foreground="#AAFFFFFF"
+                               VerticalAlignment="Center"
+                               Margin="0,0,12,0" />
+                    <Slider Grid.Column="1"
+                            Minimum="0" Maximum="1"
+                            Value="{Binding Position}"
+                            VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2"
+                               Text="{Binding TotalTimeStr}"
+                               FontSize="12"
+                               Foreground="#AAFFFFFF"
+                               VerticalAlignment="Center"
+                               Margin="12,0,0,0" />
+                </Grid>
+
+                <!-- Playback Controls Row -->
+                <Grid Grid.Row="2" ColumnDefinitions="*,Auto,*">
+
+                    <!-- Left actions: Shuffle, Repeat, Flow Mode -->
+                    <StackPanel Grid.Column="0"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                Spacing="8">
+
+                        <ToggleButton IsChecked="{Binding IsShuffling}"
+                                      Command="{Binding ToggleShuffleCommand}"
+                                      Background="Transparent"
+                                      BorderThickness="0"
+                                      Padding="8"
+                                      ToolTip.Tip="Shuffle">
+                            <TextBlock Text="⇌" FontSize="20"
+                                       Foreground="{Binding IsShuffling,
+                                           Converter={StaticResource BoolToColorConverter}}" />
+                        </ToggleButton>
+
+                        <ToggleButton IsChecked="{Binding IsFlowMode}"
+                                      Command="{Binding ToggleFlowModeCommand}"
+                                      Background="Transparent"
+                                      BorderThickness="0"
+                                      Padding="8"
+                                      ToolTip.Tip="Flow Mode — smart auto-mixing">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="∞" FontSize="20"
+                                           Foreground="{Binding IsFlowMode,
+                                               Converter={StaticResource BoolToColorConverter}}" />
+                                <TextBlock Text="FLOW"
+                                           FontSize="11"
+                                           VerticalAlignment="Center"
+                                           Foreground="{Binding IsFlowMode,
+                                               Converter={StaticResource BoolToColorConverter}}"
+                                           IsVisible="{Binding IsFlowMode}" />
+                            </StackPanel>
+                        </ToggleButton>
+
+                    </StackPanel>
+
+                    <!-- Centre: Main Controls -->
+                    <StackPanel Grid.Column="1"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Center"
+                                Spacing="8">
+
+                        <Button Command="{Binding PreviousTrackCommand}"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="12"
+                                ToolTip.Tip="Previous">
+                            <TextBlock Text="⏮" FontSize="28" Foreground="White" />
+                        </Button>
+
+                        <Button Command="{Binding TogglePlayPauseCommand}"
+                                Background="#40FFFFFF"
+                                CornerRadius="30"
+                                Width="60" Height="60"
+                                ToolTip.Tip="Play / Pause">
+                            <TextBlock FontSize="24" Foreground="White" HorizontalAlignment="Center"
+                                       Text="{Binding IsPlaying,
+                                           Converter={StaticResource PlayPauseConverter}}" />
+                        </Button>
+
+                        <Button Command="{Binding NextTrackCommand}"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="12"
+                                ToolTip.Tip="Next">
+                            <TextBlock Text="⏭" FontSize="28" Foreground="White" />
+                        </Button>
+
+                    </StackPanel>
+
+                    <!-- Right actions: Volume, Queue, Repeat -->
+                    <StackPanel Grid.Column="2"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center"
+                                Spacing="8">
+
+                        <Button Command="{Binding ToggleQueueCommand}"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="8"
+                                ToolTip.Tip="Toggle queue">
+                            <TextBlock Text="☰" FontSize="20" Foreground="#AAFFFFFF" />
+                        </Button>
+
+                        <Button Command="{Binding ToggleRepeatCommand}"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="8"
+                                ToolTip.Tip="Repeat">
+                            <TextBlock Text="{Binding RepeatMode, Converter={StaticResource RepeatModeIconConverter}}"
+                                       FontSize="20" Foreground="#AAFFFFFF" />
+                        </Button>
+
+                        <!-- Volume Slider -->
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <TextBlock Text="🔊" FontSize="16" Foreground="#80FFFFFF" VerticalAlignment="Center" />
+                            <Slider Minimum="0" Maximum="100"
+                                    Value="{Binding Volume}"
+                                    Width="80"
+                                    VerticalAlignment="Center" />
+                        </StackPanel>
+
+                    </StackPanel>
+
+                </Grid>
+
+            </Grid>
+
+        </Grid>
+    </Panel>
+
+</UserControl>
