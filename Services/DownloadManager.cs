@@ -383,16 +383,17 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             
             // Phase 3C.5: Lazy Hydration - Only load active/history and a buffer of pending tracks
             
-            // 1. Load History & Active (Status != Missing)
-            var nonPendingTracks = await _databaseService.GetNonPendingTracksAsync();
-            HydrateAndAddEntities(nonPendingTracks);
+            // 1. Load ONLY actually active tracks (Downloading, Searching, Stalled) 
+            // This prevents the "Global Leak" where 10,000 history items are hydrated on boot
+            var activeTracks = await _databaseService.GetActiveTracksAsync();
+            HydrateAndAddEntities(activeTracks);
             
-            _logger.LogInformation("Hydrated {Count} active/history tracks", nonPendingTracks.Count);
+            _logger.LogInformation("Hydrated {Count} active tracks", activeTracks.Count);
 
             // PERFORMANCE FIX: Defer queue refilling until after startup
-            // Loading tracks from DB during init adds unnecessary latency
-            // The ProcessQueueLoop will call RefillQueueAsync when needed
-            await RefillQueueAsync();
+            // The ProcessQueueLoop will call RefillQueueAsync when needed, 
+            // which is now project-aware to prevent mass-activation.
+            // await RefillQueueAsync(); // Removed global refill on init
 
 
             // Notify observers that we are ready and hydrated
@@ -449,6 +450,23 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     _logger.LogWarning(ex, "Failed to load existing tracks for gap analysis, proceeding cautiously");
                 }
 
+                // Build a local library index once per import to avoid per-track DB misses and enable tolerant matching.
+                var allLibraryEntries = await _libraryService.LoadAllLibraryEntriesAsync();
+                var libraryByHash = allLibraryEntries
+                    .Where(e => !string.IsNullOrWhiteSpace(e.UniqueHash))
+                    .GroupBy(e => e.UniqueHash, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.AddedAt).First(), StringComparer.OrdinalIgnoreCase);
+
+                var libraryBySpotifyId = allLibraryEntries
+                    .Where(e => !string.IsNullOrWhiteSpace(e.SpotifyTrackId))
+                    .GroupBy(e => e.SpotifyTrackId!, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.AddedAt).First(), StringComparer.OrdinalIgnoreCase);
+
+                var libraryByLooseIdentity = allLibraryEntries
+                    .Where(e => !string.IsNullOrWhiteSpace(e.Artist) && !string.IsNullOrWhiteSpace(e.Title))
+                    .GroupBy(e => BuildLooseIdentityKey(e.Artist, e.Title), StringComparer.Ordinal)
+                    .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.AddedAt).First(), StringComparer.Ordinal);
+
                 _logger.LogInformation("Converting {OriginalTrackCount} OriginalTracks to PlaylistTracks (Existing: {ExistingCount})",
                     job.OriginalTracks.Count, existingByHash.Count);
 
@@ -458,6 +476,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 int retried = 0;
                 int skipped = 0;
                 int added = 0;
+                int linkedFromLibrary = 0;
+                int reconciledExisting = 0;
 
                 foreach (var track in job.OriginalTracks)
                 {
@@ -470,6 +490,23 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                     if (existingByHash.TryGetValue(hash, out var existingTrack))
                     {
+                        if (existingTrack.Status != TrackStatus.Downloaded && libraryByHash.TryGetValue(hash, out var existingEntryByHash))
+                        {
+                            existingTrack.Status = TrackStatus.Downloaded;
+                            existingTrack.ResolvedFilePath = string.IsNullOrWhiteSpace(existingTrack.ResolvedFilePath)
+                                ? existingEntryByHash.FilePath
+                                : existingTrack.ResolvedFilePath;
+                            existingTrack.TrackUniqueHash = existingEntryByHash.UniqueHash;
+                            existingTrack.CompletedAt ??= DateTime.UtcNow;
+                            existingTrack.SourcePlaylistId = job.Id;
+                            existingTrack.SourcePlaylistName = job.SourceTitle;
+
+                            // Persist status reconciliation for this existing row.
+                            playlistTracks.Add(existingTrack);
+                            reconciledExisting++;
+                            continue;
+                        }
+
                         if (existingTrack.Status == TrackStatus.Failed || existingTrack.Status == TrackStatus.OnHold)
                         {
                             existingTrack.Artist = track.Artist ?? existingTrack.Artist;
@@ -506,6 +543,14 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         continue;
                     }
 
+                    var existingLibraryEntry = ResolveExistingLibraryEntryForImport(
+                        track,
+                        hash,
+                        libraryByHash,
+                        libraryBySpotifyId,
+                        libraryByLooseIdentity);
+                    var shouldMarkDownloaded = existingLibraryEntry != null;
+
                     playlistTracks.Add(new PlaylistTrack
                     {
                         Id = Guid.NewGuid(),
@@ -513,11 +558,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         Artist = track.Artist ?? string.Empty,
                         Title = track.Title ?? string.Empty,
                         Album = track.Album ?? string.Empty,
-                        TrackUniqueHash = hash,
-                        Status = TrackStatus.Missing,
-                        ResolvedFilePath = string.Empty,
+                        TrackUniqueHash = existingLibraryEntry?.UniqueHash ?? hash,
+                        Status = shouldMarkDownloaded ? TrackStatus.Downloaded : TrackStatus.Missing,
+                        ResolvedFilePath = shouldMarkDownloaded ? (existingLibraryEntry?.FilePath ?? string.Empty) : string.Empty,
                         TrackNumber = idx++,
                         AddedAt = DateTime.UtcNow,
+                        CompletedAt = shouldMarkDownloaded ? DateTime.UtcNow : null,
                         Priority = 10, // Default: Bulk lane. Express (0) = VIP only, Standard (1-9) = user bumps
                         // Map Metadata if available from import
                         SourcePlaylistId = job.Id,
@@ -534,13 +580,19 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                     });
                     added++;
+                    if (shouldMarkDownloaded)
+                    {
+                        linkedFromLibrary++;
+                    }
                 }
 
                 _logger.LogInformation(
-                    "Merge result for job {JobId}: {Added} new, {Retried} retried, {Skipped} unchanged existing",
+                    "Merge result for job {JobId}: {Added} new ({LinkedFromLibrary} linked from library), {Retried} retried, {ReconciledExisting} reconciled existing to downloaded, {Skipped} unchanged existing",
                     job.Id,
                     added,
+                    linkedFromLibrary,
                     retried,
+                    reconciledExisting,
                     skipped);
 
                 job.PlaylistTracks = playlistTracks;
@@ -578,6 +630,65 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             // Duplicate event removed: LibraryService already publishes ProjectAddedEvent
             // _eventBus.Publish(new ProjectAddedEvent(job.Id));
         }
+    }
+
+    private static LibraryEntry? ResolveExistingLibraryEntryForImport(
+        Track track,
+        string trackHash,
+        IReadOnlyDictionary<string, LibraryEntry> libraryByHash,
+        IReadOnlyDictionary<string, LibraryEntry> libraryBySpotifyId,
+        IReadOnlyDictionary<string, LibraryEntry> libraryByLooseIdentity)
+    {
+        // Fast path: exact unique-hash lookup.
+        if (!string.IsNullOrWhiteSpace(trackHash) && libraryByHash.TryGetValue(trackHash, out var byHash))
+        {
+            return byHash;
+        }
+
+        var artist = track.Artist ?? string.Empty;
+        var title = track.Title ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(title))
+        {
+            return null;
+        }
+
+        // Fallback: tolerant metadata match for cases where import formatting changed hash shape.
+        if (!string.IsNullOrWhiteSpace(track.SpotifyTrackId))
+        {
+            if (libraryBySpotifyId.TryGetValue(track.SpotifyTrackId, out var bySpotifyId))
+            {
+                return bySpotifyId;
+            }
+        }
+
+        var looseKey = BuildLooseIdentityKey(artist, title);
+        if (!string.IsNullOrWhiteSpace(looseKey) && libraryByLooseIdentity.TryGetValue(looseKey, out var byLooseIdentity))
+        {
+            return byLooseIdentity;
+        }
+
+        return null;
+    }
+
+    private static string BuildLooseIdentityKey(string artist, string title)
+    {
+        var normalizedArtist = NormalizeForLooseIdentity(artist);
+        var normalizedTitle = NormalizeForLooseIdentity(title);
+
+        if (string.IsNullOrWhiteSpace(normalizedArtist) || string.IsNullOrWhiteSpace(normalizedTitle))
+        {
+            return string.Empty;
+        }
+
+        return $"{normalizedArtist}|{normalizedTitle}";
+    }
+
+    private static string NormalizeForLooseIdentity(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+
+        var chars = value.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray();
+        return new string(chars);
     }
 
     /// <summary>
@@ -657,7 +768,6 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 
                 _eventBus.Publish(new TrackAddedEvent(track));
                 _ = SyncDbAsync(ctx);
-                
             }
         }
         
@@ -668,7 +778,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         
         if (queued > 0)
         {
-             _ = RefillQueueAsync();
+             // Phase 21: Targeted Refill - Only refill for projects that were just queued
+             var projectIds = tracks.Select(t => t.PlaylistId).Distinct().ToList();
+             foreach(var pid in projectIds)
+             {
+                 _ = RefillQueueAsync(pid);
+             }
              
              // Auto-start engine if not running and we have tracks to process
              if (!IsRunning)
@@ -705,7 +820,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     Priority = t.Priority,
                     AddedAt = t.AddedAt,
                     CompletedAt = t.CompletedAt,
+                    IsClearedFromDownloadCenter = t.IsClearedFromDownloadCenter,
                     IsUserPaused = t.IsUserPaused,
+                    SourcePlaylistId = t.SourcePlaylistId,
                     SourcePlaylistName = t.SourcePlaylistName,
                     SearchRetryCount = 0, // Reset in-session counter on start
                     NotFoundRestartCount = t.NotFoundRestartCount
@@ -758,8 +875,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     /// <summary>
     /// Phase 3C.5: "The Waiting Room" - Fetches pending tracks from DB if buffer is low.
     /// Manages memory pressure by ensuring we don't hydrate 50,000 pending tracks.
+    /// Refactoring: Added optional projectId to support targeted project activation.
     /// </summary>
-    private async Task RefillQueueAsync()
+    private async Task RefillQueueAsync(Guid? projectId = null)
     {
         try
         {
@@ -768,7 +886,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
             lock (_collectionLock)
             {
-                int pendingCount = _downloads.Count(d => d.State == PlaylistTrackState.Pending);
+                // If we are refilling for a specific project, we check the buffer for that project specifically
+                int pendingCount = projectId.HasValue 
+                    ? _downloads.Count(d => d.Model.PlaylistId == projectId && d.State == PlaylistTrackState.Pending)
+                    : _downloads.Count(d => d.State == PlaylistTrackState.Pending);
+                
                 if (pendingCount >= LAZY_QUEUE_BUFFER_SIZE) return; // Buffer full enough
 
                 needed = LAZY_QUEUE_BUFFER_SIZE - pendingCount;
@@ -778,11 +900,15 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             if (needed <= 0) return;
 
             // Fetch next batch from "Waiting Room" (DB)
-            var newTracks = await _databaseService.GetPendingPriorityTracksAsync(needed, excludeIds);
+            // If projectId is provided, we ONLY fetch for that project to prevent global mass-initialization
+            var newTracks = projectId.HasValue
+                ? await _databaseService.GetPendingTracksForProjectAsync(projectId.Value, needed, excludeIds)
+                : await _databaseService.GetPendingPriorityTracksAsync(needed, excludeIds);
             
             if (newTracks.Any())
             {
-                _logger.LogDebug("Refilling queue with {Count} tracks from Waiting Room", newTracks.Count);
+                _logger.LogDebug("Refilling queue with {Count} tracks for {Scope}", 
+                    newTracks.Count, projectId.HasValue ? $"Project {projectId}" : "Global Queue");
                 HydrateAndAddEntities(newTracks);
             }
         }
@@ -3324,23 +3450,57 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         _downloadSemaphore.Dispose();
     }
 
-    public async Task HardRetryTrack(string globalId)
+    private DownloadContext? FindContextByGlobalId(string globalId)
     {
-        DownloadContext? ctx;
+        if (string.IsNullOrWhiteSpace(globalId))
+        {
+            return null;
+        }
+
+        var candidate = globalId.Trim();
         lock (_collectionLock)
         {
-            ctx = _downloads.FirstOrDefault(d => d.GlobalId == globalId);
+            var direct = _downloads.FirstOrDefault(d =>
+                string.Equals(d.GlobalId, candidate, StringComparison.OrdinalIgnoreCase));
+            if (direct != null)
+            {
+                return direct;
+            }
+
+            if (Guid.TryParse(candidate, out var parsed))
+            {
+                var idN = parsed.ToString("N");
+                var idD = parsed.ToString("D");
+
+                return _downloads.FirstOrDefault(d =>
+                    d.Model.Id == parsed ||
+                    string.Equals(d.GlobalId, idN, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(d.GlobalId, idD, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return null;
         }
+    }
+
+    public async Task HardRetryTrack(string globalId)
+    {
+        var ctx = FindContextByGlobalId(globalId);
 
         if (ctx == null) return;
 
         _logger.LogInformation("🔄 Hard Retry triggered for {Title}", ctx.Model.Title);
 
         // 1. Reset State
+        ctx.CancellationTokenSource?.Cancel();
+        ctx.CancellationTokenSource = new CancellationTokenSource();
         ctx.RetryCount = 0;
         ctx.NextRetryTime = null;
         ctx.FailureReason = null; // Clear error message
+        ctx.ErrorMessage = null;
         ctx.Model.IsUserPaused = false; // Reset user pause
+        ctx.Model.Status = TrackStatus.Pending;
+        ctx.Model.CompletedAt = null;
+        ctx.Model.StalledReason = null;
         ctx.IsFinalizing = false; // Reset critical flags
         ctx.SearchAttempts.Clear(); // Clear bad search history
         

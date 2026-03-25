@@ -291,6 +291,9 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         else if (model.Status == TrackStatus.Failed) _state = PlaylistTrackState.Failed;
         else _state = PlaylistTrackState.Pending;
 
+        // Keep UI visibility state consistent with persisted soft-clear flag.
+        IsClearedFromDownloadCenter = Model.IsClearedFromDownloadCenter;
+
         // Parse Cues
         if (!string.IsNullOrEmpty(Model.CuePointsJson))
         {
@@ -339,8 +342,8 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             Model.IsClearedFromDownloadCenter = true;
         }, this.WhenAnyValue(x => x.CanRemoveFromQueue));
 
-        RetryCommand = ReactiveCommand.Create(() => 
-            _downloadManager.HardRetryTrack(GlobalId),
+        RetryCommand = ReactiveCommand.CreateFromTask(async () =>
+            await _downloadManager.HardRetryTrack(GlobalId),
             this.WhenAnyValue(x => x.IsFailed, x => x.IsStalled, (f, s) => f || s));
 
         ForceStartCommand = ReactiveCommand.CreateFromTask(async () => 

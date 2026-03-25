@@ -1,4 +1,64 @@
-# Recent Changes
+## [0.1.0-alpha.55] - Retry State Transition & Shared-Track Queue Safety (Mar 25, 2026)
+
+### Overview
+Hardened failed-download retry behavior so retried items reliably leave the Failed lane, and reinforced shared-track handling so overlapping playlists reuse a single queued/download context when hashes match.
+
+---
+
+### 1) Download Center Retry Reliability
+- **Async Retry Command:** Updated `UnifiedTrackViewModel.RetryCommand` to use `ReactiveCommand.CreateFromTask(...)` so retries execute through the async pipeline consistently.
+- **Robust Context Resolution:** Added resilient track lookup in `DownloadManager` to resolve retry targets by hash and GUID formats.
+- **Hard Retry State Reset:** `HardRetryTrack` now clears stale failure/finalization markers, resets cancellation tokens, restores `Pending` status semantics, and forces immediate queue re-entry.
+
+### 2) Overlap-Aware Shared Track Behavior
+- **Single Context Reuse:** Queueing logic continues deduping by `TrackUniqueHash`, preventing duplicate network downloads for shared tracks across multiple playlists.
+- **Cross-Playlist Status Propagation:** State/status updates are synced by hash across affected playlist rows, keeping project counters aligned when one shared track progresses or completes.
+
+---
+
+## [0.1.0-alpha.54] - Download Center Scoped Initialization & Peer Reliability Cleanup (Mar 24, 2026)
+
+### Overview
+Addressed the "Mass-Initialization" bug in the Download Center where triggering a single project caused unrelated tracks to activate. Hardened the initialization logic to be project-aware and cleaned up legacy code in the `PeerReliabilityService`.
+
+---
+
+### 1) Project-Scoped Download Initialization
+- **Lazy Hydration Hardening:** Refactored `DownloadManager.InitAsync` to only hydrate currently active (Downloading/Searching/Stalled) tracks on startup. History items are no longer loaded into memory until requested.
+- **Targeted Queue Refill:** Updated `RefillQueueAsync` to support an optional `projectId` filter. When a project is queued, the engine now surgically fetches pending tracks for *that* project only, preventing cross-project "leaks."
+- **Database Service Extensions:** Added `GetActiveTracksAsync` and `GetPendingTracksForProjectAsync` to `DatabaseService` to support efficient, scoped queries.
+- **Initialization Performance:** Removed the global queue refill on boot. The download engine now waits for explicit project triggers or resumes only what was strictly active.
+
+### 2) Peer Reliability Service Cleanup
+- **Legacy Code Removal:** Removed unused variable and dead code paths in `PeerReliabilityService.cs` that were remnants of the original Orbit implementation.
+- **Stability Pass:** Cleaned up documentation and internal dictionary logic to improve maintainability and reduce compiler warnings.
+
+---
+
+## [0.1.0-alpha.53] - Global Workspace Shell & Download Center Metadata Hardening (Mar 24, 2026)
+
+### Overview
+Significant architectural shift to a **Global Application Shell** with a unified 3-column layout. This refactor decouples page content from auxiliary tools (Inspectors/Player), introduces a centralized `IRightPanelService` for sidebar management, and hardens the Download Center's grouping logic with robust metadata fallbacks.
+
+---
+
+### 1) Global 3-Column Shell Architecture
+- **Layout Migration:** Refactored `MainWindow.axaml` and `MainViewModel.cs` to use a `SplitView` for global sidebar management.
+- **Right Panel Management:** Implemented `IRightPanelService` and `SidebarViewModel` to manage dynamic right-panel content (Track Inspector, Search Inspector, Now Playing).
+- **Responsive Sidebar:** Added `WidthToDisplayModeConverter` to automatically toggle between `Overlay` and `Inline` display modes based on window width (>1100px).
+- **Decoupled ViewModels:** Introduced `OpenInspectorEvent` via `ReactiveUI.MessageBus`, enabling any page to trigger the global inspector without direct dependencies.
+
+### 2) Download Center Grouping & Metadata Hardening
+- **Title Fallback Logic:** Updated `DownloadGroupViewModel.cs` to handle missing `SourcePlaylistName`. Groups now dynamically evaluate `Album` or `Artist` from tracks to generate intuitive titles.
+- **Title Formatting:** Improved `Subtitle` generation to distinguish between "Library Sync" (folders) and "Project Items" (playlists).
+- **Persistence Verification:** Verified that `DownloadManager` correctly propagates `SourcePlaylistName` from `PlaylistJob` to `PlaylistTrack` during the queueing process.
+
+### 3) Inspector System Consolidation
+- **Unified Track Inspector:** Migrated `TrackInspector` from page-level controls to the global right panel.
+- **Search Inspector:** Integrated the experimental `SearchInspector` into the sidebar system for deep result analysis.
+- **DataTemplate Registration:** Centralized view-to-viewmodel mapping for all inspectors in the `MainWindow` split-view pane.
+
+---
 
 ## [0.1.0-alpha.52] - Download Center UX Overhaul: Session Chips, Badge Density, Header Compaction, Sort & Failure Clarity (Mar 23, 2026)
 
