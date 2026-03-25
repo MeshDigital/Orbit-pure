@@ -174,7 +174,7 @@ public class StructuralAnalysisEngineTests
     }
 
     [Fact]
-    public void FindDrops_ReturnsEmptyForNoPhraseBooundaries()
+    public void FindDrops_ReturnsEmptyForNoPhraseBoundaries()
     {
         var drops = StructuralAnalysisEngine.FindDrops(
             Enumerable.Repeat(0.8f, 60).ToList(),
@@ -197,7 +197,7 @@ public class StructuralAnalysisEngineTests
     }
 
     [Fact]
-    public void Analyze_WithNoEnergyCurve_StillReturnsPhraseBooundaries()
+    public void Analyze_WithNoEnergyCurve_StillReturnsPhraseBoundaries()
     {
         var result = StructuralAnalysisEngine.Analyze(bpm: 128f, durationSeconds: 300.0);
 
