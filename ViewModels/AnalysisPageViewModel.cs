@@ -278,7 +278,11 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
     private static AnalysisData GenerateMockAnalysisData(AnalysisTrackItem track)
     {
-        var rng = new Random(track.TrackId.GetHashCode());
+        // Use a stable seed derived from the string content (not object hash code)
+        // so repeated calls for the same track produce the same mock values.
+        int seed = 0;
+        foreach (char c in track.TrackId) seed = seed * 31 + c;
+        var rng = new Random(Math.Abs(seed));
 
         return new AnalysisData
         {
