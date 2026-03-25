@@ -703,11 +703,11 @@ public sealed class OrbitVisualizerCanvas : Control
                 canvas.DrawRect(col.X, col.Y, ColWidth - 1, ColWidth, paint);
 
                 // Trail
-                for (int t2 = 1; t2 < 12; t2++)
+                for (int trailIndex = 1; trailIndex < 12; trailIndex++)
                 {
-                    float trailAlpha = (1f - (float)t2 / 12f) * col.Brightness;
+                    float trailAlpha = (1f - (float)trailIndex / 12f) * col.Brightness;
                     paint.Color = SKColor.FromHsv(hue, 0.6f, 0.8f, (byte)(trailAlpha * 180));
-                    canvas.DrawRect(col.X, col.Y - t2 * ColWidth, ColWidth - 1, ColWidth, paint);
+                    canvas.DrawRect(col.X, col.Y - trailIndex * ColWidth, ColWidth - 1, ColWidth, paint);
                 }
             }
         }

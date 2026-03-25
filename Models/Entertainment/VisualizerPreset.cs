@@ -1,7 +1,7 @@
 namespace SLSKDONET.Models.Entertainment;
 
 /// <summary>
-/// Defines the 10+ visualizer presets available in the ORBIT Pure Entertainment engine.
+/// Defines the 12 visualizer presets available in the ORBIT Pure Entertainment engine.
 /// Each preset corresponds to a unique SkiaSharp rendering mode in OrbitVisualizerCanvas.
 /// </summary>
 public enum VisualizerPreset
