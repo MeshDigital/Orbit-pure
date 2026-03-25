@@ -424,6 +424,19 @@
                                VerticalAlignment="Center"/>
                 </Border>
 
+                <!-- Spectral Integrity Badge (shown on completed tracks after post-download analysis) -->
+                <Border IsVisible="{Binding HasSpectralVerdict}"
+                        Background="#15000000"
+                        BorderBrush="{Binding SpectralVerdictColor}"
+                        BorderThickness="1"
+                        CornerRadius="10" Padding="8,1"
+                        ToolTip.Tip="{Binding SpectralVerdictTooltip}">
+                    <TextBlock Text="{Binding SpectralVerdictBadgeText}"
+                               FontSize="9" FontWeight="Bold"
+                               Foreground="{Binding SpectralVerdictColor}"
+                               VerticalAlignment="Center"/>
+                </Border>
+
                 <!-- Warning Badges (Shield, Risk, etc) -->
                 <Border IsVisible="{Binding IsHighRisk}" Background="#E91E63" CornerRadius="4" Padding="6,2" ToolTip.Tip="{Binding FlagReason}">
                     <TextBlock Text="HIGH RISK" FontSize="9" FontWeight="Bold" Foreground="White"/>

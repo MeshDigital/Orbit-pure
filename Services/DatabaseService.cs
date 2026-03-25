@@ -571,6 +571,39 @@ public class DatabaseService
     }
 
     /// <summary>
+    /// Persists the spectral integrity verdict for a playlist track after post-download analysis.
+    /// Updates FrequencyCutoff, Integrity level, and QualityDetails (the human-readable reason).
+    ///
+    /// Note: <c>IsTranscoded</c> is not a column in the PlaylistTracks table; it is derived
+    /// from <c>IntegrityLevel.Suspicious</c> when the entity is mapped back to <see cref="PlaylistTrack"/>
+    /// via <c>LibraryService.EntityToPlaylistTrack</c>.
+    /// </summary>
+    public async Task UpdateSpectralVerdictAsync(
+        Guid trackId,
+        bool isTranscoded,
+        int? frequencyCutoffHz,
+        SLSKDONET.Data.IntegrityLevel integrityLevel,
+        string? qualityDetails)
+    {
+        await _writeSemaphore.WaitAsync();
+        try
+        {
+            using var context = new AppDbContext();
+            // Use raw SQL to avoid loading the full entity graph
+            await context.Database.ExecuteSqlInterpolatedAsync($@"
+                UPDATE PlaylistTracks
+                SET FrequencyCutoff = {frequencyCutoffHz},
+                    Integrity = {(int)integrityLevel},
+                    QualityDetails = {qualityDetails}
+                WHERE Id = {trackId}");
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>
     /// Saves or updates an AudioFeatures entity (Essentia analysis results).
     /// </summary>
     public async Task SaveAudioFeaturesAsync(AudioFeaturesEntity features)

@@ -160,6 +160,13 @@ public class PlaylistTrack
     public bool? IsTrustworthy { get; set; }
     public string? QualityDetails { get; set; }
 
+    /// <summary>
+    /// Human-readable spectral analysis verdict produced by <see cref="SLSKDONET.Services.IAudioIntegrityService"/>.
+    /// E.g. "GenuineLossless", "TranscodedHighBitrate", "TranscodedLowBitrate".
+    /// Populated by <see cref="SLSKDONET.Services.PostDownloadSpectralScanService"/> after download completes.
+    /// </summary>
+    public string? SpectralVerdictText { get; set; }
+
     public SLSKDONET.Data.IntegrityLevel Integrity { get; set; } = SLSKDONET.Data.IntegrityLevel.None;
     
     /// <summary>

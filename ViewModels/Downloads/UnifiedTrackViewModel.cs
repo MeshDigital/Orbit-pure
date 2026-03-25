@@ -983,11 +983,91 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         get
         {
             if (!string.Equals(Model.Format, "flac", StringComparison.OrdinalIgnoreCase))
-            {
                 return false;
-            }
+
+            // Prefer the spectral-analysis result (set by PostDownloadSpectralScanService).
+            // Fall back to the naive bitrate heuristic for tracks not yet analysed.
+            if (IsCompleted)
+                return Model.IsTranscoded;
 
             return (Model.Bitrate ?? 0) < 400;
+        }
+    }
+
+    // ── Spectral Verdict (populated post-download by PostDownloadSpectralScanService) ──
+
+    /// <summary>True when a spectral analysis result is available for this track.</summary>
+    public bool HasSpectralVerdict =>
+        IsCompleted && !string.IsNullOrEmpty(Model.QualityDetails);
+
+    /// <summary>Short verdict string for display in badge tooltips.</summary>
+    public string SpectralVerdictText
+    {
+        get
+        {
+            if (!HasSpectralVerdict) return string.Empty;
+
+            // QualityDetails is stored as "Verdict | cutoff: X kHz | confidence: Y%"
+            var parts = Model.QualityDetails!.Split('|');
+            return parts.Length > 0 ? parts[0].Trim() : Model.QualityDetails;
+        }
+    }
+
+    /// <summary>Full tooltip text shown on the spectral verdict badge.</summary>
+    public string SpectralVerdictTooltip =>
+        HasSpectralVerdict
+            ? $"Spectral Analysis: {Model.QualityDetails}"
+            : "Spectral analysis pending…";
+
+    /// <summary>
+    /// Frequency cutoff (Hz) above which a suspicious transcode is considered "high quality"
+    /// (e.g. 320 kbps MP3 cuts off near 20 kHz).  Verdicts with a cutoff above this threshold
+    /// show an amber badge; lower cutoffs show a red badge.
+    /// </summary>
+    private const int HighBitrateTranscodeCutoffHz = 19_000;
+
+    /// <summary>True when the spectral analysis indicates a high-quality (≥ 320 kbps) transcode.</summary>
+    private bool IsHighBitrateTranscode =>
+        Model.Integrity == SLSKDONET.Data.IntegrityLevel.Suspicious &&
+        Model.FrequencyCutoff >= HighBitrateTranscodeCutoffHz;
+
+    /// <summary>
+    /// Accent colour for the spectral verdict badge:
+    /// green for genuine lossless, amber for high-bitrate transcodes,
+    /// red for low/medium-bitrate transcodes.
+    /// </summary>
+    public string SpectralVerdictColor
+    {
+        get
+        {
+            if (!HasSpectralVerdict) return "#888888";
+
+            return Model.Integrity switch
+            {
+                SLSKDONET.Data.IntegrityLevel.Gold       => "#1DB954", // green — genuine lossless
+                SLSKDONET.Data.IntegrityLevel.Suspicious => IsHighBitrateTranscode
+                    ? "#FFD700"   // amber — high-bitrate transcode (≥ 320 kbps)
+                    : "#FF5252",  // red   — low/medium-bitrate transcode
+                _ => "#888888"
+            };
+        }
+    }
+
+    /// <summary>Short emoji + label shown in the spectral verdict badge.</summary>
+    public string SpectralVerdictBadgeText
+    {
+        get
+        {
+            if (!HasSpectralVerdict) return string.Empty;
+
+            return Model.Integrity switch
+            {
+                SLSKDONET.Data.IntegrityLevel.Gold       => "✅ TRUE LOSSLESS",
+                SLSKDONET.Data.IntegrityLevel.Suspicious => IsHighBitrateTranscode
+                    ? "⚠ TRANSCODE (HQ)"
+                    : "⚠ FAKE FLAC",
+                _ => string.Empty
+            };
         }
     }
 
@@ -1839,6 +1919,10 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 Model.QualityDetails = updatedTrack.QualityDetails;
                 Model.SourceProvenance = updatedTrack.SourceProvenance;
                 
+                // Spectral verdict (set by PostDownloadSpectralScanService)
+                Model.IsTranscoded = updatedTrack.IsTranscoded;
+                Model.SpectralVerdictText = updatedTrack.SpectralVerdictText;
+                
                 this.RaisePropertyChanged(nameof(ArtistName));
                 this.RaisePropertyChanged(nameof(TrackTitle));
                 this.RaisePropertyChanged(nameof(AlbumName));
@@ -1858,6 +1942,13 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(HasQualityPill));
                 this.RaisePropertyChanged(nameof(IsFakeFlacWarning));
                 this.RaisePropertyChanged(nameof(HasShieldSanitized));
+                this.RaisePropertyChanged(nameof(IsTranscoded));
+                this.RaisePropertyChanged(nameof(HasSpectralVerdict));
+                this.RaisePropertyChanged(nameof(SpectralVerdictText));
+                this.RaisePropertyChanged(nameof(SpectralVerdictTooltip));
+                this.RaisePropertyChanged(nameof(SpectralVerdictColor));
+                this.RaisePropertyChanged(nameof(SpectralVerdictBadgeText));
+                this.RaisePropertyChanged(nameof(ForensicBadgeText));
                 this.RaisePropertyChanged(nameof(IsPrepared));
                 this.RaisePropertyChanged(nameof(PreparationStatus));
                 this.RaisePropertyChanged(nameof(PreparationColor));

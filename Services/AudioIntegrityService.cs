@@ -210,7 +210,7 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
         // To avoid loading very large files fully, limit to 3× the analysis window.
         var maxSamplesToRead = sampleRate * AnalysisDurationSeconds * 3;
 
-        var buffer = new float[4096 * channels];
+        var buffer = new float[FftSize * channels];
         var accumulated = new System.Collections.Generic.List<float>(maxSamplesToRead);
 
         int read;
@@ -353,7 +353,7 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
 
         // Convert to dBFS, clamped at noise floor to avoid −∞
         double DbFs(int bin) =>
-            10.0 * Math.Log10(Math.Max(spectrum[bin], noiseFloor) / 1.0);
+            10.0 * Math.Log10(Math.Max(spectrum[bin], noiseFloor));
 
         var energyAtPeak = DbFs(peakBin);
         var energyAtLo = DbFs(loBin);

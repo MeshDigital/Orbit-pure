@@ -1016,6 +1016,11 @@ public class LibraryService : ILibraryService
             QualityConfidence = entity.QualityConfidence,
             FrequencyCutoff = entity.FrequencyCutoff,
             QualityDetails = entity.QualityDetails,
+            // Derive IsTranscoded and SpectralVerdictText from stored Integrity level + QualityDetails
+            IsTranscoded = entity.Integrity == SLSKDONET.Data.IntegrityLevel.Suspicious,
+            SpectralVerdictText = !string.IsNullOrEmpty(entity.QualityDetails)
+                ? entity.QualityDetails.Split('|')[0].Trim()
+                : null,
             
             // Phase 17: Technical Audio Analysis
             Loudness = entity.Loudness,
