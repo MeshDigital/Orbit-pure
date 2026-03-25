@@ -230,6 +230,10 @@ public partial class App : Application
                         var downloadManager = Services.GetRequiredService<DownloadManager>();
                         _ = downloadManager.StartAsync(); // Auto-start engine on launch
 
+                        // Activate post-download spectral scan listener (eager resolve so it
+                        // subscribes to TrackStateChangedEvent immediately after the engine starts).
+                        _ = Services.GetRequiredService<PostDownloadSpectralScanService>();
+
 
 
                         // Phase 2A: Initialize Crash Recovery Journal
@@ -382,7 +386,8 @@ public partial class App : Application
         
         // Session 2: Performance Optimization - Extracted services
         services.AddSingleton<LibraryOrganizationService>();
-        services.AddSingleton<AudioIntegrityService>();
+        services.AddSingleton<IAudioIntegrityService, AudioIntegrityService>();
+        services.AddSingleton<PostDownloadSpectralScanService>(); // Runs FFT analysis on completed FLAC downloads
         services.AddSingleton<ArtworkPipeline>();
         services.AddSingleton<DragAdornerService>();
         

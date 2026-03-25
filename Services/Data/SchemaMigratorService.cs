@@ -2273,6 +2273,27 @@ public class SchemaMigratorService
                 _logger.LogInformation("✅ DownloadHistory table created.");
             }
 
+            // Spectral Forensics: extended AudioIntegrityService metrics for Track Inspector
+            foreach (var (col, colType) in new[]
+            {
+                ("SpectralSampleRateHz",    "INTEGER NULL"),
+                ("SpectralBitDepth",        "INTEGER NULL"),
+                ("SpectralRolloffSteepness","REAL NULL"),
+                ("SpectralMidBandEnergy",   "REAL NULL"),
+                ("SpectralHighBandEnergy",  "REAL NULL"),
+                ("SpectralRmsDbfs",         "REAL NULL"),
+                ("SpectralCrestFactorDb",   "REAL NULL"),
+                ("SpectralNoiseFloorDbfs",  "REAL NULL"),
+            })
+            {
+                if (!ColumnExists("PlaylistTracks", col))
+                {
+                    _logger.LogInformation("Patching Schema: Adding {Col} to PlaylistTracks...", col);
+                    command.CommandText = $@"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""{col}"" {colType};";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)
