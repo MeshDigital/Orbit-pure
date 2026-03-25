@@ -382,7 +382,7 @@ public partial class App : Application
         
         // Session 2: Performance Optimization - Extracted services
         services.AddSingleton<LibraryOrganizationService>();
-        services.AddSingleton<AudioIntegrityService>();
+        services.AddSingleton<IAudioIntegrityService, AudioIntegrityService>();
         services.AddSingleton<ArtworkPipeline>();
         services.AddSingleton<DragAdornerService>();
         
