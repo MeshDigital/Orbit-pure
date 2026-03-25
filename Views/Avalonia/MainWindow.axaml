@@ -363,6 +363,15 @@
                                     </StackPanel>
                                 </Button>
 
+                                <Button Classes="nav" Command="{Binding NavigateAnalysisCommand}"
+                                        ToolTip.Tip="Analysis Pipeline"
+                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Analysis}}">
+                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
+                                        <TextBlock Text="🔬" FontSize="16"/>
+                                        <TextBlock Text="Analysis" FontSize="14"/>
+                                    </StackPanel>
+                                </Button>
+
 
 
                                 <Button Classes="nav" Command="{Binding NavigateSettingsCommand}"

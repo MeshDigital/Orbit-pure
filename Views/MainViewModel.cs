@@ -150,6 +150,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateProjectsCommand = new RelayCommand(NavigateToProjects);
         NavigateSettingsCommand = new RelayCommand(NavigateToSettings);
         NavigateImportCommand = new RelayCommand(NavigateToImport); // Phase 6D
+        NavigateAnalysisCommand = new RelayCommand(NavigateToAnalysis);
         PlayPauseCommand = new RelayCommand(() => PlayerViewModel.TogglePlayPauseCommand.Execute(null));
         FocusSearchCommand = new RelayCommand(FocusSearch);
         ToggleNavigationCommand = new RelayCommand(() => 
@@ -274,6 +275,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("Settings", typeof(Avalonia.SettingsPage));
         _navigationService.RegisterPage("Import", typeof(Avalonia.ImportPage));
         _navigationService.RegisterPage("ImportPreview", typeof(Avalonia.ImportPreviewPage));
+        _navigationService.RegisterPage("Analysis", typeof(Avalonia.AnalysisPage));
         
         // Subscribe to navigation events
         _navigationService.Navigated += OnNavigated;
@@ -652,6 +654,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateProjectsCommand { get; }
     public ICommand NavigateSettingsCommand { get; }
     public ICommand NavigateImportCommand { get; } // Phase 6D
+    public ICommand NavigateAnalysisCommand { get; }
     public ICommand PlayPauseCommand { get; }
     public ICommand FocusSearchCommand { get; }
     public ICommand ToggleNavigationCommand { get; }
@@ -694,6 +697,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 "SettingsPage" => PageType.Settings,
                 "ImportPage" => PageType.Import,
                 "ImportPreviewPage" => PageType.Import, // Map preview to Import category
+                "AnalysisPage" => PageType.Analysis,
                 _ => CurrentPageType
             };
 
@@ -764,6 +768,11 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void NavigateToImport()
     {
         _navigationService.NavigateTo("Import");
+    }
+
+    private void NavigateToAnalysis()
+    {
+        _navigationService.NavigateTo("Analysis");
     }
 
     private void UpdateFontSizeResources()

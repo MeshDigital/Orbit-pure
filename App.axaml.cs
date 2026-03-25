@@ -571,6 +571,9 @@ public partial class App : Application
         services.AddTransient<Views.Avalonia.SettingsPage>();
         services.AddTransient<Views.Avalonia.ImportPage>();
         services.AddTransient<Views.Avalonia.ImportPreviewPage>();
+        services.AddTransient<Views.Avalonia.AnalysisPage>();
+        services.AddSingleton<ViewModels.AnalysisPageViewModel>();
+        services.AddSingleton<Services.AnalysisQueueService>();
         
 
         
