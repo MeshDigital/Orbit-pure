@@ -6,7 +6,9 @@ using System.Windows.Input;
 using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Models;
+using SLSKDONET.Models.Entertainment;
 using SLSKDONET.Services;
+using SLSKDONET.Services.Entertainment;
 using SLSKDONET.Views;
 
 // using DraggingService; // TODO: Fix drag-drop library reference
@@ -42,6 +44,8 @@ namespace SLSKDONET.ViewModels
         private readonly DatabaseService _databaseService;
         private readonly ArtworkCacheService _artworkCacheService;
         private readonly IEventBus _eventBus;
+        private readonly IAmbientModeService? _ambientModeService;
+        private readonly IFlowModeService? _flowModeService;
         private readonly System.Threading.Timer _saveQueueTimer;
         private bool _suppressSave;
 
@@ -183,6 +187,88 @@ namespace SLSKDONET.ViewModels
             get => _currentVisualStyle;
             set => SetProperty(ref _currentVisualStyle, value);
         }
+
+        // ── Entertainment Engine Properties ─────────────────────────────────
+
+        private VisualizerPreset _currentVisualizerPreset = VisualizerPreset.SpectrumBars;
+        /// <summary>Active SkiaSharp visualizer preset for the expanded player.</summary>
+        public VisualizerPreset CurrentVisualizerPreset
+        {
+            get => _currentVisualizerPreset;
+            set => SetProperty(ref _currentVisualizerPreset, value);
+        }
+
+        private VisualizerEngineMode _visualizerEngineMode = VisualizerEngineMode.Standard;
+        /// <summary>Whether the visualizer adapts to metadata or is in ambient mode.</summary>
+        public VisualizerEngineMode VisualizerEngineMode
+        {
+            get => _visualizerEngineMode;
+            set => SetProperty(ref _visualizerEngineMode, value);
+        }
+
+        private bool _isAmbientMode;
+        /// <summary>True when Ambient Mode is active (slow, meditative visuals).</summary>
+        public bool IsAmbientMode
+        {
+            get => _isAmbientMode;
+            set
+            {
+                if (SetProperty(ref _isAmbientMode, value))
+                {
+                    VisualizerEngineMode = value
+                        ? VisualizerEngineMode.Ambient
+                        : VisualizerEngineMode.Standard;
+                }
+            }
+        }
+
+        private bool _isFlowMode;
+        /// <summary>True when Flow Mode (smart auto-mixing) is active.</summary>
+        public bool IsFlowMode
+        {
+            get => _isFlowMode;
+            set => SetProperty(ref _isFlowMode, value);
+        }
+
+        private bool _isMetadataDrivenVisuals;
+        /// <summary>True when the visualizer adapts dynamically based on track metadata.</summary>
+        public bool IsMetadataDrivenVisuals
+        {
+            get => _isMetadataDrivenVisuals;
+            set
+            {
+                if (SetProperty(ref _isMetadataDrivenVisuals, value) && !_isAmbientMode)
+                {
+                    VisualizerEngineMode = value
+                        ? VisualizerEngineMode.MetadataDriven
+                        : VisualizerEngineMode.Standard;
+                }
+            }
+        }
+
+        private bool _isExpandedPlayerOpen;
+        /// <summary>True when the full visualizer-first expanded player is visible.</summary>
+        public bool IsExpandedPlayerOpen
+        {
+            get => _isExpandedPlayerOpen;
+            set => SetProperty(ref _isExpandedPlayerOpen, value);
+        }
+
+        private FlowModeState _flowModeState = new();
+        /// <summary>Live state of the Flow Mode engine.</summary>
+        public FlowModeState FlowModeState
+        {
+            get => _flowModeState;
+            set => SetProperty(ref _flowModeState, value);
+        }
+
+        /// <summary>Album-art-derived hue (0–360), or -1 for default energy-based color.</summary>
+        private float _albumArtHue = -1f;
+        public float AlbumArtHue
+        {
+            get => _albumArtHue;
+            set => SetProperty(ref _albumArtHue, value);
+        }
         
         // Phase 9.2: Loading & Error States
         private bool _isLoading;
@@ -283,15 +369,46 @@ namespace SLSKDONET.ViewModels
         public ICommand SeekBackwardCommand { get; }
         public ICommand ToggleTheaterModeCommand { get; }
 
+        // Entertainment Engine Commands
+        public ICommand ToggleAmbientModeCommand { get; }
+        public ICommand ToggleFlowModeCommand { get; }
+        public ICommand ToggleMetadataDrivenVisualsCommand { get; }
+        public ICommand ToggleExpandedPlayerCommand { get; }
+        public ReactiveCommand<Unit, Unit> CycleVisualizerPresetCommand { get; }
+
         // Phase 5C: UI Throttling
         private DateTime _lastTimeUpdate = DateTime.MinValue;
 
-        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService)
+        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null)
         {
             _playerService = playerService;
             _databaseService = databaseService;
             _artworkCacheService = artworkCacheService;
             _eventBus = eventBus;
+            _ambientModeService = ambientModeService;
+            _flowModeService = flowModeService;
+
+            // Wire Ambient Mode service events
+            if (_ambientModeService is not null)
+            {
+                _ambientModeService.ActiveChanged += (_, active) =>
+                {
+                    Dispatcher.UIThread.Post(() => IsAmbientMode = active);
+                };
+            }
+
+            // Wire Flow Mode service events
+            if (_flowModeService is not null)
+            {
+                _flowModeService.StateChanged += (_, state) =>
+                {
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        FlowModeState = state;
+                        IsFlowMode = state.IsActive;
+                    });
+                };
+            }
             
             _saveQueueTimer = new System.Threading.Timer(_ => 
             {
@@ -381,7 +498,11 @@ namespace SLSKDONET.ViewModels
             
             // Player Service Events via Reactive patterns to ensure cleanup
             Observable.FromEventPattern(h => _playerService.PausableChanged += h, h => _playerService.PausableChanged -= h)
-                .Subscribe(_ => Dispatcher.UIThread.Post(() => IsPlaying = _playerService.IsPlaying))
+                .Subscribe(_ => Dispatcher.UIThread.Post(() =>
+                {
+                    IsPlaying = _playerService.IsPlaying;
+                    _ambientModeService?.NotifyPlaybackState(_playerService.IsPlaying);
+                }))
                 .DisposeWith(_disposables);
 
             Observable.FromEventPattern(h => _playerService.EndReached += h, h => _playerService.EndReached -= h)
@@ -450,6 +571,36 @@ namespace SLSKDONET.ViewModels
             SeekForwardCommand = new RelayCommand(() => SeekRelative(10)); // Seek forward 10 seconds
             SeekBackwardCommand = new RelayCommand(() => SeekRelative(-10)); // Seek backward 10 seconds
             ToggleTheaterModeCommand = new RelayCommand(() => _eventBus.Publish(new RequestTheaterModeEvent()));
+
+            // Entertainment Engine Commands
+            ToggleAmbientModeCommand = new RelayCommand(() =>
+            {
+                if (_ambientModeService is not null)
+                    _ambientModeService.Toggle();
+                else
+                    IsAmbientMode = !IsAmbientMode;
+            });
+            ToggleFlowModeCommand = new RelayCommand(() =>
+            {
+                if (_flowModeService is not null)
+                    _flowModeService.Toggle();
+                else
+                    IsFlowMode = !IsFlowMode;
+            });
+            ToggleMetadataDrivenVisualsCommand = new RelayCommand(() =>
+            {
+                IsMetadataDrivenVisuals = !IsMetadataDrivenVisuals;
+            });
+            ToggleExpandedPlayerCommand = new RelayCommand(() =>
+            {
+                IsExpandedPlayerOpen = !IsExpandedPlayerOpen;
+            });
+            CycleVisualizerPresetCommand = ReactiveCommand.Create(() =>
+            {
+                var values = Enum.GetValues<VisualizerPreset>();
+                int next = ((int)CurrentVisualizerPreset + 1) % values.Length;
+                CurrentVisualizerPreset = (VisualizerPreset)next;
+            });
 
             
             // Phase 0: Queue persistence - auto-save on changes
