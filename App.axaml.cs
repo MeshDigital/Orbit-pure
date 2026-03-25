@@ -14,6 +14,7 @@ using SLSKDONET.Data;
 using SLSKDONET.Services;
 using SLSKDONET.Services.InputParsers;
 using SLSKDONET.Services.Audio;
+using SLSKDONET.Services.Entertainment;
 using SLSKDONET.Services.Library;
 using SLSKDONET.ViewModels;
 using SLSKDONET.Views;
@@ -455,6 +456,10 @@ public partial class App : Application
         // Audio Player
         services.AddSingleton<IAudioPlayerService, AudioPlayerService>();
         services.AddSingleton<PlayerViewModel>();
+
+        // Entertainment Engine Services
+        services.AddSingleton<IAmbientModeService, AmbientModeService>();
+        services.AddSingleton<IFlowModeService, FlowModeService>();
 
         // Metadata and tagging service
         services.AddSingleton<ITaggerService, MetadataTaggerService>();
