@@ -169,8 +169,11 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
         var highBand = BandEnergyDbfs(averagedSpectrum, binHz, 15_000, 20_000);
         var ultraHigh = BandEnergyDbfs(averagedSpectrum, binHz, 20_000, nyquist);
 
+        // ── 8b. Waveform-level dynamics (full decoded signal) ─────────────────
+        var (rmsDbfs, crestFactorDb, noiseFloorDbfs) = ComputeDynamics(monoSamples);
+
         // ── 9. Classify ───────────────────────────────────────────────────────
-        return Classify(cutoffHz, slopeDpkHz, midBand, highBand, ultraHigh, meta);
+        return Classify(cutoffHz, slopeDpkHz, midBand, highBand, ultraHigh, rmsDbfs, crestFactorDb, noiseFloorDbfs, meta);
     }
 
     // ── step 1: file metadata ─────────────────────────────────────────────────
@@ -206,8 +209,9 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
         var sampleRate = format.SampleRate;
         var channels = format.Channels;
 
-        // We read up to AnalysisDurationSeconds * 2 from the centre, plus some margin.
-        // To avoid loading very large files fully, limit to 3× the analysis window.
+        // Cap the read at 3× the analysis window (e.g. 90 s for a 30 s window) so that
+        // very long files are not fully loaded into memory.  The extra headroom lets
+        // ComputeDynamics scan a meaningful portion of the track for noise floor detection.
         var maxSamplesToRead = sampleRate * AnalysisDurationSeconds * 3;
 
         var buffer = new float[FftSize * channels];
@@ -388,6 +392,9 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
         double midBandDbfs,
         double highBandDbfs,
         double ultraHighDbfs,
+        double rmsDbfs,
+        double crestFactorDb,
+        double noiseFloorDbfs,
         FileMetadata meta)
     {
         // A very steep slope (≥ 30 dB/kHz) near the cutoff is a strong lossy indicator.
@@ -451,8 +458,8 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
         }
 
         _logger.LogInformation(
-            "Analysis complete: verdict={Verdict} confidence={Confidence:P0} cutoff={Cutoff:F0} Hz slope={Slope:F0} dB/kHz",
-            verdict, confidence, cutoffHz, slopeDpkHz);
+            "Analysis complete: verdict={Verdict} confidence={Confidence:P0} cutoff={Cutoff:F0} Hz slope={Slope:F0} dB/kHz rms={Rms:F1} dBFS crest={Crest:F1} dB",
+            verdict, confidence, cutoffHz, slopeDpkHz, rmsDbfs, crestFactorDb);
 
         return new SpectralIntegrityResult
         {
@@ -464,10 +471,64 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
             MidBandEnergyDbfs = midBandDbfs,
             HighBandEnergyDbfs = highBandDbfs,
             UltraHighBandEnergyDbfs = ultraHighDbfs,
+            RmsLevelDbfs = rmsDbfs,
+            CrestFactorDb = crestFactorDb,
+            NoiseFloorDbfs = noiseFloorDbfs,
             FileBitDepth = meta.BitDepth,
             FileSampleRateHz = meta.SampleRateHz,
             FileBitrateKbps = meta.BitrateKbps,
         };
+    }
+
+    // ── step 8b: waveform-level dynamics ──────────────────────────────────────
+
+    /// <summary>
+    /// Computes RMS level, crest factor (peak-to-RMS), and noise floor from the full
+    /// decoded mono signal.  All values are in dBFS.
+    ///
+    /// The noise floor is estimated from the quietest 500-sample block (~11 ms at 44.1 kHz)
+    /// found across the entire signal — a simple but robust proxy for background noise / tape hiss.
+    /// Returns −120.0 dBFS for any metric that cannot be computed (silence / empty signal).
+    /// </summary>
+    private static (double RmsDbfs, double CrestFactorDb, double NoiseFloorDbfs) ComputeDynamics(
+        float[] samples)
+    {
+        if (samples.Length == 0)
+            return (-120.0, 0.0, -120.0);
+
+        // ── RMS ────────────────────────────────────────────────────────────────
+        double sumSq = 0.0;
+        float peak = 0f;
+        foreach (var s in samples)
+        {
+            sumSq += s * s;
+            var abs = Math.Abs(s);
+            if (abs > peak) peak = abs;
+        }
+
+        var rms = Math.Sqrt(sumSq / samples.Length);
+        var rmsDbfs = rms > 0 ? 20.0 * Math.Log10(rms) : -120.0;
+
+        // ── True peak ─────────────────────────────────────────────────────────
+        var peakDbfs = peak > 0 ? 20.0 * Math.Log10(peak) : -120.0;
+        var crestFactorDb = peakDbfs - rmsDbfs;
+
+        // ── Noise floor — quietest 500-sample block ────────────────────────────
+        const int blockSize = 500;
+        double minBlockRms = double.MaxValue;
+        for (int i = 0; i + blockSize <= samples.Length; i += blockSize)
+        {
+            double blockSumSq = 0.0;
+            for (int j = i; j < i + blockSize; j++)
+                blockSumSq += samples[j] * samples[j];
+            var blockRms = Math.Sqrt(blockSumSq / blockSize);
+            if (blockRms < minBlockRms) minBlockRms = blockRms;
+        }
+        var noiseFloorDbfs = minBlockRms > 0 && minBlockRms < double.MaxValue
+            ? 20.0 * Math.Log10(minBlockRms)
+            : -120.0;
+
+        return (rmsDbfs, crestFactorDb, noiseFloorDbfs);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

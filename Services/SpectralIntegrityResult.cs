@@ -76,6 +76,28 @@ public sealed class SpectralIntegrityResult
     /// <summary>Average energy above 20 kHz in dBFS (only meaningful for high-SR files).</summary>
     public double UltraHighBandEnergyDbfs { get; init; }
 
+    // ── waveform-level dynamics (computed from decoded PCM samples) ────────────
+
+    /// <summary>
+    /// RMS level of the full track in dBFS.
+    /// Correlates with perceived loudness.  A typical commercial master sits around −14 to −8 dBFS.
+    /// </summary>
+    public double RmsLevelDbfs { get; init; }
+
+    /// <summary>
+    /// Crest factor: difference between the true peak level and the RMS level (in dB).
+    /// Higher values indicate more dynamic range.  Pop/EDM masters often sit at 6–10 dB;
+    /// classical recordings can exceed 20 dB.
+    /// </summary>
+    public double CrestFactorDb { get; init; }
+
+    /// <summary>
+    /// Estimated noise floor in dBFS, derived from the quietest 500 ms segment.
+    /// Values below −80 dBFS indicate clean recordings; values above −60 dBFS suggest
+    /// significant background noise or poor tape transfers.
+    /// </summary>
+    public double NoiseFloorDbfs { get; init; }
+
     // ── file metadata ─────────────────────────────────────────────────────────
 
     /// <summary>Bit depth reported by file metadata (e.g. 16, 24). 0 if unknown.</summary>

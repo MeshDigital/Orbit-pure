@@ -44,7 +44,7 @@
                          <Grid ColumnDefinitions="*, *, *" RowDefinitions="Auto, Auto">
                              <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
                                  <TextBlock Text="SAMPLE RATE" FontSize="9" Foreground="#555"/>
-                                 <TextBlock Text="{Binding SampleRateDisplay}" FontSize="13" Foreground="#CCC"/>
+                                 <TextBlock Text="{Binding SpectralSampleRateDisplay}" FontSize="13" Foreground="#CCC"/>
                              </StackPanel>
                              <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
                                  <TextBlock Text="DURATION" FontSize="9" Foreground="#555"/>
@@ -54,7 +54,93 @@
                                  <TextBlock Text="FILE SIZE" FontSize="9" Foreground="#555"/>
                                  <TextBlock Text="{Binding FileSizeDisplay}" FontSize="13" Foreground="#CCC"/>
                              </StackPanel>
+                             <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4" Margin="0,12,0,0">
+                                 <TextBlock Text="BIT DEPTH" FontSize="9" Foreground="#555"/>
+                                 <TextBlock Text="{Binding SpectralBitDepthDisplay}" FontSize="13" Foreground="#CCC"/>
+                             </StackPanel>
+                             <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4" Margin="0,12,0,0">
+                                 <TextBlock Text="BITRATE" FontSize="9" Foreground="#555"/>
+                                 <TextBlock Text="{Binding BitrateDisplay}" FontSize="13" Foreground="#CCC"/>
+                             </StackPanel>
+                             <StackPanel Grid.Row="1" Grid.Column="2" Spacing="4" Margin="0,12,0,0">
+                                 <TextBlock Text="FORMAT" FontSize="9" Foreground="#555"/>
+                                 <TextBlock Text="{Binding FileFormat}" FontSize="13" Foreground="#4EC9B0" FontWeight="Bold"/>
+                             </StackPanel>
                          </Grid>
+                    </StackPanel>
+
+                    <Separator Background="#252526" Height="1"/>
+
+                    <!-- Spectral Forensics (only shown after post-download analysis completes) -->
+                    <StackPanel Spacing="12" IsVisible="{Binding HasSpectralDetails}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="SPECTRAL FORENSICS" FontSize="10" FontWeight="Black" Foreground="#444"/>
+                            <Border Background="#15FFFFFF" CornerRadius="4" Padding="6,1">
+                                <TextBlock Text="{Binding SpectralVerdictBadgeText}" FontSize="9" FontWeight="Bold"
+                                           Foreground="{Binding SpectralVerdictColor}"/>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Authenticity verdict card -->
+                        <Border Background="#12FFFFFF" CornerRadius="8" Padding="14,10">
+                            <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="VERDICT" FontSize="9" Foreground="#555" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding SpectralVerdictText}" FontSize="12" FontWeight="Bold"
+                                               Foreground="{Binding SpectralVerdictColor}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock Text="{Binding SpectralVerdictTooltip}" FontSize="10" Foreground="#666"
+                                           TextWrapping="Wrap" Opacity="0.85"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Spectral measurements grid -->
+                        <Grid ColumnDefinitions="*, *" RowDefinitions="Auto, Auto, Auto, Auto">
+                            <!-- Row 0: Cutoff / Rolloff -->
+                            <StackPanel Grid.Row="0" Grid.Column="0" Spacing="3" Margin="0,0,6,10">
+                                <TextBlock Text="SAMPLE RATE" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding SpectralSampleRateDisplay}" FontSize="12" FontWeight="SemiBold" Foreground="#CCC"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="0" Grid.Column="1" Spacing="3" Margin="6,0,0,10">
+                                <TextBlock Text="ROLLOFF SLOPE" FontSize="9" Foreground="#555"/>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="{Binding SpectralRolloffDisplay}" FontSize="12" FontWeight="SemiBold" Foreground="#CCC"/>
+                                    <TextBlock Text="{Binding SpectralRolloffLabel}" FontSize="9" Foreground="#666" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <!-- Row 1: Band energies -->
+                            <StackPanel Grid.Row="1" Grid.Column="0" Spacing="3" Margin="0,0,6,10">
+                                <TextBlock Text="MID BAND (1–15 kHz)" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding SpectralMidBandDisplay}" FontSize="12" FontWeight="SemiBold" Foreground="#CCC"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="3" Margin="6,0,0,10">
+                                <TextBlock Text="HIGH BAND (15–20 kHz)" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding SpectralHighBandDisplay}" FontSize="12" FontWeight="SemiBold" Foreground="#CCC"/>
+                            </StackPanel>
+
+                            <!-- Row 2: RMS / Crest -->
+                            <StackPanel Grid.Row="2" Grid.Column="0" Spacing="3" Margin="0,0,6,10">
+                                <TextBlock Text="RMS LEVEL" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding SpectralRmsDisplay}" FontSize="12" FontWeight="SemiBold" Foreground="#CCC"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="2" Grid.Column="1" Spacing="3" Margin="6,0,0,10">
+                                <TextBlock Text="CREST FACTOR" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding SpectralCrestFactorDisplay}" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{Binding SpectralCrestFactorColor}"/>
+                            </StackPanel>
+
+                            <!-- Row 3: Noise floor / Confidence -->
+                            <StackPanel Grid.Row="3" Grid.Column="0" Spacing="3">
+                                <TextBlock Text="NOISE FLOOR" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding SpectralNoiseFloorDisplay}" FontSize="12" FontWeight="SemiBold" Foreground="#CCC"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="3" Grid.Column="1" Spacing="3" Margin="6,0,0,0">
+                                <TextBlock Text="CONFIDENCE" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding SpectralConfidenceDisplay}" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="#888"/>
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
                     
                     <!-- Provenance / Source -->

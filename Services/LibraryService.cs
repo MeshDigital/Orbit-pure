@@ -1021,6 +1021,16 @@ public class LibraryService : ILibraryService
             SpectralVerdictText = !string.IsNullOrEmpty(entity.QualityDetails)
                 ? entity.QualityDetails.Split('|')[0].Trim()
                 : null,
+
+            // Extended spectral forensics (populated by PostDownloadSpectralScanService)
+            SpectralSampleRateHz   = entity.SpectralSampleRateHz,
+            SpectralBitDepth       = entity.SpectralBitDepth,
+            SpectralRolloffSteepness = entity.SpectralRolloffSteepness,
+            SpectralMidBandEnergy  = entity.SpectralMidBandEnergy,
+            SpectralHighBandEnergy = entity.SpectralHighBandEnergy,
+            SpectralRmsDbfs        = entity.SpectralRmsDbfs,
+            SpectralCrestFactorDb  = entity.SpectralCrestFactorDb,
+            SpectralNoiseFloorDbfs = entity.SpectralNoiseFloorDbfs,
             
             // Phase 17: Technical Audio Analysis
             Loudness = entity.Loudness,

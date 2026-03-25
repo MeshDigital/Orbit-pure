@@ -571,8 +571,9 @@ public class DatabaseService
     }
 
     /// <summary>
-    /// Persists the spectral integrity verdict for a playlist track after post-download analysis.
-    /// Updates FrequencyCutoff, Integrity level, and QualityDetails (the human-readable reason).
+    /// Persists the full spectral forensics verdict for a playlist track after post-download analysis.
+    /// Stores both the core integrity verdict and all detailed spectral measurements computed by
+    /// <see cref="IAudioIntegrityService"/> so the Track Inspector can display a comprehensive report.
     ///
     /// Note: <c>IsTranscoded</c> is not a column in the PlaylistTracks table; it is derived
     /// from <c>IntegrityLevel.Suspicious</c> when the entity is mapped back to <see cref="PlaylistTrack"/>
@@ -583,7 +584,15 @@ public class DatabaseService
         bool isTranscoded,
         int? frequencyCutoffHz,
         SLSKDONET.Data.IntegrityLevel integrityLevel,
-        string? qualityDetails)
+        string? qualityDetails,
+        int? sampleRateHz = null,
+        int? bitDepth = null,
+        double? rolloffSteepness = null,
+        double? midBandEnergy = null,
+        double? highBandEnergy = null,
+        double? rmsDbfs = null,
+        double? crestFactorDb = null,
+        double? noiseFloorDbfs = null)
     {
         await _writeSemaphore.WaitAsync();
         try
@@ -592,9 +601,17 @@ public class DatabaseService
             // Use raw SQL to avoid loading the full entity graph
             await context.Database.ExecuteSqlInterpolatedAsync($@"
                 UPDATE PlaylistTracks
-                SET FrequencyCutoff = {frequencyCutoffHz},
-                    Integrity = {(int)integrityLevel},
-                    QualityDetails = {qualityDetails}
+                SET FrequencyCutoff         = {frequencyCutoffHz},
+                    Integrity               = {(int)integrityLevel},
+                    QualityDetails          = {qualityDetails},
+                    SpectralSampleRateHz    = {sampleRateHz},
+                    SpectralBitDepth        = {bitDepth},
+                    SpectralRolloffSteepness= {rolloffSteepness},
+                    SpectralMidBandEnergy   = {midBandEnergy},
+                    SpectralHighBandEnergy  = {highBandEnergy},
+                    SpectralRmsDbfs         = {rmsDbfs},
+                    SpectralCrestFactorDb   = {crestFactorDb},
+                    SpectralNoiseFloorDbfs  = {noiseFloorDbfs}
                 WHERE Id = {trackId}");
         }
         finally

@@ -131,13 +131,25 @@ public sealed class PostDownloadSpectralScanService : IDisposable
                 ? (int?)result.SpectralCutoffHz
                 : null;
 
-            // ── persist to database ────────────────────────────────────────────
+            // dBFS values are negative by definition — use a sentinel of −120.0 (defined as
+            // the floor in ComputeDynamics) to detect "not computed" vs. a real near-zero measurement.
+            const double NoDataSentinel = -120.0;
+
+            // ── persist all spectral forensics data to database ────────────────
             await _databaseService.UpdateSpectralVerdictAsync(
                 entity.Id,
                 isTranscoded,
                 frequencyCutoffHz,
                 integrityLevel,
-                qualityDetails);
+                qualityDetails,
+                sampleRateHz:     result.FileSampleRateHz > 0    ? result.FileSampleRateHz : null,
+                bitDepth:         result.FileBitDepth > 0        ? result.FileBitDepth : null,
+                rolloffSteepness: result.RolloffSteepnessDpkHz > 0 ? result.RolloffSteepnessDpkHz : null,
+                midBandEnergy:    result.MidBandEnergyDbfs > NoDataSentinel ? result.MidBandEnergyDbfs : null,
+                highBandEnergy:   result.HighBandEnergyDbfs > NoDataSentinel ? result.HighBandEnergyDbfs : null,
+                rmsDbfs:          result.RmsLevelDbfs > NoDataSentinel  ? result.RmsLevelDbfs : null,
+                crestFactorDb:    result.CrestFactorDb > 0              ? result.CrestFactorDb : null,
+                noiseFloorDbfs:   result.NoiseFloorDbfs > NoDataSentinel ? result.NoiseFloorDbfs : null);
 
             // ── notify the ViewModel so the badge refreshes immediately ────────
             _eventBus.Publish(new TrackMetadataUpdatedEvent(evt.TrackGlobalId));

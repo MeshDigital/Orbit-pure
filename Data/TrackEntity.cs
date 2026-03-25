@@ -251,6 +251,16 @@ public class PlaylistTrackEntity
     public bool? IsTrustworthy { get; set; }
     public IntegrityLevel Integrity { get; set; } = IntegrityLevel.None; // NEW
     public string? QualityDetails { get; set; }
+
+    // Spectral Forensics — extended data from AudioIntegrityService
+    public int? SpectralSampleRateHz { get; set; }   // Confirmed sample rate from decoded audio
+    public int? SpectralBitDepth { get; set; }        // Bit depth from file metadata
+    public double? SpectralRolloffSteepness { get; set; } // dB/kHz at the cutoff — steep = lossy
+    public double? SpectralMidBandEnergy { get; set; }   // Average energy 1–15 kHz in dBFS
+    public double? SpectralHighBandEnergy { get; set; }  // Average energy 15–20 kHz in dBFS
+    public double? SpectralRmsDbfs { get; set; }      // Overall RMS level (perceived loudness)
+    public double? SpectralCrestFactorDb { get; set; } // Peak-to-RMS ratio (dynamic range indicator)
+    public double? SpectralNoiseFloorDbfs { get; set; } // Estimated noise floor from quietest segment
     
     // Phase 17: Technical Audio Analysis
     public double? Loudness { get; set; }
