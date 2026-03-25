@@ -986,11 +986,91 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         get
         {
             if (!string.Equals(Model.Format, "flac", StringComparison.OrdinalIgnoreCase))
-            {
                 return false;
-            }
+
+            // Prefer the spectral-analysis result (set by PostDownloadSpectralScanService).
+            // Fall back to the naive bitrate heuristic for tracks not yet analysed.
+            if (IsCompleted)
+                return Model.IsTranscoded;
 
             return (Model.Bitrate ?? 0) < 400;
+        }
+    }
+
+    // ── Spectral Verdict (populated post-download by PostDownloadSpectralScanService) ──
+
+    /// <summary>True when a spectral analysis result is available for this track.</summary>
+    public bool HasSpectralVerdict =>
+        IsCompleted && !string.IsNullOrEmpty(Model.QualityDetails);
+
+    /// <summary>Short verdict string for display in badge tooltips.</summary>
+    public string SpectralVerdictText
+    {
+        get
+        {
+            if (!HasSpectralVerdict) return string.Empty;
+
+            // QualityDetails is stored as "Verdict | cutoff: X kHz | confidence: Y%"
+            var parts = Model.QualityDetails!.Split('|');
+            return parts.Length > 0 ? parts[0].Trim() : Model.QualityDetails;
+        }
+    }
+
+    /// <summary>Full tooltip text shown on the spectral verdict badge.</summary>
+    public string SpectralVerdictTooltip =>
+        HasSpectralVerdict
+            ? $"Spectral Analysis: {Model.QualityDetails}"
+            : "Spectral analysis pending…";
+
+    /// <summary>
+    /// Frequency cutoff (Hz) above which a suspicious transcode is considered "high quality"
+    /// (e.g. 320 kbps MP3 cuts off near 20 kHz).  Verdicts with a cutoff above this threshold
+    /// show an amber badge; lower cutoffs show a red badge.
+    /// </summary>
+    private const int HighBitrateTranscodeCutoffHz = 19_000;
+
+    /// <summary>True when the spectral analysis indicates a high-quality (≥ 320 kbps) transcode.</summary>
+    private bool IsHighBitrateTranscode =>
+        Model.Integrity == SLSKDONET.Data.IntegrityLevel.Suspicious &&
+        Model.FrequencyCutoff >= HighBitrateTranscodeCutoffHz;
+
+    /// <summary>
+    /// Accent colour for the spectral verdict badge:
+    /// green for genuine lossless, amber for high-bitrate transcodes,
+    /// red for low/medium-bitrate transcodes.
+    /// </summary>
+    public string SpectralVerdictColor
+    {
+        get
+        {
+            if (!HasSpectralVerdict) return "#888888";
+
+            return Model.Integrity switch
+            {
+                SLSKDONET.Data.IntegrityLevel.Gold       => "#1DB954", // green — genuine lossless
+                SLSKDONET.Data.IntegrityLevel.Suspicious => IsHighBitrateTranscode
+                    ? "#FFD700"   // amber — high-bitrate transcode (≥ 320 kbps)
+                    : "#FF5252",  // red   — low/medium-bitrate transcode
+                _ => "#888888"
+            };
+        }
+    }
+
+    /// <summary>Short emoji + label shown in the spectral verdict badge.</summary>
+    public string SpectralVerdictBadgeText
+    {
+        get
+        {
+            if (!HasSpectralVerdict) return string.Empty;
+
+            return Model.Integrity switch
+            {
+                SLSKDONET.Data.IntegrityLevel.Gold       => "✅ TRUE LOSSLESS",
+                SLSKDONET.Data.IntegrityLevel.Suspicious => IsHighBitrateTranscode
+                    ? "⚠ TRANSCODE (HQ)"
+                    : "⚠ FAKE FLAC",
+                _ => string.Empty
+            };
         }
     }
 
@@ -999,6 +1079,130 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     
     // Phase 0.6: Truth in UI - Tech Specs are Estimates until verified
     public string TechSpecPrefix => IsCompleted ? "" : "Est. ";
+
+    // ── Track Inspector display properties ────────────────────────────────────
+
+    /// <summary>Format label for the Track Inspector header (e.g. "FLAC", "MP3").</summary>
+    public string FileFormat => (Model.Format ?? string.Empty).ToUpperInvariant();
+
+    /// <summary>Bitrate string for the Track Inspector header.</summary>
+    public string BitrateDisplay => Model.Bitrate.HasValue && Model.Bitrate > 0
+        ? $"{Model.Bitrate} kbps"
+        : "—";
+
+    /// <summary>Duration string for the Track Inspector technical metadata section.</summary>
+    public string DurationDisplay => Model.CanonicalDuration.HasValue
+        ? TimeSpan.FromMilliseconds(Model.CanonicalDuration.Value).ToString(@"mm\:ss")
+        : "—";
+
+    /// <summary>File size on disk for the Track Inspector technical metadata section.</summary>
+    public string FileSizeDisplay
+    {
+        get
+        {
+            var path = Model.ResolvedFilePath;
+            if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path)) return "—";
+            try
+            {
+                var bytes = new System.IO.FileInfo(path).Length;
+                return $"{bytes / 1024.0 / 1024.0:F1} MB";
+            }
+            catch
+            {
+                return "—";
+            }
+        }
+    }
+
+    // ── Spectral Forensics Inspector properties ───────────────────────────────
+
+    /// <summary>Rolloff steepness threshold constants — mirror the classifier logic in <see cref="AudioIntegrityService"/>.</summary>
+    private const double SteepRolloffThreshold    = 30.0; // dB/kHz: ≥ this is characteristic of lossy encoding
+    private const double ModerateRolloffThreshold = 15.0; // dB/kHz: below this is natural lossless rolloff
+
+    /// <summary>True when detailed spectral forensics data is available.</summary>
+    public bool HasSpectralDetails => HasSpectralVerdict && (
+        Model.SpectralSampleRateHz.HasValue ||
+        Model.SpectralBitDepth.HasValue ||
+        Model.SpectralRmsDbfs.HasValue);
+
+    /// <summary>Confirmed sample rate (e.g. "44.1 kHz", "48 kHz").</summary>
+    public string SpectralSampleRateDisplay => Model.SpectralSampleRateHz.HasValue
+        ? $"{Model.SpectralSampleRateHz.Value / 1000.0:F1} kHz"
+        : "—";
+
+    /// <summary>Detected spectral cutoff frequency (e.g. "20.5 kHz").</summary>
+    public string SpectralCutoffKhzDisplay => Model.FrequencyCutoff.HasValue
+        ? $"{Model.FrequencyCutoff.Value / 1000.0:F1} kHz"
+        : "—";
+
+    /// <summary>Short confidence percentage extracted from <see cref="Model.QualityDetails"/>.</summary>
+    public string SpectralConfidenceDisplay
+    {
+        get
+        {
+            var details = Model.QualityDetails;
+            if (string.IsNullOrEmpty(details)) return "—";
+            // QualityDetails format: "Verdict | cutoff: X kHz | confidence: Y%"
+            var confPart = details
+                .Split('|')
+                .FirstOrDefault(p => p.TrimStart().StartsWith("confidence:", StringComparison.OrdinalIgnoreCase));
+            return confPart != null ? confPart.Trim() : "—";
+        }
+    }
+
+    /// <summary>Bit depth string (e.g. "16-bit", "24-bit").</summary>
+    public string SpectralBitDepthDisplay => Model.SpectralBitDepth.HasValue
+        ? $"{Model.SpectralBitDepth.Value}-bit"
+        : "—";
+
+    /// <summary>Rolloff steepness at the spectral cutoff (dB/kHz).</summary>
+    public string SpectralRolloffDisplay => Model.SpectralRolloffSteepness.HasValue
+        ? $"{Model.SpectralRolloffSteepness.Value:F0} dB/kHz"
+        : "—";
+
+    /// <summary>Contextual label for the rolloff steepness reading.</summary>
+    public string SpectralRolloffLabel => Model.SpectralRolloffSteepness switch
+    {
+        >= SteepRolloffThreshold    => "steep (lossy)",
+        >= ModerateRolloffThreshold => "moderate",
+        { }                         => "natural (lossless)",
+        null                        => ""
+    };
+
+    /// <summary>Mid-band energy (1–15 kHz).</summary>
+    public string SpectralMidBandDisplay => Model.SpectralMidBandEnergy.HasValue
+        ? $"{Model.SpectralMidBandEnergy.Value:F1} dBFS"
+        : "—";
+
+    /// <summary>High-band energy (15–20 kHz).</summary>
+    public string SpectralHighBandDisplay => Model.SpectralHighBandEnergy.HasValue
+        ? $"{Model.SpectralHighBandEnergy.Value:F1} dBFS"
+        : "—";
+
+    /// <summary>Overall RMS level (perceived loudness).</summary>
+    public string SpectralRmsDisplay => Model.SpectralRmsDbfs.HasValue
+        ? $"{Model.SpectralRmsDbfs.Value:F1} dBFS"
+        : "—";
+
+    /// <summary>Crest factor — higher means more dynamic headroom.</summary>
+    public string SpectralCrestFactorDisplay => Model.SpectralCrestFactorDb.HasValue
+        ? $"{Model.SpectralCrestFactorDb.Value:F1} dB"
+        : "—";
+
+    /// <summary>Estimated noise floor.</summary>
+    public string SpectralNoiseFloorDisplay => Model.SpectralNoiseFloorDbfs.HasValue
+        ? $"{Model.SpectralNoiseFloorDbfs.Value:F1} dBFS"
+        : "—";
+
+    /// <summary>Accent colour for the crest-factor display (green = dynamic, red = squashed).</summary>
+    public string SpectralCrestFactorColor => Model.SpectralCrestFactorDb switch
+    {
+        >= 14.0 => "#1DB954", // high dynamic range — green
+        >= 8.0  => "#FFD700", // moderate — amber
+        { }     => "#FF5252", // squashed — red
+        null    => "#888888"
+    };
 
     // Curation Hub Properties
     public double IntegrityScore => Model.QualityConfidence ?? 0.0;
@@ -1842,6 +2046,20 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 Model.QualityDetails = updatedTrack.QualityDetails;
                 Model.SourceProvenance = updatedTrack.SourceProvenance;
                 
+                // Spectral verdict (set by PostDownloadSpectralScanService)
+                Model.IsTranscoded = updatedTrack.IsTranscoded;
+                Model.SpectralVerdictText = updatedTrack.SpectralVerdictText;
+
+                // Extended spectral forensics
+                Model.SpectralSampleRateHz    = updatedTrack.SpectralSampleRateHz;
+                Model.SpectralBitDepth        = updatedTrack.SpectralBitDepth;
+                Model.SpectralRolloffSteepness = updatedTrack.SpectralRolloffSteepness;
+                Model.SpectralMidBandEnergy   = updatedTrack.SpectralMidBandEnergy;
+                Model.SpectralHighBandEnergy  = updatedTrack.SpectralHighBandEnergy;
+                Model.SpectralRmsDbfs         = updatedTrack.SpectralRmsDbfs;
+                Model.SpectralCrestFactorDb   = updatedTrack.SpectralCrestFactorDb;
+                Model.SpectralNoiseFloorDbfs  = updatedTrack.SpectralNoiseFloorDbfs;
+                
                 this.RaisePropertyChanged(nameof(ArtistName));
                 this.RaisePropertyChanged(nameof(TrackTitle));
                 this.RaisePropertyChanged(nameof(AlbumName));
@@ -1861,6 +2079,31 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(HasQualityPill));
                 this.RaisePropertyChanged(nameof(IsFakeFlacWarning));
                 this.RaisePropertyChanged(nameof(HasShieldSanitized));
+                this.RaisePropertyChanged(nameof(IsTranscoded));
+                this.RaisePropertyChanged(nameof(HasSpectralVerdict));
+                this.RaisePropertyChanged(nameof(SpectralVerdictText));
+                this.RaisePropertyChanged(nameof(SpectralVerdictTooltip));
+                this.RaisePropertyChanged(nameof(SpectralVerdictColor));
+                this.RaisePropertyChanged(nameof(SpectralVerdictBadgeText));
+                this.RaisePropertyChanged(nameof(ForensicBadgeText));
+                // Spectral Inspector properties
+                this.RaisePropertyChanged(nameof(HasSpectralDetails));
+                this.RaisePropertyChanged(nameof(SpectralSampleRateDisplay));
+                this.RaisePropertyChanged(nameof(SpectralCutoffKhzDisplay));
+                this.RaisePropertyChanged(nameof(SpectralBitDepthDisplay));
+                this.RaisePropertyChanged(nameof(SpectralRolloffDisplay));
+                this.RaisePropertyChanged(nameof(SpectralRolloffLabel));
+                this.RaisePropertyChanged(nameof(SpectralMidBandDisplay));
+                this.RaisePropertyChanged(nameof(SpectralHighBandDisplay));
+                this.RaisePropertyChanged(nameof(SpectralRmsDisplay));
+                this.RaisePropertyChanged(nameof(SpectralCrestFactorDisplay));
+                this.RaisePropertyChanged(nameof(SpectralCrestFactorColor));
+                this.RaisePropertyChanged(nameof(SpectralNoiseFloorDisplay));
+                this.RaisePropertyChanged(nameof(SpectralConfidenceDisplay));
+                this.RaisePropertyChanged(nameof(FileFormat));
+                this.RaisePropertyChanged(nameof(BitrateDisplay));
+                this.RaisePropertyChanged(nameof(DurationDisplay));
+                this.RaisePropertyChanged(nameof(FileSizeDisplay));
                 this.RaisePropertyChanged(nameof(IsPrepared));
                 this.RaisePropertyChanged(nameof(PreparationStatus));
                 this.RaisePropertyChanged(nameof(PreparationColor));

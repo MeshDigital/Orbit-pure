@@ -14,13 +14,13 @@ public class LibraryOrganizationService
 {
     private readonly AppConfig _config;
     private readonly ILogger<LibraryOrganizationService> _logger;
-    private readonly AudioIntegrityService _integrityService;
+    private readonly IAudioIntegrityService _integrityService;
     private readonly ILibraryService _libraryService;
     
     public LibraryOrganizationService(
         AppConfig config, 
         ILogger<LibraryOrganizationService> logger,
-        AudioIntegrityService integrityService,
+        IAudioIntegrityService integrityService,
         ILibraryService libraryService)
     {
         _config = config;
@@ -158,7 +158,7 @@ public class LibraryOrganizationService
 
         try
         {
-            var result = await _integrityService.CheckSpectralIntegrityAsync(filePath);
+            var result = await _integrityService.AnalyseAsync(filePath);
             return !result.IsGenuineLossless;
         }
         catch (Exception ex)
