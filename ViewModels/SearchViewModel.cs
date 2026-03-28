@@ -28,8 +28,6 @@ using System.Reactive.Linq;
 using SLSKDONET.Configuration;
 using System.Reactive.Disposables;
 
-using SLSKDONET.Events;
-
 namespace SLSKDONET.ViewModels;
 
 public partial class SearchViewModel : ReactiveObject, IDisposable

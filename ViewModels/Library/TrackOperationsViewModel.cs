@@ -43,6 +43,8 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand AddToProjectCommand { get; }
     public System.Windows.Input.ICommand RetryOfflineTracksCommand { get; }
     public System.Windows.Input.ICommand OpenFolderCommand { get; }
+    public System.Windows.Input.ICommand AddToQueueCommand { get; }
+    public System.Windows.Input.ICommand AddSelectedToQueueCommand { get; }
 
     // Phase 10.5: Dependency Warning Property
     public bool AreDependenciesHealthy => _dependencyHealthService.IsHealthy;
@@ -93,6 +95,8 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         AddToProjectCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteAddToProject);
         RetryOfflineTracksCommand = new AsyncRelayCommand(ExecuteRetryOfflineTracks);
         OpenFolderCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteOpenFolder);
+        AddToQueueCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteAddToQueue);
+        AddSelectedToQueueCommand = new RelayCommand(ExecuteAddSelectedToQueue);
         
     }
 
@@ -204,6 +208,42 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         // Clear queue and add this track
         _playerViewModel.ClearQueue();
         _playerViewModel.AddToQueue(track);
+    }
+
+    private void ExecuteAddToQueue(PlaylistTrackViewModel? track)
+    {
+        if (track == null) return;
+
+        var selectedTracks = LibraryViewModel?.Tracks.SelectedTracks?.ToList() ?? [];
+        var shouldQueueSelection = selectedTracks.Count > 1 && selectedTracks.Contains(track);
+        var tracksToQueue = shouldQueueSelection ? selectedTracks : new System.Collections.Generic.List<PlaylistTrackViewModel> { track };
+
+        int added = 0;
+        foreach (var candidate in tracksToQueue)
+        {
+            _playerViewModel.AddToQueue(candidate);
+            added++;
+        }
+
+        _logger.LogInformation("Queued {Count} track(s) into player queue from Library", added);
+    }
+
+    private void ExecuteAddSelectedToQueue()
+    {
+        var selected = LibraryViewModel?.Tracks.SelectedTracks?.ToList() ?? [];
+        if (!selected.Any())
+        {
+            return;
+        }
+
+        int added = 0;
+        foreach (var track in selected)
+        {
+            _playerViewModel.AddToQueue(track);
+            added++;
+        }
+
+        _logger.LogInformation("Queued {Count} selected track(s) into player queue from Library", added);
     }
 
     private async Task ExecuteHardRetry(PlaylistTrackViewModel? track)

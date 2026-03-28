@@ -44,6 +44,7 @@ namespace SLSKDONET.ViewModels
         private readonly DatabaseService _databaseService;
         private readonly ArtworkCacheService _artworkCacheService;
         private readonly IEventBus _eventBus;
+        private readonly INavigationService _navigationService;
         private readonly IAmbientModeService? _ambientModeService;
         private readonly IFlowModeService? _flowModeService;
         private readonly System.Threading.Timer _saveQueueTimer;
@@ -381,6 +382,7 @@ namespace SLSKDONET.ViewModels
         public ICommand SeekBackwardCommand { get; }
         public ICommand ToggleTheaterModeCommand { get; }
         public ICommand GoBackCommand { get; } // NowPlayingPage back navigation
+        public ICommand OpenPlayerViewCommand { get; }
 
         // Entertainment Engine Commands
         public ICommand ToggleAmbientModeCommand { get; }
@@ -392,12 +394,13 @@ namespace SLSKDONET.ViewModels
         // Phase 5C: UI Throttling
         private DateTime _lastTimeUpdate = DateTime.MinValue;
 
-        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null)
+        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null)
         {
             _playerService = playerService;
             _databaseService = databaseService;
             _artworkCacheService = artworkCacheService;
             _eventBus = eventBus;
+            _navigationService = navigationService;
             _ambientModeService = ambientModeService;
             _flowModeService = flowModeService;
 
@@ -584,6 +587,12 @@ namespace SLSKDONET.ViewModels
             SeekForwardCommand = new RelayCommand(() => SeekRelative(10)); // Seek forward 10 seconds
             SeekBackwardCommand = new RelayCommand(() => SeekRelative(-10)); // Seek backward 10 seconds
             ToggleTheaterModeCommand = new RelayCommand(() => _eventBus.Publish(new RequestTheaterModeEvent()));
+            GoBackCommand = new RelayCommand(() => _eventBus.Publish(new NavigateToPageEvent("Library")));
+            OpenPlayerViewCommand = new RelayCommand(() =>
+            {
+                IsExpandedPlayerOpen = false;
+                _navigationService.NavigateTo(PageType.NowPlaying);
+            });
             GoBackCommand = new RelayCommand(() => _eventBus.Publish(new NavigateToPageEvent("Library")));
 
             // Entertainment Engine Commands

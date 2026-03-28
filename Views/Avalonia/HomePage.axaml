@@ -352,6 +352,61 @@
                     </Border>
                 </StackPanel>
                 
+                <!-- Recently Downloaded -->
+                <StackPanel Spacing="16">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="Recently Downloaded" FontSize="20" FontWeight="Bold" Foreground="White"/>
+                        <Button Grid.Column="1" Background="Transparent" Command="{Binding NavigateLibraryCommand}">
+                            <TextBlock Text="Open Library →" Foreground="#808080" FontSize="13"/>
+                        </Button>
+                    </Grid>
+
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding RecentDownloads}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="16"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:RecentDownloadedTrackCardViewModel">
+                                    <Border Width="220" Background="#121214" CornerRadius="12" Padding="12" BorderBrush="#1F1F23" BorderThickness="1">
+                                        <Grid ColumnDefinitions="56,*,Auto" RowDefinitions="Auto,Auto,Auto">
+                                            <Border Grid.RowSpan="3" Width="56" Height="56" CornerRadius="8" ClipToBounds="True" Background="#262629">
+                                                <Grid>
+                                                    <PathIcon Data="{StaticResource icons_music}" Width="18" Height="18" Foreground="#3A3A3E" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    <Image Source="{Binding CoverImageUrl, Converter={StaticResource BitmapValueConverter}}" Stretch="UniformToFill"/>
+                                                </Grid>
+                                            </Border>
+
+                                            <TextBlock Grid.Column="1" Text="{Binding Title}" Foreground="White" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis" Margin="12,0,8,0"/>
+                                            <Border Grid.Column="2" Background="#16222D" BorderBrush="#24445E" BorderThickness="1" CornerRadius="10" Padding="8,2" VerticalAlignment="Top">
+                                                <TextBlock Text="{Binding FormatLabel}" Foreground="#8DD1FF" FontSize="10" FontWeight="Bold"/>
+                                            </Border>
+
+                                            <TextBlock Grid.Column="1" Grid.Row="1" Text="{Binding Artist}" Foreground="#A0A0A0" FontSize="11" TextTrimming="CharacterEllipsis" Margin="12,2,8,0"/>
+
+                                            <StackPanel Grid.Column="1" Grid.Row="2" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="8" Margin="12,8,0,0">
+                                                <Border Background="#1D1F22" CornerRadius="8" Padding="8,3">
+                                                    <TextBlock Text="{Binding QualityLabel}" Foreground="#E8E8E8" FontSize="10"/>
+                                                </Border>
+                                                <Border Background="#1D1F22" CornerRadius="8" Padding="8,3" MaxWidth="120">
+                                                    <TextBlock Text="{Binding SourceLabel}" Foreground="#B7B7B7" FontSize="10" TextTrimming="CharacterEllipsis"/>
+                                                </Border>
+                                                <TextBlock Text="{Binding CompletedLabel}" Foreground="#707070" FontSize="10" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <Border IsVisible="{Binding !RecentDownloads.Count}" HorizontalAlignment="Center" Margin="0,8" Padding="28,18" Background="#0DFFFFFF" CornerRadius="12">
+                        <TextBlock Text="No completed downloads yet." Foreground="#606060" FontSize="13" HorizontalAlignment="Center"/>
+                    </Border>
+                </StackPanel>
+
                 <!-- Third Row: Spotify Recommendations -->
                 <StackPanel Spacing="16">
                     <TextBlock Text="Recommended for You" FontSize="20" FontWeight="Bold" Foreground="White"/>

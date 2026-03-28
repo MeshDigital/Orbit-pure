@@ -6,6 +6,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -16,15 +18,37 @@ public class ScanProgress
     public int FilesDiscovered { get; set; }
     public int FilesImported { get; set; }
     public int FilesSkipped { get; set; }
+    public int FilesDuplicateByPath { get; set; }
+    public int FilesDuplicateByHash { get; set; }
+    public int FilesMetadataFailed { get; set; }
+    public int FilesAutoUpgraded { get; set; }
+    public int FilesMarkedForRemoval { get; set; }
     public string CurrentFile { get; set; } = string.Empty;
+    public string CurrentFolder { get; set; } = string.Empty;
 }
 
 public class ScanResult
 {
+    public Guid FolderId { get; set; }
+    public string FolderPath { get; set; } = string.Empty;
     public int TotalFilesFound { get; set; }
     public int FilesImported { get; set; }
     public int FilesSkipped { get; set; }
+    public int FilesDuplicateByPath { get; set; }
+    public int FilesDuplicateByHash { get; set; }
+    public int FilesMetadataFailed { get; set; }
+    public int FilesAutoUpgraded { get; set; }
+    public int FilesMarkedForRemoval { get; set; }
     public List<Guid> ImportedLibraryEntryIds { get; set; } = new();
+}
+
+internal sealed class ExistingEntryInfo
+{
+    public string UniqueHash { get; init; } = string.Empty;
+    public string FilePath { get; set; } = string.Empty;
+    public string Format { get; set; } = string.Empty;
+    public int Bitrate { get; set; }
+    public int QualityScore { get; set; }
 }
 
 public class LibraryFolderScannerService
@@ -65,8 +89,11 @@ public class LibraryFolderScannerService
         {
             // 1. Discover all audio files (CPU bound)
             var audioFiles = await DiscoverAudioFilesAsync(folder.FolderPath, ct);
+            result.FolderId = folder.Id;
+            result.FolderPath = folder.FolderPath;
             result.TotalFilesFound = audioFiles.Count;
             scanProgress.FilesDiscovered = audioFiles.Count;
+            scanProgress.CurrentFolder = folder.FolderPath;
             progress?.Report(scanProgress);
 
             if (audioFiles.Count == 0) return result;
@@ -75,18 +102,41 @@ public class LibraryFolderScannerService
             // This prevents N+1 DB queries and write starvation checking
             _logger.LogInformation("Loading existing library paths...");
             HashSet<string> existingPaths;
+            Dictionary<string, ExistingEntryInfo> existingByHash;
+            var pathComparer = GetPathComparer();
             
             // Use a separate short-lived context for reading
             using (var readContext = new AppDbContext())
             {
-                // We only need the FilePath string
-                existingPaths = await readContext.LibraryEntries
+                // Read only what we need for duplicate detection and alignment.
+                var existingEntries = await readContext.LibraryEntries
                     .AsNoTracking()
-                    .Select(e => e.FilePath)
-                    .ToHashSetAsync(ct);
+                    .Select(e => new { e.FilePath, e.UniqueHash, e.Format, e.Bitrate })
+                    .ToListAsync(ct);
+
+                existingPaths = existingEntries
+                    .Select(e => NormalizePath(e.FilePath))
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .ToHashSet(pathComparer);
+
+                existingByHash = existingEntries
+                    .Where(e => !string.IsNullOrWhiteSpace(e.UniqueHash))
+                    .GroupBy(e => e.UniqueHash, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.First())
+                    .ToDictionary(
+                        e => e.UniqueHash,
+                        e => new ExistingEntryInfo
+                        {
+                            UniqueHash = e.UniqueHash,
+                            FilePath = e.FilePath,
+                            Format = e.Format ?? string.Empty,
+                            Bitrate = e.Bitrate,
+                            QualityScore = ComputeQualityScore(e.Format, e.Bitrate, 0, 0)
+                        },
+                        StringComparer.OrdinalIgnoreCase);
             }
             
-            _logger.LogInformation("Loaded {Count} existing paths. Starting import...", existingPaths.Count);
+            _logger.LogInformation("Loaded {PathCount} existing paths and {HashCount} existing hashes. Starting import...", existingPaths.Count, existingByHash.Count);
 
             // 3. Process files in batches
             var batch = new List<LibraryEntryEntity>();
@@ -97,12 +147,15 @@ public class LibraryFolderScannerService
                 if (ct.IsCancellationRequested) break;
                 
                 scanProgress.CurrentFile = Path.GetFileName(filePath);
+                var normalizedFilePath = NormalizePath(filePath);
                 
-                // Fast in-memory check
-                if (existingPaths.Contains(filePath))
+                // Fast in-memory checks. Path handles exact file dedupe; hash aligns with global library identity.
+                if (existingPaths.Contains(normalizedFilePath))
                 {
                     result.FilesSkipped++;
+                    result.FilesDuplicateByPath++;
                     scanProgress.FilesSkipped++;
+                    scanProgress.FilesDuplicateByPath++;
                     progress?.Report(scanProgress);
                     continue;
                 }
@@ -111,13 +164,53 @@ public class LibraryFolderScannerService
                 var entry = CreateLibraryEntry(filePath);
                 if (entry != null)
                 {
+                    if (existingByHash.TryGetValue(entry.UniqueHash, out var existing))
+                    {
+                        result.FilesDuplicateByHash++;
+                        scanProgress.FilesDuplicateByHash++;
+
+                        var candidateScore = TryExtractScore(entry.QualityDetails) ?? ComputeQualityScore(entry.Format, entry.Bitrate, 0, 0);
+                        if (candidateScore > existing.QualityScore && await TryUpgradeExistingEntryAsync(existing, entry, candidateScore, ct))
+                        {
+                            result.FilesAutoUpgraded++;
+                            result.FilesMarkedForRemoval++;
+                            scanProgress.FilesAutoUpgraded++;
+                            scanProgress.FilesMarkedForRemoval++;
+
+                            existing.FilePath = entry.FilePath;
+                            existing.Format = entry.Format;
+                            existing.Bitrate = entry.Bitrate;
+                            existing.QualityScore = candidateScore;
+                            existingPaths.Add(normalizedFilePath);
+
+                            progress?.Report(scanProgress);
+                            continue;
+                        }
+
+                        result.FilesSkipped++;
+                        scanProgress.FilesSkipped++;
+                        progress?.Report(scanProgress);
+                        continue;
+                    }
+
                     batch.Add(entry);
                     result.ImportedLibraryEntryIds.Add(entry.Id);
+                    existingPaths.Add(normalizedFilePath);
+                    existingByHash[entry.UniqueHash] = new ExistingEntryInfo
+                    {
+                        UniqueHash = entry.UniqueHash,
+                        FilePath = entry.FilePath,
+                        Format = entry.Format,
+                        Bitrate = entry.Bitrate,
+                        QualityScore = TryExtractScore(entry.QualityDetails) ?? ComputeQualityScore(entry.Format, entry.Bitrate, 0, 0)
+                    };
                 }
                 else
                 {
                     result.FilesSkipped++;
+                    result.FilesMetadataFailed++;
                     scanProgress.FilesSkipped++;
+                    scanProgress.FilesMetadataFailed++;
                 }
 
                 // Flush batch if full
@@ -150,8 +243,15 @@ public class LibraryFolderScannerService
             folder.TracksFound = result.TotalFilesFound;
             await metaContext.SaveChangesAsync(ct);
 
-            _logger.LogInformation("✅ Scan complete: {Imported} imported, {Skipped} skipped", 
-                result.FilesImported, result.FilesSkipped);
+            _logger.LogInformation(
+                "✅ Scan complete: {Imported} imported, {Skipped} skipped (dup-path: {DupPath}, dup-hash: {DupHash}, upgraded: {Upgraded}, removal-candidates: {RemovalCandidates}, metadata-failed: {MetaFailed})",
+                result.FilesImported,
+                result.FilesSkipped,
+                result.FilesDuplicateByPath,
+                result.FilesDuplicateByHash,
+                result.FilesAutoUpgraded,
+                result.FilesMarkedForRemoval,
+                result.FilesMetadataFailed);
         }
         catch (Exception ex)
         {
@@ -223,11 +323,24 @@ public class LibraryFolderScannerService
             result.TotalFilesFound += folderResult.TotalFilesFound;
             result.FilesImported += folderResult.FilesImported;
             result.FilesSkipped += folderResult.FilesSkipped;
+            result.FilesDuplicateByPath += folderResult.FilesDuplicateByPath;
+            result.FilesDuplicateByHash += folderResult.FilesDuplicateByHash;
+            result.FilesAutoUpgraded += folderResult.FilesAutoUpgraded;
+            result.FilesMarkedForRemoval += folderResult.FilesMarkedForRemoval;
+            result.FilesMetadataFailed += folderResult.FilesMetadataFailed;
             result.ImportedLibraryEntryIds.AddRange(folderResult.ImportedLibraryEntryIds);
         }
 
-        _logger.LogInformation("✅ Fast sync complete: {Imported} imported, {Skipped} skipped from {Folders} folders",
-            result.FilesImported, result.FilesSkipped, foldersToScan.Count);
+        _logger.LogInformation(
+            "✅ Fast sync complete: {Imported} imported, {Skipped} skipped from {Folders} folders (dup-path: {DupPath}, dup-hash: {DupHash}, upgraded: {Upgraded}, removal-candidates: {RemovalCandidates}, metadata-failed: {MetaFailed})",
+            result.FilesImported,
+            result.FilesSkipped,
+            foldersToScan.Count,
+            result.FilesDuplicateByPath,
+            result.FilesDuplicateByHash,
+            result.FilesAutoUpgraded,
+            result.FilesMarkedForRemoval,
+            result.FilesMetadataFailed);
 
         return result;
     }
@@ -261,6 +374,9 @@ public class LibraryFolderScannerService
             string title = Path.GetFileNameWithoutExtension(filePath);
             string album = string.Empty;
             int duration = 0;
+            int bitrate = 0;
+            int sampleRate = 0;
+            int bitsPerSample = 0;
 
             try
             {
@@ -269,6 +385,9 @@ public class LibraryFolderScannerService
                 title = string.IsNullOrWhiteSpace(file.Tag.Title) ? title : file.Tag.Title;
                 album = file.Tag.Album ?? string.Empty;
                 duration = (int)file.Properties.Duration.TotalSeconds;
+                bitrate = file.Properties.AudioBitrate;
+                sampleRate = file.Properties.AudioSampleRate;
+                bitsPerSample = file.Properties.BitsPerSample;
             }
             catch
             {
@@ -281,18 +400,22 @@ public class LibraryFolderScannerService
                     Path.GetFileName(filePath), artist, title);
             }
 
+            var format = Path.GetExtension(filePath).TrimStart('.').ToLowerInvariant();
+            var qualityScore = ComputeQualityScore(format, bitrate, sampleRate, bitsPerSample);
+
             return new LibraryEntryEntity
             {
                 Id = Guid.NewGuid(),
-                UniqueHash = Guid.NewGuid().ToString(), // TODO: Calculate real hash if needed
+                UniqueHash = BuildLibraryUniqueHash(artist, title, duration, filePath),
                 Artist = artist,
                 Title = title,
                 Album = album,
                 DurationSeconds = duration,
                 FilePath = filePath,
                 AddedAt = DateTime.UtcNow,
-                Bitrate = 0, 
-                Format = Path.GetExtension(filePath).TrimStart('.')
+                Bitrate = bitrate,
+                Format = format,
+                QualityDetails = $"scanner:v2;score={qualityScore};format={format};bitrate={bitrate};samplerate={sampleRate};bitdepth={bitsPerSample}"
             };
         }
         catch (Exception ex)
@@ -346,7 +469,16 @@ public class LibraryFolderScannerService
         {
             try
             {
-                var allFiles = Directory.GetFiles(folderPath, "*.*", SearchOption.AllDirectories);
+                var options = new EnumerationOptions
+                {
+                    RecurseSubdirectories = true,
+                    IgnoreInaccessible = true,
+                    MatchCasing = MatchCasing.CaseInsensitive,
+                    ReturnSpecialDirectories = false,
+                    AttributesToSkip = FileAttributes.System
+                };
+
+                var allFiles = Directory.EnumerateFiles(folderPath, "*.*", options);
                 audioFiles.AddRange(allFiles.Where(f => 
                     SupportedExtensions.Contains(Path.GetExtension(f).ToLowerInvariant())));
             }
@@ -395,9 +527,11 @@ public class LibraryFolderScannerService
         
         // Check if already exists (case-insensitive for Windows)
         var normalizedPath = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        
+
+        var normalizedLower = normalizedPath.ToLowerInvariant();
+
         var exists = await context.LibraryFolders
-            .AnyAsync(f => f.FolderPath == path); // Simple check first
+            .AnyAsync(f => f.FolderPath.ToLower() == normalizedLower);
             
         if (!exists)
         {
@@ -406,13 +540,170 @@ public class LibraryFolderScannerService
             
             context.LibraryFolders.Add(new LibraryFolderEntity 
             { 
-                FolderPath = path,
+                FolderPath = normalizedPath,
                 IsEnabled = true,
                 AddedAt = DateTime.UtcNow
             });
             
             await context.SaveChangesAsync();
         }
+    }
+
+    private static StringComparer GetPathComparer()
+    {
+        return OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+    }
+
+    private static string NormalizePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+
+        return Path.GetFullPath(path)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private static string BuildLibraryUniqueHash(string artist, string title, int durationSeconds, string filePath)
+    {
+        static string NormalizeToken(string value)
+        {
+            return new string((value ?? string.Empty)
+                .ToLowerInvariant()
+                .Where(c => !char.IsWhiteSpace(c))
+                .ToArray());
+        }
+
+        var artistToken = NormalizeToken(artist);
+        var titleToken = NormalizeToken(title);
+
+        // Align with Track.UniqueHash identity format where possible.
+        if (!string.IsNullOrWhiteSpace(artistToken) || !string.IsNullOrWhiteSpace(titleToken))
+        {
+            return $"{artistToken}-{titleToken}".Trim('-');
+        }
+
+        // Fallback for tag-less files: stable hash from path + duration.
+        var canonical = $"{NormalizePath(filePath).ToLowerInvariant()}|{durationSeconds}";
+        using var sha1 = SHA1.Create();
+        var bytes = sha1.ComputeHash(Encoding.UTF8.GetBytes(canonical));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    private static int ComputeQualityScore(string? format, int bitrate, int sampleRate, int bitsPerSample)
+    {
+        var fmt = (format ?? string.Empty).Trim().ToLowerInvariant();
+
+        int score = fmt switch
+        {
+            "flac" => 500,
+            "wav" => 470,
+            "aiff" => 460,
+            "aif" => 460,
+            "m4a" => 260,
+            "aac" => 250,
+            "ogg" => 240,
+            "mp3" => 200,
+            _ => 150
+        };
+
+        score += Math.Clamp(bitrate, 0, 1600) / 4;
+
+        if (sampleRate >= 96000) score += 120;
+        else if (sampleRate >= 48000) score += 40;
+
+        if (bitsPerSample >= 24) score += 80;
+
+        return score;
+    }
+
+    private static int? TryExtractScore(string? qualityDetails)
+    {
+        if (string.IsNullOrWhiteSpace(qualityDetails)) return null;
+
+        const string marker = "score=";
+        var idx = qualityDetails.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return null;
+
+        var start = idx + marker.Length;
+        var end = qualityDetails.IndexOf(';', start);
+        var token = end >= 0 ? qualityDetails[start..end] : qualityDetails[start..];
+
+        return int.TryParse(token, out var value) ? value : null;
+    }
+
+    private async Task<bool> TryUpgradeExistingEntryAsync(ExistingEntryInfo existing, LibraryEntryEntity candidate, int candidateScore, CancellationToken ct)
+    {
+        try
+        {
+            using var context = new AppDbContext();
+            var entry = await context.LibraryEntries.FirstOrDefaultAsync(e => e.UniqueHash == candidate.UniqueHash, ct);
+            if (entry == null) return false;
+
+            var currentPath = NormalizePath(entry.FilePath);
+            var candidatePath = NormalizePath(candidate.FilePath);
+
+            if (GetPathComparer().Equals(currentPath, candidatePath)) return false;
+
+            var previousPath = entry.FilePath;
+
+            entry.FilePath = candidate.FilePath;
+            entry.Format = candidate.Format;
+            entry.Bitrate = Math.Max(candidate.Bitrate, entry.Bitrate);
+            if (candidate.DurationSeconds.HasValue && candidate.DurationSeconds.Value > 0)
+            {
+                entry.DurationSeconds = candidate.DurationSeconds;
+            }
+
+            if (string.IsNullOrWhiteSpace(entry.OriginalFilePath))
+            {
+                entry.OriginalFilePath = previousPath;
+            }
+
+            entry.FilePathUpdatedAt = DateTime.UtcNow;
+            entry.QualityDetails = $"scanner-upgrade:v1;score={candidateScore};from={previousPath};to={candidate.FilePath}";
+            entry.Comments = AppendRemovalCandidateComment(entry.Comments, previousPath);
+
+            context.LibraryActionLogs.Add(new LibraryActionLogEntity
+            {
+                BatchId = Guid.NewGuid(),
+                ActionType = LibraryActionType.Consolidate,
+                SourcePath = previousPath,
+                DestinationPath = candidate.FilePath,
+                Timestamp = DateTime.Now,
+                TrackArtist = entry.Artist,
+                TrackTitle = entry.Title
+            });
+
+            await context.SaveChangesAsync(ct);
+
+            _logger.LogInformation(
+                "Auto-upgraded quality for {Hash}: {From} -> {To} (score {Score})",
+                entry.UniqueHash,
+                previousPath,
+                candidate.FilePath,
+                candidateScore);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to auto-upgrade duplicate {Hash}", candidate.UniqueHash);
+            return false;
+        }
+    }
+
+    private static string AppendRemovalCandidateComment(string? existing, string pathToRemove)
+    {
+        var marker = $"AUTO_REMOVE_CANDIDATE:{pathToRemove}";
+        if (!string.IsNullOrWhiteSpace(existing) && existing.Contains(marker, StringComparison.OrdinalIgnoreCase))
+        {
+            return existing;
+        }
+
+        return string.IsNullOrWhiteSpace(existing)
+            ? marker
+            : $"{existing} | {marker}";
     }
 }
 

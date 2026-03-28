@@ -14,6 +14,7 @@ using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using Avalonia.Threading;
 using SLSKDONET.Events;
+using SLSKDONET.Configuration;
 
 namespace SLSKDONET.ViewModels;
 
@@ -43,6 +44,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     private readonly DownloadManager _downloadManager;
     private readonly Services.Library.ColumnConfigurationService _columnConfigService;
     private readonly Configuration.AppConfig _appConfig;
+    private readonly ConfigManager _configManager;
     private readonly Services.Library.PlaylistExportService _exportService;
     
     public Library.ProjectListViewModel Projects { get; }
@@ -116,8 +118,8 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         set { _isActiveDownloadsVisible = value; OnPropertyChanged(); }
     }
 
-    // 2026 workstation default: start in slim-rail mode (icons-first) to maximize grid space
-    private bool _isNavigationCollapsed = true;
+    // Default expanded until user manually chooses a collapsed state.
+    private bool _isNavigationCollapsed;
     private int _manualNavigationCollapseCount;
 
     public bool IsNavigationHoverAutoHideEnabled => _appConfig.LibraryNavigationAutoHideEnabled;
@@ -207,6 +209,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         DownloadManager downloadManager,
         Services.Library.ColumnConfigurationService columnConfigService,
         Configuration.AppConfig appConfig,
+        ConfigManager configManager,
         Services.Library.PlaylistExportService exportService)
     {
         _logger = logger;
@@ -225,8 +228,11 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         _downloadManager = downloadManager;
         _columnConfigService = columnConfigService;
         _appConfig = appConfig;
+        _configManager = configManager;
         _exportService = exportService;
         LibrarySourcesViewModel = librarySourcesViewModel;
+
+        _isNavigationCollapsed = _appConfig.LibraryNavigationCollapsed;
 
         Projects = projects;
         Tracks = tracks;

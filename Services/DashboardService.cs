@@ -191,6 +191,28 @@ public class DashboardService
         }
     }
 
+    public async Task<List<PlaylistTrack>> GetRecentDownloadedTracksAsync(int count = 8)
+    {
+        try
+        {
+            using var context = new AppDbContext();
+
+            var entities = await context.PlaylistTracks
+                .AsNoTracking()
+                .Where(t => t.Status == TrackStatus.Downloaded && t.CompletedAt != null)
+                .OrderByDescending(t => t.CompletedAt)
+                .Take(count)
+                .ToListAsync();
+
+            return entities.Select(MapToModel).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to fetch recent downloaded tracks");
+            return new List<PlaylistTrack>();
+        }
+    }
+
     private PlaylistJob MapToModel(PlaylistJobEntity entity)
     {
         return new PlaylistJob
@@ -206,6 +228,85 @@ public class DashboardService
             AlbumArtUrl = entity.AlbumArtUrl,
             SourceUrl = entity.SourceUrl,
             PlaylistTracks = new List<PlaylistTrack>() // Empty list for dashboard display
+        };
+    }
+
+    private static PlaylistTrack MapToModel(PlaylistTrackEntity entity)
+    {
+        return new PlaylistTrack
+        {
+            Id = entity.Id,
+            PlaylistId = entity.PlaylistId,
+            Artist = entity.Artist,
+            Title = entity.Title,
+            Album = entity.Album,
+            TrackUniqueHash = entity.TrackUniqueHash,
+            Status = entity.Status,
+            ResolvedFilePath = entity.ResolvedFilePath,
+            TrackNumber = entity.TrackNumber,
+            Bitrate = entity.Bitrate,
+            Format = entity.Format,
+            AddedAt = entity.AddedAt,
+            CompletedAt = entity.CompletedAt,
+            SpotifyTrackId = entity.SpotifyTrackId,
+            ISRC = entity.ISRC,
+            MusicBrainzId = entity.MusicBrainzId,
+            SpotifyAlbumId = entity.SpotifyAlbumId,
+            SpotifyArtistId = entity.SpotifyArtistId,
+            AlbumArtUrl = entity.AlbumArtUrl,
+            ArtistImageUrl = entity.ArtistImageUrl,
+            Genres = entity.Genres,
+            Popularity = entity.Popularity,
+            CanonicalDuration = entity.CanonicalDuration,
+            ReleaseDate = entity.ReleaseDate,
+            Label = entity.Label,
+            Comments = entity.Comments,
+            MusicalKey = entity.MusicalKey,
+            BPM = entity.BPM,
+            CuePointsJson = entity.CuePointsJson,
+            AudioFingerprint = entity.AudioFingerprint,
+            BitrateScore = entity.BitrateScore,
+            AnalysisOffset = entity.AnalysisOffset,
+            Energy = entity.Energy,
+            Danceability = entity.Danceability,
+            Valence = entity.Valence,
+            SpotifyBPM = entity.SpotifyBPM,
+            SpotifyKey = entity.SpotifyKey,
+            ManualBPM = entity.ManualBPM,
+            ManualKey = entity.ManualKey,
+            SpectralHash = entity.SpectralHash,
+            QualityConfidence = entity.QualityConfidence,
+            FrequencyCutoff = entity.FrequencyCutoff,
+            IsTrustworthy = entity.IsTrustworthy,
+            Integrity = entity.Integrity,
+            QualityDetails = entity.QualityDetails,
+            Loudness = entity.Loudness,
+            TruePeak = entity.TruePeak,
+            DynamicRange = entity.DynamicRange,
+            Priority = entity.Priority,
+            SourcePlaylistId = entity.SourcePlaylistId,
+            SourcePlaylistName = entity.SourcePlaylistName,
+            IsEnriched = entity.IsEnriched,
+            IsUserPaused = entity.IsUserPaused,
+            StalledReason = entity.StalledReason,
+            IsClearedFromDownloadCenter = entity.IsClearedFromDownloadCenter,
+            IsPrepared = entity.IsPrepared,
+            MoodTag = entity.MoodTag,
+            DetectedSubGenre = entity.DetectedSubGenre,
+            SubGenreConfidence = entity.SubGenreConfidence,
+            PrimaryGenre = entity.PrimaryGenre,
+            InstrumentalProbability = entity.InstrumentalProbability,
+            PreferredFormats = entity.PreferredFormats,
+            MinBitrateOverride = entity.MinBitrateOverride,
+            DropTimestamp = entity.DropTimestamp,
+            ManualEnergy = entity.ManualEnergy,
+            SourceProvenance = entity.SourceProvenance,
+            SearchRetryCount = entity.SearchRetryCount,
+            NotFoundRestartCount = entity.NotFoundRestartCount,
+            Rating = entity.Rating,
+            IsLiked = entity.IsLiked,
+            PlayCount = entity.PlayCount,
+            LastPlayedAt = entity.LastPlayedAt
         };
     }
 }

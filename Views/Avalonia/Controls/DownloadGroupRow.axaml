@@ -90,6 +90,9 @@
 
                     <!-- 3. Actions -->
                     <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
+                        <Button Classes="icon" Command="{Binding VipStartCommand}" ToolTip.Tip="VIP Start Group">
+                            <PathIcon Data="{DynamicResource rocket_regular}" Width="14" Height="14" Foreground="#FFD700"/>
+                        </Button>
                         <Button Classes="icon" Command="{Binding PauseCommand}" ToolTip.Tip="Pause Group">
                             <PathIcon Data="{DynamicResource pause_regular}" Width="14" Height="14"/>
                         </Button>

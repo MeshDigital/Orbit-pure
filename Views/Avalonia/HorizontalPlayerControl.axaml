@@ -20,12 +20,13 @@
                     ClipToBounds="True" 
                     BoxShadow="0 4 8 0 #40000000">
                 <Panel>
-                    <Button Command="{Binding CycleVisualStyleCommand}" 
+                    <Button Command="{Binding ToggleExpandedPlayerCommand}" 
                             Padding="0" 
                             Background="Transparent" 
                             BorderThickness="0"
                             HorizontalAlignment="Stretch"
-                            VerticalAlignment="Stretch">
+                            VerticalAlignment="Stretch"
+                            ToolTip.Tip="Open expanded player">
                         <Panel>
                             <!-- Phase 1.7: Vibe Visualizer (Mini-Glow) -->
                             <controls:VibeVisualizer IsPlaying="{Binding IsPlaying}"
@@ -142,7 +143,7 @@
                 
                 <Panel Grid.Column="1" Height="32" Margin="12,0">
                     <!-- High-Res Waveform Background -->
-                    <controls:WaveformControl WaveformData="{Binding WaveformData}" 
+                    <controls:WaveformControl WaveformData="{Binding CurrentTrack.WaveformData}" 
                                              LowBand="{Binding CurrentTrack.LowData}"
                                              MidBand="{Binding CurrentTrack.MidData}"
                                              HighBand="{Binding CurrentTrack.HighData}"
@@ -211,6 +212,25 @@
                 </Button>
 
                 <Rectangle Width="1" Height="24" Fill="#3E3E3E"/>
+
+                <Button Command="{Binding CycleVisualStyleCommand}"
+                        Classes="icon-button"
+                        ToolTip.Tip="Cycle compact visual style">
+                    <TextBlock Text="◌" FontSize="16" Foreground="#B3B3B3"/>
+                </Button>
+
+                <Button Command="{Binding OpenPlayerViewCommand}"
+                        Padding="8,4"
+                        Background="#221DB954"
+                        BorderBrush="#1DB954"
+                        BorderThickness="1"
+                        ToolTip.Tip="Open full player view">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="▣" FontSize="16" Foreground="#DFFFE8"/>
+                        <TextBlock Text="PLAYER" FontSize="10" FontWeight="Bold"
+                                   VerticalAlignment="Center" Foreground="#DFFFE8"/>
+                    </StackPanel>
+                </Button>
 
                 <Button Command="{Binding ToggleTheaterModeCommand}" 
                         Classes="icon-button" 

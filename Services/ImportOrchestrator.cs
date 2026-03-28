@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -90,7 +91,8 @@ public class ImportOrchestrator
                      // - Idempotent imports (safe to retry)
                      // - "Refresh" feature (re-import updates metadata)
                      // - Storage efficiency (no duplicate playlist entries)
-                     var newJobId = Utils.GuidGenerator.CreateFromUrl(input);
+                     var normalizedInput = NormalizeImportInput(input);
+                     var newJobId = Utils.GuidGenerator.CreateFromUrl(normalizedInput);
                      _logger.LogInformation("Generated Job ID: {Id} for input: {Input}", newJobId, input);
                      
                      // Retrieve existing job if any (Deduplication)
@@ -108,7 +110,7 @@ public class ImportOrchestrator
                      // Fallback: Check by normalized URL if strict ID match failed
                      if (existingJob == null)
                      {
-                         existingJob = await _libraryService.FindPlaylistJobBySourceUrlAsync(input);
+                         existingJob = await _libraryService.FindPlaylistJobBySourceUrlAsync(normalizedInput);
                          if (existingJob != null)
                          {
                              _logger.LogInformation("Found duplicate playlist by URL match: {Title}", existingJob.SourceTitle);
@@ -119,8 +121,18 @@ public class ImportOrchestrator
                          }
                      }
                      
+                     // Spotify-specific fallback: URL/URI variants can differ while playlist ID is identical.
+                     if (existingJob == null && providerName.Equals("Spotify", StringComparison.OrdinalIgnoreCase))
+                     {
+                         existingJob = await FindExistingSpotifyJobByPlaylistIdAsync(normalizedInput);
+                         if (existingJob != null)
+                         {
+                             _logger.LogInformation("Found duplicate playlist by Spotify playlist ID: {Title} ({Id})", existingJob.SourceTitle, existingJob.Id);
+                         }
+                     }
+
                      // Initialize UI
-                     _previewViewModel.InitializeStreamingPreview(providerName, providerName, newJobId, input, existingJob);
+                     _previewViewModel.InitializeStreamingPreview(providerName, providerName, newJobId, normalizedInput, existingJob);
                      
                      // Clean/Setup Callbacks
                      SetupPreviewCallbacks();
@@ -166,12 +178,18 @@ public class ImportOrchestrator
 
             if (provider is IStreamingImportProvider streamProvider)
             {
-                var newJobId = Utils.GuidGenerator.CreateFromUrl(input);
+                var normalizedInput = NormalizeImportInput(input);
+                var newJobId = Utils.GuidGenerator.CreateFromUrl(normalizedInput);
                 var existingJob = await _libraryService.FindPlaylistJobAsync(newJobId);
 
                 // Fallback: check by URL if ID lookup fails (e.g., legacy imports)
                 if (existingJob == null)
-                    existingJob = await _libraryService.FindPlaylistJobBySourceUrlAsync(input);
+                    existingJob = await _libraryService.FindPlaylistJobBySourceUrlAsync(normalizedInput);
+
+                if (existingJob == null && provider.Name.Equals("Spotify", StringComparison.OrdinalIgnoreCase))
+                {
+                    existingJob = await FindExistingSpotifyJobByPlaylistIdAsync(normalizedInput);
+                }
 
                 string sourceTitle = provider.Name;
                 var incomingTracks = new System.Collections.Generic.List<PlaylistTrack>();
@@ -289,7 +307,7 @@ public class ImportOrchestrator
                 var job = new PlaylistJob
                 {
                     Id = newJobId,
-                    SourceUrl = input,
+                    SourceUrl = normalizedInput,
                     SourceTitle = sourceTitle,
                     SourceType = provider.Name,
                     PlaylistTracks = tracksToQueue,
@@ -310,6 +328,86 @@ public class ImportOrchestrator
             _logger.LogError(ex, "Failed to perform silent import for {Input}", input);
             _notificationService.Show("Import Error", $"Silent import failed: {ex.Message}", Views.NotificationType.Error);
         }
+    }
+
+    private static string NormalizeImportInput(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+
+        var value = input.Trim();
+        if (value.StartsWith("spotify:", StringComparison.OrdinalIgnoreCase))
+        {
+            return value.ToLowerInvariant();
+        }
+
+        if (Uri.TryCreate(value, UriKind.Absolute, out var uri))
+        {
+            var withoutQuery = uri.GetLeftPart(UriPartial.Path).TrimEnd('/');
+            return withoutQuery.ToLowerInvariant();
+        }
+
+        return value.ToLowerInvariant();
+    }
+
+    private async Task<PlaylistJob?> FindExistingSpotifyJobByPlaylistIdAsync(string input)
+    {
+        var playlistId = ExtractSpotifyPlaylistId(input);
+        if (string.IsNullOrWhiteSpace(playlistId))
+        {
+            return null;
+        }
+
+        var allJobs = await _libraryService.LoadAllPlaylistJobsAsync();
+        foreach (var job in allJobs)
+        {
+            if (!job.SourceType.Equals("Spotify", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var existingId = ExtractSpotifyPlaylistId(job.SourceUrl);
+            if (!string.IsNullOrWhiteSpace(existingId) && existingId.Equals(playlistId, StringComparison.OrdinalIgnoreCase))
+            {
+                return job;
+            }
+        }
+
+        return null;
+    }
+
+    private static string ExtractSpotifyPlaylistId(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var input = value.Trim();
+
+        if (input.StartsWith("spotify:", StringComparison.OrdinalIgnoreCase))
+        {
+            var parts = input.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length >= 3 && parts[1].Equals("playlist", StringComparison.OrdinalIgnoreCase))
+            {
+                return parts[2].Trim();
+            }
+        }
+
+        if (Uri.TryCreate(input, UriKind.Absolute, out var uri))
+        {
+            var segments = uri.AbsolutePath
+                .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            for (int i = 0; i < segments.Length - 1; i++)
+            {
+                if (segments[i].Equals("playlist", StringComparison.OrdinalIgnoreCase))
+                {
+                    return segments[i + 1].Trim();
+                }
+            }
+        }
+
+        return string.Empty;
     }
 
     private async Task StreamPreviewAsync(IStreamingImportProvider provider, string input, CancellationToken ct = default)

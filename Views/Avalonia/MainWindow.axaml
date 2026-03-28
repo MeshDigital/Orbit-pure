@@ -40,6 +40,7 @@
         <KeyBinding Gesture="Ctrl+Shift+S" Command="{Binding NavigateSettingsCommand}"/>
         <KeyBinding Gesture="Ctrl+Q" Command="{Binding QuitApplicationCommand}"/>
         <KeyBinding Gesture="Ctrl+P" Command="{Binding TogglePlayerCommand}"/>
+    <KeyBinding Gesture="Ctrl+Shift+P" Command="{Binding NavigatePlayerCommand}"/>
         <KeyBinding Gesture="Ctrl+N" Command="{Binding ToggleNavigationCommand}"/>
         <KeyBinding Gesture="Ctrl+K" Command="{Binding ToggleCommandPaletteCommand}"/>
         <KeyBinding Gesture="F10" Command="{Binding ToggleZenModeCommand}"/>
@@ -235,6 +236,19 @@
                                 ToolTip.Tip="Toggle Music Player">
                             <TextBlock Text="🎵" Foreground="{Binding IsPlayerSidebarVisible, Converter={StaticResource ActiveColorConverter}}" FontSize="14"/>
                         </Button>
+
+                        <Button Command="{Binding NavigatePlayerCommand}"
+                                Background="#221DB954"
+                                BorderBrush="#1DB954"
+                                BorderThickness="1"
+                                CornerRadius="10"
+                                Padding="10,4"
+                                ToolTip.Tip="Open Full Player View">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="▣" FontSize="12" Foreground="#DFFFE8"/>
+                                <TextBlock Text="PLAYER" FontSize="10" FontWeight="Bold" Foreground="#DFFFE8"/>
+                            </StackPanel>
+                        </Button>
                         
                         <Button Command="{Binding TogglePlayerLocationCommand}" 
                                 Background="Transparent" 
@@ -352,7 +366,14 @@
                                     </StackPanel>
                                 </Button>
 
-
+                                <Button Classes="nav" Command="{Binding NavigatePlayerCommand}"
+                                        ToolTip.Tip="Player"
+                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Player}}">
+                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
+                                        <TextBlock Text="🎛️" FontSize="16"/>
+                                        <TextBlock Text="Player" FontSize="14"/>
+                                    </StackPanel>
+                                </Button>
 
                                 <Button Classes="nav" Command="{Binding NavigateSettingsCommand}"
                                         ToolTip.Tip="Settings"
@@ -371,7 +392,7 @@
             <!-- Center Content Area with Global Contextual Sidebar -->
             <SplitView Grid.Column="1"
                        IsPaneOpen="{Binding IsGlobalSidebarOpen}"
-                       DisplayMode="{Binding #MainRoot.Bounds.Width, Converter={StaticResource WidthToDisplayModeConverter}, ConverterParameter=1100}"
+                       DisplayMode="Inline"
                        PanePlacement="Right"
                        OpenPaneLength="450">
                 
@@ -407,12 +428,34 @@
                     </Border>
                 </SplitView.Pane>
 
-                <TransitioningContentControl Content="{Binding CurrentPage}" 
-                                           Background="#1E1E1E">
-                    <TransitioningContentControl.PageTransition>
-                        <CrossFade Duration="0:0:0.25"/>
-                    </TransitioningContentControl.PageTransition>
-                </TransitioningContentControl>
+                <Grid Background="#1E1E1E">
+                    <TransitioningContentControl Content="{Binding CurrentPage}">
+                        <TransitioningContentControl.PageTransition>
+                            <CrossFade Duration="0:0:0.25"/>
+                        </TransitioningContentControl.PageTransition>
+                    </TransitioningContentControl>
+
+                    <Border Background="#1E1E1E"
+                            IsVisible="{Binding CurrentPage, Converter={x:Static ObjectConverters.IsNull}}">
+                        <StackPanel HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Spacing="10">
+                            <TextBlock Text="Page failed to load"
+                                       FontSize="18"
+                                       FontWeight="SemiBold"
+                                       Foreground="#DDFFFFFF"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Returning to Home usually restores the shell."
+                                       FontSize="12"
+                                       Foreground="#99FFFFFF"
+                                       HorizontalAlignment="Center"/>
+                            <Button Content="Go Home"
+                                    Command="{Binding NavigateHomeCommand}"
+                                    HorizontalAlignment="Center"
+                                    Padding="16,8"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
             </SplitView>
 
         </Grid>
@@ -506,15 +549,16 @@
                 </MultiBinding>
             </Border.IsVisible>
              <Grid>
-                 <!-- Bottom Layout usually needs a more horizontal PlayerControl, 
-                      but for now we'll host the same control or a variant. -->
                  <views:HorizontalPlayerControl DataContext="{Binding PlayerViewModel}"/>
              </Grid>
         </Border>
 
-
-        
-
+        <Grid Grid.RowSpan="3"
+              Background="#F20B1018"
+              IsVisible="{Binding PlayerViewModel.IsExpandedPlayerOpen}"
+              ZIndex="950">
+            <views:ExpandedPlayerView DataContext="{Binding PlayerViewModel}"/>
+        </Grid>
 
         </Grid>
 </Window>

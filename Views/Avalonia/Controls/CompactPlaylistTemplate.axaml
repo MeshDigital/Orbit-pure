@@ -8,7 +8,7 @@
              x:Class="SLSKDONET.Views.Avalonia.Controls.CompactPlaylistTemplate"
              x:DataType="models:PlaylistJob">
     
-    <Grid ColumnDefinitions="Auto, *, Auto" RowDefinitions="Auto,Auto" Margin="4">
+    <Grid ColumnDefinitions="Auto, *, Auto" RowDefinitions="Auto,Auto" Margin="4" MinHeight="66">
         <Grid.Styles>
             <Style Selector="Grid:pointerover">
                 <Setter Property="Background" Value="#11FFFFFF"/>
@@ -50,7 +50,7 @@
         </Grid.ContextMenu>
         
         <!-- Art with Source Symbol Overlay -->
-        <Panel Grid.Column="0" Grid.RowSpan="2" Width="52" Height="52" Margin="2">
+        <Panel Grid.Column="0" Grid.RowSpan="2" Width="56" Height="56" Margin="2">
             <Border CornerRadius="4" ClipToBounds="True" Background="{DynamicResource TertiaryBackgroundBrush}"
                     BoxShadow="0 2 6 0 #30000000">
                 <Image Source="{Binding DisplayArtUrl, Converter={StaticResource BitmapValueConverter}}" Stretch="UniformToFill"/>
@@ -65,25 +65,34 @@
         </Panel>
 
         <!-- Text Info -->
-        <StackPanel Grid.Column="1" Grid.Row="0" VerticalAlignment="Top" Margin="12,2,0,0">
+        <StackPanel Grid.Column="1" Grid.Row="0" VerticalAlignment="Top" Margin="12,2,0,0" Spacing="4">
             <TextBlock Text="{Binding SourceTitle, FallbackValue='(Fallback Title)', TargetNullValue='(Untitled)'}" 
                        FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"/>
+
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <Border Background="#222B3642" BorderBrush="#33465B74" BorderThickness="1" CornerRadius="6" Padding="6,1">
+                    <TextBlock Text="{Binding SourceType}" FontSize="10" Foreground="#99CDEB"/>
+                </Border>
+                <TextBlock Text="{Binding CreatedAt, StringFormat='Added {0:dd MMM}'}"
+                           FontSize="10"
+                           Foreground="#7C8594"/>
+            </StackPanel>
             
             <!-- Stats Row -->
-            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,4,0,0">
-                <TextBlock Text="{Binding TotalTracks, StringFormat='{}📁 {0}'}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" ToolTip.Tip="Total tracks"/>
-                <TextBlock Text="{Binding SuccessfulCount, StringFormat='{}✓ {0}'}" FontSize="11" Foreground="#1DB954" ToolTip.Tip="Downloaded" IsVisible="{Binding SuccessfulCount}"/>
-                <TextBlock Text="{Binding ActiveDownloadsCount, StringFormat='{}↓ {0}'}" FontSize="11" Foreground="#00A3FF" ToolTip.Tip="Downloading" IsVisible="{Binding HasActiveDownloads}"/>
-                <TextBlock Text="{Binding FailedCount, StringFormat='{}✗ {0}'}" FontSize="11" Foreground="#F44336" ToolTip.Tip="Failed" IsVisible="{Binding FailedCount}"/>
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,1,0,0">
+                <TextBlock Text="{Binding TotalTracks, StringFormat='{}Tracks: {0}'}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" ToolTip.Tip="Total tracks"/>
+                <TextBlock Text="{Binding SuccessfulCount, StringFormat='{}Done: {0}'}" FontSize="11" Foreground="#66D89B" ToolTip.Tip="Downloaded"/>
+                <TextBlock Text="{Binding MissingCount, StringFormat='{}Pending: {0}'}" FontSize="11" Foreground="#E4B75D" ToolTip.Tip="Pending"/>
+                <TextBlock Text="{Binding ActiveDownloadsCount, StringFormat='{}Live: {0}'}" FontSize="11" Foreground="#5DB6F0" ToolTip.Tip="Downloading" IsVisible="{Binding HasActiveDownloads}"/>
             </StackPanel>
         </StackPanel>
         
         <!-- Progress Bar & Downloading Info (Premium Refinement) -->
         <Panel Grid.Column="1" Grid.Row="1" Margin="12,4,8,4">
             <!-- Thinner Progress Line -->
-            <ProgressBar Height="1" VerticalAlignment="Top" Minimum="0" Maximum="100" 
+            <ProgressBar Height="2" VerticalAlignment="Top" Minimum="0" Maximum="100" 
                          Value="{Binding ProgressPercentage}" Foreground="{StaticResource AccentBrush}" Background="{StaticResource GlassThinBrush}"
-                         IsVisible="{Binding HasActiveDownloads}"/>
+                         IsVisible="True"/>
 
             <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
                 <!-- Downloading Label in subtle glass -->
@@ -99,8 +108,8 @@
                 <!-- Stats in subtle glass -->
                 <Border Background="{StaticResource GlassThinBrush}" CornerRadius="4" Padding="6,2">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="{Binding SuccessfulCount, StringFormat='{}✓ {0}'}" FontSize="9" Foreground="#1DB954" IsVisible="{Binding SuccessfulCount}"/>
-                        <TextBlock Text="{Binding FailedCount, StringFormat='{}✗ {0}'}" FontSize="9" Foreground="#F44336" IsVisible="{Binding FailedCount}"/>
+                        <TextBlock Text="{Binding SuccessfulCount, StringFormat='{}Done {0}'}" FontSize="9" Foreground="#66D89B"/>
+                        <TextBlock Text="{Binding FailedCount, StringFormat='{}Failed {0}'}" FontSize="9" Foreground="#F44336"/>
                     </StackPanel>
                 </Border>
             </StackPanel>

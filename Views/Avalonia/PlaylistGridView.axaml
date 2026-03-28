@@ -37,6 +37,27 @@
                                 BorderThickness="1"
                                 ClipToBounds="True">
 
+                            <Border.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="Rename Playlist"
+                                              Command="{Binding $parent[UserControl].DataContext.RenameProjectCommand}"
+                                              CommandParameter="{Binding Model}">
+                                        <MenuItem.Icon>
+                                            <TextBlock Text="✏️"/>
+                                        </MenuItem.Icon>
+                                    </MenuItem>
+                                    <Separator/>
+                                    <MenuItem Header="Remove Playlist From List"
+                                              Command="{Binding $parent[UserControl].DataContext.DeleteProjectCommand}"
+                                              CommandParameter="{Binding Model}"
+                                              InputGesture="Delete">
+                                        <MenuItem.Icon>
+                                            <TextBlock Text="🗑️"/>
+                                        </MenuItem.Icon>
+                                    </MenuItem>
+                                </ContextMenu>
+                            </Border.ContextMenu>
+
                             <!-- Health Ring Overlay -->
                             <Border.Styles>
                                 <Style Selector="Border:pointerover">
@@ -73,11 +94,11 @@
                                              Stroke="#2F2F34"
                                              StrokeThickness="5"
                                              Fill="#99141418"/>
-                                    <Path Data="{Binding LosslessRatio, Converter={StaticResource CircularProgressConverter}}"
-                                          Stroke="{Binding HealthRingColor}"
+                                    <Path Data="{Binding PrimaryRatio, Converter={StaticResource CircularProgressConverter}}"
+                                        Stroke="{Binding PrimaryRingColor}"
                                           StrokeThickness="5"
                                           StrokeLineCap="Round"/>
-                                    <TextBlock Text="{Binding LosslessRatio, StringFormat='{}{0:P0}'}"
+                                    <TextBlock Text="{Binding PrimaryRatioText}"
                                                FontSize="10"
                                                FontWeight="Bold"
                                                Foreground="White"
@@ -123,15 +144,20 @@
                                                FontSize="12"/>
 
                                     <!-- Health Status -->
-                                    <Border Background="{Binding HealthRingColor, Converter={StaticResource ColorToBrushConverter}}"
+                                    <Border Background="{Binding PrimaryRingColor, Converter={StaticResource ColorToBrushConverter}}"
                                             CornerRadius="12"
                                             Padding="8,4"
                                             HorizontalAlignment="Left">
-                                        <TextBlock Text="{Binding LosslessRatio, StringFormat='Lossless: {0:P0}'}"
+                                        <TextBlock Text="{Binding PrimaryBadgeText}"
                                                    Foreground="White"
                                                    FontSize="11"
                                                    FontWeight="Bold"/>
                                     </Border>
+
+                                    <TextBlock Text="{Binding SecondaryBadgeText}"
+                                               Foreground="#9CA3AF"
+                                               FontSize="11"
+                                               TextTrimming="CharacterEllipsis"/>
                                 </StackPanel>
 
                             </Grid>

@@ -847,8 +847,20 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand CheckFfmpegCommand { get; } // Phase 8: Dependency validation
     public ICommand ResetDatabaseCommand { get; }
     public ICommand ScanLibraryCommand { get; } // [NEW] Manual Scan
+    public ICommand RefreshRemovalCandidatesCommand { get; }
     public ICommand AddLibraryFolderCommand { get; }
     public ICommand RemoveLibraryFolderCommand { get; }
+
+    public ObservableCollection<RemovalCandidateItemViewModel> RemovalCandidates { get; } = new();
+
+    private string _removalCandidatesStatus = "No removal candidates yet.";
+    public string RemovalCandidatesStatus
+    {
+        get => _removalCandidatesStatus;
+        private set => SetProperty(ref _removalCandidatesStatus, value);
+    }
+
+    public bool HasRemovalCandidates => RemovalCandidates.Count > 0;
 
     // Scan State
     private bool _isScanning;
@@ -1053,6 +1065,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         RestartSpotifyAuthCommand = new AsyncRelayCommand(RestartSpotifyAuthAsync, () => IsSpotifyConnecting);
         ResetDatabaseCommand = new AsyncRelayCommand(ResetDatabaseAsync);
         ScanLibraryCommand = new AsyncRelayCommand(ScanLibraryAsync, () => !IsScanning);
+        RefreshRemovalCandidatesCommand = new AsyncRelayCommand(LoadRemovalCandidatesAsync);
         AddLibraryFolderCommand = new AsyncRelayCommand(AddLibraryFolderAsync);
         RemoveLibraryFolderCommand = new AsyncRelayCommand(RemoveLibraryFolderAsync, () => SelectedLibraryFolder != null);
         ClearSecurityAuditCommand = new RelayCommand(() => SecurityAuditFeed.Clear());
@@ -1097,6 +1110,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         
         _ = CheckFfmpegAsync(); // Phase 8: Check FFmpeg on startup
         _ = LoadLibraryFoldersAsync(); // Phase 0.10
+        _ = LoadRemovalCandidatesAsync();
 
         _libraryFoldersSubscription = _eventBus.GetEvent<LibraryFoldersChangedEvent>().Subscribe(e => { _ = LoadLibraryFoldersAsync(); });
 
@@ -1467,7 +1481,11 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             var progress = new Progress<ScanProgress>(p =>
             {
                 // Throttle updates or just show simplified status
-                ScanStatus = $"Scanning: Found {p.FilesDiscovered}, Imported {p.FilesImported}...";
+                var folderLabel = string.IsNullOrWhiteSpace(p.CurrentFolder)
+                    ? string.Empty
+                    : $" | Folder: {System.IO.Path.GetFileName(p.CurrentFolder)}";
+
+                ScanStatus = $"Scanning: Found {p.FilesDiscovered}, Imported {p.FilesImported}, Upgraded {p.FilesAutoUpgraded}, RemoveCands {p.FilesMarkedForRemoval}, DupPath {p.FilesDuplicateByPath}, DupTrack {p.FilesDuplicateByHash}{folderLabel}";
             });
             
             var results = await _libraryFolderScannerService.ScanAllFoldersAsync(progress);
@@ -1475,9 +1493,35 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             // 3. Summarize
             int totalImported = results.Values.Sum(r => r.FilesImported);
             int totalSkipped = results.Values.Sum(r => r.FilesSkipped);
+            int totalDupPath = results.Values.Sum(r => r.FilesDuplicateByPath);
+            int totalDupHash = results.Values.Sum(r => r.FilesDuplicateByHash);
+            int totalMetadataFailed = results.Values.Sum(r => r.FilesMetadataFailed);
+            int totalUpgraded = results.Values.Sum(r => r.FilesAutoUpgraded);
+            int totalRemovalCandidates = results.Values.Sum(r => r.FilesMarkedForRemoval);
+
+            var topFolders = results.Values
+                .OrderByDescending(r => r.FilesImported)
+                .ThenByDescending(r => r.TotalFilesFound)
+                .Take(2)
+                .Select(r => $"{System.IO.Path.GetFileName(r.FolderPath)}:{r.FilesImported}")
+                .ToList();
+
+            var topFoldersText = topFolders.Count > 0
+                ? $" | Top: {string.Join(", ", topFolders)}"
+                : string.Empty;
             
-            ScanStatus = $"Done. Imported {totalImported} new tracks.";
-            _logger.LogInformation("Manual scan complete. Imported: {Imported}, Skipped: {Skipped}", totalImported, totalSkipped);
+            ScanStatus = $"Done. Imported {totalImported} | Upgraded {totalUpgraded} | RemoveCands {totalRemovalCandidates} | DupPath {totalDupPath} | DupTrack {totalDupHash} | MetaFail {totalMetadataFailed} | Skipped {totalSkipped}{topFoldersText}";
+            _logger.LogInformation(
+                "Manual scan complete. Imported: {Imported}, Upgraded: {Upgraded}, RemoveCandidates: {RemoveCandidates}, Skipped: {Skipped}, DupPath: {DupPath}, DupHash: {DupHash}, MetaFailed: {MetaFailed}",
+                totalImported,
+                totalUpgraded,
+                totalRemovalCandidates,
+                totalSkipped,
+                totalDupPath,
+                totalDupHash,
+                totalMetadataFailed);
+
+            await LoadRemovalCandidatesAsync();
         }
         catch (Exception ex)
         {
@@ -1488,6 +1532,108 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         {
             IsScanning = false;
             (ScanLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    private async Task LoadRemovalCandidatesAsync()
+    {
+        try
+        {
+            using var context = new AppDbContext();
+            var logs = await context.LibraryActionLogs
+                .AsNoTracking()
+                .Where(l => l.ActionType == LibraryActionType.Consolidate)
+                .OrderByDescending(l => l.Timestamp)
+                .Take(500)
+                .ToListAsync();
+
+            var latestBySource = new Dictionary<string, LibraryActionLogEntity>(StringComparer.OrdinalIgnoreCase);
+            foreach (var log in logs)
+            {
+                if (string.IsNullOrWhiteSpace(log.SourcePath) || string.IsNullOrWhiteSpace(log.DestinationPath))
+                {
+                    continue;
+                }
+
+                if (!latestBySource.ContainsKey(log.SourcePath))
+                {
+                    latestBySource[log.SourcePath] = log;
+                }
+            }
+
+            var items = latestBySource.Values
+                .OrderByDescending(v => v.Timestamp)
+                .Take(200)
+                .Select(v => new RemovalCandidateItemViewModel(
+                    sourcePath: v.SourcePath,
+                    preferredPath: v.DestinationPath,
+                    trackLabel: BuildTrackLabel(v.TrackArtist, v.TrackTitle),
+                    timestampUtc: v.Timestamp,
+                    openPathAction: OpenPathInExplorer))
+                .ToList();
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                RemovalCandidates.Clear();
+                foreach (var item in items)
+                {
+                    RemovalCandidates.Add(item);
+                }
+
+                RemovalCandidatesStatus = items.Count == 0
+                    ? "No removal candidates yet. Run a scan to detect lower-quality duplicates."
+                    : $"{items.Count} removal candidate(s) ready for review.";
+
+                OnPropertyChanged(nameof(HasRemovalCandidates));
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load removal candidates");
+            RemovalCandidatesStatus = "Failed to load removal candidates.";
+        }
+    }
+
+    private static string BuildTrackLabel(string? artist, string? title)
+    {
+        var artistPart = string.IsNullOrWhiteSpace(artist) ? "Unknown Artist" : artist.Trim();
+        var titlePart = string.IsNullOrWhiteSpace(title) ? "Unknown Title" : title.Trim();
+        return $"{artistPart} - {titlePart}";
+    }
+
+    private void OpenPathInExplorer(string path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return;
+            }
+
+            if (System.IO.File.Exists(path))
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = $"/select,\"{path}\"",
+                    UseShellExecute = true
+                });
+                return;
+            }
+
+            if (System.IO.Directory.Exists(path))
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = $"\"{path}\"",
+                    UseShellExecute = true
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to open path in explorer: {Path}", path);
         }
     }
 
@@ -1899,5 +2045,33 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             _logger.LogError(ex, "Failed to reconnect to Soulseek");
         }
     }
+}
+
+public sealed class RemovalCandidateItemViewModel
+{
+    public RemovalCandidateItemViewModel(
+        string sourcePath,
+        string preferredPath,
+        string trackLabel,
+        DateTime timestampUtc,
+        Action<string> openPathAction)
+    {
+        SourcePath = sourcePath;
+        PreferredPath = preferredPath;
+        TrackLabel = trackLabel;
+        TimestampLabel = timestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+        OpenCandidateCommand = new RelayCommand(() => openPathAction(SourcePath));
+        OpenPreferredCommand = new RelayCommand(() => openPathAction(PreferredPath));
+    }
+
+    public string SourcePath { get; }
+    public string PreferredPath { get; }
+    public string TrackLabel { get; }
+    public string TimestampLabel { get; }
+    public string SourceFileName => System.IO.Path.GetFileName(SourcePath);
+    public string PreferredFileName => System.IO.Path.GetFileName(PreferredPath);
+
+    public ICommand OpenCandidateCommand { get; }
+    public ICommand OpenPreferredCommand { get; }
 }
 

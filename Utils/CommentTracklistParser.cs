@@ -12,11 +12,17 @@ namespace SLSKDONET.Utils;
 /// </summary>
 public static class CommentTracklistParser
 {
-    // Matches timestamps like: 0:00, 00:00, 1:00:00, (00:00), [00:00] at start or end
+    // Matches timestamps like: 0:00, 00:00, 1:00:00, (00:00), [00:00]
     private static readonly Regex TimestampRegex = new(@"\s*[\[\(]?\d{1,2}:\d{2}(:\d{2})?[\]\)]?\s*", RegexOptions.Compiled);
+    private static readonly Regex TimestampOnlyRegex = new(@"^[\[\(]?\d{1,2}:\d{2}(:\d{2})?[\]\)]?$", RegexOptions.Compiled);
     
     // Matches artist/title separator (supports: -, –, —, |, :, •)
     private static readonly Regex SeparatorRegex = new(@"\s*([-–—|:•]|(?<=\S)\s{2,}(?=\S))\s*", RegexOptions.Compiled);
+
+    // 1001Tracklists often appends record label in ALL CAPS at end.
+    private static readonly Regex TrailingLabelRegex = new(@"\s+[A-Z0-9][A-Z0-9 '&/().-]{1,40}$", RegexOptions.Compiled);
+    private static readonly Regex TrailingBracketLabelRegex = new(@"\s+\[[A-Z0-9][A-Z0-9 '&/().-]{1,40}\]$", RegexOptions.Compiled);
+    private static readonly Regex LeadingMixMarkerRegex = new(@"^\s*w\/?\s+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     
     // Keywords that indicate junk lines
     private static readonly string[] JunkKeywords = 
@@ -28,7 +34,15 @@ public static class CommentTracklistParser
         "🎵", 
         "🎶",
         "track list",
-        "timestamps"
+        "timestamps",
+        "artwork",
+        "artwork placeholder",
+        "pre-save",
+        "save ",
+        "tracklist actions",
+        "export to spotify",
+        "add a (live) video",
+        "like this tracklist"
     };
 
     /// <summary>
@@ -43,36 +57,57 @@ public static class CommentTracklistParser
 
         var tracks = new List<SearchQuery>();
         var lines = rawText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        var previousTrackKey = string.Empty;
+        bool previousLineWasTimestamp = false;
 
         foreach (var line in lines)
         {
-            // 1. Remove timestamps
-            var cleaned = RemoveTimestamp(line).Trim();
-            
-            // 2. Filter junk lines
-            if (IsJunkLine(cleaned) || string.IsNullOrWhiteSpace(cleaned))
+            var original = (line ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(original))
                 continue;
-            
-            // 3. Split artist/title (post-emoji-removal)
-            var (artist, title) = SplitArtistTitle(cleaned);
 
-            // 3b. Also split the pre-emoji-removal version to record originals
-            var (rawArtist, rawTitle) = SplitRaw(cleaned);
-            
-            // 4. Create SearchQuery if both artist and title are valid
-            if (!string.IsNullOrWhiteSpace(artist) && !string.IsNullOrWhiteSpace(title))
+            // In 1001Tracklists blocks, a timestamp line is often followed by "Artist - Title ...".
+            if (IsTimestampOnly(original))
             {
-                tracks.Add(new SearchQuery
-                {
-                    Artist = artist.Trim(),
-                    Title = title.Trim(),
-                    // Store raw values so the preview UI can show a "⚠️ Cleaned" badge
-                    // when emoji removal or other transforms materially changed the string.
-                    OriginalArtist = string.IsNullOrWhiteSpace(rawArtist) ? null : rawArtist.Trim(),
-                    OriginalTitle = string.IsNullOrWhiteSpace(rawTitle) ? null : rawTitle.Trim(),
-                    Album = null // No album info from comments
-                });
+                previousLineWasTimestamp = true;
+                continue;
             }
+
+            var cleaned = RemoveTimestamp(original).Trim();
+
+            if (IsJunkLine(cleaned) || string.IsNullOrWhiteSpace(cleaned))
+            {
+                previousLineWasTimestamp = false;
+                continue;
+            }
+
+            // Strong signal: explicit artist/title separator.
+            // Secondary signal: line follows a timestamp and still contains separator.
+            bool isTrackCandidate = HasArtistTitleSeparator(cleaned) || (previousLineWasTimestamp && HasArtistTitleSeparator(cleaned));
+            previousLineWasTimestamp = false;
+            if (!isTrackCandidate)
+                continue;
+
+            var (artist, title) = SplitArtistTitle(cleaned);
+            var (rawArtist, rawTitle) = SplitRaw(cleaned);
+
+            if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(title))
+                continue;
+
+            var key = $"{artist.Trim().ToLowerInvariant()}|{title.Trim().ToLowerInvariant()}";
+            if (key == previousTrackKey)
+                continue;
+
+            previousTrackKey = key;
+            tracks.Add(new SearchQuery
+            {
+                Artist = artist.Trim(),
+                Title = title.Trim(),
+                // Store raw values so the preview UI can show a "cleaned" badge when transforms changed content.
+                OriginalArtist = string.IsNullOrWhiteSpace(rawArtist) ? null : rawArtist.Trim(),
+                OriginalTitle = string.IsNullOrWhiteSpace(rawTitle) ? null : rawTitle.Trim(),
+                Album = null // No album info from pasted tracklist blocks
+            });
         }
 
         return tracks;
@@ -101,8 +136,17 @@ public static class CommentTracklistParser
         if (JunkKeywords.Any(keyword => lowerLine.Contains(keyword.ToLowerInvariant())))
             return true;
         
-        // Filter lines that are just "ID" or "ID - ID"
-        if (lowerLine.Trim() == "id" || lowerLine.Contains(" id") || lowerLine.Contains("- id"))
+        // Filter lines that are just track numbers or tiny counters.
+        if (Regex.IsMatch(lowerLine.Trim(), @"^\d{1,3}$"))
+            return true;
+
+        // Filter common UI tokens from copied webpages.
+        if (lowerLine.Trim() == "w/" || lowerLine.Trim() == "w")
+            return true;
+
+        // Keep "ID - ID" track placeholders (they are valid unknown entries),
+        // but filter standalone "id" tags.
+        if (lowerLine.Trim() == "id")
             return true;
         
         // Filter lines that are too short (likely not a track)
@@ -118,7 +162,8 @@ public static class CommentTracklistParser
     /// </summary>
     private static (string Artist, string Title) SplitRaw(string line)
     {
-        var parts = SeparatorRegex.Split(line, 2);
+        var normalized = StripLeadingMixMarker(line);
+        var parts = SeparatorRegex.Split(normalized, 2);
         if (parts.Length == 2)
             return (parts[0].Trim(), parts[1].Trim());
         if (parts.Length == 1)
@@ -132,20 +177,24 @@ public static class CommentTracklistParser
     /// </summary>
     private static (string Artist, string Title) SplitArtistTitle(string line)
     {
+        var normalized = StripLeadingMixMarker(line);
+
         // Remove emojis and special icons (❎, ❌, ‼, ❗, etc.)
-        var cleaned = RemoveEmojis(line);
+        var cleaned = RemoveEmojis(normalized);
         
         // Split on first separator only (to handle titles with hyphens)
         var parts = SeparatorRegex.Split(cleaned, 2);
         
         if (parts.Length == 2)
         {
-            return (parts[0].Trim(), parts[1].Trim());
+            var artist = parts[0].Trim();
+            var title = StripTrailingLabel(parts[1].Trim());
+            return (artist, title);
         }
         else if (parts.Length == 1)
         {
             // No separator found - assume it's just a title
-            return ("Unknown Artist", parts[0].Trim());
+            return ("Unknown Artist", StripTrailingLabel(parts[0].Trim()));
         }
         
         return (string.Empty, string.Empty);
@@ -171,5 +220,60 @@ public static class CommentTracklistParser
         }
 
         return cleaned.Trim();
+    }
+
+    private static bool IsTimestampOnly(string line)
+    {
+        return TimestampOnlyRegex.IsMatch(line.Trim());
+    }
+
+    private static bool HasArtistTitleSeparator(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return false;
+        return line.Contains(" - ", StringComparison.Ordinal) ||
+               line.Contains(" – ", StringComparison.Ordinal) ||
+               line.Contains(" — ", StringComparison.Ordinal) ||
+               line.Contains("|", StringComparison.Ordinal);
+    }
+
+    private static string StripTrailingLabel(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return title;
+
+        var trimmed = title.Trim();
+
+        // Remove bracketed labels like [BLACKOUT MUSIC], [VERTIGO (UMG)].
+        var bracketMatch = TrailingBracketLabelRegex.Match(trimmed);
+        if (bracketMatch.Success)
+        {
+            trimmed = trimmed[..^bracketMatch.Value.Length].Trim();
+        }
+
+        // Don't over-clean very short titles.
+        if (trimmed.Length < 8)
+            return trimmed;
+
+        var match = TrailingLabelRegex.Match(trimmed);
+        if (!match.Success)
+            return trimmed;
+
+        // Keep title suffixes that are only a short parenthetical, e.g. "(VIP)", "(Remix)".
+        // But remove tails like "VERTIGO (UMG)" where an uppercase label name is present.
+        var suffix = match.Value.Trim();
+        if (suffix.StartsWith("(", StringComparison.Ordinal) &&
+            suffix.EndsWith(")", StringComparison.Ordinal) &&
+            suffix.Length <= 16)
+            return trimmed;
+
+        return trimmed[..^match.Value.Length].Trim();
+    }
+
+    private static string StripLeadingMixMarker(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return value;
+
+        return LeadingMixMarkerRegex.Replace(value.Trim(), string.Empty);
     }
 }

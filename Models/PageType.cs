@@ -6,6 +6,7 @@ public enum PageType
     Search,
     Library,
     Projects,
+    Player,
     Settings,
     Import,
     TheaterMode,

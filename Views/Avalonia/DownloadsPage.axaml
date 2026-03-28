@@ -503,6 +503,7 @@
                         </StackPanel>
                         
                         <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2">
+                                <Button Command="{Binding VipStartCommand}" Background="Transparent" Padding="6" ToolTip.Tip="VIP Start Group"><PathIcon Data="{StaticResource rocket_regular}" Width="12" Height="12" Foreground="#FFD700"/></Button>
                              <Button Command="{Binding ResumeCommand}" Background="Transparent" Padding="6" ToolTip.Tip="Resume Group"><PathIcon Data="{StaticResource play_regular}" Width="12" Height="12" Foreground="#4CAF50"/></Button>
                              <Button Command="{Binding PauseCommand}" Background="Transparent" Padding="6" ToolTip.Tip="Pause Group"><PathIcon Data="{StaticResource pause_regular}" Width="12" Height="12"/></Button>
                              <Button Command="{Binding CancelCommand}" Background="Transparent" Padding="6" ToolTip.Tip="Cancel Group"><PathIcon Data="{StaticResource dismiss_regular}" Width="12" Height="12" Foreground="#FF5252"/></Button>

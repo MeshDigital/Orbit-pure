@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using System.Reactive.Disposables;
 using Microsoft.Extensions.DependencyInjection; // Added for GetRequiredService
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Configuration;
@@ -22,8 +23,10 @@ namespace SLSKDONET.Views;
 /// </summary>
 public class MainViewModel : INotifyPropertyChanged, IDisposable
 {
-    private readonly System.Reactive.Disposables.CompositeDisposable _disposables = new();
+    private readonly CompositeDisposable _disposables = new();
     private bool _isDisposed;
+    private DateTime _lastPlayerNavigationUtc = DateTime.MinValue;
+    private bool _isPlayerNavigationInFlight;
 
     private readonly ILogger<MainViewModel> _logger;
     private readonly AppConfig _config;
@@ -143,11 +146,24 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 _rightPanelService.OpenPanel(evt.ViewModel, evt.Title, evt.Icon);
             }));
 
+        _disposables.Add(_rightPanelService
+            .WhenAnyValue(service => service.IsPanelOpen)
+            .Subscribe(isOpen =>
+            {
+                OnPropertyChanged(nameof(IsGlobalSidebarOpen));
+
+                if (!isOpen && IsPlayerSidebarVisible)
+                {
+                    IsPlayerSidebarVisible = false;
+                }
+            }));
+
         // Initialize commands
         NavigateHomeCommand = new RelayCommand(NavigateToHome); // Phase 6D
         NavigateSearchCommand = new RelayCommand(NavigateToSearch);
         NavigateLibraryCommand = new RelayCommand(NavigateToLibrary);
         NavigateProjectsCommand = new RelayCommand(NavigateToProjects);
+        NavigatePlayerCommand = new RelayCommand(NavigateToPlayer);
         NavigateSettingsCommand = new RelayCommand(NavigateToSettings);
         NavigateImportCommand = new RelayCommand(NavigateToImport); // Phase 6D
         NavigateAnalysisCommand = new RelayCommand(NavigateToAnalysis);
@@ -171,8 +187,34 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 IsNavigationCollapsed = false;
             }
         });
-        TogglePlayerCommand = new RelayCommand(() => IsPlayerSidebarVisible = !IsPlayerSidebarVisible);
-        TogglePlayerLocationCommand = new RelayCommand(() => IsPlayerAtBottom = !IsPlayerAtBottom);
+        TogglePlayerCommand = new RelayCommand(() =>
+        {
+            if (IsPlayerSidebarVisible && IsGlobalSidebarOpen && ReferenceEquals(Sidebar.CurrentContent, PlayerViewModel))
+            {
+                IsPlayerSidebarVisible = false;
+                IsGlobalSidebarOpen = false;
+                return;
+            }
+
+            IsPlayerSidebarVisible = true;
+            IsGlobalSidebarOpen = true;
+            _rightPanelService.OpenPanel(PlayerViewModel, "NOW PLAYING", "🎵");
+        });
+        TogglePlayerLocationCommand = new RelayCommand(() =>
+        {
+            IsPlayerAtBottom = !IsPlayerAtBottom;
+
+            if (IsPlayerAtBottom)
+            {
+                IsPlayerSidebarVisible = false;
+                IsGlobalSidebarOpen = false;
+            }
+            else if (IsPlayerSidebarVisible)
+            {
+                IsGlobalSidebarOpen = true;
+                _rightPanelService.OpenPanel(PlayerViewModel, "NOW PLAYING", "🎵");
+            }
+        });
         ZoomInCommand = new RelayCommand(ZoomIn);
         ZoomOutCommand = new RelayCommand(ZoomOut);
         ResetZoomCommand = new RelayCommand(ResetZoom);
@@ -272,6 +314,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("Search", typeof(Avalonia.SearchPage));
         _navigationService.RegisterPage("Library", typeof(Avalonia.LibraryPage));
         _navigationService.RegisterPage("Projects", typeof(Avalonia.DownloadsPage));
+        _navigationService.RegisterPage("Player", typeof(Avalonia.NowPlayingPage));
         _navigationService.RegisterPage("Settings", typeof(Avalonia.SettingsPage));
         _navigationService.RegisterPage("Import", typeof(Avalonia.ImportPage));
         _navigationService.RegisterPage("ImportPreview", typeof(Avalonia.ImportPreviewPage));
@@ -652,6 +695,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateHomeCommand { get; } // Phase 6D
     public ICommand NavigateSearchCommand { get; }
     public ICommand NavigateLibraryCommand { get; }
+    public ICommand NavigatePlayerCommand { get; }
     public ICommand NavigateProjectsCommand { get; }
     public ICommand NavigateSettingsCommand { get; }
     public ICommand NavigateImportCommand { get; } // Phase 6D
@@ -668,7 +712,20 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ToggleZenModeCommand { get; }
     public ICommand ToggleTopBarCommand { get; }
     
-    public bool IsGlobalSidebarOpen => _rightPanelService.IsPanelOpen;
+    public bool IsGlobalSidebarOpen
+    {
+        get => _rightPanelService.IsPanelOpen;
+        set
+        {
+            if (_rightPanelService.IsPanelOpen == value)
+            {
+                return;
+            }
+
+            _rightPanelService.IsPanelOpen = value;
+            OnPropertyChanged();
+        }
+    }
 
     
     // Downloads Page Commands
@@ -765,6 +822,56 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void NavigateToProjects()
     {
         _navigationService.NavigateTo("Projects");
+    }
+
+    private void NavigateToPlayer()
+    {
+        var now = DateTime.UtcNow;
+        var elapsed = now - _lastPlayerNavigationUtc;
+
+        if (_isPlayerNavigationInFlight && elapsed < TimeSpan.FromMilliseconds(800))
+        {
+            _logger.LogDebug("Ignoring duplicate Player navigation while previous navigation is still in-flight.");
+            return;
+        }
+
+        if (CurrentPageType == PageType.Player && elapsed < TimeSpan.FromMilliseconds(500))
+        {
+            _logger.LogDebug("Ignoring duplicate Player navigation while already on Player page.");
+            return;
+        }
+
+        _isPlayerNavigationInFlight = true;
+        _lastPlayerNavigationUtc = now;
+
+        try
+        {
+            PlayerViewModel.IsExpandedPlayerOpen = false;
+            _navigationService.NavigateTo("Player");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Player navigation threw an exception; falling back to Home.");
+            _navigationService.NavigateTo("Home");
+            _isPlayerNavigationInFlight = false;
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(900).ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (CurrentPageType != PageType.Player)
+                {
+                    _logger.LogWarning("Player navigation did not settle on Player page; forcing Home fallback to keep shell responsive.");
+                    _navigationService.NavigateTo("Home");
+                }
+
+                _isPlayerNavigationInFlight = false;
+            });
+        });
     }
 
     private void NavigateToImport()

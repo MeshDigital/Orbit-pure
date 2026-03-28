@@ -178,7 +178,7 @@
                                                     <MenuItem Header="Export to Rekordbox XML" Command="{Binding $parent[UserControl].DataContext.ExportPlaylistCommand}" CommandParameter="{Binding}">
                                                         <MenuItem.Icon><TextBlock Text="📂"/></MenuItem.Icon>
                                                     </MenuItem>
-                                                    <MenuItem Header="Delete Playlist" Command="{Binding $parent[UserControl].DataContext.DeleteProjectCommand}" CommandParameter="{Binding}" InputGesture="Delete">
+                                                    <MenuItem Header="Remove Playlist From List" Command="{Binding $parent[UserControl].DataContext.DeleteProjectCommand}" CommandParameter="{Binding}" InputGesture="Delete">
                                                         <MenuItem.Icon><TextBlock Text="🗑️"/></MenuItem.Icon>
                                                     </MenuItem>
                                                     <Separator/>

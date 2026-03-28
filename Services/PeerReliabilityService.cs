@@ -142,7 +142,7 @@ public sealed class PeerReliabilityService
                 _peers[entity.Username] = stats;
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Log or handle
         }
@@ -167,7 +167,7 @@ public sealed class PeerReliabilityService
             };
             _databaseService.UpsertPeerReliability(entity);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Log or handle
         }

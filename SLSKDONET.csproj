@@ -22,11 +22,17 @@
   <ItemGroup>
     <Compile Remove="External\**" />
     <Compile Remove="Tests\**" />
+    <Compile Remove="artifacts\**" />
     <EmbeddedResource Remove="External\**" />
+    <EmbeddedResource Remove="artifacts\**" />
     <None Remove="External\**" />
+    <None Remove="artifacts\**" />
     <AdditionalFiles Remove="External\**" />
+    <AdditionalFiles Remove="artifacts\**" />
     <AvaloniaResource Remove="External\**" />
+    <AvaloniaResource Remove="artifacts\**" />
     <AvaloniaXaml Remove="External\**" />
+    <AvaloniaXaml Remove="artifacts\**" />
   </ItemGroup>
 
   <!-- Debug builds show console window for diagnostics -->
@@ -126,22 +132,30 @@
   <ItemGroup>
     <Content Include="tray_icon.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Include="app_icon.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Include="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Include="appsettings.Development.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory Condition="'$(Configuration)'=='Release'">Never</CopyToPublishDirectory>
     </Content>
     <Content Include="Tools\**\*.*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Include="Data\**\*.*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+    <Content Remove="Tools\**\*.cs" />
+    <Content Remove="Data\**\*.cs" />
   </ItemGroup>
 
 </Project>

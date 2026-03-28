@@ -55,6 +55,12 @@ public class AppConfig
     public int MaxConcurrentDownloads { get; set; } = 5; // Optimized: was 2, increased for better throughput
     public string? NameFormat { get; set; } = "{artist|filename} - {title}";
     public bool CheckForDuplicates { get; set; } = true;
+    public List<string> ImportWebShortcuts { get; set; } = new()
+    {
+        "1001Tracklists|https://www.1001tracklists.com/",
+        "Beatport|https://www.beatport.com/",
+        "SoundCloud|https://soundcloud.com/"
+    };
 
     // Soulseek Network Settings (matches Soulseek.NET library defaults)
     public string SoulseekServer { get; set; } = "server.slsknet.org"; 
@@ -120,6 +126,7 @@ public class AppConfig
     
     // Library UI - Column Order Persistence
     public string LibraryColumnOrder { get; set; } = ""; // Comma-separated column IDs (empty = use default)
+    public bool LibraryNavigationCollapsed { get; set; } = false; // Default expanded until user manually collapses
     public bool LibraryNavigationAutoHideEnabled { get; set; } = false; // Disabled by default: explicit user control only
     public int LibraryNavigationAutoHideActivationToggleCount { get; set; } = 3; // Require repeated manual collapses before hover behavior arms
 

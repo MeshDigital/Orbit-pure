@@ -70,12 +70,20 @@ public class NavigationService : INavigationService
             // Phase 1A: Check view cache first
             if (!_viewCache.TryGetValue(pageType, out var page))
             {
-                // Create new page instance via DI and cache it
-                page = _serviceProvider.GetService(pageType) as UserControl;
-                if (page != null)
+                try
                 {
-                    _viewCache[pageType] = page;
-                    _logger.LogDebug("Created and cached new view: {PageType}", pageType.Name);
+                    // Create new page instance via DI and cache it
+                    page = _serviceProvider.GetService(pageType) as UserControl;
+                    if (page != null)
+                    {
+                        _viewCache[pageType] = page;
+                        _logger.LogDebug("Created and cached new view: {PageType}", pageType.Name);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Navigation failed while creating page: {PageKey} ({PageType})", pageKey, pageType);
+                    return;
                 }
             }
             else

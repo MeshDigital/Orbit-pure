@@ -118,6 +118,24 @@
                            Foreground="#B3B3B3"
                            TextTrimming="CharacterEllipsis"
                            TextAlignment="Center"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+                    <Button Command="{Binding ToggleExpandedPlayerCommand}"
+                            Padding="10,4"
+                            Background="#2D2D2D"
+                            BorderBrush="#3E3E3E"
+                            BorderThickness="1"
+                            ToolTip.Tip="Open Expanded Player">
+                        <TextBlock Text="EXPAND" FontSize="10" FontWeight="Bold" Foreground="#DDEEE3"/>
+                    </Button>
+                    <Button Command="{Binding OpenPlayerViewCommand}"
+                            Padding="10,4"
+                            Background="#221DB954"
+                            BorderBrush="#1DB954"
+                            BorderThickness="1"
+                            ToolTip.Tip="Open Full Player View">
+                        <TextBlock Text="PLAYER" FontSize="10" FontWeight="Bold" Foreground="#DFFFE8"/>
+                    </Button>
+                </StackPanel>
             </StackPanel>
         </StackPanel>
         
@@ -131,7 +149,7 @@
             <StackPanel Spacing="8">
                 <Panel Height="60">
                     <!-- Background Waveform with Centered Playhead -->
-                    <controls:WaveformControl WaveformData="{Binding WaveformData}" 
+                    <controls:WaveformControl WaveformData="{Binding CurrentTrack.WaveformData}" 
                                                LowBand="{Binding CurrentTrack.LowData}"
                                                MidBand="{Binding CurrentTrack.MidData}"
                                                HighBand="{Binding CurrentTrack.HighData}"

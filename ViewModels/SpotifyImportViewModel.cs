@@ -1,11 +1,13 @@
 using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Microsoft.Extensions.Logging;
+using SLSKDONET.Configuration;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Services.InputParsers;
@@ -28,6 +30,9 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
     private readonly Services.ImportProviders.TracklistImportProvider _tracklistProvider;
     private readonly INavigationService _navigationService;
     private readonly IFileInteractionService _fileInteractionService;
+    private readonly IClipboardService _clipboardService;
+    private readonly ConfigManager _configManager;
+    private readonly AppConfig _appConfig;
     
     // Properties
     public ObservableCollection<SelectableTrack> Tracks { get; } = new();
@@ -69,6 +74,37 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
 
     public int TrackCount => Tracks.Count;
     public int SelectedCount => Tracks.Count(t => t.IsSelected);
+
+    public ObservableCollection<WebShortcutItemViewModel> WebShortcuts { get; } = new();
+    public ObservableCollection<WebShortcutPresetViewModel> SubgenrePresets { get; } = new();
+
+    private WebShortcutPresetViewModel? _selectedSubgenrePreset;
+    public WebShortcutPresetViewModel? SelectedSubgenrePreset
+    {
+        get => _selectedSubgenrePreset;
+        set { _selectedSubgenrePreset = value; OnPropertyChanged(); }
+    }
+
+    private string _newShortcutName = "";
+    public string NewShortcutName
+    {
+        get => _newShortcutName;
+        set { _newShortcutName = value; OnPropertyChanged(); }
+    }
+
+    private string _newShortcutUrl = "https://";
+    public string NewShortcutUrl
+    {
+        get => _newShortcutUrl;
+        set { _newShortcutUrl = value; OnPropertyChanged(); }
+    }
+
+    private string _genreSlugOrUrlInput = "melodic-house-techno";
+    public string GenreSlugOrUrlInput
+    {
+        get => _genreSlugOrUrlInput;
+        set { _genreSlugOrUrlInput = value; OnPropertyChanged(); }
+    }
 
     // User Playlists
     public ObservableCollection<SpotifyPlaylistViewModel> UserPlaylists { get; } = new();
@@ -135,6 +171,13 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
     public ICommand ImportPlaylistCommand { get; }
     public ICommand DownloadCommand { get; }
     public ICommand ImportTracklistCommand { get; }
+    public ICommand PasteTracklistFromClipboardCommand { get; }
+    public ICommand CopyTracklistToClipboardCommand { get; }
+    public ICommand ImportTracklistFromClipboardCommand { get; }
+    public ICommand OpenTracklistsWebsiteCommand { get; }
+    public ICommand AddWebShortcutCommand { get; }
+    public ICommand AddSelectedSubgenrePresetCommand { get; }
+    public ICommand AddGenreShortcutCommand { get; }
 
     private string _pastedTracklist = "";
     public string PastedTracklist
@@ -174,7 +217,10 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
         Services.ImportProviders.CsvImportProvider csvProvider,
         Services.ImportProviders.TracklistImportProvider tracklistProvider,
         INavigationService navigationService,
-        IFileInteractionService fileInteractionService)
+        IFileInteractionService fileInteractionService,
+        IClipboardService clipboardService,
+        ConfigManager configManager,
+        AppConfig appConfig)
     {
         _logger = logger;
         _downloadManager = downloadManager;
@@ -188,6 +234,9 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
         _tracklistProvider = tracklistProvider;
         _navigationService = navigationService;
         _fileInteractionService = fileInteractionService;
+        _clipboardService = clipboardService;
+        _configManager = configManager;
+        _appConfig = appConfig;
         
         // Subscribe to auth changes
         _authService.AuthenticationChanged += (s, e) => 
@@ -215,9 +264,19 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
         SyncAllPlaylistsCommand = new AsyncRelayCommand(ExecuteSyncAllPlaylistsAsync, () => IsAuthenticated && UserPlaylists.Count > 0);
         SyncFilteredPlaylistsCommand = new AsyncRelayCommand(ExecuteSyncFilteredPlaylistsAsync, () => IsAuthenticated && HasFilteredPlaylists);
         ImportTracklistCommand = new AsyncRelayCommand(ExecuteImportTracklistAsync);
+        PasteTracklistFromClipboardCommand = new AsyncRelayCommand(ExecutePasteTracklistFromClipboardAsync);
+        CopyTracklistToClipboardCommand = new AsyncRelayCommand(ExecuteCopyTracklistToClipboardAsync);
+        ImportTracklistFromClipboardCommand = new AsyncRelayCommand(ExecuteImportTracklistFromClipboardAsync);
+        OpenTracklistsWebsiteCommand = new RelayCommand(ExecuteOpenTracklistsWebsite);
+        AddWebShortcutCommand = new AsyncRelayCommand(ExecuteAddWebShortcutAsync);
+        AddSelectedSubgenrePresetCommand = new AsyncRelayCommand(ExecuteAddSelectedSubgenrePresetAsync);
+        AddGenreShortcutCommand = new AsyncRelayCommand(ExecuteAddGenreShortcutAsync);
 
         // Disable unused commands
         DownloadCommand = new RelayCommand(() => {}, () => false);
+
+        LoadWebShortcuts();
+        LoadSubgenrePresets();
     }
 
     private async Task ExecuteImportLikedSongsAsync()
@@ -329,6 +388,354 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
             _logger.LogError(ex, "Failed to import tracklist");
             StatusMessage = $"Error: {ex.Message}";
         }
+    }
+
+    private async Task ExecuteImportTracklistFromClipboardAsync()
+    {
+        try
+        {
+            var ok = await TryPasteTracklistFromClipboardAsync();
+            if (!ok) return;
+            await ExecuteImportTracklistAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to import tracklist from clipboard");
+            StatusMessage = $"Clipboard import failed: {ex.Message}";
+        }
+    }
+
+    private async Task ExecutePasteTracklistFromClipboardAsync()
+    {
+        try
+        {
+            await TryPasteTracklistFromClipboardAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to paste tracklist from clipboard");
+            StatusMessage = $"Clipboard paste failed: {ex.Message}";
+        }
+    }
+
+    private async Task ExecuteCopyTracklistToClipboardAsync()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(PastedTracklist))
+            {
+                StatusMessage = "Nothing to copy yet.";
+                return;
+            }
+
+            await _clipboardService.SetTextAsync(PastedTracklist);
+            StatusMessage = "Tracklist copied to clipboard.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to copy tracklist to clipboard");
+            StatusMessage = $"Clipboard copy failed: {ex.Message}";
+        }
+    }
+
+    private async Task<bool> TryPasteTracklistFromClipboardAsync()
+    {
+        var text = await _clipboardService.GetTextAsync();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            StatusMessage = "Clipboard is empty. Copy a tracklist first.";
+            return false;
+        }
+
+        PastedTracklist = text;
+        StatusMessage = "Pasted tracklist from clipboard.";
+        return true;
+    }
+
+    private void ExecuteOpenTracklistsWebsite()
+    {
+        const string url = "https://www.1001tracklists.com/";
+
+        try
+        {
+            OpenUrl(url);
+            StatusMessage = "Opened 1001Tracklists in your browser.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to open 1001Tracklists website");
+            StatusMessage = $"Could not open browser automatically. Open this URL manually: {url}";
+        }
+    }
+
+    private async Task ExecuteAddWebShortcutAsync()
+    {
+        var name = (NewShortcutName ?? string.Empty).Trim();
+        var url = (NewShortcutUrl ?? string.Empty).Trim();
+
+        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(url))
+        {
+            StatusMessage = "Shortcut name and URL are required.";
+            return;
+        }
+
+        if (!TryNormalizeAbsoluteUrl(url, out var normalizedUrl))
+        {
+            StatusMessage = "Shortcut URL must start with http:// or https://";
+            return;
+        }
+
+        if (WebShortcuts.Any(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+        {
+            StatusMessage = "A shortcut with that name already exists.";
+            return;
+        }
+
+        AddShortcutVm(name, normalizedUrl);
+        await PersistWebShortcutsAsync();
+
+        NewShortcutName = "";
+        NewShortcutUrl = "https://";
+        StatusMessage = $"Added shortcut '{name}'.";
+    }
+
+    private async Task ExecuteRemoveWebShortcutAsync(WebShortcutItemViewModel? shortcut)
+    {
+        if (shortcut == null) return;
+
+        WebShortcuts.Remove(shortcut);
+        await PersistWebShortcutsAsync();
+        StatusMessage = $"Removed shortcut '{shortcut.Name}'.";
+    }
+
+    private async Task ExecuteAddSelectedSubgenrePresetAsync()
+    {
+        var preset = SelectedSubgenrePreset;
+        if (preset == null)
+        {
+            StatusMessage = "Select a 1001 subgenre preset first.";
+            return;
+        }
+
+        if (WebShortcuts.Any(s => s.Name.Equals(preset.Name, StringComparison.OrdinalIgnoreCase) ||
+                                  s.Url.Equals(preset.Url, StringComparison.OrdinalIgnoreCase)))
+        {
+            StatusMessage = $"Shortcut for '{preset.Name}' already exists.";
+            return;
+        }
+
+        AddShortcutVm(preset.Name, preset.Url);
+        await PersistWebShortcutsAsync();
+        StatusMessage = $"Added preset '{preset.Name}'.";
+    }
+
+    private async Task ExecuteAddGenreShortcutAsync()
+    {
+        var input = (GenreSlugOrUrlInput ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            StatusMessage = "Enter a 1001 genre URL or slug first.";
+            return;
+        }
+
+        if (!TryNormalizeGenreInput(input, out var slug))
+        {
+            StatusMessage = "Invalid genre input. Use a slug like 'techno' or a full 1001 genre URL.";
+            return;
+        }
+
+        var url = BuildGenreUrl(slug);
+        var name = $"1001 {ToDisplayName(slug)}";
+
+        if (WebShortcuts.Any(s => s.Url.Equals(url, StringComparison.OrdinalIgnoreCase)))
+        {
+            StatusMessage = $"Shortcut for '{name}' already exists.";
+            return;
+        }
+
+        AddShortcutVm(name, url);
+        await PersistWebShortcutsAsync();
+        StatusMessage = $"Added genre shortcut '{name}'.";
+    }
+
+    private void ExecuteOpenWebShortcut(WebShortcutItemViewModel? shortcut)
+    {
+        if (shortcut == null) return;
+
+        try
+        {
+            OpenUrl(shortcut.Url);
+            StatusMessage = $"Opened '{shortcut.Name}'.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to open shortcut {ShortcutName}", shortcut.Name);
+            StatusMessage = $"Could not open '{shortcut.Name}'.";
+        }
+    }
+
+    private void LoadWebShortcuts()
+    {
+        WebShortcuts.Clear();
+
+        var shortcutSpecs = _appConfig.ImportWebShortcuts ?? new System.Collections.Generic.List<string>();
+        foreach (var spec in shortcutSpecs)
+        {
+            if (TryParseShortcutSpec(spec, out var name, out var url))
+            {
+                AddShortcutVm(name, url);
+            }
+        }
+
+        if (WebShortcuts.Count == 0)
+        {
+            AddShortcutVm("1001Tracklists", "https://www.1001tracklists.com/");
+            AddShortcutVm("Beatport", "https://www.beatport.com/");
+            AddShortcutVm("SoundCloud", "https://soundcloud.com/");
+            _ = PersistWebShortcutsAsync();
+        }
+    }
+
+    private void LoadSubgenrePresets()
+    {
+        SubgenrePresets.Clear();
+
+        AddSubgenrePreset("Mainstage", "mainstage");
+        AddSubgenrePreset("Trance", "trance");
+        AddSubgenrePreset("Melodic House/Techno", "melodic-house-techno");
+        AddSubgenrePreset("Techno", "techno");
+        AddSubgenrePreset("House", "house");
+        AddSubgenrePreset("Progressive House", "progressive-house");
+        AddSubgenrePreset("Afro House", "afro-house");
+        AddSubgenrePreset("Bass House", "bass-house");
+        AddSubgenrePreset("Tech House", "tech-house");
+        AddSubgenrePreset("Dance / Electro Pop", "dance-electro-pop");
+        AddSubgenrePreset("Hard Dance", "hard-dance");
+        AddSubgenrePreset("Trap", "trap");
+        AddSubgenrePreset("Dubstep", "dubstep");
+        AddSubgenrePreset("Drum & Bass", "drum-n-bass");
+        AddSubgenrePreset("Goa / Psy-Trance", "goa-psy-trance");
+
+        SelectedSubgenrePreset = SubgenrePresets.FirstOrDefault();
+    }
+
+    private void AddSubgenrePreset(string name, string slug)
+    {
+        SubgenrePresets.Add(new WebShortcutPresetViewModel
+        {
+            Name = $"1001 {name}",
+            Url = BuildGenreUrl(slug)
+        });
+    }
+
+    private static string BuildGenreUrl(string slug)
+    {
+        return $"https://www.1001tracklists.com/genre/{slug}/index.html";
+    }
+
+    private static bool TryNormalizeGenreInput(string input, out string slug)
+    {
+        slug = string.Empty;
+
+        var raw = input.Trim();
+
+        if (Uri.TryCreate(raw, UriKind.Absolute, out var uri))
+        {
+            if (!uri.Host.Contains("1001tracklists.com", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var segments = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+            // Expected path: genre/{slug}/index.html
+            if (segments.Length < 2 || !segments[0].Equals("genre", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            raw = segments[1];
+        }
+
+        raw = raw.Trim('/').ToLowerInvariant();
+        raw = raw.Replace(" ", "-")
+                 .Replace("/", "-")
+                 .Replace("_", "-")
+                 .Replace("&", "-n-");
+
+        while (raw.Contains("--", StringComparison.Ordinal))
+            raw = raw.Replace("--", "-", StringComparison.Ordinal);
+
+        raw = raw.Trim('-');
+
+        if (string.IsNullOrWhiteSpace(raw))
+            return false;
+
+        // Keep slug strict and predictable
+        if (!raw.All(c => char.IsLetterOrDigit(c) || c == '-'))
+            return false;
+
+        slug = raw;
+        return true;
+    }
+
+    private static string ToDisplayName(string slug)
+    {
+        var words = slug.Split('-', StringSplitOptions.RemoveEmptyEntries)
+            .Select(w => w.Equals("n", StringComparison.OrdinalIgnoreCase) ? "&" : char.ToUpperInvariant(w[0]) + w[1..]);
+        return string.Join(" ", words);
+    }
+
+    private void AddShortcutVm(string name, string url)
+    {
+        var vm = new WebShortcutItemViewModel
+        {
+            Name = name,
+            Url = url
+        };
+
+        vm.OpenCommand = new RelayCommand(() => ExecuteOpenWebShortcut(vm));
+        vm.RemoveCommand = new AsyncRelayCommand(() => ExecuteRemoveWebShortcutAsync(vm));
+
+        WebShortcuts.Add(vm);
+    }
+
+    private async Task PersistWebShortcutsAsync()
+    {
+        _appConfig.ImportWebShortcuts = WebShortcuts
+            .Select(s => $"{s.Name}|{s.Url}")
+            .ToList();
+
+        await _configManager.SaveAsync(_appConfig);
+    }
+
+    private static bool TryParseShortcutSpec(string spec, out string name, out string url)
+    {
+        name = string.Empty;
+        url = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(spec)) return false;
+
+        var parts = spec.Split('|', 2, StringSplitOptions.TrimEntries);
+        if (parts.Length != 2) return false;
+
+        if (string.IsNullOrWhiteSpace(parts[0])) return false;
+        if (!TryNormalizeAbsoluteUrl(parts[1], out var normalizedUrl)) return false;
+
+        name = parts[0];
+        url = normalizedUrl;
+        return true;
+    }
+
+    private static bool TryNormalizeAbsoluteUrl(string input, out string normalized)
+    {
+        normalized = string.Empty;
+
+        if (!Uri.TryCreate(input, UriKind.Absolute, out var uri)) return false;
+        if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) return false;
+
+        normalized = uri.ToString();
+        return true;
+    }
+
+    private static void OpenUrl(string url)
+    {
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
     }
 
     public async Task LoadPlaylistAsync()
@@ -507,6 +914,20 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
     {
         IsLoading = false;
     }
+}
+
+public class WebShortcutItemViewModel
+{
+    public string Name { get; set; } = string.Empty;
+    public string Url { get; set; } = string.Empty;
+    public ICommand OpenCommand { get; set; } = null!;
+    public ICommand RemoveCommand { get; set; } = null!;
+}
+
+public class WebShortcutPresetViewModel
+{
+    public string Name { get; set; } = string.Empty;
+    public string Url { get; set; } = string.Empty;
 }
 
 private async Task ExecuteSyncFilteredPlaylistsAsync()

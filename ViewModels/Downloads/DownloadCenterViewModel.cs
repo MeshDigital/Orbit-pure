@@ -567,10 +567,10 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             }
         });
         
-        ClearFailedCommand = ReactiveCommand.Create(() => 
+        ClearFailedCommand = ReactiveCommand.CreateFromTask(async () => 
         {
             var failedItems = _downloadsSource.Items
-                .Where(x => (x.IsFailed || x.IsStalled) && !x.IsClearedFromDownloadCenter)
+            .Where(x => (x.IsFailed || x.IsStalled || x.State == PlaylistTrackState.Cancelled) && !x.IsClearedFromDownloadCenter)
                 .ToList();
 
             // Soft-clear: flip the VM flag — DynamicData AutoRefresh + !IsClearedFromDownloadCenter
@@ -579,6 +579,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             {
                 item.IsClearedFromDownloadCenter = true;
                 item.Model.IsClearedFromDownloadCenter = true;
+                await _libraryService.UpdatePlaylistTrackAsync(item.Model);
             }
         });
 

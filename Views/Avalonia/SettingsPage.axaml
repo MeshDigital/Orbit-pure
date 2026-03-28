@@ -745,6 +745,75 @@
                             <TextBlock Text="{Binding ScanStatus}" VerticalAlignment="Center" 
                                        Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
                         </StackPanel>
+
+                        <Border Background="#1D1F22" BorderBrush="#333" BorderThickness="1" CornerRadius="6" Padding="12">
+                            <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" Spacing="2">
+                                        <TextBlock Text="Removal Candidates" FontWeight="SemiBold" Foreground="White"/>
+                                        <TextBlock Text="Review lower-quality files that were replaced by better matches during scan consolidation."
+                                                   Foreground="#AAA" FontSize="11" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1"
+                                            Command="{Binding RefreshRemovalCandidatesCommand}"
+                                            Padding="10,6"
+                                            Margin="8,0,0,0"
+                                            VerticalAlignment="Top"
+                                            Background="#2F3136"
+                                            Foreground="#D0D0D0"
+                                            Content="Refresh"/>
+                                </Grid>
+
+                                <TextBlock Text="{Binding RemovalCandidatesStatus}" Foreground="#B0B0B0" FontSize="11"/>
+
+                                <TextBlock Text="No candidates to review yet."
+                                           Foreground="#7A7A7A"
+                                           FontStyle="Italic"
+                                           FontSize="11"
+                                           IsVisible="{Binding !HasRemovalCandidates}"/>
+
+                                <ScrollViewer MaxHeight="220"
+                                              VerticalScrollBarVisibility="Auto"
+                                              IsVisible="{Binding HasRemovalCandidates}">
+                                    <ItemsControl ItemsSource="{Binding RemovalCandidates}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="#23262B" BorderBrush="#343840" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,0,0,8">
+                                                    <StackPanel Spacing="6">
+                                                        <Grid ColumnDefinitions="*,Auto">
+                                                            <TextBlock Grid.Column="0" Text="{Binding TrackLabel}" Foreground="#EAEAEA" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Grid.Column="1" Text="{Binding TimestampLabel}" Foreground="#8FA3B8" FontSize="10"/>
+                                                        </Grid>
+
+                                                        <TextBlock Text="Candidate (lower quality):" Foreground="#C3CDD8" FontSize="10"/>
+                                                        <Grid ColumnDefinitions="*,Auto">
+                                                            <TextBlock Grid.Column="0" Text="{Binding SourceFileName}" Foreground="#F2A3A3" TextTrimming="CharacterEllipsis"/>
+                                                            <Button Grid.Column="1" Content="Open"
+                                                                    Command="{Binding OpenCandidateCommand}"
+                                                                    Padding="8,3"
+                                                                    Margin="8,0,0,0"
+                                                                    Background="#3A2A2A"
+                                                                    Foreground="#F2A3A3"/>
+                                                        </Grid>
+
+                                                        <TextBlock Text="Preferred (kept):" Foreground="#C3CDD8" FontSize="10"/>
+                                                        <Grid ColumnDefinitions="*,Auto">
+                                                            <TextBlock Grid.Column="0" Text="{Binding PreferredFileName}" Foreground="#9ED6A8" TextTrimming="CharacterEllipsis"/>
+                                                            <Button Grid.Column="1" Content="Open"
+                                                                    Command="{Binding OpenPreferredCommand}"
+                                                                    Padding="8,3"
+                                                                    Margin="8,0,0,0"
+                                                                    Background="#243829"
+                                                                    Foreground="#9ED6A8"/>
+                                                        </Grid>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </StackPanel>
             </Border>
