@@ -320,6 +320,7 @@ public class UserCollectionViewModel : ReactiveObject
         return sortOption switch
         {
             "Format" => file.Extension,
+            "Bitrate" => string.Empty, // Bitrate sort uses ThenByDescending(Bitrate) as the primary key
             _ => file.DisplayName
         };
     }
