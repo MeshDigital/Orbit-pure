@@ -3,6 +3,7 @@
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              x:Class="SLSKDONET.Views.Avalonia.NowPlayingPage"
+             x:DataType="vm:PlayerViewModel"
              Background="#121212">
     
     <Design.DataContext>
@@ -17,6 +18,7 @@
             
             <!-- Back Button -->
             <Button Grid.Row="0" 
+                    Command="{Binding GoBackCommand}"
                     HorizontalAlignment="Left"
                     Background="Transparent"
                     Foreground="White"

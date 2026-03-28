@@ -8,5 +8,6 @@ public enum PageType
     Projects,
     Settings,
     Import,
-    TheaterMode
+    TheaterMode,
+    NowPlaying
 }
