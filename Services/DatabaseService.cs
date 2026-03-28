@@ -1096,6 +1096,49 @@ public class DatabaseService
             .ToListAsync();
     }
 
+    /// <summary>
+    /// Phase 3C.5: Lazy Hydration - Fetch only in-flight tracks (Pending, OnHold).
+    /// Excludes terminal states (Downloaded, Failed, Skipped) and the initial Missing state
+    /// to avoid loading thousands of history entries on startup.
+    /// </summary>
+    public async Task<List<PlaylistTrackEntity>> GetActiveTracksAsync()
+    {
+        using var context = new AppDbContext();
+        var validJobIds = context.Projects.Where(j => !j.IsDeleted).Select(j => j.Id);
+
+        return await context.PlaylistTracks
+            .AsNoTracking()
+            .Where(t => validJobIds.Contains(t.PlaylistId)
+                     && (t.Status == TrackStatus.Pending || t.Status == TrackStatus.OnHold))
+            .OrderByDescending(t => t.AddedAt)
+            .ToListAsync();
+    }
+
+    /// <summary>
+    /// Phase 3C.5: Project-scoped pending track fetch for lazy queue refilling.
+    /// Only returns Missing tracks belonging to the specified project.
+    /// </summary>
+    public async Task<List<PlaylistTrackEntity>> GetPendingTracksForProjectAsync(
+        Guid projectId, int limit, List<Guid> excludeIds)
+    {
+        using var context = new AppDbContext();
+
+        var query = context.PlaylistTracks
+            .AsNoTracking()
+            .Where(t => t.PlaylistId == projectId && t.Status == TrackStatus.Missing);
+
+        if (excludeIds.Any())
+        {
+            query = query.Where(t => !excludeIds.Contains(t.Id));
+        }
+
+        return await query
+            .OrderBy(t => t.Priority)
+            .ThenBy(t => t.AddedAt)
+            .Take(limit)
+            .ToListAsync();
+    }
+
     public async Task LogActivityAsync(PlaylistActivityLogEntity log)
     {
         using var context = new AppDbContext();
