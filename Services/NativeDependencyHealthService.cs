@@ -73,7 +73,7 @@ public class NativeDependencyHealthService
         }
     }
 
-    private async Task<DependencyStatus> CheckFfmpegAsync()
+    protected virtual async Task<DependencyStatus> CheckFfmpegAsync()
     {
         try
         {
@@ -114,7 +114,7 @@ public class NativeDependencyHealthService
         }
     }
 
-    private async Task<DependencyStatus> CheckEssentiaAsync()
+    protected virtual async Task<DependencyStatus> CheckEssentiaAsync()
     {
         // Logic from EssentiaAnalyzerService regarding path precedence
         var toolsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Tools", "Essentia", ESSENTIA_EXECUTABLE);
