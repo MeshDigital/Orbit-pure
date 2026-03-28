@@ -46,6 +46,25 @@
             <Setter Property="Foreground" Value="#666666"/>
         </Style>
 
+        <!-- ── Secondary action button ──────────────────────────────────────── -->
+        <Style Selector="Button.secondary">
+            <Setter Property="Background" Value="#252525"/>
+            <Setter Property="Foreground" Value="#1DB954"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="BorderBrush" Value="#1DB954"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style Selector="Button.secondary:pointerover">
+            <Setter Property="Background" Value="#1A2A1A"/>
+        </Style>
+        <Style Selector="Button.secondary:disabled">
+            <Setter Property="Background" Value="#1C1C1C"/>
+            <Setter Property="Foreground" Value="#444444"/>
+            <Setter Property="BorderBrush" Value="#333333"/>
+        </Style>
+
         <!-- ── Danger / remove button ───────────────────────────────────────── -->
         <Style Selector="Button.removeBtn">
             <Setter Property="Background" Value="Transparent"/>
@@ -70,6 +89,11 @@
             <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.addBtn:disabled">
+            <Setter Property="Background" Value="#1A2A1A"/>
+            <Setter Property="Foreground" Value="#1DB954"/>
+            <Setter Property="Opacity" Value="0.7"/>
         </Style>
 
     </UserControl.Styles>
@@ -114,8 +138,20 @@
 
                 <!-- Pane header -->
                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10" Spacing="8">
-                    <TextBlock Text="📚  Track Library"
-                               FontSize="14" FontWeight="SemiBold" Foreground="#C0C0C0"/>
+
+                    <!-- Title row with "Queue All Unanalyzed" bulk-action button -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0"
+                                   Text="📚  Track Library"
+                                   FontSize="14" FontWeight="SemiBold"
+                                   Foreground="#C0C0C0"
+                                   VerticalAlignment="Center"/>
+                        <Button Grid.Column="1"
+                                Classes="secondary"
+                                Content="＋ Queue All Unanalyzed"
+                                Command="{Binding QueueAllUnanalyzedCommand}"
+                                ToolTip.Tip="Add all unanalyzed visible tracks to the analysis queue"/>
+                    </Grid>
 
                     <!-- Search bar -->
                     <TextBox Text="{Binding SearchText, Mode=TwoWay}"
@@ -132,53 +168,76 @@
 
                 <!-- Track list (scrollable) -->
                 <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding FilteredLibraryTracks}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Classes="trackRow">
-                                    <Grid ColumnDefinitions="*,Auto">
+                    <Panel>
+                        <!-- Empty state: shown when search returns no results -->
+                        <Border IsVisible="{Binding IsLibraryEmpty}"
+                                Padding="24,40"
+                                HorizontalAlignment="Stretch">
+                            <StackPanel HorizontalAlignment="Center" Spacing="8">
+                                <TextBlock Text="🔍" FontSize="32"
+                                           HorizontalAlignment="Center" Opacity="0.4"/>
+                                <TextBlock Text="No tracks match your search"
+                                           FontSize="13" Foreground="#555555"
+                                           HorizontalAlignment="Center"/>
+                                <TextBlock Text="Try a different title or artist name"
+                                           FontSize="11" Foreground="#444444"
+                                           HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
 
-                                        <!-- Track metadata -->
-                                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
-                                            <TextBlock Text="{Binding Title}"
-                                                       FontSize="13" FontWeight="SemiBold"
-                                                       Foreground="White"/>
-                                            <TextBlock Text="{Binding Artist}"
-                                                       FontSize="11" Foreground="#888888"/>
-                                            <!-- BPM / Key / Analysed badges -->
-                                            <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,3,0,0">
-                                                <Border Classes="chip" Background="#1E2A1E"
-                                                        IsVisible="{Binding Bpm, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                                    <TextBlock FontSize="10" Foreground="#4CAF50">
-                                                        <Run Text="{Binding Bpm, StringFormat='{}{0:F0} BPM'}"/>
-                                                    </TextBlock>
-                                                </Border>
-                                                <Border Classes="chip" Background="#1A2233"
-                                                        IsVisible="{Binding MusicalKey, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                                    <TextBlock Text="{Binding MusicalKey}"
-                                                               FontSize="10" Foreground="#64B5F6"/>
-                                                </Border>
-                                                <Border Classes="chip" Background="#1A2A1A"
-                                                        IsVisible="{Binding HasAnalysis}">
-                                                    <TextBlock Text="✓ Analysed"
-                                                               FontSize="10" Foreground="#66BB6A"/>
-                                                </Border>
+                        <!-- Track list -->
+                        <ItemsControl ItemsSource="{Binding FilteredLibraryTracks}"
+                                      IsVisible="{Binding !IsLibraryEmpty}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Classes="trackRow">
+                                        <Grid ColumnDefinitions="*,Auto">
+
+                                            <!-- Track metadata -->
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+                                                <TextBlock Text="{Binding Title}"
+                                                           FontSize="13" FontWeight="SemiBold"
+                                                           Foreground="White"/>
+                                                <TextBlock Text="{Binding Artist}"
+                                                           FontSize="11" Foreground="#888888"/>
+                                                <!-- BPM / Key / Analysed badges -->
+                                                <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,3,0,0">
+                                                    <Border Classes="chip"
+                                                            Background="{Binding Bpm, Converter={StaticResource BpmBackgroundConverter}}"
+                                                            IsVisible="{Binding Bpm, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                                        <TextBlock FontSize="10"
+                                                                   Foreground="{Binding Bpm, Converter={StaticResource BpmForegroundConverter}}">
+                                                            <Run Text="{Binding Bpm, StringFormat='{}{0:F0} BPM'}"/>
+                                                        </TextBlock>
+                                                    </Border>
+                                                    <Border Classes="chip" Background="#1A2233"
+                                                            IsVisible="{Binding MusicalKey, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                                        <TextBlock Text="{Binding MusicalKey}"
+                                                                   FontSize="10" Foreground="#64B5F6"/>
+                                                    </Border>
+                                                    <Border Classes="chip" Background="#1A2A1A"
+                                                            IsVisible="{Binding HasAnalysis}">
+                                                        <TextBlock Text="✓ Analysed"
+                                                                   FontSize="10" Foreground="#66BB6A"/>
+                                                    </Border>
+                                                </StackPanel>
                                             </StackPanel>
-                                        </StackPanel>
 
-                                        <!-- Add to Queue button -->
-                                        <Button Grid.Column="1"
-                                                Classes="addBtn"
-                                                Content="＋"
-                                                VerticalAlignment="Center"
-                                                ToolTip.Tip="Add to analysis queue"
-                                                Command="{Binding $parent[UserControl].DataContext.AddToQueueCommand}"
-                                                CommandParameter="{Binding}"/>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                                            <!-- Add to Queue button: shows ✓ and is disabled when already queued -->
+                                            <Button Grid.Column="1"
+                                                    Classes="addBtn"
+                                                    Content="{Binding IsInQueue, Converter={StaticResource BoolToStringConverter}, ConverterParameter='✓|＋'}"
+                                                    IsEnabled="{Binding !IsInQueue}"
+                                                    VerticalAlignment="Center"
+                                                    ToolTip.Tip="{Binding IsInQueue, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Already queued|Add to analysis queue'}"
+                                                    Command="{Binding $parent[UserControl].DataContext.AddToQueueCommand}"
+                                                    CommandParameter="{Binding}"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Panel>
                 </ScrollViewer>
             </DockPanel>
 
@@ -228,86 +287,158 @@
 
                 <!-- Queue items -->
                 <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding AnalysisQueue}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Classes="trackRow">
-                                    <StackPanel Spacing="6">
+                    <Panel>
 
-                                        <!-- Track info row -->
-                                        <Grid ColumnDefinitions="*,Auto">
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding Title}"
-                                                           FontSize="13" FontWeight="SemiBold"
-                                                           Foreground="White"/>
-                                                <TextBlock Text="{Binding Artist}"
-                                                           FontSize="11" Foreground="#888888"/>
+                        <!-- Empty state: shown when nothing has been staged yet -->
+                        <Border IsVisible="{Binding IsQueueEmpty}"
+                                Padding="24,40"
+                                HorizontalAlignment="Stretch">
+                            <StackPanel HorizontalAlignment="Center" Spacing="8">
+                                <TextBlock Text="🧪" FontSize="32"
+                                           HorizontalAlignment="Center" Opacity="0.4"/>
+                                <TextBlock Text="Your analysis queue is empty"
+                                           FontSize="13" Foreground="#555555"
+                                           HorizontalAlignment="Center"/>
+                                <TextBlock Text='Click ＋ on a track or use "Queue All Unanalyzed"'
+                                           FontSize="11" Foreground="#444444"
+                                           HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+
+                        <ItemsControl ItemsSource="{Binding AnalysisQueue}"
+                                      IsVisible="{Binding !IsQueueEmpty}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Classes="trackRow">
+                                        <StackPanel Spacing="6">
+
+                                            <!-- Track info row -->
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Title}"
+                                                               FontSize="13" FontWeight="SemiBold"
+                                                               Foreground="White"/>
+                                                    <TextBlock Text="{Binding Artist}"
+                                                               FontSize="11" Foreground="#888888"/>
+                                                </StackPanel>
+
+                                                <!-- Status icon + remove button -->
+                                                <StackPanel Grid.Column="1"
+                                                            Orientation="Horizontal"
+                                                            Spacing="6"
+                                                            VerticalAlignment="Center">
+                                                    <!-- Queued -->
+                                                    <TextBlock Text="⏸"
+                                                               FontSize="14"
+                                                               VerticalAlignment="Center"
+                                                               IsVisible="{Binding AnalysisStatus,
+                                                                   Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+                                                    <!-- Completed checkmark -->
+                                                    <TextBlock Text="✓"
+                                                               FontSize="14"
+                                                               Foreground="#1DB954"
+                                                               VerticalAlignment="Center"
+                                                               IsVisible="{Binding IsCompleted}"/>
+
+                                                    <Button Classes="removeBtn"
+                                                            Content="✕"
+                                                            IsVisible="{Binding !IsProcessing}"
+                                                            Command="{Binding $parent[UserControl].DataContext.RemoveFromQueueCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip.Tip="Remove from queue"/>
+                                                </StackPanel>
+                                            </Grid>
+
+                                            <!-- Progress bar (visible while processing) -->
+                                            <StackPanel IsVisible="{Binding IsProcessing}" Spacing="3">
+                                                <ProgressBar Value="{Binding ProgressPercent}"
+                                                             Minimum="0" Maximum="100"
+                                                             Height="4"
+                                                             Foreground="#1DB954"
+                                                             Background="#2A2A2A"/>
+                                                <TextBlock Text="{Binding CurrentStep}"
+                                                           FontSize="10"
+                                                           Foreground="#888888"/>
                                             </StackPanel>
 
-                                            <!-- Status icon + remove button -->
-                                            <StackPanel Grid.Column="1"
-                                                        Orientation="Horizontal"
-                                                        Spacing="6"
-                                                        VerticalAlignment="Center">
-                                                <!-- Queued -->
-                                                <TextBlock Text="⏸"
-                                                           FontSize="14"
-                                                           VerticalAlignment="Center"
-                                                           IsVisible="{Binding AnalysisStatus,
-                                                               Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                                            <!-- ── Completed track: mood dashboard + genre chips ── -->
+                                            <StackPanel IsVisible="{Binding IsCompleted}" Spacing="6">
 
-                                                <!-- Completed checkmark -->
-                                                <TextBlock Text="✓"
-                                                           FontSize="14"
-                                                           Foreground="#1DB954"
-                                                           VerticalAlignment="Center"
-                                                           IsVisible="{Binding IsCompleted}"/>
+                                                <!-- Mood bars -->
+                                                <TextBlock Text="Mood Profile"
+                                                           FontSize="10" Foreground="#666666"
+                                                           FontWeight="SemiBold"/>
+                                                <Grid ColumnDefinitions="65,*"
+                                                      RowDefinitions="Auto,Auto,Auto">
+                                                    <TextBlock Grid.Row="0" Grid.Column="0"
+                                                               Text="😊 Happy" FontSize="10"
+                                                               Foreground="#888888" VerticalAlignment="Center"/>
+                                                    <ProgressBar Grid.Row="0" Grid.Column="1"
+                                                                 Value="{Binding AnalysisData.Moods.Happy}"
+                                                                 Minimum="0" Maximum="100" Height="5"
+                                                                 Foreground="#FFD700" Background="#2A2A2A"
+                                                                 Margin="0,2"/>
 
-                                                <Button Classes="removeBtn"
-                                                        Content="✕"
-                                                        IsVisible="{Binding !IsProcessing}"
-                                                        Command="{Binding $parent[UserControl].DataContext.RemoveFromQueueCommand}"
-                                                        CommandParameter="{Binding}"
-                                                        ToolTip.Tip="Remove from queue"/>
+                                                    <TextBlock Grid.Row="1" Grid.Column="0"
+                                                               Text="😤 Aggressive" FontSize="10"
+                                                               Foreground="#888888" VerticalAlignment="Center"/>
+                                                    <ProgressBar Grid.Row="1" Grid.Column="1"
+                                                                 Value="{Binding AnalysisData.Moods.Aggressive}"
+                                                                 Minimum="0" Maximum="100" Height="5"
+                                                                 Foreground="#FF5252" Background="#2A2A2A"
+                                                                 Margin="0,2"/>
+
+                                                    <TextBlock Grid.Row="2" Grid.Column="0"
+                                                               Text="😌 Relaxed" FontSize="10"
+                                                               Foreground="#888888" VerticalAlignment="Center"/>
+                                                    <ProgressBar Grid.Row="2" Grid.Column="1"
+                                                                 Value="{Binding AnalysisData.Moods.Relaxed}"
+                                                                 Minimum="0" Maximum="100" Height="5"
+                                                                 Foreground="#64B5F6" Background="#2A2A2A"
+                                                                 Margin="0,2"/>
+                                                </Grid>
+
+                                                <!-- Affective: Arousal / Valence -->
+                                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                                    <TextBlock FontSize="10" Foreground="#888888">
+                                                        <Run Text="Arousal "/>
+                                                        <Run Text="{Binding AnalysisData.Affective.Arousal, StringFormat='{}{0:+0.00;-0.00}'}"
+                                                             Foreground="#BB86FC"/>
+                                                    </TextBlock>
+                                                    <TextBlock FontSize="10" Foreground="#888888">
+                                                        <Run Text="Valence "/>
+                                                        <Run Text="{Binding AnalysisData.Affective.Valence, StringFormat='{}{0:+0.00;-0.00}'}"
+                                                             Foreground="#BB86FC"/>
+                                                    </TextBlock>
+                                                </StackPanel>
+
+                                                <!-- Genre chips -->
+                                                <ItemsControl ItemsSource="{Binding AnalysisData.Genres}">
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                            <WrapPanel Orientation="Horizontal"/>
+                                                        </ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border Classes="chip" Background="#1A1A2E">
+                                                                <TextBlock Text="{Binding Label}"
+                                                                           FontSize="10"
+                                                                           Foreground="#BB86FC"/>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+
                                             </StackPanel>
-                                        </Grid>
 
-                                        <!-- Progress bar (visible while processing) -->
-                                        <StackPanel IsVisible="{Binding IsProcessing}" Spacing="3">
-                                            <ProgressBar Value="{Binding ProgressPercent}"
-                                                         Minimum="0" Maximum="100"
-                                                         Height="4"
-                                                         Foreground="#1DB954"
-                                                         Background="#2A2A2A"/>
-                                            <TextBlock Text="{Binding CurrentStep}"
-                                                       FontSize="10"
-                                                       Foreground="#888888"/>
                                         </StackPanel>
-
-                                        <!-- Genre chips for completed tracks -->
-                                        <ItemsControl ItemsSource="{Binding AnalysisData.Genres}"
-                                                      IsVisible="{Binding IsCompleted}">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <WrapPanel Orientation="Horizontal"/>
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Border Classes="chip" Background="#1A1A2E">
-                                                        <TextBlock Text="{Binding Label}"
-                                                                   FontSize="10"
-                                                                   Foreground="#BB86FC"/>
-                                                    </Border>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Panel>
                 </ScrollViewer>
 
             </DockPanel>

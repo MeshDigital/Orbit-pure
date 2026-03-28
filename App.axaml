@@ -67,6 +67,10 @@
         <!-- Phase 18: Sonic Match Visual Converters -->
         <conv_root:EnergyToColorConverter x:Key="EnergyToColorConverter"/>
         <conv_root:OpacityMultiplierConverter x:Key="OpacityMultiplierConverter"/>
+
+        <!-- BPM dynamic coloring -->
+        <conv_root:BpmForegroundConverter x:Key="BpmForegroundConverter"/>
+        <conv_root:BpmBackgroundConverter x:Key="BpmBackgroundConverter"/>
         <converters:LedColorConverter x:Key="LedColorConverter"/>
         
         <!-- Alias EqualityConverter as StringEqualsConverter for semantic clarity in XAML -->
