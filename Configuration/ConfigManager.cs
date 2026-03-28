@@ -145,6 +145,11 @@ public class ConfigManager
                 WindowY = double.TryParse(config["Window:Y"], out var wy) ? wy : double.NaN,
                 WindowMaximized = bool.TryParse(config["Window:Maximized"], out var wm) && wm,
 
+                // [Dashboard]
+                DashboardRightPanelWidth = double.TryParse(config["Dashboard:RightPanelWidth"], out var rpw) ? rpw : 320,
+                DashboardIsNavigationCollapsed = bool.TryParse(config["Dashboard:IsNavigationCollapsed"], out var dnc) && dnc,
+                DashboardIsRightPanelOpen = !bool.TryParse(config["Dashboard:IsRightPanelOpen"], out var drpo) || drpo,
+
                 // [Import]
                 ImportWebShortcuts = ParseImportWebShortcuts(config["Import:WebShortcutsJson"])
             };
@@ -265,6 +270,12 @@ public class ConfigManager
         iniContent.AppendLine($"X = {config.WindowX}");
         iniContent.AppendLine($"Y = {config.WindowY}");
         iniContent.AppendLine($"Maximized = {config.WindowMaximized}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Dashboard]");
+        iniContent.AppendLine($"RightPanelWidth = {config.DashboardRightPanelWidth}");
+        iniContent.AppendLine($"IsNavigationCollapsed = {config.DashboardIsNavigationCollapsed}");
+        iniContent.AppendLine($"IsRightPanelOpen = {config.DashboardIsRightPanelOpen}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[Import]");
