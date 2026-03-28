@@ -133,8 +133,20 @@ namespace SLSKDONET.ViewModels
         public PlaylistTrackViewModel? CurrentTrack
         {
             get => _currentTrack;
-            set => SetProperty(ref _currentTrack, value);
+            set
+            {
+                if (SetProperty(ref _currentTrack, value))
+                {
+                    OnPropertyChanged(nameof(WaveformData));
+                }
+            }
         }
+
+        /// <summary>
+        /// Waveform data for the currently playing track, forwarded from <see cref="CurrentTrack"/>.
+        /// Returns <see langword="null"/> when no track is loaded.
+        /// </summary>
+        public WaveformAnalysisData? WaveformData => _currentTrack?.WaveformData;
         
         // Shuffle & Repeat
         private bool _isShuffling;
@@ -368,6 +380,7 @@ namespace SLSKDONET.ViewModels
         public ICommand SeekForwardCommand { get; }
         public ICommand SeekBackwardCommand { get; }
         public ICommand ToggleTheaterModeCommand { get; }
+        public ICommand GoBackCommand { get; } // NowPlayingPage back navigation
 
         // Entertainment Engine Commands
         public ICommand ToggleAmbientModeCommand { get; }
@@ -571,6 +584,7 @@ namespace SLSKDONET.ViewModels
             SeekForwardCommand = new RelayCommand(() => SeekRelative(10)); // Seek forward 10 seconds
             SeekBackwardCommand = new RelayCommand(() => SeekRelative(-10)); // Seek backward 10 seconds
             ToggleTheaterModeCommand = new RelayCommand(() => _eventBus.Publish(new RequestTheaterModeEvent()));
+            GoBackCommand = new RelayCommand(() => _eventBus.Publish(new NavigateToPageEvent("Library")));
 
             // Entertainment Engine Commands
             ToggleAmbientModeCommand = new RelayCommand(() =>

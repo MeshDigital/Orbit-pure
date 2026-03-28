@@ -1,6 +1,4 @@
 using Avalonia.Controls;
-using Avalonia.Input;
-using Avalonia.Interactivity;
 
 namespace SLSKDONET.Views.Avalonia
 {
@@ -9,21 +7,12 @@ namespace SLSKDONET.Views.Avalonia
         public NowPlayingPage()
         {
             InitializeComponent();
-            
-            // Wire up seek functionality
-            var slider = this.FindControl<Slider>("ProgressSlider");
-            if (slider != null)
-            {
-                slider.PointerReleased += OnProgressSliderReleased;
-            }
         }
-        
-        private void OnProgressSliderReleased(object? sender, PointerReleasedEventArgs e)
+
+        public NowPlayingPage(SLSKDONET.ViewModels.PlayerViewModel viewModel)
         {
-            if (DataContext is ViewModels.PlayerViewModel playerViewModel && sender is Slider slider)
-            {
-                playerViewModel.Seek((float)slider.Value);
-            }
+            InitializeComponent();
+            DataContext = viewModel;
         }
     }
 }

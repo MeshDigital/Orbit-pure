@@ -9,5 +9,6 @@ public enum PageType
     Settings,
     Import,
     TheaterMode,
-    Analysis
+    Analysis,
+    NowPlaying
 }
