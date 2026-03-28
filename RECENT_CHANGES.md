@@ -1,3 +1,40 @@
+## [0.1.0-alpha.56] - Player & Queue Right-Side Panel Unification (Mar 28, 2026)
+
+### Overview
+Refined shell navigation so Player and Queue actions now consistently use the global right-side panel instead of unstable full-page redirects. This prevents accidental auto-returns to Home and creates a unified contextual workflow where auxiliary screens stay in the side panel.
+
+---
+
+### 1) Player Redirect/Auto-Back Fix
+- **Removed brittle page-settle fallback loop:** Reworked `NavigateToPlayer()` in `MainViewModel` to open the right-side panel directly rather than navigating to a dedicated page and forcing Home fallback when settle checks fail.
+- **Stable panel-first behavior:** Player open actions now close expanded mode, reset queue panel mode when needed, and present the player in the contextual sidebar.
+
+### 2) Queue Now Opens in Right Sidebar
+- **Queue toggle integration:** `PlayerViewModel.ToggleQueue()` now drives `IRightPanelService` state.
+- **Panel mode switching:** Opening queue switches panel mode to `QUEUE` (`📋`), and closing it returns mode to `NOW PLAYING` (`🎵`) while keeping UI context cohesive.
+
+### 3) Unified "Extra Screen" Handling via Right Panel
+- **Event interception for Player/NowPlaying:** Generic `NavigateToPageEvent` handling now intercepts Player/NowPlaying requests and routes them through the same right-panel flow.
+- **Consistent shell state:** Added synchronization between right-panel content and shell visibility flags so button highlight/open state reflects actual panel content.
+
+### 4) Navigation Highlight Alignment
+- **Player nav selection binding:** Updated `MainWindow` Player navigation button selected-state binding to reflect sidebar visibility, aligning visual selection with the new panel-driven UX.
+
+---
+
+### Files Changed
+| File | Change Summary |
+|------|---------------|
+| `Views/MainViewModel.cs` | Player routing now opens right panel; Player/NowPlaying event interception; panel/content visibility synchronization |
+| `ViewModels/PlayerViewModel.cs` | Injected `IRightPanelService`; queue toggle opens right panel mode; player open action uses panel flow |
+| `Views/Avalonia/MainWindow.axaml` | Player nav selected binding aligned with sidebar-driven player visibility |
+
+### Validation
+- `dotnet build -nologo -v:minimal` → **Build succeeded** (warnings only).
+- `dotnet run` startup validated after changes with no player redirect fallback warnings observed in logs.
+
+---
+
 ## [0.1.0-alpha.55] - Retry State Transition & Shared-Track Queue Safety (Mar 25, 2026)
 
 ### Overview

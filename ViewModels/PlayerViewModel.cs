@@ -45,6 +45,7 @@ namespace SLSKDONET.ViewModels
         private readonly ArtworkCacheService _artworkCacheService;
         private readonly IEventBus _eventBus;
         private readonly INavigationService _navigationService;
+        private readonly IRightPanelService _rightPanelService;
         private readonly IAmbientModeService? _ambientModeService;
         private readonly IFlowModeService? _flowModeService;
         private readonly System.Threading.Timer _saveQueueTimer;
@@ -394,13 +395,14 @@ namespace SLSKDONET.ViewModels
         // Phase 5C: UI Throttling
         private DateTime _lastTimeUpdate = DateTime.MinValue;
 
-        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null)
+        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null)
         {
             _playerService = playerService;
             _databaseService = databaseService;
             _artworkCacheService = artworkCacheService;
             _eventBus = eventBus;
             _navigationService = navigationService;
+            _rightPanelService = rightPanelService;
             _ambientModeService = ambientModeService;
             _flowModeService = flowModeService;
 
@@ -591,9 +593,9 @@ namespace SLSKDONET.ViewModels
             OpenPlayerViewCommand = new RelayCommand(() =>
             {
                 IsExpandedPlayerOpen = false;
-                _navigationService.NavigateTo(PageType.NowPlaying);
+                IsQueueOpen = false;
+                _rightPanelService.OpenPanel(this, "NOW PLAYING", "🎵");
             });
-            GoBackCommand = new RelayCommand(() => _eventBus.Publish(new NavigateToPageEvent("Library")));
 
             // Entertainment Engine Commands
             ToggleAmbientModeCommand = new RelayCommand(() =>
@@ -693,6 +695,15 @@ namespace SLSKDONET.ViewModels
         private void ToggleQueue()
         {
             IsQueueOpen = !IsQueueOpen;
+
+            if (IsQueueOpen)
+            {
+                _rightPanelService.OpenPanel(this, "QUEUE", "📋");
+            }
+            else
+            {
+                _rightPanelService.OpenPanel(this, "NOW PLAYING", "🎵");
+            }
         }
 
         // Phase 9.3: Like Feature Implementation
