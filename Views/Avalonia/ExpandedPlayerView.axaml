@@ -218,29 +218,49 @@
                                    Margin="0,0,0,12" />
 
                         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden">
-                            <ItemsControl ItemsSource="{Binding Queue}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Padding="8,6" CornerRadius="6" Margin="0,2">
-                                            <Border.Background>
-                                                <SolidColorBrush Color="#20FFFFFF" />
-                                            </Border.Background>
-                                            <StackPanel Spacing="2">
-                                                <TextBlock Text="{Binding Model.TrackTitle}"
-                                                           FontSize="13"
-                                                           Foreground="White"
-                                                           TextTrimming="CharacterEllipsis"
-                                                           MaxWidth="180" />
-                                                <TextBlock Text="{Binding Model.ArtistName}"
-                                                           FontSize="11"
-                                                           Foreground="#80FFFFFF"
-                                                           TextTrimming="CharacterEllipsis"
-                                                           MaxWidth="180" />
-                                            </StackPanel>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                             <Panel>
+                                <!-- Empty queue placeholder -->
+                                <StackPanel HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Spacing="8"
+                                            Margin="0,24,0,0"
+                                            IsVisible="{Binding IsQueueEmpty}">
+                                    <TextBlock Text="☰" FontSize="32" Foreground="#40FFFFFF" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="Queue is empty."
+                                               FontSize="13"
+                                               Foreground="#60FFFFFF"
+                                               HorizontalAlignment="Center"
+                                               TextAlignment="Center" />
+                                    <TextBlock Text="Add some tracks."
+                                               FontSize="11"
+                                               Foreground="#40FFFFFF"
+                                               HorizontalAlignment="Center"
+                                               TextAlignment="Center" />
+                                </StackPanel>
+                                <ItemsControl ItemsSource="{Binding Queue}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Padding="8,6" CornerRadius="6" Margin="0,2">
+                                                <Border.Background>
+                                                    <SolidColorBrush Color="#20FFFFFF" />
+                                                </Border.Background>
+                                                <StackPanel Spacing="2">
+                                                    <TextBlock Text="{Binding Model.TrackTitle}"
+                                                               FontSize="13"
+                                                               Foreground="White"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               MaxWidth="180" />
+                                                    <TextBlock Text="{Binding Model.ArtistName}"
+                                                               FontSize="11"
+                                                               Foreground="#80FFFFFF"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               MaxWidth="180" />
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                             </Panel>
                         </ScrollViewer>
 
                     </Grid>
@@ -394,7 +414,15 @@
 
                         <!-- Volume Slider -->
                         <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                            <TextBlock Text="🔊" FontSize="16" Foreground="#80FFFFFF" VerticalAlignment="Center" />
+                            <Button Command="{Binding ToggleMuteCommand}"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Padding="0"
+                                    Width="28" Height="28"
+                                    VerticalAlignment="Center"
+                                    ToolTip.Tip="Toggle mute">
+                                <TextBlock Text="{Binding VolumeIcon}" FontSize="16" Foreground="#80FFFFFF" VerticalAlignment="Center" />
+                            </Button>
                             <Slider Minimum="0" Maximum="100"
                                     Value="{Binding Volume}"
                                     Width="80"
