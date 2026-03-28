@@ -28,6 +28,32 @@ public partial class PlayerControl : UserControl
     {
         base.OnLoaded(e);
         DragDrop.SetAllowDrop(this, true);
+
+        // Wire up double-tap on PitchSlider to reset pitch to 1.0
+        var pitchSlider = this.FindControl<Slider>("PitchSlider");
+        if (pitchSlider != null)
+        {
+            pitchSlider.AddHandler(DoubleTappedEvent, OnPitchSliderDoubleTapped);
+        }
+    }
+
+    protected override void OnUnloaded(RoutedEventArgs e)
+    {
+        base.OnUnloaded(e);
+
+        var pitchSlider = this.FindControl<Slider>("PitchSlider");
+        if (pitchSlider != null)
+        {
+            pitchSlider.RemoveHandler(DoubleTappedEvent, OnPitchSliderDoubleTapped);
+        }
+    }
+
+    private void OnPitchSliderDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (DataContext is PlayerViewModel vm)
+        {
+            vm.ResetPitchCommand.Execute(null);
+        }
     }
 
     private void OnDragOver(object? sender, DragEventArgs e)

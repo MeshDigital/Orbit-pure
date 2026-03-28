@@ -1,3 +1,24 @@
+## [0.1.0-alpha.57] - Player UX Polish Merge (#6) (Mar 28, 2026)
+
+### Overview
+Merged branch `copilot/add-interactive-volume-muting` into `master`, bringing a focused Player UX polish pass: interactive mute behavior, pitch reset convenience, loading/empty states, keyboard focus improvements, and cleaner error-dismiss interactions.
+
+---
+
+### Highlights
+- Interactive volume muting improvements.
+- Pitch reset interaction refinements.
+- Skeleton loading treatment for player content.
+- Empty queue state UX updates.
+- Keyboard focus and accessibility polish in player controls.
+- Error dismissal flow cleanup/refactor.
+
+### Merge Notes
+- Resolved one AXAML conflict in `Views/Avalonia/PlayerControl.axaml` by combining loading visibility behavior with existing player action buttons.
+- Validation: `dotnet build -nologo -v:minimal` succeeded (warnings only).
+
+---
+
 ## [0.1.0-alpha.56] - Player & Queue Right-Side Panel Unification (Mar 28, 2026)
 
 ### Overview

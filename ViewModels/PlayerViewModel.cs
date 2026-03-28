@@ -50,6 +50,7 @@ namespace SLSKDONET.ViewModels
         private readonly IFlowModeService? _flowModeService;
         private readonly System.Threading.Timer _saveQueueTimer;
         private bool _suppressSave;
+        private System.Threading.CancellationTokenSource? _errorDismissCts;
 
         
         private string _trackTitle = "No Track Playing";
@@ -103,7 +104,35 @@ namespace SLSKDONET.ViewModels
                 if (SetProperty(ref _volume, value))
                 {
                     OnVolumeChanged(value);
+                    OnPropertyChanged(nameof(VolumeIcon));
                 }
+            }
+        }
+
+        private bool _isMuted;
+        public bool IsMuted
+        {
+            get => _isMuted;
+            set
+            {
+                if (SetProperty(ref _isMuted, value))
+                {
+                    OnPropertyChanged(nameof(VolumeIcon));
+                }
+            }
+        }
+
+        private int _preMuteVolume = 100;
+
+        /// <summary>Returns the appropriate speaker icon based on mute state and volume level.</summary>
+        public string VolumeIcon
+        {
+            get
+            {
+                if (_isMuted || _volume == 0) return "🔇";
+                if (_volume < 33) return "🔈";
+                if (_volume < 66) return "🔉";
+                return "🔊";
             }
         }
 
@@ -123,6 +152,9 @@ namespace SLSKDONET.ViewModels
         
         // Queue Management
         public ObservableCollection<PlaylistTrackViewModel> Queue { get; } = new();
+
+        /// <summary>Returns true when the queue has no tracks.</summary>
+        public bool IsQueueEmpty => !Queue.Any();
         
         private int _currentQueueIndex = -1;
         public int CurrentQueueIndex
@@ -378,6 +410,8 @@ namespace SLSKDONET.ViewModels
         public ICommand TogglePlayerDockCommand { get; }
         public ICommand ToggleQueueCommand { get; }
         public ICommand ToggleLikeCommand { get; } // Phase 9.3
+        public ICommand ToggleMuteCommand { get; }
+        public ICommand ResetPitchCommand { get; }
         public ICommand SeekCommand { get; } // Phase 12.6: Waveform Seeking
         public ICommand SeekForwardCommand { get; }
         public ICommand SeekBackwardCommand { get; }
@@ -585,6 +619,8 @@ namespace SLSKDONET.ViewModels
             TogglePlayerDockCommand = new RelayCommand(TogglePlayerDock);
             ToggleQueueCommand = new RelayCommand(ToggleQueue);
             ToggleLikeCommand = new AsyncRelayCommand(ToggleLikeAsync); // Phase 9.3
+            ToggleMuteCommand = new RelayCommand(ToggleMute);
+            ResetPitchCommand = new RelayCommand(() => Pitch = 1.0);
             SeekCommand = new RelayCommand<float>(Seek);
             SeekForwardCommand = new RelayCommand(() => SeekRelative(10)); // Seek forward 10 seconds
             SeekBackwardCommand = new RelayCommand(() => SeekRelative(-10)); // Seek backward 10 seconds
@@ -661,6 +697,7 @@ namespace SLSKDONET.ViewModels
              {
                  DebounceSaveQueue();
              }
+             OnPropertyChanged(nameof(IsQueueEmpty));
         }
 
         private void DebounceSaveQueue()
@@ -679,6 +716,8 @@ namespace SLSKDONET.ViewModels
             if (_isDisposed) return;
             if (disposing)
             {
+                _errorDismissCts?.Cancel();
+                _errorDismissCts?.Dispose();
                 _disposables.Dispose();
                 Queue.CollectionChanged -= OnQueueCollectionChanged;
                 
@@ -703,6 +742,21 @@ namespace SLSKDONET.ViewModels
             else
             {
                 _rightPanelService.OpenPanel(this, "NOW PLAYING", "🎵");
+            }
+        }
+
+        private void ToggleMute()
+        {
+            if (IsMuted)
+            {
+                IsMuted = false;
+                Volume = _preMuteVolume > 0 ? _preMuteVolume : 100;
+            }
+            else
+            {
+                _preMuteVolume = _volume;
+                IsMuted = true;
+                _playerService.Volume = 0;
             }
         }
 
@@ -1074,7 +1128,11 @@ namespace SLSKDONET.ViewModels
         // Volume Change
         private void OnVolumeChanged(int value)
         {
-            _playerService.Volume = value;
+            if (IsMuted && value > 0)
+            {
+                IsMuted = false;
+            }
+            _playerService.Volume = IsMuted ? 0 : value;
         }
 
         // Seek (User Drag)
@@ -1131,19 +1189,12 @@ namespace SLSKDONET.ViewModels
                     HasPlaybackError = true;
                     PlaybackError = $"Playback failed: {ex.Message}";
 
-                    // Auto-dismiss error after 7 seconds
-                    var dismissTimer = new System.Timers.Timer(7000);
-                    dismissTimer.Elapsed += (s, args) =>
-                    {
-                        Dispatcher.UIThread.Post(() =>
-                        {
-                            HasPlaybackError = false;
-                            PlaybackError = string.Empty;
-                        });
-                        dismissTimer.Dispose();
-                    };
-                    dismissTimer.AutoReset = false;
-                    dismissTimer.Start();
+                    // Cancel any previous auto-dismiss, then schedule a new one
+                    _errorDismissCts?.Cancel();
+                    _errorDismissCts?.Dispose();
+                    var cts = new System.Threading.CancellationTokenSource();
+                    _errorDismissCts = cts;
+                    _ = DismissErrorAfterDelayAsync(cts.Token);
                 });
 
                 IsPlaying = false;
@@ -1151,6 +1202,26 @@ namespace SLSKDONET.ViewModels
         }
 
         // Phase 0: Queue Persistence Methods
+
+        /// <summary>
+        /// Auto-dismisses the playback error after 7 seconds unless cancelled.
+        /// </summary>
+        private async System.Threading.Tasks.Task DismissErrorAfterDelayAsync(System.Threading.CancellationToken cancellationToken)
+        {
+            try
+            {
+                await System.Threading.Tasks.Task.Delay(7000, cancellationToken).ConfigureAwait(false);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    HasPlaybackError = false;
+                    PlaybackError = string.Empty;
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                // Dismissed early or a new error occurred — no action needed.
+            }
+        }
 
         /// <summary>
         /// Saves the current queue to the database.
