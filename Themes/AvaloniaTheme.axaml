@@ -154,6 +154,12 @@
         <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
         <Setter Property="Foreground" Value="{StaticResource Surface0Color}"/>
     </Style>
+
+    <!-- Keyboard Focus Visual -->
+    <Style Selector="Button:focus-visible">
+        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+        <Setter Property="BorderThickness" Value="2"/>
+    </Style>
     
     <!-- TextBox Style -->
     <Style Selector="TextBox">

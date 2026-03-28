@@ -105,6 +105,10 @@
 
             <!-- Track Info -->
             <StackPanel Spacing="8">
+                <Border Classes.skeleton="{Binding IsLoading}"
+                        CornerRadius="4"
+                        Height="20"
+                        IsVisible="{Binding IsLoading}"/>
                 <TextBlock Text="{Binding TrackTitle}" 
                            FontSize="16" 
                            FontWeight="SemiBold"
@@ -112,12 +116,18 @@
                            TextTrimming="CharacterEllipsis"
                            TextWrapping="Wrap"
                            MaxLines="2"
-                           TextAlignment="Center"/>
+                           TextAlignment="Center"
+                           IsVisible="{Binding IsLoading, Converter={StaticResource BoolInverseConverter}}"/>
+                <Border Classes.skeleton="{Binding IsLoading}"
+                        CornerRadius="4"
+                        Height="16"
+                        IsVisible="{Binding IsLoading}"/>
                 <TextBlock Text="{Binding TrackArtist}" 
                            FontSize="13" 
                            Foreground="#B3B3B3"
                            TextTrimming="CharacterEllipsis"
-                           TextAlignment="Center"/>
+                           TextAlignment="Center"
+                           IsVisible="{Binding IsLoading, Converter={StaticResource BoolInverseConverter}}"/>
             </StackPanel>
         </StackPanel>
         
@@ -167,6 +177,7 @@
                         Background="Transparent"
                         BorderThickness="0"
                         Width="40" Height="40"
+                        KeyboardNavigation.IsTabStop="True"
                         ToolTip.Tip="Previous">
                     <Button.Styles>
                         <Style Selector="Button:pointerover">
@@ -183,6 +194,7 @@
                         Width="48" Height="48"
                         CornerRadius="24"
                         BorderThickness="0"
+                        KeyboardNavigation.IsTabStop="True"
                         Cursor="Hand">
                     <Button.Styles>
                         <Style Selector="Button:pointerover">
@@ -200,6 +212,7 @@
                         Background="Transparent"
                         BorderThickness="0"
                         Width="40" Height="40"
+                        KeyboardNavigation.IsTabStop="True"
                         ToolTip.Tip="Next">
                     <Button.Styles>
                         <Style Selector="Button:pointerover">
@@ -253,27 +266,37 @@
                 <!-- Pitch Slider -->
                 <Grid ColumnDefinitions="Auto,*,Auto">
                     <TextBlock Grid.Column="0" Text="-" FontSize="12" Foreground="#B3B3B3" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <Slider Grid.Column="1" 
+                    <Slider x:Name="PitchSlider"
+                            Grid.Column="1" 
                             Minimum="0.9" Maximum="1.1" 
                             Value="{Binding Pitch, Mode=TwoWay}"
                             Height="20"
-                            ToolTip.Tip="Pitch / Tempo"/>
+                            KeyboardNavigation.IsTabStop="True"
+                            ToolTip.Tip="Pitch / Tempo (double-click to reset)"/>
                     <TextBlock Grid.Column="2" Text="+" FontSize="12" Foreground="#B3B3B3" VerticalAlignment="Center" Margin="8,0,0,0"/>
                 </Grid>
 
                 <Grid ColumnDefinitions="Auto,*">
-                    <TextBlock Grid.Column="0" 
-                               Text="🔊" 
-                               FontSize="14" 
-                               Foreground="#B3B3B3"
-                               VerticalAlignment="Center"
-                               Margin="0,0,12,0"/>
+                    <Button Grid.Column="0"
+                            Command="{Binding ToggleMuteCommand}"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Padding="0"
+                            Width="24" Height="24"
+                            VerticalAlignment="Center"
+                            Margin="0,0,8,0"
+                            ToolTip.Tip="Toggle mute">
+                        <TextBlock Text="{Binding VolumeIcon}" 
+                                   FontSize="14" 
+                                   Foreground="#B3B3B3"/>
+                    </Button>
                     
                     <Slider Grid.Column="1"
                             Minimum="0"
                             Maximum="100"
                             Value="{Binding Volume, Mode=TwoWay}"
-                            Height="20">
+                            Height="20"
+                            KeyboardNavigation.IsTabStop="True">
                         <Slider.Styles>
                             <Style Selector="Slider /template/ Thumb">
                                 <Setter Property="Background" Value="White"/>
