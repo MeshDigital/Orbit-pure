@@ -116,6 +116,11 @@ public class AppConfig
     public double WindowY { get; set; } = double.NaN;
     public bool WindowMaximized { get; set; } = false;
 
+    // Dashboard layout persistence (three-column shell state)
+    public double DashboardRightPanelWidth { get; set; } = 320; // Width of the right panel in pixels
+    public bool DashboardIsNavigationCollapsed { get; set; } = false; // Whether the left navigation is collapsed
+    public bool DashboardIsRightPanelOpen { get; set; } = true; // Whether the right panel is visible
+
     // Library Management
     public List<string> LibraryRootPaths { get; set; } = new(); // Root directories to scan for music files
     public bool EnableFilePathResolution { get; set; } = true; // Enable automatic resolution of moved files
