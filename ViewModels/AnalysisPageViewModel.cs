@@ -34,6 +34,7 @@ public class AnalysisTrackItem : ReactiveObject
     private AnalysisData? _analysisData;
     private int _progressPercent;
     private string _currentStep = string.Empty;
+    private bool _isInQueue;
 
     public string TrackId { get; }
     public string Artist { get; }
@@ -69,6 +70,13 @@ public class AnalysisTrackItem : ReactiveObject
     {
         get => _currentStep;
         set => this.RaiseAndSetIfChanged(ref _currentStep, value);
+    }
+
+    /// <summary>True when this track has been added to the analysis queue.</summary>
+    public bool IsInQueue
+    {
+        get => _isInQueue;
+        set => this.RaiseAndSetIfChanged(ref _isInQueue, value);
     }
 
     public bool HasAnalysis => AnalysisData is not null;
@@ -158,6 +166,12 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public bool IsProcessing => ProcessingState == AnalysisProcessingState.Processing;
     public bool CanStartAnalysis => ProcessingState == AnalysisProcessingState.Idle && AnalysisQueue.Count > 0;
 
+    /// <summary>True when the filtered library list is empty (e.g. search returned no results).</summary>
+    public bool IsLibraryEmpty => FilteredLibraryTracks.Count == 0;
+
+    /// <summary>True when no tracks have been staged for analysis yet.</summary>
+    public bool IsQueueEmpty => AnalysisQueue.Count == 0;
+
     // ── Commands ─────────────────────────────────────────────────────────────
 
     /// <summary>Adds a track from the library to the analysis queue.</summary>
@@ -165,6 +179,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
     /// <summary>Removes a track from the analysis queue.</summary>
     public ReactiveCommand<AnalysisTrackItem, Unit> RemoveFromQueueCommand { get; }
+
+    /// <summary>Adds every unanalyzed, un-queued visible track to the analysis queue.</summary>
+    public ReactiveCommand<Unit, Unit> QueueAllUnanalyzedCommand { get; }
 
     /// <summary>Starts sequential analysis of all queued tracks.</summary>
     public ReactiveCommand<Unit, Unit> StartAnalysisCommand { get; }
@@ -181,13 +198,17 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         // ── Wire up commands ──────────────────────────────────────────────────
         AddToQueueCommand = ReactiveCommand.Create<AnalysisTrackItem>(AddToQueue);
         RemoveFromQueueCommand = ReactiveCommand.Create<AnalysisTrackItem>(RemoveFromQueue);
+        QueueAllUnanalyzedCommand = ReactiveCommand.Create(QueueAllUnanalyzed);
 
         var canStart = this.WhenAnyValue(x => x.CanStartAnalysis);
         StartAnalysisCommand = ReactiveCommand.CreateFromTask(StartAnalysisAsync, canStart);
 
-        // Keep CanStartAnalysis in sync when queue changes
+        // Keep CanStartAnalysis and IsQueueEmpty in sync when queue changes
         AnalysisQueue.CollectionChanged += (_, _) =>
+        {
             this.RaisePropertyChanged(nameof(CanStartAnalysis));
+            this.RaisePropertyChanged(nameof(IsQueueEmpty));
+        };
 
         // React to per-track progress events
         _eventBus.GetEvent<AnalysisProgressEvent>()
@@ -202,13 +223,24 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public void AddToQueue(AnalysisTrackItem track)
     {
         if (!AnalysisQueue.Any(t => t.TrackId == track.TrackId))
+        {
             AnalysisQueue.Add(track);
+            track.IsInQueue = true;
+        }
     }
 
     /// <summary>Removes a track from the analysis queue.</summary>
     public void RemoveFromQueue(AnalysisTrackItem track)
     {
         AnalysisQueue.Remove(track);
+        track.IsInQueue = false;
+    }
+
+    /// <summary>Adds all visible unanalyzed tracks that are not yet in the queue.</summary>
+    public void QueueAllUnanalyzed()
+    {
+        foreach (var track in FilteredLibraryTracks.Where(t => !t.HasAnalysis && !t.IsInQueue))
+            AddToQueue(track);
     }
 
     /// <summary>
@@ -335,6 +367,8 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
         foreach (var t in query)
             FilteredLibraryTracks.Add(t);
+
+        this.RaisePropertyChanged(nameof(IsLibraryEmpty));
     }
 
     /// <summary>
