@@ -299,6 +299,85 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         }
     }
 
+    // Format Filters
+    private bool _isFilterFlac;
+    public bool IsFilterFlac
+    {
+        get => _isFilterFlac;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _isFilterFlac, value);
+            RefreshFilteredTracks();
+        }
+    }
+
+    private bool _isFilterMp3;
+    public bool IsFilterMp3
+    {
+        get => _isFilterMp3;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _isFilterMp3, value);
+            RefreshFilteredTracks();
+        }
+    }
+
+    private bool _isFilterWav;
+    public bool IsFilterWav
+    {
+        get => _isFilterWav;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _isFilterWav, value);
+            RefreshFilteredTracks();
+        }
+    }
+
+    private bool _isFilterLossless;
+    public bool IsFilterLossless
+    {
+        get => _isFilterLossless;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _isFilterLossless, value);
+            RefreshFilteredTracks();
+        }
+    }
+
+    // Quality Tier Filter - individual booleans for each tier (consistent with status filter pattern)
+    private bool _isFilterQualityGold;
+    public bool IsFilterQualityGold
+    {
+        get => _isFilterQualityGold;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _isFilterQualityGold, value);
+            RefreshFilteredTracks();
+        }
+    }
+
+    private bool _isFilterQualityVerified;
+    public bool IsFilterQualityVerified
+    {
+        get => _isFilterQualityVerified;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _isFilterQualityVerified, value);
+            RefreshFilteredTracks();
+        }
+    }
+
+    private bool _isFilterQualityReview;
+    public bool IsFilterQualityReview
+    {
+        get => _isFilterQualityReview;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _isFilterQualityReview, value);
+            RefreshFilteredTracks();
+        }
+    }
+
     private bool _hasSelectedTracks;
     public bool HasSelectedTracks
     {
@@ -441,6 +520,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     public System.Windows.Input.ICommand BulkRetryCommand { get; }
     public System.Windows.Input.ICommand BulkCancelCommand { get; }
     public System.Windows.Input.ICommand BulkReEnrichCommand { get; }
+    public System.Windows.Input.ICommand BulkExportCsvCommand { get; }
     
     // Phase 18: Sonic Match - Find Similar Vibe
     public System.Windows.Input.ICommand FindSimilarCommand { get; }
@@ -521,6 +601,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         CopyToFolderCommand = ReactiveCommand.CreateFromTask(ExecuteCopyToFolderAsync);
         BulkCancelCommand = ReactiveCommand.CreateFromTask(ExecuteBulkCancelAsync);
         BulkReEnrichCommand = ReactiveCommand.CreateFromTask(ExecuteBulkReEnrichAsync);
+        BulkExportCsvCommand = ReactiveCommand.CreateFromTask(ExecuteBulkExportCsvAsync);
         
         // Phase 18: Find Similar - triggers sonic match search
         FindSimilarCommand = ReactiveCommand.Create<PlaylistTrackViewModel>(ExecuteFindSimilar);
@@ -919,6 +1000,30 @@ public class TrackListViewModel : ReactiveObject, IDisposable
              }
         }
 
+        // Format Filters
+        bool anyFormatFilterActive = IsFilterFlac || IsFilterMp3 || IsFilterWav || IsFilterLossless;
+        if (anyFormatFilterActive)
+        {
+            var fmt = track.Model.Format?.ToUpperInvariant() ?? string.Empty;
+            bool formatMatch = false;
+            if (IsFilterFlac && fmt == "FLAC") formatMatch = true;
+            if (IsFilterMp3 && fmt == "MP3") formatMatch = true;
+            if (IsFilterWav && fmt == "WAV") formatMatch = true;
+            if (IsFilterLossless && (fmt == "FLAC" || fmt == "WAV" || fmt == "AIFF" || fmt == "ALAC")) formatMatch = true;
+            if (!formatMatch) return false;
+        }
+
+        // Quality Tier Filter
+        bool anyQualityTierFilterActive = IsFilterQualityGold || IsFilterQualityVerified || IsFilterQualityReview;
+        if (anyQualityTierFilterActive)
+        {
+            bool qualityMatch = false;
+            if (IsFilterQualityGold && track.Model.Integrity == Data.IntegrityLevel.Gold) qualityMatch = true;
+            if (IsFilterQualityVerified && track.Model.Integrity == Data.IntegrityLevel.Verified) qualityMatch = true;
+            if (IsFilterQualityReview && track.Model.Integrity == Data.IntegrityLevel.Suspicious) qualityMatch = true;
+            if (!qualityMatch) return false;
+        }
+
         // Apply search filter
         if (string.IsNullOrWhiteSpace(SearchText)) return true;
 
@@ -1107,6 +1212,90 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         SelectedTracks.Clear();
     }
 
+    private async Task ExecuteBulkExportCsvAsync()
+    {
+        try
+        {
+            var tracksToExport = SelectedTracks.Any()
+                ? SelectedTracks.ToList()
+                : FilteredTracks.ToList();
+
+            if (!tracksToExport.Any())
+            {
+                _logger.LogWarning("No tracks available for CSV export");
+                return;
+            }
+
+            var saveTask = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                var dialog = new Avalonia.Platform.Storage.FilePickerSaveOptions
+                {
+                    Title = "Export Tracks to CSV",
+                    SuggestedFileName = $"orbit_export_{DateTime.Now:yyyyMMdd_HHmmss}.csv",
+                    FileTypeChoices = new[]
+                    {
+                        new Avalonia.Platform.Storage.FilePickerFileType("CSV Files") { Patterns = new[] { "*.csv" } }
+                    }
+                };
+
+                var mainWindow = (Avalonia.Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+                if (mainWindow == null) return null;
+
+                var result = await mainWindow.StorageProvider.SaveFilePickerAsync(dialog);
+                return result?.Path.LocalPath;
+            });
+
+            var targetPath = await saveTask;
+            if (string.IsNullOrEmpty(targetPath))
+            {
+                _logger.LogInformation("CSV export cancelled - no file selected");
+                return;
+            }
+
+            var csvLines = new System.Collections.Generic.List<string>
+            {
+                "Title,Artist,Album,Format,Bitrate,SampleRate,Duration,FileSize,BPM,Key,Quality,Integrity,SpectralAnalysis,DateAdded,LastPlayed,PlayCount,FilePath"
+            };
+
+            // RFC 4180: escape double quotes by doubling them; commas are safe inside quoted fields
+            string EscapeCsvField(string? field) =>
+                $"\"{field?.Replace("\"", "\"\"") ?? ""}\"";
+
+            foreach (var track in tracksToExport)
+            {
+                var line = string.Join(",", new[]
+                {
+                    EscapeCsvField(track.Title),
+                    EscapeCsvField(track.Artist),
+                    EscapeCsvField(track.Album),
+                    EscapeCsvField(track.FormatDisplay),
+                    EscapeCsvField(track.Bitrate),
+                    EscapeCsvField(track.SampleRateDisplay),
+                    EscapeCsvField(track.DurationDisplay),
+                    EscapeCsvField(track.FileSizeDisplay),
+                    EscapeCsvField(track.BPM.ToString("F2")),
+                    EscapeCsvField(track.MusicalKey),
+                    EscapeCsvField(track.QualityScoreDisplay),
+                    EscapeCsvField(track.IntegrityTooltip),
+                    EscapeCsvField(track.SpectralAnalysisDisplay),
+                    EscapeCsvField(track.AddedAt.ToString("yyyy-MM-dd HH:mm:ss")),
+                    EscapeCsvField(track.LastPlayedDisplay),
+                    track.PlayCount.ToString(),
+                    EscapeCsvField(track.Model.ResolvedFilePath)
+                });
+                csvLines.Add(line);
+            }
+
+            await System.IO.File.WriteAllLinesAsync(targetPath, csvLines);
+            _logger.LogInformation("CSV export completed: {Count} tracks exported to {Path}", tracksToExport.Count, targetPath);
+
+            if (SelectedTracks.Any()) SelectedTracks.Clear();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "CSV export failed");
+        }
+    }
 
     private void OnGlobalTrackUpdated(object? sender, PlaylistTrackViewModel e)
     {
