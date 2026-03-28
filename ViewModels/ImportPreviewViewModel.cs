@@ -91,6 +91,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     public ICommand SelectAllCommand { get; }
     public ICommand DeselectAllCommand { get; }
     public ICommand SelectMissingCommand { get; }
+    public ICommand SelectMergeCandidatesCommand { get; }
     public ICommand CancelCommand { get; }
 
 
@@ -115,10 +116,12 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
         SelectAllCommand = new RelayCommand(SelectAll);
         DeselectAllCommand = new RelayCommand(DeselectAll);
         SelectMissingCommand = new RelayCommand(SelectMissing);
+        SelectMergeCandidatesCommand = new AsyncRelayCommand(SelectMergeCandidatesAsync);
         CancelCommand = new RelayCommand(Cancel);
         
         MergeCommand = new AsyncRelayCommand(MergeAsync);
         CreateNewCommand = new AsyncRelayCommand(CreateNewAsync);
+        UseSelectedMergeTargetCommand = new AsyncRelayCommand(UseSelectedMergeTargetAsync);
     }
 
     /// <summary>
@@ -257,6 +260,24 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     private PlaylistJob? _existingJob;
     private Guid _targetJobId;
     private string? _sourceUrl;
+    private bool _isMergeTargetLoading;
+
+    public ObservableCollection<MergeTargetOptionViewModel> MergeTargets { get; } = new();
+
+    private MergeTargetOptionViewModel? _selectedMergeTarget;
+    public MergeTargetOptionViewModel? SelectedMergeTarget
+    {
+        get => _selectedMergeTarget;
+        set { _selectedMergeTarget = value; OnPropertyChanged(); }
+    }
+
+    public bool HasMergeTargets => MergeTargets.Count > 0;
+
+    public bool IsMergeTargetLoading
+    {
+        get => _isMergeTargetLoading;
+        set { _isMergeTargetLoading = value; OnPropertyChanged(); }
+    }
 
     public bool IsDuplicate
     {
@@ -272,6 +293,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
 
     public ICommand MergeCommand { get; }
     public ICommand CreateNewCommand { get; }
+    public ICommand UseSelectedMergeTargetCommand { get; }
 
     /// <summary>
     /// Initialize preview mode for streaming - clears existing data and sets headers immediately.
@@ -287,6 +309,9 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
         ImportedTracks.Clear();
         AlbumGroups.Clear();
         SelectedCount = 0;
+        MergeTargets.Clear();
+        SelectedMergeTarget = null;
+        OnPropertyChanged(nameof(HasMergeTargets));
 
         _sourceUrl = inputUrl;
         
@@ -308,17 +333,14 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
              ExistingTrackCount = 0;
              _targetJobId = newJobId;
         }
+
+           _ = LoadMergeTargetsAsync(sourceType);
     }
     
     private async Task MergeAsync()
     {
-        // 1. Deselect everything first
-        DeselectAll();
-
-        // 2. Select only missing tracks
-        SelectMissing();
-
-        // 3. Add to library (this will use the existing _targetJobId)
+        // Select tracks that are new to this playlist or need retry, then merge into existing job.
+        await SelectMergeCandidatesAsync();
         await AddToLibraryAsync();
     }
 
@@ -326,7 +348,25 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     {
         // Force a new random ID to avoid collision
         _targetJobId = Guid.NewGuid();
+        IsDuplicate = false;
+        ExistingTrackCount = 0;
         await AddToLibraryAsync();
+    }
+
+    private async Task UseSelectedMergeTargetAsync()
+    {
+        if (SelectedMergeTarget == null)
+        {
+            StatusMessage = "Select a target playlist first.";
+            return;
+        }
+
+        _existingJob = SelectedMergeTarget.Job;
+        _targetJobId = _existingJob.Id;
+        IsDuplicate = true;
+        ExistingTrackCount = _existingJob.TotalTracks;
+
+        await SelectMergeCandidatesAsync();
     }
 
     /// <summary>
@@ -390,17 +430,131 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
              // Efficiently update groups
              UpdateAlbumGroupsIncremental(enrichedTracks);
 
-             // Auto-select missing tracks if they are not already in library
-             foreach (var selectable in enrichedTracks)
+             // Auto-select strategy:
+             // - Fresh imports: select tracks not already in library.
+             // - Duplicate imports: defer to playlist-aware merge selection so larger set merges stay accurate.
+             if (!IsDuplicate)
              {
-                 if (!selectable.IsInLibrary)
-                     selectable.IsSelected = true;
+                 foreach (var selectable in enrichedTracks)
+                 {
+                     if (!selectable.IsInLibrary)
+                         selectable.IsSelected = true;
+                 }
              }
 
              StatusMessage = $"Loaded {ImportedTracks.Count} tracks...";
              IsLoading = false; 
              UpdateSelectedCount();
          });
+
+         if (IsDuplicate)
+         {
+             await SelectMergeCandidatesAsync();
+         }
+    }
+
+    private async Task SelectMergeCandidatesAsync()
+    {
+        if (!IsDuplicate || _existingJob == null || _libraryService == null)
+        {
+            SelectMissing();
+            return;
+        }
+
+        try
+        {
+            var existingTracks = await _libraryService.LoadPlaylistTracksAsync(_existingJob.Id);
+            var existingByHash = existingTracks
+                .Where(t => !string.IsNullOrWhiteSpace(t.TrackUniqueHash))
+                .GroupBy(t => t.TrackUniqueHash, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            int added = 0;
+            int retried = 0;
+            int skipped = 0;
+
+            foreach (var selectable in ImportedTracks)
+            {
+                var hash = selectable.Model.UniqueHash;
+
+                if (string.IsNullOrWhiteSpace(hash))
+                {
+                    selectable.IsSelected = true;
+                    added++;
+                    continue;
+                }
+
+                if (!existingByHash.TryGetValue(hash, out var existing))
+                {
+                    selectable.IsSelected = true;
+                    added++;
+                    continue;
+                }
+
+                if (existing.Status == TrackStatus.Failed || existing.Status == TrackStatus.OnHold)
+                {
+                    selectable.IsSelected = true;
+                    retried++;
+                    continue;
+                }
+
+                selectable.IsSelected = false;
+                skipped++;
+            }
+
+            UpdateSelectedCount();
+            StatusMessage = $"Merge ready: {added} new, {retried} retry, {skipped} already healthy.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to compute merge candidates; falling back to Select Missing");
+            SelectMissing();
+        }
+    }
+
+    private async Task LoadMergeTargetsAsync(string sourceType)
+    {
+        if (_libraryService == null)
+        {
+            return;
+        }
+
+        try
+        {
+            IsMergeTargetLoading = true;
+
+            var allJobs = await _libraryService.LoadAllPlaylistJobsAsync();
+            var candidates = allJobs
+                .Where(j => !j.IsDeleted)
+                .Where(j => string.IsNullOrWhiteSpace(sourceType) || j.SourceType.Equals(sourceType, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(j => j.CreatedAt)
+                .Take(50)
+                .ToList();
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                MergeTargets.Clear();
+                foreach (var job in candidates)
+                {
+                    MergeTargets.Add(new MergeTargetOptionViewModel(job));
+                }
+
+                OnPropertyChanged(nameof(HasMergeTargets));
+
+                if (_existingJob != null)
+                {
+                    SelectedMergeTarget = MergeTargets.FirstOrDefault(m => m.Job.Id == _existingJob.Id);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load merge target candidates");
+        }
+        finally
+        {
+            IsMergeTargetLoading = false;
+        }
     }
 
     private void UpdateAlbumGroupsIncremental(List<SelectableTrack> newTracks)
@@ -705,4 +859,17 @@ public class AlbumGroupViewModel
 {
     public string Album { get; set; } = "[Unknown]";
     public ObservableCollection<SelectableTrack> Tracks { get; set; } = new();
+}
+
+public class MergeTargetOptionViewModel
+{
+    public MergeTargetOptionViewModel(PlaylistJob job)
+    {
+        Job = job;
+    }
+
+    public PlaylistJob Job { get; }
+    public string Title => Job.SourceTitle;
+    public string Subtitle => $"{Job.SourceType} • {Job.TotalTracks} tracks";
+    public string Display => $"{Job.SourceTitle} ({Job.TotalTracks} tracks)";
 }

@@ -407,8 +407,8 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             var confirmed = await _dialogService.ConfirmAsync(
-                "Delete Project", 
-                $"Are you sure you want to delete '{job.SourceTitle}'? This cannot be undone.");
+                "Remove Playlist", 
+                $"Remove '{job.SourceTitle}' from the playlist list? Tracks and downloaded files will be kept in the library.");
             
             if (!confirmed) return;
 
@@ -503,6 +503,11 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                 var existingJob = AllProjects.FirstOrDefault(j => j.Id == jobId);
                 if (existingJob != null)
                 {
+                    existingJob.SourceTitle = updatedJob.SourceTitle;
+                    existingJob.SourceType = updatedJob.SourceType;
+                    existingJob.AlbumArtUrl = updatedJob.AlbumArtUrl;
+                    existingJob.PlaylistTracks = updatedJob.PlaylistTracks;
+                    existingJob.TotalTracks = updatedJob.TotalTracks;
                     existingJob.SuccessfulCount = updatedJob.SuccessfulCount;
                     existingJob.FailedCount = updatedJob.FailedCount;
                     existingJob.MissingCount = updatedJob.MissingCount;

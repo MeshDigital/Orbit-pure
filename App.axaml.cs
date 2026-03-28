@@ -568,6 +568,7 @@ public partial class App : Application
         services.AddTransient<Views.Avalonia.SearchPage>();
         services.AddTransient<Views.Avalonia.LibraryPage>();
         services.AddTransient<Views.Avalonia.DownloadsPage>();
+        services.AddTransient<Views.Avalonia.NowPlayingPage>();
         services.AddTransient<Views.Avalonia.SettingsPage>();
         services.AddTransient<Views.Avalonia.ImportPage>();
         services.AddTransient<Views.Avalonia.ImportPreviewPage>();
@@ -718,6 +719,20 @@ public partial class App : Application
     {
         if (ex is OperationCanceledException)
             return true;
+
+        // Soulseek.NET known teardown race: Timer can be null/disposed while network read loop
+        // is unwinding. This surfaces as NullReferenceException in Soulseek.Extensions.Reset.
+        // Treat as transient noise so it does not pollute the error stream.
+        if (ex is NullReferenceException)
+        {
+            var stack = ex.StackTrace ?? string.Empty;
+            if (stack.Contains("Soulseek.Extensions.Reset", StringComparison.OrdinalIgnoreCase) ||
+                stack.Contains("Soulseek.Network.Tcp.Connection.ReadInternalAsync", StringComparison.OrdinalIgnoreCase) ||
+                ex.ToString().Contains("Soulseek.Extensions.Reset(Timer timer)", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
 
         if (ex.Message.Contains("Transfer failed: Transfer complete", StringComparison.OrdinalIgnoreCase) ||
             ex.Message.Contains("Transfer complete", StringComparison.OrdinalIgnoreCase))

@@ -242,7 +242,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
         private double _lastZoomLevel = 1.0;
 
         private DateTime _lastRenderTime = DateTime.MinValue;
-        private const double FrameThrottleMs = 16.67; // ~60 FPS max
+        private const double FrameThrottleMs = 33.33; // ~30 FPS max
         private const double SizeTolerance = 5.0; // Pixels tolerance for bitmap reuse
 
         // Sprint 4: Vocal Ghost Layer
@@ -686,10 +686,12 @@ namespace SLSKDONET.Views.Avalonia.Controls
         private void RenderSingleBandCached(DrawingContext context, WaveformAnalysisData data, double width, double mid, int samples, double step, bool isActive)
         {
             // Draw full waveform in one color
+            int targetColumns = Math.Max(1, (int)width);
+            int stride = Math.Max(1, samples / targetColumns);
             var geom = new StreamGeometry();
             using (var ctx = geom.Open())
             {
-                for (int i = 0; i < samples; i++)
+                for (int i = 0; i < samples; i += stride)
                 {
                     double x = i * step;
                     double h = (data.PeakData![i] / 255.0) * mid;
@@ -708,6 +710,8 @@ namespace SLSKDONET.Views.Avalonia.Controls
         {
             var playedLimit = (int)(Progress * samples);
             var peak = data.PeakData!;
+            int targetColumns = Math.Max(1, (int)width);
+            int stride = Math.Max(1, samples / targetColumns);
             
             // Segmented Energy Tinting (Phase 25)
             var energyList = SegmentedEnergy?.ToList();
@@ -719,7 +723,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
             var midColor = Color.FromRgb(0, 255, 120);    // Neon Green
             var highColor = Color.FromRgb(0, 200, 255);   // Cyan / Blue
 
-            for (int i = 0; i < Math.Min(samples, low.Length); i++)
+            for (int i = 0; i < Math.Min(samples, low.Length); i += stride)
             {
                 if (i >= peak.Length) break;
                 

@@ -28,7 +28,7 @@ public class ErrorItem
 
 public partial class ErrorStreamWindow : Window, INotifyPropertyChanged
 {
-    public event PropertyChangedEventHandler? PropertyChanged;
+    public new event PropertyChangedEventHandler? PropertyChanged;
     public ObservableCollection<ErrorItem> Errors { get; } = new();
     public int ErrorCount => Errors.Count;
 
@@ -214,10 +214,9 @@ public partial class ErrorStreamWindow : Window, INotifyPropertyChanged
 
         var text = $"Source: {error.Source}\nTimestamp: {error.Timestamp}\nMessage: {error.Message}\n\nStack Trace:\n{error.StackTrace}";
         var topLevel = TopLevel.GetTopLevel(this);
-        if (topLevel != null)
-        {
-            await topLevel.Clipboard?.SetTextAsync(text);
-        }
+        var clipboard = topLevel?.Clipboard;
+        if (clipboard == null) return;
+        await clipboard.SetTextAsync(text);
     }
 
     private void ClearError(ErrorItem error)

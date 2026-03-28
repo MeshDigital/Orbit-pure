@@ -15,8 +15,9 @@
 
         <!-- Live blurred album-art background -->
         <controls:LiveBackground
-            Source="{Binding CurrentTrack.Artwork.Image}"
+            Source="{Binding CurrentTrack.ArtworkBitmap}"
             Energy="{Binding CurrentTrack.Energy, FallbackValue=0.5}"
+            IsVisible="{Binding CurrentTrack, Converter={x:Static ObjectConverters.IsNotNull}}"
             Opacity="0.85" />
 
         <!-- Dark vignette scrim -->
@@ -151,6 +152,7 @@
                         Preset="{Binding CurrentVisualizerPreset}"
                         EngineMode="{Binding VisualizerEngineMode}"
                         AlbumHue="{Binding AlbumArtHue}"
+                        IsVisible="{Binding CurrentTrack, Converter={x:Static ObjectConverters.IsNotNull}}"
                         HorizontalAlignment="Stretch"
                         VerticalAlignment="Stretch" />
 
@@ -163,14 +165,14 @@
                             BoxShadow="0 0 40 0 #60000000">
                         <Panel ClipToBounds="True">
                             <Border CornerRadius="90" ClipToBounds="True">
-                                <Image Source="{Binding CurrentTrack.Artwork.Image}"
+                                <Image Source="{Binding CurrentTrack.ArtworkBitmap}"
                                        Stretch="UniformToFill"
-                                       IsVisible="{Binding CurrentTrack.Artwork.Image,
+                                       IsVisible="{Binding CurrentTrack.ArtworkBitmap,
                                            Converter={x:Static ObjectConverters.IsNotNull}}" />
                             </Border>
                             <!-- Placeholder -->
                             <Border Background="#282828" CornerRadius="90"
-                                    IsVisible="{Binding CurrentTrack.Artwork.Image,
+                                    IsVisible="{Binding CurrentTrack.ArtworkBitmap,
                                         Converter={x:Static ObjectConverters.IsNull}}">
                                 <TextBlock Text="🎵" FontSize="64"
                                            HorizontalAlignment="Center"

@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reactive.Linq;
+using System.Windows.Input;
 using DynamicData;
 using DynamicData.Binding;
 using ReactiveUI;
@@ -64,6 +65,7 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
     // Commands
     public IReactiveCommand PauseCommand { get; }
     public IReactiveCommand ResumeCommand { get; }
+    public IReactiveCommand VipStartCommand { get; }
     public IReactiveCommand CancelCommand { get; }
     public IReactiveCommand ToggleExpandedCommand { get; }
 
@@ -81,14 +83,17 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         // Initialize Metadata from first track (assuming homogenous groups for now)
         var firstTrack = Tracks.FirstOrDefault()?.Model;
         
-        if (!string.IsNullOrEmpty(firstTrack?.SourcePlaylistName))
+        var sourcePlaylistName = firstTrack?.SourcePlaylistName;
+
+        if (!string.IsNullOrEmpty(sourcePlaylistName))
         {
-            Title = firstTrack.SourcePlaylistName;
+            Title = sourcePlaylistName;
             
             // Avoid using firstTrack.Artist as it makes playlists look like individual track/album releases
             var distinctArtists = Tracks.Select(t => t.Model.Artist).Distinct().Take(2).Count();
-            Subtitle = distinctArtists > 1 ? "Mixed Artists" : (string.IsNullOrEmpty(firstTrack?.Artist) ? "Imported Playlist" : $"By {firstTrack.Artist}");
-            ArtworkUrl = firstTrack.AlbumArtUrl;
+            var firstArtist = firstTrack?.Artist;
+            Subtitle = distinctArtists > 1 ? "Mixed Artists" : (string.IsNullOrEmpty(firstArtist) ? "Imported Playlist" : $"By {firstArtist}");
+            ArtworkUrl = firstTrack?.AlbumArtUrl;
         }
         else if (GroupKey == null)
         {
@@ -120,19 +125,58 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         PauseCommand = ReactiveCommand.Create(() => 
         {
             var items = Tracks.ToList();
-            foreach (var t in items) t.PauseCommand.Execute(null);
+            foreach (var t in items.Where(x => x.IsActive))
+            {
+                ExecuteIfAllowed(t.PauseCommand);
+            }
         });
         
         ResumeCommand = ReactiveCommand.Create(() => 
         {
             var items = Tracks.ToList();
-            foreach (var t in items) t.ResumeCommand.Execute(null);
+            foreach (var t in items)
+            {
+                if (t.State == PlaylistTrackState.Paused)
+                {
+                    ExecuteIfAllowed(t.ResumeCommand);
+                    continue;
+                }
+
+                // "Initiate/continue" for queued or stalled items in a group action.
+                if (t.State == PlaylistTrackState.Pending || t.State == PlaylistTrackState.Stalled)
+                {
+                    ExecuteIfAllowed(t.ForceStartCommand);
+                    continue;
+                }
+
+                // "Restart" for failed items in a group action.
+                if (t.State == PlaylistTrackState.Failed)
+                {
+                    ExecuteIfAllowed(t.RetryCommand);
+                }
+            }
+        });
+
+        // Explicit queue-bypass group action for playlist cards.
+        VipStartCommand = ReactiveCommand.Create(() =>
+        {
+            var items = Tracks.ToList();
+            foreach (var t in items.Where(x =>
+                         x.State == PlaylistTrackState.Pending ||
+                         x.State == PlaylistTrackState.Stalled ||
+                         x.State == PlaylistTrackState.Paused))
+            {
+                ExecuteIfAllowed(t.ForceStartCommand);
+            }
         });
 
         CancelCommand = ReactiveCommand.Create(() => 
         {
             var items = Tracks.ToList();
-            foreach (var t in items) t.CancelCommand.Execute(null);
+            foreach (var t in items.Where(x => x.IsActive))
+            {
+                ExecuteIfAllowed(t.CancelCommand);
+            }
         });
 
         ToggleExpandedCommand = ReactiveCommand.Create(() => { IsExpanded = !IsExpanded; });
@@ -193,5 +237,13 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
     public void Dispose()
     {
         _cleanUp.Dispose();
+    }
+
+    private static void ExecuteIfAllowed(ICommand command)
+    {
+        if (command.CanExecute(null))
+        {
+            command.Execute(null);
+        }
     }
 }

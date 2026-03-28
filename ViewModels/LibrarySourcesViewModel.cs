@@ -174,7 +174,7 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
             ScanStatus = "Scanning...";
             var progress = new Progress<ScanProgress>(p =>
             {
-                ScanStatus = $"Found: {p.FilesDiscovered} | Imported: {p.FilesImported} | Skipped: {p.FilesSkipped}";
+                ScanStatus = $"Found: {p.FilesDiscovered} | Imported: {p.FilesImported} | Upgraded: {p.FilesAutoUpgraded} | RemoveCands: {p.FilesMarkedForRemoval} | DupPath: {p.FilesDuplicateByPath} | DupTrack: {p.FilesDuplicateByHash} | Skipped: {p.FilesSkipped}";
             });
 
             // Use batch writes implicitly handled by refactored service (TODO)
@@ -182,11 +182,23 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
 
             var totalImported = results.Values.Sum(r => r.FilesImported);
             var totalSkipped = results.Values.Sum(r => r.FilesSkipped);
+            var totalDupPath = results.Values.Sum(r => r.FilesDuplicateByPath);
+            var totalDupHash = results.Values.Sum(r => r.FilesDuplicateByHash);
+            var totalMetadataFailed = results.Values.Sum(r => r.FilesMetadataFailed);
+            var totalUpgraded = results.Values.Sum(r => r.FilesAutoUpgraded);
+            var totalRemovalCandidates = results.Values.Sum(r => r.FilesMarkedForRemoval);
 
-            ScanStatus = $"✅ Complete! Imported: {totalImported}, Skipped: {totalSkipped}";
+            ScanStatus = $"✅ Complete! Imported: {totalImported}, Upgraded: {totalUpgraded}, RemoveCands: {totalRemovalCandidates}, DupPath: {totalDupPath}, DupTrack: {totalDupHash}, MetaFail: {totalMetadataFailed}, Skipped: {totalSkipped}";
 
-            _logger.LogInformation("Library folder scan complete: {Imported} imported, {Skipped} skipped",
-                totalImported, totalSkipped);
+            _logger.LogInformation(
+                "Library folder scan complete: {Imported} imported, {Upgraded} upgraded, {RemoveCandidates} removal-candidates, {Skipped} skipped, DupPath: {DupPath}, DupHash: {DupHash}, MetaFailed: {MetaFailed}",
+                totalImported,
+                totalUpgraded,
+                totalRemovalCandidates,
+                totalSkipped,
+                totalDupPath,
+                totalDupHash,
+                totalMetadataFailed);
 
             // Clear status after 5 seconds
             await Task.Delay(5000);

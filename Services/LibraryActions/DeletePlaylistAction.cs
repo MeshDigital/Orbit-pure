@@ -7,14 +7,14 @@ using SLSKDONET.ViewModels;
 namespace SLSKDONET.Services.LibraryActions;
 
 /// <summary>
-/// Deletes an entire playlist from the library
+/// Removes a playlist from the visible library list while preserving track/library records
 /// </summary>
 public class DeletePlaylistAction : ILibraryAction
 {
     private readonly ILogger<DeletePlaylistAction> _logger;
     private readonly ILibraryService _libraryService;
 
-    public string Name => "Delete Playlist";
+    public string Name => "Remove Playlist From List";
     public string IconGlyph => "❌";
     public string Category => "Playlist";
 
@@ -41,12 +41,12 @@ public class DeletePlaylistAction : ILibraryAction
             var playlistTitle = context.SelectedPlaylist.SourceTitle;
             var playlistId = context.SelectedPlaylist.Id;
 
-            _logger.LogInformation("Deleting playlist {Title} ({Id})", playlistTitle, playlistId);
+            _logger.LogInformation("Removing playlist from list {Title} ({Id})", playlistTitle, playlistId);
 
             // Soft delete via LibraryService (will trigger reactive removal from UI)
             await _libraryService.DeletePlaylistJobAsync(playlistId);
 
-            _logger.LogInformation("Successfully deleted playlist {Title}", playlistTitle);
+            _logger.LogInformation("Successfully removed playlist from list {Title}", playlistTitle);
         }
         catch (Exception ex)
         {

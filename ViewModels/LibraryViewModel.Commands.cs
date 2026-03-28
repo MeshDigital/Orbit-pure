@@ -77,6 +77,7 @@ public partial class LibraryViewModel
         PlayAlbumCommand = new AsyncRelayCommand<object>(ExecutePlayAlbumAsync);
         DownloadAlbumCommand = new AsyncRelayCommand<object>(ExecuteDownloadAlbumAsync);
         DownloadMissingCommand = new AsyncRelayCommand<object>(ExecuteDownloadMissingAsync);
+        RenameProjectCommand = new AsyncRelayCommand<object>(ExecuteRenameProjectAsync);
         SyncProjectCommand = new AsyncRelayCommand<object>(ExecuteSyncProjectAsync);
         ExportPlaylistCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistAsync);
 
@@ -97,6 +98,7 @@ public partial class LibraryViewModel
     {
         var willCollapse = !IsNavigationCollapsed;
         IsNavigationCollapsed = !IsNavigationCollapsed;
+        _ = PersistNavigationCollapsedStateAsync();
 
         if (willCollapse)
         {
@@ -122,6 +124,19 @@ public partial class LibraryViewModel
         }
 
         IsNavigationCollapsed = true;
+    }
+
+    private async Task PersistNavigationCollapsedStateAsync()
+    {
+        try
+        {
+            _appConfig.LibraryNavigationCollapsed = IsNavigationCollapsed;
+            await _configManager.SaveAsync(_appConfig);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist library navigation collapsed state");
+        }
     }
 
     public ICommand SetViewModeCommand { get; set; } = null!;
@@ -182,8 +197,8 @@ public partial class LibraryViewModel
         if (param is PlaylistJob project)
         {
             bool confirm = await _dialogService.ConfirmAsync(
-                "Delete Project",
-                $"Are you sure you want to delete '{project.SourceTitle}'? This will remove all associated track records.");
+                "Remove Playlist",
+                $"Remove '{project.SourceTitle}' from the playlist list? Tracks and downloaded files will be kept in the library.");
             
             if (confirm)
             {

@@ -72,6 +72,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     };
 
     public ObservableCollection<PlaylistCardViewModel> RecentPlaylists { get; } = new();
+    public ObservableCollection<RecentDownloadedTrackCardViewModel> RecentDownloads { get; } = new();
     public ObservableCollection<SpotifyTrackViewModel> SpotifyRecommendations { get; } = new();
 
     private bool _isLoadingHealth = true;
@@ -109,6 +110,13 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     {
         get => _isLoadingRecent;
         set => SetProperty(ref _isLoadingRecent, value);
+    }
+
+    private bool _isLoadingRecentDownloads;
+    public bool IsLoadingRecentDownloads
+    {
+        get => _isLoadingRecentDownloads;
+        set => SetProperty(ref _isLoadingRecentDownloads, value);
     }
 
     private bool _isLoadingSpotify;
@@ -246,9 +254,10 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
             // Execute loading tasks in parallel for performance
             var healthTask = LoadLibraryHealthAsync();
             var recentTask = LoadRecentPlaylistsAsync();
+            var recentDownloadsTask = LoadRecentDownloadsAsync();
             var spotifyTask = LoadSpotifyRecommendationsAsync();
 
-            await Task.WhenAll(healthTask, recentTask, spotifyTask);
+            await Task.WhenAll(healthTask, recentTask, recentDownloadsTask, spotifyTask);
         }
         catch (Exception ex)
         {
@@ -336,6 +345,33 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         finally
         {
             IsLoadingRecent = false;
+        }
+    }
+
+    private async Task LoadRecentDownloadsAsync()
+    {
+        IsLoadingRecentDownloads = true;
+        try
+        {
+            var downloads = await _dashboardService.GetRecentDownloadedTracksAsync(8);
+            var cards = downloads.Select(track => new RecentDownloadedTrackCardViewModel(track)).ToList();
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                RecentDownloads.Clear();
+                foreach (var card in cards)
+                {
+                    RecentDownloads.Add(card);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load recent downloads");
+        }
+        finally
+        {
+            Dispatcher.UIThread.Post(() => IsLoadingRecentDownloads = false);
         }
     }
 
@@ -461,4 +497,22 @@ public class GenrePlanetViewModel
     public int Count { get; set; }
     public double Size => 40 + (Math.Min(Count, 100) * 0.5);
     public string Color => "#00A3FF"; // Could be dynamic based on purity later
+}
+
+public class RecentDownloadedTrackCardViewModel
+{
+    private readonly PlaylistTrack _track;
+
+    public RecentDownloadedTrackCardViewModel(PlaylistTrack track)
+    {
+        _track = track;
+    }
+
+    public string Title => string.IsNullOrWhiteSpace(_track.Title) ? "Unknown Title" : _track.Title;
+    public string Artist => string.IsNullOrWhiteSpace(_track.Artist) ? "Unknown Artist" : _track.Artist;
+    public string? CoverImageUrl => _track.AlbumArtUrl;
+    public string FormatLabel => string.IsNullOrWhiteSpace(_track.Format) ? "FILE" : _track.Format.ToUpperInvariant();
+    public string QualityLabel => _track.Bitrate > 0 ? $"{_track.Bitrate} kbps" : FormatLabel;
+    public string SourceLabel => string.IsNullOrWhiteSpace(_track.SourcePlaylistName) ? "Library" : _track.SourcePlaylistName!;
+    public string CompletedLabel => _track.CompletedAt?.ToLocalTime().ToString("MMM d, HH:mm") ?? "Just now";
 }

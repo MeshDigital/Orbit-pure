@@ -5,6 +5,12 @@
              mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
              x:Class="SLSKDONET.Views.Avalonia.ImportPage"
              Background="#0D0D0D">
+    <UserControl.KeyBindings>
+        <KeyBinding Gesture="Ctrl+V" Command="{Binding PasteTracklistFromClipboardCommand}"/>
+        <KeyBinding Gesture="Ctrl+C" Command="{Binding CopyTracklistToClipboardCommand}"/>
+        <KeyBinding Gesture="Ctrl+Shift+V" Command="{Binding ImportTracklistFromClipboardCommand}"/>
+        <KeyBinding Gesture="Ctrl+Enter" Command="{Binding ImportTracklistCommand}"/>
+    </UserControl.KeyBindings>
     
     <Grid RowDefinitions="Auto,*" Margin="40">
         <!-- Header -->
@@ -128,6 +134,138 @@
                                 <TextBlock Text="Paste a list of tracks (e.g. from YouTube, blog, or chat)" FontSize="14" Foreground="#A0A0A0" Margin="0,4,0,0"/>
                             </StackPanel>
                         </StackPanel>
+
+                        <Border Background="#121212" BorderBrush="#333" BorderThickness="1" CornerRadius="8" Padding="12">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="1001Tracklists Quick Import" FontWeight="SemiBold" Foreground="#FFC107" FontSize="12"/>
+                                <TextBlock Text="Open the website, copy the full tracklist block, then import from clipboard." FontSize="11" Foreground="#9A9A9A"/>
+                                <TextBlock Text="Shortcuts: Ctrl+V paste, Ctrl+C copy, Ctrl+Shift+V paste+import, Ctrl+Enter import" FontSize="10" Foreground="#7E7E7E"/>
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <Button Command="{Binding OpenTracklistsWebsiteCommand}"
+                                            Background="#2A2A2A"
+                                            BorderBrush="#3E3E3E"
+                                            BorderThickness="1"
+                                            Foreground="White"
+                                            Padding="14,8"
+                                            CornerRadius="6">
+                                        <TextBlock Text="Open 1001Tracklists" FontWeight="SemiBold"/>
+                                    </Button>
+                                    <Button Command="{Binding ImportTracklistFromClipboardCommand}"
+                                            Background="#FFC107"
+                                            Foreground="Black"
+                                            Padding="14,8"
+                                            CornerRadius="6">
+                                        <TextBlock Text="Import From Clipboard" FontWeight="Bold"/>
+                                    </Button>
+                                </StackPanel>
+
+                                <TextBlock Text="Your Web Shortcuts" FontWeight="SemiBold" Foreground="#D0D0D0" FontSize="11" Margin="0,4,0,0"/>
+
+                                <Grid ColumnDefinitions="3*,Auto" Margin="0,0,0,4">
+                                    <ComboBox Grid.Column="0"
+                                              ItemsSource="{Binding SubgenrePresets}"
+                                              SelectedItem="{Binding SelectedSubgenrePreset, Mode=TwoWay}"
+                                              Background="#1A1A1A"
+                                              BorderThickness="1"
+                                              Padding="8,6"
+                                              CornerRadius="4">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Name}"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <Button Grid.Column="1"
+                                            Command="{Binding AddSelectedSubgenrePresetCommand}"
+                                            Background="#1E3A5F"
+                                            Foreground="#9FD3FF"
+                                            Margin="8,0,0,0"
+                                            Padding="12,8"
+                                            CornerRadius="4">
+                                        <TextBlock Text="Add 1001 Preset" FontWeight="SemiBold"/>
+                                    </Button>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="3*,Auto" Margin="0,0,0,8">
+                                    <TextBox Grid.Column="0"
+                                             Text="{Binding GenreSlugOrUrlInput, Mode=TwoWay}"
+                                             Watermark="Any 1001 genre slug or URL (e.g. drum-n-bass or https://www.1001tracklists.com/genre/house/index.html)"
+                                             Background="#1A1A1A"
+                                             BorderThickness="1"
+                                             Padding="8,6"
+                                             CornerRadius="4"/>
+                                    <Button Grid.Column="1"
+                                            Command="{Binding AddGenreShortcutCommand}"
+                                            Background="#2C4A2B"
+                                            Foreground="#BEE3B6"
+                                            Margin="8,0,0,0"
+                                            Padding="12,8"
+                                            CornerRadius="4">
+                                        <TextBlock Text="Add Genre URL" FontWeight="SemiBold"/>
+                                    </Button>
+                                </Grid>
+
+                                <ItemsControl ItemsSource="{Binding WebShortcuts}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="#1A1A1A" BorderBrush="#333" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,8,8">
+                                                <Grid ColumnDefinitions="Auto,Auto">
+                                                    <Button Grid.Column="0"
+                                                            Command="{Binding OpenCommand}"
+                                                            Background="#2F3136"
+                                                            Foreground="White"
+                                                            Padding="10,4"
+                                                            CornerRadius="4">
+                                                        <TextBlock Text="{Binding Name}"/>
+                                                    </Button>
+                                                    <Button Grid.Column="1"
+                                                            Command="{Binding RemoveCommand}"
+                                                            Background="#3A1F1F"
+                                                            Foreground="#F3A6A6"
+                                                            Padding="8,4"
+                                                            Margin="6,0,0,0"
+                                                            CornerRadius="4">
+                                                        <TextBlock Text="✕"/>
+                                                    </Button>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Grid ColumnDefinitions="2*,3*,Auto">
+                                    <TextBox Grid.Column="0"
+                                             Text="{Binding NewShortcutName, Mode=TwoWay}"
+                                             Watermark="Shortcut name"
+                                             Background="#1A1A1A"
+                                             BorderThickness="1"
+                                             Padding="10,8"
+                                             CornerRadius="4"/>
+                                    <TextBox Grid.Column="1"
+                                             Text="{Binding NewShortcutUrl, Mode=TwoWay}"
+                                             Watermark="https://example.com"
+                                             Background="#1A1A1A"
+                                             BorderThickness="1"
+                                             Margin="8,0,0,0"
+                                             Padding="10,8"
+                                             CornerRadius="4"/>
+                                    <Button Grid.Column="2"
+                                            Command="{Binding AddWebShortcutCommand}"
+                                            Background="#4B5563"
+                                            Foreground="White"
+                                            Margin="8,0,0,0"
+                                            Padding="12,8"
+                                            CornerRadius="4">
+                                        <TextBlock Text="Add" FontWeight="SemiBold"/>
+                                    </Button>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
                         
                         <TextBox Text="{Binding PastedTracklist, Mode=TwoWay}"
                                  Watermark="Example:&#x0a;Artist - Title&#x0a;Artist2 - Title2&#x0a;01 Artist Title (Album)"

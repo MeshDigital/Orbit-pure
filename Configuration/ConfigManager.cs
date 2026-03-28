@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using System.IO;
+using System.Text.Json;
 
 namespace SLSKDONET.Configuration;
 
@@ -120,6 +121,7 @@ public class ConfigManager
 
                 // [Library] & Upgrade Scout
                 LibraryColumnOrder = config["Library:ColumnOrder"] ?? "",
+                LibraryNavigationCollapsed = bool.TryParse(config["Library:NavigationCollapsed"], out var navCollapsed) && navCollapsed,
                 LibraryNavigationAutoHideEnabled = bool.TryParse(config["Library:NavigationAutoHideEnabled"], out var navAutoHideEnabled) && navAutoHideEnabled,
                 LibraryNavigationAutoHideActivationToggleCount = int.TryParse(config["Library:NavigationAutoHideActivationToggleCount"], out var navAutoHideActivationCount)
                     ? Math.Max(2, navAutoHideActivationCount)
@@ -141,7 +143,10 @@ public class ConfigManager
                 WindowHeight = double.TryParse(config["Window:Height"], out var wh) ? wh : 900,
                 WindowX = double.TryParse(config["Window:X"], out var wx) ? wx : double.NaN,
                 WindowY = double.TryParse(config["Window:Y"], out var wy) ? wy : double.NaN,
-                WindowMaximized = bool.TryParse(config["Window:Maximized"], out var wm) && wm
+                WindowMaximized = bool.TryParse(config["Window:Maximized"], out var wm) && wm,
+
+                // [Import]
+                ImportWebShortcuts = ParseImportWebShortcuts(config["Import:WebShortcutsJson"])
             };
             
             // Apply defaults if loaded values are empty (for backward compatibility with old configs)
@@ -236,6 +241,7 @@ public class ConfigManager
         iniContent.AppendLine();
         iniContent.AppendLine("[Library]");
         iniContent.AppendLine($"ColumnOrder = {config.LibraryColumnOrder}");
+        iniContent.AppendLine($"NavigationCollapsed = {config.LibraryNavigationCollapsed}");
         iniContent.AppendLine($"NavigationAutoHideEnabled = {config.LibraryNavigationAutoHideEnabled}");
         iniContent.AppendLine($"NavigationAutoHideActivationToggleCount = {Math.Max(2, config.LibraryNavigationAutoHideActivationToggleCount)}");
         iniContent.AppendLine($"UpgradeScoutEnabled = {config.UpgradeScoutEnabled}");
@@ -260,6 +266,10 @@ public class ConfigManager
         iniContent.AppendLine($"Y = {config.WindowY}");
         iniContent.AppendLine($"Maximized = {config.WindowMaximized}");
 
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Import]");
+        iniContent.AppendLine($"WebShortcutsJson = {SerializeImportWebShortcuts(config.ImportWebShortcuts)}");
+
         File.WriteAllText(_configPath, iniContent.ToString());
         _config = config;
     }
@@ -269,5 +279,34 @@ public class ConfigManager
     public async Task SaveAsync(AppConfig config)
     {
         await Task.Run(() => Save(config));
+    }
+
+    private static List<string> ParseImportWebShortcuts(string? json)
+    {
+        var fallback = new List<string>
+        {
+            "1001Tracklists|https://www.1001tracklists.com/",
+            "Beatport|https://www.beatport.com/",
+            "SoundCloud|https://soundcloud.com/"
+        };
+
+        if (string.IsNullOrWhiteSpace(json))
+            return fallback;
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<List<string>>(json);
+            return parsed == null || parsed.Count == 0 ? fallback : parsed;
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
+
+    private static string SerializeImportWebShortcuts(List<string>? items)
+    {
+        var value = items?.Where(i => !string.IsNullOrWhiteSpace(i)).ToList() ?? new List<string>();
+        return JsonSerializer.Serialize(value);
     }
 }

@@ -57,6 +57,16 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
         private void OnTimerTick(object? sender, EventArgs e)
         {
+            if (!IsVisible || Bounds.Width < 2 || Bounds.Height < 2)
+            {
+                return;
+            }
+
+            if (Source == null && _blurredImage == null)
+            {
+                return;
+            }
+
             // Phase 21: High-Fidelity Physics
             // Higher energy = faster drift and more intense "heartbeat"
             float speedMultiplier = (float)(1.0 + (Energy * 3.0));

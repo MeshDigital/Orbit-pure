@@ -74,6 +74,7 @@ public sealed class OrbitVisualizerCanvas : Control
     private readonly Random _rng = new();
     private double _time;
     private float[] _smoothedSpectrum = Array.Empty<float>();
+    private int _idleTickCounter;
 
     // Particle system
     private readonly List<Particle> _particles = [];
@@ -105,8 +106,8 @@ public sealed class OrbitVisualizerCanvas : Control
     public OrbitVisualizerCanvas()
     {
         _renderTimer = new DispatcherTimer(
-            TimeSpan.FromMilliseconds(33),   // ~30 fps
-            DispatcherPriority.Render,
+            TimeSpan.FromMilliseconds(50),   // ~20 fps
+            DispatcherPriority.Background,
             OnRenderTick);
     }
 
@@ -124,10 +125,52 @@ public sealed class OrbitVisualizerCanvas : Control
 
     private void OnRenderTick(object? sender, EventArgs e)
     {
+        if (!IsVisible || Bounds.Width < 4 || Bounds.Height < 4)
+        {
+            return;
+        }
+
+        bool hasSpectrum = HasActiveSpectrum(SpectrumData);
+        if (!IsPlaying && !hasSpectrum)
+        {
+            // Keep ambient animation alive at low cadence to avoid UI thread pressure.
+            _idleTickCounter++;
+            if (_idleTickCounter % 10 != 0)
+            {
+                return;
+            }
+        }
+        else
+        {
+            _idleTickCounter = 0;
+        }
+
         _time += 0.033;
         UpdateSmoothSpectrum();
-        UpdateParticles();
+        if (IsPlaying || hasSpectrum)
+        {
+            UpdateParticles();
+        }
         InvalidateVisual();
+    }
+
+    private static bool HasActiveSpectrum(float[]? spectrum)
+    {
+        if (spectrum == null || spectrum.Length == 0)
+        {
+            return false;
+        }
+
+        const float activityThreshold = 0.005f;
+        for (int i = 0; i < spectrum.Length; i++)
+        {
+            if (spectrum[i] > activityThreshold)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // ── Render ───────────────────────────────────────────────────────────────

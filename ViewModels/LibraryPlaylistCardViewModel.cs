@@ -1,5 +1,6 @@
 using ReactiveUI;
 using SLSKDONET.Models;
+using System.ComponentModel;
 using System.Linq;
 
 namespace SLSKDONET.ViewModels;
@@ -18,6 +19,30 @@ public class LibraryPlaylistCardViewModel : ReactiveObject
     public int TrackCount => _playlist.TotalTracks;
 
     public string TrackCountText => $"{TrackCount} track{(TrackCount != 1 ? "s" : "")}";
+
+    public int DownloadedCount => _playlist.SuccessfulCount;
+
+    public double DownloadedRatio => TrackCount > 0
+        ? (double)DownloadedCount / TrackCount
+        : 0.0;
+
+    private bool HasForensicCoverage =>
+        _playlist.PlaylistTracks != null &&
+        _playlist.PlaylistTracks.Any(t =>
+            t.Integrity == SLSKDONET.Data.IntegrityLevel.Verified ||
+            t.Integrity == SLSKDONET.Data.IntegrityLevel.Gold ||
+            t.Integrity == SLSKDONET.Data.IntegrityLevel.Suspicious ||
+            t.FrequencyCutoff.HasValue);
+
+    public double PrimaryRatio => HasForensicCoverage ? LosslessRatio : DownloadedRatio;
+
+    public string PrimaryRatioText => $"{PrimaryRatio:P0}";
+
+    public string PrimaryBadgeText => HasForensicCoverage
+        ? $"Lossless {LosslessRatio:P0}"
+        : $"Downloaded {DownloadedRatio:P0}";
+
+    public string SecondaryBadgeText => $"{DownloadedCount}/{TrackCount} downloaded";
 
     /// <summary>
     /// Health Ring: Ratio of verified lossless tracks (0.0 to 1.0)
@@ -49,6 +74,16 @@ public class LibraryPlaylistCardViewModel : ReactiveObject
         _ => "#FF4444"       // Red - Poor
     };
 
+    public string PrimaryRingColor => HasForensicCoverage
+        ? HealthRingColor
+        : DownloadedRatio switch
+        {
+            >= 0.95 => "#29D391",
+            >= 0.7 => "#2DB5FF",
+            >= 0.4 => "#F3A73B",
+            _ => "#E56767"
+        };
+
     /// <summary>
     /// Health status text for tooltip
     /// </summary>
@@ -57,7 +92,7 @@ public class LibraryPlaylistCardViewModel : ReactiveObject
         get
         {
             if (_playlist.PlaylistTracks == null)
-                return "No tracks analyzed";
+                return $"No forensic data yet. {DownloadedCount}/{TrackCount} downloaded.";
 
             var verified = _playlist.PlaylistTracks.Count(t =>
                 t.Integrity == SLSKDONET.Data.IntegrityLevel.Verified ||
@@ -98,6 +133,26 @@ public class LibraryPlaylistCardViewModel : ReactiveObject
     public LibraryPlaylistCardViewModel(PlaylistJob playlist)
     {
         _playlist = playlist ?? throw new ArgumentNullException(nameof(playlist));
+        _playlist.PropertyChanged += OnPlaylistPropertyChanged;
+    }
+
+    private void OnPlaylistPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        this.RaisePropertyChanged(nameof(Name));
+        this.RaisePropertyChanged(nameof(CoverImageUrl));
+        this.RaisePropertyChanged(nameof(TrackCount));
+        this.RaisePropertyChanged(nameof(TrackCountText));
+        this.RaisePropertyChanged(nameof(DownloadedCount));
+        this.RaisePropertyChanged(nameof(DownloadedRatio));
+        this.RaisePropertyChanged(nameof(PrimaryRatio));
+        this.RaisePropertyChanged(nameof(PrimaryRatioText));
+        this.RaisePropertyChanged(nameof(PrimaryBadgeText));
+        this.RaisePropertyChanged(nameof(SecondaryBadgeText));
+        this.RaisePropertyChanged(nameof(LosslessRatio));
+        this.RaisePropertyChanged(nameof(HealthRingColor));
+        this.RaisePropertyChanged(nameof(PrimaryRingColor));
+        this.RaisePropertyChanged(nameof(HealthStatusText));
+        this.RaisePropertyChanged(nameof(ForensicFlyoutText));
     }
 
     // Explicit access to the underlying model if needed for commands
