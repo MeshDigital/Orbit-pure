@@ -25,8 +25,6 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly CompositeDisposable _disposables = new();
     private bool _isDisposed;
-    private DateTime _lastPlayerNavigationUtc = DateTime.MinValue;
-    private bool _isPlayerNavigationInFlight;
 
     private readonly ILogger<MainViewModel> _logger;
     private readonly AppConfig _config;
@@ -158,6 +156,16 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 }
             }));
 
+        _disposables.Add(_rightPanelService
+            .WhenAnyValue(service => service.CurrentPanelVm)
+            .Subscribe(vm =>
+            {
+                if (_rightPanelService.IsPanelOpen && ReferenceEquals(vm, PlayerViewModel) && !IsPlayerSidebarVisible)
+                {
+                    IsPlayerSidebarVisible = true;
+                }
+            }));
+
         // Initialize commands
         NavigateHomeCommand = new RelayCommand(NavigateToHome); // Phase 6D
         NavigateSearchCommand = new RelayCommand(NavigateToSearch);
@@ -266,7 +274,17 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         // Phase 25: Generic Navigation Event
         _disposables.Add(_eventBus.GetEvent<NavigateToPageEvent>().Subscribe(evt =>
         {
-            Dispatcher.UIThread.Post(() => _navigationService.NavigateTo(evt.PageName));
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (string.Equals(evt.PageName, "Player", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(evt.PageName, "NowPlaying", StringComparison.OrdinalIgnoreCase))
+                {
+                    NavigateToPlayer();
+                    return;
+                }
+
+                _navigationService.NavigateTo(evt.PageName);
+            });
         }));
         // Sync initial state in case events fired before subscription
         
@@ -826,52 +844,12 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void NavigateToPlayer()
     {
-        var now = DateTime.UtcNow;
-        var elapsed = now - _lastPlayerNavigationUtc;
-
-        if (_isPlayerNavigationInFlight && elapsed < TimeSpan.FromMilliseconds(800))
-        {
-            _logger.LogDebug("Ignoring duplicate Player navigation while previous navigation is still in-flight.");
-            return;
-        }
-
-        if (CurrentPageType == PageType.Player && elapsed < TimeSpan.FromMilliseconds(500))
-        {
-            _logger.LogDebug("Ignoring duplicate Player navigation while already on Player page.");
-            return;
-        }
-
-        _isPlayerNavigationInFlight = true;
-        _lastPlayerNavigationUtc = now;
-
-        try
-        {
-            PlayerViewModel.IsExpandedPlayerOpen = false;
-            _navigationService.NavigateTo("Player");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Player navigation threw an exception; falling back to Home.");
-            _navigationService.NavigateTo("Home");
-            _isPlayerNavigationInFlight = false;
-            return;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(900).ConfigureAwait(false);
-
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                if (CurrentPageType != PageType.Player)
-                {
-                    _logger.LogWarning("Player navigation did not settle on Player page; forcing Home fallback to keep shell responsive.");
-                    _navigationService.NavigateTo("Home");
-                }
-
-                _isPlayerNavigationInFlight = false;
-            });
-        });
+        PlayerViewModel.IsExpandedPlayerOpen = false;
+        PlayerViewModel.IsQueueOpen = false;
+        IsPlayerSidebarVisible = true;
+        IsGlobalSidebarOpen = true;
+        _rightPanelService.OpenPanel(PlayerViewModel, "NOW PLAYING", "🎵");
+        _logger.LogInformation("Player opened in right side panel.");
     }
 
     private void NavigateToImport()
