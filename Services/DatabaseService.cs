@@ -1082,49 +1082,6 @@ public class DatabaseService
     }
 
     /// <summary>
-    /// Phase 3C.5: Lazy Hydration - Fetch all actively processing tracks (not yet completed/failed).
-    /// Returns only tracks in an active state (Missing/Pending – in the queue for downloading/searching)
-    /// to avoid hydrating the full history on boot.
-    /// </summary>
-    public async Task<List<PlaylistTrackEntity>> GetActiveTracksAsync()
-    {
-        using var context = new AppDbContext();
-        var validJobIds = context.Projects.Where(j => !j.IsDeleted).Select(j => j.Id);
-
-        return await context.PlaylistTracks
-            .AsNoTracking()
-            .Where(t => validJobIds.Contains(t.PlaylistId) &&
-                        (t.Status == TrackStatus.Missing ||
-                         t.Status == TrackStatus.Pending))
-            .OrderByDescending(t => t.AddedAt)
-            .ToListAsync();
-    }
-
-    /// <summary>
-    /// Phase 3C.5: Project-scoped pending track fetch.
-    /// Fetches the next batch of pending/missing tracks for a specific project, ordered by priority.
-    /// </summary>
-    public async Task<List<PlaylistTrackEntity>> GetPendingTracksForProjectAsync(Guid projectId, int limit, List<Guid> excludeIds)
-    {
-        using var context = new AppDbContext();
-
-        var query = context.PlaylistTracks
-            .AsNoTracking()
-            .Where(t => t.PlaylistId == projectId && t.Status == TrackStatus.Missing);
-
-        if (excludeIds.Any())
-        {
-            query = query.Where(t => !excludeIds.Contains(t.Id));
-        }
-
-        return await query
-            .OrderBy(t => t.Priority)
-            .ThenBy(t => t.AddedAt)
-            .Take(limit)
-            .ToListAsync();
-    }
-
-    /// <summary>
     /// Phase 3C.5: Lazy Hydration - Fetch all non-pending tracks (History/Active).
     /// </summary>
     public async Task<List<PlaylistTrackEntity>> GetNonPendingTracksAsync()

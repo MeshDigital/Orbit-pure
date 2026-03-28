@@ -574,6 +574,7 @@ public partial class App : Application
         services.AddTransient<Views.Avalonia.AnalysisPage>();
         services.AddSingleton<ViewModels.AnalysisPageViewModel>();
         services.AddSingleton<Services.AnalysisQueueService>();
+        services.AddTransient<Views.Avalonia.NowPlayingPage>();
         
 
         

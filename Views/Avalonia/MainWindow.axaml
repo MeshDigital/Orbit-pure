@@ -19,18 +19,31 @@
         Background="Transparent">
 
     <Window.KeyBindings>
+        <!-- Quick Navigation -->
         <KeyBinding Gesture="Ctrl+D1" Command="{Binding NavigateHomeCommand}"/>
         <KeyBinding Gesture="Ctrl+D2" Command="{Binding NavigateSearchCommand}"/>
         <KeyBinding Gesture="Ctrl+D3" Command="{Binding NavigateLibraryCommand}"/>
         <KeyBinding Gesture="Ctrl+D4" Command="{Binding NavigateProjectsCommand}"/>
         <KeyBinding Gesture="Ctrl+D5" Command="{Binding NavigateSettingsCommand}"/>
         
+        <!-- Playback -->
         <KeyBinding Gesture="Space" Command="{Binding PlayPauseCommand}"/>
         <KeyBinding Gesture="Right" Command="{Binding PlayerViewModel.SeekForwardCommand}"/>
         <KeyBinding Gesture="Left" Command="{Binding PlayerViewModel.SeekBackwardCommand}"/>
-        
+
+        <!-- Search & Library -->
         <KeyBinding Gesture="Ctrl+F" Command="{Binding FocusSearchCommand}"/>
-        <KeyBinding Gesture="Ctrl+L" Command="{Binding LibraryViewModel.SyncPhysicalLibraryCommand}"/>
+        <KeyBinding Gesture="Ctrl+L" Command="{Binding NavigateLibraryCommand}"/>
+
+        <!-- App Controls -->
+        <KeyBinding Gesture="Ctrl+D" Command="{Binding NavigateProjectsCommand}"/>
+        <KeyBinding Gesture="Ctrl+Shift+S" Command="{Binding NavigateSettingsCommand}"/>
+        <KeyBinding Gesture="Ctrl+Q" Command="{Binding QuitApplicationCommand}"/>
+        <KeyBinding Gesture="Ctrl+P" Command="{Binding TogglePlayerCommand}"/>
+        <KeyBinding Gesture="Ctrl+N" Command="{Binding ToggleNavigationCommand}"/>
+        <KeyBinding Gesture="Ctrl+K" Command="{Binding ToggleCommandPaletteCommand}"/>
+        <KeyBinding Gesture="F10" Command="{Binding ToggleZenModeCommand}"/>
+        <KeyBinding Gesture="F11" Command="{Binding ToggleTopBarCommand}"/>
     </Window.KeyBindings>
 
     <Window.Styles>
@@ -70,39 +83,6 @@
             <Setter Property="HorizontalAlignment" Value="Center"/>
         </Style>
     </Window.Styles>
-    
-    <!-- Keyboard Shortcuts -->
-    <Window.KeyBindings>
-        <!-- Ctrl+F: Focus Search -->
-        <KeyBinding Gesture="Ctrl+F" Command="{Binding NavigateSearchCommand}"/>
-        
-        <!-- Ctrl+L: Go to Library -->
-        <KeyBinding Gesture="Ctrl+L" Command="{Binding NavigateLibraryCommand}"/>
-        
-        <!-- Ctrl+D: Go to Projects -->
-        <KeyBinding Gesture="Ctrl+D" Command="{Binding NavigateProjectsCommand}"/>
-        
-        <!-- Ctrl+Shift+S: Go to Settings (Ctrl+S conflicts with save) -->
-        <KeyBinding Gesture="Ctrl+Shift+S" Command="{Binding NavigateSettingsCommand}"/>
-        
-        <!-- Ctrl+Q: Quit -->
-        <KeyBinding Gesture="Ctrl+Q" Command="{Binding QuitApplicationCommand}"/>
-        
-        <!-- Ctrl+P: Toggle Player -->
-        <KeyBinding Gesture="Ctrl+P" Command="{Binding TogglePlayerCommand}"/>
-        
-        <!-- Ctrl+N: Toggle Navigation -->
-        <KeyBinding Gesture="Ctrl+N" Command="{Binding ToggleNavigationCommand}"/>
-
-        <!-- Ctrl+K: Command Palette -->
-        <KeyBinding Gesture="Ctrl+K" Command="{Binding ToggleCommandPaletteCommand}"/>
-
-        <!-- F10: Zen Mode -->
-        <KeyBinding Gesture="F10" Command="{Binding ToggleZenModeCommand}"/>
-        
-        <!-- F11: Toggle Top Bar -->
-        <KeyBinding Gesture="F11" Command="{Binding ToggleTopBarCommand}"/>
-    </Window.KeyBindings>
     
     <Grid RowDefinitions="Auto,*,Auto">
         <!-- Unified Top Command Bar -->

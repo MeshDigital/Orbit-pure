@@ -276,6 +276,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("Import", typeof(Avalonia.ImportPage));
         _navigationService.RegisterPage("ImportPreview", typeof(Avalonia.ImportPreviewPage));
         _navigationService.RegisterPage("Analysis", typeof(Avalonia.AnalysisPage));
+        _navigationService.RegisterPage("NowPlaying", typeof(Avalonia.NowPlayingPage));
         
         // Subscribe to navigation events
         _navigationService.Navigated += OnNavigated;
@@ -547,8 +548,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool HasETA => !string.IsNullOrEmpty(AnalysisETA);
 
 
-    public bool IsPlayerInSidebar => !IsPlayerAtBottom && IsPlayerSidebarVisible && CurrentPageType != PageType.TheaterMode;
-    public bool IsPlayerAtBottomVisible => IsPlayerAtBottom && CurrentPageType != PageType.TheaterMode;
+    public bool IsPlayerInSidebar => !IsPlayerAtBottom && IsPlayerSidebarVisible && CurrentPageType != PageType.TheaterMode && CurrentPageType != PageType.NowPlaying;
+    public bool IsPlayerAtBottomVisible => IsPlayerAtBottom && CurrentPageType != PageType.TheaterMode && CurrentPageType != PageType.NowPlaying;
 
     private double _baseFontSize = 14.0;
     public double BaseFontSize
@@ -698,6 +699,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 "ImportPage" => PageType.Import,
                 "ImportPreviewPage" => PageType.Import, // Map preview to Import category
                 "AnalysisPage" => PageType.Analysis,
+                "NowPlayingPage" => PageType.NowPlaying,
                 _ => CurrentPageType
             };
 
