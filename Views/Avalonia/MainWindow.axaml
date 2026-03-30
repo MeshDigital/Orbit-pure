@@ -481,7 +481,7 @@
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"/>
                         <Button Content="?"
-                                Command="{Binding ConnectionViewModel.OpenCreateAccountCommand}"
+                            Command="{Binding ConnectionViewModel.OpenAccountHelpCommand}"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Center"
                                 Width="24"
