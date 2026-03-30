@@ -1,0 +1,183 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="450" d:DesignHeight="800"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.LibraryTrackInspector"
+             x:DataType="vm:PlaylistTrackViewModel">
+
+    <Border Background="#1A1B1C" BorderBrush="#2D2D2D" BorderThickness="1,0,0,0">
+        <Grid RowDefinitions="*, Auto">
+
+            <!-- Scrollable Content -->
+            <ScrollViewer Grid.Row="0" Padding="24">
+                <StackPanel Spacing="24">
+
+                    <!-- Artwork & Primary Info -->
+                    <Grid ColumnDefinitions="120, *">
+                        <Border Grid.Column="0" CornerRadius="10" ClipToBounds="True"
+                                BoxShadow="0 6 16 0 #40000000" Width="120" Height="120">
+                            <Panel>
+                                <Image Source="{Binding Artwork.Image}"
+                                       Stretch="UniformToFill" Width="120" Height="120"
+                                       IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                                <Border Background="#252526"
+                                        IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNull}}">
+                                    <TextBlock Text="🎵" FontSize="40"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </Panel>
+                        </Border>
+
+                        <StackPanel Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center" Spacing="6">
+                            <TextBlock Text="{Binding ArtistName}" FontSize="13" FontWeight="Light"
+                                       Foreground="#AAA" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding TrackTitle}" FontSize="20" FontWeight="Bold"
+                                       Foreground="White" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding AlbumName}" FontSize="11" Foreground="#666"
+                                       TextWrapping="Wrap"/>
+
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,6,0,0">
+                                <Border Background="#12FFFFFF" CornerRadius="4" Padding="6,2">
+                                    <TextBlock Text="{Binding FormatDisplay}" FontSize="10"
+                                               FontWeight="Bold" Foreground="#4EC9B0"/>
+                                </Border>
+                                <Border Background="#12FFFFFF" CornerRadius="4" Padding="6,2"
+                                        IsVisible="{Binding Bitrate, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                    <TextBlock Text="{Binding Bitrate}" FontSize="10" Foreground="#888"/>
+                                </Border>
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+
+                    <Separator Background="#252526" Height="1"/>
+
+                    <!-- Status -->
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="STATUS" FontSize="10" FontWeight="Black" Foreground="#444"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Background="#12FFFFFF" CornerRadius="4" Padding="8,4">
+                                <TextBlock Text="{Binding StatusText}" FontSize="12"
+                                           Foreground="{Binding StatusColor}" FontWeight="SemiBold"/>
+                            </Border>
+                            <Border Background="#12FFFFFF" CornerRadius="4" Padding="8,4"
+                                    IsVisible="{Binding IntegrityBadge, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                <TextBlock Text="{Binding IntegrityBadge}" FontSize="12"
+                                           Foreground="{Binding IntegrityColor}" FontWeight="Bold"/>
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Separator Background="#252526" Height="1"/>
+
+                    <!-- Technical Metadata -->
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="TECHNICAL METADATA" FontSize="10" FontWeight="Black" Foreground="#444"/>
+                        <Grid ColumnDefinitions="*, *, *" RowDefinitions="Auto, Auto">
+                            <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                                <TextBlock Text="DURATION" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding DurationDisplay}" FontSize="13" Foreground="#CCC"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                                <TextBlock Text="BITRATE" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding Bitrate}" FontSize="13" Foreground="#CCC"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="0" Grid.Column="2" Spacing="4">
+                                <TextBlock Text="FORMAT" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding FormatDisplay}" FontSize="13"
+                                           Foreground="#4EC9B0" FontWeight="Bold"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4" Margin="0,12,0,0">
+                                <TextBlock Text="SAMPLE RATE" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding SampleRateDisplay}" FontSize="13" Foreground="#CCC"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4" Margin="0,12,0,0">
+                                <TextBlock Text="FILE SIZE" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding FileSizeDisplay}" FontSize="13" Foreground="#CCC"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="2" Spacing="4" Margin="0,12,0,0">
+                                <TextBlock Text="YEAR" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding YearDisplay}" FontSize="13" Foreground="#CCC"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+
+                    <Separator Background="#252526" Height="1"/>
+
+                    <!-- Musical Analysis -->
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="MUSICAL ANALYSIS" FontSize="10" FontWeight="Black" Foreground="#444"/>
+                        <Grid ColumnDefinitions="*, *, *" RowDefinitions="Auto, Auto">
+                            <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                                <TextBlock Text="BPM" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding BpmDisplay}" FontSize="13" FontWeight="SemiBold"
+                                           Foreground="#9CDCFE"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                                <TextBlock Text="KEY" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding CamelotDisplay}" FontSize="13" FontWeight="SemiBold"
+                                           Foreground="{Binding ColorBrush}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="0" Grid.Column="2" Spacing="4">
+                                <TextBlock Text="ENERGY" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding EnergyRating}" FontSize="13" Foreground="#CCC"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4" Margin="0,12,0,0">
+                                <TextBlock Text="LOUDNESS" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding LoudnessDisplay}" FontSize="13" Foreground="#CCC"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4" Margin="0,12,0,0">
+                                <TextBlock Text="TRUE PEAK" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding TruePeakDisplay}" FontSize="13" Foreground="#CCC"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="2" Spacing="4" Margin="0,12,0,0">
+                                <TextBlock Text="DYN. RANGE" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="{Binding DynamicRangeDisplay}" FontSize="13" Foreground="#CCC"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Genres (only shown when available) -->
+                    <StackPanel Spacing="8"
+                                IsVisible="{Binding GenresDisplay, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                        <Separator Background="#252526" Height="1"/>
+                        <TextBlock Text="GENRES" FontSize="10" FontWeight="Black" Foreground="#444"/>
+                        <TextBlock Text="{Binding GenresDisplay}" FontSize="12" Foreground="#BBB"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+
+                    <!-- Source Provenance -->
+                    <StackPanel Spacing="8"
+                                IsVisible="{Binding Source, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                        <Separator Background="#252526" Height="1"/>
+                        <TextBlock Text="SOURCE" FontSize="10" FontWeight="Black" Foreground="#444"/>
+                        <Border Background="#12FFFFFF" CornerRadius="6" Padding="12,8">
+                            <TextBlock Text="{Binding Source}" FontSize="12" Foreground="#888"
+                                       TextWrapping="Wrap"/>
+                        </Border>
+                    </StackPanel>
+
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Bottom Actions -->
+            <Border Grid.Row="1" Background="#1E1E1F" Padding="20"
+                    BorderBrush="#2D2D2D" BorderThickness="0,1,0,0">
+                <Button Command="{Binding RevealFileCommand}"
+                        IsVisible="{Binding IsCompleted}"
+                        Background="#00BFFF" Foreground="White"
+                        Padding="16,8" CornerRadius="6"
+                        HorizontalAlignment="Right">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="{StaticResource folder_open_regular}" Width="16" Height="16"/>
+                        <TextBlock Text="REVEAL IN EXPLORER" FontWeight="Bold" FontSize="11"/>
+                    </StackPanel>
+                </Button>
+            </Border>
+
+        </Grid>
+    </Border>
+</UserControl>
