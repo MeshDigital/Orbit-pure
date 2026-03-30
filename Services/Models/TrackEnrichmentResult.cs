@@ -12,6 +12,10 @@ public class TrackEnrichmentResult
     public string? MusicBrainzId { get; set; }
     public int? CanonicalDuration { get; set; }
     
+    // Release metadata
+    public System.DateTime? ReleaseDate { get; set; }
+    public string? Label { get; set; }
+
     // Audio Features
     public double? Bpm { get; set; }
     public double? Energy { get; set; }

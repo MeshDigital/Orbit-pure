@@ -69,10 +69,10 @@ public class SpotifyMetadataService : ISpotifyMetadataService
     /// </summary>
     public async Task<FullTrack?> FindTrackAsync(string artist, string title, int? durationMs = null, bool forceRefresh = false)
     {
-        // Check if user is authenticated
-        if (!await _authService.IsAuthenticatedAsync())
+        // Check if Spotify API is usable (OAuth or Client Credentials)
+        if (!_authService.CanAccessSpotifyApi())
         {
-            _logger.LogDebug("Skipping Spotify search: Not authenticated");
+            _logger.LogDebug("Skipping Spotify search: Not authenticated and no client credentials configured");
             return null;
         }
 
@@ -111,10 +111,10 @@ public class SpotifyMetadataService : ISpotifyMetadataService
             return false;
         }
 
-        // Check if user is authenticated before attempting enrichment
-        if (!await _authService.IsAuthenticatedAsync())
+        // Check if Spotify is accessible (OAuth or Client Credentials)
+        if (!_authService.CanAccessSpotifyApi())
         {
-            _logger.LogDebug("Skipping enrichment for {Artist} - {Title}: Not authenticated", track.Artist, track.Title);
+            _logger.LogDebug("Skipping enrichment for {Artist} - {Title}: No Spotify credentials configured", track.Artist, track.Title);
             return false;
         }
 
@@ -147,10 +147,10 @@ public class SpotifyMetadataService : ISpotifyMetadataService
     {
         if (string.IsNullOrEmpty(query.Artist) || string.IsNullOrEmpty(query.Title)) return false;
 
-        // Check if user is authenticated before attempting enrichment
-        if (!await _authService.IsAuthenticatedAsync())
+        // Check if Spotify is accessible (OAuth or Client Credentials)
+        if (!_authService.CanAccessSpotifyApi())
         {
-            _logger.LogDebug("Skipping query enrichment for {Artist} - {Title}: Not authenticated", query.Artist, query.Title);
+            _logger.LogDebug("Skipping query enrichment for {Artist} - {Title}: No Spotify credentials configured", query.Artist, query.Title);
             return false;
         }
 
@@ -180,8 +180,8 @@ public class SpotifyMetadataService : ISpotifyMetadataService
     {
         try
         {
-            // Get authenticated client (automatically refreshes token if needed)
-            var client = await _authService.GetAuthenticatedClientAsync();
+            // Get a usable Spotify client (OAuth if available, otherwise Client Credentials)
+            var client = await _authService.GetClientAsync();
             
             // Build search query
             var query = $"{artist} {title}";
