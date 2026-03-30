@@ -5,6 +5,7 @@ using SLSKDONET.Data;
 using SLSKDONET.Models;
 using SLSKDONET.Services.Library;
 using SLSKDONET.ViewModels;
+using SLSKDONET.ViewModels.Library;
 using Xunit;
 
 namespace SLSKDONET.Tests.ViewModels;
@@ -178,5 +179,37 @@ public class LibraryDatagridTests
 
         var orders = service.GetDefaultConfiguration().Select(c => c.DisplayOrder).ToList();
         Assert.Equal(orders.Distinct().Count(), orders.Count);
+    }
+
+    // ── TrackListViewModel queue-selection plumbing ────────────────────────
+
+    [Fact]
+    public void IsSelected_WhenSet_FiresPropertyChanged()
+    {
+        var vm = BuildVm();
+        var fired = new List<string?>();
+        vm.PropertyChanged += (_, e) => fired.Add(e.PropertyName);
+
+        vm.IsSelected = true;
+
+        Assert.Contains(nameof(vm.IsSelected), fired);
+    }
+
+    [Fact]
+    public void IsSelected_DefaultIsFalse()
+    {
+        var vm = BuildVm();
+        Assert.False(vm.IsSelected);
+    }
+
+    [Fact]
+    public void IsSelected_CanBeSetAndRead()
+    {
+        var vm = BuildVm();
+        vm.IsSelected = true;
+        Assert.True(vm.IsSelected);
+
+        vm.IsSelected = false;
+        Assert.False(vm.IsSelected);
     }
 }
