@@ -138,6 +138,7 @@ public class PlaylistTrack
     public double? Danceability { get; set; }
     public double? Valence { get; set; }
     public string? MoodTag { get; set; }
+    public float? MoodConfidence { get; set; }
     public double? InstrumentalProbability { get; set; } // Phase 18.2
     
     // Phase 21: AI Brain
