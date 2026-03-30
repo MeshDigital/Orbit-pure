@@ -77,8 +77,10 @@
                                                  Foreground="#333"
                                                  HorizontalAlignment="Center"
                                                  VerticalAlignment="Center"/>
-                                        <Image Source="{Binding CoverImageUrl, Converter={StaticResource BitmapValueConverter}}"
-                                               Stretch="UniformToFill"/>
+                                        <!-- Directly bind to the async-loaded Bitmap (single cover or generated mosaic) -->
+                                        <Image Source="{Binding CoverBitmap}"
+                                               Stretch="UniformToFill"
+                                               IsVisible="{Binding CoverBitmap, Converter={x:Static ObjectConverters.IsNotNull}}"/>
                                     </Grid>
                                 </Border>
 

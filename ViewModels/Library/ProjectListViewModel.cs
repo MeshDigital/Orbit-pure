@@ -26,6 +26,8 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     private readonly ILibraryService _libraryService;
     private readonly DownloadManager _downloadManager;
     private readonly INotificationService _notificationService;
+    private readonly ArtworkCacheService? _artworkCacheService;
+    private readonly PlaylistMosaicService? _mosaicService;
 
     // Master List: All import jobs/projects
     private ObservableCollection<PlaylistJob> _allProjects = new();
@@ -167,7 +169,9 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         SpotifyAuthService spotifyAuthService,
         IDialogService dialogService,
         IEventBus eventBus,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        ArtworkCacheService? artworkCacheService = null,
+        PlaylistMosaicService? mosaicService = null)
     {
         _logger = logger;
         _libraryService = libraryService;
@@ -178,6 +182,8 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         _spotifyAuthService = spotifyAuthService;
         _dialogService = dialogService;
         _notificationService = notificationService;
+        _artworkCacheService = artworkCacheService;
+        _mosaicService = mosaicService;
 
         // Initialize commands
         OpenProjectCommand = new RelayCommand<PlaylistJob>(project => SelectedProject = project);
@@ -346,7 +352,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
 
             foreach (var p in filtered.Take(initialChunk))
             {
-                FilteredProjectCards.Add(new LibraryPlaylistCardViewModel(p));
+                FilteredProjectCards.Add(new LibraryPlaylistCardViewModel(p, _artworkCacheService, _mosaicService));
             }
 
             for (int i = initialChunk; i < filtered.Count; i += chunkSize)
@@ -356,7 +362,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                 {
                     foreach (var p in batch)
                     {
-                        FilteredProjectCards.Add(new LibraryPlaylistCardViewModel(p));
+                        FilteredProjectCards.Add(new LibraryPlaylistCardViewModel(p, _artworkCacheService, _mosaicService));
                     }
                 }, DispatcherPriority.Background);
             }
