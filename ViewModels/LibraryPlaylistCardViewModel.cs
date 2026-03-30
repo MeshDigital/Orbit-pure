@@ -1,7 +1,12 @@
+using System;
+using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using ReactiveUI;
 using SLSKDONET.Models;
+using SLSKDONET.Services;
 using System.ComponentModel;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace SLSKDONET.ViewModels;
 
@@ -12,6 +17,23 @@ namespace SLSKDONET.ViewModels;
 public class LibraryPlaylistCardViewModel : ReactiveObject
 {
     private readonly PlaylistJob _playlist;
+    private readonly ArtworkCacheService? _artworkCacheService;
+    private readonly PlaylistMosaicService? _mosaicService;
+
+    private Bitmap? _coverBitmap;
+
+    /// <summary>
+    /// The cover bitmap to display for this playlist card.
+    /// When the playlist has a dedicated cover URL it is loaded directly.
+    /// When the playlist has no cover (e.g. it contains random tracks from many albums),
+    /// a 2×2 mosaic is generated from up to four distinct track album-art images.
+    /// This property is populated asynchronously; the UI updates via PropertyChanged.
+    /// </summary>
+    public Bitmap? CoverBitmap
+    {
+        get => _coverBitmap;
+        private set => this.RaiseAndSetIfChanged(ref _coverBitmap, value);
+    }
 
     public Guid Id => _playlist.Id;
     public string Name => _playlist.SourceTitle;
@@ -130,16 +152,65 @@ public class LibraryPlaylistCardViewModel : ReactiveObject
         set => this.RaiseAndSetIfChanged(ref _isHovered, value);
     }
 
-    public LibraryPlaylistCardViewModel(PlaylistJob playlist)
+    public LibraryPlaylistCardViewModel(
+        PlaylistJob playlist,
+        ArtworkCacheService? artworkCacheService = null,
+        PlaylistMosaicService? mosaicService = null)
     {
         _playlist = playlist ?? throw new ArgumentNullException(nameof(playlist));
+        _artworkCacheService = artworkCacheService;
+        _mosaicService = mosaicService;
         _playlist.PropertyChanged += OnPlaylistPropertyChanged;
+
+        // Kick off async cover-art load without blocking the constructor
+        _ = LoadCoverBitmapAsync();
+    }
+
+    /// <summary>
+    /// Asynchronously loads the cover bitmap.
+    /// Priority: playlist's own cover URL → 2×2 mosaic from track art → nothing.
+    /// </summary>
+    private async Task LoadCoverBitmapAsync()
+    {
+        try
+        {
+            Bitmap? bmp = null;
+
+            var coverUrl = _playlist.AlbumArtUrl;
+
+            if (!string.IsNullOrWhiteSpace(coverUrl) && _artworkCacheService != null)
+            {
+                // Playlist has its own cover image — load it
+                bmp = await _artworkCacheService.GetBitmapAsync(coverUrl);
+            }
+            else if (_mosaicService != null && _playlist.PlaylistTracks?.Count > 0)
+            {
+                // No dedicated cover: build a collage from track album-art URLs
+                var trackArtUrls = _playlist.PlaylistTracks
+                    .Select(t => t.AlbumArtUrl)
+                    .Where(u => !string.IsNullOrWhiteSpace(u))
+                    .Distinct()
+                    .Take(4);
+
+                bmp = await _mosaicService.GenerateMosaicAsync(trackArtUrls);
+            }
+
+            if (bmp != null)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => CoverBitmap = bmp);
+            }
+        }
+        catch
+        {
+            // Non-fatal — placeholder will remain visible
+        }
     }
 
     private void OnPlaylistPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         this.RaisePropertyChanged(nameof(Name));
         this.RaisePropertyChanged(nameof(CoverImageUrl));
+        this.RaisePropertyChanged(nameof(CoverBitmap));
         this.RaisePropertyChanged(nameof(TrackCount));
         this.RaisePropertyChanged(nameof(TrackCountText));
         this.RaisePropertyChanged(nameof(DownloadedCount));
@@ -153,6 +224,11 @@ public class LibraryPlaylistCardViewModel : ReactiveObject
         this.RaisePropertyChanged(nameof(PrimaryRingColor));
         this.RaisePropertyChanged(nameof(HealthStatusText));
         this.RaisePropertyChanged(nameof(ForensicFlyoutText));
+
+        // Only reload cover art when the properties that affect it actually change,
+        // to avoid redundant mosaic generation when other model fields update.
+        if (e.PropertyName is nameof(PlaylistJob.AlbumArtUrl) or nameof(PlaylistJob.PlaylistTracks))
+            _ = LoadCoverBitmapAsync();
     }
 
     // Explicit access to the underlying model if needed for commands

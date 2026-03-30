@@ -418,6 +418,7 @@ public partial class App : Application
         services.AddSingleton<ISpotifyMetadataService, SpotifyMetadataService>();
         services.AddSingleton<SpotifyMetadataService>(); // Keep concrete registration just in case
         services.AddSingleton<ArtworkCacheService>(); // Phase 0: Artwork caching
+        services.AddSingleton<PlaylistMosaicService>(); // Generates 2×2 mosaic cover art for playlists without a dedicated cover image
         services.AddSingleton<SpotifyBulkFetcher>(); // Phase 8: Robust Bulk Fetcher
         
         // Phase 1: Library Enrichment
