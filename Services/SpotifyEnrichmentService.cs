@@ -84,7 +84,17 @@ public class SpotifyEnrichmentService
 
         try 
         {
-            var client = await _authService.GetAuthenticatedClientAsync();
+            // Get a usable Spotify client (OAuth if available, otherwise Client Credentials)
+            SpotifyClient client;
+            try
+            {
+                client = await _authService.GetClientAsync();
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogDebug("Cannot access Spotify API for track identification: {Message}", ex.Message);
+                return new TrackEnrichmentResult { Success = false, Error = "Spotify API not available" };
+            }
 
             string sanitizedArtist = artist;
             string sanitizedTitle = trackName;

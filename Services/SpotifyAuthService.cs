@@ -29,6 +29,11 @@ public class SpotifyAuthService
     private readonly SemaphoreSlim _authLock = new(1, 1);
     private Task? _refreshTask;
 
+    // Client Credentials cache (for non-user-specific readonly access)
+    private SpotifyClient? _clientCredentialsClient;
+    private DateTime _clientCredentialsTokenExpiry = DateTime.MinValue;
+    private readonly SemaphoreSlim _clientCredentialsLock = new(1, 1);
+
     public event EventHandler<bool>? AuthenticationChanged;
 
     private bool _isAuthenticated;
@@ -541,6 +546,71 @@ public class SpotifyAuthService
     }
 
     /// <summary>
+    /// Gets a Spotify client for readonly/public API access.
+    /// Tries OAuth first (user-specific), then falls back to Client Credentials (app-level).
+    /// This allows metadata lookups (search, album art, track info) to work even when the
+    /// user is not logged in, as long as Client ID and Client Secret are configured.
+    /// </summary>
+    /// <returns>A usable SpotifyClient</returns>
+    /// <exception cref="InvalidOperationException">Thrown if neither OAuth nor Client Credentials are available.</exception>
+    public async Task<SpotifyClient> GetClientAsync()
+    {
+        // Prefer OAuth authenticated client (has access to user-specific endpoints)
+        if (IsAuthenticated)
+        {
+            try
+            {
+                return await GetAuthenticatedClientAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("OAuth client unavailable, falling back to Client Credentials: {Message}", ex.Message);
+            }
+        }
+
+        // Fall back to Client Credentials (no user login required — works for search, album art, etc.)
+        if (!string.IsNullOrWhiteSpace(_config.SpotifyClientId) && !string.IsNullOrWhiteSpace(_config.SpotifyClientSecret))
+        {
+            // Return cached client if its token is still valid
+            if (_clientCredentialsClient != null && DateTime.UtcNow < _clientCredentialsTokenExpiry)
+                return _clientCredentialsClient;
+
+            await _clientCredentialsLock.WaitAsync();
+            try
+            {
+                // Double-check inside the lock to avoid duplicate requests
+                if (_clientCredentialsClient != null && DateTime.UtcNow < _clientCredentialsTokenExpiry)
+                    return _clientCredentialsClient;
+
+                _logger.LogDebug("Using Spotify Client Credentials flow for readonly API access");
+                var config = SpotifyClientConfig.CreateDefault()
+                    .WithRetryHandler(new SimpleRetryHandler() { RetryAfter = TimeSpan.FromSeconds(1), RetryTimes = 3 });
+                var request = new ClientCredentialsRequest(_config.SpotifyClientId, _config.SpotifyClientSecret);
+                var response = await new OAuthClient(config).RequestToken(request);
+
+                _clientCredentialsTokenExpiry = DateTime.UtcNow.AddSeconds(response.ExpiresIn - 60);
+                _clientCredentialsClient = new SpotifyClient(config.WithToken(response.AccessToken));
+                return _clientCredentialsClient;
+            }
+            finally
+            {
+                _clientCredentialsLock.Release();
+            }
+        }
+
+        throw new InvalidOperationException("No Spotify credentials available. Please configure Client ID and Client Secret in Settings, or sign in.");
+    }
+
+    /// <summary>
+    /// Returns true if Spotify API can be used for metadata lookup — either via OAuth or Client Credentials.
+    /// </summary>
+    public bool CanAccessSpotifyApi()
+    {
+        return IsAuthenticated ||
+               (!string.IsNullOrWhiteSpace(_config.SpotifyClientId) && !string.IsNullOrWhiteSpace(_config.SpotifyClientSecret));
+    }
+
+    /// <summary>
     /// Signs out the user and clears stored tokens.
     /// </summary>
     public async Task SignOutAsync()
@@ -549,6 +619,8 @@ public class SpotifyAuthService
         _authenticatedClient = null;
         _currentTokenResponse = null;
         _currentCodeVerifier = null;
+        _clientCredentialsClient = null;
+        _clientCredentialsTokenExpiry = DateTime.MinValue;
         IsAuthenticated = false;
 
         _logger.LogInformation("User signed out, tokens cleared");

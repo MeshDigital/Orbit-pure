@@ -1166,6 +1166,8 @@ public class TrackRepository : ITrackRepository
             if (result.Genres?.Any() == true) le.Genres = string.Join(", ", result.Genres);
             if (!string.IsNullOrEmpty(result.DetectedSubGenre)) le.DetectedSubGenre = result.DetectedSubGenre;
             if (result.SubGenreConfidence > 0) le.SubGenreConfidence = result.SubGenreConfidence;
+            if (result.ReleaseDate.HasValue) le.ReleaseDate = result.ReleaseDate;
+            if (!string.IsNullOrEmpty(result.Label)) le.Label = result.Label;
             le.IsEnriched = true;
         }
         else if (entity is PlaylistTrackEntity pt)
@@ -1190,6 +1192,8 @@ public class TrackRepository : ITrackRepository
             if (!string.IsNullOrEmpty(result.MusicalKey)) pt.MusicalKey = result.MusicalKey;
             if (result.Genres?.Any() == true) pt.Genres = string.Join(", ", result.Genres);
             if (!string.IsNullOrEmpty(result.DetectedSubGenre)) pt.DetectedSubGenre = result.DetectedSubGenre;
+            if (result.ReleaseDate.HasValue) pt.ReleaseDate = result.ReleaseDate;
+            if (!string.IsNullOrEmpty(result.Label)) pt.Label = result.Label;
             pt.IsEnriched = true;
         }
         else if (entity is TrackEntity tr)
@@ -1214,6 +1218,8 @@ public class TrackRepository : ITrackRepository
             if (!string.IsNullOrEmpty(result.MusicalKey)) tr.MusicalKey = result.MusicalKey;
             if (result.Genres?.Any() == true) tr.Genres = string.Join(", ", result.Genres);
             if (!string.IsNullOrEmpty(result.DetectedSubGenre)) tr.DetectedSubGenre = result.DetectedSubGenre;
+            if (result.ReleaseDate.HasValue) tr.ReleaseDate = result.ReleaseDate;
+            if (!string.IsNullOrEmpty(result.Label)) tr.Label = result.Label;
             tr.IsEnriched = true;
         }
     }
