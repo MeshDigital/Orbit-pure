@@ -239,18 +239,18 @@
                                 </StackPanel>
                                 <ItemsControl ItemsSource="{Binding Queue}">
                                     <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
+                                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
                                             <Border Padding="8,6" CornerRadius="6" Margin="0,2">
                                                 <Border.Background>
                                                     <SolidColorBrush Color="#20FFFFFF" />
                                                 </Border.Background>
                                                 <StackPanel Spacing="2">
-                                                    <TextBlock Text="{Binding Model.TrackTitle}"
+                                                    <TextBlock Text="{Binding TrackTitle}"
                                                                FontSize="13"
                                                                Foreground="White"
                                                                TextTrimming="CharacterEllipsis"
                                                                MaxWidth="180" />
-                                                    <TextBlock Text="{Binding Model.ArtistName}"
+                                                    <TextBlock Text="{Binding ArtistName}"
                                                                FontSize="11"
                                                                Foreground="#80FFFFFF"
                                                                TextTrimming="CharacterEllipsis"

@@ -87,20 +87,23 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 return;
             }
 
-            // Perform blur on background thread to avoid UI stutter
-            ThreadPool.QueueUserWorkItem(_ =>
+            // Capture bitmap bytes on UI thread, then run blur processing in background.
+            // Keeping the MemoryStream inside the posted callback avoids using a disposed stream.
+            Dispatcher.UIThread.Post(() =>
             {
                 try
                 {
-                    using (var stream = new System.IO.MemoryStream())
-                    {
-                        Dispatcher.UIThread.Post(() => {
-                            source.Save(stream);
-                            ProcessBlur(stream.ToArray());
-                        });
-                    }
+                    using var stream = new System.IO.MemoryStream();
+                    source.Save(stream);
+                    ProcessBlur(stream.ToArray());
                 }
-                catch { }
+                catch (ObjectDisposedException)
+                {
+                    // Source can be disposed during rapid visual-tree changes; skip this frame safely.
+                }
+                catch
+                {
+                }
             });
         }
 

@@ -846,10 +846,10 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         PlayerViewModel.IsExpandedPlayerOpen = false;
         PlayerViewModel.IsQueueOpen = false;
-        IsPlayerSidebarVisible = true;
-        IsGlobalSidebarOpen = true;
-        _rightPanelService.OpenPanel(PlayerViewModel, "NOW PLAYING", "🎵");
-        _logger.LogInformation("Player opened in right side panel.");
+        IsPlayerSidebarVisible = false;
+        IsGlobalSidebarOpen = false;
+        _navigationService.NavigateTo("Player");
+        _logger.LogInformation("Navigated to Player page.");
     }
 
     private void NavigateToImport()
