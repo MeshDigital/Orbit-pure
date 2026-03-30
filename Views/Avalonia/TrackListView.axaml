@@ -84,6 +84,26 @@
                     <Rectangle Width="1" Height="14" Fill="#444" VerticalAlignment="Center" Margin="4,0"/>
                     <TextBlock Text="Total Tracks:" VerticalAlignment="Center" FontSize="11" Foreground="#666"/>
                     <TextBlock Text="{Binding FilteredTracks.Count}" VerticalAlignment="Center" FontSize="11" FontWeight="Bold" Foreground="#888"/>
+
+                    <!-- Add Selected to Queue action — visible only when ≥1 track is selected -->
+                    <Rectangle Width="1" Height="14" Fill="#444" VerticalAlignment="Center" Margin="4,0"
+                               IsVisible="{Binding HasSelectedTracks}"/>
+                    <Button Command="{Binding Operations.AddSelectedToQueueCommand}"
+                            IsVisible="{Binding HasSelectedTracks}"
+                            Padding="10,5"
+                            FontSize="11"
+                            Background="#1A2A3A"
+                            Foreground="#00BFFF"
+                            BorderBrush="#00BFFF"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            ToolTip.Tip="Add all selected tracks to the player queue">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="➕" FontSize="11" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding SelectedCountText}" FontSize="11" VerticalAlignment="Center"/>
+                            <TextBlock Text="→ Queue" FontSize="11" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
             </WrapPanel>
         </Border>
