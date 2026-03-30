@@ -48,7 +48,7 @@ ORBIT Pure is a Soulseek client built for people who care deeply about audio qua
 | Dependency | Required? | Notes |
 |:-----------|:---------|:------|
 | **FFmpeg** | Required for audio analysis | Install via `winget install ffmpeg` (Windows), `brew install ffmpeg` (macOS), or your Linux package manager |
-| **Soulseek account** | Required | Create one free at [slsknet.org](https://www.slsknet.org) |
+| **Soulseek account** | Required | No separate sign-up page: choose a unique username + password and log in once to create it (see [slsknet.org](https://www.slsknet.org) for help) |
 | **.NET 9 Runtime** | Required | Bundled with ORBIT installer; or download from [dotnet.microsoft.com](https://dotnet.microsoft.com) |
 
 ### FFmpeg Installation
