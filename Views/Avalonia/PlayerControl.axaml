@@ -11,7 +11,7 @@
              Background="#252526">
     
     <!-- Vertical Player for Right Sidebar -->
-    <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <Grid ColumnDefinitions="2*,*" RowDefinitions="Auto,Auto,*,Auto">
         
         <!-- Header -->
         <Border Grid.Row="0" 
@@ -153,7 +153,7 @@
         <Border Grid.Row="2"/>
         
         <!-- Controls Section -->
-        <StackPanel x:Name="QueueZone" Grid.Row="3" Spacing="16" Margin="16,0,16,20" DragDrop.AllowDrop="True">
+        <StackPanel x:Name="QueueZone" Grid.Row="3" Grid.Column="0" Spacing="16" Margin="16,0,16,20" DragDrop.AllowDrop="True">
             
             <!-- Waveform Seekbar -->
             <StackPanel Spacing="8">
@@ -386,5 +386,72 @@
                 </Button>
             </StackPanel>
         </StackPanel>
+
+        <Border Grid.Column="1"
+                Grid.RowSpan="4"
+                Margin="0,0,8,8"
+                Padding="10,10,10,12"
+            MinWidth="140"
+            MaxWidth="220"
+                CornerRadius="8"
+                Background="#1E1E1E"
+                BorderBrush="#3E3E3E"
+                BorderThickness="1"
+                IsVisible="{Binding IsQueueOpen}">
+            <Grid RowDefinitions="Auto,Auto,*">
+                <TextBlock Grid.Row="0"
+                           Text="UP NEXT"
+                           FontSize="10"
+                           LetterSpacing="1.4"
+                           FontWeight="SemiBold"
+                           Foreground="#88FFFFFF"/>
+
+                <Button Grid.Row="1"
+                        Command="{Binding ClearQueueCommand}"
+                        HorizontalAlignment="Right"
+                        Margin="0,6,0,8"
+                        Padding="8,2"
+                        FontSize="10"
+                        Background="#2D2D2D"
+                        BorderBrush="#3E3E3E"
+                        BorderThickness="1"
+                        IsVisible="{Binding IsQueueEmpty, Converter={StaticResource BoolInverseConverter}}"
+                        ToolTip.Tip="Clear queue">
+                    <TextBlock Text="CLEAR" Foreground="#CCCCCC"/>
+                </Button>
+
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Spacing="6">
+                        <Border IsVisible="{Binding IsQueueEmpty}" Padding="8" CornerRadius="6" Background="#182028">
+                            <TextBlock Text="Queue is empty"
+                                       FontSize="11"
+                                       Foreground="#8FA5B8"
+                                       TextAlignment="Center"/>
+                        </Border>
+
+                        <ItemsControl ItemsSource="{Binding Queue}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:PlaylistTrackViewModel">
+                                    <Border Padding="8,6" CornerRadius="6" Background="#262626">
+                                        <StackPanel Spacing="2">
+                                            <TextBlock Text="{Binding TrackTitle}"
+                                                       FontSize="11"
+                                                       Foreground="White"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       MaxWidth="180"/>
+                                            <TextBlock Text="{Binding ArtistName}"
+                                                       FontSize="10"
+                                                       Foreground="#AFAFAF"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       MaxWidth="180"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Border>
     </Grid>
 </UserControl>
