@@ -155,8 +155,8 @@ public class SearchFilterViewModel : ReactiveObject
             // Phase 19: The Bouncer Logic simplified
             if (bouncerMode == BouncerMode.Strict)
             {
-                // Strict: Only high bitrate
-                if (result.Bitrate < 320) return false;
+                // Strict: Only high bitrate (skip if bitrate is unknown/unreported)
+                if (result.Bitrate > 0 && result.Bitrate < 320) return false;
             }
             
             // 1. Bitrate Check with "Bucket Logic" for VBR
@@ -167,7 +167,10 @@ public class SearchFilterViewModel : ReactiveObject
             else if (minBitrate >= 256) effectiveMin = 220; // Allow V1
             else if (minBitrate >= 192) effectiveMin = 180; // Allow V2
 
-            if (result.Bitrate < effectiveMin) return false;
+            // Only reject when the result actually reports a bitrate.
+            // Bitrate == 0 means the metadata is absent; filtering these out would
+            // hide the majority of Soulseek results that lack embedded tags.
+            if (result.Bitrate > 0 && result.Bitrate < effectiveMin) return false;
 
             // 2. Format
             // Normalize extension
@@ -207,7 +210,7 @@ public class SearchFilterViewModel : ReactiveObject
         if (result.Model == null)
             return "Invalid result";
 
-        if (BouncerMode == BouncerMode.Strict && result.Bitrate < 320)
+        if (BouncerMode == BouncerMode.Strict && result.Bitrate > 0 && result.Bitrate < 320)
             return $"Bouncer strict mode requires 320kbps+, got {result.Bitrate}kbps";
 
         int effectiveMin = MinBitrate;
@@ -215,7 +218,7 @@ public class SearchFilterViewModel : ReactiveObject
         else if (MinBitrate >= 256) effectiveMin = 220;
         else if (MinBitrate >= 192) effectiveMin = 180;
 
-        if (result.Bitrate < effectiveMin)
+        if (result.Bitrate > 0 && result.Bitrate < effectiveMin)
             return $"Bitrate below filter floor ({effectiveMin}kbps effective minimum)";
 
         var ext = System.IO.Path.GetExtension(result.Model.Filename)?.TrimStart('.')?.ToUpperInvariant() ?? "UNKNOWN";
@@ -248,7 +251,7 @@ public class SearchFilterViewModel : ReactiveObject
             // Phase 19: The Bouncer Logic simplified
             if (BouncerMode == BouncerMode.Strict)
             {
-                if (result.Bitrate < 320) return false;
+                if (result.Bitrate > 0 && result.Bitrate < 320) return false;
             }
 
             // 1. Bitrate Check
@@ -257,7 +260,7 @@ public class SearchFilterViewModel : ReactiveObject
             else if (MinBitrate >= 256) effectiveMin = 220; 
             else if (MinBitrate >= 192) effectiveMin = 180; 
 
-            if (result.Bitrate < effectiveMin) return false;
+            if (result.Bitrate > 0 && result.Bitrate < effectiveMin) return false;
 
             // 2. Format
             var ext = System.IO.Path.GetExtension(result.Model.Filename)?.TrimStart('.')?.ToUpperInvariant() ?? "";
