@@ -29,7 +29,6 @@
 
   <ItemGroup>
     <!-- Legacy tests for components removed during cleanup/refactor. -->
-    <Compile Remove="Services\AnalysisQueueTests.cs" />
     <Compile Remove="Services\RekordboxExportTests.cs" />
     <Compile Remove="Services\PersonalClassifierTests.cs" />
     <Compile Remove="Services\PhraseAlignmentTests.cs" />

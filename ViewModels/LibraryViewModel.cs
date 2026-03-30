@@ -255,6 +255,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
 
         
         _projectAddedSubscription = _eventBus.GetEvent<ProjectAddedEvent>().Subscribe(OnProjectAdded);
+        _disposables.Add(_eventBus.GetEvent<SearchRequestedEvent>().Subscribe(OnSearchRequested));
         
         // Startup background tasks
         Task.Run(() => _libraryService.SyncLibraryEntriesFromTracksAsync()).ConfigureAwait(false);
@@ -337,13 +338,16 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         Avalonia.Threading.Dispatcher.UIThread.Post(() => 
         {
             // Update search query
-            Tracks.SearchText = evt.Query;
+            Tracks.SearchText = evt.Query?.Trim() ?? string.Empty;
             
             // Clear project selection to show "All Tracks"
             Projects.SelectedProject = null;
+
+            // Force immediate refresh so the DataGrid reflects ad-hoc query requests reliably.
+            Tracks.RefreshFilteredTracks();
             
-            // Navigate to Library if not already there (MainViewModel handles this if we publish event)
-            // But we are usually already in Library.
+            // Ensure the user lands on the Library view for ad-hoc search results.
+            MainViewModel?.NavigateLibraryCommand?.Execute(null);
         });
     }
 

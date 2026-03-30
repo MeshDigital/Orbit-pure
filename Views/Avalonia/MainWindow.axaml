@@ -27,7 +27,6 @@
         <KeyBinding Gesture="Ctrl+D5" Command="{Binding NavigateSettingsCommand}"/>
         
         <!-- Playback -->
-        <KeyBinding Gesture="Space" Command="{Binding PlayPauseCommand}"/>
         <KeyBinding Gesture="Right" Command="{Binding PlayerViewModel.SeekForwardCommand}"/>
         <KeyBinding Gesture="Left" Command="{Binding PlayerViewModel.SeekBackwardCommand}"/>
 

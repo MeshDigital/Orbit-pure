@@ -39,7 +39,8 @@ public class LibraryDatagridTests
     public void SampleRateDisplay_WhenSpectralSampleRateSet_FormatsAsKhz()
     {
         var vm = BuildVm(t => t.SpectralSampleRateHz = 44100);
-        Assert.Equal("44.1 kHz", vm.SampleRateDisplay);
+           var expectedFormatted = (44100 / 1000.0).ToString("F1", System.Globalization.CultureInfo.CurrentCulture) + " kHz";
+           Assert.Equal(expectedFormatted, vm.SampleRateDisplay);
     }
 
     [Fact]
