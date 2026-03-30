@@ -97,6 +97,7 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ShowLoginCommand { get; }
     public ICommand DismissLoginCommand { get; }
     public ICommand DisconnectCommand { get; }
+    public ICommand OpenCreateAccountCommand { get; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -132,6 +133,7 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         ShowLoginCommand = new RelayCommand(ShowLogin);
         DismissLoginCommand = new RelayCommand(DismissLogin);
         DisconnectCommand = new RelayCommand(Disconnect);
+        OpenCreateAccountCommand = new RelayCommand(OpenCreateAccountUrl);
 
         // Subscribe to lifecycle state changes — lifecycle service owns reconnect loop and state machine
         _lifecycleChangedSubscription = eventBus.GetEvent<ConnectionLifecycleStateChangedEvent>().Subscribe(evt =>
@@ -251,6 +253,23 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
     private void DismissLogin()
     {
         IsLoginOverlayVisible = false;
+    }
+
+    private void OpenCreateAccountUrl()
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "https://www.slsknet.org/news/node/1",
+                UseShellExecute = true
+            };
+            System.Diagnostics.Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to open Soulseek account creation URL. Please visit https://www.slsknet.org/news/node/1 manually.");
+        }
     }
 
     public void Disconnect()

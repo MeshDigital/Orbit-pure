@@ -474,12 +474,32 @@
                     BorderBrush="#404040"
                     BorderThickness="1">
                 <StackPanel Spacing="12">
-                    <TextBlock Text="Sign in to Soulseek" 
-                               FontSize="20" 
-                               FontWeight="Bold" 
-                               Foreground="White" 
-                               Margin="0,0,0,12"
-                               HorizontalAlignment="Center"/>
+                    <Grid Margin="0,0,0,12">
+                        <TextBlock Text="Sign in to Soulseek"
+                                   FontSize="20"
+                                   FontWeight="Bold"
+                                   Foreground="White"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                        <Button Content="?"
+                                Command="{Binding ConnectionViewModel.OpenCreateAccountCommand}"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center"
+                                Width="24"
+                                Height="24"
+                                Padding="0"
+                                FontSize="13"
+                                FontWeight="Bold"
+                                Background="#404040"
+                                Foreground="#A0A0A0"
+                                BorderBrush="#606060"
+                                BorderThickness="1"
+                                CornerRadius="12"
+                                HorizontalContentAlignment="Center"
+                                VerticalContentAlignment="Center">
+                            <ToolTip.Tip>Don't have a Soulseek account? Click to open slsknet.org and create a free account.</ToolTip.Tip>
+                        </Button>
+                    </Grid>
 
                     <TextBlock Text="Username" Foreground="#A0A0A0" FontSize="12"/>
                     <TextBox Text="{Binding ConnectionViewModel.Username, Mode=TwoWay}" 
