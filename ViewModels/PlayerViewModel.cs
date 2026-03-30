@@ -630,7 +630,8 @@ namespace SLSKDONET.ViewModels
             {
                 IsExpandedPlayerOpen = false;
                 IsQueueOpen = false;
-                _rightPanelService.OpenPanel(this, "NOW PLAYING", "🎵");
+                _rightPanelService.IsPanelOpen = false;
+                _navigationService.NavigateTo("Player");
             });
 
             // Entertainment Engine Commands
@@ -734,6 +735,11 @@ namespace SLSKDONET.ViewModels
         private void ToggleQueue()
         {
             IsQueueOpen = !IsQueueOpen;
+
+            if (_navigationService.CurrentPage?.GetType().Name == "NowPlayingPage")
+            {
+                return;
+            }
 
             if (IsQueueOpen)
             {

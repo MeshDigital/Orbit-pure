@@ -367,7 +367,7 @@
 
                                 <Button Classes="nav" Command="{Binding NavigatePlayerCommand}"
                                         ToolTip.Tip="Player"
-                                        Classes.selected="{Binding IsPlayerSidebarVisible}">
+                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.NowPlaying}}">
                                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
                                         <TextBlock Text="🎛️" FontSize="16"/>
                                         <TextBlock Text="Player" FontSize="14"/>
