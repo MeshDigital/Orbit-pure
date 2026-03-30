@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using SLSKDONET.Configuration;
 using SLSKDONET.Views;
@@ -29,8 +30,9 @@ namespace SLSKDONET.Views.Avalonia
 
         private void OnKeyDown(object? sender, global::Avalonia.Input.KeyEventArgs e)
         {
-            // Ignore if a TextBox is focused/active source to prevention typing interference
-            if (e.Source is TextBox || e.Source is AutoCompleteBox) return;
+            // Never apply window-level media shortcuts while typing in text input controls.
+            if (IsTypingIntoTextInput(e))
+                return;
 
             if (DataContext is MainViewModel vm)
             {
@@ -74,6 +76,15 @@ namespace SLSKDONET.Views.Avalonia
                         break;
                 }
             }
+        }
+
+        private bool IsTypingIntoTextInput(KeyEventArgs e)
+        {
+            if (e.Source is TextBox || e.Source is AutoCompleteBox)
+                return true;
+
+            var focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
+            return focused is TextBox || focused is AutoCompleteBox;
         }
 
         private void OnWindowPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
