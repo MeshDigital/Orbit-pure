@@ -78,6 +78,7 @@ public class SearchOrchestrationService
         int maxBitrate,
         bool isAlbumSearch,
         bool fastClearance = false,
+        int maxResultsPerLane = 5,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var searchPlan = _searchNormalization.BuildSearchPlan(query);
@@ -89,6 +90,7 @@ public class SearchOrchestrationService
             maxBitrate,
             isAlbumSearch,
             fastClearance,
+            maxResultsPerLane,
             cancellationToken))
         {
             yield return track;
@@ -103,6 +105,7 @@ public class SearchOrchestrationService
         int maxBitrate,
         bool isAlbumSearch,
         bool fastClearance = false,
+        int maxResultsPerLane = 5,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var searchPlan = _searchNormalization.BuildSearchPlan(target, query);
@@ -114,6 +117,7 @@ public class SearchOrchestrationService
             maxBitrate,
             isAlbumSearch,
             fastClearance,
+            maxResultsPerLane,
             cancellationToken))
         {
             yield return track;
@@ -128,6 +132,7 @@ public class SearchOrchestrationService
         int maxBitrate,
         bool isAlbumSearch,
         bool fastClearance,
+        int maxResultsPerLane,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var activeNow = Math.Max(1, Volatile.Read(ref _activeSearchCount) + 1);
@@ -223,6 +228,7 @@ public class SearchOrchestrationService
                     minBitrate, 
                     maxBitrate,
                     executionProfile,
+                    maxResultsPerLane,
                     cancellationToken))
                 {
                     if (seenHashes.Add(track.UniqueHash))
@@ -340,6 +346,7 @@ public class SearchOrchestrationService
         int minBitrate,
         int maxBitrate,
         SearchExecutionProfile executionProfile,
+        int maxResultsToYield,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         // Brain buffer: desperate lanes get the full accumulator window.
@@ -366,8 +373,8 @@ public class SearchOrchestrationService
         }
 
         var brainWinnerCount = lane == SearchQueryLane.Desperate
-            ? Math.Max(5, _config.StrictSearchSufficientResultCount)
-            : 5;
+            ? Math.Max(maxResultsToYield, _config.StrictSearchSufficientResultCount)
+            : maxResultsToYield;
 
         var networkQuery = BuildNetworkQuery(normalizedQuery, formatFilter, minBitrate);
         var bufferedTracks = new List<Track>();

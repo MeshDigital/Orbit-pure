@@ -654,6 +654,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                     minBitrate: MinBitrate,
                     maxBitrate: MaxBitrate,
                     isAlbumSearch: IsAlbumSearch,
+                    maxResultsPerLane: 200,
                     cancellationToken: cts.Token))
                 {
                     if (_currentSearchSessionId != sessionId)
