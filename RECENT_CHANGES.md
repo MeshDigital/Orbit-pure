@@ -1,3 +1,66 @@
+## [0.1.0-alpha.58] - Master Integration Roundup: AI + DataGrid Queue + Playlist Mosaic + Player Reconcile (Mar 30, 2026)
+
+### Overview
+`master` absorbed three major PR lines and one local reconciliation pass:
+- PR #14: AI-layer/stem-separation architecture and runtime plumbing.
+- PR #13: Library DataGrid selection wiring + selected-tracks queue action.
+- PR #15: Playlist 2x2 mosaic cover-art generation when no dedicated cover exists.
+- Local reconcile commit: player page navigation/queue behavior/crash-path fixes on top of latest `origin/master`.
+
+---
+
+### 1) AI Layer + Stem Separation (PR #14)
+- Added **Phase 13C** architecture documentation and implementation details for inference flow, queue visibility, and stealth throttling.
+- Added/updated ONNX + DirectML execution path with CPU fallback.
+- Expanded stem-separation provider chain: Spleeter CLI -> ONNX -> mock fallback.
+- Hardened analysis queue dispatch behavior and status publication semantics.
+
+Key commits:
+- `c1af0ca` (merge PR #14)
+- `1e38d95` (feature body)
+
+---
+
+### 2) Library DataGrid Selection + Queue Selected Tracks (PR #13)
+- Wired DataGrid multi-select state to `TrackListViewModel` so selection-aware actions stay consistent.
+- Added explicit "selected tracks -> queue" UI affordance and supporting tests.
+
+Key commits:
+- `dc3d63c` (merge PR #13)
+- `11d9e67` (feature body)
+
+---
+
+### 3) Playlist Mosaic Album Art (PR #15)
+- Added `PlaylistMosaicService` to generate a 2x2 collage cover from track album-art URLs when a playlist lacks a dedicated cover image.
+- Registered service in DI and wired playlist card view models to load either dedicated artwork or generated mosaic asynchronously.
+- Added service-level tests for URL deduping, empty/failure paths, and request limiting.
+
+Key commits:
+- `cfce4fe` (merge PR #15)
+- `2ba9f6a` (feature body)
+
+---
+
+### 4) Local Reconcile: Player Page + Queue + Crash Stability
+- Reconciled player behavior so **main Player navigation opens the full Player page** instead of forcing right-sidebar mode.
+- Ensured queue toggling remains local/embedded when inside full Player view.
+- Corrected Player nav selected-state binding to follow actual page route.
+- Fixed `LiveBackground` disposed-stream crash path (`ObjectDisposedException`) in async blur update flow.
+- Fixed expanded-player queue template typing/bindings to use `PlaylistTrackViewModel` members directly.
+
+Key commit:
+- `c3e5881`
+
+---
+
+### Validation Snapshot
+- Post-integration `git pull --rebase origin master`: **clean rebase**.
+- `dotnet build`: **succeeded** (non-blocking warning remains in `FlowModeService`).
+- Runtime smoke startup (`dotnet run`): no unhandled-exception/fatal pattern observed in run log.
+
+---
+
 ## [0.1.0-alpha.57] - Player UX Polish Merge (#6) (Mar 28, 2026)
 
 ### Overview
