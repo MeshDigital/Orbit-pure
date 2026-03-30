@@ -1771,6 +1771,24 @@ public class DatabaseService
             .ToListAsync();
     }
 
+    /// <summary>
+    /// Returns library entries that have no MusicBrainz data and no ISRC either,
+    /// but have enough artist/title metadata to attempt a name-based search.
+    /// </summary>
+    public async Task<List<LibraryEntryEntity>> GetLibraryEntriesNeedingMusicBrainzEnrichmentByNameAsync(int count)
+    {
+        using var context = new AppDbContext();
+        return await context.LibraryEntries
+            .Where(e =>
+                string.IsNullOrEmpty(e.MusicBrainzId) &&
+                string.IsNullOrEmpty(e.ISRC) &&
+                !string.IsNullOrEmpty(e.Artist) &&
+                e.Artist != "Unknown Artist" &&
+                !string.IsNullOrEmpty(e.Title))
+            .Take(count)
+            .ToListAsync();
+    }
+
     public async Task UpdateAudioFeaturesAsync(AudioFeaturesEntity features)
     {
         using var context = new AppDbContext();
