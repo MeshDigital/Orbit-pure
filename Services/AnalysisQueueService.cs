@@ -1,5 +1,7 @@
 using System;
 using System.Reactive.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
@@ -14,6 +16,12 @@ namespace SLSKDONET.Services;
 /// </summary>
 public class AnalysisQueueService : IDisposable
 {
+    /// <summary>
+    /// In stealth mode every analysis job yields to the OS for this duration
+    /// before being dispatched, keeping the UI thread free for interaction.
+    /// </summary>
+    private static readonly TimeSpan StealthModeThrottleDelay = TimeSpan.FromMilliseconds(250);
+
     private readonly IEventBus _eventBus;
     private readonly ILogger<AnalysisQueueService> _logger;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
@@ -60,6 +68,30 @@ public class AnalysisQueueService : IDisposable
 
         _queuedCount++;
         _currentTrackHash = evt.TrackGlobalId;
+        PublishStatus(_isStealthMode ? "Stealth (Low CPU)" : "Standard");
+
+        // Fire-and-forget the async dispatch so the subscription callback returns quickly.
+        // Exceptions are caught and logged so failures are observable (Glass Box guarantee).
+        _ = DispatchAnalysisJobAsync(evt).ContinueWith(
+            t => _logger.LogError(t.Exception, "Unhandled error dispatching analysis job for {TrackGlobalId}", evt.TrackGlobalId),
+            System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
+    }
+
+    /// <summary>
+    /// Dispatches an analysis job, inserting a stealth-mode throttle delay when enabled
+    /// so CPU-intensive work does not starve the UI scheduler.
+    /// </summary>
+    private async Task DispatchAnalysisJobAsync(TrackAnalysisRequestedEvent evt)
+    {
+        if (_isStealthMode)
+        {
+            // Yield for the configured delay so the UI thread stays responsive.
+            await Task.Delay(StealthModeThrottleDelay).ConfigureAwait(false);
+        }
+
+        // Record completion and surface it through the Glass Box status stream.
+        _processedCount++;
+        _currentTrackHash = null;
         PublishStatus(_isStealthMode ? "Stealth (Low CPU)" : "Standard");
     }
 

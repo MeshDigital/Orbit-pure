@@ -82,8 +82,18 @@ public class OnnxStemSeparator : IStemSeparator
             }
         }
 
-        // 3. Inference
-        using var session = new InferenceSession(onnxPath);
+        // 3. Inference – prefer DirectML (GPU) and fall back to CPU automatically.
+        using var sessionOptions = new SessionOptions();
+        try
+        {
+            sessionOptions.AppendExecutionProvider_DML(deviceId: 0);
+        }
+        catch
+        {
+            // DirectML not available on this platform/device; CPU will be used instead.
+        }
+
+        using var session = new InferenceSession(onnxPath, sessionOptions);
         var inputs = new List<NamedOnnxValue>
         {
             NamedOnnxValue.CreateFromTensor("waveform:0", inputTensor)
