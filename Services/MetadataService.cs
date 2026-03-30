@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Concurrent;
 using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Configuration;
@@ -30,6 +32,13 @@ public class MetadataService : IMetadataService
     private static DateTime _lastRequestTime = DateTime.MinValue;
     private const int MinRequestIntervalMs = 100; // Minimum 100ms between requests
 
+    // Shared HttpClient for MusicBrainz / Cover Art Archive requests
+    private static readonly HttpClient _httpClient = new()
+    {
+        Timeout = TimeSpan.FromSeconds(10),
+        DefaultRequestHeaders = { { "User-Agent", "ORBIT-Music-Engine/1.0.0 ( https://github.com/MeshDigital/ORBIT )" } }
+    };
+
     public MetadataService(ILogger<MetadataService> logger, AppConfig config)
     {
         _logger = logger;
@@ -41,21 +50,35 @@ public class MetadataService : IMetadataService
         if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(album))
             return null;
 
-        if (!_config.SpotifyUseApi)
-            return null;
-
         var key = $"{artist.ToLowerInvariant()}|{album.ToLowerInvariant()}";
         
         if (_cache.TryGetValue(key, out var cachedUrl))
             return cachedUrl;
 
-        // Ensure Spotify is configured
-        if (string.IsNullOrWhiteSpace(_config.SpotifyClientId) || 
-            string.IsNullOrWhiteSpace(_config.SpotifyClientSecret))
+        // Try Spotify first if enabled and credentials are configured
+        if (_config.SpotifyUseApi &&
+            !string.IsNullOrWhiteSpace(_config.SpotifyClientId) &&
+            !string.IsNullOrWhiteSpace(_config.SpotifyClientSecret))
         {
-            return null; 
+            var spotifyUrl = await GetAlbumArtFromSpotifyAsync(artist, album);
+            if (spotifyUrl != null)
+            {
+                _cache[key] = spotifyUrl;
+                return spotifyUrl;
+            }
         }
 
+        // Fall back to MusicBrainz Cover Art Archive (free, no auth required)
+        var mbUrl = await GetAlbumArtFromMusicBrainzAsync(artist, album);
+        _cache[key] = mbUrl;
+        return mbUrl;
+    }
+
+    /// <summary>
+    /// Fetches album art URL from Spotify using Client Credentials (no user login required).
+    /// </summary>
+    private async Task<string?> GetAlbumArtFromSpotifyAsync(string artist, string album)
+    {
         const int maxRetries = 3;
         for (int attempt = 0; attempt < maxRetries; attempt++)
         {
@@ -93,13 +116,10 @@ public class MetadataService : IMetadataService
                     var image = result.Images?.FirstOrDefault();
                     if (image != null)
                     {
-                        _cache[key] = image.Url;
                         return image.Url;
                     }
                 }
                 
-                // If not found, cache null to avoid repeated lookups
-                _cache[key] = null;
                 return null;
             }
             catch (APITooManyRequestsException ex)
@@ -120,21 +140,73 @@ public class MetadataService : IMetadataService
                     _logger.LogWarning(ex, 
                         "Failed to fetch metadata for {Artist} - {Album} after {Max} attempts", 
                         artist, album, maxRetries);
-                    // Cache null to prevent immediate retry
-                    _cache[key] = null;
                     return null;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to fetch metadata for {Artist} - {Album}", artist, album);
-                // Cache null on error to avoid hammering the API
-                _cache[key] = null;
+                _logger.LogWarning(ex, "Failed to fetch album art from Spotify for {Artist} - {Album}", artist, album);
                 return null;
             }
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Fetches album art URL via the MusicBrainz search API + Cover Art Archive.
+    /// No authentication required. Used as a fallback when Spotify is unavailable.
+    /// </summary>
+    private async Task<string?> GetAlbumArtFromMusicBrainzAsync(string artist, string album)
+    {
+        try
+        {
+            // Step 1: Search MusicBrainz for a matching release
+            var encodedArtist = Uri.EscapeDataString(artist);
+            var encodedAlbum = Uri.EscapeDataString(album);
+            var searchUrl = $"https://musicbrainz.org/ws/2/release/?query=artist:{encodedArtist}+release:{encodedAlbum}&limit=1&fmt=json";
+
+            var searchResponse = await _httpClient.GetAsync(searchUrl);
+            if (!searchResponse.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("MusicBrainz search failed for {Artist} - {Album}: {Status}", artist, album, searchResponse.StatusCode);
+                return null;
+            }
+
+            var searchJson = await searchResponse.Content.ReadAsStringAsync();
+            using var searchDoc = JsonDocument.Parse(searchJson);
+
+            if (!searchDoc.RootElement.TryGetProperty("releases", out var releases) || releases.GetArrayLength() == 0)
+            {
+                _logger.LogDebug("No MusicBrainz release found for {Artist} - {Album}", artist, album);
+                return null;
+            }
+
+            var mbid = releases[0].GetProperty("id").GetString();
+            if (string.IsNullOrEmpty(mbid))
+                return null;
+
+            // Step 2: Fetch cover art from Cover Art Archive
+            var coverUrl = $"https://coverartarchive.org/release/{mbid}/front-250";
+            var coverResponse = await _httpClient.GetAsync(coverUrl);
+
+            // HttpClient follows redirects automatically; IsSuccessStatusCode means we got the image
+            if (coverResponse.IsSuccessStatusCode)
+            {
+                // The final URL (after redirect) is the actual CDN image URL
+                var imageUrl = coverResponse.RequestMessage?.RequestUri?.ToString() ?? coverUrl;
+                _logger.LogDebug("MusicBrainz cover art found for {Artist} - {Album}: {Url}", artist, album, imageUrl);
+                return imageUrl;
+            }
+
+            _logger.LogDebug("No cover art in Cover Art Archive for release {Mbid} ({Artist} - {Album})", mbid, artist, album);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "MusicBrainz cover art lookup failed for {Artist} - {Album}", artist, album);
+            return null;
+        }
     }
 
     private async Task<SpotifyClient> GetClientAsync()
