@@ -496,7 +496,7 @@
                                 CornerRadius="12"
                                 HorizontalContentAlignment="Center"
                                 VerticalContentAlignment="Center">
-                            <ToolTip.Tip>Don't have a Soulseek account? Click to open slsknet.org and create a free account.</ToolTip.Tip>
+                            <ToolTip.Tip>Soulseek has no separate sign-up page. Use a new username and password to create your account on first login. Click for official help.</ToolTip.Tip>
                         </Button>
                     </Grid>
 

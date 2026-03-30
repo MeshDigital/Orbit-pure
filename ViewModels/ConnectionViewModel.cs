@@ -268,7 +268,7 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to open Soulseek account creation URL. Please visit https://www.slsknet.org/news/node/1 manually.");
+            _logger.LogWarning(ex, "Failed to open Soulseek account help URL. Please visit https://www.slsknet.org/news/node/1 manually.");
         }
     }
 
