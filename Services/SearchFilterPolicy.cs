@@ -43,7 +43,10 @@ public static class SearchFilterPolicy
 
         var bitrateAttr = file.Attributes?.FirstOrDefault(a => a.Type == FileAttributeType.BitRate);
         var rawBitrate = bitrateAttr?.Value ?? 0;
-        if (bitrateFilter.Min.HasValue && rawBitrate < bitrateFilter.Min.Value)
+        // Only apply bitrate filter when the peer actually reported a bitrate.
+        // rawBitrate == 0 means the attribute is absent; rejecting these would silently
+        // eliminate the majority of Soulseek results that lack embedded metadata.
+        if (bitrateFilter.Min.HasValue && rawBitrate > 0 && rawBitrate < bitrateFilter.Min.Value)
         {
             return new SearchFilterDecision(false, SearchRejectionReason.Bitrate);
         }
