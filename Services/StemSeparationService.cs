@@ -36,23 +36,36 @@ public class StemSeparationService
         Directory.CreateDirectory(outputDir);
 
         // Strategy Selector
-        // 1. Try Spleeter CLI
+        // 1. Try Spleeter CLI (highest accuracy – requires spleeter Python package)
         var cli = new Audio.Separation.SpleeterCliSeparator();
         if (cli.IsAvailable)
         {
             try 
             {
-                // Spleeter needs access to the file.
-                // It will output to outputDir/filename/vocals.wav
+                // Spleeter outputs to outputDir/<filename>/vocals.wav etc.
                 return await cli.SeparateAsync(trackFilePath, outputDir);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[StemSeparationService] Spleeter CLI failed: {ex.Message}. Falling back to mock.");
+                Console.WriteLine($"[StemSeparationService] Spleeter CLI failed: {ex.Message}. Trying ONNX.");
             }
         }
 
-        // 2. Fallback to Mock (Zero-dependency)
+        // 2. Try ONNX DirectML (GPU-accelerated – requires spleeter-5stems.onnx model file)
+        var onnx = new Audio.Separation.OnnxStemSeparator();
+        if (onnx.IsAvailable)
+        {
+            try
+            {
+                return await onnx.SeparateAsync(trackFilePath, outputDir);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[StemSeparationService] ONNX separator failed: {ex.Message}. Falling back to mock.");
+            }
+        }
+
+        // 3. Fallback to Mock (zero external dependencies)
         await CreateMockStemsAsync(outputDir);
 
         var result = new Dictionary<StemType, string>();

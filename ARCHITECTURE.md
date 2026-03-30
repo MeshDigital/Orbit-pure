@@ -418,6 +418,149 @@ This greatly reduces dispatcher churn under sustained result inflow.
 
 ---
 
+## 🤖 Phase 13C: AI Layer & Stem Separation
+
+### Overview
+
+Phase 13C introduces machine-learning inference directly into the ORBIT-Pure analysis
+pipeline.  All AI work is performed on background threads and is transparent to the user
+through the **Glass Box** status stream powered by `AnalysisQueueService`.
+
+### Design Principles
+
+- **Glass Box Transparency** – every queued, running, and completed analysis job is
+  published as an `AnalysisQueueStatusChangedEvent` so the UI can reflect the queue
+  state in real time.
+- **Stealth Mode** – when enabled, a 250 ms yield is inserted between jobs so the UI
+  scheduler always gets CPU time before the next analysis begins.
+- **Predictive Metadata** – AI models output *probability distributions* (not just
+  labels), stored as floating-point values (e.g. `MoodHappy.Probability = 0.83`).
+  This enables nuanced "Vibe" searches and richer Smart Crate criteria.
+- **Hardware Acceleration First** – inference prefers the DirectML GPU execution
+  provider and falls back to the ONNX CPU provider transparently.
+
+### Data Models (`Data/Essentia/EssentiaModels.cs`)
+
+Essentia's JSON output is deserialized into a typed hierarchy:
+
+```
+EssentiaOutput
+├── RhythmData   – BPM, danceability, onset rate, BPM histogram (Phase 13A)
+├── TonalData    – key/scale (EDMA + Krumhansl), chord extraction
+├── LowLevelData – loudness, spectral centroid/complexity, RMS
+└── HighLevelData (Phase 13C)
+    ├── VoiceInstrumental  → ModelPrediction { Value, Probability, All.Voice/Instrumental }
+    ├── Danceability       → ModelPrediction { Value, Probability, All.Danceable/NotDanceable }
+    ├── MoodHappy          → ModelPrediction { Value, Probability }
+    ├── MoodAggressive     → ModelPrediction
+    ├── MoodSad            → ModelPrediction
+    ├── MoodRelaxed        → ModelPrediction
+    ├── MoodParty          → ModelPrediction
+    └── MoodElectronic     → ModelPrediction
+```
+
+`ModelPrediction.Probability` is the raw confidence score from the TensorFlow model,
+stored verbatim so downstream features can apply their own thresholds.
+
+### Stem Separation (`Services/StemSeparationService.cs`)
+
+`StemSeparationService` coordinates a three-tier provider chain:
+
+```
+Track File
+    │
+    ▼
+1. SpleeterCliSeparator   (highest accuracy – requires spleeter Python CLI)
+    │  on failure ↓
+2. OnnxStemSeparator      (DirectML GPU – requires spleeter-5stems.onnx model)
+    │  on failure ↓
+3. Mock Fallback           (zero external dependencies – silent WAV stubs)
+```
+
+Separated stem WAV files are cached under `%APPDATA%/Antigravity/Stems/<trackId>/`
+and reused on subsequent requests (`HasStems` check).
+
+#### Spleeter CLI Provider (`Services/Audio/Separation/SpleeterCliSeparator.cs`)
+
+- Invokes the `spleeter separate -p spleeter:4stems` command.
+- Checks availability with `spleeter --version` before dispatch.
+- Streams stdout/stderr to the console for real-time diagnostics.
+- Cancellation is forwarded via `CancellationToken` → `Process.Kill()`.
+
+#### ONNX DirectML Provider (`Services/Audio/Separation/OnnxStemSeparator.cs`)
+
+- Loads `Tools/Essentia/models/spleeter-5stems.onnx`.
+- Appends the **DirectML** execution provider (`AppendExecutionProvider_DML(deviceId: 0)`)
+  for GPU inference; silently falls back to CPU if DirectML is unavailable.
+- De-interleaves stereo audio into a `[samples, 2]` tensor, runs inference, and
+  re-interleaves each stem output back to WAV.
+
+#### DSP Support (`Services/Audio/Separation/DSP/`)
+
+- **`ExactSTFT`** – Short-Time Fourier Transform matching librosa's default parameters
+  (n_fft=4096, hop_length=1024, symmetric Hann window, reflect padding).  Used by
+  STFT-based ONNX model variants.
+- **`TensorUtils`** – helpers for building ONNX input tensors from complex spectrograms.
+
+### Background Job Orchestration (`Services/AnalysisQueueService.cs`)
+
+```
+TrackAnalysisRequestedEvent (IEventBus)
+    │
+    ▼
+AnalysisQueueService
+    ├── _queuedCount++
+    ├── PublishStatus()           → AnalysisQueueStatusChangedEvent (Glass Box)
+    └── DispatchAnalysisJobAsync()
+            │
+            ├── [Stealth Mode ON]  → Task.Delay(250 ms)   // yield to UI
+            ├── _processedCount++
+            └── PublishStatus()   → AnalysisQueueStatusChangedEvent (Glass Box)
+```
+
+`SetStealthMode(true)` can be toggled at runtime; the change is reflected in the
+next published status event without restarting any in-flight jobs.
+
+### Structural Analysis (`Services/StructuralAnalysisEngine.cs`)
+
+The engine uses the **energy curve** stored in the database (computed from raw PCM
+during library ingestion) to detect drops without re-reading audio files.
+
+Algorithm:
+1. `ComputePhraseBoundaries(bpm, duration)` – generates 16-bar grid timestamps.
+2. `ComputeNovelty(energyCurve)` – first-order derivative; negative deltas clamped to 0.
+3. `FindDrops(energy, phrases, bpm)` – matches novelty peaks to phrase boundaries and
+   validates that energy remains above 60 % of peak for ≥ 8 bars (anti-fake-drop guard).
+4. Returns up to `MaxDrops = 3` candidates ordered by confidence.
+
+This is fully deterministic and I/O-free, making it straightforward to unit-test.
+
+### Hardware Acceleration
+
+| Provider | Requirement | Activation |
+|---|---|---|
+| DirectML (GPU) | Windows + DirectX 12 GPU | `AppendExecutionProvider_DML(0)` |
+| CPU (fallback) | None | automatic |
+
+The NuGet package `Microsoft.ML.OnnxRuntime.DirectML 1.23.0` is already a project
+dependency and handles the GPU ↔ CPU fallback at the ONNX Runtime level.
+
+### Related Files
+
+- `Data/Essentia/EssentiaModels.cs`
+- `Services/StemSeparationService.cs`
+- `Services/Audio/Separation/IStemSeparator.cs`
+- `Services/Audio/Separation/SpleeterCliSeparator.cs`
+- `Services/Audio/Separation/OnnxStemSeparator.cs`
+- `Services/Audio/Separation/DSP/ExactSTFT.cs`
+- `Services/Audio/Separation/DSP/TensorUtils.cs`
+- `Services/AnalysisQueueService.cs`
+- `Services/StructuralAnalysisEngine.cs`
+- `Tests/SLSKDONET.Tests/Services/AnalysisQueueTests.cs`
+- `Tests/SLSKDONET.Tests/Services/StructuralAnalysisEngineTests.cs`
+
+---
+
 ## 🔄 Development Workflow
 
 ### Version Control
