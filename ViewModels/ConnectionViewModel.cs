@@ -97,7 +97,7 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ShowLoginCommand { get; }
     public ICommand DismissLoginCommand { get; }
     public ICommand DisconnectCommand { get; }
-    public ICommand OpenCreateAccountCommand { get; }
+    public ICommand OpenAccountHelpCommand { get; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -133,7 +133,7 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         ShowLoginCommand = new RelayCommand(ShowLogin);
         DismissLoginCommand = new RelayCommand(DismissLogin);
         DisconnectCommand = new RelayCommand(Disconnect);
-        OpenCreateAccountCommand = new RelayCommand(OpenCreateAccountUrl);
+        OpenAccountHelpCommand = new RelayCommand(OpenAccountHelpUrl);
 
         // Subscribe to lifecycle state changes — lifecycle service owns reconnect loop and state machine
         _lifecycleChangedSubscription = eventBus.GetEvent<ConnectionLifecycleStateChangedEvent>().Subscribe(evt =>
@@ -255,7 +255,7 @@ public class ConnectionViewModel : INotifyPropertyChanged, IDisposable
         IsLoginOverlayVisible = false;
     }
 
-    private void OpenCreateAccountUrl()
+    private void OpenAccountHelpUrl()
     {
         try
         {
