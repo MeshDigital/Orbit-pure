@@ -662,7 +662,26 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     public byte[] HighData => WaveformData.HighData;
     
     // Technical Stats
-    public int SampleRate => Model.BitrateScore ?? 0; // Or add SampleRate to Model
+    public int SampleRate => Model.SpectralSampleRateHz ?? 0;
+    public string SampleRateDisplay => Model.SpectralSampleRateHz.HasValue && Model.SpectralSampleRateHz.Value > 0
+        ? $"{Model.SpectralSampleRateHz.Value / 1000.0:F1} kHz"
+        : "—";
+
+    public string LastPlayedDisplay => Model.LastPlayedAt.HasValue
+        ? Model.LastPlayedAt.Value.ToString("yyyy-MM-dd HH:mm")
+        : "—";
+
+    public string QualityScoreDisplay => Model.Integrity switch
+    {
+        Data.IntegrityLevel.Gold => "Gold",
+        Data.IntegrityLevel.Verified => "Verified",
+        Data.IntegrityLevel.Suspicious => "Review",
+        _ => Model.QualityConfidence.HasValue ? $"{Model.QualityConfidence.Value * 100:F0}%" : "—"
+    };
+
+    public bool SpectralAnalysisAvailable => !string.IsNullOrEmpty(Model.SpectralVerdictText) || (Model.SpectralSampleRateHz.GetValueOrDefault() > 0);
+    public string SpectralAnalysisDisplay => SpectralAnalysisAvailable ? "Analyzed" : "—";
+
     // Fix: LoudnessDisplay was previously incorrectly bound to QualityConfidence
     public string ConfidenceDisplay => Model.QualityConfidence.HasValue ? $"{Model.QualityConfidence:P0} Confidence" : "—";
     

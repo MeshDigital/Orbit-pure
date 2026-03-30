@@ -49,20 +49,43 @@
 
         <!-- Status Filters -->
         <Border Grid.Row="1" Background="#1E1E1E" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="16,10">
-            <StackPanel Orientation="Horizontal" Spacing="12">
-                <!-- Core Status Filters -->
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <ToggleButton Content="All" IsChecked="{Binding IsFilterAll, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
-                    <ToggleButton Content="Downloaded" IsChecked="{Binding IsFilterDownloaded, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
-                    <ToggleButton Content="Pending" IsChecked="{Binding IsFilterPending, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
-                    <ToggleButton Content="Review" IsChecked="{Binding IsFilterNeedsReview, Mode=TwoWay}" Classes="chip danger" Padding="12,5" FontSize="11"/>
-                    <ToggleButton Content="❤️" IsChecked="{Binding IsFilterLiked, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Show Liked Tracks Only"/>
-                </StackPanel>
+            <WrapPanel Orientation="Horizontal">
+                <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,4">
+                    <!-- Core Status Filters -->
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <ToggleButton Content="All" IsChecked="{Binding IsFilterAll, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
+                        <ToggleButton Content="Downloaded" IsChecked="{Binding IsFilterDownloaded, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
+                        <ToggleButton Content="Pending" IsChecked="{Binding IsFilterPending, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
+                        <ToggleButton Content="Review" IsChecked="{Binding IsFilterNeedsReview, Mode=TwoWay}" Classes="chip danger" Padding="12,5" FontSize="11"/>
+                        <ToggleButton Content="❤️" IsChecked="{Binding IsFilterLiked, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Show Liked Tracks Only"/>
+                    </StackPanel>
 
-                <Rectangle Width="1" Height="14" Fill="#444" VerticalAlignment="Center" Margin="4,0"/>
-                <TextBlock Text="Total Tracks:" VerticalAlignment="Center" FontSize="11" Foreground="#666"/>
-                <TextBlock Text="{Binding FilteredTracks.Count}" VerticalAlignment="Center" FontSize="11" FontWeight="Bold" Foreground="#888"/>
-            </StackPanel>
+                    <Rectangle Width="1" Height="14" Fill="#444" VerticalAlignment="Center" Margin="4,0"/>
+
+                    <!-- Format Filters -->
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="FORMAT:" VerticalAlignment="Center" FontSize="10" Foreground="#555" FontWeight="Bold"/>
+                        <ToggleButton Content="FLAC" IsChecked="{Binding IsFilterFlac, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Show FLAC tracks only"/>
+                        <ToggleButton Content="MP3" IsChecked="{Binding IsFilterMp3, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Show MP3 tracks only"/>
+                        <ToggleButton Content="WAV" IsChecked="{Binding IsFilterWav, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Show WAV tracks only"/>
+                        <ToggleButton Content="Lossless" IsChecked="{Binding IsFilterLossless, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Show lossless formats only (FLAC, WAV, AIFF, ALAC)"/>
+                    </StackPanel>
+
+                    <Rectangle Width="1" Height="14" Fill="#444" VerticalAlignment="Center" Margin="4,0"/>
+
+                    <!-- Quality Tier Filters -->
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="QUALITY:" VerticalAlignment="Center" FontSize="10" Foreground="#555" FontWeight="Bold"/>
+                        <ToggleButton Content="🥇 Gold" IsChecked="{Binding IsFilterQualityGold, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Show Gold-verified tracks only"/>
+                        <ToggleButton Content="🛡️ Verified" IsChecked="{Binding IsFilterQualityVerified, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Show Verified tracks only"/>
+                        <ToggleButton Content="📉 Review" IsChecked="{Binding IsFilterQualityReview, Mode=TwoWay}" Classes="chip danger" Padding="10,5" FontSize="11" ToolTip.Tip="Show tracks needing forensic review"/>
+                    </StackPanel>
+
+                    <Rectangle Width="1" Height="14" Fill="#444" VerticalAlignment="Center" Margin="4,0"/>
+                    <TextBlock Text="Total Tracks:" VerticalAlignment="Center" FontSize="11" Foreground="#666"/>
+                    <TextBlock Text="{Binding FilteredTracks.Count}" VerticalAlignment="Center" FontSize="11" FontWeight="Bold" Foreground="#888"/>
+                </StackPanel>
+            </WrapPanel>
         </Border>
 
         <!-- Track List -->
@@ -98,6 +121,10 @@
                     <Separator/>
                     <MenuItem Header="Open Folder" Command="{Binding Operations.OpenFolderCommand}" CommandParameter="{Binding #TrackGrid.SelectedItem}">
                          <MenuItem.Icon><TextBlock Text="📂" FontSize="12"/></MenuItem.Icon>
+                    </MenuItem>
+                    <Separator/>
+                    <MenuItem Header="Export to CSV" Command="{Binding BulkExportCsvCommand}">
+                         <MenuItem.Icon><TextBlock Text="📊" FontSize="12"/></MenuItem.Icon>
                     </MenuItem>
                     <Separator/>
                     <MenuItem Header="Remove Track" Command="{Binding Operations.RemoveTrackCommand}" CommandParameter="{Binding #TrackGrid.SelectedItem}" InputGesture="Delete">

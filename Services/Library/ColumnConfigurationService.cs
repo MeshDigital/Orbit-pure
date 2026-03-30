@@ -85,7 +85,14 @@ public class ColumnConfigurationService : IDisposable
             new() { Id = "Album", Header = "Album", Width = 200, DisplayOrder = 7, IsVisible = true, PropertyPath = "Album", CanSort = true },
             new() { Id = "Bitrate", Header = "Bitrate", Width = 80, DisplayOrder = 8, IsVisible = false, PropertyPath = "BitrateFormatted", CanSort = true },
             new() { Id = "Genres", Header = "Genres", Width = 150, DisplayOrder = 9, IsVisible = false, PropertyPath = "Genres", CanSort = true },
-            new() { Id = "CompletedAt", Header = "Downloaded", Width = 120, DisplayOrder = 10, IsVisible = true, PropertyPath = "CompletedAtDisplay", CanSort = true }
+            new() { Id = "CompletedAt", Header = "Downloaded", Width = 120, DisplayOrder = 10, IsVisible = true, PropertyPath = "CompletedAtDisplay", CanSort = true },
+            new() { Id = "SampleRate", Header = "Sample Rate", Width = 90, DisplayOrder = 11, IsVisible = false, PropertyPath = "SampleRateDisplay", CanSort = true },
+            new() { Id = "FileSize", Header = "File Size", Width = 90, DisplayOrder = 12, IsVisible = false, PropertyPath = "FileSizeDisplay", CanSort = true },
+            new() { Id = "LastPlayed", Header = "Last Played", Width = 120, DisplayOrder = 13, IsVisible = false, PropertyPath = "LastPlayedDisplay", CanSort = true },
+            new() { Id = "PlayCount", Header = "Plays", Width = 60, DisplayOrder = 14, IsVisible = false, PropertyPath = "PlayCount", CanSort = true, DataType = typeof(int) },
+            new() { Id = "QualityScore", Header = "Quality", Width = 80, DisplayOrder = 15, IsVisible = true, PropertyPath = "QualityScoreDisplay", CanSort = true },
+            new() { Id = "IntegrityStatus", Header = "Integrity", Width = 80, DisplayOrder = 16, IsVisible = false, PropertyPath = "IntegrityTooltip", CanSort = true },
+            new() { Id = "SpectralAnalysis", Header = "Spectral", Width = 80, DisplayOrder = 17, IsVisible = false, PropertyPath = "SpectralAnalysisDisplay", CanSort = true }
         };
     }
 
