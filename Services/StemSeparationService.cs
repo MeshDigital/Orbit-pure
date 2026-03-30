@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using SLSKDONET.Models.Stem;
 
 namespace SLSKDONET.Services;
@@ -9,12 +10,22 @@ namespace SLSKDONET.Services;
 public class StemSeparationService
 {
     private readonly IServiceProvider _serviceProvider;
+    private readonly ILogger<StemSeparationService> _logger;
+    private readonly AnalysisQueueService? _analysisQueue;
     private readonly string _stemsBaseDirectory;
 
-    public StemSeparationService(IServiceProvider serviceProvider)
+    /// <summary>Throttle delay applied in stealth mode so GPU work does not starve the UI.</summary>
+    private static readonly TimeSpan StealthModeThrottleDelay = TimeSpan.FromMilliseconds(500);
+
+    public StemSeparationService(
+        IServiceProvider serviceProvider,
+        ILogger<StemSeparationService> logger,
+        AnalysisQueueService? analysisQueue = null)
     {
         _serviceProvider = serviceProvider;
-        
+        _logger = logger;
+        _analysisQueue = analysisQueue;
+
         // Default storage location
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         _stemsBaseDirectory = Path.Combine(appData, "Antigravity", "Stems");
@@ -30,42 +41,63 @@ public class StemSeparationService
     public async Task<Dictionary<StemType, string>> SeparateTrackAsync(string trackFilePath, string trackId)
     {
         var outputDir = Path.Combine(_stemsBaseDirectory, trackId);
-        // Clean start or resume? If exists, maybe return cached?
-        // Typically we assume if HasStems is false, we separate.
-        
         Directory.CreateDirectory(outputDir);
 
-        // Strategy Selector
-        // 1. Try Spleeter CLI (highest accuracy – requires spleeter Python package)
-        var cli = new Audio.Separation.SpleeterCliSeparator();
-        if (cli.IsAvailable)
+        // Honour stealth mode: yield before launching GPU-intensive work so the UI thread stays responsive.
+        if (_analysisQueue?.IsStealthMode == true)
         {
-            try 
-            {
-                // Spleeter outputs to outputDir/<filename>/vocals.wav etc.
-                return await cli.SeparateAsync(trackFilePath, outputDir);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[StemSeparationService] Spleeter CLI failed: {ex.Message}. Trying ONNX.");
-            }
+            _logger.LogDebug("[StemSeparation] Stealth mode active – throttling before separation of {TrackId}", trackId);
+            await Task.Delay(StealthModeThrottleDelay).ConfigureAwait(false);
         }
 
-        // 2. Try ONNX DirectML (GPU-accelerated – requires spleeter-5stems.onnx model file)
+        // Strategy Selector (Priority: ONNX DirectML → Spleeter CLI → Mock)
+        // ONNX is preferred: it is GPU-accelerated via DirectML, bundled with the application,
+        // and does not require an external Python package installation.
+
+        // 1. Try ONNX DirectML (GPU-accelerated – requires spleeter-5stems.onnx model file)
         var onnx = new Audio.Separation.OnnxStemSeparator();
         if (onnx.IsAvailable)
         {
             try
             {
-                return await onnx.SeparateAsync(trackFilePath, outputDir);
+                _logger.LogInformation("[StemSeparation] Starting ONNX DirectML separation for track {TrackId}", trackId);
+                var onnxResult = await onnx.SeparateAsync(trackFilePath, outputDir);
+                _logger.LogInformation("[StemSeparation] ONNX separation completed successfully for track {TrackId}", trackId);
+                return onnxResult;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[StemSeparationService] ONNX separator failed: {ex.Message}. Falling back to mock.");
+                _logger.LogWarning(ex, "[StemSeparation] ONNX separator failed for {TrackId}. Falling back to Spleeter CLI.", trackId);
             }
+        }
+        else
+        {
+            _logger.LogDebug("[StemSeparation] ONNX model not available for {TrackId}. Checking Spleeter CLI.", trackId);
+        }
+
+        // 2. Try Spleeter CLI (requires spleeter Python package)
+        var cli = new Audio.Separation.SpleeterCliSeparator();
+        if (cli.IsAvailable)
+        {
+            try 
+            {
+                _logger.LogInformation("[StemSeparation] Starting Spleeter CLI separation for track {TrackId}", trackId);
+                var cliResult = await cli.SeparateAsync(trackFilePath, outputDir);
+                _logger.LogInformation("[StemSeparation] Spleeter CLI separation completed successfully for track {TrackId}", trackId);
+                return cliResult;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[StemSeparation] Spleeter CLI failed for {TrackId}. Falling back to mock.", trackId);
+            }
+        }
+        else
+        {
+            _logger.LogDebug("[StemSeparation] Spleeter CLI not available for {TrackId}. Using mock fallback.", trackId);
         }
 
         // 3. Fallback to Mock (zero external dependencies)
+        _logger.LogWarning("[StemSeparation] All real separators unavailable for {TrackId}. Generating silent mock stems.", trackId);
         await CreateMockStemsAsync(outputDir);
 
         var result = new Dictionary<StemType, string>();

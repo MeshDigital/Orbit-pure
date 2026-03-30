@@ -294,6 +294,12 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     
     public bool HasMood => !string.IsNullOrEmpty(MoodTag) && MoodTag != "Neutral";
 
+    /// <summary>
+    /// Probability score for the primary <see cref="MoodTag"/> (0.0 – 1.0).
+    /// From the Phase 13 AI layer (Essentia TensorFlow mood models).
+    /// </summary>
+    public float MoodConfidence => Model.MoodConfidence ?? 0f;
+
     public Models.SonicProfileData SonicProfile => new Models.SonicProfileData(
         Energy, 
         Valence, 
@@ -959,6 +965,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
                      Model.TruePeak = updatedTrack.TruePeak;
                      Model.DynamicRange = updatedTrack.DynamicRange;
                      Model.MoodTag = updatedTrack.MoodTag;
+                     Model.MoodConfidence = updatedTrack.MoodConfidence;
                      Model.InstrumentalProbability = updatedTrack.InstrumentalProbability;
                      
                      // Update Analysis info if available
@@ -1023,8 +1030,8 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
              OnPropertyChanged(nameof(Valence));
              OnPropertyChanged(nameof(MoodTag));
              OnPropertyChanged(nameof(HasMood));
+             OnPropertyChanged(nameof(MoodConfidence));
              OnPropertyChanged(nameof(SonicProfile));
-             OnPropertyChanged(nameof(Genres));
              OnPropertyChanged(nameof(Genres));
              OnPropertyChanged(nameof(Popularity));
              OnPropertyChanged(nameof(Label));

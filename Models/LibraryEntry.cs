@@ -113,6 +113,7 @@ public class LibraryEntry
     public string? PrimaryGenre { get; set; } // Phase 10
     public string? CuePointsJson { get; set; } // Phase 10
     public string? MoodTag { get; set; }
+    public float? MoodConfidence { get; set; }
     
     // Phase 21: AI Brain Upgrade
     public double? Sadness { get; set; }
