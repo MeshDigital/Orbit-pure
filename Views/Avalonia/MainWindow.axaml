@@ -421,6 +421,10 @@
                                     <DataTemplate DataType="vmCore:AnalyzedSearchResultViewModel">
                                         <controls:SearchInspector/>
                                     </DataTemplate>
+
+                                    <DataTemplate DataType="vmCore:PlaylistTrackViewModel">
+                                        <controls:LibraryTrackInspector/>
+                                    </DataTemplate>
                                 </ContentControl.DataTemplates>
                             </ContentControl>
                         </Grid>
