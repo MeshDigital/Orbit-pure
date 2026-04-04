@@ -86,6 +86,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             {
                 this.RaiseAndSetIfChanged(ref _hiddenResultsCount, value);
                 this.RaisePropertyChanged(nameof(HasHiddenResults));
+                this.RaisePropertyChanged(nameof(AllResultsFilteredByRules));
                 this.RaisePropertyChanged(nameof(ShowHiddenResultsButtonText));
             }
         }
@@ -107,6 +108,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     public bool HasHiddenResults => HiddenResultsCount > 0;
     public int DisplayedResultsCount => SearchResultsView.Count;
     public bool HasDisplayedResults => DisplayedResultsCount > 0;
+    public bool AllResultsFilteredByRules => TotalResultsReceived > 0 && HiddenResultsCount >= TotalResultsReceived;
     public string ShowHiddenResultsButtonText => ShowFilteredOutResults
         ? "Hide filtered-out"
         : $"Show filtered-out ({HiddenResultsCount})";
@@ -169,7 +171,13 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     public int TotalResultsReceived
     {
         get => _totalResultsReceived;
-        set => SetProperty(ref _totalResultsReceived, value);
+        set
+        {
+            if (SetProperty(ref _totalResultsReceived, value))
+            {
+                this.RaisePropertyChanged(nameof(AllResultsFilteredByRules));
+            }
+        }
     }
 
     private DateTime? _lastResultAtUtc;
@@ -688,7 +696,17 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                     {
                         ApplyPercentileScoring();
                         ResultsPerSecond = 0;
-                        StatusText = $"Found {TotalResultsReceived} files (stream idle)";
+
+                        if (DisplayedResultsCount == 0 && HiddenResultsCount > 0)
+                        {
+                            // If everything was filtered out, auto-reveal so streaming doesn't look broken.
+                            ShowFilteredOutResults = true;
+                            StatusText = $"Found {TotalResultsReceived} files (all filtered by current rules; showing filtered-out)";
+                        }
+                        else
+                        {
+                            StatusText = $"Found {TotalResultsReceived} files (stream idle)";
+                        }
                     }
                     else
                     {

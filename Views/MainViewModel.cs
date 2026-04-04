@@ -149,11 +149,6 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             .Subscribe(isOpen =>
             {
                 OnPropertyChanged(nameof(IsGlobalSidebarOpen));
-
-                if (!isOpen && IsPlayerSidebarVisible)
-                {
-                    IsPlayerSidebarVisible = false;
-                }
             }));
 
         _disposables.Add(_rightPanelService
@@ -846,7 +841,6 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         PlayerViewModel.IsExpandedPlayerOpen = false;
         PlayerViewModel.IsQueueOpen = false;
-        IsPlayerSidebarVisible = false;
         IsGlobalSidebarOpen = false;
         _navigationService.NavigateTo("Player");
         _logger.LogInformation("Navigated to Player page.");
