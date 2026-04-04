@@ -577,6 +577,11 @@ public partial class App : Application
         services.AddSingleton<ViewModels.AnalysisPageViewModel>();
         services.AddSingleton<Services.AnalysisQueueService>();
 
+        // ── Issue 2.1: Embedding Extraction Service ───────────────────────
+        services.AddSingleton<Services.Embeddings.EmbeddingExtractionService>();
+        services.AddSingleton<Services.Embeddings.IEmbeddingExtractionService>(sp =>
+            sp.GetRequiredService<Services.Embeddings.EmbeddingExtractionService>());
+
         // ── Issue 2.2: Similarity Index ───────────────────────────────────
         services.AddSingleton<Services.Similarity.SimilarityIndex>();
 

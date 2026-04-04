@@ -104,6 +104,9 @@ ORBIT-Pure is a high-fidelity P2P music workstation that combines Soulseek netwo
 - **AudioIntegrityService**: Performs spectral analysis and forensic checks
 - **SearchOrchestrationService**: Executes planned search lanes, bounded accumulation, and final winner ranking
 - **PlaylistExportService**: Generates professional CSV exports with forensic data
+- **SimilarityIndex** (`Services/Similarity/`): In-memory cosine-similarity index over `AudioAnalysisEntity.VectorEmbeddingJson` (128-dim float[]). Lazy-load, 1h TTL, `SemaphoreSlim` thread safety. `GetSimilarTracksAsync(hash, topN)` returns ranked matches.
+- **PlaylistOptimizer** (`Services/Playlist/`): Greedy nearest-neighbour graph ordering. Edge cost = `camelotDist × wH + bpmDiff/10 × wT + energyDiff × wE + jumpPenalty`. Post-pass applies `EnergyCurvePattern` (Rising/Wave/Peak). Config via `PlaylistOptimizerOptions`.
+- **BackgroundJobQueue / BackgroundJobWorker** (`Services/Jobs/`): `Channel<BackgroundJob>` queue with `IBackgroundJobQueue` interface. `BackgroundJobWorker` is an `IHostedService` with `SemaphoreSlim(MaxConcurrency)` gate, `IProgress<JobProgress>` reporting per job.
 
 ### Infrastructure
 - **SQLite Database**: WAL-mode optimized for concurrent operations

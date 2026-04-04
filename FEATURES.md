@@ -74,6 +74,18 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Energy Flow**: Directional mixing guidance (build → peak → cooldown)
 - **Style Recommendations**: Genre-based track suggestions
 
+### AI Automix Engine
+- **Similarity Search**: Cosine-distance matching over 128-dim audio embeddings stored per-track — `SimilarityIndex` with 1-hour TTL cache and thread-safe lazy-load
+- **Playlist Optimization**: Greedy nearest-neighbour graph over Camelot distance, BPM delta, and EnergyScore with configurable per-factor weights (`PlaylistOptimizer`)
+- **Energy Curve Sequencing**: Post-ordering pass reshapes any playlist into `Rising`, `Wave` (arch), or `Peak` (low-body + high-energy spike) energy profiles
+- **Max-BPM-Jump Guard**: Configurable penalty rejects transitions wider than a set BPM range, preventing jarring key-tempo collisions
+- **Seeded Ordering**: Optional fixed start/end track constraints for opening and closing track pinning
+
+### Background Processing
+- **Job Queue**: `Channel<T>`-backed unbounded job queue (`BackgroundJobQueue`) with configurable concurrency
+- **Progress Reporting**: Per-job `IProgress<JobProgress>` with fraction, description, and error capture — UI can subscribe to live progress events
+- **Graceful Cancellation**: All analysis and stem jobs respect `CancellationToken` top-to-bottom; worker shuts down cleanly on app exit
+
 ### Professional Export Suite
 - **Rekordbox XML**: Native export with cue points and beat grids
 - **Forensic CSV**: Professional analysis data for music librarians
