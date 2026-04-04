@@ -576,7 +576,22 @@ public partial class App : Application
         services.AddTransient<Views.Avalonia.AnalysisPage>();
         services.AddSingleton<ViewModels.AnalysisPageViewModel>();
         services.AddSingleton<Services.AnalysisQueueService>();
-        
+
+        // ── Issue 2.2: Similarity Index ───────────────────────────────────
+        services.AddSingleton<Services.Similarity.SimilarityIndex>();
+
+        // ── Issue 2.3 + 2.4: Playlist Optimizer (AI Automix) ─────────────
+        services.AddSingleton<Services.Playlist.PlaylistOptimizer>();
+
+        // ── Issue 7.1: Background Job Queue (Channel<T>) ──────────────────
+        services.AddSingleton<Services.Jobs.BackgroundJobQueue>();
+        services.AddSingleton<Services.Jobs.IBackgroundJobQueue>(sp =>
+            sp.GetRequiredService<Services.Jobs.BackgroundJobQueue>());
+        services.AddHostedService<Services.Jobs.BackgroundJobWorker>(sp =>
+            new Services.Jobs.BackgroundJobWorker(
+                sp.GetRequiredService<Services.Jobs.BackgroundJobQueue>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Jobs.BackgroundJobWorker>>()));
+
 
         
     }
