@@ -12,6 +12,8 @@ public class SpleeterCliSeparator : IStemSeparator
 {
     public string Name => "Spleeter CLI";
 
+    public string ModelTag => "spleeter-cli";
+
     public bool IsAvailable 
     {
         get 

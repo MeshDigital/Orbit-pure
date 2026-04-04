@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using SLSKDONET.Models.Stem;
+using SLSKDONET.Services.Audio; // StemCacheService.GetModelTag
 
 namespace SLSKDONET.Services.Audio.Separation;
 
@@ -21,7 +22,9 @@ public class OnnxStemSeparator : IStemSeparator
     private readonly string _modelPath;
     
     public string Name => "ONNX DirectML";
-    
+
+    public string ModelTag => StemCacheService.GetModelTag(_modelPath);
+
     public bool IsAvailable => File.Exists(_modelPath);
 
     public OnnxStemSeparator()
