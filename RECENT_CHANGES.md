@@ -1,3 +1,52 @@
+## [0.1.0-alpha.59] - AI Automix Engine: Similarity Search + Playlist Optimizer + Background Jobs (Apr 4, 2026)
+
+### Overview
+Implemented issues #25, #26, #27, #41 from the roadmap — first batch of the AI Automix feature set:
+- Track similarity search via cosine-distance on stored audio embeddings
+- Graph-based playlist ordering (Camelot + BPM + energy) with energy-curve post-pass
+- Generic background job system: `Channel<T>` queue + `IHostedService` worker
+
+---
+
+### 1) Track Similarity Search (Issue #25)
+- Added `Services/Similarity/SimilarityIndex.cs`
+- Lazy-loads all `AudioAnalysisEntity.VectorEmbeddingJson` embeddings into memory on first query
+- Cosine similarity computed as `dot / (√normA × √normB)` in a single-pass loop (no heap allocation per candidate)
+- 1-hour TTL cache; `InvalidateIndex()` for post-analysis refresh
+- Thread-safe via `SemaphoreSlim(1,1)` double-checked lock
+- Exposes: `GetSimilarTracksAsync(queryHash, topN)` → `IReadOnlyList<SimilarTrack>`
+
+---
+
+### 2) Playlist Optimization Graph (Issue #26) + Energy Sequencing (Issue #27)
+- Added `Services/Playlist/PlaylistOptimizer.cs` and `PlaylistOptimizerOptions.cs`
+- Greedy nearest-neighbour traversal on a complete directed graph; O(n²), handles ~500 tracks < 1 s
+- Edge cost function: `camelotDist × HarmonicWeight + bpmDiff/TempoBpmDivisor × TempoWeight + energyDiff × EnergyWeight + jumpPenalty`
+- Camelot distance: clock-wrap on 12-point wheel + 1.0 minor↔major crossing penalty; unknown key → neutral penalty 3.0
+- `MaxBpmJump` threshold adds `BpmJumpPenalty` to avoid jarring transitions
+- Start track: honoured via `options.StartTrackHash`; otherwise picks most-central node (min avg edge cost)
+- **Energy post-pass** (`EnergyCurvePattern` enum):
+  - `Rising` — sort ascending by EnergyScore
+  - `Wave` — ascending first half, descending second half
+  - `Peak` — lower-energy body (first ⅔), high-energy spike (last ⅓)
+- Returns `PlaylistOptimizationResult { OrderedHashes, TotalCost, UnanalyzedTrackCount }`
+
+---
+
+### 3) Background Job System (Issue #41)
+- Added `Services/Jobs/IBackgroundJobQueue.cs` — interface + `BackgroundJob` + `JobProgress` models
+- Added `Services/Jobs/BackgroundJobQueue.cs` — `Channel.CreateUnbounded<BackgroundJob>()`, `Interlocked` pending counter, `JobProgressChanged` event
+- `BackgroundJobWorker` (`BackgroundService` / `IHostedService`): `SemaphoreSlim(MaxConcurrency)` gate (default 1 for CPU-bound work); `CancellationToken` propagated; full error + cancel handling
+- All three registered in DI in `App.axaml.cs`
+
+---
+
+### Validation Snapshot
+- `dotnet build`: **succeeded** — 0 errors, 1 pre-existing warning (`FlowModeService._disposed`)
+- Commits: `6a866b0` (new services) → `997e029` (local search/parser carry-forward) → `becfbcf` (push)
+
+---
+
 ## [0.1.0-alpha.58] - Master Integration Roundup: AI + DataGrid Queue + Playlist Mosaic + Player Reconcile (Mar 30, 2026)
 
 ### Overview
