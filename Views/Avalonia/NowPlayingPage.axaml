@@ -293,7 +293,7 @@
                         </Grid>
                     </Border>
 
-                    <views:QueuePanel Grid.Row="1" DataContext="{Binding}"/>
+                    <controls:QueuePanel Grid.Row="1" DataContext="{Binding}"/>
                 </Grid>
             </Border>
         </Grid>

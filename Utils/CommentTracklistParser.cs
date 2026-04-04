@@ -12,8 +12,9 @@ namespace SLSKDONET.Utils;
 /// </summary>
 public static class CommentTracklistParser
 {
-    // Matches timestamps like: 0:00, 00:00, 1:00:00, (00:00), [00:00]
-    private static readonly Regex TimestampRegex = new(@"\s*[\[\(]?\d{1,2}:\d{2}(:\d{2})?[\]\)]?\s*", RegexOptions.Compiled);
+    // Matches a timestamp prefix like: 0:00, 00:00, 1:00:00, (00:00), [00:00],
+    // optionally followed by a separator commonly used in tracklists.
+    private static readonly Regex LeadingTimestampPrefixRegex = new(@"^\s*[\[\(]?\d{1,2}:\d{2}(?::\d{2})?[\]\)]?\s*(?:[-–—|:•]\s*)?", RegexOptions.Compiled);
     private static readonly Regex TimestampOnlyRegex = new(@"^[\[\(]?\d{1,2}:\d{2}(:\d{2})?[\]\)]?$", RegexOptions.Compiled);
     
     // Matches artist/title separator (supports: -, –, —, |, :, •)
@@ -73,7 +74,8 @@ public static class CommentTracklistParser
                 continue;
             }
 
-            var cleaned = RemoveTimestamp(original).Trim();
+            var (cleaned, hadLeadingTimestamp) = StripLeadingTimestamp(original);
+            cleaned = cleaned.Trim();
 
             if (IsJunkLine(cleaned) || string.IsNullOrWhiteSpace(cleaned))
             {
@@ -82,14 +84,20 @@ public static class CommentTracklistParser
             }
 
             // Strong signal: explicit artist/title separator.
-            // Secondary signal: line follows a timestamp and still contains separator.
-            bool isTrackCandidate = HasArtistTitleSeparator(cleaned) || (previousLineWasTimestamp && HasArtistTitleSeparator(cleaned));
+            // Also accept title-only lines when they carry a leading timestamp prefix.
+            bool hasSeparator = HasArtistTitleSeparator(cleaned);
+            bool isTrackCandidate = hasSeparator || hadLeadingTimestamp || previousLineWasTimestamp;
             previousLineWasTimestamp = false;
             if (!isTrackCandidate)
                 continue;
 
-            var (artist, title) = SplitArtistTitle(cleaned);
-            var (rawArtist, rawTitle) = SplitRaw(cleaned);
+            var (artist, title) = hasSeparator
+                ? SplitArtistTitle(cleaned)
+                : ("Unknown Artist", NormalizeTitleOnly(cleaned));
+
+            var (rawArtist, rawTitle) = hasSeparator
+                ? SplitRaw(cleaned)
+                : (string.Empty, cleaned);
 
             if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(title))
                 continue;
@@ -113,13 +121,17 @@ public static class CommentTracklistParser
         return tracks;
     }
 
-    /// <summary>
-    /// Remove leading timestamp from a line.
-    /// Handles formats: 0:00, 00:00, 1:00:00, with optional dash
-    /// </summary>
-    private static string RemoveTimestamp(string line)
+    private static (string Cleaned, bool HadLeadingTimestamp) StripLeadingTimestamp(string line)
     {
-        return TimestampRegex.Replace(line, string.Empty);
+        if (string.IsNullOrWhiteSpace(line))
+            return (line, false);
+
+        var match = LeadingTimestampPrefixRegex.Match(line);
+        if (!match.Success)
+            return (line, false);
+
+        var cleaned = line[match.Length..];
+        return (cleaned, true);
     }
 
     /// <summary>
@@ -163,11 +175,12 @@ public static class CommentTracklistParser
     private static (string Artist, string Title) SplitRaw(string line)
     {
         var normalized = StripLeadingMixMarker(line);
-        var parts = SeparatorRegex.Split(normalized, 2);
-        if (parts.Length == 2)
-            return (parts[0].Trim(), parts[1].Trim());
-        if (parts.Length == 1)
-            return ("Unknown Artist", parts[0].Trim());
+        if (TrySplitFirstSeparator(normalized, out var rawArtist, out var rawTitle))
+            return (rawArtist, rawTitle);
+
+        if (!string.IsNullOrWhiteSpace(normalized))
+            return ("Unknown Artist", normalized.Trim());
+
         return (string.Empty, string.Empty);
     }
 
@@ -181,23 +194,43 @@ public static class CommentTracklistParser
 
         // Remove emojis and special icons (❎, ❌, ‼, ❗, etc.)
         var cleaned = RemoveEmojis(normalized);
-        
-        // Split on first separator only (to handle titles with hyphens)
-        var parts = SeparatorRegex.Split(cleaned, 2);
-        
-        if (parts.Length == 2)
+
+        if (TrySplitFirstSeparator(cleaned, out var artist, out var title))
         {
-            var artist = parts[0].Trim();
-            var title = StripTrailingLabel(parts[1].Trim());
-            return (artist, title);
+            return (artist, StripTrailingLabel(title));
         }
-        else if (parts.Length == 1)
+
+        if (!string.IsNullOrWhiteSpace(cleaned))
         {
             // No separator found - assume it's just a title
-            return ("Unknown Artist", StripTrailingLabel(parts[0].Trim()));
+            return ("Unknown Artist", StripTrailingLabel(cleaned.Trim()));
         }
-        
+
         return (string.Empty, string.Empty);
+    }
+
+    private static bool TrySplitFirstSeparator(string value, out string artist, out string title)
+    {
+        artist = string.Empty;
+        title = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        var match = SeparatorRegex.Match(value);
+        if (!match.Success)
+            return false;
+
+        artist = value[..match.Index].Trim();
+        title = value[(match.Index + match.Length)..].Trim();
+        return true;
+    }
+
+    private static string NormalizeTitleOnly(string line)
+    {
+        var normalized = StripLeadingMixMarker(line);
+        var withoutEmojis = RemoveEmojis(normalized);
+        return StripTrailingLabel(withoutEmojis.Trim());
     }
 
     /// <summary>
