@@ -1,3 +1,56 @@
+## [0.1.0-alpha.61] - StemCache Model Versioning + Rekordbox Cue/Tempo Export (Apr 6, 2026)
+
+### Overview
+Implemented issues #29 (3.2) and #38 (6.1):
+- Stem cache keys now embed the model tag, enabling safe model upgrades with automatic stale-entry purging
+- Rekordbox XML export now emits `POSITION_MARK` and `TEMPO` child nodes for full DJ-software compatibility
+
+---
+
+### 1) StemCache Model-Version Aware Keys (Issue #29)
+- **`StemCacheService`**: cache key format changed to `{modelTag}!{trackHash}_{start:F2}_{dur:F2}_{stemType}.wav`
+  - `GetModelTag(modelPath)` static helper returns `Path.GetFileNameWithoutExtension(modelPath)` (e.g. `"spleeter-5stems"`)
+  - Legacy files without `!` separator are treated as stale
+  - All public API methods accept optional `string modelTag = ""` for backward compatibility
+  - `PurgeStaleEntriesAsync(currentModelTag)` deletes all `.wav` files not starting with `{currentModelTag}!`; returns count removed
+- **`IStemSeparator`**: added `string ModelTag { get; }` property to interface
+- **`OnnxStemSeparator`**: `ModelTag => StemCacheService.GetModelTag(_modelPath)` (resolves to ONNX filename without extension)
+- **`SpleeterCliSeparator`**: `ModelTag => "spleeter-cli"` (fixed literal)
+
+---
+
+### 2) Rekordbox XML Cue Points & Beat Grid (Issue #38)
+- **`PlaylistExportService`**: injected `IDbContextFactory<AppDbContext>` for DB access
+- Batch-loads all `CuePointEntity` rows for the export in a single query (keyed by `TrackUniqueHash`)
+- Per track, adds:
+  - **`TEMPO` node**: `Inizio="0.000"`, `Bpm`, `Metro="4/4"`, `Battito="1"` — one node per track at beat 1
+  - **`POSITION_MARK` nodes**: one per cue ordered by timestamp; `Name`, `Type="0"`, `Start` (seconds, 3 dp), `Num` (0-7 for hot cue pads; -1 for memory cues), `Red/Green/Blue` from `#RRGGBB` hex decomposition
+- DB cues (`CuePointEntity`) merged with user-placed cues from `PlaylistTrack.CuePointsJson` (JSON array of `OrbitCue`)
+- 50 ms deduplication window prevents double-emitting near-simultaneous cues from both sources
+
+---
+
+### Validation Snapshot
+- `dotnet build`: **succeeded** — 0 errors
+- Commit: `57d600f`
+
+---
+
+## [0.1.0-alpha.60] - Embedding Extraction Bridge (Apr 4, 2026)
+
+### Overview
+Implemented issue #24 (2.1) — `EmbeddingExtractionService` bridges `AudioFeaturesEntity` embeddings to `AudioAnalysisEntity.VectorEmbeddingJson` for `SimilarityIndex`.
+
+### Details
+- **`EmbeddingExtractionService`** (`Services/Embeddings/`): syncs embeddings per track with precedence: 512-D `DeepTextureEmbeddingBytes` → 128-D `VectorEmbeddingBytes` → synthesised 8-D scalar vector
+- `ScheduleBatchSync()` enqueues a background job; `ExtractFromEssentiaOutput()` parses Essentia JSON for embedding arrays
+- Registered in DI in `App.axaml.cs`
+
+### Validation Snapshot  
+- Commit: `f4c6f7f`
+
+---
+
 ## [0.1.0-alpha.59] - AI Automix Engine: Similarity Search + Playlist Optimizer + Background Jobs (Apr 4, 2026)
 
 ### Overview
