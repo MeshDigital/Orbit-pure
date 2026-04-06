@@ -483,6 +483,11 @@ Track File
 Separated stem WAV files are cached under `%APPDATA%/Antigravity/Stems/<trackId>/`
 and reused on subsequent requests (`HasStems` check).
 
+Cache keys embed the active model tag (e.g. `spleeter-5stems!{hash}_{start}_{dur}_{stem}.wav`).
+`StemCacheService.PurgeStaleEntriesAsync(currentModelTag)` removes stems produced by superseded
+models so that a model upgrade triggers a clean re-separation rather than serving stale output.
+`IStemSeparator` exposes a `ModelTag` property that each provider implements independently.
+
 #### Spleeter CLI Provider (`Services/Audio/Separation/SpleeterCliSeparator.cs`)
 
 - Invokes the `spleeter separate -p spleeter:4stems` command.

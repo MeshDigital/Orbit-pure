@@ -43,7 +43,8 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Waveform Visualization**: Interactive seekbar with detailed audio representation
 
 ### Advanced Audio Analysis
-- **Stem Separation**: Real-time vocal/accompaniment isolation (optional ONNX/Spleeter)
+- **Stem Separation**: Real-time vocal/accompaniment isolation (optional ONNX/Spleeter) with model-version-aware caching
+- **Stem Cache Versioning**: Cache keys include model tag (e.g. `spleeter-5stems!{hash}_{start}_{dur}_{stem}.wav`); `PurgeStaleEntriesAsync` auto-evicts stems from superseded models on upgrade
 - **Spectral Forensics**: Frequency cutoff detection and energy distribution analysis
 - **Quality Metrics**: Dynamic range, loudness, and true peak measurements
 - **Integrity Verification**: Automatic detection of audio file manipulation
@@ -87,7 +88,7 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Graceful Cancellation**: All analysis and stem jobs respect `CancellationToken` top-to-bottom; worker shuts down cleanly on app exit
 
 ### Professional Export Suite
-- **Rekordbox XML**: Native export with cue points and beat grids
+- **Rekordbox XML**: Full Pioneer DJ export — `POSITION_MARK` hot-cue/memory-cue nodes (R/G/B color, pad slots 0-7), `TEMPO` beat-grid nodes (`Inizio`, `Bpm`, `Metro`, `Battito`); cues sourced from `CuePointEntity` DB rows and per-track `CuePointsJson` (50 ms dedup window)
 - **Forensic CSV**: Professional analysis data for music librarians
 - **Batch Operations**: Efficient processing of large track collections
 - **Metadata Preservation**: Complete fidelity in export operations
