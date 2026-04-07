@@ -6,6 +6,7 @@ using Avalonia.Platform;
 using System;
 using SLSKDONET.Models;
 using SLSKDONET.Services.Audio;
+using SLSKDONET.Services.Timeline;
 using SkiaSharp;
 using Avalonia.Rendering.SceneGraph;
 using Avalonia.Skia;
@@ -191,6 +192,32 @@ namespace SLSKDONET.Views.Avalonia.Controls
             set => SetValue(CueClickedCommandProperty, value);
         }
 
+        /// <summary>
+        /// When <c>true</c>, cues released within <see cref="SnapRadiusSeconds"/>
+        /// of a beat are automatically snapped to that beat.
+        /// </summary>
+        public static readonly StyledProperty<bool> SnapToGridEnabledProperty =
+            AvaloniaProperty.Register<WaveformControl, bool>(nameof(SnapToGridEnabled), true);
+
+        public bool SnapToGridEnabled
+        {
+            get => GetValue(SnapToGridEnabledProperty);
+            set => SetValue(SnapToGridEnabledProperty, value);
+        }
+
+        /// <summary>
+        /// Maximum distance (seconds) within which a cue snaps to the nearest beat.
+        /// Default is 50 ms.
+        /// </summary>
+        public static readonly StyledProperty<double> SnapRadiusSecondsProperty =
+            AvaloniaProperty.Register<WaveformControl, double>(nameof(SnapRadiusSeconds), 0.05);
+
+        public double SnapRadiusSeconds
+        {
+            get => GetValue(SnapRadiusSecondsProperty);
+            set => SetValue(SnapRadiusSecondsProperty, Math.Max(0, value));
+        }
+
 
         static WaveformControl()
         {
@@ -231,6 +258,11 @@ namespace SLSKDONET.Views.Avalonia.Controls
         private bool _isDraggingSegment;
         private const double CueHitThreshold = 10.0;
         private const double HandleWidth = 8.0;
+
+        // Beat-snap highlight state
+        private double _snapHighlightSeconds = -1.0; // ≥0 while highlight is active
+        private float _snapHighlightAlpha = 0f;
+        private DispatcherTimer? _snapHighlightTimer;
 
         // Bitmap Cache
         private RenderTargetBitmap? _baseBitmap;
@@ -293,6 +325,8 @@ namespace SLSKDONET.Views.Avalonia.Controls
             base.OnDetachedFromVisualTree(e);
             _ghostPulseTimer?.Stop();
             _ghostPulseTimer = null;
+            _snapHighlightTimer?.Stop();
+            _snapHighlightTimer = null;
         }
 
 
@@ -515,6 +549,20 @@ namespace SLSKDONET.Views.Avalonia.Controls
             if (_isDraggingCue)
             {
                 _isDraggingCue = false;
+
+                // Magnetic beat-grid snapping: snap the cue to the nearest beat when
+                // within SnapRadiusSeconds (default 50 ms).
+                if (SnapToGridEnabled && _draggedCue != null && Bpm > 0 && WaveformData != null)
+                {
+                    double? snapped = BeatGridService.GetNearestBeatSeconds(
+                        _draggedCue.Timestamp, Bpm, SnapRadiusSeconds);
+                    if (snapped.HasValue)
+                    {
+                        _draggedCue.Timestamp = snapped.Value;
+                        ShowSnapHighlight(snapped.Value);
+                    }
+                }
+
                 if (CueUpdatedCommand != null && CueUpdatedCommand.CanExecute(_draggedCue))
                     CueUpdatedCommand.Execute(_draggedCue);
                 _draggedCue = null;
@@ -528,6 +576,35 @@ namespace SLSKDONET.Views.Avalonia.Controls
             }
             _isDraggingProgress = false;
             e.Pointer.Capture(null);
+        }
+
+        /// <summary>
+        /// Briefly flashes a cyan snap-indicator line at <paramref name="positionSeconds"/>
+        /// to give the user visual feedback that a cue was snapped to the beat grid.
+        /// The indicator fades over ~500 ms.
+        /// </summary>
+        private void ShowSnapHighlight(double positionSeconds)
+        {
+            _snapHighlightSeconds = positionSeconds;
+            _snapHighlightAlpha = 1.0f;
+            _snapHighlightTimer?.Stop();
+            _snapHighlightTimer = new DispatcherTimer(
+                TimeSpan.FromMilliseconds(33),
+                DispatcherPriority.Render,
+                (s, ev) =>
+                {
+                    _snapHighlightAlpha -= 0.065f; // ~500 ms fade (1.0 / 0.065 ≈ 15 ticks × 33 ms)
+                    if (_snapHighlightAlpha <= 0f)
+                    {
+                        _snapHighlightAlpha = 0f;
+                        _snapHighlightSeconds = -1.0;
+                        _snapHighlightTimer?.Stop();
+                        _snapHighlightTimer = null;
+                    }
+                    InvalidateVisual();
+                });
+            _snapHighlightTimer.Start();
+            InvalidateVisual();
         }
 
         private double GetCueX(OrbitCue cue, WaveformAnalysisData data)
@@ -617,6 +694,17 @@ namespace SLSKDONET.Views.Avalonia.Controls
             context.DrawLine(new Pen(PlayheadBrush ?? Brushes.White, 2), new Point(playheadX, 0), new Point(playheadX, height));
 
             RenderCues(context, width, height);
+
+            // Snap indicator: brief cyan glow fades after magnetic snap
+            if (_snapHighlightSeconds >= 0 && WaveformData != null &&
+                WaveformData.DurationSeconds > 0 && _snapHighlightAlpha > 0)
+            {
+                double snapX = (_snapHighlightSeconds / WaveformData.DurationSeconds) * width;
+                var glowBrush = new SolidColorBrush(Color.FromRgb(0, 207, 255), _snapHighlightAlpha * 0.25f);
+                context.DrawRectangle(glowBrush, null, new Rect(snapX - 4, 0, 8, height));
+                var linePen = new Pen(new SolidColorBrush(Color.FromRgb(0, 207, 255), _snapHighlightAlpha), 2);
+                context.DrawLine(linePen, new Point(snapX, 0), new Point(snapX, height));
+            }
         }
 
         private void UpdateBitmapCache(Size size)

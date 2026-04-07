@@ -107,6 +107,10 @@ namespace SLSKDONET.Views.Avalonia.Controls
             AvaloniaProperty.Register<DualWaveformDeck, float>(nameof(Bpm));
         public float Bpm { get => GetValue(BpmProperty); set => SetValue(BpmProperty, value); }
 
+        public static readonly StyledProperty<bool> SnapToGridEnabledProperty =
+            AvaloniaProperty.Register<DualWaveformDeck, bool>(nameof(SnapToGridEnabled), true);
+        public bool SnapToGridEnabled { get => GetValue(SnapToGridEnabledProperty); set => SetValue(SnapToGridEnabledProperty, value); }
+
 
 
         public DualWaveformDeck()

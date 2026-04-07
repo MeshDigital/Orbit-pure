@@ -69,6 +69,7 @@
                                             IsRolling="{Binding IsRolling}"
                                             SnappingMode="Hard"
                                             Bpm="{Binding Bpm}"
+                                            SnapToGridEnabled="{Binding SnapToGridEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             
                                             CueClickedCommand="{Binding CueClickedCommand}"
                                             CueUpdatedCommand="{Binding CueUpdatedCommand}"
@@ -87,6 +88,15 @@
                          <Border Background="#80000000" CornerRadius="4" Padding="4,2">
                              <TextBlock Name="ZoomLabel" Text="1x" FontSize="10" Foreground="#666"/>
                          </Border>
+                         <!-- Snap to Grid toggle -->
+                         <ToggleButton IsChecked="{Binding SnapToGridEnabled, RelativeSource={RelativeSource AncestorType=UserControl}, Mode=TwoWay}"
+                                       Padding="4,2"
+                                       FontSize="10"
+                                       CornerRadius="4"
+                                       Background="#80000000"
+                                       Foreground="#00CFFF"
+                                       ToolTip.Tip="Toggle beat-grid magnetic snapping"
+                                       Content="⊞ Snap"/>
                     </StackPanel>
                 </Grid>
             </Border>

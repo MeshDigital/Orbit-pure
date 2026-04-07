@@ -88,6 +88,49 @@ namespace SLSKDONET.Tests.Services.Timeline
             Assert.Equal(1, BeatGridService.BeatToBarIndex(4.0, 4));
             Assert.Equal(2, BeatGridService.BeatToBarIndex(8.1, 4));
         }
+
+        // ── GetNearestBeatSeconds (Issue #50) ──────────────────────────────
+
+        [Theory]
+        [InlineData(120.0, 0.49, 0.05, 0.5)]   // 120 BPM, beat at 0.5s, query 0.49s → snaps
+        [InlineData(120.0, 0.51, 0.05, 0.5)]   // query 0.51s → snaps
+        [InlineData(120.0, 0.0,  0.05, 0.0)]   // downbeat itself → snaps to 0.0
+        [InlineData(128.0, 0.46875, 0.05, 0.46875)] // exact beat at 128 BPM
+        public void GetNearestBeatSeconds_WithinRadius_ReturnsSnappedBeat(
+            double bpm, double position, double radius, double expected)
+        {
+            double? result = BeatGridService.GetNearestBeatSeconds(position, bpm, radius);
+            Assert.NotNull(result);
+            Assert.Equal(expected, result!.Value, 6);
+        }
+
+        [Theory]
+        [InlineData(120.0, 0.75, 0.05)]   // 120 BPM beats at 0.5 and 1.0 — 0.75 is 0.25s away, outside 0.05 radius
+        [InlineData(120.0, 0.56, 0.05)]   // 0.56 is 0.06s from 0.5 → outside radius
+        public void GetNearestBeatSeconds_OutsideRadius_ReturnsNull(
+            double bpm, double position, double radius)
+        {
+            double? result = BeatGridService.GetNearestBeatSeconds(position, bpm, radius);
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void GetNearestBeatSeconds_InvalidBpm_ReturnsNull()
+        {
+            Assert.Null(BeatGridService.GetNearestBeatSeconds(1.0, 0));
+            Assert.Null(BeatGridService.GetNearestBeatSeconds(1.0, -120));
+        }
+
+        [Fact]
+        public void GetNearestBeatSeconds_RespectsDownbeatOffset()
+        {
+            // BPM=120, beatDuration=0.5s, offset=0.1s
+            // Beats are at 0.1, 0.6, 1.1 ...
+            // Query 0.62 → nearest is 0.6, distance 0.02 < 0.05
+            double? result = BeatGridService.GetNearestBeatSeconds(0.62, 120.0, 0.05, 0.1);
+            Assert.NotNull(result);
+            Assert.Equal(0.6, result!.Value, 6);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
