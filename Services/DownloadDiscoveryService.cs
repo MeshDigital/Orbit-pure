@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Configuration;
 using SLSKDONET.Models;
+using SLSKDONET.Services.Ranking;
 using SLSKDONET.ViewModels;
 
 namespace SLSKDONET.Services;
@@ -755,10 +756,11 @@ public class DownloadDiscoveryService
                 return new DiscoveryResult(null, log);
             }
 
-            // 3. Select Best Match with simple Bitrate sorting since TieredTrackComparer is removed
+// 3. Select Best Match — TieredTrackComparer: tier-first, then blend score
+            var policy   = _config.SearchPolicy ?? SearchPolicy.QualityFirst();
+            var comparer = new TieredTrackComparer(policy, new Track { BPM = null });
             var rankedCandidates = allTracks
-                .OrderByDescending(t => t.CurrentRank)
-                .ThenByDescending(t => t.Bitrate)
+                .OrderBy(t => t, comparer)
                 .ToList();
 
             var bestMatch = rankedCandidates.FirstOrDefault();

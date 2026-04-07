@@ -1063,6 +1063,35 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+
+                    <!-- Safety Gates ─────────────────────────────────── -->
+                    <Separator Background="#3E3E3E" Height="1"/>
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Safety Gates" FontSize="13" FontWeight="SemiBold" Foreground="#DDD"/>
+                        <TextBlock Text="Strict rules applied before ranking — candidates failing any enabled gate are rejected."
+                                   Foreground="#888" FontSize="11" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="File Integrity" Foreground="#DDD" FontSize="12"/>
+                            <TextBlock Text="Reject fake FLAC / upscaled MP3 files" Foreground="#888" FontSize="10"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnforceFileIntegrity, Mode=TwoWay}" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Strict Title Match" Foreground="#DDD" FontSize="12"/>
+                            <TextBlock Text="Reject if filename doesn't contain all query tokens" Foreground="#888" FontSize="10"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnforceStrictTitleMatch, Mode=TwoWay}" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Duration Match" Foreground="#DDD" FontSize="12"/>
+                            <TextBlock Text="Reject if track duration differs significantly from target" Foreground="#888" FontSize="10"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnforceDurationMatch, Mode=TwoWay}" VerticalAlignment="Center"/>
+                    </Grid>
                 </StackPanel>
             </Border>
 

@@ -606,6 +606,44 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
     public ICommand SelectStrategyCommand { get; }
 
+    // ── Safety Gate Properties (bound to SettingsPage toggles) ───────────
+
+    public bool EnforceFileIntegrity
+    {
+        get => _config.SearchPolicy.EnforceFileIntegrity;
+        set
+        {
+            if (_config.SearchPolicy.EnforceFileIntegrity == value) return;
+            _config.SearchPolicy.EnforceFileIntegrity = value;
+            OnPropertyChanged(nameof(EnforceFileIntegrity));
+            SaveSettings();
+        }
+    }
+
+    public bool EnforceStrictTitleMatch
+    {
+        get => _config.SearchPolicy.EnforceStrictTitleMatch;
+        set
+        {
+            if (_config.SearchPolicy.EnforceStrictTitleMatch == value) return;
+            _config.SearchPolicy.EnforceStrictTitleMatch = value;
+            OnPropertyChanged(nameof(EnforceStrictTitleMatch));
+            SaveSettings();
+        }
+    }
+
+    public bool EnforceDurationMatch
+    {
+        get => _config.SearchPolicy.EnforceDurationMatch;
+        set
+        {
+            if (_config.SearchPolicy.EnforceDurationMatch == value) return;
+            _config.SearchPolicy.EnforceDurationMatch = value;
+            OnPropertyChanged(nameof(EnforceDurationMatch));
+            SaveSettings();
+        }
+    }
+
     private void InitializeStrategies()
     {
         Strategies.Add(new RankingStrategyViewModel

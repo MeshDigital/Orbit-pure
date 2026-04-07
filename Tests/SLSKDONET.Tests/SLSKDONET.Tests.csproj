@@ -35,7 +35,6 @@
     <Compile Remove="Services\SetlistStressTestServiceTests.cs" />
     <Compile Remove="Services\StyleClassifierTests.cs" />
     <Compile Remove="Services\VocalIntelligenceTests.cs" />
-    <Compile Remove="Ranking\TieredTrackComparerTests.cs" />
     <Compile Remove="ViewModels\TheaterModeViewModelTests.cs" />
   </ItemGroup>
 
