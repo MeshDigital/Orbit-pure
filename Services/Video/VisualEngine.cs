@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Text.RegularExpressions;
 using SkiaSharp;
 
 namespace SLSKDONET.Services.Video;
@@ -22,6 +24,112 @@ public sealed class VisualEngine
     /// <summary>Base hue (0–360) used by colour mapping.</summary>
     public float BaseHue { get; set; } = 200f;
 
+    // ── Task 8.5: GLSL / SkSL shader ─────────────────────────────────────
+
+    private SKRuntimeEffect? _runtimeEffect;
+    private string? _loadedShaderPath;
+
+    /// <summary>
+    /// Loads a Shadertoy-compatible GLSL fragment shader from disk and
+    /// compiles it via SkiaSharp's <see cref="SKRuntimeEffect"/> (SkSL).
+    ///
+    /// The shader may use the following uniforms injected by Orbit:
+    /// <list type="bullet">
+    ///   <item><c>uniform float2 iResolution</c> — render resolution in pixels</item>
+    ///   <item><c>uniform float  iTime</c>        — session time in seconds (progress × total)</item>
+    ///   <item><c>uniform float  iEnergy</c>       — 0–1 overall energy</item>
+    ///   <item><c>uniform float  iBeatPulse</c>    — 0–1 beat strength</item>
+    ///   <item><c>uniform float  iBpm</c>          — current BPM</item>
+    ///   <item><c>uniform float  iBand0</c> … <c>iBand5</c> — per-band magnitudes</item>
+    /// </list>
+    ///
+    /// Shadertoy entry point <c>void mainImage(out vec4 fragColor, in vec2 fragCoord)</c>
+    /// is automatically translated to SkSL's <c>half4 main(float2 fragCoord)</c>.
+    /// </summary>
+    /// <returns>null if compilation succeeds; error string on failure.</returns>
+    public string? LoadGlslShader(string filePath)
+    {
+        if (!File.Exists(filePath))
+            return $"Shader file not found: {filePath}";
+
+        string source = File.ReadAllText(filePath);
+        string sksl   = TranslateToSkSl(source);
+
+        _runtimeEffect?.Dispose();
+        _runtimeEffect = null;
+
+        _runtimeEffect = SKRuntimeEffect.Create(sksl, out string? error);
+        if (_runtimeEffect is null)
+            return $"SkSL compile error: {error}";
+
+        _loadedShaderPath = filePath;
+        Preset = VisualPreset.CustomGlsl;
+        return null; // success
+    }
+
+    /// <summary>
+    /// Translates a Shadertoy-style GLSL entry point and basic types to SkSL.
+    /// </summary>
+    private static string TranslateToSkSl(string glsl)
+    {
+        // Orbit uniform header — injected at the top of every shader
+        const string UniformBlock = """
+            uniform float2 iResolution;
+            uniform float  iTime;
+            uniform float  iEnergy;
+            uniform float  iBeatPulse;
+            uniform float  iBpm;
+            uniform float  iBand0;
+            uniform float  iBand1;
+            uniform float  iBand2;
+            uniform float  iBand3;
+            uniform float  iBand4;
+            uniform float  iBand5;
+            """;
+
+        // Replace Shadertoy entry point signature:
+        //   void mainImage( out vec4 fragColor, in vec2 fragCoord )
+        // →  half4 main(float2 fragCoord)
+        glsl = Regex.Replace(
+            glsl,
+            @"void\s+mainImage\s*\(\s*out\s+vec4\s+(\w+)\s*,\s*in\s+vec2\s+(\w+)\s*\)",
+            m => $"half4 main(float2 {m.Groups[2].Value})",
+            RegexOptions.IgnoreCase);
+
+        // Replace return fragColor = expr  →  return half4(expr)
+        // (actually: replace "fragColor = " assignments with a helper if needed)
+        // Simple pattern: rename the out variable to a local
+        // For minimal compatibility we wrap the body: insert "half4 fragColor;"
+        // before first brace after main( and append "return fragColor;" before
+        // the matching closing brace. Use a pragmatic approach: inject at start
+        // of function body.
+        glsl = Regex.Replace(
+            glsl,
+            @"(half4 main\([^)]*\)\s*\{)",
+            "$1\nhalf4 fragColor = half4(0.0);");
+
+        // Ensure a return statement exists — append before closing brace of main
+        // This is a best-effort translation; complex shaders may need manual tweaks.
+        // The closing brace heuristic: last } in the file
+        int lastBrace = glsl.LastIndexOf('}');
+        if (lastBrace >= 0)
+            glsl = glsl[..lastBrace] + "\nreturn fragColor;\n}";
+
+        // Type name mapping: vec → float, mat → float
+        glsl = glsl
+            .Replace("vec2", "float2")
+            .Replace("vec3", "float3")
+            .Replace("vec4", "float4")
+            .Replace("mat2", "float2x2")
+            .Replace("mat3", "float3x3")
+            .Replace("mat4", "float4x4")
+            .Replace("mix(",  "mix(")   // SkSL uses mix() — same name
+            .Replace("fract(","fract(") // same
+            .Replace("mod(",  "mod(");  // same
+
+        return UniformBlock + "\n" + glsl;
+    }
+
     // ── Public API ───────────────────────────────────────────────────────
 
     /// <summary>
@@ -39,10 +147,11 @@ public sealed class VisualEngine
 
         switch (Preset)
         {
-            case VisualPreset.Bars:     DrawBars(canvas, frame);     break;
-            case VisualPreset.Circles:  DrawCircles(canvas, frame);  break;
-            case VisualPreset.Waveform: DrawWaveform(canvas, frame); break;
-            case VisualPreset.Particles:DrawParticles(canvas, frame);break;
+            case VisualPreset.Bars:       DrawBars(canvas, frame);       break;
+            case VisualPreset.Circles:    DrawCircles(canvas, frame);    break;
+            case VisualPreset.Waveform:   DrawWaveform(canvas, frame);   break;
+            case VisualPreset.Particles:  DrawParticles(canvas, frame);  break;
+            case VisualPreset.CustomGlsl: DrawCustomGlsl(canvas, frame); break;
         }
 
         return bmp;
@@ -188,7 +297,41 @@ public sealed class VisualEngine
         }
     }
 
-    // ── Colour helpers ───────────────────────────────────────────────────
+    // ── Task 8.5: GLSL render path ───────────────────────────────────────
+
+    private void DrawCustomGlsl(SKCanvas canvas, VisualFrame frame)
+    {
+        if (_runtimeEffect is null)
+        {
+            // Fallback to bars if no shader is loaded
+            DrawBars(canvas, frame);
+            return;
+        }
+
+        // Use progress * an assumed 5-minute mix as a rough iTime
+        float iTime = frame.Progress * 300f;
+
+        var uniforms = new SKRuntimeEffectUniforms(_runtimeEffect);
+        uniforms.Add("iResolution", new[] { (float)Width, (float)Height });
+        uniforms.Add("iTime",       iTime);
+        uniforms.Add("iEnergy",     Math.Clamp(frame.Energy, 0f, 1f));
+        uniforms.Add("iBeatPulse",  Math.Clamp(frame.BeatPulse, 0f, 1f));
+        uniforms.Add("iBpm",        frame.Bpm);
+
+        for (int i = 0; i < 6; i++)
+        {
+            float v = i < frame.FrequencyBands.Length
+                ? Math.Clamp(frame.FrequencyBands[i], 0f, 1f)
+                : 0f;
+            uniforms.Add($"iBand{i}", v);
+        }
+
+        using var shader = _runtimeEffect.ToShader(false, uniforms);
+        using var paint  = new SKPaint { Shader = shader };
+        canvas.DrawRect(SKRect.Create(Width, Height), paint);
+    }
+
+    // ── Colour helpers ────────────────────────────────────────────────────
 
     private static SKColor HsvToSKColor(float h, float s, float v)
     {
