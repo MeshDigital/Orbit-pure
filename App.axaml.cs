@@ -594,6 +594,19 @@ public partial class App : Application
         // ── Tasks 5.1-5.5: Dual Deck Engine + Sync ───────────────────────
         services.AddSingleton<ViewModels.DeckViewModel>();
 
+        // ── Tasks 6.1-6.5: Stem Separation + Mixer + EQ ──────────────────
+        services.AddSingleton<Services.Audio.StemCacheService>();
+        services.AddSingleton<Services.Audio.Separation.DemucsModelManager>();
+        services.AddSingleton<Services.Audio.Separation.DemucsOnnxSeparator>();
+        services.AddSingleton<Services.Audio.Separation.CachedStemSeparator>(sp =>
+            new Services.Audio.Separation.CachedStemSeparator(
+                sp.GetRequiredService<Services.Audio.Separation.DemucsOnnxSeparator>(),
+                sp.GetRequiredService<Services.Audio.StemCacheService>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Audio.Separation.CachedStemSeparator>>()));
+        services.AddSingleton<ViewModels.StemMixerViewModel>();
+        services.AddSingleton<ViewModels.StemWaveformViewModel>();
+        services.AddSingleton<ViewModels.NeuralMixEqViewModel>();
+
         // ── Task 7.4-7.6: Timeline Editor ViewModel ───────────────────────
         services.AddSingleton<ViewModels.TimelineViewModel>();
 
