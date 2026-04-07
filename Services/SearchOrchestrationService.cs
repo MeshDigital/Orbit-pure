@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using SLSKDONET.Configuration;
 using SLSKDONET.Models;
 using SLSKDONET.Services.InputParsers;
+using SLSKDONET.Services.Ranking;
 using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services;
@@ -629,7 +630,11 @@ public class SearchOrchestrationService
             });
         }
         
-        // Rank the results
+        // Rank the results using TieredTrackComparer (deterministic tiers) with blend-score
+        // tie-breaking within the same tier.
+        var policy  = _config?.SearchPolicy ?? SearchPolicy.QualityFirst();
+        var tieredComparer = new TieredTrackComparer(policy, searchTrack);
+
         var rankedResults = ResultSorter.OrderResults(results, searchTrack, evaluator)
             .Select(track =>
             {
@@ -650,13 +655,17 @@ public class SearchOrchestrationService
                 track.CurrentRank = finalScore;
                 return track;
             })
-            .OrderByDescending(track => track.CurrentRank)
-            .ThenBy(track => track.QueueLength)
-            .ThenByDescending(track => track.Bitrate)
             .ToList();
+
+        // Final sort: tier first (TieredTrackComparer), then blend score within the same tier.
+        rankedResults.Sort((a, b) =>
+        {
+            int tierCmp = tieredComparer.Compare(a, b);
+            return tierCmp != 0 ? tierCmp : b.CurrentRank.CompareTo(a.CurrentRank);
+        });
         
         _logger.LogInformation("Results ranked successfully");
-        return rankedResults.ToList();
+        return rankedResults;
     }
 
     private SearchSelectionAudit BuildSelectionAudit(
