@@ -149,10 +149,10 @@ namespace SLSKDONET.Tests.Services
             var ch = new SLSKDONET.ViewModels.StemChannelViewModel(
                 StemType.Other, CreateMixer());
 
-            ch.MuteCommand.Execute(System.Reactive.Unit.Default);
+            ch.MuteCommand.Execute(System.Reactive.Unit.Default).Subscribe();
             Assert.True(ch.IsMuted);
 
-            ch.MuteCommand.Execute(System.Reactive.Unit.Default);
+            ch.MuteCommand.Execute(System.Reactive.Unit.Default).Subscribe();
             Assert.False(ch.IsMuted);
         }
 
@@ -162,7 +162,7 @@ namespace SLSKDONET.Tests.Services
             var ch = new SLSKDONET.ViewModels.StemChannelViewModel(
                 StemType.Vocals, CreateMixer());
 
-            ch.SoloCommand.Execute(System.Reactive.Unit.Default);
+            ch.SoloCommand.Execute(System.Reactive.Unit.Default).Subscribe();
             Assert.True(ch.IsSoloed);
         }
 
@@ -173,7 +173,7 @@ namespace SLSKDONET.Tests.Services
                 StemType.Drums, CreateMixer());
 
             ch.GainDb = 9f; ch.Pan = 0.5f; ch.IsMuted = true;
-            ch.ResetCommand.Execute(System.Reactive.Unit.Default);
+            ch.ResetCommand.Execute(System.Reactive.Unit.Default).Subscribe();
 
             Assert.Equal(0f,   ch.GainDb);
             Assert.Equal(0f,   ch.Pan);
