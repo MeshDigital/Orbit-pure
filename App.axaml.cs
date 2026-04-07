@@ -591,6 +591,9 @@ public partial class App : Application
         // ── Issue 2.2: Similarity Index ───────────────────────────────────
         services.AddSingleton<Services.Similarity.SimilarityIndex>();
 
+        // ── Task 2.4: Similar Tracks Panel ────────────────────────────────
+        services.AddTransient<ViewModels.SimilarTracksViewModel>();
+
         // ── Issue 2.3 + 2.4: Playlist Optimizer (AI Automix) ─────────────
         services.AddSingleton<Services.Playlist.PlaylistOptimizer>();
 
