@@ -1,0 +1,237 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:SLSKDONET.ViewModels"
+        mc:Ignorable="d" d:DesignWidth="520" d:DesignHeight="640"
+        x:Class="SLSKDONET.Views.Avalonia.Dialogs.AutomixConfigDialog"
+        Title="Automix Configuration"
+        Width="520" MinHeight="540"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        SystemDecorations="Full">
+
+    <Design.DataContext>
+        <vm:AutomixConfigViewModel/>
+    </Design.DataContext>
+
+    <Border Padding="24" Background="#1A1A1A">
+        <Grid RowDefinitions="Auto, *, Auto">
+
+            <!-- ── Header ─────────────────────────────────────────────────── -->
+            <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,16">
+                <TextBlock Text="Automix Configuration"
+                           FontSize="20" FontWeight="Bold" Foreground="White"/>
+                <TextBlock Text="Tune how the AI selects and sequences tracks for your set."
+                           FontSize="12" Foreground="#777777" TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <!-- ── Scrollable form ──────────────────────────────────────────── -->
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <StackPanel Spacing="20">
+
+                    <!-- BPM Range -->
+                    <Border Background="#222222" CornerRadius="6" Padding="14">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="BPM Range" FontWeight="SemiBold"
+                                       Foreground="White" FontSize="13"/>
+                            <Grid ColumnDefinitions="*, 20, *">
+                                <StackPanel Grid.Column="0" Spacing="4">
+                                    <TextBlock Foreground="#AAAAAA" FontSize="11">
+                                        <Run Text="Min BPM: "/>
+                                        <Run Text="{Binding MinBpm, StringFormat={}{0:F0}}"/>
+                                    </TextBlock>
+                                    <Slider Minimum="40" Maximum="249"
+                                            Value="{Binding MinBpm}"
+                                            TickFrequency="1" IsSnapToTickEnabled="True"
+                                            Foreground="#00CFFF"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Spacing="4">
+                                    <TextBlock Foreground="#AAAAAA" FontSize="11">
+                                        <Run Text="Max BPM: "/>
+                                        <Run Text="{Binding MaxBpm, StringFormat={}{0:F0}}"/>
+                                    </TextBlock>
+                                    <Slider Minimum="41" Maximum="250"
+                                            Value="{Binding MaxBpm}"
+                                            TickFrequency="1" IsSnapToTickEnabled="True"
+                                            Foreground="#00CFFF"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Key Strictness + Energy Variance -->
+                    <Border Background="#222222" CornerRadius="6" Padding="14">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="Harmony &amp; Energy" FontWeight="SemiBold"
+                                       Foreground="White" FontSize="13"/>
+
+                            <!-- Key Strictness -->
+                            <Grid ColumnDefinitions="*, Auto">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Text="Require Camelot-compatible keys"
+                                               Foreground="#CCCCCC" FontSize="12"/>
+                                    <TextBlock Text="Only connect tracks whose keys are adjacent on the Camelot wheel."
+                                               Foreground="#666666" FontSize="10" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1" IsChecked="{Binding MatchKey}"
+                                              VerticalAlignment="Center" Margin="8,0,0,0"/>
+                            </Grid>
+
+                            <Separator Background="#333333" Height="1"/>
+
+                            <!-- Max Energy Jump -->
+                            <StackPanel Spacing="4">
+                                <TextBlock Foreground="#AAAAAA" FontSize="11">
+                                    <Run Text="Max energy jump between tracks: "/>
+                                    <Run Text="{Binding MaxEnergyJump}" FontWeight="SemiBold"/>
+                                    <Run Text=" / 9"/>
+                                </TextBlock>
+                                <Slider Minimum="1" Maximum="9"
+                                        Value="{Binding MaxEnergyJump}"
+                                        TickFrequency="1" IsSnapToTickEnabled="True"
+                                        Foreground="#FF8C00"/>
+                                <TextBlock Text="Lower = smoother energy flow; higher = allows bigger jumps."
+                                           Foreground="#555555" FontSize="10"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Energy Curve -->
+                    <Border Background="#222222" CornerRadius="6" Padding="14">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="Energy Curve Profile" FontWeight="SemiBold"
+                                       Foreground="White" FontSize="13"/>
+                            <TextBlock Foreground="#666666" FontSize="10" TextWrapping="Wrap"
+                                       Text="Applied as a post-ordering pass to shape the energy arc of your set."/>
+                            <ComboBox SelectedItem="{Binding EnergyCurve}"
+                                      HorizontalAlignment="Stretch"
+                                      Background="#333333" Foreground="#CCCCCC">
+                                <ComboBoxItem Content="None"/>
+                                <ComboBoxItem Content="Rising"/>
+                                <ComboBoxItem Content="Wave"/>
+                                <ComboBoxItem Content="Peak"/>
+                            </ComboBox>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Optimizer Weights -->
+                    <Border Background="#222222" CornerRadius="6" Padding="14">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="Optimizer Weights" FontWeight="SemiBold"
+                                       Foreground="White" FontSize="13"/>
+                            <TextBlock Foreground="#666666" FontSize="10" TextWrapping="Wrap"
+                                       Text="Controls how strongly each factor affects track ordering. Higher = more influence."/>
+
+                            <StackPanel Spacing="4">
+                                <TextBlock Foreground="#AAAAAA" FontSize="11">
+                                    <Run Text="Harmonic (key): "/>
+                                    <Run Text="{Binding HarmonicWeight, StringFormat={}{0:F1}}" FontWeight="SemiBold"/>
+                                </TextBlock>
+                                <Slider Minimum="0.1" Maximum="10"
+                                        Value="{Binding HarmonicWeight}"
+                                        TickFrequency="0.1" Foreground="#44FF88"/>
+                            </StackPanel>
+
+                            <StackPanel Spacing="4">
+                                <TextBlock Foreground="#AAAAAA" FontSize="11">
+                                    <Run Text="Tempo (BPM): "/>
+                                    <Run Text="{Binding TempoWeight, StringFormat={}{0:F1}}" FontWeight="SemiBold"/>
+                                </TextBlock>
+                                <Slider Minimum="0.1" Maximum="10"
+                                        Value="{Binding TempoWeight}"
+                                        TickFrequency="0.1" Foreground="#FFD700"/>
+                            </StackPanel>
+
+                            <StackPanel Spacing="4">
+                                <TextBlock Foreground="#AAAAAA" FontSize="11">
+                                    <Run Text="Energy level: "/>
+                                    <Run Text="{Binding EnergyWeight, StringFormat={}{0:F1}}" FontWeight="SemiBold"/>
+                                </TextBlock>
+                                <Slider Minimum="0" Maximum="10"
+                                        Value="{Binding EnergyWeight}"
+                                        TickFrequency="0.1" Foreground="#FF4444"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Live Preview -->
+                    <Border Background="#222222" CornerRadius="6" Padding="14">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Live Preview — First 5 Transitions"
+                                       FontWeight="SemiBold" Foreground="White" FontSize="13"/>
+                            <TextBlock Foreground="#555555" FontSize="10"
+                                       Text="Example transitions generated from your current settings."/>
+
+                            <ItemsControl ItemsSource="{Binding PreviewTransitions}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Padding="8,6" Margin="0,2"
+                                                Background="#1A1A1A" CornerRadius="4">
+                                            <Grid ColumnDefinitions="*, 80, 80, Auto">
+                                                <StackPanel Grid.Column="0" Spacing="1">
+                                                    <TextBlock Text="{Binding TrackA}"
+                                                               Foreground="#CCCCCC" FontSize="11"/>
+                                                    <TextBlock Foreground="#555555" FontSize="10">
+                                                        <Run Text="{Binding CamelotA}"/>
+                                                        <Run Text=" · "/>
+                                                        <Run Text="{Binding BpmA, StringFormat={}{0}bpm}"/>
+                                                    </TextBlock>
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="→" Foreground="#444444"
+                                                           VerticalAlignment="Center"
+                                                           HorizontalAlignment="Center"
+                                                           FontSize="16"/>
+                                                <StackPanel Grid.Column="2" Spacing="1">
+                                                    <TextBlock Text="{Binding TrackB}"
+                                                               Foreground="#CCCCCC" FontSize="11"/>
+                                                    <TextBlock Foreground="#555555" FontSize="10">
+                                                        <Run Text="{Binding CamelotB}"/>
+                                                        <Run Text=" · "/>
+                                                        <Run Text="{Binding BpmB, StringFormat={}{0}bpm}"/>
+                                                    </TextBlock>
+                                                </StackPanel>
+                                                <Border Grid.Column="3"
+                                                        Background="{Binding CompatibilityColor}"
+                                                        CornerRadius="3" Padding="6,2"
+                                                        VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding CompatibilityLabel}"
+                                                               Foreground="#000000"
+                                                               FontSize="10" FontWeight="SemiBold"/>
+                                                </Border>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ── Footer buttons ─────────────────────────────────────────── -->
+            <Grid Grid.Row="2" ColumnDefinitions="Auto, *, Auto, 8, Auto"
+                  Margin="0,16,0,0">
+                <Button Grid.Column="0"
+                        Content="Reset to Defaults"
+                        Command="{Binding ResetToDefaultsCommand}"
+                        Foreground="#777777" Background="Transparent"
+                        Padding="10,8"/>
+                <Button Grid.Column="2"
+                        Content="Cancel"
+                        Command="{Binding CancelCommand}"
+                        Foreground="#CCCCCC" Background="#333333"
+                        Padding="16,8"/>
+                <Button Grid.Column="4"
+                        Content="Save"
+                        Command="{Binding SaveCommand}"
+                        Background="#00CFFF" Foreground="#000000"
+                        FontWeight="SemiBold"
+                        Padding="24,8"/>
+            </Grid>
+
+        </Grid>
+    </Border>
+</Window>

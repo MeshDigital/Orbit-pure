@@ -167,4 +167,16 @@ public class AppConfig
     {
         return $"AppConfig(User={Username}, Port={ListenPort}, Downloads={DownloadDirectory})";
     }
+
+    // ── Automix Configuration (Task 3.4 / #77) ───────────────────────────
+    public double AutomixMinBpm { get; set; } = 100;
+    public double AutomixMaxBpm { get; set; } = 160;
+    public bool   AutomixMatchKey { get; set; } = true;
+    public int    AutomixMaxEnergyJump { get; set; } = 3;
+    public int    AutomixMaxTracks { get; set; } = 20;
+    /// <summary>"None" | "Rising" | "Wave" | "Peak"</summary>
+    public string AutomixEnergyCurve { get; set; } = "Wave";
+    public double AutomixHarmonicWeight { get; set; } = 3.0;
+    public double AutomixTempoWeight    { get; set; } = 1.0;
+    public double AutomixEnergyWeight   { get; set; } = 0.5;
 }

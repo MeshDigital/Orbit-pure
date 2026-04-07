@@ -657,6 +657,11 @@ public class AutomixConstraints : ReactiveObject
     private double _maxBpm  = 160;
     private int    _maxTracks = 20;
     private bool   _matchKey = true;
+    private int    _maxEnergyJump = 3;
+    private string _energyCurve = "Wave";
+    private double _harmonicWeight = 3.0;
+    private double _tempoWeight    = 1.0;
+    private double _energyWeight   = 0.5;
 
     /// <summary>Minimum BPM allowed in the generated playlist.</summary>
     public double MinBpm
@@ -684,5 +689,43 @@ public class AutomixConstraints : ReactiveObject
     {
         get => _matchKey;
         set => this.RaiseAndSetIfChanged(ref _matchKey, value);
+    }
+
+    /// <summary>
+    /// Maximum energy jump (1–10 scale) allowed between consecutive tracks.
+    /// Pairs exceeding this value receive a large penalty in the optimizer.
+    /// </summary>
+    public int MaxEnergyJump
+    {
+        get => _maxEnergyJump;
+        set => this.RaiseAndSetIfChanged(ref _maxEnergyJump, Math.Clamp(value, 1, 9));
+    }
+
+    /// <summary>"None" | "Rising" | "Wave" | "Peak" — post-pass energy shaping.</summary>
+    public string EnergyCurve
+    {
+        get => _energyCurve;
+        set => this.RaiseAndSetIfChanged(ref _energyCurve, value);
+    }
+
+    /// <summary>Multiplier for Camelot key distance in the optimizer edge cost.</summary>
+    public double HarmonicWeight
+    {
+        get => _harmonicWeight;
+        set => this.RaiseAndSetIfChanged(ref _harmonicWeight, Math.Clamp(value, 0.1, 10.0));
+    }
+
+    /// <summary>Multiplier for BPM difference in the optimizer edge cost.</summary>
+    public double TempoWeight
+    {
+        get => _tempoWeight;
+        set => this.RaiseAndSetIfChanged(ref _tempoWeight, Math.Clamp(value, 0.1, 10.0));
+    }
+
+    /// <summary>Multiplier for energy score difference in the optimizer edge cost.</summary>
+    public double EnergyWeight
+    {
+        get => _energyWeight;
+        set => this.RaiseAndSetIfChanged(ref _energyWeight, Math.Clamp(value, 0.0, 10.0));
     }
 }
