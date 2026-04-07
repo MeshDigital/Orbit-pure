@@ -468,6 +468,18 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
 
     public string Format => Model.Format ?? "Unknown";
     public IEnumerable<OrbitCue> Cues => _cues;
+    public bool HasCues => _cues.Count > 0;
+
+    // Inspector panel: last analysis timestamp + model version tooltip
+    public string LastAnalyzedDisplay =>
+        _technicalEntity?.LastUpdated is { } dt
+            ? dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+            : "—";
+
+    public string AnalysisModelVersion =>
+        _technicalEntity?.LastUpdated is { } dt
+            ? $"Analysis run: {dt.ToLocalTime():yyyy-MM-dd HH:mm:ss} UTC"
+            : "No analysis recorded";
 
     public string FileSizeDisplay => FileSizeBytes > 0 ? $"{FileSizeBytes / 1024.0 / 1024.0:F1} MB" : "—";
     public string BpmDisplay => Model.BPM.HasValue ? $"{Model.BPM:0}" : "—";

@@ -39,6 +39,7 @@
         <KeyBinding Gesture="Ctrl+Alt+N" Command="{Binding ToggleNavigationCommand}"/>
     </UserControl.KeyBindings>
 
+    <Panel>
     <Grid ColumnDefinitions="Auto,*">
         <!-- LEFT PANE: Collapsible Playlist Navigation -->
         <Border Grid.Column="0" 
@@ -244,4 +245,87 @@
             </ContentControl.DataTemplates>
         </ContentControl>
     </Grid>
+
+    <!-- ═══ BATCH ACTION FAB ════════════════════════════════════════════════
+         Floats above the library grid. Visible only when ≥1 track selected.
+         Uses Tracks.HasSelectedTracks because LibraryViewModel.Tracks is
+         the TrackListViewModel which owns the selection state.
+    ════════════════════════════════════════════════════════════════════════ -->
+    <Border IsVisible="{Binding Tracks.HasSelectedTracks}"
+            VerticalAlignment="Bottom" HorizontalAlignment="Center"
+            Background="#E01E1E2E" CornerRadius="32"
+            BorderBrush="#334EC9B0" BorderThickness="1"
+            Padding="20,12" Margin="0,0,0,24"
+            ZIndex="100">
+        <StackPanel Orientation="Horizontal" Spacing="10">
+
+            <!-- Selection count badge -->
+            <Border Background="#304EC9B0" CornerRadius="16" Padding="10,4">
+                <TextBlock Text="{Binding Tracks.SelectedTracks.Count, StringFormat='{}{0} selected'}"
+                           FontSize="12" FontWeight="SemiBold" Foreground="#4EC9B0"
+                           VerticalAlignment="Center"/>
+            </Border>
+
+            <!-- Separator -->
+            <Border Width="1" Background="#33FFFFFF" Margin="2,4"/>
+
+            <!-- Batch Tag Edit -->
+            <Button Command="{Binding BatchTagEditCommand}"
+                    ToolTip.Tip="Edit tags for selected tracks"
+                    Padding="10,6" CornerRadius="18" FontSize="11"
+                    Background="#1AFFFFFF" Foreground="#DDD">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="✏️" FontSize="13"/>
+                    <TextBlock Text="Tag Edit" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
+            <!-- Queue Analysis -->
+            <Button Command="{Binding BatchQueueAnalysisCommand}"
+                    ToolTip.Tip="Queue selected tracks for audio analysis"
+                    Padding="10,6" CornerRadius="18" FontSize="11"
+                    Background="#1A4EC9B0" Foreground="#4EC9B0">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="🔬" FontSize="13"/>
+                    <TextBlock Text="Analyse" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
+            <!-- Add to Playlist -->
+            <Button Command="{Binding BatchAddToPlaylistCommand}"
+                    ToolTip.Tip="Add selected tracks to a playlist"
+                    Padding="10,6" CornerRadius="18" FontSize="11"
+                    Background="#1AFFFFFF" Foreground="#DDD">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="➕" FontSize="13"/>
+                    <TextBlock Text="Add to Playlist" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
+            <!-- Export Rekordbox -->
+            <Button Command="{Binding BatchExportRekordboxCommand}"
+                    ToolTip.Tip="Export to Rekordbox XML"
+                    Padding="10,6" CornerRadius="18" FontSize="11"
+                    Background="#1AFFFFFF" Foreground="#DDD">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="📤" FontSize="13"/>
+                    <TextBlock Text="Rekordbox" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
+            <!-- Separator -->
+            <Border Width="1" Background="#33FFFFFF" Margin="2,4"/>
+
+            <!-- Clear selection -->
+            <Button Command="{Binding BatchClearSelectionCommand}"
+                    ToolTip.Tip="Deselect all"
+                    Padding="8,6" CornerRadius="18" FontSize="11"
+                    Background="Transparent" Foreground="#888">
+                <TextBlock Text="✕" FontSize="14"/>
+            </Button>
+
+        </StackPanel>
+    </Border>
+
+    </Panel>
 </UserControl>

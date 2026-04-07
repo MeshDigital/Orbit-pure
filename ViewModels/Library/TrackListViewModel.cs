@@ -444,6 +444,12 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         foreach (var t in selected) _selectedTracks.Add(t);
         UpdateSelectionState();
     }
+
+    public void ClearSelection()
+    {
+        _selectedTracks.Clear();
+        UpdateSelectionState();
+    }
     
     // Phase 22: Available Vibes
     public ObservableCollection<string> AvailableVibes { get; } = new ObservableCollection<string>

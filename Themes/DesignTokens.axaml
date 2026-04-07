@@ -1,0 +1,257 @@
+<!--
+  ORBIT Design Tokens — Task 10.1
+  Single source of truth for all visual primitives.
+  Include with: <StyleInclude Source="/Themes/DesignTokens.axaml"/>
+
+  Token naming convention
+    Color:       [Role][Variant]Brush / [Role][Variant]Color
+    Typography:  TextStyleDisplay/H1/H2/H3/Body/BodySmall/Caption/Mono
+    Spacing:     SpaceXs(4) / SpaceSm(8) / SpaceMd(12) / SpaceLg(16) / SpaceXl(24) / Space2xl(32) / Space3xl(48)
+    Radius:      RadiusSm(4) / RadiusMd(8) / RadiusLg(12) / RadiusFull(9999)
+    Shadow:      ShadowSm / ShadowMd / ShadowLg
+-->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <Styles.Resources>
+    <ResourceDictionary>
+
+      <!-- ================================================================
+           COLOUR PALETTE — primitive values
+           ================================================================ -->
+
+      <!-- Background hierarchy (darkest → lightest) -->
+      <Color x:Key="ColorBase0">#0A0A0C</Color>
+      <Color x:Key="ColorBase1">#0F0F14</Color>
+      <Color x:Key="ColorBase2">#1A1A24</Color>
+      <Color x:Key="ColorBase3">#222230</Color>
+      <Color x:Key="ColorBase4">#2C2C3E</Color>
+      <Color x:Key="ColorBase5">#363650</Color>
+
+      <!-- Accent: mint-teal (#4EC9B0) -->
+      <Color x:Key="ColorAccent">#4EC9B0</Color>
+      <Color x:Key="ColorAccentDim">#2D8A74</Color>
+      <Color x:Key="ColorAccentGlow">#304EC9B0</Color>
+      <Color x:Key="ColorAccentSubtle">#0D4EC9B0</Color>
+
+      <!-- Semantic colours -->
+      <Color x:Key="ColorSuccess">#44FF88</Color>
+      <Color x:Key="ColorWarning">#FFB03A</Color>
+      <Color x:Key="ColorError">#FF4466</Color>
+      <Color x:Key="ColorInfo">#4FC3F7</Color>
+
+      <!-- Stem accent colours (reusable token names) -->
+      <Color x:Key="ColorStemVocals">#00CFFF</Color>
+      <Color x:Key="ColorStemDrums">#FF8C00</Color>
+      <Color x:Key="ColorStemBass">#44FF88</Color>
+      <Color x:Key="ColorStemOther">#BB88FF</Color>
+
+      <!-- Text -->
+      <Color x:Key="ColorText0">#F0FFFFFF</Color>  <!-- primary -->
+      <Color x:Key="ColorText1">#AAAAAA</Color>      <!-- secondary -->
+      <Color x:Key="ColorText2">#666666</Color>      <!-- tertiary / placeholder -->
+      <Color x:Key="ColorTextDisabled">#444444</Color>
+
+      <!-- ================================================================
+           SEMANTIC BRUSHES
+           ================================================================ -->
+
+      <!-- Backgrounds -->
+      <SolidColorBrush x:Key="BrushBg0"         Color="{StaticResource ColorBase0}"/>
+      <SolidColorBrush x:Key="BrushBg1"         Color="{StaticResource ColorBase1}"/>
+      <SolidColorBrush x:Key="BrushBg2"         Color="{StaticResource ColorBase2}"/>
+      <SolidColorBrush x:Key="BrushBg3"         Color="{StaticResource ColorBase3}"/>
+      <SolidColorBrush x:Key="BrushBg4"         Color="{StaticResource ColorBase4}"/>
+      <SolidColorBrush x:Key="BrushSurface"     Color="{StaticResource ColorBase3}"/>
+
+      <!-- Accents -->
+      <SolidColorBrush x:Key="BrushAccent"      Color="{StaticResource ColorAccent}"/>
+      <SolidColorBrush x:Key="BrushAccentDim"   Color="{StaticResource ColorAccentDim}"/>
+      <SolidColorBrush x:Key="BrushAccentGlow"  Color="{StaticResource ColorAccentGlow}"/>
+      <SolidColorBrush x:Key="BrushAccentSubtle" Color="{StaticResource ColorAccentSubtle}"/>
+
+      <!-- Semantic semantics -->
+      <SolidColorBrush x:Key="BrushSuccess"     Color="{StaticResource ColorSuccess}"/>
+      <SolidColorBrush x:Key="BrushWarning"     Color="{StaticResource ColorWarning}"/>
+      <SolidColorBrush x:Key="BrushError"       Color="{StaticResource ColorError}"/>
+      <SolidColorBrush x:Key="BrushInfo"        Color="{StaticResource ColorInfo}"/>
+
+      <!-- Text -->
+      <SolidColorBrush x:Key="BrushText0"       Color="{StaticResource ColorText0}"/>
+      <SolidColorBrush x:Key="BrushText1"       Color="{StaticResource ColorText1}"/>
+      <SolidColorBrush x:Key="BrushText2"       Color="{StaticResource ColorText2}"/>
+      <SolidColorBrush x:Key="BrushTextDisabled" Color="{StaticResource ColorTextDisabled}"/>
+
+      <!-- Borders / dividers -->
+      <SolidColorBrush x:Key="BrushBorder0"     Color="#14FFFFFF"/>
+      <SolidColorBrush x:Key="BrushBorder1"     Color="#22FFFFFF"/>
+      <SolidColorBrush x:Key="BrushBorder2"     Color="#33FFFFFF"/>
+
+      <!-- Glass / frosted layers -->
+      <SolidColorBrush x:Key="BrushGlassThin"   Color="#07FFFFFF"/>
+      <SolidColorBrush x:Key="BrushGlass"       Color="#12FFFFFF"/>
+      <SolidColorBrush x:Key="BrushGlassHeavy"  Color="#20FFFFFF"/>
+
+      <!-- Stem brushes -->
+      <SolidColorBrush x:Key="BrushStemVocals"  Color="{StaticResource ColorStemVocals}"/>
+      <SolidColorBrush x:Key="BrushStemDrums"   Color="{StaticResource ColorStemDrums}"/>
+      <SolidColorBrush x:Key="BrushStemBass"    Color="{StaticResource ColorStemBass}"/>
+      <SolidColorBrush x:Key="BrushStemOther"   Color="{StaticResource ColorStemOther}"/>
+
+      <!-- ================================================================
+           TYPOGRAPHY SCALE
+           Responsive via BaseFontSize (default 14). Hard sizes below are
+           relative multipliers expressed as concrete px for design guidance.
+           ================================================================ -->
+
+      <!-- Font families -->
+      <FontFamily x:Key="FontUI">avares://Avalonia.Fonts.Inter/Assets#Inter</FontFamily>
+      <FontFamily x:Key="FontMono">JetBrains Mono, Consolas, Menlo, monospace</FontFamily>
+
+      <!-- Size scale (px at default font-size = 14) -->
+      <x:Double x:Key="TextSizeDisplay">36</x:Double>   <!-- hero titles          -->
+      <x:Double x:Key="TextSizeH1">28</x:Double>        <!-- page headings        -->
+      <x:Double x:Key="TextSizeH2">22</x:Double>        <!-- section headings     -->
+      <x:Double x:Key="TextSizeH3">17</x:Double>        <!-- sub-section headings -->
+      <x:Double x:Key="TextSizeBody">14</x:Double>      <!-- default body text    -->
+      <x:Double x:Key="TextSizeBodySm">12</x:Double>    <!-- secondary info       -->
+      <x:Double x:Key="TextSizeCaption">10</x:Double>   <!-- labels / metadata    -->
+      <x:Double x:Key="TextSizeMono">12</x:Double>      <!-- code / tech values   -->
+
+      <!-- Weight aliases -->
+      <FontWeight x:Key="FontWeightLight">Light</FontWeight>
+      <FontWeight x:Key="FontWeightRegular">Normal</FontWeight>
+      <FontWeight x:Key="FontWeightMedium">Medium</FontWeight>
+      <FontWeight x:Key="FontWeightSemiBold">SemiBold</FontWeight>
+      <FontWeight x:Key="FontWeightBold">Bold</FontWeight>
+      <FontWeight x:Key="FontWeightBlack">Black</FontWeight>
+
+      <!-- ================================================================
+           SPACING SCALE  (4px base grid)
+           ================================================================ -->
+      <x:Double x:Key="SpaceXxs">2</x:Double>
+      <x:Double x:Key="SpaceXs">4</x:Double>
+      <x:Double x:Key="SpaceSm">8</x:Double>
+      <x:Double x:Key="SpaceMd">12</x:Double>
+      <x:Double x:Key="SpaceLg">16</x:Double>
+      <x:Double x:Key="SpaceXl">24</x:Double>
+      <x:Double x:Key="Space2xl">32</x:Double>
+      <x:Double x:Key="Space3xl">48</x:Double>
+      <x:Double x:Key="Space4xl">64</x:Double>
+
+      <!-- Thickness aliases (common combos) -->
+      <Thickness x:Key="PaddingSm">8,4</Thickness>
+      <Thickness x:Key="PaddingMd">12,8</Thickness>
+      <Thickness x:Key="PaddingLg">16,12</Thickness>
+      <Thickness x:Key="PaddingPanel">24</Thickness>
+
+      <!-- ================================================================
+           CORNER RADII
+           ================================================================ -->
+      <CornerRadius x:Key="RadiusSm">4</CornerRadius>
+      <CornerRadius x:Key="RadiusMd">8</CornerRadius>
+      <CornerRadius x:Key="RadiusLg">12</CornerRadius>
+      <CornerRadius x:Key="RadiusXl">16</CornerRadius>
+      <CornerRadius x:Key="RadiusFull">9999</CornerRadius>
+
+      <!-- ================================================================
+           SHADOWS (BoxShadow string tokens)
+           ================================================================ -->
+      <BoxShadows x:Key="ShadowSm">0 1 4 0 #30000000</BoxShadows>
+      <BoxShadows x:Key="ShadowMd">0 4 12 0 #40000000</BoxShadows>
+      <BoxShadows x:Key="ShadowLg">0 8 24 0 #50000000</BoxShadows>
+      <BoxShadows x:Key="ShadowAccent">0 0 16 0 #404EC9B0</BoxShadows>
+
+      <!-- ================================================================
+           TRANSITION DURATIONS (seconds as Double — use in Transitions)
+           ================================================================ -->
+      <x:Double x:Key="DurationFast">0.1</x:Double>
+      <x:Double x:Key="DurationNormal">0.2</x:Double>
+      <x:Double x:Key="DurationSlow">0.35</x:Double>
+
+      <!-- ================================================================
+           ICON SIZE TOKENS  (all icons should use one of these widths)
+           ================================================================ -->
+      <x:Double x:Key="IconSizeSm">14</x:Double>
+      <x:Double x:Key="IconSizeMd">20</x:Double>
+      <x:Double x:Key="IconSizeLg">28</x:Double>
+
+    </ResourceDictionary>
+  </Styles.Resources>
+
+  <!-- ================================================================
+       Global text styles (apply via TextBlock.display / h1 / h2 etc.)
+       ================================================================ -->
+
+  <Style Selector="TextBlock.display">
+    <Setter Property="FontSize"   Value="{StaticResource TextSizeDisplay}"/>
+    <Setter Property="FontWeight" Value="{StaticResource FontWeightBold}"/>
+    <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
+    <Setter Property="FontFamily" Value="{StaticResource FontUI}"/>
+  </Style>
+
+  <Style Selector="TextBlock.h1">
+    <Setter Property="FontSize"   Value="{StaticResource TextSizeH1}"/>
+    <Setter Property="FontWeight" Value="{StaticResource FontWeightSemiBold}"/>
+    <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
+  </Style>
+
+  <Style Selector="TextBlock.h2">
+    <Setter Property="FontSize"   Value="{StaticResource TextSizeH2}"/>
+    <Setter Property="FontWeight" Value="{StaticResource FontWeightSemiBold}"/>
+    <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
+  </Style>
+
+  <Style Selector="TextBlock.h3">
+    <Setter Property="FontSize"   Value="{StaticResource TextSizeH3}"/>
+    <Setter Property="FontWeight" Value="{StaticResource FontWeightMedium}"/>
+    <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
+  </Style>
+
+  <Style Selector="TextBlock.body">
+    <Setter Property="FontSize"   Value="{StaticResource TextSizeBody}"/>
+    <Setter Property="FontWeight" Value="{StaticResource FontWeightRegular}"/>
+    <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
+  </Style>
+
+  <Style Selector="TextBlock.body-sm">
+    <Setter Property="FontSize"   Value="{StaticResource TextSizeBodySm}"/>
+    <Setter Property="Foreground" Value="{StaticResource BrushText1}"/>
+  </Style>
+
+  <Style Selector="TextBlock.caption">
+    <Setter Property="FontSize"   Value="{StaticResource TextSizeCaption}"/>
+    <Setter Property="FontWeight" Value="{StaticResource FontWeightBold}"/>
+    <Setter Property="Foreground" Value="{StaticResource BrushText2}"/>
+    <Setter Property="LetterSpacing" Value="0.8"/>
+  </Style>
+
+  <Style Selector="TextBlock.mono">
+    <Setter Property="FontFamily" Value="{StaticResource FontMono}"/>
+    <Setter Property="FontSize"   Value="{StaticResource TextSizeMono}"/>
+    <Setter Property="Foreground" Value="{StaticResource BrushText1}"/>
+  </Style>
+
+  <!-- Pill / badge surface (use as Border.pill) -->
+  <Style Selector="Border.pill">
+    <Setter Property="CornerRadius"  Value="{StaticResource RadiusFull}"/>
+    <Setter Property="Padding"       Value="8,2"/>
+    <Setter Property="Background"    Value="{StaticResource BrushGlass}"/>
+  </Style>
+
+  <!-- Divider shorthand (Border.divider or Rectangle.divider) -->
+  <Style Selector="Border.divider">
+    <Setter Property="Height"     Value="1"/>
+    <Setter Property="Background" Value="{StaticResource BrushBorder1}"/>
+  </Style>
+
+  <!-- Card surface (Border.card) -->
+  <Style Selector="Border.card">
+    <Setter Property="Background"   Value="{StaticResource BrushBg2}"/>
+    <Setter Property="BorderBrush"  Value="{StaticResource BrushBorder1}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
+    <Setter Property="Padding"      Value="{StaticResource PaddingMd}"/>
+  </Style>
+
+</Styles>

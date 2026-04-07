@@ -160,6 +160,60 @@
                         </Border>
                     </StackPanel>
 
+                    <!-- Cue Points -->
+                    <StackPanel Spacing="8">
+                        <Separator Background="#252526" Height="1"/>
+                        <TextBlock Text="CUE POINTS" FontSize="10" FontWeight="Black" Foreground="#444"/>
+                        <ItemsControl ItemsSource="{Binding Cues}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Spacing="4"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#15FFFFFF" CornerRadius="6" Padding="10,6">
+                                        <Grid ColumnDefinitions="22,*,Auto">
+                                            <!-- Color dot -->
+                                            <Border Grid.Column="0" Width="12" Height="12"
+                                                    CornerRadius="6"
+                                                    Background="{Binding Color}"
+                                                    VerticalAlignment="Center"/>
+                                            <!-- Name -->
+                                            <TextBlock Grid.Column="1" Text="{Binding Name}"
+                                                       FontSize="11" Foreground="#CCC"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <!-- Timestamp -->
+                                            <TextBlock Grid.Column="2"
+                                                       Text="{Binding Timestamp, StringFormat='{}{0:0.0}s'}"
+                                                       FontSize="10" Foreground="#888"
+                                                       VerticalAlignment="Center"
+                                                       FontFamily="JetBrains Mono, Consolas, monospace"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="No cue points" FontSize="11" Foreground="#444"
+                                   IsVisible="{Binding !HasCues}"/>
+                    </StackPanel>
+
+                    <!-- Last Analysis Timestamp -->
+                    <StackPanel Spacing="6" Margin="0,4,0,0">
+                        <Separator Background="#252526" Height="1"/>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Text="LAST ANALYZED" FontSize="10"
+                                       FontWeight="Black" Foreground="#444"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding LastAnalyzedDisplay}"
+                                       FontSize="10" Foreground="#555"
+                                       VerticalAlignment="Center"
+                                       ToolTip.Tip="{Binding AnalysisModelVersion}"/>
+                        </Grid>
+                    </StackPanel>
+
                 </StackPanel>
             </ScrollViewer>
 
