@@ -170,6 +170,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateSettingsCommand = new RelayCommand(NavigateToSettings);
         NavigateImportCommand = new RelayCommand(NavigateToImport); // Phase 6D
         NavigateAnalysisCommand = new RelayCommand(NavigateToAnalysis);
+        NavigateDecksCommand = new RelayCommand(NavigateToDecks);
+        NavigateTimelineCommand = new RelayCommand(NavigateToTimeline);
+        NavigateStemsCommand = new RelayCommand(NavigateToStems);
         PlayPauseCommand = new RelayCommand(() => PlayerViewModel.TogglePlayPauseCommand.Execute(null));
         FocusSearchCommand = new RelayCommand(FocusSearch);
         ToggleNavigationCommand = new RelayCommand(() => 
@@ -333,6 +336,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("ImportPreview", typeof(Avalonia.ImportPreviewPage));
         _navigationService.RegisterPage("Analysis", typeof(Avalonia.AnalysisPage));
         _navigationService.RegisterPage("NowPlaying", typeof(Avalonia.NowPlayingPage));
+        _navigationService.RegisterPage("Decks", typeof(Avalonia.DecksPage));
+        _navigationService.RegisterPage("Timeline", typeof(Avalonia.TimelinePage));
+        _navigationService.RegisterPage("Stems", typeof(Avalonia.StemsPage));
         
         // Subscribe to navigation events
         _navigationService.Navigated += OnNavigated;
@@ -713,6 +719,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateSettingsCommand { get; }
     public ICommand NavigateImportCommand { get; } // Phase 6D
     public ICommand NavigateAnalysisCommand { get; }
+    public ICommand NavigateDecksCommand { get; }
+    public ICommand NavigateTimelineCommand { get; }
+    public ICommand NavigateStemsCommand { get; }
     public ICommand PlayPauseCommand { get; }
     public ICommand FocusSearchCommand { get; }
     public ICommand ToggleNavigationCommand { get; }
@@ -770,6 +779,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 "ImportPreviewPage" => PageType.Import, // Map preview to Import category
                 "AnalysisPage" => PageType.Analysis,
                 "NowPlayingPage" => PageType.NowPlaying,
+                "DecksPage" => PageType.Decks,
+                "TimelinePage" => PageType.Timeline,
+                "StemsPage" => PageType.Stems,
                 _ => CurrentPageType
             };
 
@@ -854,6 +866,21 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void NavigateToAnalysis()
     {
         _navigationService.NavigateTo("Analysis");
+    }
+
+    private void NavigateToDecks()
+    {
+        _navigationService.NavigateTo("Decks");
+    }
+
+    private void NavigateToTimeline()
+    {
+        _navigationService.NavigateTo("Timeline");
+    }
+
+    private void NavigateToStems()
+    {
+        _navigationService.NavigateTo("Stems");
     }
 
     private void UpdateFontSizeResources()

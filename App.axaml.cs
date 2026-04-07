@@ -575,6 +575,9 @@ public partial class App : Application
         services.AddTransient<Views.Avalonia.ImportPreviewPage>();
         services.AddTransient<Views.Avalonia.AnalysisPage>();
         services.AddSingleton<ViewModels.AnalysisPageViewModel>();
+        services.AddTransient<Views.Avalonia.DecksPage>();
+        services.AddTransient<Views.Avalonia.TimelinePage>();
+        services.AddTransient<Views.Avalonia.StemsPage>();
         services.AddSingleton<Services.AnalysisQueueService>();
 
         // ── Task 1.5: Beatgrid Detection ──────────────────────────────────

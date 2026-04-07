@@ -384,6 +384,39 @@
                                 </Button>
                             </StackPanel>
                         </StackPanel>
+
+                        <!-- MUSIC STUDIO -->
+                        <StackPanel>
+                            <Border Classes="GroupHeader" Padding="16,8,0,4">
+                                <TextBlock Text="MUSIC STUDIO" Classes="GroupTitle" FontSize="11" FontWeight="Bold" Foreground="#666" LetterSpacing="1"/>
+                            </Border>
+                            <StackPanel Spacing="2">
+                                <Button Classes="nav" Command="{Binding NavigateDecksCommand}"
+                                        ToolTip.Tip="Dual Deck Engine"
+                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Decks}}">
+                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
+                                        <TextBlock Text="🎛️" FontSize="16"/>
+                                        <TextBlock Text="Decks" FontSize="14"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Classes="nav" Command="{Binding NavigateTimelineCommand}"
+                                        ToolTip.Tip="Timeline Editor"
+                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Timeline}}">
+                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
+                                        <TextBlock Text="🎞️" FontSize="16"/>
+                                        <TextBlock Text="Timeline" FontSize="14"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Classes="nav" Command="{Binding NavigateStemsCommand}"
+                                        ToolTip.Tip="Stem Separation"
+                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Stems}}">
+                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
+                                        <TextBlock Text="🧬" FontSize="16"/>
+                                        <TextBlock Text="Stems" FontSize="14"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </Border>

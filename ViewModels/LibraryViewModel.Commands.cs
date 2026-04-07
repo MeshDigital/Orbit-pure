@@ -53,6 +53,13 @@ public partial class LibraryViewModel
 
     public ICommand SmartEscapeCommand { get; set; } = null!;
 
+    // ── Batch Action FAB (Task 10.5) ────────────────────────────────────────
+    public ICommand BatchTagEditCommand { get; set; } = null!;
+    public ICommand BatchQueueAnalysisCommand { get; set; } = null!;
+    public ICommand BatchAddToPlaylistCommand { get; set; } = null!;
+    public ICommand BatchExportRekordboxCommand { get; set; } = null!;
+    public ICommand BatchClearSelectionCommand { get; set; } = null!;
+
 
 
 
@@ -92,6 +99,13 @@ public partial class LibraryViewModel
         ResetViewCommand = new RelayCommand(ExecuteResetView);
         SwitchWorkspaceCommand = new RelayCommand<ActiveWorkspace>(ExecuteSwitchWorkspace);
         SmartEscapeCommand = new RelayCommand(ExecuteSmartEscape);
+
+        // Batch Action FAB
+        BatchTagEditCommand = new AsyncRelayCommand(ExecuteBatchTagEditAsync);
+        BatchQueueAnalysisCommand = new AsyncRelayCommand(ExecuteBatchQueueAnalysisAsync);
+        BatchAddToPlaylistCommand = new AsyncRelayCommand(ExecuteBatchAddToPlaylistAsync);
+        BatchExportRekordboxCommand = new AsyncRelayCommand(ExecuteBatchExportRekordboxAsync);
+        BatchClearSelectionCommand = new RelayCommand(() => Tracks.ClearSelection());
     }
 
     private void ExecuteToggleNavigation()
@@ -675,6 +689,72 @@ public partial class LibraryViewModel
         else if (IsSourcesOpen)
         {
             IsSourcesOpen = false;
+        }
+    }
+
+    // ── Batch Action FAB implementations (Task 10.5) ────────────────────────
+
+    private async Task ExecuteBatchTagEditAsync()
+    {
+        var selected = Tracks.SelectedTracks.ToList();
+        if (selected.Count == 0) return;
+        _logger.LogInformation("Batch tag edit for {Count} tracks", selected.Count);
+        // Delegated to a future BatchTagEditDialog; placeholder logs intent.
+        await Task.CompletedTask;
+    }
+
+    private async Task ExecuteBatchQueueAnalysisAsync()
+    {
+        var selected = Tracks.SelectedTracks.ToList();
+        if (selected.Count == 0) return;
+        foreach (var track in selected)
+        {
+            _eventBus.Publish(new Models.TrackAnalysisRequestedEvent(track.GlobalId));
+        }
+        _notificationService.Show(
+            "Analysis Queued",
+            $"{selected.Count} track(s) queued for audio analysis.",
+            NotificationType.Success);
+        await Task.CompletedTask;
+    }
+
+    private async Task ExecuteBatchAddToPlaylistAsync()
+    {
+        var selected = Tracks.SelectedTracks.ToList();
+        if (selected.Count == 0) return;
+        _logger.LogInformation("Batch add-to-playlist for {Count} tracks", selected.Count);
+        // Delegated to a future PlaylistPickerDialog.
+        await Task.CompletedTask;
+    }
+
+    private async Task ExecuteBatchExportRekordboxAsync()
+    {
+        var selected = Tracks.SelectedTracks.ToList();
+        if (selected.Count == 0) return;
+        try
+        {
+            var outputPath = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                $"orbit-rekordbox-{DateTime.Now:yyyyMMdd-HHmmss}.xml");
+            var tracks = selected.Select(t => new Models.PlaylistTrack
+            {
+                Id               = t.Id,
+                Title            = t.Title,
+                Artist           = t.Artist,
+                ResolvedFilePath = t.Model.ResolvedFilePath ?? string.Empty,
+                BPM              = t.BPM > 0 ? t.BPM : null,
+                MusicalKey       = t.MusicalKey,
+            });
+            await _exportService.ExportToRekordboxXmlAsync("ORBIT Batch Export", tracks, outputPath);
+            _notificationService.Show(
+                "Rekordbox Export Complete",
+                $"{selected.Count} track(s) exported to {outputPath}",
+                NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Batch Rekordbox export failed");
+            _notificationService.Show("Export Failed", ex.Message, NotificationType.Error);
         }
     }
 }

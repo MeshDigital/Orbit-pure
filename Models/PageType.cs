@@ -11,5 +11,8 @@ public enum PageType
     Import,
     TheaterMode,
     Analysis,
-    NowPlaying
+    NowPlaying,
+    Decks,
+    Timeline,
+    Stems
 }

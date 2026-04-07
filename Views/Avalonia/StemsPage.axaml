@@ -1,0 +1,65 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:stemViews="clr-namespace:SLSKDONET.Views.Avalonia"
+             x:Class="SLSKDONET.Views.Avalonia.StemsPage"
+             x:DataType="vm:StemMixerViewModel"
+             Background="#1A1A1A">
+
+  <Grid RowDefinitions="Auto,*">
+
+    <!-- Header -->
+    <Border Grid.Row="0" Padding="20,14" Background="#0F0F14"
+            BorderBrush="#22FFFFFF" BorderThickness="0,0,0,1">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
+          <TextBlock Text="🧬" FontSize="20" VerticalAlignment="Center"/>
+          <TextBlock Text="STEM SEPARATION" FontSize="13" FontWeight="Bold"
+                     Foreground="#4EC9B0" VerticalAlignment="Center"/>
+          <Border Classes="pill" Margin="8,0,0,0"
+                  IsVisible="{Binding LoadedFilePath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+            <TextBlock Text="{Binding LoadedFilePath}" FontSize="9" Foreground="#888"
+                       MaxWidth="200" TextTrimming="CharacterEllipsis"/>
+          </Border>
+        </StackPanel>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+          <ProgressBar Value="{Binding SeparationProgress}" Minimum="0" Maximum="1"
+                       Width="100" Height="6" IsVisible="{Binding IsSeparating}"/>
+          <Button Content="✕ CANCEL" Padding="10,6" FontSize="11" CornerRadius="6"
+                  Command="{Binding CancelCommand}" IsVisible="{Binding IsSeparating}"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- Three-panel content area: Waveform | Mixer | EQ -->
+    <Grid Grid.Row="1" ColumnDefinitions="2*,Auto,*,Auto,Auto">
+
+      <!-- Waveform view — takes most horizontal space -->
+      <Border Grid.Column="0" Padding="16">
+        <ContentControl>
+          <ContentControl.DataTemplates>
+            <DataTemplate DataType="vm:StemWaveformViewModel">
+              <stemViews:StemWaveformView/>
+            </DataTemplate>
+          </ContentControl.DataTemplates>
+        </ContentControl>
+      </Border>
+
+      <Border Grid.Column="1" Width="1" Background="#22FFFFFF" Margin="0,8"/>
+
+      <!-- Mixer strips -->
+      <Border Grid.Column="2" Padding="16">
+        <stemViews:StemMixerView/>
+      </Border>
+
+      <Border Grid.Column="3" Width="1" Background="#22FFFFFF" Margin="0,8"/>
+
+      <!-- EQ panel -->
+      <Border Grid.Column="4" Padding="16" MinWidth="180">
+        <stemViews:NeuralMixEqView/>
+      </Border>
+
+    </Grid>
+
+  </Grid>
+</UserControl>
