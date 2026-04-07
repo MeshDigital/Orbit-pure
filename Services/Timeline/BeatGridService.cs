@@ -70,6 +70,33 @@ public static class BeatGridService
         return Math.Ceiling(beatPosition / sub) * sub;
     }
 
+    /// <summary>
+    /// Finds the beat-grid position in seconds nearest to
+    /// <paramref name="positionSeconds"/>.
+    /// Returns <c>null</c> if no beat falls within
+    /// <paramref name="snapRadiusSeconds"/> or <paramref name="bpm"/> is
+    /// invalid.
+    /// </summary>
+    /// <param name="positionSeconds">Query position (seconds).</param>
+    /// <param name="bpm">Track tempo in BPM.</param>
+    /// <param name="snapRadiusSeconds">Maximum distance (seconds) to snap.
+    /// Defaults to 50 ms.</param>
+    /// <param name="downbeatOffsetSeconds">First-downbeat offset (seconds).
+    /// </param>
+    public static double? GetNearestBeatSeconds(
+        double positionSeconds,
+        double bpm,
+        double snapRadiusSeconds = 0.05,
+        double downbeatOffsetSeconds = 0.0)
+    {
+        if (bpm <= 0) return null;
+        double beatDuration = 60.0 / bpm;
+        double adjusted = positionSeconds - downbeatOffsetSeconds;
+        // Round to nearest beat index
+        double nearestBeat = Math.Round(adjusted / beatDuration) * beatDuration + downbeatOffsetSeconds;
+        return Math.Abs(positionSeconds - nearestBeat) <= snapRadiusSeconds ? nearestBeat : null;
+    }
+
     // ── Grid line generation ──────────────────────────────────────────────
 
     /// <summary>
