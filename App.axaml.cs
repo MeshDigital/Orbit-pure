@@ -591,8 +591,14 @@ public partial class App : Application
         // ── Issue 2.2: Similarity Index ───────────────────────────────────
         services.AddSingleton<Services.Similarity.SimilarityIndex>();
 
-        // ── Task 2.4: Similar Tracks Panel ────────────────────────────────
-        services.AddTransient<ViewModels.SimilarTracksViewModel>();
+        // ── Task 7.4-7.6: Timeline Editor ViewModel ───────────────────────
+        services.AddSingleton<ViewModels.TimelineViewModel>();
+
+        // ── Task 8.4: YouTube Chapter Export ─────────────────────────────
+        services.AddSingleton<Services.Video.YouTubeChapterExportService>();
+
+        // ── Task 9.1: Rekordbox USB translation + auto-export watcher ─────
+        services.AddSingleton<Services.Library.RekordboxExportExtensions>();
 
         // ── Issue 2.3 + 2.4: Playlist Optimizer (AI Automix) ─────────────
         services.AddSingleton<Services.Playlist.PlaylistOptimizer>();

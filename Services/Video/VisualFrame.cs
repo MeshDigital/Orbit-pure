@@ -36,4 +36,10 @@ public enum VisualPreset
     Circles,
     Waveform,
     Particles,
+    /// <summary>
+    /// Task 8.5 — Renders a Shadertoy-compatible GLSL fragment shader
+    /// compiled via SkiaSharp's <see cref="SkiaSharp.SKRuntimeEffect"/> (SkSL).
+    /// Load the shader source with <see cref="VisualEngine.LoadGlslShader"/>.
+    /// </summary>
+    CustomGlsl,
 }
