@@ -1,0 +1,95 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:ctrl="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             x:Class="SLSKDONET.Views.Avalonia.StemWaveformView"
+             x:DataType="vm:StemWaveformViewModel">
+
+  <UserControl.Styles>
+    <Style Selector="TextBlock.stem-label">
+      <Setter Property="FontSize" Value="9"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="Width" Value="42"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <Style Selector="ProgressBar.loading-bar">
+      <Setter Property="Height" Value="2"/>
+      <Setter Property="IsIndeterminate" Value="True"/>
+    </Style>
+  </UserControl.Styles>
+
+  <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+
+    <!-- ── Zoom / offset controls ──────────────────────────────────────── -->
+    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
+      <TextBlock Text="STEMS" FontSize="10" FontWeight="Bold" Foreground="#888" VerticalAlignment="Center"/>
+      <TextBlock Text="Zoom:" FontSize="9" Foreground="#666" VerticalAlignment="Center"/>
+      <Slider Minimum="1" Maximum="32" Value="{Binding SharedZoomLevel}"
+              Width="80" Height="16" ToolTip.Tip="Zoom"/>
+      <TextBlock Text="{Binding SharedZoomLevel, StringFormat={}{0:F1}x}"
+                 FontSize="9" Foreground="#888" VerticalAlignment="Center"/>
+    </StackPanel>
+
+    <!-- ── Vocals ──────────────────────────────────────────────────────── -->
+    <Grid Grid.Row="1" ColumnDefinitions="44,*" Margin="0,0,0,2">
+      <TextBlock Grid.Column="0" Classes="stem-label" Text="VOCALS" Foreground="#00CFFF"/>
+      <Grid Grid.Column="1">
+        <ProgressBar Classes="loading-bar" IsVisible="{Binding VocalsWaveform.IsLoading}"/>
+        <ctrl:WaveformControl
+          WaveformData="{Binding VocalsWaveform.WaveformData}"
+          Progress="{Binding VocalsWaveform.Progress}"
+          Height="48"
+          Background="#0A0A14"
+          Foreground="#00CFFF"
+          IsVisible="{Binding VocalsWaveform.WaveformData, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+      </Grid>
+    </Grid>
+
+    <!-- ── Drums ───────────────────────────────────────────────────────── -->
+    <Grid Grid.Row="2" ColumnDefinitions="44,*" Margin="0,0,0,2">
+      <TextBlock Grid.Column="0" Classes="stem-label" Text="DRUMS" Foreground="#FF8C00"/>
+      <Grid Grid.Column="1">
+        <ProgressBar Classes="loading-bar" IsVisible="{Binding DrumsWaveform.IsLoading}"/>
+        <ctrl:WaveformControl
+          WaveformData="{Binding DrumsWaveform.WaveformData}"
+          Progress="{Binding DrumsWaveform.Progress}"
+          Height="48"
+          Background="#140A00"
+          Foreground="#FF8C00"
+          IsVisible="{Binding DrumsWaveform.WaveformData, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+      </Grid>
+    </Grid>
+
+    <!-- ── Bass ────────────────────────────────────────────────────────── -->
+    <Grid Grid.Row="3" ColumnDefinitions="44,*" Margin="0,0,0,2">
+      <TextBlock Grid.Column="0" Classes="stem-label" Text="BASS" Foreground="#44FF88"/>
+      <Grid Grid.Column="1">
+        <ProgressBar Classes="loading-bar" IsVisible="{Binding BassWaveform.IsLoading}"/>
+        <ctrl:WaveformControl
+          WaveformData="{Binding BassWaveform.WaveformData}"
+          Progress="{Binding BassWaveform.Progress}"
+          Height="48"
+          Background="#000A04"
+          Foreground="#44FF88"
+          IsVisible="{Binding BassWaveform.WaveformData, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+      </Grid>
+    </Grid>
+
+    <!-- ── Other ───────────────────────────────────────────────────────── -->
+    <Grid Grid.Row="4" ColumnDefinitions="44,*">
+      <TextBlock Grid.Column="0" Classes="stem-label" Text="OTHER" Foreground="#BB88FF"/>
+      <Grid Grid.Column="1">
+        <ProgressBar Classes="loading-bar" IsVisible="{Binding OtherWaveform.IsLoading}"/>
+        <ctrl:WaveformControl
+          WaveformData="{Binding OtherWaveform.WaveformData}"
+          Progress="{Binding OtherWaveform.Progress}"
+          Height="48"
+          Background="#0A0014"
+          Foreground="#BB88FF"
+          IsVisible="{Binding OtherWaveform.WaveformData, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+      </Grid>
+    </Grid>
+
+  </Grid>
+</UserControl>

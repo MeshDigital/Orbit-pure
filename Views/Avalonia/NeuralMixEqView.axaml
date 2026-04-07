@@ -1,0 +1,155 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             x:Class="SLSKDONET.Views.Avalonia.NeuralMixEqView"
+             x:DataType="vm:NeuralMixEqViewModel">
+
+  <UserControl.Styles>
+    <!-- Row strip -->
+    <Style Selector="Border.eq-strip">
+      <Setter Property="Background" Value="#1A1A1A"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Padding" Value="8,6"/>
+      <Setter Property="Margin" Value="0,0,0,4"/>
+    </Style>
+
+    <!-- Band slider: vertical, ±12 dB -->
+    <Style Selector="Slider.band-slider">
+      <Setter Property="Minimum" Value="-12"/>
+      <Setter Property="Maximum" Value="12"/>
+      <Setter Property="Orientation" Value="Vertical"/>
+      <Setter Property="Width" Value="24"/>
+      <Setter Property="Height" Value="80"/>
+      <Setter Property="TickFrequency" Value="3"/>
+      <Setter Property="IsSnapToTickEnabled" Value="False"/>
+    </Style>
+
+    <Style Selector="TextBlock.band-label">
+      <Setter Property="FontSize" Value="8"/>
+      <Setter Property="Foreground" Value="#666"/>
+      <Setter Property="HorizontalAlignment" Value="Center"/>
+      <Setter Property="Margin" Value="0,2,0,0"/>
+    </Style>
+
+    <Style Selector="TextBlock.dB-label">
+      <Setter Property="FontSize" Value="8"/>
+      <Setter Property="Foreground" Value="#888"/>
+      <Setter Property="HorizontalAlignment" Value="Center"/>
+    </Style>
+  </UserControl.Styles>
+
+  <StackPanel Spacing="4">
+
+    <!-- Header -->
+    <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,6">
+      <TextBlock Text="NEURAL MIX EQ" FontSize="10" FontWeight="Bold" Foreground="#888" VerticalAlignment="Center"/>
+      <Button Content="Reset All" FontSize="9" Padding="6,2"
+              Command="{Binding $parent[UserControl].((vm:NeuralMixEqViewModel)DataContext).ResetAll}"
+              Background="#2A2A2A" Foreground="#888"/>
+    </StackPanel>
+
+    <!-- ── Vocals ──────────────────────────────────────────────────────── -->
+    <Border Classes="eq-strip">
+      <Grid ColumnDefinitions="Auto,*">
+        <TextBlock Grid.Column="0" Text="VOCALS" FontSize="9" FontWeight="Bold"
+                   Foreground="#00CFFF" VerticalAlignment="Center" Width="42"/>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+          <!-- Low -->
+          <StackPanel HorizontalAlignment="Center">
+            <Slider Classes="band-slider" Value="{Binding VocalsEq.LowGainDb}"/>
+            <TextBlock Classes="dB-label" Text="{Binding VocalsEq.LowGainDb, StringFormat={}{0:+0.0;-0.0;0}}"/>
+            <TextBlock Classes="band-label" Text="LOW"/>
+          </StackPanel>
+          <!-- Mid -->
+          <StackPanel HorizontalAlignment="Center">
+            <Slider Classes="band-slider" Value="{Binding VocalsEq.MidGainDb}"/>
+            <TextBlock Classes="dB-label" Text="{Binding VocalsEq.MidGainDb, StringFormat={}{0:+0.0;-0.0;0}}"/>
+            <TextBlock Classes="band-label" Text="MID"/>
+          </StackPanel>
+          <!-- High -->
+          <StackPanel HorizontalAlignment="Center">
+            <Slider Classes="band-slider" Value="{Binding VocalsEq.HighGainDb}"/>
+            <TextBlock Classes="dB-label" Text="{Binding VocalsEq.HighGainDb, StringFormat={}{0:+0.0;-0.0;0}}"/>
+            <TextBlock Classes="band-label" Text="HIGH"/>
+          </StackPanel>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- ── Drums ───────────────────────────────────────────────────────── -->
+    <Border Classes="eq-strip">
+      <Grid ColumnDefinitions="Auto,*">
+        <TextBlock Grid.Column="0" Text="DRUMS" FontSize="9" FontWeight="Bold"
+                   Foreground="#FF8C00" VerticalAlignment="Center" Width="42"/>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+          <StackPanel>
+            <Slider Classes="band-slider" Value="{Binding DrumsEq.LowGainDb}"/>
+            <TextBlock Classes="dB-label" Text="{Binding DrumsEq.LowGainDb, StringFormat={}{0:+0.0;-0.0;0}}"/>
+            <TextBlock Classes="band-label" Text="LOW"/>
+          </StackPanel>
+          <StackPanel>
+            <Slider Classes="band-slider" Value="{Binding DrumsEq.MidGainDb}"/>
+            <TextBlock Classes="dB-label" Text="{Binding DrumsEq.MidGainDb, StringFormat={}{0:+0.0;-0.0;0}}"/>
+            <TextBlock Classes="band-label" Text="MID"/>
+          </StackPanel>
+          <StackPanel>
+            <Slider Classes="band-slider" Value="{Binding DrumsEq.HighGainDb}"/>
+            <TextBlock Classes="dB-label" Text="{Binding DrumsEq.HighGainDb, StringFormat={}{0:+0.0;-0.0;0}}"/>
+            <TextBlock Classes="band-label" Text="HIGH"/>
+          </StackPanel>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- ── Bass ────────────────────────────────────────────────────────── -->
+    <Border Classes="eq-strip">
+      <Grid ColumnDefinitions="Auto,*">
+        <TextBlock Grid.Column="0" Text="BASS" FontSize="9" FontWeight="Bold"
+                   Foreground="#44FF88" VerticalAlignment="Center" Width="42"/>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+          <StackPanel>
+            <Slider Classes="band-slider" Value="{Binding BassEq.LowGainDb}"/>
+            <TextBlock Classes="dB-label" Text="{Binding BassEq.LowGainDb, StringFormat={}{0:+0.0;-0.0;0}}"/>
+            <TextBlock Classes="band-label" Text="LOW"/>
+          </StackPanel>
+          <StackPanel>
+            <Slider Classes="band-slider" Value="{Binding BassEq.MidGainDb}"/>
+            <TextBlock Classes="dB-label" Text="{Binding BassEq.MidGainDb, StringFormat={}{0:+0.0;-0.0;0}}"/>
+            <TextBlock Classes="band-label" Text="MID"/>
+          </StackPanel>
+          <StackPanel>
+            <Slider Classes="band-slider" Value="{Binding BassEq.HighGainDb}"/>
+            <TextBlock Classes="dB-label" Text="{Binding BassEq.HighGainDb, StringFormat={}{0:+0.0;-0.0;0}}"/>
+            <TextBlock Classes="band-label" Text="HIGH"/>
+          </StackPanel>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- ── Other ───────────────────────────────────────────────────────── -->
+    <Border Classes="eq-strip">
+      <Grid ColumnDefinitions="Auto,*">
+        <TextBlock Grid.Column="0" Text="OTHER" FontSize="9" FontWeight="Bold"
+                   Foreground="#BB88FF" VerticalAlignment="Center" Width="42"/>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+          <StackPanel>
+            <Slider Classes="band-slider" Value="{Binding OtherEq.LowGainDb}"/>
+            <TextBlock Classes="dB-label" Text="{Binding OtherEq.LowGainDb, StringFormat={}{0:+0.0;-0.0;0}}"/>
+            <TextBlock Classes="band-label" Text="LOW"/>
+          </StackPanel>
+          <StackPanel>
+            <Slider Classes="band-slider" Value="{Binding OtherEq.MidGainDb}"/>
+            <TextBlock Classes="dB-label" Text="{Binding OtherEq.MidGainDb, StringFormat={}{0:+0.0;-0.0;0}}"/>
+            <TextBlock Classes="band-label" Text="MID"/>
+          </StackPanel>
+          <StackPanel>
+            <Slider Classes="band-slider" Value="{Binding OtherEq.HighGainDb}"/>
+            <TextBlock Classes="dB-label" Text="{Binding OtherEq.HighGainDb, StringFormat={}{0:+0.0;-0.0;0}}"/>
+            <TextBlock Classes="band-label" Text="HIGH"/>
+          </StackPanel>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+  </StackPanel>
+</UserControl>

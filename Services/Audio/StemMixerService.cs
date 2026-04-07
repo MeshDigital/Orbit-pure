@@ -108,11 +108,74 @@ public sealed class StemMixerService : ISampleProvider
     /// <summary>Returns all currently registered stem types.</summary>
     public IReadOnlyList<StemType> RegisteredStems => _channels.Keys.ToList();
 
+    /// <summary>
+    /// Sets the stereo pan for a stem. -1.0 = full left, 0.0 = center, +1.0 = full right.
+    /// Uses linear (balance) panning: amplitude of one channel scales from 1→0 as the
+    /// pan moves to the opposite side.
+    /// </summary>
+    public void SetPan(StemType type, float pan)
+    {
+        if (!_channels.TryGetValue(type, out var ch)) return;
+        ch.Pan = Math.Clamp(pan, -1f, 1f);
+        ApplyFaderVolume(ch);
+    }
+
+    /// <returns>Current pan value [-1, +1] for the stem, or 0 if not present.</returns>
+    public float GetPan(StemType type)
+        => _channels.TryGetValue(type, out var ch) ? ch.Pan : 0f;
+
     // ──────────────────────────────────── ISampleProvider ─────────────────
 
     /// <inheritdoc />
     public int Read(float[] buffer, int offset, int count)
-        => _mixBus.Read(buffer, offset, count);
+    {
+        int read = _mixBus.Read(buffer, offset, count);
+
+        // Apply per-stem pan as a stereo balance post-process on the mixed output.
+        // Because the mix bus already summed all stems, we recompute net L/R scale
+        // by iterating over active channels and computing the weighted sum.
+        float netLeft  = 0f;
+        float netRight = 0f;
+        int   active   = 0;
+
+        lock (_channels)
+        {
+            foreach (var ch in _channels.Values)
+            {
+                if (ch.IsMuted) continue;
+                bool anySoloed = _channels.Values.Any(c => c.IsSoloed);
+                if (anySoloed && !ch.IsSoloed) continue;
+
+                float p = ch.Pan; // [-1, +1]
+                netLeft  += (p <= 0f) ? 1f : (1f - p);
+                netRight += (p >= 0f) ? 1f : (1f + p);
+                active++;
+            }
+        }
+
+        if (active > 1)
+        {
+            netLeft  /= active;
+            netRight /= active;
+        }
+        else if (active == 0)
+        {
+            netLeft = netRight = 1f;
+        }
+
+        // Only touch buffer if pan is non-trivial
+        if (Math.Abs(netLeft - 1f) > 0.001f || Math.Abs(netRight - 1f) > 0.001f)
+        {
+            for (int i = offset; i < offset + read; i += 2)
+            {
+                buffer[i]     *= netLeft;
+                if (i + 1 < offset + read)
+                    buffer[i + 1] *= netRight;
+            }
+        }
+
+        return read;
+    }
 
     // ──────────────────────────────────── helpers ─────────────────────────
 
@@ -128,6 +191,7 @@ public sealed class StemMixerService : ISampleProvider
         }
         else
         {
+            // Apply gain.  Pan is handled per-sample in Read() via PanFilterSampleProvider
             ch.Fader.Volume = DbToLinear(ch.GainDb);
         }
     }
@@ -144,6 +208,7 @@ public sealed class StemMixerService : ISampleProvider
     {
         public VolumeSampleProvider Fader { get; }
         public float GainDb   { get; set; } = 0f;
+        public float Pan       { get; set; } = 0f;   // -1 left, 0 center, +1 right
         public bool  IsMuted  { get; set; } = false;
         public bool  IsSoloed { get; set; } = false;
 

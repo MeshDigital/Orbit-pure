@@ -1,0 +1,194 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             x:Class="SLSKDONET.Views.Avalonia.StemMixerView"
+             x:DataType="vm:StemMixerViewModel">
+
+  <UserControl.Styles>
+    <!-- Channel strip base -->
+    <Style Selector="Border.stem-strip">
+      <Setter Property="Background" Value="#1A1A1A"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Padding" Value="8,6"/>
+      <Setter Property="Margin" Value="0,0,0,4"/>
+    </Style>
+
+    <!-- Mute button: active = orange -->
+    <Style Selector="Button.mute-btn[Tag=True]">
+      <Setter Property="Background" Value="#FF8C00"/>
+      <Setter Property="Foreground" Value="#000"/>
+    </Style>
+    <Style Selector="Button.mute-btn">
+      <Setter Property="Background" Value="#333"/>
+      <Setter Property="Foreground" Value="#FFF"/>
+      <Setter Property="Padding" Value="6,2"/>
+      <Setter Property="FontSize" Value="10"/>
+      <Setter Property="MinWidth" Value="30"/>
+    </Style>
+
+    <!-- Solo button: active = yellow -->
+    <Style Selector="Button.solo-btn[Tag=True]">
+      <Setter Property="Background" Value="#FFD700"/>
+      <Setter Property="Foreground" Value="#000"/>
+    </Style>
+    <Style Selector="Button.solo-btn">
+      <Setter Property="Background" Value="#333"/>
+      <Setter Property="Foreground" Value="#FFF"/>
+      <Setter Property="Padding" Value="6,2"/>
+      <Setter Property="FontSize" Value="10"/>
+      <Setter Property="MinWidth" Value="30"/>
+    </Style>
+
+    <!-- Fader area -->
+    <Style Selector="Slider.fader">
+      <Setter Property="Minimum" Value="-60"/>
+      <Setter Property="Maximum" Value="12"/>
+      <Setter Property="TickFrequency" Value="6"/>
+      <Setter Property="IsSnapToTickEnabled" Value="False"/>
+      <Setter Property="Width" Value="28"/>
+      <Setter Property="Height" Value="100"/>
+      <Setter Property="Orientation" Value="Vertical"/>
+    </Style>
+
+    <!-- Pan knob (horizontal slider) -->
+    <Style Selector="Slider.pan-knob">
+      <Setter Property="Minimum" Value="-1"/>
+      <Setter Property="Maximum" Value="1"/>
+      <Setter Property="Width" Value="70"/>
+      <Setter Property="Height" Value="18"/>
+      <Setter Property="Orientation" Value="Horizontal"/>
+    </Style>
+  </UserControl.Styles>
+
+  <Grid RowDefinitions="Auto,*,Auto">
+
+    <!-- ── Top bar: load + status ──────────────────────────────────────── -->
+    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+      <TextBlock Text="STEM MIXER" FontSize="10" FontWeight="Bold"
+                 Foreground="#888" VerticalAlignment="Center"/>
+      <ProgressBar Value="{Binding SeparationProgress}" Minimum="0" Maximum="1"
+                   Width="120" Height="6"
+                   IsVisible="{Binding IsSeparating}"/>
+      <TextBlock Text="{Binding ErrorMessage}" Foreground="#FF4444" FontSize="10"
+                 IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+      <Button Content="✕" Classes="solo-btn"
+              Command="{Binding CancelCommand}"
+              IsVisible="{Binding IsSeparating}"
+              ToolTip.Tip="Cancel separation"/>
+    </StackPanel>
+
+    <!-- ── Channel strips ───────────────────────────────────────────────── -->
+    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+      <StackPanel Orientation="Horizontal" Spacing="6">
+
+        <!-- Vocals strip -->
+        <Border Classes="stem-strip">
+          <Grid RowDefinitions="Auto,*,Auto,Auto,Auto" Width="80">
+            <Border Grid.Row="0" Height="3" CornerRadius="2" Background="#00CFFF" Margin="0,0,0,4"/>
+            <TextBlock Grid.Row="0" Text="{Binding Vocals.DisplayName}"
+                       FontSize="9" FontWeight="Bold" Foreground="#00CFFF"
+                       HorizontalAlignment="Center" Margin="0,5,0,4"/>
+            <Slider Grid.Row="1" Classes="fader"
+                    Value="{Binding Vocals.GainDb}"
+                    HorizontalAlignment="Center" Margin="0,4"/>
+            <TextBlock Grid.Row="1" Text="{Binding Vocals.GainDb, StringFormat={}{0:+0.0;-0.0;0} dB}"
+                       FontSize="8" Foreground="#888" HorizontalAlignment="Center"
+                       Margin="0,0,0,2" VerticalAlignment="Bottom"/>
+            <Slider Grid.Row="2" Classes="pan-knob"
+                    Value="{Binding Vocals.Pan}" Margin="0,4"/>
+            <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" Margin="0,4,0,0">
+              <Button Classes="mute-btn" Content="M"
+                      Tag="{Binding Vocals.IsMuted}"
+                      Command="{Binding Vocals.MuteCommand}"
+                      ToolTip.Tip="Mute"/>
+              <Button Classes="solo-btn" Content="S"
+                      Tag="{Binding Vocals.IsSoloed}"
+                      Command="{Binding Vocals.SoloCommand}"
+                      ToolTip.Tip="Solo"/>
+            </StackPanel>
+          </Grid>
+        </Border>
+
+        <!-- Drums strip -->
+        <Border Classes="stem-strip">
+          <Grid RowDefinitions="Auto,*,Auto,Auto,Auto" Width="80">
+            <Border Grid.Row="0" Height="3" CornerRadius="2" Background="#FF8C00" Margin="0,0,0,4"/>
+            <TextBlock Grid.Row="0" Text="{Binding Drums.DisplayName}"
+                       FontSize="9" FontWeight="Bold" Foreground="#FF8C00"
+                       HorizontalAlignment="Center" Margin="0,5,0,4"/>
+            <Slider Grid.Row="1" Classes="fader"
+                    Value="{Binding Drums.GainDb}"
+                    HorizontalAlignment="Center" Margin="0,4"/>
+            <TextBlock Grid.Row="1" Text="{Binding Drums.GainDb, StringFormat={}{0:+0.0;-0.0;0} dB}"
+                       FontSize="8" Foreground="#888" HorizontalAlignment="Center"
+                       Margin="0,0,0,2" VerticalAlignment="Bottom"/>
+            <Slider Grid.Row="2" Classes="pan-knob"
+                    Value="{Binding Drums.Pan}" Margin="0,4"/>
+            <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" Margin="0,4,0,0">
+              <Button Classes="mute-btn" Content="M"
+                      Tag="{Binding Drums.IsMuted}"
+                      Command="{Binding Drums.MuteCommand}"/>
+              <Button Classes="solo-btn" Content="S"
+                      Tag="{Binding Drums.IsSoloed}"
+                      Command="{Binding Drums.SoloCommand}"/>
+            </StackPanel>
+          </Grid>
+        </Border>
+
+        <!-- Bass strip -->
+        <Border Classes="stem-strip">
+          <Grid RowDefinitions="Auto,*,Auto,Auto,Auto" Width="80">
+            <Border Grid.Row="0" Height="3" CornerRadius="2" Background="#44FF88" Margin="0,0,0,4"/>
+            <TextBlock Grid.Row="0" Text="{Binding Bass.DisplayName}"
+                       FontSize="9" FontWeight="Bold" Foreground="#44FF88"
+                       HorizontalAlignment="Center" Margin="0,5,0,4"/>
+            <Slider Grid.Row="1" Classes="fader"
+                    Value="{Binding Bass.GainDb}"
+                    HorizontalAlignment="Center" Margin="0,4"/>
+            <TextBlock Grid.Row="1" Text="{Binding Bass.GainDb, StringFormat={}{0:+0.0;-0.0;0} dB}"
+                       FontSize="8" Foreground="#888" HorizontalAlignment="Center"
+                       Margin="0,0,0,2" VerticalAlignment="Bottom"/>
+            <Slider Grid.Row="2" Classes="pan-knob"
+                    Value="{Binding Bass.Pan}" Margin="0,4"/>
+            <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" Margin="0,4,0,0">
+              <Button Classes="mute-btn" Content="M"
+                      Tag="{Binding Bass.IsMuted}"
+                      Command="{Binding Bass.MuteCommand}"/>
+              <Button Classes="solo-btn" Content="S"
+                      Tag="{Binding Bass.IsSoloed}"
+                      Command="{Binding Bass.SoloCommand}"/>
+            </StackPanel>
+          </Grid>
+        </Border>
+
+        <!-- Other strip -->
+        <Border Classes="stem-strip">
+          <Grid RowDefinitions="Auto,*,Auto,Auto,Auto" Width="80">
+            <Border Grid.Row="0" Height="3" CornerRadius="2" Background="#BB88FF" Margin="0,0,0,4"/>
+            <TextBlock Grid.Row="0" Text="{Binding Other.DisplayName}"
+                       FontSize="9" FontWeight="Bold" Foreground="#BB88FF"
+                       HorizontalAlignment="Center" Margin="0,5,0,4"/>
+            <Slider Grid.Row="1" Classes="fader"
+                    Value="{Binding Other.GainDb}"
+                    HorizontalAlignment="Center" Margin="0,4"/>
+            <TextBlock Grid.Row="1" Text="{Binding Other.GainDb, StringFormat={}{0:+0.0;-0.0;0} dB}"
+                       FontSize="8" Foreground="#888" HorizontalAlignment="Center"
+                       Margin="0,0,0,2" VerticalAlignment="Bottom"/>
+            <Slider Grid.Row="2" Classes="pan-knob"
+                    Value="{Binding Other.Pan}" Margin="0,4"/>
+            <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" Margin="0,4,0,0">
+              <Button Classes="mute-btn" Content="M"
+                      Tag="{Binding Other.IsMuted}"
+                      Command="{Binding Other.MuteCommand}"/>
+              <Button Classes="solo-btn" Content="S"
+                      Tag="{Binding Other.IsSoloed}"
+                      Command="{Binding Other.SoloCommand}"/>
+            </StackPanel>
+          </Grid>
+        </Border>
+
+      </StackPanel>
+    </ScrollViewer>
+
+  </Grid>
+</UserControl>
