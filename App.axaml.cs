@@ -591,6 +591,9 @@ public partial class App : Application
         // ── Issue 2.2: Similarity Index ───────────────────────────────────
         services.AddSingleton<Services.Similarity.SimilarityIndex>();
 
+        // ── Tasks 5.1-5.5: Dual Deck Engine + Sync ───────────────────────
+        services.AddSingleton<ViewModels.DeckViewModel>();
+
         // ── Task 7.4-7.6: Timeline Editor ViewModel ───────────────────────
         services.AddSingleton<ViewModels.TimelineViewModel>();
 
