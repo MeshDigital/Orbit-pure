@@ -577,6 +577,12 @@ public partial class App : Application
         services.AddSingleton<ViewModels.AnalysisPageViewModel>();
         services.AddSingleton<Services.AnalysisQueueService>();
 
+        // ── Task 1.5: Beatgrid Detection ──────────────────────────────────
+        services.AddSingleton<Services.AudioAnalysis.BeatgridDetectionService>();
+
+        // ── Task 1.6: Waveform Extraction ─────────────────────────────────
+        services.AddSingleton<Services.AudioAnalysis.WaveformExtractionService>();
+
         // ── Issue 2.1: Embedding Extraction Service ───────────────────────
         services.AddSingleton<Services.Embeddings.EmbeddingExtractionService>();
         services.AddSingleton<Services.Embeddings.IEmbeddingExtractionService>(sp =>

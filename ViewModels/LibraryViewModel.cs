@@ -254,14 +254,12 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         
 
         
-        _projectAddedSubscription = _eventBus.GetEvent<ProjectAddedEvent>().Subscribe(OnProjectAdded);
+        _disposables.Add(_eventBus.GetEvent<ProjectAddedEvent>().Subscribe(OnProjectAdded));
         _disposables.Add(_eventBus.GetEvent<SearchRequestedEvent>().Subscribe(OnSearchRequested));
         
         // Startup background tasks
         Task.Run(() => _libraryService.SyncLibraryEntriesFromTracksAsync()).ConfigureAwait(false);
     }
-
-    private readonly IDisposable _projectAddedSubscription;
 
     public void Dispose()
     {
@@ -276,8 +274,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
             if (disposing)
             {
                 _disposables.Dispose();
-                _projectAddedSubscription?.Dispose();
-                
+
                 Projects.ProjectSelected -= OnProjectSelected;
                 SmartPlaylists.SmartPlaylistSelected -= OnSmartPlaylistSelected;
                 Tracks.SelectedTracks.CollectionChanged -= OnTrackSelectionChanged;

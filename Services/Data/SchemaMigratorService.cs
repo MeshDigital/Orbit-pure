@@ -1155,6 +1155,34 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // Task 1.5: Beatgrid detection columns
+            if (!ColumnExists("audio_features", "BeatGridJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding BeatGridJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""BeatGridJson"" TEXT NOT NULL DEFAULT '[]';";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "DownbeatOffsetSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding DownbeatOffsetSeconds to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""DownbeatOffsetSeconds"" REAL NOT NULL DEFAULT 0.0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Task 1.6: Waveform blob columns
+            if (!ColumnExists("audio_features", "WaveformBlob"))
+            {
+                _logger.LogInformation("Patching Schema: Adding WaveformBlob to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""WaveformBlob"" BLOB NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "WaveformBlobSampleCount"))
+            {
+                _logger.LogInformation("Patching Schema: Adding WaveformBlobSampleCount to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""WaveformBlobSampleCount"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
             // 1C. AnalysisRuns Table (Phase 21: Analysis Run Tracking)
             if (!TableExists("analysis_runs"))
             {
