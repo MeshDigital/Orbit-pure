@@ -1115,6 +1115,43 @@ public class DatabaseService
     }
 
     /// <summary>
+    /// Issue #46: Returns the most recent completed and failed tracks so the
+    /// Downloads page is pre-populated after an app restart.
+    /// </summary>
+    public async Task<List<PlaylistTrackEntity>> GetRecentCompletedAndFailedTracksAsync(int limit = 50)
+    {
+        using var context = new AppDbContext();
+        var validJobIds = context.Projects.Where(j => !j.IsDeleted).Select(j => j.Id);
+
+        return await context.PlaylistTracks
+            .AsNoTracking()
+            .Where(t => validJobIds.Contains(t.PlaylistId)
+                     && (t.Status == TrackStatus.Downloaded || t.Status == TrackStatus.Failed))
+            .OrderByDescending(t => t.CompletedAt ?? t.AddedAt)
+            .Take(limit)
+            .ToListAsync();
+    }
+
+    /// <summary>
+    /// Issue #48: Resets a zombie (interrupted) track back to Missing/Pending by
+    /// its resolved file path so it can be retried on the next run.
+    /// </summary>
+    public async Task ResetTrackToMissingByPathAsync(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath)) return;
+
+        using var context = new AppDbContext();
+        var track = await context.PlaylistTracks
+            .FirstOrDefaultAsync(t => t.ResolvedFilePath == filePath
+                                   && (t.Status == TrackStatus.Pending || t.Status == TrackStatus.OnHold));
+        if (track == null) return;
+
+        track.Status = TrackStatus.Missing;
+        track.ResolvedFilePath = null;
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>
     /// Phase 3C.5: Project-scoped pending track fetch for lazy queue refilling.
     /// Only returns Missing tracks belonging to the specified project.
     /// </summary>

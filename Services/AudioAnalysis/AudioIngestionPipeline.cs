@@ -133,7 +133,18 @@ public sealed class AudioIngestionPipeline
         process.Start();
         process.BeginErrorReadLine();
 
-        await process.WaitForExitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await process.WaitForExitAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Issue #47: kill the subprocess so it does not continue consuming CPU/RAM
+            // after the analysis job is cancelled.
+            try { process.Kill(entireProcessTree: true); } catch { /* already exited */ }
+            throw;
+        }
+
         return (process.ExitCode, stderrBuilder.ToString());
     }
 

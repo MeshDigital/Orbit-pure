@@ -63,6 +63,8 @@ public class AppDbContext : DbContext
             {
                 options.CommandTimeout(30); // 30 second timeout for long operations
             })
+            // Issue #45: apply WAL mode + PRAGMAs before any EF Core operation runs
+            .AddInterceptors(new SqliteWalInterceptor())
             .ConfigureWarnings(warnings =>
             {
                 // Suppress this warning since we use runtime schema patching via SchemaMigratorService

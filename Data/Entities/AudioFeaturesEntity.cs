@@ -450,6 +450,36 @@ public class AudioFeaturesEntity
     /// </summary>
     public string EnergyCurveJson { get; set; } = "[]";
 
+    // ============================================
+    // Task 1.5 — Beatgrid Detection
+    // ============================================
+
+    /// <summary>
+    /// Absolute timestamps (seconds) of every detected beat downbeat.
+    /// Stored as a JSON float array (e.g. [0.0, 0.469, 0.938, …]).
+    /// </summary>
+    public string BeatGridJson { get; set; } = "[]";
+
+    /// <summary>
+    /// Offset in seconds from the start of the track to the first beat downbeat.
+    /// Used to align the beat grid with the waveform cursor.
+    /// </summary>
+    public double DownbeatOffsetSeconds { get; set; }
+
+    // ============================================
+    // Task 1.6 — Waveform Data Extraction
+    // ============================================
+
+    /// <summary>
+    /// Compact waveform blob: ~1 000 samples of low/mid/high band RMS values
+    /// packed as three consecutive byte arrays (each value 0–255).
+    /// Layout: [low₀…lowN | mid₀…midN | high₀…highN]
+    /// </summary>
+    public byte[]? WaveformBlob { get; set; }
+
+    /// <summary>Number of samples per channel stored in WaveformBlob.</summary>
+    public int WaveformBlobSampleCount { get; set; }
+
     /// <summary>
     /// Time-series data for vocal activity/density throughout the track (JSON array of floats).
     /// </summary>

@@ -390,11 +390,42 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             
             _logger.LogInformation("Hydrated {Count} active tracks", activeTracks.Count);
 
+            // Issue #46: hydrate last 50 completed/failed so the Downloads page is
+            // not empty after a restart.
+            var recentHistory = await _databaseService.GetRecentCompletedAndFailedTracksAsync(50);
+            HydrateAndAddEntities(recentHistory);
+            _logger.LogInformation("Hydrated {Count} recent completed/failed tracks", recentHistory.Count);
+
             // PERFORMANCE FIX: Defer queue refilling until after startup
             // The ProcessQueueLoop will call RefillQueueAsync when needed, 
             // which is now project-aware to prevent mass-activation.
             // await RefillQueueAsync(); // Removed global refill on init
 
+
+            // Issue #48: reset zombie downloads that were Active (in-progress) when
+            // the app last crashed.  Without this, the journal accumulates stale
+            // Active entries and those tracks appear stuck in the download page.
+            try
+            {
+                await _crashJournal.InitAsync();
+                var zombies = await _crashJournal.GetPendingCheckpointsAsync();
+                int resetCount = 0;
+                foreach (var cp in zombies.Where(c => c.OperationType == OperationType.Download))
+                {
+                    // Mark the journal entry as dead-letter so it won't trigger again.
+                    await _crashJournal.MarkAsDeadLetterAsync(cp.Id);
+                    // Reset the corresponding PlaylistTrack to Pending so it can be retried.
+                    if (!string.IsNullOrEmpty(cp.TargetPath))
+                        await _databaseService.ResetTrackToMissingByPathAsync(cp.TargetPath);
+                    resetCount++;
+                }
+                if (resetCount > 0)
+                    _logger.LogWarning("[CrashRecovery] Reset {Count} zombie downloads from previous session", resetCount);
+            }
+            catch (Exception journalEx)
+            {
+                _logger.LogError(journalEx, "[CrashRecovery] Failed to process recovery journal on startup");
+            }
 
             // Notify observers that we are ready and hydrated
             _isHydrated = true;

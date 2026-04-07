@@ -16,6 +16,23 @@ public class EssentiaOutput
 
     [JsonPropertyName("highlevel")]
     public HighLevelData? HighLevel { get; set; } // Phase 13C: AI Layer
+
+    [JsonPropertyName("metadata")]
+    public EssentiaMetadata? Metadata { get; set; }
+}
+
+public class EssentiaMetadata
+{
+    [JsonPropertyName("audio_properties")]
+    public EssentiaAudioProperties? AudioProperties { get; set; }
+
+    public double Duration => AudioProperties?.Duration ?? 0;
+}
+
+public class EssentiaAudioProperties
+{
+    [JsonPropertyName("length")]
+    public double Duration { get; set; }
 }
 
 public class RhythmData
@@ -35,6 +52,10 @@ public class RhythmData
     // Phase 13A: BPM Drift Detection
     [JsonPropertyName("bpm_histogram")]
     public float[]? BpmHistogram { get; set; }
+
+    // Task 1.5: absolute beat positions in seconds from Essentia BeatTrackerMultiFeature
+    [JsonPropertyName("beats_position")]
+    public float[]? Ticks { get; set; }
 }
 
 public class TonalData
