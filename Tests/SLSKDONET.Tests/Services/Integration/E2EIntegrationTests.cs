@@ -7,7 +7,9 @@ using System.Xml.Linq;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 using SLSKDONET.Data.Entities;
+using SLSKDONET.Models.Timeline;
 using SLSKDONET.Services.Playlist;
+using SLSKDONET.Services.Timeline;
 
 namespace SLSKDONET.Tests.Services.Integration
 {
@@ -432,6 +434,179 @@ namespace SLSKDONET.Tests.Services.Integration
             Assert.Equal(3, pendingCount);   // 1 original + 2 recovered
             Assert.Equal(1, completedCount);
             Assert.Equal(1, failedCount);
+        }
+    }
+
+    // ── 4. Analysis → Playlist → Timeline full-chain integration ─────────────
+
+    public class AnalysisPlaylistTimelineIntegrationTests
+    {
+        // ── Helpers ──────────────────────────────────────────────────────────
+
+        private static AudioFeaturesEntity MakeTrack(
+            string hash, float bpm, string camelotKey, int energy)
+            => new()
+            {
+                TrackUniqueHash = hash,
+                Bpm             = bpm,
+                CamelotKey      = camelotKey,
+                EnergyScore     = energy,
+            };
+
+        /// <summary>
+        /// Greedy ordering: given a starting track, always pick the cheapest neighbour.
+        /// Returns the hashes in visit order.
+        /// </summary>
+        private static List<AudioFeaturesEntity> GreedyOrder(
+            AudioFeaturesEntity start,
+            List<AudioFeaturesEntity> remaining,
+            PlaylistOptimizerOptions opts)
+        {
+            var ordered = new List<AudioFeaturesEntity> { start };
+            var pool    = remaining.ToList();
+
+            while (pool.Count > 0)
+            {
+                var current = ordered[^1];
+                var next    = pool
+                    .OrderBy(t => PlaylistOptimizer.EdgeCost(current, t, opts))
+                    .First();
+                ordered.Add(next);
+                pool.Remove(next);
+            }
+
+            return ordered;
+        }
+
+        // ── Tests ─────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void GreedyOrder_HarmonicProgression_PrefersSameKey()
+        {
+            // Three tracks: A(8A), B(8A adjacent), C(2B distant)
+            // From A, greedy should pick B before C.
+            var a    = MakeTrack("a", 128f, "8A", 5);
+            var b    = MakeTrack("b", 128f, "8A", 5);
+            var c    = MakeTrack("c", 128f, "2B", 5);
+            var opts = new PlaylistOptimizerOptions();
+
+            var ordered = GreedyOrder(a, new List<AudioFeaturesEntity> { b, c }, opts);
+
+            Assert.Equal("a", ordered[0].TrackUniqueHash);
+            Assert.Equal("b", ordered[1].TrackUniqueHash);
+            Assert.Equal("c", ordered[2].TrackUniqueHash);
+        }
+
+        [Fact]
+        public void TimelineSession_BuiltFromOrderedPlaylist_ClipsInOrder()
+        {
+            // Arrange: 3 analysis results greedy-ordered by harmonic fit
+            var a    = MakeTrack("h_a", 120f, "1A", 4);
+            var b    = MakeTrack("h_b", 120f, "1A", 5);
+            var c    = MakeTrack("h_c", 120f, "2A", 6);
+            var opts = new PlaylistOptimizerOptions();
+
+            var ordered = GreedyOrder(a, new List<AudioFeaturesEntity> { b, c }, opts);
+
+            // Act: build a TimelineSession from the ordered playlist.
+            // Each clip = 32 beats long, placed sequentially.
+            var session = new TimelineSession { ProjectBpm = 120, BeatsPerBar = 4 };
+            var track   = session.AddTrack("Mix");
+
+            double cursor = 0;
+            foreach (var feat in ordered)
+            {
+                track.AddClip(new TimelineClip
+                {
+                    Id              = Guid.NewGuid(),
+                    TrackUniqueHash = feat.TrackUniqueHash,
+                    StartBeat       = cursor,
+                    LengthBeats     = 32,
+                });
+                cursor += 32;
+            }
+
+            // Assert: timeline has 3 clips in harmonic order
+            Assert.Equal(3, track.Clips.Count);
+            Assert.Equal("h_a", track.Clips[0].TrackUniqueHash);
+            Assert.Equal(0.0,  track.Clips[0].StartBeat,  precision: 6);
+            Assert.Equal("h_b", track.Clips[1].TrackUniqueHash);
+            Assert.Equal(32.0, track.Clips[1].StartBeat,  precision: 6);
+            Assert.Equal("h_c", track.Clips[2].TrackUniqueHash);
+            Assert.Equal(64.0, track.Clips[2].StartBeat,  precision: 6);
+        }
+
+        [Fact]
+        public void TimelineSession_TotalDuration_MatchesSumOfClipLengths()
+        {
+            var ordered = new[]
+            {
+                MakeTrack("t1", 120f, "8A", 5),
+                MakeTrack("t2", 120f, "8A", 6),
+                MakeTrack("t3", 120f, "9A", 7),
+            };
+
+            // 3 clips × 32 beats = 96 beats = 24 bars @ BeatsPerBar=4
+            const int beatsPerBar = 4;
+            const int totalBeats  = 96; // 3 × 32
+            const int totalBars   = totalBeats / beatsPerBar; // 24
+
+            var session = new TimelineSession
+            {
+                ProjectBpm  = 120,
+                BeatsPerBar = beatsPerBar,
+                TotalBars   = totalBars,
+            };
+            var trkLine = session.AddTrack("Main");
+
+            double cursor = 0;
+            foreach (var feat in ordered)
+            {
+                trkLine.AddClip(new TimelineClip
+                {
+                    Id              = Guid.NewGuid(),
+                    TrackUniqueHash = feat.TrackUniqueHash,
+                    StartBeat       = cursor,
+                    LengthBeats     = 32,
+                });
+                cursor += 32;
+            }
+
+            // TotalDurationSeconds = TotalBars × BeatsPerBar × (60 / BPM)
+            double expectedSecs = totalBars * beatsPerBar * (60.0 / 120.0); // 48 s
+            Assert.Equal(expectedSecs, session.TotalDurationSeconds, precision: 4);
+        }
+
+        [Fact]
+        public void Timeline_JsonRoundTrip_PreservesOrderedHashes()
+        {
+            var session = new TimelineSession { ProjectBpm = 128, BeatsPerBar = 4 };
+            var trkLine = session.AddTrack("Export");
+
+            var hashes = new[] { "hash_x", "hash_y", "hash_z" };
+            double cursor = 0;
+            foreach (var h in hashes)
+            {
+                trkLine.AddClip(new TimelineClip
+                {
+                    Id              = Guid.NewGuid(),
+                    TrackUniqueHash = h,
+                    StartBeat       = cursor,
+                    LengthBeats     = 32,
+                });
+                cursor += 32;
+            }
+
+            // Serialise + deserialise
+            string json       = session.ToJson();
+            var    reloaded   = TimelineSession.FromJson(json)!;
+
+            var reloadedHashes = reloaded.Tracks[0].Clips
+                .OrderBy(c => c.StartBeat)
+                .Select(c => c.TrackUniqueHash)
+                .ToArray();
+
+            Assert.Equal(hashes, reloadedHashes);
         }
     }
 }

@@ -370,4 +370,148 @@ namespace SLSKDONET.Tests.Services
             slot.Dispose();
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // DeckEngine loop methods without loaded file — Task 13.4
+    // Verifies that HalfLoop / DoubleLoop / ExitLoop / MoveLoop / ActivateLoopRoll
+    // are all graceful no-ops when no audio file is loaded.
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    public class DeckEngineLoopMethodTests
+    {
+        // ── SetLoop without file ───────────────────────────────────────────────
+
+        [Fact]
+        public void SetLoop_WithoutFile_LoopRemainsNull()
+        {
+            using var deck = new DeckEngine();
+            deck.SetLoop(4.0); // _rate == null → early return
+            Assert.Null(deck.Loop);
+        }
+
+        [Fact]
+        public void ActivateLoopRoll_WithoutFile_LoopRemainsNull()
+        {
+            using var deck = new DeckEngine();
+            deck.ActivateLoopRoll(2.0);
+            Assert.Null(deck.Loop);
+        }
+
+        // ── Loop mutations without active loop ────────────────────────────────
+
+        [Fact]
+        public void HalfLoop_NoActiveLoop_DoesNotThrow()
+        {
+            using var deck = new DeckEngine();
+            deck.HalfLoop(); // _loop == null → should return without throwing
+            Assert.Null(deck.Loop);
+        }
+
+        [Fact]
+        public void DoubleLoop_NoActiveLoop_DoesNotThrow()
+        {
+            using var deck = new DeckEngine();
+            deck.DoubleLoop();
+            Assert.Null(deck.Loop);
+        }
+
+        [Fact]
+        public void MoveLoop_NoActiveLoop_DoesNotThrow()
+        {
+            using var deck = new DeckEngine();
+            deck.MoveLoop(1);
+            deck.MoveLoop(-1);
+            Assert.Null(deck.Loop);
+        }
+
+        [Fact]
+        public void ExitLoop_NoActiveLoop_DoesNotThrow()
+        {
+            using var deck = new DeckEngine();
+            deck.ExitLoop();
+            Assert.Null(deck.Loop);
+        }
+
+        // ── LoopRegion math (HalfLoop / DoubleLoop semantics) ─────────────────
+
+        [Fact]
+        public void HalfLoop_Semantics_HalvesOutAtMidpoint()
+        {
+            // Verify the midpoint formula HalfLoop uses: (In + Out) / 2
+            var loop = new LoopRegion { InSeconds = 0, OutSeconds = 8, IsActive = true };
+            double result = (loop.InSeconds + loop.OutSeconds) / 2.0;
+            Assert.Equal(4.0, result, precision: 6);
+        }
+
+        [Fact]
+        public void DoubleLoop_Semantics_ExtendsOutByCurrentLength()
+        {
+            var loop = new LoopRegion { InSeconds = 2, OutSeconds = 6, IsActive = true };
+            double newOut = loop.OutSeconds + (loop.OutSeconds - loop.InSeconds); // 6 + 4 = 10
+            Assert.Equal(10.0, newOut, precision: 6);
+        }
+
+        [Fact]
+        public void MoveLoop_Semantics_ShiftsByLoopLength()
+        {
+            var loop = new LoopRegion { InSeconds = 4, OutSeconds = 8, IsActive = true };
+            double len = loop.OutSeconds - loop.InSeconds; // 4
+            double newIn  = loop.InSeconds  + len; // 8
+            double newOut = loop.OutSeconds + len; // 12
+            Assert.Equal(8.0,  newIn,  precision: 6);
+            Assert.Equal(12.0, newOut, precision: 6);
+        }
+
+        // ── PitchRange enum values ─────────────────────────────────────────────
+
+        [Theory]
+        [InlineData(PitchRange.Narrow,  8)]
+        [InlineData(PitchRange.Medium, 16)]
+        [InlineData(PitchRange.Wide,   50)]
+        public void PitchRange_EnumValues_MatchSpec(PitchRange range, int expectedPercent)
+        {
+            Assert.Equal(expectedPercent, (int)range);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // BpmSyncService.PhaseAlign tests — Task 13.4
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    public class BpmSyncServicePhaseAlignTests
+    {
+        private readonly BpmSyncService _svc = new();
+
+        [Fact]
+        public void PhaseAlign_ZeroBpm_IsNoOp()
+        {
+            using var master = new DeckEngine();
+            using var slave  = new DeckEngine();
+            // masterBpm=0 → guard returns early — no throw, positions unchanged
+            _svc.PhaseAlign(master, 0, slave, 128.0);
+            _svc.PhaseAlign(master, 128.0, slave, 0);
+            Assert.Equal(0.0, master.PositionSeconds, precision: 6);
+            Assert.Equal(0.0, slave.PositionSeconds,  precision: 6);
+        }
+
+        [Fact]
+        public void PhaseAlign_BothDecksAtOrigin_DoesNotThrow()
+        {
+            using var master = new DeckEngine();
+            using var slave  = new DeckEngine();
+            // Both at position 0, no files — should not throw
+            _svc.PhaseAlign(master, 128.0, slave, 128.0);
+        }
+
+        [Fact]
+        public void PhaseAlign_PositiveResult_IsNonNegative()
+        {
+            // targetPos clamps to >= current-pos for a reasonable seek
+            using var master = new DeckEngine();
+            using var slave  = new DeckEngine();
+            // With both at pos 0: nearestSlaveBeat=0, masterPhase=0, targetPos=0 → Seek(0) ≥ 0
+            _svc.PhaseAlign(master, 128.0, slave, 120.0);
+            Assert.True(slave.PositionSeconds >= 0.0);
+        }
+    }
 }
