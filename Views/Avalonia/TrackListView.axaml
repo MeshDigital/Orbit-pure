@@ -37,7 +37,7 @@
         </Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="Auto,Auto,*">
+    <Grid RowDefinitions="Auto,Auto,Auto,*">
 
         <!-- Search Bar -->
         <Border Grid.Row="0" Background="#252526" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="16,12">
@@ -85,6 +85,17 @@
                     <TextBlock Text="Total Tracks:" VerticalAlignment="Center" FontSize="11" Foreground="#666"/>
                     <TextBlock Text="{Binding FilteredTracks.Count}" VerticalAlignment="Center" FontSize="11" FontWeight="Bold" Foreground="#888"/>
 
+                    <!-- Column visibility toggles -->
+                    <Rectangle Width="1" Height="14" Fill="#444" VerticalAlignment="Center" Margin="4,0"/>
+                    <TextBlock Text="COLUMNS:" VerticalAlignment="Center" FontSize="10" Foreground="#555" FontWeight="Bold"/>
+                    <ToggleButton Content="FMT" IsChecked="{Binding IsFormatColumnVisible, Mode=TwoWay}" Classes="chip" Padding="8,4" FontSize="10" ToolTip.Tip="Toggle Format column"/>
+                    <ToggleButton Content="FSC" IsChecked="{Binding IsForensicsColumnVisible, Mode=TwoWay}" Classes="chip" Padding="8,4" FontSize="10" ToolTip.Tip="Toggle Forensics column"/>
+                    <ToggleButton Content="DUR" IsChecked="{Binding IsDurationColumnVisible, Mode=TwoWay}" Classes="chip" Padding="8,4" FontSize="10" ToolTip.Tip="Toggle Duration column"/>
+
+                    <!-- Inline filter strip toggle -->
+                    <Rectangle Width="1" Height="14" Fill="#444" VerticalAlignment="Center" Margin="4,0"/>
+                    <ToggleButton Content="🔬 Filters" IsChecked="{Binding IsColumnFilterStripVisible, Mode=TwoWay}" Classes="chip" Padding="10,4" FontSize="10" ToolTip.Tip="Toggle per-column inline filters"/>
+
                     <!-- Add Selected to Queue action — visible only when ≥1 track is selected -->
                     <Rectangle Width="1" Height="14" Fill="#444" VerticalAlignment="Center" Margin="4,0"
                                IsVisible="{Binding HasSelectedTracks}"/>
@@ -108,8 +119,43 @@
             </WrapPanel>
         </Border>
 
+        <!-- Inline Column Filters (Task 10.4) -->
+        <Border Grid.Row="2"
+                Background="#1A1A1E"
+                BorderBrush="#3E3E3E"
+                BorderThickness="0,0,0,1"
+                Padding="16,8"
+                IsVisible="{Binding IsColumnFilterStripVisible}">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="Artist:" VerticalAlignment="Center" FontSize="11" Foreground="#888"/>
+                <Border Background="#252526" BorderBrush="#3E3E3E" BorderThickness="1" CornerRadius="4" Padding="8,4" MinWidth="160">
+                    <TextBox Text="{Binding FilterArtist, Mode=TwoWay}"
+                             Watermark="Filter by artist..."
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Padding="0"
+                             FontSize="11"
+                             Foreground="White"/>
+                </Border>
+                <TextBlock Text="Title:" VerticalAlignment="Center" FontSize="11" Foreground="#888"/>
+                <Border Background="#252526" BorderBrush="#3E3E3E" BorderThickness="1" CornerRadius="4" Padding="8,4" MinWidth="200">
+                    <TextBox Text="{Binding FilterTitle, Mode=TwoWay}"
+                             Watermark="Filter by title..."
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Padding="0"
+                             FontSize="11"
+                             Foreground="White"/>
+                </Border>
+                <Button Command="{Binding ToggleColumnFilterStripCommand}"
+                        Padding="8,4" FontSize="10" Background="Transparent"
+                        Foreground="#666" BorderThickness="0"
+                        ToolTip.Tip="Close filter strip">✕</Button>
+            </StackPanel>
+        </Border>
+
         <!-- Track List -->
-        <DataGrid Grid.Row="2" Name="TrackGrid" 
+        <DataGrid Grid.Row="3" Name="TrackGrid" 
                   ItemsSource="{Binding FilteredTracks}"
                   CanUserSortColumns="True"
                   IsReadOnly="True"
@@ -215,7 +261,7 @@
                 </DataGridTemplateColumn>
 
                 <!-- Format Column -->
-                <DataGridTemplateColumn Header="FORMAT" Width="100">
+                <DataGridTemplateColumn Header="FORMAT" Width="100" IsVisible="{Binding #TrackGrid.DataContext.IsFormatColumnVisible}">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:PlaylistTrackViewModel">
                             <Border Background="#1A1F2C" BorderBrush="#3300BFFF" BorderThickness="1" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0">
@@ -229,7 +275,7 @@
                 </DataGridTemplateColumn>
 
                 <!-- Forensic Verdict Column -->
-                <DataGridTemplateColumn Header="FORENSICS" Width="120">
+                <DataGridTemplateColumn Header="FORENSICS" Width="120" IsVisible="{Binding #TrackGrid.DataContext.IsForensicsColumnVisible}">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:PlaylistTrackViewModel">
                             <Border Background="{Binding IntegrityColor}"
@@ -252,7 +298,7 @@
                 </DataGridTemplateColumn>
 
                 <!-- Duration Column -->
-                <DataGridTemplateColumn Header="DURATION" Width="80">
+                <DataGridTemplateColumn Header="DURATION" Width="80" IsVisible="{Binding #TrackGrid.DataContext.IsDurationColumnVisible}">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:PlaylistTrackViewModel">
                             <TextBlock Text="{Binding DurationDisplay}" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0" Opacity="0.5"/>

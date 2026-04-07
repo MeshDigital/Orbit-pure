@@ -413,6 +413,50 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         get => _duplicateHashesFilter;
         set => this.RaiseAndSetIfChanged(ref _duplicateHashesFilter, value);
     }
+
+    // Task 10.4: Per-column inline filters
+    private string _filterArtist = string.Empty;
+    public string FilterArtist
+    {
+        get => _filterArtist;
+        set => this.RaiseAndSetIfChanged(ref _filterArtist, value);
+    }
+
+    private string _filterTitle = string.Empty;
+    public string FilterTitle
+    {
+        get => _filterTitle;
+        set => this.RaiseAndSetIfChanged(ref _filterTitle, value);
+    }
+
+    // Task 10.4: Column visibility
+    private bool _isColumnFilterStripVisible;
+    public bool IsColumnFilterStripVisible
+    {
+        get => _isColumnFilterStripVisible;
+        set => this.RaiseAndSetIfChanged(ref _isColumnFilterStripVisible, value);
+    }
+
+    private bool _isFormatColumnVisible = true;
+    public bool IsFormatColumnVisible
+    {
+        get => _isFormatColumnVisible;
+        set => this.RaiseAndSetIfChanged(ref _isFormatColumnVisible, value);
+    }
+
+    private bool _isForensicsColumnVisible = true;
+    public bool IsForensicsColumnVisible
+    {
+        get => _isForensicsColumnVisible;
+        set => this.RaiseAndSetIfChanged(ref _isForensicsColumnVisible, value);
+    }
+
+    private bool _isDurationColumnVisible = true;
+    public bool IsDurationColumnVisible
+    {
+        get => _isDurationColumnVisible;
+        set => this.RaiseAndSetIfChanged(ref _isDurationColumnVisible, value);
+    }
     
     // ListBox Selection Binding
     private ObservableCollection<PlaylistTrackViewModel> _selectedTracks = new();
@@ -519,6 +563,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         }
     }
 
+    public System.Windows.Input.ICommand ToggleColumnFilterStripCommand { get; }
     public System.Windows.Input.ICommand SelectAllTracksCommand { get; }
     public System.Windows.Input.ICommand DeselectAllTracksCommand { get; }
     public System.Windows.Input.ICommand BulkDownloadCommand { get; }
@@ -553,6 +598,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
 
         Hierarchical = new HierarchicalLibraryViewModel(config, downloadManager, artworkCache);
         
+        ToggleColumnFilterStripCommand = ReactiveCommand.Create(() => IsColumnFilterStripVisible = !IsColumnFilterStripVisible);
+
         SelectAllTracksCommand = ReactiveCommand.Create(() => 
         {
             // Update IsSelected property to reflect selection visually
@@ -618,13 +665,15 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         // Selection Change Tracking
         _selectedTracks.CollectionChanged += OnSelectionChanged;
 
-        // Throttled search and filter synchronization
+        // Throttled search and filter synchronization (includes per-column filters)
         this.WhenAnyValue(
             x => x.SearchText,
             x => x.IsFilterAll,
             x => x.IsFilterDownloaded,
             x => x.IsFilterPending,
-            x => x.IsFilterNeedsReview)
+            x => x.IsFilterNeedsReview,
+            x => x.FilterArtist,
+            x => x.FilterTitle)
             .Throttle(TimeSpan.FromMilliseconds(250))
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(_ => RefreshFilteredTracks())
@@ -913,13 +962,15 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         }
 
         // Standard Path: Virtualization for DB Projects or "All Tracks"
+        // Combine global SearchText with per-column filters into a single query token
+        var effectiveFilter = BuildEffectiveFilter();
         var virtualized = new VirtualizedTrackCollection(
             _logger,
             _libraryService, 
             _eventBus, 
             _artworkCache, 
             selectedProjectId, 
-            SearchText, 
+            effectiveFilter, 
             IsFilterDownloaded ? true : (IsFilterPending ? false : null),
             DuplicateHashesFilter);
 
@@ -938,7 +989,17 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         oldVtc?.Dispose();
 
         _logger.LogInformation("RefreshFilteredTracks (Virtualized): Updated filters for project {Id}. Search='{Search}', DL={DL}, Pend={Pend}", 
-            selectedProjectId, SearchText, IsFilterDownloaded, IsFilterPending);
+            selectedProjectId, effectiveFilter, IsFilterDownloaded, IsFilterPending);
+    }
+
+    /// <summary>Merges global search text with per-column filters into one token for VTC/DB queries.</summary>
+    private string BuildEffectiveFilter()
+    {
+        var parts = new System.Collections.Generic.List<string>();
+        if (!string.IsNullOrWhiteSpace(SearchText)) parts.Add(SearchText.Trim());
+        if (!string.IsNullOrWhiteSpace(FilterArtist)) parts.Add(FilterArtist.Trim());
+        if (!string.IsNullOrWhiteSpace(FilterTitle)) parts.Add(FilterTitle.Trim());
+        return string.Join(" ", parts);
     }
 
     private bool FilterTracks(object obj)
@@ -1030,7 +1091,16 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             if (!qualityMatch) return false;
         }
 
-        // Apply search filter
+        // Per-column inline filters (applied to in-memory path only; VTC path uses BuildEffectiveFilter)
+        if (!string.IsNullOrWhiteSpace(FilterArtist) &&
+            track.Artist?.Contains(FilterArtist.Trim(), StringComparison.OrdinalIgnoreCase) != true)
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(FilterTitle) &&
+            track.Title?.Contains(FilterTitle.Trim(), StringComparison.OrdinalIgnoreCase) != true)
+            return false;
+
+        // Apply global search filter
         if (string.IsNullOrWhiteSpace(SearchText)) return true;
 
         var search = SearchText.Trim();
