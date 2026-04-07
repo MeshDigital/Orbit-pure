@@ -82,6 +82,11 @@
             <Setter Property="Padding" Value="0"/>
             <Setter Property="HorizontalAlignment" Value="Center"/>
         </Style>
+        <!-- Navigation sidebar touch-target rule — Epic 12 #113
+             On desktop the nav buttons are 40px; on touch/tablet modes we enforce 44px. -->
+        <Style Selector="Border.nav-sidebar Button.nav">
+            <Setter Property="MinHeight" Value="44"/>
+        </Style>
     </Window.Styles>
     
     <Grid RowDefinitions="Auto,*,Auto">
@@ -257,6 +262,27 @@
                             <TextBlock Text="{Binding IsPlayerAtBottom, Converter={StaticResource PlayerDockIconConverter}}" 
                                        FontSize="14" Foreground="#A0A0A0"/>
                         </Button>
+
+                        <!-- Epic 12 #110: Toggle Timeline / Overlays panels -->
+                        <Button Command="{Binding ToggleTimelinePanelCommand}"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="6,4"
+                                MinWidth="44" MinHeight="44"
+                                ToolTip.Tip="Toggle Timeline panel">
+                            <TextBlock Text="⏱" FontSize="14"
+                                       Foreground="{Binding IsTimelinePanelOpen, Converter={StaticResource ActiveColorConverter}}"/>
+                        </Button>
+
+                        <Button Command="{Binding ToggleOverlaysPanelCommand}"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="6,4"
+                                MinWidth="44" MinHeight="44"
+                                ToolTip.Tip="Toggle Overlays panel">
+                            <TextBlock Text="✦" FontSize="14"
+                                       Foreground="{Binding IsOverlaysPanelOpen, Converter={StaticResource ActiveColorConverter}}"/>
+                        </Button>
                         
                         <Button Command="{Binding NavigateSettingsCommand}"
                                 Background="Transparent"
@@ -270,8 +296,17 @@
             </Grid>
         </Border>
 
-        <!-- Main Content Area with Sidebars -->
-        <Grid Grid.Row="1" ColumnDefinitions="Auto,*">
+        <!-- Main Content Area with Sidebars — Epic 12 #110 Five-Column Layout -->
+        <!-- ColumnDefinitions:
+             0 = Nav sidebar (Auto / 56-220px)
+             1 = Content + Inspector SplitView (*)
+             2 = GridSplitter (4px) for Timeline
+             3 = Timeline panel (toggleable, min 160px)
+             4 = GridSplitter (4px) for Overlays
+             5 = Overlays panel (toggleable, min 140px)
+        -->
+        <Grid Grid.Row="1" x:Name="MainLayoutGrid"
+              ColumnDefinitions="Auto,*,4,Auto,4,Auto">
             
             <!-- Left Navigation Sidebar -->
             <Border Grid.Column="0" 
@@ -494,6 +529,137 @@
                 </Grid>
             </SplitView>
 
+            <!-- GridSplitter: Content ↔ Timeline (col 2) — Epic 12 #110 -->
+            <GridSplitter Grid.Column="2"
+                          IsVisible="{Binding IsTimelinePanelOpen}"
+                          Background="#3C3C3C"
+                          HorizontalAlignment="Stretch"
+                          ResizeDirection="Columns"
+                          ShowsPreview="True"
+                          ToolTip.Tip="Drag to resize Timeline panel"/>
+
+            <!-- Timeline Panel (col 3) — Epic 12 #110 -->
+            <Border Grid.Column="3"
+                    IsVisible="{Binding IsTimelinePanelOpen}"
+                    Width="{Binding TimelinePanelWidth}"
+                    MinWidth="160"
+                    Background="#1A1A2E"
+                    BorderBrush="#3C3C3C"
+                    BorderThickness="0,0,0,0">
+                <Grid RowDefinitions="Auto,*">
+                    <Border Grid.Row="0" Padding="10,8" Background="#111122"
+                            BorderBrush="#3C3C3C" BorderThickness="0,0,0,1">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="⏱ TIMELINE" FontSize="11" FontWeight="Bold"
+                                       Foreground="#9B8DFF" LetterSpacing="1"
+                                       VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Classes="tool"
+                                    Command="{Binding ToggleTimelinePanelCommand}"
+                                    Content="✕" Foreground="#888"
+                                    MinWidth="24" MinHeight="24"
+                                    ToolTip.Tip="Close Timeline panel"/>
+                        </Grid>
+                    </Border>
+                    <!-- Hosted inside this panel: navigate to the Timeline page or embed TimelinePage directly -->
+                    <ContentControl Grid.Row="1"
+                                    Content="{Binding TimelineViewModel}"
+                                    Margin="0"/>
+                </Grid>
+            </Border>
+
+            <!-- GridSplitter: Timeline ↔ Overlays (col 4) — Epic 12 #110 -->
+            <GridSplitter Grid.Column="4"
+                          IsVisible="{Binding IsOverlaysPanelOpen}"
+                          Background="#3C3C3C"
+                          HorizontalAlignment="Stretch"
+                          ResizeDirection="Columns"
+                          ShowsPreview="True"
+                          ToolTip.Tip="Drag to resize Overlays panel"/>
+
+            <!-- Overlays / Visual Engine Panel (col 5) — Epic 12 #110 -->
+            <Border Grid.Column="5"
+                    IsVisible="{Binding IsOverlaysPanelOpen}"
+                    Width="{Binding OverlaysPanelWidth}"
+                    MinWidth="140"
+                    Background="#1A2A1A"
+                    BorderBrush="#3C3C3C"
+                    BorderThickness="0,0,0,0">
+                <Grid RowDefinitions="Auto,*">
+                    <Border Grid.Row="0" Padding="10,8" Background="#112211"
+                            BorderBrush="#3C3C3C" BorderThickness="0,0,0,1">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="✦ OVERLAYS" FontSize="11" FontWeight="Bold"
+                                       Foreground="#7FD47F" LetterSpacing="1"
+                                       VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Classes="tool"
+                                    Command="{Binding ToggleOverlaysPanelCommand}"
+                                    Content="✕" Foreground="#888"
+                                    MinWidth="24" MinHeight="24"
+                                    ToolTip.Tip="Close Overlays panel"/>
+                        </Grid>
+                    </Border>
+                    <ScrollViewer Grid.Row="1" Padding="8">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Visual Engine &amp; Performance Overlays" FontSize="11"
+                                       Foreground="#666" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+        </Grid>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             Tablet Bottom Sheet — Epic 12 #111
+             Collapsed from columns when width < 1024. Slides up from bottom.
+             Shows Inspector + Timeline in a tabbed bottom sheet.
+        ═════════════════════════════════════════════════════════════════════ -->
+        <Grid Grid.Row="2"
+              IsVisible="{Binding IsTabletMode}"
+              Background="#1A1A1A"
+              MaxHeight="300"
+              ZIndex="10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Sheet drag handle + tab bar -->
+            <Border Grid.Row="0" Background="#252525" Padding="12,6"
+                    BorderBrush="#3E3E3E" BorderThickness="0,1,0,0">
+                <StackPanel Orientation="Horizontal" Spacing="16" HorizontalAlignment="Center">
+                    <Button Background="Transparent" BorderThickness="0" Padding="8,4"
+                            MinHeight="44" MinWidth="44"
+                            Command="{Binding Sidebar.Close}"
+                            ToolTip.Tip="Inspector">
+                        <TextBlock Text="Inspector" FontSize="12" Foreground="#CCC"/>
+                    </Button>
+                    <Button Background="Transparent" BorderThickness="0" Padding="8,4"
+                            MinHeight="44" MinWidth="44"
+                            Command="{Binding ToggleTimelinePanelCommand}"
+                            ToolTip.Tip="Timeline">
+                        <TextBlock Text="Timeline" FontSize="12" Foreground="#9B8DFF"/>
+                    </Button>
+                </StackPanel>
+            </Border>
+
+            <!-- Sheet content: inspector or timeline depending on sidebar state -->
+            <ContentControl Grid.Row="1" Content="{Binding Sidebar.CurrentContent}">
+                <ContentControl.DataTemplates>
+                    <DataTemplate DataType="vmCore:PlayerViewModel">
+                        <views:PlayerControl/>
+                    </DataTemplate>
+                    <DataTemplate DataType="vmDownloads:UnifiedTrackViewModel">
+                        <controls:TrackInspector/>
+                    </DataTemplate>
+                    <DataTemplate DataType="vmCore:AnalyzedSearchResultViewModel">
+                        <controls:SearchInspector/>
+                    </DataTemplate>
+                    <DataTemplate DataType="vmCore:PlaylistTrackViewModel">
+                        <controls:LibraryTrackInspector/>
+                    </DataTemplate>
+                </ContentControl.DataTemplates>
+            </ContentControl>
         </Grid>
 
         <!-- Login Overlay -->

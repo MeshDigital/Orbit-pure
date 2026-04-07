@@ -230,6 +230,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         // Operation Glass Console Toggles
         ToggleZenModeCommand = new RelayCommand(ToggleZenMode);
         ToggleTopBarCommand = new RelayCommand(() => IsTopCommandBarVisible = !IsTopCommandBarVisible);
+        ToggleTimelinePanelCommand = new RelayCommand(() => IsTimelinePanelOpen = !IsTimelinePanelOpen);
+        ToggleOverlaysPanelCommand = new RelayCommand(() => IsOverlaysPanelOpen = !IsOverlaysPanelOpen);
 
 
         // Spotify Hub Initialization (TODO: Phase 7 - Implement when needed)
@@ -505,6 +507,54 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         set => SetProperty(ref _isSystemVisible, value);
     }
 
+    // ── Five-column layout — Epic 12 (#110) ───────────────────────────────
+
+    private bool _isTimelinePanelOpen;
+    public bool IsTimelinePanelOpen
+    {
+        get => _isTimelinePanelOpen;
+        set => SetProperty(ref _isTimelinePanelOpen, value);
+    }
+
+    private double _timelinePanelWidth = 300;
+    public double TimelinePanelWidth
+    {
+        get => _timelinePanelWidth;
+        set => SetProperty(ref _timelinePanelWidth, value);
+    }
+
+    private bool _isOverlaysPanelOpen;
+    public bool IsOverlaysPanelOpen
+    {
+        get => _isOverlaysPanelOpen;
+        set => SetProperty(ref _isOverlaysPanelOpen, value);
+    }
+
+    private double _overlaysPanelWidth = 250;
+    public double OverlaysPanelWidth
+    {
+        get => _overlaysPanelWidth;
+        set => SetProperty(ref _overlaysPanelWidth, value);
+    }
+
+    // ── Responsive breakpoints — Epic 12 (#111/#112) ──────────────────────
+
+    private bool _isTabletMode;
+    /// <summary>True when window width is between 600px and 1023px inclusive.</summary>
+    public bool IsTabletMode
+    {
+        get => _isTabletMode;
+        set => SetProperty(ref _isTabletMode, value);
+    }
+
+    private bool _isMobileMode;
+    /// <summary>True when window width is below 600px.</summary>
+    public bool IsMobileMode
+    {
+        get => _isMobileMode;
+        set => SetProperty(ref _isMobileMode, value);
+    }
+
     private bool _isPlayerSidebarVisible = true;
     public bool IsPlayerSidebarVisible
     {
@@ -733,6 +783,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand RetryAllFailedDownloadsCommand { get; }
     public ICommand ToggleZenModeCommand { get; }
     public ICommand ToggleTopBarCommand { get; }
+    public ICommand ToggleTimelinePanelCommand { get; }
+    public ICommand ToggleOverlaysPanelCommand { get; }
     
     public bool IsGlobalSidebarOpen
     {
