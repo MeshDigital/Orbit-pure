@@ -121,6 +121,12 @@ public class AppConfig
     public bool DashboardIsNavigationCollapsed { get; set; } = false; // Whether the left navigation is collapsed
     public bool DashboardIsRightPanelOpen { get; set; } = true; // Whether the right panel is visible
 
+    // Five-column desktop layout – Epic 12 (#110)
+    public double TimelinePanelWidth { get; set; } = 300;
+    public bool IsTimelinePanelOpen { get; set; } = false;
+    public double OverlaysPanelWidth { get; set; } = 250;
+    public bool IsOverlaysPanelOpen { get; set; } = false;
+
     // Library Management
     public List<string> LibraryRootPaths { get; set; } = new(); // Root directories to scan for music files
     public bool EnableFilePathResolution { get; set; } = true; // Enable automatic resolution of moved files

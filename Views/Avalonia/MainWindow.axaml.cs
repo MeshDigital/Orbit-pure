@@ -96,13 +96,19 @@ namespace SLSKDONET.Views.Avalonia
                 
                 // Auto-collapse navigation below 800px
                 if (width < 800 && !vm.IsNavigationCollapsed)
-                {
                     vm.IsNavigationCollapsed = true;
-                }
-                // Auto-expand above 1200px
                 else if (width >= 1200 && vm.IsNavigationCollapsed)
-                {
                     vm.IsNavigationCollapsed = false;
+
+                // Responsive breakpoints for Epic 12 #111 / #112
+                vm.IsMobileMode  = width < 600;
+                vm.IsTabletMode  = width >= 600 && width < 1024;
+
+                // Auto-close Timeline/Overlays panels below tablet threshold
+                if (width < 1024)
+                {
+                    if (vm.IsTimelinePanelOpen)  vm.IsTimelinePanelOpen  = false;
+                    if (vm.IsOverlaysPanelOpen) vm.IsOverlaysPanelOpen = false;
                 }
             }
         }
@@ -151,6 +157,15 @@ namespace SLSKDONET.Views.Avalonia
                     {
                         WindowState = WindowState.Maximized;
                     }
+
+                    // Restore five-column panel state (Epic 12 #110)
+                    if (DataContext is MainViewModel vm)
+                    {
+                        vm.IsTimelinePanelOpen  = config.IsTimelinePanelOpen;
+                        vm.TimelinePanelWidth   = config.TimelinePanelWidth > 0 ? config.TimelinePanelWidth : 300;
+                        vm.IsOverlaysPanelOpen  = config.IsOverlaysPanelOpen;
+                        vm.OverlaysPanelWidth   = config.OverlaysPanelWidth > 0 ? config.OverlaysPanelWidth : 250;
+                    }
                 }
             }
         }
@@ -170,6 +185,15 @@ namespace SLSKDONET.Views.Avalonia
                     config.WindowX = Position.X;
                     config.WindowY = Position.Y;
                     config.WindowMaximized = WindowState == WindowState.Maximized;
+
+                    // Persist five-column panel state (Epic 12 #110)
+                    if (DataContext is MainViewModel vm)
+                    {
+                        config.IsTimelinePanelOpen  = vm.IsTimelinePanelOpen;
+                        config.TimelinePanelWidth   = vm.TimelinePanelWidth;
+                        config.IsOverlaysPanelOpen  = vm.IsOverlaysPanelOpen;
+                        config.OverlaysPanelWidth   = vm.OverlaysPanelWidth;
+                    }
                     
                     configManager.Save(config);
                 }
