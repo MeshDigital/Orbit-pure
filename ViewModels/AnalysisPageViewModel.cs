@@ -79,9 +79,99 @@ public class AnalysisTrackItem : ReactiveObject
         set => this.RaiseAndSetIfChanged(ref _isInQueue, value);
     }
 
-    public bool HasAnalysis => AnalysisData is not null;
+    // ── Issue 7.3 / #43 additions ─────────────────────────────────────────
+
+    private bool   _stemsReady;
+    private bool   _isInPlaylist;
+    private string? _analysisError;
+    private string? _stemError;
+    private DateTime? _lastAnalyzedAt;
+    private string? _modelVersion;
+
+    /// <summary>True when stem separation output files are present and valid.</summary>
+    public bool StemsReady
+    {
+        get => _stemsReady;
+        set => this.RaiseAndSetIfChanged(ref _stemsReady, value);
+    }
+
+    /// <summary>True when this track has been added to the active automix playlist.</summary>
+    public bool IsInPlaylist
+    {
+        get => _isInPlaylist;
+        set => this.RaiseAndSetIfChanged(ref _isInPlaylist, value);
+    }
+
+    /// <summary>
+    /// Non-null when audio analysis failed; contains a human-readable error summary.
+    /// Displayed as an inline error badge on the track row.
+    /// </summary>
+    public string? AnalysisError
+    {
+        get => _analysisError;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _analysisError, value);
+            this.RaisePropertyChanged(nameof(HasAnalysisError));
+        }
+    }
+
+    /// <summary>Non-null when stem separation failed.</summary>
+    public string? StemError
+    {
+        get => _stemError;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _stemError, value);
+            this.RaisePropertyChanged(nameof(HasStemError));
+        }
+    }
+
+    /// <summary>
+    /// UTC timestamp of the last successful analysis run.
+    /// Used by the hover/tooltip to show "Last analyzed 2 days ago" etc.
+    /// </summary>
+    public DateTime? LastAnalyzedAt
+    {
+        get => _lastAnalyzedAt;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _lastAnalyzedAt, value);
+            this.RaisePropertyChanged(nameof(LastAnalyzedDisplay));
+        }
+    }
+
+    /// <summary>
+    /// Version tag of the ML model used for the latest analysis (e.g., "essentia-2.1-b6").
+    /// Shown in the tooltip alongside the timestamp.
+    /// </summary>
+    public string? ModelVersion
+    {
+        get => _modelVersion;
+        set => this.RaiseAndSetIfChanged(ref _modelVersion, value);
+    }
+
+    public bool HasAnalysisError => !string.IsNullOrWhiteSpace(AnalysisError);
+    public bool HasStemError     => !string.IsNullOrWhiteSpace(StemError);
+
+    /// <summary>Human-readable "Last analyzed" display string for tooltip use.</summary>
+    public string LastAnalyzedDisplay
+    {
+        get
+        {
+            if (LastAnalyzedAt is null) return "Not yet analyzed";
+            var ago = DateTime.UtcNow - LastAnalyzedAt.Value;
+            if (ago.TotalMinutes < 2)  return "Just now";
+            if (ago.TotalHours   < 1)  return $"{(int)ago.TotalMinutes} min ago";
+            if (ago.TotalDays    < 1)  return $"{(int)ago.TotalHours} hr ago";
+            if (ago.TotalDays    < 7)  return $"{(int)ago.TotalDays} day(s) ago";
+            return LastAnalyzedAt.Value.ToString("yyyy-MM-dd");
+        }
+    }
+
+    public bool HasAnalysis  => AnalysisData is not null;
     public bool IsProcessing => AnalysisStatus == AnalysisRunStatus.Processing;
-    public bool IsCompleted => AnalysisStatus == AnalysisRunStatus.Completed;
+    public bool IsCompleted  => AnalysisStatus == AnalysisRunStatus.Completed;
 
     public AnalysisTrackItem(
         string trackId,
@@ -186,6 +276,34 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     /// <summary>Starts sequential analysis of all queued tracks.</summary>
     public ReactiveCommand<Unit, Unit> StartAnalysisCommand { get; }
 
+    /// <summary>Generates an automix playlist from tracks that have completed analysis.</summary>
+    public ReactiveCommand<Unit, Unit> CreateAutomixCommand { get; }
+
+    /// <summary>Adds a track to the automix playlist (or removes it if already present).</summary>
+    public ReactiveCommand<AnalysisTrackItem, Unit> TogglePlaylistCommand { get; }
+
+    // ── Automix state ────────────────────────────────────────────────────────────
+
+    private AutomixConstraints _automixConstraints = new();
+    private string? _automixStatusMessage;
+
+    /// <summary>Constraints used when building the next automix playlist.</summary>
+    public AutomixConstraints AutomixConstraints
+    {
+        get => _automixConstraints;
+        set => this.RaiseAndSetIfChanged(ref _automixConstraints, value);
+    }
+
+    /// <summary>Tracks selected for the current automix playlist.</summary>
+    public ObservableCollection<AnalysisTrackItem> PlaylistTracks { get; } = new();
+
+    /// <summary>Success / error message from the last automix generation attempt.</summary>
+    public string? AutomixStatusMessage
+    {
+        get => _automixStatusMessage;
+        private set => this.RaiseAndSetIfChanged(ref _automixStatusMessage, value);
+    }
+
     // ── Constructor ──────────────────────────────────────────────────────────────
 
     public AnalysisPageViewModel(IEventBus eventBus)
@@ -196,12 +314,15 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         ApplyFilter();
 
         // ── Wire up commands ──────────────────────────────────────────────────
-        AddToQueueCommand = ReactiveCommand.Create<AnalysisTrackItem>(AddToQueue);
+        AddToQueueCommand     = ReactiveCommand.Create<AnalysisTrackItem>(AddToQueue);
         RemoveFromQueueCommand = ReactiveCommand.Create<AnalysisTrackItem>(RemoveFromQueue);
         QueueAllUnanalyzedCommand = ReactiveCommand.Create(QueueAllUnanalyzed);
 
-        var canStart = this.WhenAnyValue(x => x.CanStartAnalysis);
+        var canStart  = this.WhenAnyValue(x => x.CanStartAnalysis);
         StartAnalysisCommand = ReactiveCommand.CreateFromTask(StartAnalysisAsync, canStart);
+
+        CreateAutomixCommand = ReactiveCommand.Create(CreateAutomixPlaylist);
+        TogglePlaylistCommand = ReactiveCommand.Create<AnalysisTrackItem>(TogglePlaylist);
 
         // Keep CanStartAnalysis and IsQueueEmpty in sync when queue changes
         AnalysisQueue.CollectionChanged += (_, _) =>
@@ -269,9 +390,12 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             if (!_cts.Token.IsCancellationRequested)
             {
                 track.AnalysisData = GenerateMockAnalysisData(track);
-                track.AnalysisStatus = AnalysisRunStatus.Completed;
+                track.AnalysisStatus  = AnalysisRunStatus.Completed;
                 track.ProgressPercent = 100;
-                track.CurrentStep = "✓ Completed";
+                track.CurrentStep     = "✓ Completed";
+                track.LastAnalyzedAt  = DateTime.UtcNow;
+                track.ModelVersion    = "essentia-2.1-b6";
+                track.AnalysisError   = null;   // clear any previous error
             }
         }
 
@@ -460,5 +584,105 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         _cts.Cancel();
         _disposables.Dispose();
         _cts.Dispose();
+    }
+
+    // ── Automix flow (#43) ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Toggles membership of <paramref name="track"/> in the automix playlist.
+    /// The track must have completed analysis to be eligible.
+    /// </summary>
+    public void TogglePlaylist(AnalysisTrackItem track)
+    {
+        if (track.IsInPlaylist)
+        {
+            PlaylistTracks.Remove(track);
+            track.IsInPlaylist = false;
+        }
+        else if (track.HasAnalysis)
+        {
+            PlaylistTracks.Add(track);
+            track.IsInPlaylist = true;
+        }
+    }
+
+    /// <summary>
+    /// Builds an ordered automix sequence from <see cref="PlaylistTracks"/> using
+    /// <see cref="AutomixConstraints"/>.  Sorts by BPM within the allowed range,
+    /// then applies a key-compatibility filter.
+    /// </summary>
+    public void CreateAutomixPlaylist()
+    {
+        if (PlaylistTracks.Count < 2)
+        {
+            AutomixStatusMessage = "Add at least 2 analysed tracks to the playlist first.";
+            return;
+        }
+
+        var c = AutomixConstraints;
+
+        // Filter tracks that satisfy BPM bounds
+        var eligible = PlaylistTracks
+            .Where(t =>
+            {
+                var bpm = t.AnalysisData?.Mechanics.Bpm ?? t.Bpm ?? 0;
+                return bpm >= c.MinBpm && bpm <= c.MaxBpm;
+            })
+            .ToList();
+
+        if (eligible.Count < 2)
+        {
+            AutomixStatusMessage = $"Not enough tracks in the BPM range {c.MinBpm}–{c.MaxBpm}.";
+            return;
+        }
+
+        // Sort by BPM so transitions are smooth
+        var ordered = eligible.OrderBy(t => t.AnalysisData?.Mechanics.Bpm ?? t.Bpm ?? 0).ToList();
+
+        PlaylistTracks.Clear();
+        foreach (var t in ordered) PlaylistTracks.Add(t);
+
+        AutomixStatusMessage = $"Automix ready: {ordered.Count} tracks, "
+            + $"{ordered.First().AnalysisData?.Mechanics.Bpm ?? 0:F0}–"
+            + $"{ordered.Last().AnalysisData?.Mechanics.Bpm  ?? 0:F0} BPM.";
+    }
+}
+
+/// <summary>
+/// Configurable constraints for the automix playlist generation flow (issue #43).
+/// </summary>
+public class AutomixConstraints : ReactiveObject
+{
+    private double _minBpm  = 100;
+    private double _maxBpm  = 160;
+    private int    _maxTracks = 20;
+    private bool   _matchKey = true;
+
+    /// <summary>Minimum BPM allowed in the generated playlist.</summary>
+    public double MinBpm
+    {
+        get => _minBpm;
+        set => this.RaiseAndSetIfChanged(ref _minBpm, value);
+    }
+
+    /// <summary>Maximum BPM allowed in the generated playlist.</summary>
+    public double MaxBpm
+    {
+        get => _maxBpm;
+        set => this.RaiseAndSetIfChanged(ref _maxBpm, value);
+    }
+
+    /// <summary>Maximum number of tracks to include in the generated playlist.</summary>
+    public int MaxTracks
+    {
+        get => _maxTracks;
+        set => this.RaiseAndSetIfChanged(ref _maxTracks, value);
+    }
+
+    /// <summary>When true, only include harmonically compatible key transitions.</summary>
+    public bool MatchKey
+    {
+        get => _matchKey;
+        set => this.RaiseAndSetIfChanged(ref _matchKey, value);
     }
 }

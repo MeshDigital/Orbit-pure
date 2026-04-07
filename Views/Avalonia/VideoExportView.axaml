@@ -1,0 +1,117 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:svc="clr-namespace:SLSKDONET.Services.Video"
+             mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="520"
+             x:Class="SLSKDONET.Views.Avalonia.VideoExportView">
+
+    <Design.DataContext>
+        <vm:VideoExportViewModel/>
+    </Design.DataContext>
+
+    <Border Background="#1E1E1E" CornerRadius="12" Padding="32">
+        <StackPanel Spacing="20">
+
+            <!-- Title -->
+            <TextBlock Text="Export Video"
+                       FontSize="20" FontWeight="SemiBold"
+                       Foreground="#E0E0E0"/>
+
+            <!-- Resolution -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="Resolution" Foreground="#9E9E9E" FontSize="12"/>
+                <Grid ColumnDefinitions="*,16,*">
+                    <NumericUpDown Grid.Column="0"
+                                   Value="{Binding Width}"
+                                   Minimum="1" Maximum="7680"
+                                   FormatString="0"
+                                   Watermark="Width"/>
+                    <NumericUpDown Grid.Column="2"
+                                   Value="{Binding Height}"
+                                   Minimum="1" Maximum="4320"
+                                   FormatString="0"
+                                   Watermark="Height"/>
+                </Grid>
+            </StackPanel>
+
+            <!-- Frame Rate -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="Frame Rate" Foreground="#9E9E9E" FontSize="12"/>
+                <ComboBox ItemsSource="{x:Static vm:VideoExportViewModel.FrameRates}"
+                          SelectedItem="{Binding FrameRate}"
+                          HorizontalAlignment="Stretch"/>
+            </StackPanel>
+
+            <!-- Visual Preset -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="Visual Preset" Foreground="#9E9E9E" FontSize="12"/>
+                <ComboBox ItemsSource="{x:Static vm:VideoExportViewModel.VisualPresets}"
+                          SelectedItem="{Binding Preset}"
+                          HorizontalAlignment="Stretch"/>
+            </StackPanel>
+
+            <!-- Video Codec -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="Video Codec" Foreground="#9E9E9E" FontSize="12"/>
+                <ComboBox ItemsSource="{x:Static vm:VideoExportViewModel.VideoCodecs}"
+                          SelectedItem="{Binding VideoCodec}"
+                          HorizontalAlignment="Stretch"/>
+            </StackPanel>
+
+            <!-- Audio Path -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="Audio Mix File (WAV)" Foreground="#9E9E9E" FontSize="12"/>
+                <TextBox Text="{Binding AudioPath}"
+                         Watermark="Leave empty to skip audio"
+                         Background="#2A2A2A" Foreground="#E0E0E0"/>
+            </StackPanel>
+
+            <!-- Output Path -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="Output Path (.mp4)" Foreground="#9E9E9E" FontSize="12"/>
+                <TextBox Text="{Binding OutputPath}"
+                         Watermark="e.g. C:\Exports\myset.mp4"
+                         Background="#2A2A2A" Foreground="#E0E0E0"/>
+            </StackPanel>
+
+            <!-- Error -->
+            <TextBlock Text="{Binding ErrorMessage}"
+                       Foreground="#FF5252"
+                       FontSize="12"
+                       IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                       TextWrapping="Wrap"/>
+
+            <!-- Progress -->
+            <ProgressBar Value="{Binding Progress}"
+                         Minimum="0" Maximum="100"
+                         Height="6"
+                         IsVisible="{Binding IsExporting}"
+                         Foreground="#6200EA"/>
+
+            <TextBlock Text="{Binding StatusMessage}"
+                       Foreground="#9E9E9E"
+                       FontSize="12"
+                       IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+            <!-- Action buttons -->
+            <Grid ColumnDefinitions="*,12,Auto" Margin="0,8,0,0">
+                <Button Grid.Column="0" Content="Export"
+                        Command="{Binding ExportCommand}"
+                        IsEnabled="{Binding !IsExporting}"
+                        Background="#6200EA" Foreground="White"
+                        CornerRadius="6" Padding="16,8"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center"/>
+
+                <Button Grid.Column="2" Content="Cancel"
+                        Command="{Binding CancelCommand}"
+                        IsEnabled="{Binding IsExporting}"
+                        Background="#333333" Foreground="#E0E0E0"
+                        CornerRadius="6" Padding="16,8"/>
+            </Grid>
+
+        </StackPanel>
+    </Border>
+</UserControl>
