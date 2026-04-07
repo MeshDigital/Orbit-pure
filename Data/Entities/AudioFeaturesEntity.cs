@@ -534,6 +534,44 @@ public class AudioFeaturesEntity
     /// Phase 17: Persisted DJ Cue Points (JSON blob).
     /// </summary>
     public string? CuePointsJson { get; set; }
+
+    // ============================================
+    // Task 2.1 — Discogs-Effnet 2048-D Embedding
+    // ============================================
+
+    /// <summary>
+    /// Raw 2048-dimensional Essentia DiscogsEffnet embedding, stored as a byte blob.
+    /// Layout: 2048 × float32 little-endian = 8 192 bytes.
+    /// Null until the embedding model has been run on this track.
+    /// </summary>
+    [Column("EmbeddingBlob")]
+    public byte[]? EmbeddingBlob { get; set; }
+
+    /// <summary>
+    /// Friendly float[] accessor — zero-alloc on write, one-copy on read via MemoryMarshal.
+    /// </summary>
+    [NotMapped]
+    public float[]? Embedding
+    {
+        get
+        {
+            if (EmbeddingBlob == null || EmbeddingBlob.Length < 4) return null;
+            return MemoryMarshal.Cast<byte, float>(EmbeddingBlob.AsSpan()).ToArray();
+        }
+        set
+        {
+            EmbeddingBlob = value == null
+                ? null
+                : MemoryMarshal.AsBytes(value.AsSpan()).ToArray();
+        }
+    }
+
+    /// <summary>
+    /// Version tag of the ONNX model used to produce <see cref="EmbeddingBlob"/>.
+    /// Format: "discogs-effnet-bs64-1|SHA256_PREFIX".
+    /// Used to invalidate cached embeddings when the model is updated.
+    /// </summary>
+    public string? EmbeddingModelTag { get; set; }
 }
 
 
