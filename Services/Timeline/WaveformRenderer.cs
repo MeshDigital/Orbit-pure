@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using SkiaSharp;
 
 namespace SLSKDONET.Services.Timeline;
@@ -143,5 +144,228 @@ public static class WaveformRenderer
 
         float[] profile = ComputeRmsProfile(source ?? Array.Empty<byte>(), targetBins);
         return Render(profile, width, height, waveColor, bgColor, zoom, scrollOffset);
+    }
+
+    // ── Task 4.1: RGB tri-band renderer ───────────────────────────────────
+
+    /// <summary>
+    /// Renders a three-band RGB waveform from a <see cref="SLSKDONET.Models.WaveformAnalysisData"/>.
+    /// Bands are alpha-composited on top of each other:
+    ///   Bass (low)  → Red (#FF4444)
+    ///   Mids        → Green (#44FF88)
+    ///   Highs       → Blue (#44AAFF)
+    /// </summary>
+    public static SKBitmap RenderRgb(
+        SLSKDONET.Models.WaveformAnalysisData data,
+        int width,
+        int height,
+        SKColor bgColor,
+        double zoom = 1.0,
+        double scrollOffset = 0.0)
+    {
+        var bmp = new SKBitmap(Math.Max(1, width), Math.Max(1, height));
+        using var canvas = new SKCanvas(bmp);
+        canvas.Clear(bgColor);
+
+        if (data is null || width <= 0 || height <= 0) return bmp;
+
+        // Bass = red, alpha 200 so mids/highs show through
+        if (data.LowData?.Length > 0)
+            DrawBand(canvas, ComputeRmsProfile(data.LowData, width * 2), width, height,
+                     new SKColor(255, 68,  68,  200), zoom, scrollOffset);
+
+        if (data.MidData?.Length > 0)
+            DrawBand(canvas, ComputeRmsProfile(data.MidData, width * 2), width, height,
+                     new SKColor(68,  255, 136, 180), zoom, scrollOffset);
+
+        if (data.HighData?.Length > 0)
+            DrawBand(canvas, ComputeRmsProfile(data.HighData, width * 2), width, height,
+                     new SKColor(68,  170, 255, 160), zoom, scrollOffset);
+
+        return bmp;
+    }
+
+    private static void DrawBand(
+        SKCanvas canvas, float[] profile, int width, int height,
+        SKColor color, double zoom, double scrollOffset)
+    {
+        if (profile.Length == 0) return;
+
+        zoom = Math.Max(1.0, zoom);
+        scrollOffset = Math.Clamp(scrollOffset, 0.0, 1.0);
+
+        int visibleSamples = Math.Max(1, Math.Min((int)Math.Ceiling(profile.Length / zoom), profile.Length));
+        int maxStart = profile.Length - visibleSamples;
+        int startSample = Math.Clamp((int)(scrollOffset * maxStart), 0, maxStart);
+
+        using var paint = new SKPaint
+        {
+            IsAntialias = false,
+            Color       = color,
+            BlendMode   = SKBlendMode.Plus   // additive blend: bands overlap cleanly
+        };
+
+        float half     = height / 2f;
+        float barWidth = Math.Max(1f, (float)width / visibleSamples);
+
+        for (int i = 0; i < visibleSamples; i++)
+        {
+            int srcIdx = startSample + i;
+            if (srcIdx >= profile.Length) break;
+
+            float barHalf = profile[srcIdx] * half * 0.9f;
+            float x       = i * barWidth;
+            float top     = half - barHalf;
+
+            canvas.DrawRect(x, top, barWidth, barHalf * 2f, paint);
+        }
+    }
+
+    // ── Task 4.2: Beat-grid overlay ───────────────────────────────────────
+
+    /// <summary>
+    /// Draws vertical beat-grid lines over an existing <see cref="SKBitmap"/> (in-place).
+    /// </summary>
+    /// <param name="bmp">Target bitmap (must already be rendered).</param>
+    /// <param name="beatPositionsSeconds">Absolute beat timestamps in seconds.</param>
+    /// <param name="trackDurationSeconds">Full track duration; used for x-mapping.</param>
+    /// <param name="zoom">Must match the zoom value used when rendering the waveform.</param>
+    /// <param name="scrollOffset">Must match the scrollOffset used when rendering.</param>
+    public static void OverlayBeatGrid(
+        SKBitmap bmp,
+        IReadOnlyList<double> beatPositionsSeconds,
+        double trackDurationSeconds,
+        double zoom = 1.0,
+        double scrollOffset = 0.0)
+    {
+        if (bmp is null || beatPositionsSeconds is null || trackDurationSeconds <= 0) return;
+
+        using var canvas = new SKCanvas(bmp);
+        zoom = Math.Max(1.0, zoom);
+
+        // Visible time window
+        double windowDuration = trackDurationSeconds / zoom;
+        double windowStart    = scrollOffset * (trackDurationSeconds - windowDuration);
+
+        using var barPaint = new SKPaint
+        {
+            Color       = new SKColor(255, 255, 255, 60),
+            StrokeWidth = 1f,
+            IsAntialias = false
+        };
+        using var downbeatPaint = new SKPaint
+        {
+            Color       = new SKColor(255, 255, 255, 120),
+            StrokeWidth = 1.5f,
+            IsAntialias = false
+        };
+
+        for (int i = 0; i < beatPositionsSeconds.Count; i++)
+        {
+            double t = beatPositionsSeconds[i];
+            if (t < windowStart || t > windowStart + windowDuration) continue;
+
+            float x = (float)((t - windowStart) / windowDuration * bmp.Width);
+            // Every 4th beat = bar start → brighter line
+            var paint = i % 4 == 0 ? downbeatPaint : barPaint;
+            canvas.DrawLine(x, 0, x, bmp.Height, paint);
+        }
+    }
+
+    // ── Task 4.3: Cue-point markers ───────────────────────────────────────
+
+    /// <summary>
+    /// Draws coloured cue-point markers (triangle + vertical line) over the bitmap.
+    /// </summary>
+    public static void OverlayCueMarkers(
+        SKBitmap bmp,
+        IReadOnlyList<(double TimeSeconds, SKColor Color, string? Label)> cues,
+        double trackDurationSeconds,
+        double zoom = 1.0,
+        double scrollOffset = 0.0)
+    {
+        if (bmp is null || cues is null || trackDurationSeconds <= 0) return;
+
+        using var canvas = new SKCanvas(bmp);
+        zoom = Math.Max(1.0, zoom);
+
+        double windowDuration = trackDurationSeconds / zoom;
+        double windowStart    = scrollOffset * (trackDurationSeconds - windowDuration);
+
+        foreach (var (time, color, label) in cues)
+        {
+            if (time < windowStart || time > windowStart + windowDuration) continue;
+
+            float x = (float)((time - windowStart) / windowDuration * bmp.Width);
+
+            using var linePaint  = new SKPaint { Color = color, StrokeWidth = 1.5f };
+            using var fillPaint  = new SKPaint { Color = color };
+            using var textPaint  = new SKPaint
+            {
+                Color    = color,
+                TextSize = 10f,
+                IsAntialias = true
+            };
+
+            // Vertical line
+            canvas.DrawLine(x, 0, x, bmp.Height, linePaint);
+
+            // Triangle marker at top
+            var path = new SKPath();
+            path.MoveTo(x, 0);
+            path.LineTo(x - 6, 12);
+            path.LineTo(x + 6, 12);
+            path.Close();
+            canvas.DrawPath(path, fillPaint);
+
+            if (!string.IsNullOrWhiteSpace(label))
+                canvas.DrawText(label, x + 3, 22, textPaint);
+        }
+    }
+
+    // ── Task 4.4: Energy contour overlay ─────────────────────────────────
+
+    /// <summary>
+    /// Renders a smoothed energy-curve line overlay on the waveform bitmap.
+    /// </summary>
+    /// <param name="energyCurve">Time-series energy values in [0, 1].</param>
+    public static void OverlayEnergyContour(
+        SKBitmap bmp,
+        IReadOnlyList<float> energyCurve,
+        double zoom = 1.0,
+        double scrollOffset = 0.0)
+    {
+        if (bmp is null || energyCurve is null || energyCurve.Count == 0) return;
+
+        using var canvas = new SKCanvas(bmp);
+        zoom = Math.Max(1.0, zoom);
+
+        int visibleSamples = Math.Max(1, (int)Math.Ceiling(energyCurve.Count / zoom));
+        int maxStart = energyCurve.Count - visibleSamples;
+        int startSample = Math.Clamp((int)(scrollOffset * maxStart), 0, maxStart);
+
+        using var paint = new SKPaint
+        {
+            Color       = new SKColor(255, 220, 50, 200),
+            StrokeWidth = 2f,
+            IsAntialias = true,
+            Style       = SKPaintStyle.Stroke
+        };
+
+        var path = new SKPath();
+        float wScale = (float)bmp.Width / visibleSamples;
+
+        for (int i = 0; i < visibleSamples; i++)
+        {
+            int srcIdx = Math.Clamp(startSample + i, 0, energyCurve.Count - 1);
+            float x = i * wScale;
+            // Map energy 0-1 to bottom→top: y = height - energy*height
+            float y = bmp.Height - energyCurve[srcIdx] * (bmp.Height - 4) - 2;
+
+            if (i == 0) path.MoveTo(x, y);
+            else path.LineTo(x, y);
+        }
+
+        canvas.DrawPath(path, paint);
     }
 }

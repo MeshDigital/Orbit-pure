@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Hnsw;
+using Hnsw.RamStorage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
@@ -21,21 +23,31 @@ internal sealed record IndexEntry(string TrackHash, float[] Vector);
 public sealed record SimilarTrack(string TrackHash, double Score);
 
 /// <summary>
-/// In-memory cosine-similarity index over track embeddings stored in <see cref="AudioAnalysisEntity"/>.
+/// In-memory embedding index over track embeddings stored in <see cref="AudioAnalysisEntity"/>.
 ///
-/// Architecture notes:
-///   - Vectors are loaded lazily on first query and cached for the lifetime of the service.
-///   - Thread-safe via <see cref="SemaphoreSlim"/>; concurrent queries share the cached index.
-///   - Similarity search is O(n) brute-force, which handles up to ~50k tracks in &lt;100ms on modern hardware.
-///     For libraries &gt; 100k tracks replace with an HNSW index (e.g., HNSWlib via P/Invoke).
-///   - Vectors are dimension-agnostic — works with both the current 128-dim and future 2048-dim embeddings.
+/// Architecture:
+///   - For libraries up to <see cref="HnswThreshold"/> tracks the index falls back to brute-force
+///     cosine similarity (simpler, zero-overhead, and cache-friendly for small collections).
+///   - Above the threshold an HNSW (Hierarchical Navigable Small Worlds) approximate nearest-
+///     neighbour graph is built using <c>HnswLite</c> + <c>HnswLite.RamStorage</c>.
+///   - The index is rebuilt lazily and cached with a configurable TTL.
+///   - All public methods are thread-safe via <see cref="SemaphoreSlim"/>.
 /// </summary>
-public sealed class SimilarityIndex
+public sealed class SimilarityIndex : IDisposable
 {
+    /// <summary>
+    /// Library size above which the HNSW graph is used instead of brute-force search.
+    /// Chosen so that brute-force stays well under 50 ms for typical embedding dimensions.
+    /// </summary>
+    public const int HnswThreshold = 5_000;
+
     private readonly ILogger<SimilarityIndex> _logger;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
 
-    private List<IndexEntry>? _index;
+    private List<IndexEntry>? _index;                         // flat list for brute-force + fallback
+    private HnswIndex? _hnswIndex;                            // populated when _index.Count > HnswThreshold
+    private Dictionary<Guid, string>? _guidToHash;            // maps HNSW insertion GUID → track hash
+    private Dictionary<string, Guid>? _hashToGuid;            // reverse: hash → GUID for query lookup
     private DateTime _indexBuiltAt = DateTime.MinValue;
 
     /// <summary>How long the in-memory index is considered fresh before a lazy reload.</summary>
@@ -52,9 +64,6 @@ public sealed class SimilarityIndex
     /// Returns the top-N most similar tracks to <paramref name="queryHash"/>.
     /// The query track itself is excluded from results.
     /// </summary>
-    /// <param name="queryHash">TrackUniqueHash of the seed track.</param>
-    /// <param name="topN">Maximum number of results to return.</param>
-    /// <param name="cancellationToken">Propagated to DB and CPU-bound work.</param>
     public async Task<IReadOnlyList<SimilarTrack>> GetSimilarTracksAsync(
         string queryHash,
         int topN = 10,
@@ -69,7 +78,13 @@ public sealed class SimilarityIndex
             return Array.Empty<SimilarTrack>();
         }
 
-        // Cosine similarity is CPU-bound; offload from any caller that already holds a UI/async context.
+        if (_hnswIndex is not null && _guidToHash is not null && _hashToGuid is not null)
+        {
+            // HNSW path — approximate nearest neighbours, O(log n)
+            return await QueryHnswAsync(queryHash, queryEntry.Vector, topN, cancellationToken);
+        }
+
+        // Brute-force path — exact cosine similarity, O(n)
         var results = await Task.Run(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -89,10 +104,40 @@ public sealed class SimilarityIndex
     /// Forces a full reload of the index from the database on the next query.
     /// Call this after bulk analysis runs add new embeddings.
     /// </summary>
-    public void InvalidateIndex() => _indexBuiltAt = DateTime.MinValue;
+    public void InvalidateIndex()
+    {
+        _indexBuiltAt = DateTime.MinValue;
+        _hnswIndex = null;
+        _guidToHash = null;
+        _hashToGuid = null;
+    }
 
     /// <summary>Returns current index size (number of tracks with embeddings).</summary>
     public int IndexSize => _index?.Count ?? 0;
+
+    // ── HNSW query ─────────────────────────────────────────────────────────
+
+    private async Task<IReadOnlyList<SimilarTrack>> QueryHnswAsync(
+        string queryHash,
+        float[] queryVector,
+        int topN,
+        CancellationToken ct)
+    {
+        // Fetch topN+1 so we can drop the self-match
+        var queryList = new List<float>(queryVector);
+        var hits = await _hnswIndex!.GetTopKAsync(queryList, topN + 1, null, ct);
+
+        return hits
+            .Where(r => _guidToHash!.TryGetValue(r.GUID, out var h) && h != queryHash)
+            .Take(topN)
+            .Select(r =>
+            {
+                _guidToHash!.TryGetValue(r.GUID, out var hash);
+                // CosineDistance = 1 - cosineSimilarity → convert back
+                return new SimilarTrack(hash!, 1.0 - r.Distance);
+            })
+            .ToList();
+    }
 
     // ── Index management ───────────────────────────────────────────────────
 
@@ -114,7 +159,6 @@ public sealed class SimilarityIndex
             List<IndexEntry> entries;
             using (var db = new AppDbContext())
             {
-                // Load only rows that actually have an embedding blob.
                 var rows = await db.AudioAnalysis
                     .Where(a => a.VectorEmbeddingJson != null)
                     .Select(a => new { a.TrackUniqueHash, a.VectorEmbeddingJson })
@@ -132,15 +176,62 @@ public sealed class SimilarityIndex
             }
 
             _index = entries;
-            _indexBuiltAt = DateTime.UtcNow;
+            _hnswIndex = null;
+            _guidToHash = null;
+            _hashToGuid = null;
 
-            _logger.LogInformation("[SimilarityIndex] Index ready — {Count} tracks indexed.", entries.Count);
+            // Build HNSW graph when the library is large enough to benefit from ANN
+            if (entries.Count > HnswThreshold)
+            {
+                _logger.LogInformation(
+                    "[SimilarityIndex] {Count} tracks — building HNSW graph…", entries.Count);
+                (_hnswIndex, _guidToHash, _hashToGuid) = await BuildHnswAsync(entries, ct);
+            }
+
+            _indexBuiltAt = DateTime.UtcNow;
+            _logger.LogInformation(
+                "[SimilarityIndex] Index ready — {Count} tracks, mode={Mode}.",
+                entries.Count,
+                _hnswIndex is not null ? "HNSW" : "BruteForce");
             return _index;
         }
         finally
         {
             _loadLock.Release();
         }
+    }
+
+    private static async Task<(HnswIndex, Dictionary<Guid, string>, Dictionary<string, Guid>)>
+        BuildHnswAsync(List<IndexEntry> entries, CancellationToken ct)
+    {
+        int dim = entries[0].Vector.Length;
+        var storage      = new RamHnswStorage();
+        var layerStorage = new RamHnswLayerStorage();
+
+        var hnsw = new HnswIndex(dim, storage, layerStorage)
+        {
+            M = 16,
+            EfConstruction = 200,
+            DistanceFunction = new CosineDistance()
+        };
+
+        var guidToHash = new Dictionary<Guid, string>(entries.Count);
+        var hashToGuid = new Dictionary<string, Guid>(entries.Count);
+
+        await Task.Run(async () =>
+        {
+            for (int i = 0; i < entries.Count; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var guid = Guid.NewGuid();
+                var vec  = new List<float>(entries[i].Vector);
+                await hnsw.AddAsync(guid, vec, ct);
+                guidToHash[guid] = entries[i].TrackHash;
+                hashToGuid[entries[i].TrackHash] = guid;
+            }
+        }, ct);
+
+        return (hnsw, guidToHash, hashToGuid);
     }
 
     private static float[]? TryDeserialize(string json)
@@ -155,29 +246,30 @@ public sealed class SimilarityIndex
         }
     }
 
-    // ── Math ───────────────────────────────────────────────────────────────
+    // ── Math (brute-force path) ────────────────────────────────────────────
 
     /// <summary>
-    /// Computes the cosine similarity between two equal-length float vectors.
+    /// Cosine similarity between two equal-length float vectors.
     /// Returns a value in [-1, 1]; 1 = identical direction.
-    ///
-    /// Uses a single-pass accumulation loop for performance — avoids allocation
-    /// overhead that MathNet.Numerics DenseVector would introduce per candidate.
     /// </summary>
     internal static double CosineSimilarity(float[] a, float[] b)
     {
-        if (a.Length != b.Length || a.Length == 0)
-            return 0.0;
+        if (a.Length != b.Length || a.Length == 0) return 0.0;
 
         double dot = 0, normA = 0, normB = 0;
         for (int i = 0; i < a.Length; i++)
         {
-            dot += (double)a[i] * b[i];
+            dot   += (double)a[i] * b[i];
             normA += (double)a[i] * a[i];
             normB += (double)b[i] * b[i];
         }
 
         double denom = Math.Sqrt(normA) * Math.Sqrt(normB);
         return denom < 1e-10 ? 0.0 : dot / denom;
+    }
+
+    public void Dispose()
+    {
+        _loadLock.Dispose();
     }
 }
