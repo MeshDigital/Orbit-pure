@@ -14,5 +14,6 @@ public enum PageType
     NowPlaying,
     Decks,
     Timeline,
-    Stems
+    Stems,
+    Workstation
 }

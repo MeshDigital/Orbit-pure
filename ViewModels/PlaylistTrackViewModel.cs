@@ -1539,6 +1539,16 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         }
     }
 
+    /// <summary>Loads analysis/technical data for this track. Alias for <see cref="LoadTechnicalDataAsync"/>.</summary>
+    public Task LoadAnalysisDataAsync() => LoadTechnicalDataAsync();
+
+    /// <summary>Updates the label on a cue point in-memory.</summary>
+    public Task SaveCueLabelAsync(OrbitCue cue, string newLabel)
+    {
+        cue.Name = newLabel;
+        return Task.CompletedTask;
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)

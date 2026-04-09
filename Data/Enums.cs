@@ -25,3 +25,11 @@ public enum AnalysisStage
     Finalizing,   // Writing Tags/Cues
     Complete
 }
+
+/// <summary>Download concurrency + quality preset.</summary>
+public enum BatchProfile
+{
+    DJSetPrep    = 0, // 3 concurrent, strict quality filter
+    Archival     = 1, // 1 concurrent, lossless-only filter
+    QuickPreview = 2  // 8 concurrent, non-strict filter
+}

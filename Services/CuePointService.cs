@@ -63,4 +63,20 @@ public class CuePointService : ICuePointService
 
         _logger.LogDebug("Deleted {Count} auto-generated cue points for track {Hash}", toDelete.Count, trackUniqueHash);
     }
+
+    /// <inheritdoc/>
+    public async Task DeleteAllByTrackIdAsync(string trackUniqueHash, CancellationToken cancellationToken = default)
+    {
+        await using var context = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        var toDelete = await context.CuePoints
+            .Where(c => c.TrackUniqueHash == trackUniqueHash)
+            .ToListAsync(cancellationToken);
+
+        if (toDelete.Count == 0) return;
+
+        context.CuePoints.RemoveRange(toDelete);
+        await context.SaveChangesAsync(cancellationToken);
+
+        _logger.LogDebug("Deleted all {Count} cue points for track {Hash}", toDelete.Count, trackUniqueHash);
+    }
 }
