@@ -53,6 +53,10 @@ namespace SLSKDONET.Views.Avalonia.Controls
         {
             base.OnDetachedFromVisualTree(e);
             _timer.Stop();
+            // Safe to dispose here: control is no longer in the visual tree so
+            // no render thread can be executing a draw operation against this image.
+            var img = Interlocked.Exchange(ref _blurredImage, null);
+            img?.Dispose();
         }
 
         private void OnTimerTick(object? sender, EventArgs e)
@@ -82,7 +86,11 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
             if (source == null)
             {
-                _blurredImage?.Dispose();
+                // Do NOT dispose _blurredImage directly here: the render thread may
+                // be executing a LiveBackgroundCustomDrawOperation that still holds a
+                // reference to it.  The draw op's Dispose() will release the SKImage
+                // after rendering is complete; any remaining image is cleaned up in
+                // OnDetachedFromVisualTree.
                 _blurredImage = null;
                 return;
             }
@@ -134,8 +142,12 @@ namespace SLSKDONET.Views.Avalonia.Controls
                     }
 
                     var image = SKImage.FromBitmap(blurred);
-                    var old = Interlocked.Exchange(ref _blurredImage, image);
-                    old?.Dispose();
+                    // Swap in the new image.  Do NOT dispose the old image here:
+                    // the render thread may still be inside a LiveBackgroundCustomDrawOperation
+                    // that captured the old reference.  Ownership of the old image is
+                    // transferred to whichever draw op last captured it; that op will
+                    // call Dispose() on it when Avalonia finishes rendering the frame.
+                    Interlocked.Exchange(ref _blurredImage, image);
                     blurred.Dispose();
                     scaled.Dispose();
 
@@ -150,14 +162,20 @@ namespace SLSKDONET.Views.Avalonia.Controls
             UpdateBlurredBitmap(Source);
 
             var rect = Bounds;
-            if (_blurredImage == null)
+
+            // Capture a local snapshot so that ProcessBlur cannot swap _blurredImage
+            // between the null-check and the construction of the draw operation.
+            var imageSnapshot = _blurredImage;
+            if (imageSnapshot == null)
             {
                 context.FillRectangle(Brushes.Black, rect);
                 return;
             }
 
             // Custom Skia Rendering for Parallax/Drift/Breathing
-            context.Custom(new LiveBackgroundCustomDrawOperation(rect, _blurredImage, _animationValue, (float)Energy));
+            // The draw operation takes ownership of imageSnapshot and will dispose
+            // it in its own Dispose() once Avalonia is done rendering the frame.
+            context.Custom(new LiveBackgroundCustomDrawOperation(rect, imageSnapshot, _animationValue, (float)Energy));
         }
 
         private class LiveBackgroundCustomDrawOperation : ICustomDrawOperation
@@ -175,7 +193,13 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 _energy = energy;
             }
 
-            public void Dispose() { }
+            public void Dispose()
+            {
+                // Release the SKImage once Avalonia has finished rendering this
+                // operation.  SkiaSharp's Dispose() is idempotent, so it is safe
+                // if multiple consecutive draw ops captured the same image.
+                _image?.Dispose();
+            }
 
             public bool Equals(ICustomDrawOperation? other) => false;
 
