@@ -347,7 +347,7 @@
                     <StackPanel Spacing="6">
                         <TextBlock Text="OUTPUT FILE" FontSize="10" Foreground="#555"
                                    FontWeight="SemiBold" LetterSpacing="2"/>
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                        <Grid ColumnDefinitions="*,Auto">
                             <TextBox Grid.Column="0"
                                      Text="{Binding ExportPanel.OutputPath, Mode=TwoWay}"
                                      Watermark="e.g. C:\Music\mixdown.wav"
