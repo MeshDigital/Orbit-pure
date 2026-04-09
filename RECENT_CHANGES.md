@@ -4,6 +4,51 @@
 
 ## [Unreleased] — 2026-04-09
 
+### 🔧 Download Center — Page Load Crash Fixed
+
+The Download Center (Projects page) silently failed to open due to a missing `StaticResource 'EnumToCheckedConverter'` referenced at `DownloadsPage.axaml` line 671 by three batch-profile `ToggleButton` chips. Avalonia threw a `KeyNotFoundException` inside `InitializeComponent()`, which the navigation service caught and swallowed.
+
+**New file:** `Converters/EnumToCheckedConverter.cs` — `IValueConverter` that compares an enum value to a `ConverterParameter` string for `IsChecked`, and parses the parameter back to the enum type on `ConvertBack`.
+**App.axaml** — Registered `<conv_root:EnumToCheckedConverter x:Key="EnumToCheckedConverter"/>` in the global resource dictionary.
+
+---
+
+### 🗂️ Side Panel — Tab System & Close Button Fixed
+
+The contextual right-side panel tabs (Player / Inspector / Similar) were non-functional and the close button was wired to a void method (`Sidebar.Close`) which is not bindable as an Avalonia `Command=`.
+
+**`ViewModels/SidebarViewModel.cs`** — Full rewrite:
+- Added `SidebarTab` enum (`Player`, `Inspector`, `Similarity`).
+- `ActiveTab` property with derived `IsPlayerTab` / `IsInspectorTab` / `IsSimilarityTab` booleans — drive tab highlight and content opacity in AXAML.
+- `SwitchToPlayerCommand`, `SwitchToInspectorCommand`, `SwitchToSimilarityCommand` as `ReactiveCommand` — tab buttons are now clickable.
+- `CloseCommand` as `ReactiveCommand` — close button now works.
+- `PlayerVm` and `SimilarTracksVm` properties injected at construction — the Player and Similarity tabs have proper DataContexts.
+
+**`Views/Avalonia/MainWindow.axaml`** — Close button updated from `Command="{Binding Sidebar.Close}"` to `Command="{Binding Sidebar.CloseCommand}"`.
+**`App.axaml.cs`** — Registered `SimilarTracksViewModel` as singleton (required for `SidebarViewModel` DI injection).
+
+---
+
+### ⬇️ Download Engine — Restart After Stop Fixed
+
+Clicking **Stop Engine** followed by **Start Engine** did nothing — the engine appeared to start but never processed items. Root cause: `_globalCts` was `readonly`, so after `StopAsync()` cancelled it, `StartAsync()` reused the already-cancelled token and every `Task.Run` call exited immediately.
+
+**`Services/DownloadManager.cs`:**
+- `_globalCts` changed from `private readonly` to `private`.
+- `StartAsync()` now disposes and recreates the `CancellationTokenSource` if it was previously cancelled before spawning the processing loop.
+
+---
+
+### 🔒 Download Center — Sidebar Auto-Close on Navigation
+
+Navigating to the Download Center (Projects page) left the right-side panel open, obscuring the download list header and batch controls.
+
+**`Views/MainViewModel.cs`** — `NavigateToProjects()` now sets `IsGlobalSidebarOpen = false` before navigating, matching the same pattern used by `NavigateToPlayer()`.
+
+---
+
+## [Unreleased — previous] — 2026-04-09
+
 ### 🎛️ Studio Mode — Session Persistence
 
 The Workstation page now saves and restores its state across app launches and unexpected crashes.

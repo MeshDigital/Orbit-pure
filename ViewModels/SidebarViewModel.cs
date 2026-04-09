@@ -1,20 +1,57 @@
 using System;
+using System.Reactive;
 using System.Reactive.Disposables;
 using ReactiveUI;
 using SLSKDONET.Services;
 
 namespace SLSKDONET.ViewModels
 {
+    public enum SidebarTab { Player, Inspector, Similarity }
+
     public class SidebarViewModel : ReactiveObject, IDisposable
     {
         private readonly IRightPanelService _rightPanelService;
         private readonly CompositeDisposable _disposables = new();
 
-        public SidebarViewModel(IRightPanelService rightPanelService)
+        private SidebarTab _activeTab = SidebarTab.Inspector;
+        public SidebarTab ActiveTab
+        {
+            get => _activeTab;
+            set
+            {
+                this.RaiseAndSetIfChanged(ref _activeTab, value);
+                this.RaisePropertyChanged(nameof(IsPlayerTab));
+                this.RaisePropertyChanged(nameof(IsInspectorTab));
+                this.RaisePropertyChanged(nameof(IsSimilarityTab));
+            }
+        }
+
+        public bool IsPlayerTab     => ActiveTab == SidebarTab.Player;
+        public bool IsInspectorTab  => ActiveTab == SidebarTab.Inspector;
+        public bool IsSimilarityTab => ActiveTab == SidebarTab.Similarity;
+
+        // Tab switch commands
+        public ReactiveCommand<Unit, Unit> SwitchToPlayerCommand     { get; }
+        public ReactiveCommand<Unit, Unit> SwitchToInspectorCommand  { get; }
+        public ReactiveCommand<Unit, Unit> SwitchToSimilarityCommand { get; }
+
+        // Close command (ICommand — bindable in AXAML)
+        public ReactiveCommand<Unit, Unit> CloseCommand { get; }
+
+        // Sub-panel view models for the Player and Similarity tabs
+        public PlayerViewModel       PlayerVm       { get; }
+        public SimilarTracksViewModel SimilarTracksVm { get; }
+
+        public SidebarViewModel(
+            IRightPanelService rightPanelService,
+            PlayerViewModel playerVm,
+            SimilarTracksViewModel similarTracksVm)
         {
             _rightPanelService = rightPanelService;
+            PlayerVm           = playerVm;
+            SimilarTracksVm    = similarTracksVm;
 
-            // Simple proxy properties for binding
+            // Mirror RightPanelService reactive properties
             this.WhenAnyValue(x => x._rightPanelService.CurrentPanelVm)
                 .Subscribe(_ => this.RaisePropertyChanged(nameof(CurrentContent)))
                 .DisposeWith(_disposables);
@@ -27,6 +64,11 @@ namespace SLSKDONET.ViewModels
             this.WhenAnyValue(x => x._rightPanelService.ModeIcon)
                 .Subscribe(_ => this.RaisePropertyChanged(nameof(ModeIcon)))
                 .DisposeWith(_disposables);
+
+            SwitchToPlayerCommand     = ReactiveCommand.Create(() => { ActiveTab = SidebarTab.Player;     _rightPanelService.IsPanelOpen = true; });
+            SwitchToInspectorCommand  = ReactiveCommand.Create(() => { ActiveTab = SidebarTab.Inspector;  _rightPanelService.IsPanelOpen = true; });
+            SwitchToSimilarityCommand = ReactiveCommand.Create(() => { ActiveTab = SidebarTab.Similarity; _rightPanelService.IsPanelOpen = true; });
+            CloseCommand              = ReactiveCommand.Create(() => { _rightPanelService.IsPanelOpen = false; });
         }
 
         public object? CurrentContent => _rightPanelService.CurrentPanelVm;
@@ -34,7 +76,8 @@ namespace SLSKDONET.ViewModels
         public string? ModeLabel => _rightPanelService.ModeLabel;
         public string? ModeIcon => _rightPanelService.ModeIcon;
 
-        public void Close() => _rightPanelService.ClosePanel();
+        /// <summary>Kept for backwards-compat with any code-behind callers.</summary>
+        public void Close() => _rightPanelService.IsPanelOpen = false;
 
         public void Dispose() => _disposables.Dispose();
     }

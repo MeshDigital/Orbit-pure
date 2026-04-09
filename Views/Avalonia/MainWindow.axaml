@@ -496,7 +496,7 @@
                                         </Button>
                                     </StackPanel>
                                     <!-- Close button -->
-                                    <Button Grid.Column="1" Classes="tool" Command="{Binding Sidebar.Close}"
+                                     <Button Grid.Column="1" Classes="tool" Command="{Binding Sidebar.CloseCommand}"
                                             Content="✖" Foreground="#888" Margin="8,0" VerticalAlignment="Center"/>
                                 </Grid>
                             </Border>
