@@ -171,21 +171,24 @@
 
             <DataGrid.ContextMenu>
                 <ContextMenu>
-                    <MenuItem Header="Play Track" Command="{Binding Operations.PlayTrackCommand}" CommandParameter="{Binding #TrackGrid.SelectedItem}">
+                    <MenuItem Header="Play Track" Command="{Binding Operations.PlayTrackCommand}">
                         <MenuItem.Icon><TextBlock Text="▶️" FontSize="12"/></MenuItem.Icon>
                     </MenuItem>
-                    <MenuItem Header="Queue Track" Command="{Binding Operations.AddToQueueCommand}" CommandParameter="{Binding #TrackGrid.SelectedItem}">
+                    <MenuItem Header="Queue Track" Command="{Binding Operations.AddToQueueCommand}">
                         <MenuItem.Icon><TextBlock Text="➕" FontSize="12"/></MenuItem.Icon>
                     </MenuItem>
                     <MenuItem Header="Queue Selected Tracks" Command="{Binding Operations.AddSelectedToQueueCommand}">
                         <MenuItem.Icon><TextBlock Text="📋" FontSize="12"/></MenuItem.Icon>
                     </MenuItem>
                     <Separator/>
-                    <MenuItem Header="Hard Retry" Command="{Binding Operations.HardRetryCommand}" CommandParameter="{Binding #TrackGrid.SelectedItem}">
+                    <MenuItem Header="Analyse Track" Command="{Binding Operations.AnalyseTrackCommand}">
+                         <MenuItem.Icon><TextBlock Text="🔬" FontSize="12"/></MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="Hard Retry" Command="{Binding Operations.HardRetryCommand}">
                          <MenuItem.Icon><TextBlock Text="🔄" FontSize="12"/></MenuItem.Icon>
                     </MenuItem>
                     <Separator/>
-                    <MenuItem Header="Open Folder" Command="{Binding Operations.OpenFolderCommand}" CommandParameter="{Binding #TrackGrid.SelectedItem}">
+                    <MenuItem Header="Open Folder" Command="{Binding Operations.OpenFolderCommand}">
                          <MenuItem.Icon><TextBlock Text="📂" FontSize="12"/></MenuItem.Icon>
                     </MenuItem>
                     <Separator/>
@@ -193,7 +196,7 @@
                          <MenuItem.Icon><TextBlock Text="📊" FontSize="12"/></MenuItem.Icon>
                     </MenuItem>
                     <Separator/>
-                    <MenuItem Header="Remove Track" Command="{Binding Operations.RemoveTrackCommand}" CommandParameter="{Binding #TrackGrid.SelectedItem}" InputGesture="Delete">
+                    <MenuItem Header="Remove Track" Command="{Binding Operations.RemoveTrackCommand}" InputGesture="Delete">
                          <MenuItem.Icon><TextBlock Text="🗑️" FontSize="12" Foreground="#FF5252"/></MenuItem.Icon>
                     </MenuItem>
                 </ContextMenu>

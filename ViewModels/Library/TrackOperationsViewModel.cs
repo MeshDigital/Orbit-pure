@@ -45,6 +45,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand OpenFolderCommand { get; }
     public System.Windows.Input.ICommand AddToQueueCommand { get; }
     public System.Windows.Input.ICommand AddSelectedToQueueCommand { get; }
+    public System.Windows.Input.ICommand AnalyseTrackCommand { get; }
 
     // Phase 10.5: Dependency Warning Property
     public bool AreDependenciesHealthy => _dependencyHealthService.IsHealthy;
@@ -97,6 +98,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         OpenFolderCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteOpenFolder);
         AddToQueueCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteAddToQueue);
         AddSelectedToQueueCommand = new RelayCommand(ExecuteAddSelectedToQueue);
+        AnalyseTrackCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteAnalyseTrack);
         
     }
 
@@ -188,6 +190,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
 
     private void ExecutePlayTrack(PlaylistTrackViewModel? track)
     {
+        track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
         if (track == null) return;
 
         var filePath = track.Model?.ResolvedFilePath;
@@ -212,7 +215,11 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
 
     private void ExecuteAddToQueue(PlaylistTrackViewModel? track)
     {
-        if (track == null) return;
+        if (track == null)
+        {
+            ExecuteAddSelectedToQueue();
+            return;
+        }
 
         var selectedTracks = LibraryViewModel?.Tracks.SelectedTracks?.ToList() ?? [];
         var shouldQueueSelection = selectedTracks.Count > 1 && selectedTracks.Contains(track);
@@ -246,8 +253,17 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         _logger.LogInformation("Queued {Count} selected track(s) into player queue from Library", added);
     }
 
+    private void ExecuteAnalyseTrack(PlaylistTrackViewModel? track)
+    {
+        track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
+        if (track == null) return;
+        _eventBus.Publish(new Models.TrackAnalysisRequestedEvent(track.GlobalId));
+        _logger.LogInformation("Analysis queued for track: {Title}", track.Title);
+    }
+
     private async Task ExecuteHardRetry(PlaylistTrackViewModel? track)
     {
+        track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
         if (track == null) return;
         _logger.LogInformation("Hard retry for track: {Title}", track.Title);
         await _downloadManager.HardRetryTrack(track.GlobalId);
@@ -291,6 +307,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task ExecuteRemoveTrack(PlaylistTrackViewModel? track)
     {
+        track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
         if (track == null) return;
 
         try
@@ -338,6 +355,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
 
     private void ExecuteOpenFolder(PlaylistTrackViewModel? track)
     {
+        track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
         if (track == null) return;
 
         var filePath = track.Model?.ResolvedFilePath;

@@ -7,6 +7,7 @@ using System.Reactive.Linq;
 using System.Threading.Tasks;
 using ReactiveUI;
 using SLSKDONET.Models;
+using SLSKDONET.Models.Stem;
 using SLSKDONET.Services;
 using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.Audio.Separation;
@@ -33,13 +34,14 @@ public enum WorkstationMode
 public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 {
     private readonly CompositeDisposable _disposables = new();
-    private readonly ILibraryService     _library;
-    private readonly DeckViewModel       _deckPair;
-    private readonly CachedStemSeparator _stemSeparator;
-    private readonly ICuePointService    _cueService;
-    private readonly StemPreferenceService _stemPrefService;
-    private readonly MixdownService      _mixdown;
-    private readonly BpmSyncService      _bpmSync = new();
+    private readonly ILibraryService          _library;
+    private readonly DeckViewModel            _deckPair;
+    private readonly CachedStemSeparator      _stemSeparator;
+    private readonly ICuePointService         _cueService;
+    private readonly StemPreferenceService    _stemPrefService;
+    private readonly MixdownService           _mixdown;
+    private readonly WorkstationSessionService _sessionService;
+    private readonly BpmSyncService           _bpmSync = new();
 
     // ── Decks ─────────────────────────────────────────────────────────────────
 
@@ -168,7 +170,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 
     public WorkstationViewModel(ILibraryService library, DeckViewModel deckPair,
         CachedStemSeparator stemSeparator, ICuePointService cueService,
-        StemPreferenceService stemPrefService, MixdownService mixdown)
+        StemPreferenceService stemPrefService, MixdownService mixdown,
+        WorkstationSessionService sessionService)
     {
         _library         = library;
         _deckPair        = deckPair;
@@ -176,12 +179,17 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         _cueService      = cueService;
         _stemPrefService = stemPrefService;
         _mixdown         = mixdown;
+        _sessionService  = sessionService;
 
         ExportPanel = new ExportDialogViewModel(mixdown);
 
         // Wrap existing DeckA / DeckB
-        Decks.Add(new WorkstationDeckViewModel("A", deckPair.DeckA, stemSeparator, cueService, stemPrefService));
-        Decks.Add(new WorkstationDeckViewModel("B", deckPair.DeckB, stemSeparator, cueService, stemPrefService));
+        var deckA = new WorkstationDeckViewModel("A", deckPair.DeckA, stemSeparator, cueService, stemPrefService);
+        var deckB = new WorkstationDeckViewModel("B", deckPair.DeckB, stemSeparator, cueService, stemPrefService);
+        deckA.OnTrackLoaded = SaveSessionAsync;
+        deckB.OnTrackLoaded = SaveSessionAsync;
+        Decks.Add(deckA);
+        Decks.Add(deckB);
 
         FocusedDeck = Decks.FirstOrDefault();
 
@@ -212,7 +220,9 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             string label = Decks.Count switch { 2 => "C", 3 => "D", _ => "?" };
             var engine = new DeckEngine();
             var slot   = new DeckSlotViewModel(label, engine);
-            Decks.Add(new WorkstationDeckViewModel(label, slot, _stemSeparator, _cueService, _stemPrefService));
+            var newDeck = new WorkstationDeckViewModel(label, slot, _stemSeparator, _cueService, _stemPrefService);
+            newDeck.OnTrackLoaded = SaveSessionAsync;
+            Decks.Add(newDeck);
         });
 
         RemoveDeckCommand = ReactiveCommand.Create<WorkstationDeckViewModel>(deck =>
@@ -272,6 +282,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         SetModeCommand = ReactiveCommand.Create<WorkstationMode>(mode =>
         {
             ActiveMode = mode;
+            _ = SaveSessionAsync();
         });
 
         // Update MasterBpm from focused deck
@@ -284,6 +295,88 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             .DisposeWith(_disposables);
 
         _ = LoadPlaylistsAsync();
+        _ = RestoreSessionAsync();
+    }
+
+    // ── Session persistence ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Captures current deck state and writes it atomically to disk.
+    /// Safe to fire-and-forget — errors are silently swallowed.
+    /// </summary>
+    public async Task SaveSessionAsync()
+    {
+        try
+        {
+            var session = new WorkstationSession
+            {
+                ActiveModeIndex     = (int)ActiveMode,
+                TimelineOffsetSeconds = TimelineOffsetSeconds,
+                TimelineWindowSeconds = TimelineWindowSeconds,
+            };
+
+            foreach (var deck in Decks)
+            {
+                session.Decks.Add(new WorkstationDeckState
+                {
+                    DeckLabel       = deck.DeckLabel,
+                    FilePath        = deck.Deck.LoadedFilePath,
+                    TrackUniqueHash = deck.TrackHash,
+                    TrackTitle      = deck.TrackTitle,
+                    TrackArtist     = deck.TrackArtist,
+                    Bpm             = deck.DisplayBpm,
+                    Key             = deck.TrackKey,
+                    PositionSeconds = deck.Deck.PositionSeconds,
+                });
+            }
+
+            await _sessionService.SaveAsync(session);
+        }
+        catch { /* Never crash the UI thread over a save failure */ }
+    }
+
+    /// <summary>
+    /// Called once on startup. Restores the last session if one exists.
+    /// Tracks are reloaded by file path; cue points are re-fetched from the DB
+    /// by <see cref="WorkstationDeckViewModel.LoadPlaylistTrackCommand"/>.
+    /// </summary>
+    private async Task RestoreSessionAsync()
+    {
+        var session = await _sessionService.LoadAsync();
+        if (session == null) return;
+
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            try
+            {
+                ActiveMode            = (WorkstationMode)session.ActiveModeIndex;
+                TimelineOffsetSeconds = session.TimelineOffsetSeconds;
+                TimelineWindowSeconds = session.TimelineWindowSeconds;
+
+                foreach (var deckState in session.Decks)
+                {
+                    if (string.IsNullOrEmpty(deckState.FilePath)) continue;
+                    if (!System.IO.File.Exists(deckState.FilePath)) continue;
+
+                    var deck = Decks.FirstOrDefault(d => d.DeckLabel == deckState.DeckLabel)
+                               ?? Decks.FirstOrDefault();
+                    if (deck == null) continue;
+
+                    // Use raw path load; cue points load via hash when available
+                    var track = new Models.PlaylistTrack
+                    {
+                        Title            = deckState.TrackTitle ?? string.Empty,
+                        Artist           = deckState.TrackArtist ?? string.Empty,
+                        ResolvedFilePath = deckState.FilePath,
+                        TrackUniqueHash  = deckState.TrackUniqueHash ?? string.Empty,
+                        BPM              = deckState.Bpm > 0 ? deckState.Bpm : null,
+                        MusicalKey       = deckState.Key,
+                    };
+                    await deck.LoadPlaylistTrackCommand.Execute(track).FirstAsync();
+                }
+            }
+            catch { /* Corrupt session — proceed with blank workstation */ }
+        });
     }
 
     private async Task LoadPlaylistsAsync()
@@ -324,6 +417,9 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 
     public void Dispose()
     {
+        // Synchronously block for a brief window so the session is flushed
+        // even when the OS terminates the process after the window closes.
+        SaveSessionAsync().GetAwaiter().GetResult();
         ExportPanel.Dispose();
         _disposables.Dispose();
         foreach (var d in Decks) d.Dispose();

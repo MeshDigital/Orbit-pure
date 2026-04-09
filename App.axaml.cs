@@ -578,6 +578,12 @@ public partial class App : Application
         services.AddTransient<Views.Avalonia.DecksPage>();
         services.AddTransient<Views.Avalonia.TimelinePage>();
         services.AddTransient<Views.Avalonia.StemsPage>();
+        services.AddTransient<Views.Avalonia.WorkstationPage>();
+        services.AddSingleton<Services.ICuePointService, Services.CuePointService>();
+        services.AddSingleton<Services.Audio.StemPreferenceService>();
+        services.AddSingleton<Services.Audio.MixdownService>();
+        services.AddSingleton<Services.WorkstationSessionService>();
+        services.AddSingleton<ViewModels.Workstation.WorkstationViewModel>();
         services.AddSingleton<Services.AnalysisQueueService>();
 
         // ── Task 1.5: Beatgrid Detection ──────────────────────────────────

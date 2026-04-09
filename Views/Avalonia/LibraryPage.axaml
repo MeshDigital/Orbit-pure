@@ -274,6 +274,31 @@
             <!-- Separator -->
             <Border Width="1" Background="#33FFFFFF" Margin="2,4"/>
 
+            <!-- Play Selected -->
+            <Button Command="{Binding Tracks.Operations.PlayTrackCommand}"
+                    ToolTip.Tip="Clear queue and play selected tracks"
+                    Padding="10,6" CornerRadius="18" FontSize="11"
+                    Background="#1A4EC9B0" Foreground="#4EC9B0">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="▶️" FontSize="13"/>
+                    <TextBlock Text="Play" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
+            <!-- Add to Queue -->
+            <Button Command="{Binding Tracks.Operations.AddSelectedToQueueCommand}"
+                    ToolTip.Tip="Add selected tracks to play queue"
+                    Padding="10,6" CornerRadius="18" FontSize="11"
+                    Background="#1AFFFFFF" Foreground="#DDD">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="⊕" FontSize="13"/>
+                    <TextBlock Text="Add to Queue" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
+            <!-- Separator -->
+            <Border Width="1" Background="#33FFFFFF" Margin="2,4"/>
+
             <!-- Batch Tag Edit -->
             <Button Command="{Binding BatchTagEditCommand}"
                     ToolTip.Tip="Edit tags for selected tracks"
