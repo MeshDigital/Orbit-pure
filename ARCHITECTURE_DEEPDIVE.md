@@ -828,6 +828,32 @@ On startup, `RecoverAsync()` scans the journal and:
 2. Moves orphaned `.part` files to a recovery folder
 3. Rolls back incomplete metadata writes
 
+### Workstation Session Persistence
+
+`WorkstationSessionService` saves the full Workstation state so the user can
+resume their creative session after an unexpected close or crash.
+
+**Saved state** (`WorkstationSession` model):
+- `ActiveModeIndex` — Waveform / Flow / Stems / Export (0–3)
+- `TimelineOffsetSeconds` + `TimelineWindowSeconds` — scroll/zoom position
+- Per-deck `WorkstationDeckState`: file path, `TrackUniqueHash`, title, artist, BPM, key, playback cursor position in seconds
+
+**Save triggers:**
+- Every track load into any deck (via `OnTrackLoaded` callback on `WorkstationDeckViewModel`)
+- Every mode switch via `SetModeCommand`
+- `WorkstationViewModel.Dispose()` — synchronous flush before process exit
+
+**Atomicity:** Uses the same temp-file swap pattern as `SafeWriteService` —
+writes to `workstation-session.json.tmp` then `File.Move(…, overwrite: true)`,
+so a crash mid-write cannot corrupt the last good snapshot.
+
+**Restore:** `RestoreSessionAsync()` runs on startup. Each deck state is
+rehydrated via `LoadPlaylistTrackCommand` with a reconstructed `PlaylistTrack`
+stub — cue points reload from SQLite via `CuePointService` and stem
+preferences reload from `StemPreferenceService` automatically.
+
+File path: `%APPDATA%\Antigravity\workstation-session.json`
+
 ### Safe Write
 
 `SafeWriteService.WriteAtomicAsync(finalPath, writeAction)`:
@@ -907,6 +933,18 @@ AnalyzeCommand = ReactiveCommand.CreateFromTask(
     async ct => await _analysisService.AnalyzeAsync(SelectedTrack, ct),
     canExecute: this.WhenAnyValue(x => x.SelectedTrack).Select(t => t != null));
 ```
+
+### Avalonia ContextMenu Binding Constraint
+
+`ContextMenu` and `Tooltip` in Avalonia render in a **separate popup visual tree**,
+disconnected from the control that owns them. Element-name references such as
+`CommandParameter="{Binding #TrackGrid.SelectedItem}"` always resolve to `null`
+inside a `ContextMenu`.
+
+**Pattern used throughout ORBIT-Pure:**
+- `CommandParameter` is omitted from all `DataGrid.ContextMenu` items
+- Each `ExecuteXxx(param?)` handler falls back to the ViewModel's `SelectedTracks.LeadSelectedTrack` when `param` is `null`
+- This provides correct behaviour for both context-menu invocations (null param → selection fallback) and programmatic invocations with an explicit parameter
 
 ### DesignTokens
 
@@ -988,5 +1026,8 @@ service, which flows to the status bar (`⚠️ Repair Required`) and disables r
 | `VisualEngine` | Transient | Per video export job |
 | `VideoRenderer` | Transient | Per video export job |
 | `PlaylistExportService` | Transient | |
+| `WorkstationSessionService` | Singleton | %APPDATA%\Antigravity\workstation-session.json |
+| `CuePointService` | Singleton | SQLite via EF Core factory |
+| `StemPreferenceService` | Singleton | Per-track mute/solo prefs |
 | `KeyboardMappingService` | Singleton | (planned, #123) |
 | `KeyboardEventRouter` | Singleton | (planned, #124) |
