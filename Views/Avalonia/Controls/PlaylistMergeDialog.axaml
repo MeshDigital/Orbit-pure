@@ -1,0 +1,64 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:SLSKDONET.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="480" d:DesignHeight="320"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.PlaylistMergeDialog"
+             x:DataType="vm:PlaylistMergeDialogViewModel">
+
+    <Border Background="#1E1F24"
+            BorderBrush="#3A3B42"
+            BorderThickness="1"
+            CornerRadius="12"
+            Padding="28,24"
+            Width="480"
+            BoxShadow="0 12 40 -8 #AA000000">
+
+        <StackPanel Spacing="20">
+
+            <!-- Header -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="Similar Playlist Detected"
+                           FontSize="16" FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextPrimaryColor}"/>
+                <TextBlock Foreground="{DynamicResource TextSecondaryColor}" FontSize="12">
+                    <Run Text="&quot;"/>
+                    <Run Text="{Binding IncomingTitle}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryColor}"/>
+                    <Run Text="&quot; is "/>
+                    <Run Text="{Binding SimilarityDisplay}" FontWeight="SemiBold" Foreground="#FFD700"/>
+                    <Run Text=" to your existing playlist &quot;"/>
+                    <Run Text="{Binding ExistingTitle}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryColor}"/>
+                    <Run Text="&quot;."/>
+                </TextBlock>
+            </StackPanel>
+
+            <!-- Action radios -->
+            <StackPanel Spacing="8">
+                <RadioButton GroupName="MergeAction"
+                             IsChecked="{Binding SelectedAction, Converter={StaticResource EnumToCheckedConverter}, ConverterParameter=MergeMissingTracks}"
+                             Content="Merge missing tracks into existing playlist"
+                             Foreground="{DynamicResource TextPrimaryColor}"
+                             FontSize="13"/>
+                <RadioButton GroupName="MergeAction"
+                             IsChecked="{Binding SelectedAction, Converter={StaticResource EnumToCheckedConverter}, ConverterParameter=CreateNew}"
+                             Content="Create as a new separate playlist"
+                             Foreground="{DynamicResource TextPrimaryColor}"
+                             FontSize="13"/>
+                <StackPanel Spacing="4">
+                    <RadioButton GroupName="MergeAction"
+                                 IsChecked="{Binding SelectedAction, Converter={StaticResource EnumToCheckedConverter}, ConverterParameter=Rename}"
+                                 Content="Import with a new name:"
+                                 Foreground="{DynamicResource TextPrimaryColor}"
+                                 FontSize="13"/>
+                    <TextBox Text="{Binding NewName}"
+                             IsVisible="{Binding IsRenameMode}"
+                             Watermark="New playlist name…"
+                             Margin="24,0,0,0"
+                             FontSize="13"/>
+                </StackPanel>
+            </StackPanel>
+
+        </StackPanel>
+    </Border>
+</UserControl>

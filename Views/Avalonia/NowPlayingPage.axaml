@@ -225,6 +225,7 @@
                                                   LowBand="{Binding CurrentTrack.LowData}"
                                                   MidBand="{Binding CurrentTrack.MidData}"
                                                   HighBand="{Binding CurrentTrack.HighData}"
+                                                  PhraseSegments="{Binding CurrentTrack.PhraseSegments}"
                                                   Progress="{Binding Position}"
                                                   Background="#01000000"
                                                   PlayheadBrush="#1DB954"

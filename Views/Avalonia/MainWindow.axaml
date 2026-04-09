@@ -44,6 +44,8 @@
         <KeyBinding Gesture="Ctrl+K" Command="{Binding ToggleCommandPaletteCommand}"/>
         <KeyBinding Gesture="F10" Command="{Binding ToggleZenModeCommand}"/>
         <KeyBinding Gesture="F11" Command="{Binding ToggleTopBarCommand}"/>
+        <KeyBinding Gesture="Ctrl+Z" Command="{Binding UndoPlaylistCommand}"/>
+        <KeyBinding Gesture="Ctrl+Y" Command="{Binding RedoPlaylistCommand}"/>
     </Window.KeyBindings>
 
     <Window.Styles>
@@ -86,6 +88,24 @@
              On desktop the nav buttons are 40px; on touch/tablet modes we enforce 44px. -->
         <Style Selector="Border.nav-sidebar Button.nav">
             <Setter Property="MinHeight" Value="44"/>
+        </Style>
+
+        <!-- Right panel tab buttons -->
+        <Style Selector="Button.tab">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#888"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <Style Selector="Button.tab:pointerover">
+            <Setter Property="Background" Value="#2D2D2D"/>
+            <Setter Property="Foreground" Value="#CCC"/>
+        </Style>
+        <Style Selector="Button.tab.selected">
+            <Setter Property="Background" Value="#2D4A6B"/>
+            <Setter Property="Foreground" Value="#4EC9B0"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
     </Window.Styles>
     
@@ -426,28 +446,12 @@
                                 <TextBlock Text="MUSIC STUDIO" Classes="GroupTitle" FontSize="11" FontWeight="Bold" Foreground="#666" LetterSpacing="1"/>
                             </Border>
                             <StackPanel Spacing="2">
-                                <Button Classes="nav" Command="{Binding NavigateDecksCommand}"
-                                        ToolTip.Tip="Dual Deck Engine"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Decks}}">
+                                <Button Classes="nav" Command="{Binding NavigateWorkstationCommand}"
+                                        ToolTip.Tip="Workstation — Decks, Timeline &amp; Stem Editor"
+                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Workstation}}">
                                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
                                         <TextBlock Text="🎛️" FontSize="16"/>
-                                        <TextBlock Text="Decks" FontSize="14"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Classes="nav" Command="{Binding NavigateTimelineCommand}"
-                                        ToolTip.Tip="Timeline Editor"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Timeline}}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="🎞️" FontSize="16"/>
-                                        <TextBlock Text="Timeline" FontSize="14"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Classes="nav" Command="{Binding NavigateStemsCommand}"
-                                        ToolTip.Tip="Stem Separation"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Stems}}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="🧬" FontSize="16"/>
-                                        <TextBlock Text="Stems" FontSize="14"/>
+                                        <TextBlock Text="Workstation" FontSize="14"/>
                                     </StackPanel>
                                 </Button>
                             </StackPanel>
@@ -466,35 +470,93 @@
                 <SplitView.Pane>
                     <Border Background="#252526" BorderBrush="#3E3E3E" BorderThickness="1,0,0,0">
                         <Grid RowDefinitions="Auto,*">
-                            <Border Grid.Row="0" Padding="12" Background="#1E1E1E" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
-                                <Grid ColumnDefinitions="Auto,*,Auto">
-                                    <TextBlock Text="{Binding Sidebar.ModeIcon}" FontSize="16" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding Sidebar.ModeLabel}" FontWeight="Bold" VerticalAlignment="Center" Foreground="#DDD"/>
-                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
-                                        <Button Classes="tool" Command="{Binding Sidebar.Close}" Content="✖" Foreground="#888"/>
+
+                            <!-- Tab bar header -->
+                            <Border Grid.Row="0" Background="#1E1E1E" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <!-- 3 tab buttons -->
+                                    <StackPanel Orientation="Horizontal" Spacing="2" Margin="8,6">
+                                        <Button Classes="tab"
+                                                Classes.selected="{Binding Sidebar.IsPlayerTab}"
+                                                Command="{Binding Sidebar.SwitchToPlayerCommand}"
+                                                ToolTip.Tip="Player">
+                                            <TextBlock Text="▶ Player" FontSize="12" FontWeight="SemiBold"/>
+                                        </Button>
+                                        <Button Classes="tab"
+                                                Classes.selected="{Binding Sidebar.IsInspectorTab}"
+                                                Command="{Binding Sidebar.SwitchToInspectorCommand}"
+                                                ToolTip.Tip="Track Inspector">
+                                            <TextBlock Text="🔬 Inspector" FontSize="12" FontWeight="SemiBold"/>
+                                        </Button>
+                                        <Button Classes="tab"
+                                                Classes.selected="{Binding Sidebar.IsSimilarityTab}"
+                                                Command="{Binding Sidebar.SwitchToSimilarityCommand}"
+                                                ToolTip.Tip="Similar Tracks">
+                                            <TextBlock Text="🔗 Similar" FontSize="12" FontWeight="SemiBold"/>
+                                        </Button>
                                     </StackPanel>
+                                    <!-- Close button -->
+                                    <Button Grid.Column="1" Classes="tool" Command="{Binding Sidebar.Close}"
+                                            Content="✖" Foreground="#888" Margin="8,0" VerticalAlignment="Center"/>
                                 </Grid>
                             </Border>
-                            
-                            <ContentControl Grid.Row="1" Content="{Binding Sidebar.CurrentContent}">
-                                <ContentControl.DataTemplates>
-                                    <DataTemplate DataType="vmCore:PlayerViewModel">
-                                        <views:PlayerControl/>
-                                    </DataTemplate>
-                                    
-                                    <DataTemplate DataType="vmDownloads:UnifiedTrackViewModel">
-                                        <controls:TrackInspector/>
-                                    </DataTemplate>
 
-                                    <DataTemplate DataType="vmCore:AnalyzedSearchResultViewModel">
-                                        <controls:SearchInspector/>
-                                    </DataTemplate>
+                            <!-- Tab content panels -->
+                            <Grid Grid.Row="1">
+                                <!-- Player tab — wrapper keeps MainViewModel DataContext so compiled Opacity binding works -->
+                                <Border Opacity="{Binding Sidebar.IsPlayerTab, Converter={StaticResource BoolToOpacityConverter}, ConverterParameter='1;0'}"
+                                        IsHitTestVisible="{Binding Sidebar.IsPlayerTab}">
+                                    <Border.Transitions>
+                                        <Transitions>
+                                            <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+                                        </Transitions>
+                                    </Border.Transitions>
+                                    <views:PlayerControl DataContext="{Binding Sidebar.PlayerVm}"/>
+                                </Border>
 
-                                    <DataTemplate DataType="vmCore:PlaylistTrackViewModel">
-                                        <controls:LibraryTrackInspector/>
-                                    </DataTemplate>
-                                </ContentControl.DataTemplates>
-                            </ContentControl>
+                                <!-- Inspector tab — always in tree, fades in/out -->
+                                <ContentControl
+                                    Content="{Binding Sidebar.CurrentContent}"
+                                    Opacity="{Binding Sidebar.IsInspectorTab, Converter={StaticResource BoolToOpacityConverter}, ConverterParameter='1;0'}"
+                                    IsHitTestVisible="{Binding Sidebar.IsInspectorTab}">
+                                    <ContentControl.Transitions>
+                                        <Transitions>
+                                            <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+                                        </Transitions>
+                                    </ContentControl.Transitions>
+                                    <ContentControl.DataTemplates>
+                                        <DataTemplate DataType="vmCore:PlayerViewModel">
+                                            <!-- Player opened here shows a hint to use the Player tab -->
+                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                                                <TextBlock Text="▶" FontSize="32" HorizontalAlignment="Center" Foreground="#555"/>
+                                                <TextBlock Text="Select a track to inspect" Foreground="#888" FontSize="13"
+                                                           HorizontalAlignment="Center"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                        <DataTemplate DataType="vmDownloads:UnifiedTrackViewModel">
+                                            <controls:TrackInspector/>
+                                        </DataTemplate>
+                                        <DataTemplate DataType="vmCore:AnalyzedSearchResultViewModel">
+                                            <controls:SearchInspector/>
+                                        </DataTemplate>
+                                        <DataTemplate DataType="vmCore:PlaylistTrackViewModel">
+                                            <controls:LibraryTrackInspector/>
+                                        </DataTemplate>
+                                    </ContentControl.DataTemplates>
+                                </ContentControl>
+
+                                <!-- Similarity tab — wrapper keeps MainViewModel DataContext so compiled Opacity binding works -->
+                                <Border Opacity="{Binding Sidebar.IsSimilarityTab, Converter={StaticResource BoolToOpacityConverter}, ConverterParameter='1;0'}"
+                                        IsHitTestVisible="{Binding Sidebar.IsSimilarityTab}">
+                                    <Border.Transitions>
+                                        <Transitions>
+                                            <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+                                        </Transitions>
+                                    </Border.Transitions>
+                                    <views:SimilarTracksPanel DataContext="{Binding Sidebar.SimilarTracksVm}"/>
+                                </Border>
+                            </Grid>
+
                         </Grid>
                     </Border>
                 </SplitView.Pane>

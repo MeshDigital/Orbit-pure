@@ -1,0 +1,403 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Workstation"
+             xmlns:wsViews="clr-namespace:SLSKDONET.Views.Avalonia.Workstation"
+             xmlns:avConverters="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
+             xmlns:models="clr-namespace:SLSKDONET.Models"
+             xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
+             mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="900"
+             x:Class="SLSKDONET.Views.Avalonia.WorkstationPage"
+             x:DataType="vm:WorkstationViewModel"
+             x:Name="PageRoot"
+             Background="#141414">
+
+    <UserControl.Styles>
+        <!-- Mode selector tab buttons -->
+        <Style Selector="Button.ws-mode">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#888"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="16,0"/>
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="CornerRadius" Value="0"/>
+        </Style>
+        <Style Selector="Button.ws-mode:pointerover">
+            <Setter Property="Background" Value="#252525"/>
+            <Setter Property="Foreground" Value="#BBB"/>
+        </Style>
+        <Style Selector="Button.ws-mode.active">
+            <Setter Property="Background" Value="#1E1E1E"/>
+            <Setter Property="Foreground" Value="#00CFFF"/>
+            <Setter Property="BorderThickness" Value="0,0,0,2"/>
+            <Setter Property="BorderBrush" Value="#00CFFF"/>
+        </Style>
+    </UserControl.Styles>
+
+    <!--
+        Layout:
+          Row 0 (Auto):  Toolbar  — playlist selector, master BPM, export
+          Row 1 (Auto):  Mode selector strip — Waveform / Flow / Stems / Export
+          Row 2 (*):     Mode content panels (only one visible at a time)
+    -->
+    <Grid RowDefinitions="Auto,Auto,*">
+
+        <!-- ══════════════════════════════════════════════════════════════
+             Row 0 — Toolbar
+        ══════════════════════════════════════════════════════════════ -->
+        <Border Grid.Row="0" Background="#1E1E1E"
+                BorderBrush="#2D2D2D" BorderThickness="0,0,0,1"
+                Padding="12,6">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+
+                <!-- Playlist picker -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8"
+                            VerticalAlignment="Center">
+                    <TextBlock Text="🎛️" FontSize="16" VerticalAlignment="Center"/>
+                    <ComboBox ItemsSource="{Binding Playlists}"
+                              SelectedItem="{Binding ActivePlaylist}"
+                              MinWidth="200"
+                              VerticalAlignment="Center">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding SourceTitle}"
+                                           FontSize="13" FontWeight="SemiBold"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </StackPanel>
+
+                <!-- Master BPM -->
+                <Border Grid.Column="2" Background="#1A2030" CornerRadius="6"
+                        Padding="12,4" Margin="8,0" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="BPM" FontSize="10" Foreground="#666"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding MasterBpmDisplay}"
+                                   FontSize="18" FontWeight="Black"
+                                   Foreground="#00CFFF" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Deck controls -->
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4"
+                            VerticalAlignment="Center">
+                    <Button Classes="secondary" FontSize="11" Padding="8,4"
+                            Command="{Binding AddDeckCommand}"
+                            ToolTip.Tip="Add deck (max 4)">+ Deck</Button>
+                </StackPanel>
+
+                <!-- Zoom controls -->
+                <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4"
+                            VerticalAlignment="Center" Margin="8,0">
+                    <Button Classes="icon" Command="{Binding ZoomInCommand}"
+                            ToolTip.Tip="Zoom in">🔍+</Button>
+                    <Button Classes="icon" Command="{Binding ZoomOutCommand}"
+                            ToolTip.Tip="Zoom out">🔍−</Button>
+                </StackPanel>
+
+                <!-- Export -->
+                <Button Grid.Column="5"
+                        Classes="primary" FontSize="11" Padding="12,5"
+                        Command="{Binding ExportMixCommand}"
+                        VerticalAlignment="Center"
+                        ToolTip.Tip="Export mix to WAV">⬇ Export</Button>
+            </Grid>
+        </Border>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             Row 1 — Mode selector strip
+        ══════════════════════════════════════════════════════════════ -->
+        <Border Grid.Row="1" Background="#191919"
+                BorderBrush="#2D2D2D" BorderThickness="0,0,0,1"
+                Height="38">
+            <StackPanel Orientation="Horizontal" Spacing="0"
+                        Margin="8,0" VerticalAlignment="Center">
+                <Button Classes="ws-mode" Classes.active="{Binding IsWaveformMode}"
+                        Command="{Binding SetModeCommand}"
+                        CommandParameter="{x:Static vm:WorkstationMode.Waveform}">⊞ Waveform</Button>
+                <Button Classes="ws-mode" Classes.active="{Binding IsFlowMode}"
+                        Command="{Binding SetModeCommand}"
+                        CommandParameter="{x:Static vm:WorkstationMode.Flow}">🌊 Flow</Button>
+                <Button Classes="ws-mode" Classes.active="{Binding IsStemsMode}"
+                        Command="{Binding SetModeCommand}"
+                        CommandParameter="{x:Static vm:WorkstationMode.Stems}">⚡ Stems</Button>
+                <Button Classes="ws-mode" Classes.active="{Binding IsExportMode}"
+                        Command="{Binding SetModeCommand}"
+                        CommandParameter="{x:Static vm:WorkstationMode.Export}">⬇ Export</Button>
+            </StackPanel>
+        </Border>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             Row 2 — Mode content area (one panel visible at a time)
+        ══════════════════════════════════════════════════════════════ -->
+        <Grid Grid.Row="2">
+
+            <!-- ── WAVEFORM mode: timeline, decks, transport, track list ── -->
+            <Grid IsVisible="{Binding IsWaveformMode}" RowDefinitions="*,Auto,260">
+
+                <!-- Timeline ruler + deck rows -->
+                <Grid Grid.Row="0" RowDefinitions="22,*">
+                    <Border Grid.Row="0" Background="#1A1A1A"
+                            BorderBrush="#2D2D2D" BorderThickness="0,0,0,1">
+                        <Grid ColumnDefinitions="180,*,180">
+                            <Border Grid.Column="0" Background="#141414"/>
+                            <Canvas Grid.Column="1" ClipToBounds="True">
+                                <TextBlock Text="0:00" Canvas.Left="0" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="1:00" Canvas.Left="120" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="2:00" Canvas.Left="240" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="3:00" Canvas.Left="360" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="4:00" Canvas.Left="480" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="5:00" Canvas.Left="600" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="6:00" Canvas.Left="720" FontSize="9" Foreground="#555"/>
+                                <TextBlock Text="7:00" Canvas.Left="840" FontSize="9" Foreground="#555"/>
+                            </Canvas>
+                            <Border Grid.Column="2" Background="#141414"/>
+                        </Grid>
+                    </Border>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding Decks}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:WorkstationDeckViewModel">
+                                    <wsViews:WorkstationDeckRow/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+
+                <!-- Transport bar -->
+                <Border Grid.Row="1" Background="#1E1E1E"
+                        BorderBrush="#2D2D2D" BorderThickness="0,1,0,1"
+                        Padding="12,6">
+                    <Grid ColumnDefinitions="*,Auto,*">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4"
+                                    VerticalAlignment="Center">
+                            <Button Classes="icon" ToolTip.Tip="Undo (Ctrl+Z)">↩</Button>
+                            <Button Classes="icon" ToolTip.Tip="Redo (Ctrl+Y)">↪</Button>
+                            <Border Width="1" Background="#333" Margin="4,0" Height="20"/>
+                            <Button Classes="secondary" FontSize="11" Content="Edit ▾"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                                    VerticalAlignment="Center">
+                            <Button Classes="icon" FontSize="18"
+                                    Command="{Binding StopAllCommand}"
+                                    ToolTip.Tip="Stop / return to start">⏮</Button>
+                            <Button Classes="icon" FontSize="18"
+                                    Command="{Binding SyncBpmCommand}"
+                                    ToolTip.Tip="Beat-match Deck B to Deck A">⇌</Button>
+                            <Button Classes="primary" Width="44" Height="44" CornerRadius="22"
+                                    Command="{Binding PlayPauseAllCommand}"
+                                    ToolTip.Tip="Play / Pause all decks">
+                                <TextBlock Text="▶" FontSize="18"/>
+                            </Button>
+                            <Button Classes="icon" FontSize="18"
+                                    Command="{Binding ToggleLoopCommand}"
+                                    ToolTip.Tip="Toggle loop on focused deck">⟳</Button>
+                            <Button Classes="icon" FontSize="18" ToolTip.Tip="Skip to end">⏭</Button>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4"
+                                    HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <Button Classes="secondary" FontSize="11" Content="Solo" Padding="8,4"/>
+                            <Border Width="1" Background="#333" Margin="4,0" Height="20"/>
+                            <TextBlock Text="{Binding ActivePlaylist.SourceTitle, FallbackValue='No playlist'}"
+                                       FontSize="11" Foreground="#666" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Track list + tabs -->
+                <Grid Grid.Row="2" RowDefinitions="Auto,*">
+                    <Border Grid.Row="0" Background="#1A1A1A"
+                            BorderBrush="#2D2D2D" BorderThickness="0,0,0,1"
+                            Height="32">
+                        <StackPanel Orientation="Horizontal" Spacing="0">
+                            <Button Classes="tab-active" Padding="16,0" Height="32">Playlist</Button>
+                            <Button Classes="tab" Padding="16,0" Height="32">Track</Button>
+                            <Button Classes="tab" Padding="16,0" Height="32">Transition</Button>
+                        </StackPanel>
+                    </Border>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <DataGrid ItemsSource="{Binding PlaylistTracks}"
+                                  Background="Transparent"
+                                  GridLinesVisibility="Horizontal"
+                                  BorderThickness="0"
+                                  RowBackground="#151515"
+                                  ColumnHeaderHeight="28"
+                                  RowHeight="38"
+                                  CanUserReorderColumns="False"
+                                  CanUserResizeColumns="True"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  SelectionMode="Extended">
+                            <DataGrid.Styles>
+                                <Style Selector="DataGridColumnHeader">
+                                    <Setter Property="Background" Value="#1A1A1A"/>
+                                    <Setter Property="Foreground" Value="#666"/>
+                                    <Setter Property="FontSize" Value="11"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                    <Setter Property="Padding" Value="8,0"/>
+                                </Style>
+                                <Style Selector="DataGridCell">
+                                    <Setter Property="Padding" Value="8,0"/>
+                                    <Setter Property="FontSize" Value="12"/>
+                                    <Setter Property="Foreground" Value="#CCC"/>
+                                    <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                </Style>
+                            </DataGrid.Styles>
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="#" Width="40"
+                                                    Binding="{Binding TrackNumber}"/>
+                                <DataGridTextColumn Header="ARTIST" Width="200"
+                                                    Binding="{Binding Artist}"/>
+                                <DataGridTextColumn Header="TITLE" Width="*"
+                                                    Binding="{Binding Title}"/>
+                                <DataGridTextColumn Header="TIME" Width="60"
+                                                    Binding="{Binding Duration,
+                                                        StringFormat='{}{0:F0}s'}"/>
+                                <DataGridTextColumn Header="KEY" Width="60"
+                                                    Binding="{Binding Key}"/>
+                                <DataGridTextColumn Header="BPM" Width="60"
+                                                    Binding="{Binding BPM, StringFormat='{}{0:F0}'}"/>
+                                <DataGridTemplateColumn Header="" Width="96" IsReadOnly="True">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate x:DataType="models:PlaylistTrack">
+                                            <StackPanel Orientation="Horizontal" Spacing="4"
+                                                        HorizontalAlignment="Right"
+                                                        VerticalAlignment="Center">
+                                                <Button Content="A"
+                                                        Padding="6,2" FontSize="11"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="#00CFFF"
+                                                        Background="#1A2A3A"
+                                                        CornerRadius="3"
+                                                        Command="{Binding #PageRoot.DataContext.LoadToDeckACommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Load to Deck A"/>
+                                                <Button Content="B"
+                                                        Padding="6,2" FontSize="11"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="#FF8C00"
+                                                        Background="#2A1A0A"
+                                                        CornerRadius="3"
+                                                        Command="{Binding #PageRoot.DataContext.LoadToDeckBCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Load to Deck B"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </ScrollViewer>
+                </Grid>
+            </Grid>
+
+            <!-- ── FLOW mode: embedded Flow Builder ─────────────────────── -->
+            <views:FlowBuilderView IsVisible="{Binding IsFlowMode}"/>
+
+            <!-- ── STEMS mode: per-stem mixer faders + waveform strips ─────────── -->
+            <Grid IsVisible="{Binding IsStemsMode}" RowDefinitions="Auto,*">
+
+                <!-- Deck info + separator trigger -->
+                <Border Grid.Row="0" Background="#1A1A1A"
+                        BorderBrush="#2D2D2D" BorderThickness="0,0,0,1"
+                        Padding="12,6">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <TextBlock Text="Deck" FontSize="11" Foreground="#666" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding FocusedDeck.DeckLabel, FallbackValue='—'}"
+                                   FontSize="13" FontWeight="Bold"
+                                   Foreground="#00CFFF" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding FocusedDeck.TrackTitle, FallbackValue='(no track loaded)'}"
+                                   FontSize="12" Foreground="#888" VerticalAlignment="Center"
+                                   MaxWidth="280" TextTrimming="CharacterEllipsis"/>
+                        <Border Width="1" Background="#333" Margin="4,0" Height="18"/>
+                        <Button Classes="primary" FontSize="11" Padding="10,4"
+                                Command="{Binding FocusedDeck.SeparateStemsCommand}"
+                                ToolTip.Tip="Run ONNX stem separation (Ht-Demucs 4-stem)">⚡ Separate Stems</Button>
+                        <TextBlock FontSize="11" Foreground="#00CFFF" VerticalAlignment="Center"
+                                   IsVisible="{Binding FocusedDeck.Stems.IsSeparating}"
+                                   Text="{Binding FocusedDeck.Stems.SeparationProgress,
+                                       StringFormat='Separating… {0:P0}'}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Mixer strip (left) + Waveform rows (right) -->
+                <Grid Grid.Row="1" ColumnDefinitions="300,*">
+                    <Border Grid.Column="0"  Background="#1A1A1A"
+                            BorderBrush="#2D2D2D" BorderThickness="0,0,1,0">
+                        <views:StemMixerView DataContext="{Binding FocusedDeck.Stems}"/>
+                    </Border>
+                    <views:StemWaveformView Grid.Column="1"
+                                           DataContext="{Binding FocusedDeck.StemWaveforms}"/>
+                </Grid>
+            </Grid>
+
+            <!-- ── EXPORT mode: inline mixdown &amp; export form ────────────────── -->
+            <ScrollViewer IsVisible="{Binding IsExportMode}" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="60,40" Spacing="20" MaxWidth="600">
+
+                    <TextBlock Text="Mixdown &amp; Export" FontSize="22" FontWeight="Bold"
+                               Foreground="#CCC"/>
+
+                    <!-- Output path -->
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="OUTPUT FILE" FontSize="10" Foreground="#555"
+                                   FontWeight="SemiBold" LetterSpacing="2"/>
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                            <TextBox Grid.Column="0"
+                                     Text="{Binding ExportPanel.OutputPath, Mode=TwoWay}"
+                                     Watermark="e.g. C:\Music\mixdown.wav"
+                                     FontSize="12"/>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Format -->
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="FORMAT" FontSize="10" Foreground="#555"
+                                   FontWeight="SemiBold" LetterSpacing="2"/>
+                        <ComboBox ItemsSource="{Binding ExportPanel.AvailableFormats}"
+                                  SelectedItem="{Binding ExportPanel.SelectedFormat, Mode=TwoWay}"
+                                  MinWidth="140"/>
+                    </StackPanel>
+
+                    <!-- Post-processing options -->
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="OPTIONS" FontSize="10" Foreground="#555"
+                                   FontWeight="SemiBold" LetterSpacing="2"/>
+                        <CheckBox IsChecked="{Binding ExportPanel.Normalize, Mode=TwoWay}"
+                                  Content="Normalize to −0.1 dBFS" FontSize="12"  Foreground="#AAA"/>
+                        <CheckBox IsChecked="{Binding ExportPanel.Dither, Mode=TwoWay}"
+                                  Content="Apply dithering (recommended for 16-bit output)" FontSize="12" Foreground="#AAA"/>
+                    </StackPanel>
+
+                    <!-- Progress -->
+                    <ProgressBar Value="{Binding ExportPanel.ExportProgress}"
+                                 IsVisible="{Binding ExportPanel.IsExporting}"
+                                 Height="6" CornerRadius="3"
+                                 Foreground="#00CFFF" Background="#2A2A2A"/>
+                    <TextBlock Text="{Binding ExportPanel.StatusMessage}"
+                               IsVisible="{Binding ExportPanel.IsExporting}"
+                               FontSize="12" Foreground="#888"/>
+
+                    <!-- Export button -->
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Classes="primary" Padding="20,8" FontSize="13"
+                                Command="{Binding ExportPanel.ExportCommand}"
+                                ToolTip.Tip="Start mixdown render">⬇ Export Mix</Button>
+                        <Button Classes="secondary" Padding="14,8" FontSize="13"
+                                Command="{Binding ExportPanel.CancelCommand}"
+                                IsVisible="{Binding ExportPanel.IsExporting}"
+                                ToolTip.Tip="Cancel export">Cancel</Button>
+                    </StackPanel>
+
+                </StackPanel>
+            </ScrollViewer>
+
+        </Grid>
+    </Grid>
+</UserControl>
+

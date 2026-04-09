@@ -383,6 +383,10 @@
                                          <TextBlock Text="{Binding SpeedDisplay}" FontSize="9" FontWeight="Bold" Foreground="Black"/>
                                      </StackPanel>
                                  </Border>
+                                 <!-- Speed sparkline (30-point rolling history) -->
+                                 <controls:SparklineControl Values="{Binding SpeedHistory}"
+                                                            Width="48" Height="16"
+                                                            VerticalAlignment="Center"/>
                              </StackPanel>
                              
                              <!-- Rejection Summary (Core) -->

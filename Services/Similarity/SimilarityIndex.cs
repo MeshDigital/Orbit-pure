@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -63,12 +64,18 @@ public sealed class SimilarityIndex : IDisposable
     /// <summary>
     /// Returns the top-N most similar tracks to <paramref name="queryHash"/>.
     /// The query track itself is excluded from results.
+    /// Optionally supply <paramref name="excludeHashes"/> to filter out tracks
+    /// already present in the target playlist (duplicate exclusion).
     /// </summary>
     public async Task<IReadOnlyList<SimilarTrack>> GetSimilarTracksAsync(
         string queryHash,
         int topN = 10,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IEnumerable<string>? excludeHashes = null)
     {
+        var exclude = excludeHashes is null
+            ? ImmutableHashSet<string>.Empty
+            : ImmutableHashSet.CreateRange(excludeHashes);
         var index = await GetOrBuildIndexAsync(cancellationToken);
 
         var queryEntry = index.FirstOrDefault(e => e.TrackHash == queryHash);
@@ -81,7 +88,7 @@ public sealed class SimilarityIndex : IDisposable
         if (_hnswIndex is not null && _guidToHash is not null && _hashToGuid is not null)
         {
             // HNSW path — approximate nearest neighbours, O(log n)
-            return await QueryHnswAsync(queryHash, queryEntry.Vector, topN, cancellationToken);
+            return await QueryHnswAsync(queryHash, queryEntry.Vector, topN, cancellationToken, exclude);
         }
 
         // Brute-force path — exact cosine similarity, O(n)
@@ -90,7 +97,7 @@ public sealed class SimilarityIndex : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
 
             return index
-                .Where(e => e.TrackHash != queryHash)
+                .Where(e => e.TrackHash != queryHash && !exclude.Contains(e.TrackHash))
                 .Select(e => new SimilarTrack(e.TrackHash, CosineSimilarity(queryEntry.Vector, e.Vector)))
                 .OrderByDescending(r => r.Score)
                 .Take(topN)
@@ -121,14 +128,16 @@ public sealed class SimilarityIndex : IDisposable
         string queryHash,
         float[] queryVector,
         int topN,
-        CancellationToken ct)
+        CancellationToken ct,
+        ImmutableHashSet<string>? exclude = null)
     {
         // Fetch topN+1 so we can drop the self-match
         var queryList = new List<float>(queryVector);
         var hits = await _hnswIndex!.GetTopKAsync(queryList, topN + 1, null, ct);
 
         return hits
-            .Where(r => _guidToHash!.TryGetValue(r.GUID, out var h) && h != queryHash)
+            .Where(r => _guidToHash!.TryGetValue(r.GUID, out var h) && h != queryHash
+                        && (exclude is null || !exclude.Contains(h!)))
             .Take(topN)
             .Select(r =>
             {

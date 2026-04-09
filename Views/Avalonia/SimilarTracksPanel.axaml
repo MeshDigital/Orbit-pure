@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:avConverters="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
              x:Class="SLSKDONET.Views.Avalonia.SimilarTracksPanel"
              x:DataType="vm:SimilarTracksViewModel"
              Background="#1A1A1A" Foreground="White">
@@ -23,13 +24,34 @@
         <Style Selector="Border.row:pointerover">
             <Setter Property="Background" Value="#2E2E2E"/>
         </Style>
+        <Style Selector="Border.row:pointerover Button.addBtn">
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+        <Style Selector="Border.bridgeRow">
+            <Setter Property="Background" Value="#1E2A20"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="Margin" Value="0,2"/>
+            <Setter Property="BorderBrush" Value="#2D5A3A"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style Selector="Border.bridgeRow:pointerover">
+            <Setter Property="Background" Value="#253328"/>
+        </Style>
+        <Style Selector="Border.bridgeRow:pointerover Button.addBtn">
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="Auto,Auto,*">
+    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto">
 
         <!-- Header -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8" Spacing="8">
-            <TextBlock Text="Similar Tracks" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <TextBlock Text="Similar Tracks" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"
+                       IsVisible="{Binding !IsBridgeMode}"/>
+            <TextBlock Text="Bridge Mode" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"
+                       Foreground="#4EC9B0"
+                       IsVisible="{Binding IsBridgeMode}"/>
             <Border IsVisible="{Binding IsBusy}"
                     CornerRadius="10" Background="#3A3A3A"
                     Padding="8,3" VerticalAlignment="Center">
@@ -40,6 +62,25 @@
                     ToolTip.Tip="Refresh" IsEnabled="{Binding !IsBusy}">
                 <TextBlock Text="↺" FontSize="14"/>
             </Button>
+            <!-- Add All button (shown when there are results) -->
+            <Button Command="{Binding AddAllCommand}"
+                    Background="#1E3A2B" Foreground="#4EC9B0"
+                    BorderBrush="#4EC9B0" BorderThickness="1"
+                    CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
+                    ToolTip.Tip="Add all results to a project"
+                    IsVisible="{Binding Results.Count, Converter={x:Static avConverters:NumericConverters.IsNotZero}}">
+                <TextBlock Text="+ Add All" FontSize="11"/>
+            </Button>
+            <!-- Bridge suggestions button -->
+            <Button Command="{Binding BridgeSuggestionsCommand}"
+                    Background="#1A2A3A" Foreground="#63B3ED"
+                    BorderBrush="#63B3ED" BorderThickness="1"
+                    CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
+                    ToolTip.Tip="Find bridging tracks between 2 selected tracks"
+                    IsVisible="{Binding IsBridgeMode}"
+                    IsEnabled="{Binding !IsBusy}">
+                <TextBlock Text="↻ Refresh Bridge" FontSize="11"/>
+            </Button>
         </StackPanel>
 
         <!-- Status message -->
@@ -48,13 +89,14 @@
                    IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                    FontSize="12" Foreground="#888" Margin="0,0,0,8" TextWrapping="Wrap"/>
 
-        <!-- Results list -->
-        <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+        <!-- Results list (standard similarity mode) -->
+        <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled"
+                      IsVisible="{Binding !IsBridgeMode}">
             <ItemsControl ItemsSource="{Binding Results}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:SimilarTrackRowViewModel">
                         <Border Classes="row">
-                            <Grid ColumnDefinitions="*,Auto,Auto">
+                            <Grid ColumnDefinitions="*,Auto,Auto,Auto">
 
                                 <!-- Title + Artist -->
                                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
@@ -78,6 +120,74 @@
                                     <TextBlock Classes="value" HorizontalAlignment="Center"
                                                Text="{Binding Score, StringFormat={}{0:P0}}"/>
                                 </StackPanel>
+
+                                <!-- Add to playlist button -->
+                                <Button Grid.Column="3"
+                                        Command="{Binding AddToPlaylistCommand}"
+                                        Background="Transparent" Foreground="#4EC9B0"
+                                        BorderThickness="0" Padding="6,4" Margin="4,0,0,0"
+                                        VerticalAlignment="Center"
+                                        ToolTip.Tip="Add to project/playlist"
+                                        Opacity="0.6" Classes="addBtn">
+                                    <TextBlock Text="+" FontSize="16" FontWeight="Bold"/>
+                                </Button>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Bridge Mode header -->
+        <Border Grid.Row="3" IsVisible="{Binding IsBridgeMode}"
+                Background="#141E16" CornerRadius="6" Padding="10,6" Margin="0,4,0,4">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="🌉" FontSize="14" VerticalAlignment="Center"/>
+                <TextBlock Text="Bridging tracks" FontSize="12" FontWeight="SemiBold"
+                           Foreground="#4EC9B0" VerticalAlignment="Center"/>
+                <TextBlock Text="BPM-matched · Camelot compatible"
+                           FontSize="11" Foreground="#666" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Bridge suggestions list -->
+        <ScrollViewer Grid.Row="4" HorizontalScrollBarVisibility="Disabled"
+                      IsVisible="{Binding IsBridgeMode}">
+            <ItemsControl ItemsSource="{Binding BridgeSuggestions}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SimilarTrackRowViewModel">
+                        <Border Classes="bridgeRow">
+                            <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Title, FallbackValue='(loading…)'}"
+                                               Classes="value" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding Artist, FallbackValue=''}"
+                                               Classes="label" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+
+                                <Border Grid.Column="1" CornerRadius="4"
+                                        Background="#1A3A2B" Padding="5,2" Margin="6,0"
+                                        VerticalAlignment="Center"
+                                        IsVisible="{Binding Key, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                    <TextBlock Text="{Binding Key}" FontSize="11" Foreground="#68D391"/>
+                                </Border>
+
+                                <StackPanel Grid.Column="2" VerticalAlignment="Center" MinWidth="48">
+                                    <TextBlock Classes="label" Text="Score" HorizontalAlignment="Center"/>
+                                    <TextBlock Classes="value" HorizontalAlignment="Center"
+                                               Text="{Binding Score, StringFormat={}{0:P0}}"/>
+                                </StackPanel>
+
+                                <Button Grid.Column="3"
+                                        Command="{Binding AddToPlaylistCommand}"
+                                        Background="Transparent" Foreground="#68D391"
+                                        BorderThickness="0" Padding="6,4" Margin="4,0,0,0"
+                                        VerticalAlignment="Center"
+                                        ToolTip.Tip="Add bridging track to project/playlist"
+                                        Opacity="0.6" Classes="addBtn">
+                                    <TextBlock Text="+" FontSize="16" FontWeight="Bold"/>
+                                </Button>
                             </Grid>
                         </Border>
                     </DataTemplate>

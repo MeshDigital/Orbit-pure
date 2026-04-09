@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Downloads"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              mc:Ignorable="d" d:DesignWidth="450" d:DesignHeight="800"
              x:Class="SLSKDONET.Views.Avalonia.Controls.TrackInspector"
              x:DataType="vm:UnifiedTrackViewModel">
@@ -174,7 +175,16 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </StackPanel>
-                    
+
+                    <!-- ── Energy Curve (read-only, download tracks) ─── -->
+                    <StackPanel Spacing="6">
+                        <Separator Background="#252526" Height="1"/>
+                        <TextBlock Text="ENERGY CURVE" FontSize="10" FontWeight="Black" Foreground="#444"/>
+                        <Border Background="#0D0D0D" CornerRadius="4" Height="32">
+                            <controls:SparklineControl Values="{Binding SpeedHistory}" Height="32"/>
+                        </Border>
+                    </StackPanel>
+
                 </StackPanel>
             </ScrollViewer>
             

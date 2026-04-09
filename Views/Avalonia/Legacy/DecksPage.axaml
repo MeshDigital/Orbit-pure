@@ -1,0 +1,241 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             x:Class="SLSKDONET.Views.Avalonia.DecksPage"
+             x:DataType="vm:DeckViewModel"
+             Background="#1A1A1A">
+
+  <Grid RowDefinitions="Auto,*,Auto">
+
+    <!-- Header -->
+    <Border Grid.Row="0" Padding="20,14" Background="#0F0F14"
+            BorderBrush="#22FFFFFF" BorderThickness="0,0,0,1">
+      <StackPanel Orientation="Horizontal" Spacing="10">
+        <TextBlock Text="🎛" FontSize="20" VerticalAlignment="Center"/>
+        <TextBlock Text="DUAL DECK ENGINE" FontSize="13" FontWeight="Bold"
+                   Foreground="#4EC9B0" VerticalAlignment="Center"/>
+        <Border Classes="pill" Margin="8,0,0,0">
+          <TextBlock Text="{Binding MasterDeck, StringFormat='Master: Deck {0}'}"
+                     FontSize="10" Foreground="#888"/>
+        </Border>
+      </StackPanel>
+    </Border>
+
+    <!-- Deck layout: side by side -->
+    <Grid Grid.Row="1" ColumnDefinitions="*,Auto,*" Margin="16">
+
+      <!-- Deck A -->
+      <Border Grid.Column="0" Background="#12FFFFFF" CornerRadius="10"
+              BorderBrush="#1A4EC9B0" BorderThickness="1" Padding="16">
+        <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+
+          <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,12">
+            <Border Background="#204EC9B0" CornerRadius="4" Padding="6,2">
+              <TextBlock Text="DECK A" FontSize="10" FontWeight="Bold" Foreground="#4EC9B0"/>
+            </Border>
+            <TextBlock Text="{Binding DeckA.State}" FontSize="10" Foreground="#666" VerticalAlignment="Center"/>
+          </StackPanel>
+
+          <!-- Track info -->
+          <StackPanel Grid.Row="1" Spacing="4" Margin="0,0,0,12">
+            <TextBlock Text="{Binding DeckA.TrackTitle, FallbackValue='— No Track Loaded —'}"
+                       FontSize="14" FontWeight="SemiBold" Foreground="#DDD"
+                       TextTrimming="CharacterEllipsis"/>
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <TextBlock Text="{Binding DeckA.TrackBpm, StringFormat='{}{0:0.0} BPM'}"
+                         FontSize="11" Foreground="#9CDCFE"/>
+              <TextBlock Text="{Binding DeckA.TrackKey}"
+                         FontSize="11" Foreground="#C586C0"/>
+            </StackPanel>
+          </StackPanel>
+
+          <!-- Position / duration -->
+          <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,8">
+            <TextBlock Grid.Column="0"
+                       Text="{Binding DeckA.PositionSeconds, StringFormat='{}{0:0.0}s'}"
+                       FontSize="10" Foreground="#888" VerticalAlignment="Center"/>
+            <Slider Grid.Column="1" Minimum="0"
+                    Maximum="{Binding DeckA.DurationSeconds}"
+                    Value="{Binding DeckA.PositionSeconds}"
+                    Margin="8,0" IsEnabled="{Binding DeckA.IsLoaded}"/>
+            <TextBlock Grid.Column="2"
+                       Text="{Binding DeckA.DurationSeconds, StringFormat='{}{0:0.0}s'}"
+                       FontSize="10" Foreground="#888" VerticalAlignment="Center"/>
+          </Grid>
+
+          <!-- Transport buttons -->
+          <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8"
+                      HorizontalAlignment="Center" Margin="0,8">
+            <Button Content="⏮ CUE" Command="{Binding DeckA.CueCommand}"
+                    Padding="12,6" FontSize="11" CornerRadius="6"/>
+            <Button Content="▶ PLAY" Command="{Binding DeckA.PlayCommand}"
+                    Classes="primary" Padding="16,6" FontSize="12" CornerRadius="6"
+                    IsEnabled="{Binding DeckA.IsLoaded}"/>
+            <Button Content="⏸" Command="{Binding DeckA.PauseCommand}"
+                    Padding="12,6" FontSize="11" CornerRadius="6"/>
+          </StackPanel>
+
+          <!-- Tempo / key-lock -->
+          <Grid Grid.Row="4" RowDefinitions="Auto,Auto,Auto" Margin="0,8,0,0">
+            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,4">
+              <TextBlock Grid.Column="0" Text="TEMPO" FontSize="9" Foreground="#555" VerticalAlignment="Center"/>
+              <Slider Grid.Column="1" Minimum="-50" Maximum="50"
+                      Value="{Binding DeckA.TempoPercent}"
+                      TickFrequency="0.5" Margin="8,0"/>
+              <TextBlock Grid.Column="2"
+                         Text="{Binding DeckA.TempoPercent, StringFormat='{}{0:+0.0;-0.0;0}%'}"
+                         FontSize="10" Foreground="#9CDCFE" VerticalAlignment="Center"
+                         MinWidth="40" TextAlignment="Right"/>
+            </Grid>
+            <ToggleButton Grid.Row="1"
+                          IsChecked="{Binding DeckA.KeyLock}"
+                          Content="KEY LOCK 🔒" Classes="chip"
+                          HorizontalAlignment="Center" Margin="0,4"/>
+          </Grid>
+        </Grid>
+      </Border>
+
+      <!-- Crossfader column -->
+      <Border Grid.Column="1" Width="80" Padding="8" VerticalAlignment="Center">
+        <StackPanel Spacing="12" HorizontalAlignment="Center">
+          <TextBlock Text="XFADE" FontSize="9" FontWeight="Bold" Foreground="#555"
+                     HorizontalAlignment="Center"/>
+          <Slider Orientation="Vertical" Height="160"
+                  Minimum="0" Maximum="1"
+                  Value="{Binding CrossfaderPosition}"
+                  HorizontalAlignment="Center"/>
+          <TextBlock Text="{Binding CrossfaderPosition, StringFormat='{}{0:0.00}'}"
+                     FontSize="9" Foreground="#888" HorizontalAlignment="Center"/>
+          <Button Content="SYNC" Command="{Binding SyncBpmCommand}"
+                  Classes="primary" HorizontalAlignment="Stretch"
+                  Padding="4,6" FontSize="10" CornerRadius="4"/>
+          <Button Content="PHASE" Command="{Binding PhaseAlignCommand}"
+                  HorizontalAlignment="Stretch"
+                  Padding="4,6" FontSize="10" CornerRadius="4"/>
+          <TextBlock Text="{Binding PhaseOffsetBeats, StringFormat='Δ{0:+0.00;-0.00;0} b'}"
+                     FontSize="9" Foreground="#888" HorizontalAlignment="Center"/>
+        </StackPanel>
+      </Border>
+
+      <!-- Deck B (mirrored layout) -->
+      <Border Grid.Column="2" Background="#12FFFFFF" CornerRadius="10"
+              BorderBrush="#1AFF8C00" BorderThickness="1" Padding="16">
+        <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+
+          <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,12">
+            <Border Background="#20FF8C00" CornerRadius="4" Padding="6,2">
+              <TextBlock Text="DECK B" FontSize="10" FontWeight="Bold" Foreground="#FF8C00"/>
+            </Border>
+            <TextBlock Text="{Binding DeckB.State}" FontSize="10" Foreground="#666" VerticalAlignment="Center"/>
+          </StackPanel>
+
+          <StackPanel Grid.Row="1" Spacing="4" Margin="0,0,0,12">
+            <TextBlock Text="{Binding DeckB.TrackTitle, FallbackValue='— No Track Loaded —'}"
+                       FontSize="14" FontWeight="SemiBold" Foreground="#DDD"
+                       TextTrimming="CharacterEllipsis"/>
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <TextBlock Text="{Binding DeckB.TrackBpm, StringFormat='{}{0:0.0} BPM'}"
+                         FontSize="11" Foreground="#9CDCFE"/>
+              <TextBlock Text="{Binding DeckB.TrackKey}"
+                         FontSize="11" Foreground="#C586C0"/>
+            </StackPanel>
+          </StackPanel>
+
+          <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,8">
+            <TextBlock Grid.Column="0"
+                       Text="{Binding DeckB.PositionSeconds, StringFormat='{}{0:0.0}s'}"
+                       FontSize="10" Foreground="#888" VerticalAlignment="Center"/>
+            <Slider Grid.Column="1" Minimum="0"
+                    Maximum="{Binding DeckB.DurationSeconds}"
+                    Value="{Binding DeckB.PositionSeconds}"
+                    Margin="8,0" IsEnabled="{Binding DeckB.IsLoaded}"/>
+            <TextBlock Grid.Column="2"
+                       Text="{Binding DeckB.DurationSeconds, StringFormat='{}{0:0.0}s'}"
+                       FontSize="10" Foreground="#888" VerticalAlignment="Center"/>
+          </Grid>
+
+          <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8"
+                      HorizontalAlignment="Center" Margin="0,8">
+            <Button Content="⏮ CUE" Command="{Binding DeckB.CueCommand}"
+                    Padding="12,6" FontSize="11" CornerRadius="6"/>
+            <Button Content="▶ PLAY" Command="{Binding DeckB.PlayCommand}"
+                    Classes="primary" Padding="16,6" FontSize="12" CornerRadius="6"
+                    IsEnabled="{Binding DeckB.IsLoaded}"/>
+            <Button Content="⏸" Command="{Binding DeckB.PauseCommand}"
+                    Padding="12,6" FontSize="11" CornerRadius="6"/>
+          </StackPanel>
+
+          <Grid Grid.Row="4" RowDefinitions="Auto,Auto" Margin="0,8,0,0">
+            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,4">
+              <TextBlock Grid.Column="0" Text="TEMPO" FontSize="9" Foreground="#555" VerticalAlignment="Center"/>
+              <Slider Grid.Column="1" Minimum="-50" Maximum="50"
+                      Value="{Binding DeckB.TempoPercent}"
+                      TickFrequency="0.5" Margin="8,0"/>
+              <TextBlock Grid.Column="2"
+                         Text="{Binding DeckB.TempoPercent, StringFormat='{}{0:+0.0;-0.0;0}%'}"
+                         FontSize="10" Foreground="#9CDCFE" VerticalAlignment="Center"
+                         MinWidth="40" TextAlignment="Right"/>
+            </Grid>
+            <ToggleButton Grid.Row="1"
+                          IsChecked="{Binding DeckB.KeyLock}"
+                          Content="KEY LOCK 🔒" Classes="chip"
+                          HorizontalAlignment="Center" Margin="0,4"/>
+          </Grid>
+        </Grid>
+      </Border>
+
+    </Grid>
+
+    <!-- Hot cue row (Deck A on left, Deck B on right) -->
+    <Border Grid.Row="2" Background="#0D0D12" Padding="16,10"
+            BorderBrush="#22FFFFFF" BorderThickness="0,1,0,0">
+      <Grid ColumnDefinitions="*,Auto,*">
+        <!-- Deck A hot cues -->
+        <ItemsControl Grid.Column="0" ItemsSource="{Binding DeckA.HotCues}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Orientation="Horizontal" Spacing="4"/>
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Button Content="{Binding Number, StringFormat='H{0}'}"
+                      Command="{Binding $parent[UserControl].DataContext.DeckA.JumpToHotCueCommand}"
+                      CommandParameter="{Binding Number}"
+                      Width="36" Height="28" Padding="0" FontSize="10"
+                      CornerRadius="4"
+                      Background="{Binding ColorHex, FallbackValue='#333'}"
+                      IsEnabled="{Binding IsSet}"/>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <TextBlock Grid.Column="1" Text="HOT CUES" FontSize="9" FontWeight="Bold"
+                   Foreground="#444" VerticalAlignment="Center" HorizontalAlignment="Center"
+                   Width="80"/>
+
+        <!-- Deck B hot cues -->
+        <ItemsControl Grid.Column="2" ItemsSource="{Binding DeckB.HotCues}"
+                      HorizontalAlignment="Right">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Orientation="Horizontal" Spacing="4"/>
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Button Content="{Binding Number, StringFormat='H{0}'}"
+                      Command="{Binding $parent[UserControl].DataContext.DeckB.JumpToHotCueCommand}"
+                      CommandParameter="{Binding Number}"
+                      Width="36" Height="28" Padding="0" FontSize="10"
+                      CornerRadius="4"
+                      Background="{Binding ColorHex, FallbackValue='#333'}"
+                      IsEnabled="{Binding IsSet}"/>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </Grid>
+    </Border>
+
+  </Grid>
+</UserControl>

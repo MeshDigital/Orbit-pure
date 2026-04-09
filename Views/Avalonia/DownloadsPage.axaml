@@ -663,6 +663,26 @@
                             </StackPanel>
                         </StackPanel>
                         <TextBlock Text="{Binding DownloadProfileModeText}" FontSize="10" Foreground="#768592" HorizontalAlignment="Right"/>
+
+                        <!-- #140: Batch Profile — one-click concurrency + quality preset -->
+                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" Margin="0,6,0,0">
+                            <TextBlock Text="BATCH" FontSize="9" Foreground="#555" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                            <ToggleButton Classes="profileChip nonStrict"
+                                          IsChecked="{Binding SelectedBatchProfile, Converter={StaticResource EnumToCheckedConverter}, ConverterParameter=DJSetPrep}"
+                                          ToolTip.Tip="DJ Set Prep — 3 concurrent, strict lossless">
+                                <TextBlock Text="DJ Prep" FontSize="10" FontWeight="SemiBold"/>
+                            </ToggleButton>
+                            <ToggleButton Classes="profileChip strict"
+                                          IsChecked="{Binding SelectedBatchProfile, Converter={StaticResource EnumToCheckedConverter}, ConverterParameter=Archival}"
+                                          ToolTip.Tip="Archival — 1 concurrent, FLAC only">
+                                <TextBlock Text="Archival" FontSize="10" FontWeight="SemiBold"/>
+                            </ToggleButton>
+                            <ToggleButton Classes="profileChip fallback"
+                                          IsChecked="{Binding SelectedBatchProfile, Converter={StaticResource EnumToCheckedConverter}, ConverterParameter=QuickPreview}"
+                                          ToolTip.Tip="Quick Preview — 8 concurrent, relaxed quality">
+                                <TextBlock Text="Quick" FontSize="10" FontWeight="SemiBold"/>
+                            </ToggleButton>
+                        </StackPanel>
                 </StackPanel>
                 </Grid>
             </Border>
