@@ -460,9 +460,13 @@ public sealed class OrbitVisualizerCanvas : Control
             float intensity = (float)_canvas.Energy;
             var color = PrimaryColor();
 
+            // Take a snapshot to prevent InvalidOperationException if the UI thread
+            // modifies _particles (via UpdateParticles) while we iterate on the render thread.
+            var snapshot = _canvas._particles.ToArray();
+
             using var paint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
 
-            foreach (var p in _canvas._particles)
+            foreach (var p in snapshot)
             {
                 float alpha = p.Life * intensity;
                 paint.Color = color.WithAlpha((byte)(alpha * 200));

@@ -4,6 +4,30 @@
 
 ## [Unreleased] — 2026-04-09
 
+### 🐛 Expanded Player — Crash on Expand Button Fixed
+
+Clicking the **EXPAND** button in the sidebar music player crashed the application without any log output, indicating an `AccessViolationException` from native Skia code — unrecoverable .NET exceptions that bypass all exception handlers.
+
+**Root cause — `LiveBackground.cs` (two related race conditions):**
+
+1. **`ProcessBlur` disposul race**: `ProcessBlur` runs on a `ThreadPool` worker thread. When a new blurred `SKImage` is ready, it called `Interlocked.Exchange(ref _blurredImage, image)` and immediately `old?.Dispose()` on the previous image. However, Avalonia's render thread may simultaneously be inside `LiveBackgroundCustomDrawOperation.Render()` using that exact image pointer — calling `_image.Width` or `DrawImage` on a disposed native `sk_image_t` → `AccessViolationException`.
+
+2. **`UpdateBlurredBitmap` source-null race**: When track playback stops, `UpdateBlurredBitmap(null)` called `_blurredImage?.Dispose()` on the UI thread while the render thread could be mid-frame with the same image.
+
+**Fixes applied:**
+
+- **`ProcessBlur`**: Removed `old?.Dispose()`. Ownership of the old `SKImage` is transferred to the `LiveBackgroundCustomDrawOperation` that captured it — the draw op disposes it in its `Dispose()` method which Avalonia calls _after_ rendering is complete. SkiaSharp's `Dispose()` is idempotent, so double-disposal across overlapping frames is safe.
+- **`UpdateBlurredBitmap(null)`**: No longer disposes `_blurredImage`. Sets field to `null`; the in-flight draw op cleans up the native memory.
+- **`LiveBackgroundCustomDrawOperation.Dispose()`**: Now calls `_image?.Dispose()` — takes explicit ownership of the image lifetime, ensuring native Skia handles are freed after every rendered frame.
+- **`LiveBackground.Render()`**: Captures `_blurredImage` to a local variable (`imageSnapshot`) before the null-check, preventing a secondary race where `ProcessBlur` swaps the field between the check and the `context.Custom(...)` constructor call.
+- **`OnDetachedFromVisualTree`**: On tree removal (window close), atomically swaps and disposes the current `_blurredImage` — handles the edge case where the source was cleared before any draw op could capture the final image.
+
+**Secondary fix — `OrbitVisualizerCanvas.cs`:**
+
+- **`DrawNeonParticles`**: Added `.ToArray()` snapshot of `_canvas._particles` before iterating, preventing `InvalidOperationException: Collection was modified` if the UI-thread timer modifies the particle list while the render thread is enumerating it (triggered when the MetadataDriven visualizer selects the NeonParticles preset for high-energy tracks).
+
+---
+
 ### 🔧 Download Center — Page Load Crash Fixed
 
 The Download Center (Projects page) silently failed to open due to a missing `StaticResource 'EnumToCheckedConverter'` referenced at `DownloadsPage.axaml` line 671 by three batch-profile `ToggleButton` chips. Avalonia threw a `KeyNotFoundException` inside `InitializeComponent()`, which the navigation service caught and swallowed.
