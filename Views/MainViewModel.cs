@@ -902,6 +902,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void NavigateToProjects()
     {
+        IsGlobalSidebarOpen = false;
         _navigationService.NavigateTo("Projects");
     }
 

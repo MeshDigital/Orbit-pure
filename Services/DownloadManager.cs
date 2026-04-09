@@ -68,7 +68,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     private static readonly Random _jitterRandom = new();
 
     // Phase 2.5: Concurrency control with SemaphoreSlim throttling
-    private readonly CancellationTokenSource _globalCts = new();
+    private CancellationTokenSource _globalCts = new();
     private readonly SemaphoreSlim _downloadSemaphore; // Initialized in optimization
     private readonly SemaphoreSlim _searchSemaphore;
     private const int DEFAULT_DOWNLOAD_LANES = 3;
@@ -1637,6 +1637,13 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     public async Task StartAsync(CancellationToken ct = default)
     {
         if (IsRunning) return;
+
+        // Recreate the CTS if it was previously cancelled by StopAsync
+        if (_globalCts.IsCancellationRequested)
+        {
+            _globalCts.Dispose();
+            _globalCts = new CancellationTokenSource();
+        }
 
         _logger.LogInformation("DownloadManager Orchestrator started.");
 

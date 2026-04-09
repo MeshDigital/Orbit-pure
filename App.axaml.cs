@@ -517,6 +517,7 @@ public partial class App : Application
 
         // Global Shell Services
         services.AddSingleton<IRightPanelService, RightPanelService>();
+        services.AddSingleton<SimilarTracksViewModel>();
         services.AddSingleton<SidebarViewModel>();
 
         // ViewModels
