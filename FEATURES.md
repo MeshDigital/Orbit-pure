@@ -19,6 +19,8 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Dual-Truth Metadata**: Preserves original data alongside user corrections
 - **Smart Organization**: Intelligent file detection and metadata enrichment
 - **Large Collection Support**: Optimized for libraries with 10,000+ tracks
+- **Context Menu Actions**: Right-click any track for Play Track, Queue Track, Queue Selected, 🔬 Analyse, Hard Retry, Open Folder, Export CSV, Remove — all actions fall back to the current selection when invoked from the Avalonia popup visual tree (where element-name bindings are unavailable)
+- **Selection FAB**: Floating bottom bar appears when ≥1 track is selected — one-click ▶️ Play, ⊕ Add to Queue, 🔬 Analyse, ✏️ Tag Edit, 📤 Rekordbox export, and ✕ Clear selection without opening context menus
 
 ### Enhanced Export Capabilities
 - **Forensic CSV Export**: Professional-grade playlist exports with integrity metrics
@@ -74,6 +76,8 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Tempo Matching**: BPM synchronization with ±6% tolerance ranges
 - **Energy Flow**: Directional mixing guidance (build → peak → cooldown)
 - **Style Recommendations**: Genre-based track suggestions
+- **Session Persistence**: Workstation state (loaded tracks, deck positions, active mode, timeline zoom/offset) is autosaved to `%APPDATA%\Antigravity\workstation-session.json` using atomic temp-file swap writes — survives crashes, power loss, and normal app close; fully restored on next launch including cue points and stem preferences
+- **Analyse Track**: Single-track audio analysis trigger from the library right-click context menu (`🔬 Analyse Track`)
 
 ### AI Automix Engine
 - **Similarity Search**: Cosine-distance matching over 128-dim audio embeddings stored per-track — `SimilarityIndex` with 1-hour TTL cache and thread-safe lazy-load
