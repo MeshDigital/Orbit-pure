@@ -170,6 +170,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateSettingsCommand = new RelayCommand(NavigateToSettings);
         NavigateImportCommand = new RelayCommand(NavigateToImport); // Phase 6D
         NavigateAnalysisCommand = new RelayCommand(NavigateToAnalysis);
+        NavigateWorkstationCommand = new RelayCommand(NavigateToWorkstation);
         NavigateDecksCommand = new RelayCommand(NavigateToDecks);
         NavigateTimelineCommand = new RelayCommand(NavigateToTimeline);
         NavigateStemsCommand = new RelayCommand(NavigateToStems);
@@ -338,6 +339,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("ImportPreview", typeof(Avalonia.ImportPreviewPage));
         _navigationService.RegisterPage("Analysis", typeof(Avalonia.AnalysisPage));
         _navigationService.RegisterPage("NowPlaying", typeof(Avalonia.NowPlayingPage));
+        _navigationService.RegisterPage("Workstation", typeof(Avalonia.WorkstationPage));
         _navigationService.RegisterPage("Decks", typeof(Avalonia.DecksPage));
         _navigationService.RegisterPage("Timeline", typeof(Avalonia.TimelinePage));
         _navigationService.RegisterPage("Stems", typeof(Avalonia.StemsPage));
@@ -769,6 +771,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateSettingsCommand { get; }
     public ICommand NavigateImportCommand { get; } // Phase 6D
     public ICommand NavigateAnalysisCommand { get; }
+    public ICommand NavigateWorkstationCommand { get; }
     public ICommand NavigateDecksCommand { get; }
     public ICommand NavigateTimelineCommand { get; }
     public ICommand NavigateStemsCommand { get; }
@@ -831,6 +834,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 "ImportPreviewPage" => PageType.Import, // Map preview to Import category
                 "AnalysisPage" => PageType.Analysis,
                 "NowPlayingPage" => PageType.NowPlaying,
+                "WorkstationPage" => PageType.Workstation,
                 "DecksPage" => PageType.Decks,
                 "TimelinePage" => PageType.Timeline,
                 "StemsPage" => PageType.Stems,
@@ -918,6 +922,11 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void NavigateToAnalysis()
     {
         _navigationService.NavigateTo("Analysis");
+    }
+
+    private void NavigateToWorkstation()
+    {
+        _navigationService.NavigateTo("Workstation");
     }
 
     private void NavigateToDecks()

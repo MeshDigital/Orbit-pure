@@ -24,6 +24,12 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     private readonly CompositeDisposable _disposables = new();
     private readonly StemPreferenceService _stemPrefService;
 
+    /// <summary>
+    /// Callback invoked whenever a track finishes loading into this deck.
+    /// Set by <see cref="WorkstationViewModel"/> to trigger a session autosave.
+    /// </summary>
+    public Func<Task>? OnTrackLoaded { get; set; }
+
     // ── Wrapped deck engine VM ────────────────────────────────────────────────
     public DeckSlotViewModel Deck { get; }
 
@@ -190,6 +196,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         StemsVisible = false;
         TrackHash    = null;  // No hash available from raw path — use LoadPlaylistTrackCommand for hash
         CueEditor.ClearCues();
+        if (OnTrackLoaded != null) _ = OnTrackLoaded();
         return Task.CompletedTask;
     }
 
@@ -214,6 +221,8 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         {
             CueEditor.ClearCues();
         }
+
+        if (OnTrackLoaded != null) await OnTrackLoaded();
     }
 
     private void ApplyStemPrefs(StemPreference pref)

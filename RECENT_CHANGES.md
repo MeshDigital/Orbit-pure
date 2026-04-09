@@ -4,6 +4,49 @@
 
 ## [Unreleased] — 2026-04-09
 
+### 🎛️ Studio Mode — Session Persistence
+
+The Workstation page now saves and restores its state across app launches and unexpected crashes.
+
+**New files:**
+- `Models/Stem/WorkstationSession.cs` — JSON-serialisable snapshot: active mode, timeline offset/zoom, per-deck loaded track (file path, hash, title, artist, BPM, key, playback position).
+- `Services/WorkstationSessionService.cs` — Atomic save (temp-file swap, never corrupts the last good snapshot on crash) and load. Written to `%APPDATA%\Antigravity\workstation-session.json`.
+
+**WorkstationViewModel changes:**
+- Injected `WorkstationSessionService` (registered as DI singleton).
+- `RestoreSessionAsync()` — runs on startup; reloads tracks into Deck A/B by file path; cue points and stem preferences re-fetched from SQLite/file automatically via existing services.
+- `SaveSessionAsync()` — autosaves on every track load into any deck and on every mode switch (Waveform / Flow / Stems / Export).
+- `Dispose()` — synchronous flush so the session is written even when the OS terminates the process after the window closes.
+- `OnTrackLoaded` callback on `WorkstationDeckViewModel` (both paths: `LoadTrackCommand` + `LoadPlaylistTrackCommand`) triggers parent autosave.
+- `AddDeckCommand` attaches the callback to dynamically-added decks C/D.
+
+---
+
+### 🗂️ Library — Context Menu & Selection Bar Fixes
+
+All right-click context menu actions in the track DataGrid are now fully functional and consistent.
+
+**Root cause:** In Avalonia, `ContextMenu` renders in a separate popup visual tree so element references like `CommandParameter="{Binding #TrackGrid.SelectedItem}"` always resolve to `null`, silently breaking every command that received the parameter. All five affected items have been fixed.
+
+**Changes:**
+- `Views/Avalonia/TrackListView.axaml` — Removed 5 broken `CommandParameter="{Binding #TrackGrid.SelectedItem}"` bindings. Added new **🔬 Analyse Track** menu item (`Operations.AnalyseTrackCommand`). Separator grouping cleaned up.
+- `ViewModels/Library/TrackOperationsViewModel.cs`:
+  - `ExecutePlayTrack` / `ExecuteHardRetry` / `ExecuteOpenFolder` / `ExecuteRemoveTrack` — fall back to `LibraryViewModel?.Tracks.LeadSelectedTrack` when called with a null parameter (the normal Avalonia context menu case).
+  - `ExecuteAddToQueue(null)` — now delegates to `ExecuteAddSelectedToQueue()` rather than silently returning.
+  - New `AnalyseTrackCommand` / `ExecuteAnalyseTrack` — publishes `TrackAnalysisRequestedEvent` for the right-clicked track (falls back to lead selection).
+
+**Bottom selection FAB (LibraryPage):** Added **▶️ Play** (`Tracks.Operations.PlayTrackCommand`) and **⊕ Add to Queue** (`Tracks.Operations.AddSelectedToQueueCommand`) buttons — now all selection actions (play, queue, analyse, tag edit, rekordbox export, clear) are accessible without opening the context menu.
+
+---
+
+### 🎵 Queue Panel — Playing Indicator Fix
+
+`Views/Avalonia/QueuePanel.axaml` — The now-playing `▶️` indicator in the queue list was using `ConverterParameter={Binding}`, which is **not valid Avalonia AXAML** (ConverterParameter does not accept binding expressions). The indicator never highlighted the current track.
+
+**Fix:** Replaced with `IsVisible="{Binding $parent[ListBoxItem].IsSelected}"` — works correctly because `SelectedIndex` is already bound to `CurrentQueueIndex`, so the selected list item is always the currently-playing track.
+
+---
+
 ### ⚡ Workstation — Phase 2: Full Stem & Flow Builder Implementation
 
 This milestone completes the Workstation page from a ~40 % skeleton to a
