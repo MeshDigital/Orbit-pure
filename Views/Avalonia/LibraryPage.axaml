@@ -88,6 +88,11 @@
                                          <MenuItem.Icon><TextBlock Text="🔗"/></MenuItem.Icon>
                                      </MenuItem>
                                      <Separator/>
+                                     <MenuItem Header="🌊 Flow Builder" Command="{Binding OpenFlowBuilderCommand}"
+                                               ToolTip.Tip="Build your DJ set timeline">
+                                         <MenuItem.Icon><TextBlock Text="🌊"/></MenuItem.Icon>
+                                     </MenuItem>
+                                     <Separator/>
                                      <MenuItem Header="Export Monthly Drop" Command="{Binding ExportMonthlyDropCommand}" InputGesture="Ctrl+E">
                                          <MenuItem.Icon><TextBlock Text="📂"/></MenuItem.Icon>
                                      </MenuItem>

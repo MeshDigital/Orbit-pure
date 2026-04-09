@@ -1,0 +1,164 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Workstation"
+             xmlns:orbitControls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:avConverters="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
+             mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="120"
+             x:Class="SLSKDONET.Views.Avalonia.Workstation.WorkstationDeckRow"
+             x:DataType="vm:WorkstationDeckViewModel">
+
+    <Border Background="#1C1C1C" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1">
+        <Grid ColumnDefinitions="180,*,180">
+
+            <!-- ── Col 0: EQ controls (left panel) ── -->
+            <Border Grid.Column="0" Background="#161616" Padding="10,6">
+                <StackPanel Spacing="4">
+                    <!-- Deck label + track title -->
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Border Background="#333" CornerRadius="3" Padding="6,2">
+                            <TextBlock Text="{Binding DeckLabel}"
+                                       FontSize="11" FontWeight="Black"
+                                       Foreground="White"/>
+                        </Border>
+                        <TextBlock Text="{Binding TrackTitle, TargetNullValue='— No Track —'}"
+                                   FontSize="11" Foreground="#AAA"
+                                   TextTrimming="CharacterEllipsis" MaxWidth="120"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- EQ knob row (High / Mid / Low) -->
+                    <Grid ColumnDefinitions="*,*,*,*" Margin="0,4,0,0">
+                        <!-- High -->
+                        <StackPanel Grid.Column="0" HorizontalAlignment="Center" Spacing="3">
+                            <Slider Value="{Binding Stems.Vocals.GainDb}"
+                                    Minimum="-12" Maximum="12"
+                                    Orientation="Vertical" Height="36"
+                                    Width="20"
+                                    HorizontalAlignment="Center"
+                                    ToolTip.Tip="High EQ"/>
+                            <TextBlock Text="High" FontSize="9" Foreground="#666"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+                        <!-- Mid -->
+                        <StackPanel Grid.Column="1" HorizontalAlignment="Center" Spacing="3">
+                            <Slider Value="{Binding Stems.Drums.GainDb}"
+                                    Minimum="-12" Maximum="12"
+                                    Orientation="Vertical" Height="36" Width="20"
+                                    HorizontalAlignment="Center"
+                                    ToolTip.Tip="Mid EQ"/>
+                            <TextBlock Text="Mid" FontSize="9" Foreground="#666"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+                        <!-- Low -->
+                        <StackPanel Grid.Column="2" HorizontalAlignment="Center" Spacing="3">
+                            <Slider Value="{Binding Stems.Bass.GainDb}"
+                                    Minimum="-12" Maximum="12"
+                                    Orientation="Vertical" Height="36" Width="20"
+                                    HorizontalAlignment="Center"
+                                    ToolTip.Tip="Low EQ"/>
+                            <TextBlock Text="Low" FontSize="9" Foreground="#666"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+                        <!-- Filter -->
+                        <StackPanel Grid.Column="3" HorizontalAlignment="Center" Spacing="3">
+                            <Slider Value="{Binding Stems.Other.GainDb}"
+                                    Minimum="-12" Maximum="12"
+                                    Orientation="Vertical" Height="36" Width="20"
+                                    HorizontalAlignment="Center"
+                                    ToolTip.Tip="Filter"/>
+                            <TextBlock Text="Filter" FontSize="9" Foreground="#666"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- BPM + Key chips -->
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0">
+                        <Border Background="#1E2832" CornerRadius="4" Padding="6,2"
+                                IsVisible="{Binding DisplayBpm, Converter={x:Static avConverters:NumericConverters.IsNotZero}}">
+                            <TextBlock Text="{Binding DisplayBpm, StringFormat='{}{0:F1}'}"
+                                       FontSize="10" FontWeight="Bold"
+                                       Foreground="#00CFFF"/>
+                        </Border>
+                        <Border Background="#1E2818" CornerRadius="4" Padding="6,2"
+                                IsVisible="{Binding TrackKey, Converter={x:Static ObjectConverters.IsNotNull}}">
+                            <TextBlock Text="{Binding TrackKey}"
+                                       FontSize="10" FontWeight="Bold"
+                                       Foreground="#1DB954"/>
+                        </Border>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ── Col 1: Waveform strip ── -->
+            <Panel Grid.Column="1" Background="#111">
+                <!-- Empty state -->
+                <TextBlock Text="Drop a track here or load from the playlist below"
+                           FontSize="11" Foreground="#444"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           IsVisible="{Binding !IsLoaded}"/>
+
+                <!-- Waveform -->
+                <orbitControls:WaveformControl
+                    WaveformData="{Binding WaveformData}"
+                    Progress="{Binding PlaybackProgress}"
+                    Cues="{Binding CueEditor.Cues}"
+                    CueUpdatedCommand="{Binding CueEditor.UpdateCueCommand}"
+                    CueClickedCommand="{Binding Deck.SeekCommand}"
+                    IsVisible="{Binding IsLoaded}"
+                    SeekCommand="{Binding Deck.SeekCommand}"
+                    Foreground="#1DB954"
+                    Height="88"/>
+            </Panel>
+
+            <!-- ── Col 2: Stem preset shortcuts + transport ── -->
+            <Border Grid.Column="2" Background="#161616" Padding="8,6">
+                <StackPanel Spacing="6">
+
+                    <!-- Stem preset buttons -->
+                    <TextBlock Text="STEMS" FontSize="8" Foreground="#444"
+                               FontWeight="SemiBold" LetterSpacing="2"/>
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <Button Classes="chip" FontSize="10" Padding="6,3"
+                                Command="{Binding ToggleVocalOffCommand}"
+                                ToolTip.Tip="Mute / unmute vocals">🎤 Vox</Button>
+                        <Button Classes="chip" FontSize="10" Padding="6,3"
+                                Command="{Binding ToggleDrumsOnlyCommand}"
+                                ToolTip.Tip="Solo drums">🥁 Drums</Button>
+                        <Button Classes="chip" FontSize="10" Padding="6,3"
+                                Command="{Binding ToggleInstrumentalCommand}"
+                                ToolTip.Tip="Instrumental (no vocals)">🎸 Inst</Button>
+                    </StackPanel>
+
+                    <!-- Separate / progress -->
+                    <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding IsLoaded}">
+                        <ProgressBar Grid.Column="0" Value="{Binding Stems.SeparationProgress}"
+                                     Minimum="0" Maximum="1" Height="4"
+                                     Foreground="#BB86FC" Background="#2A2A2A"
+                                     IsVisible="{Binding Stems.IsSeparating}"
+                                     VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Classes="secondary" FontSize="10"
+                                Padding="6,3"
+                                Command="{Binding SeparateStemsCommand}"
+                                IsVisible="{Binding !StemsVisible}"
+                                ToolTip.Tip="Run stem separation (ONNX)">⚡ Separate</Button>
+                        <TextBlock Grid.Column="1" Text="✓ Stems ready" FontSize="10"
+                                   Foreground="#1DB954"
+                                   IsVisible="{Binding StemsVisible}"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <!-- Mini transport -->
+                    <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0">
+                        <Button Classes="icon" Command="{Binding Deck.CueCommand}"
+                                ToolTip.Tip="Cue" FontSize="14">⏮</Button>
+                        <Button Classes="icon" Command="{Binding Deck.PlayPauseCommand}"
+                                FontSize="14"
+                                ToolTip.Tip="Play / Pause">▶</Button>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

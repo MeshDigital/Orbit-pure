@@ -1,0 +1,117 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Workstation"
+        mc:Ignorable="d"
+        x:Class="SLSKDONET.Views.Avalonia.Workstation.ExportDialog"
+        x:DataType="vm:ExportDialogViewModel"
+        Title="Export Mix"
+        Width="520" Height="360"
+        CanResize="False"
+        Background="#0F0F0F"
+        FontFamily="Inter,Segoe UI,sans-serif">
+
+    <Window.Styles>
+        <Style Selector="TextBlock.label">
+            <Setter Property="Foreground" Value="#888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="#1DB954"/>
+            <Setter Property="Foreground" Value="Black"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="20,8"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <Style Selector="Button.secondary">
+            <Setter Property="Background" Value="#2A2A2A"/>
+            <Setter Property="Foreground" Value="#CCC"/>
+            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+    </Window.Styles>
+
+    <Grid Margin="24" RowDefinitions="Auto,16,Auto,16,Auto,16,*,16,Auto">
+
+        <!-- ── Header ── -->
+        <TextBlock Grid.Row="0"
+                   Text="Export Mix to WAV"
+                   FontSize="18" FontWeight="SemiBold"
+                   Foreground="White"/>
+
+        <!-- ── Output path ── -->
+        <StackPanel Grid.Row="2" Spacing="4">
+            <TextBlock Classes="label" Text="OUTPUT FILE"/>
+            <Grid ColumnDefinitions="*,8,Auto">
+                <TextBox Grid.Column="0"
+                         Text="{Binding OutputPath}"
+                         Background="#1A1A1A" Foreground="#EEE"
+                         BorderBrush="#333" CornerRadius="4"
+                         Padding="10,6" FontSize="12"/>
+                <Button Grid.Column="2"
+                        Classes="secondary"
+                        Content="Browse…"
+                        Command="{Binding BrowseCommand}"
+                        IsVisible="False"/>
+                <!-- Browse is wired in code-behind via StorageProvider -->
+            </Grid>
+        </StackPanel>
+
+        <!-- ── Deck list ── -->
+        <StackPanel Grid.Row="4" Spacing="4">
+            <TextBlock Classes="label" Text="SOURCES"/>
+            <ItemsControl ItemsSource="{Binding Decks}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ExportDeckEntry">
+                        <Grid ColumnDefinitions="Auto,12,*,12,Auto,8,Auto"
+                              Margin="0,4,0,0">
+                            <CheckBox Grid.Column="0"
+                                      IsChecked="{Binding Include}"
+                                      VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2"
+                                       Text="{Binding Label}"
+                                       Foreground="#DDD" FontSize="12"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Grid.Column="4"
+                                       Text="Vol"
+                                       Classes="label"
+                                       VerticalAlignment="Center"/>
+                            <Slider Grid.Column="6"
+                                    Value="{Binding Volume}"
+                                    Minimum="0" Maximum="1.5"
+                                    Width="80"
+                                    VerticalAlignment="Center"/>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
+        <!-- ── Progress ── -->
+        <StackPanel Grid.Row="6" Spacing="6" VerticalAlignment="Bottom">
+            <ProgressBar Value="{Binding ExportProgress}"
+                         Minimum="0" Maximum="1"
+                         Height="6"
+                         Foreground="#1DB954"
+                         Background="#222"
+                         IsVisible="{Binding IsExporting}"/>
+            <TextBlock Text="{Binding StatusMessage}"
+                       Foreground="#888" FontSize="11"
+                       IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+        </StackPanel>
+
+        <!-- ── Buttons ── -->
+        <StackPanel Grid.Row="8" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Spacing="8">
+            <Button Classes="secondary"
+                    Content="Cancel"
+                    Command="{Binding CancelCommand}"/>
+            <Button Classes="primary"
+                    Content="Export WAV"
+                    Command="{Binding ExportCommand}"/>
+        </StackPanel>
+    </Grid>
+</Window>

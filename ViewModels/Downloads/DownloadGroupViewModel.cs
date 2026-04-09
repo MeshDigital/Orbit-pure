@@ -61,6 +61,14 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         get => _isExpanded;
         set => this.RaiseAndSetIfChanged(ref _isExpanded, value);
     }
+
+    // #140: Derived — true when at least one child track is actively downloading/searching.
+    public bool IsActive => Tracks.Any(t => t.IsActive);
+
+    // #140: Aggregate speed sparkline — last 30 samples, computed from active track averages.
+    private readonly double[] _aggregateSpeedHistory = new double[30];
+    private int _aggregateSpeedIndex;
+    public IReadOnlyList<double> AggregateSpeedHistory => _aggregateSpeedHistory;
     
     // Commands
     public IReactiveCommand PauseCommand { get; }
@@ -199,6 +207,12 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         
         // Sum Speed
         TotalSpeed = Tracks.Sum(t => t.DownloadSpeed);
+
+        // #140: Push aggregate speed into sparkline ring buffer
+        _aggregateSpeedHistory[_aggregateSpeedIndex % 30] = TotalSpeed;
+        _aggregateSpeedIndex++;
+        this.RaisePropertyChanged(nameof(AggregateSpeedHistory));
+        this.RaisePropertyChanged(nameof(IsActive));
         
         // Status Logic
         int completed = Tracks.Count(t => t.State == PlaylistTrackState.Completed);

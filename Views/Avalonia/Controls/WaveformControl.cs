@@ -237,7 +237,8 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 BackgroundProperty,
                 PlayheadBrushProperty,
                 ZoomLevelProperty,
-                ViewOffsetProperty);
+                ViewOffsetProperty,
+                FrequencyColorModeProperty);
         }
 
 
@@ -256,6 +257,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
         private bool _isDraggingCue;
         private bool _isDraggingProgress;
         private bool _isDraggingSegment;
+        private double _hoverX = -1; // -1 = not hovering
         private const double CueHitThreshold = 10.0;
         private const double HandleWidth = 8.0;
 
@@ -276,6 +278,20 @@ namespace SLSKDONET.Views.Avalonia.Controls
         private DateTime _lastRenderTime = DateTime.MinValue;
         private const double FrameThrottleMs = 33.33; // ~30 FPS max
         private const double SizeTolerance = 5.0; // Pixels tolerance for bitmap reuse
+
+        /// <summary>
+        /// When <c>true</c>, the waveform is rendered using tri-band frequency colours
+        /// (Low=hot-pink/red, Mid=neon-green, High=cyan/blue). If no <see cref="LowBand"/>
+        /// data is bound, a synthetic approximation is generated from the peak data.
+        /// </summary>
+        public static readonly StyledProperty<bool> FrequencyColorModeProperty =
+            AvaloniaProperty.Register<WaveformControl, bool>(nameof(FrequencyColorMode), false);
+
+        public bool FrequencyColorMode
+        {
+            get => GetValue(FrequencyColorModeProperty);
+            set => SetValue(FrequencyColorModeProperty, value);
+        }
 
         // Sprint 4: Vocal Ghost Layer
         public static readonly StyledProperty<bool> ShowVocalGhostProperty =
@@ -521,6 +537,27 @@ namespace SLSKDONET.Views.Avalonia.Controls
             {
                 UpdateProgressFromPoint(point);
             }
+
+            // Update hover cursor (only when not dragging a cue or segment)
+            if (!_isDraggingCue && !_isDraggingSegment)
+            {
+                _hoverX = point.X;
+                InvalidateVisual();
+            }
+        }
+
+        protected override void OnPointerEntered(global::Avalonia.Input.PointerEventArgs e)
+        {
+            base.OnPointerEntered(e);
+            _hoverX = e.GetPosition(this).X;
+            InvalidateVisual();
+        }
+
+        protected override void OnPointerExited(global::Avalonia.Input.PointerEventArgs e)
+        {
+            base.OnPointerExited(e);
+            _hoverX = -1;
+            InvalidateVisual();
         }
 
         private void UpdateProgressFromPoint(Point point)
@@ -563,6 +600,8 @@ namespace SLSKDONET.Views.Avalonia.Controls
                     }
                 }
 
+                // Mark as user-edited so auto-analysis never overwrites it
+                if (_draggedCue != null) _draggedCue.Source = CueSource.User;
                 if (CueUpdatedCommand != null && CueUpdatedCommand.CanExecute(_draggedCue))
                     CueUpdatedCommand.Execute(_draggedCue);
                 _draggedCue = null;
@@ -689,6 +728,34 @@ namespace SLSKDONET.Views.Avalonia.Controls
             // 2. Draw Curves (Energy, Vocals)
             RenderCurves(context, width, height);
 
+            // Draw hover seek cursor (semi-transparent white line, only when not dragging)
+            if (_hoverX >= 0 && !_isDraggingProgress && !_isDraggingCue)
+            {
+                var hoverPen = new Pen(new SolidColorBrush(Colors.White, 0.35), 1);
+                context.DrawLine(hoverPen, new Point(_hoverX, 0), new Point(_hoverX, height));
+
+                // Time tooltip: show estimated position as % or mm:ss if duration known
+                if (WaveformData != null && WaveformData.DurationSeconds > 0)
+                {
+                    double hoverFraction = Math.Clamp(_hoverX / width, 0, 1);
+                    double hoverSecs = hoverFraction * WaveformData.DurationSeconds;
+                    int mm = (int)(hoverSecs / 60);
+                    int ss = (int)(hoverSecs % 60);
+                    string timeLabel = $"{mm}:{ss:D2}";
+
+                    var tf = new FormattedText(
+                        timeLabel,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        FlowDirection.LeftToRight,
+                        Typeface.Default,
+                        10,
+                        new SolidColorBrush(Colors.White, 0.75));
+
+                    double labelX = (_hoverX + 4 + tf.Width > width) ? _hoverX - tf.Width - 4 : _hoverX + 4;
+                    context.DrawText(tf, new Point(labelX, 4));
+                }
+            }
+
             // Draw Playhead Line
             double playheadX = IsRolling ? width / 2 : Progress * width;
             context.DrawLine(new Pen(PlayheadBrush ?? Brushes.White, 2), new Point(playheadX, 0), new Point(playheadX, height));
@@ -744,15 +811,32 @@ namespace SLSKDONET.Views.Avalonia.Controls
         {
             var samples = data.PeakData!.Length;
             double step = width / samples;
-            var lowData = LowBand ?? data.LowData;
-            var midData = MidBand ?? data.MidData;
+            var lowData  = LowBand  ?? data.LowData;
+            var midData  = MidBand  ?? data.MidData;
             var highData = HighBand ?? data.HighData;
-            bool hasRgb = lowData != null && midData != null && highData != null && lowData.Length > 0;
+            bool hasRgb  = lowData != null && midData != null && highData != null && lowData.Length > 0;
 
             if (hasRgb)
             {
-                // Draw FULL waveform in either base or active colors
                 RenderTrueRgb(context, data, width, height, mid, samples, step, lowData!, midData!, highData!, false, 0, isActive);
+            }
+            else if (FrequencyColorMode)
+            {
+                // Synthesize pseudo tri-band data from amplitude so freq colours still show
+                // even when full-spectrum analysis hasn't run yet.
+                var peak = data.PeakData!;
+                var synLow  = new byte[samples];
+                var synMid  = new byte[samples];
+                var synHigh = new byte[samples];
+                for (int i = 0; i < samples; i++)
+                {
+                    byte p = peak[i];
+                    // Loud transients carry more low-end; quiet detail sits in highs.
+                    synLow[i]  = (byte)(p > 160 ? p : 0);
+                    synMid[i]  = (byte)(p is > 80 and < 220 ? p : 0);
+                    synHigh[i] = (byte)(p < 110 ? (byte)(110 - p) : 0);
+                }
+                RenderTrueRgb(context, data, width, height, mid, samples, step, synLow, synMid, synHigh, false, 0, isActive);
             }
             else
             {

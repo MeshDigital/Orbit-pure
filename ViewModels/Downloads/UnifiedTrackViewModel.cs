@@ -1424,7 +1424,13 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     private double _currentSpeed;
     private DateTime _lastProgressTime;
     public DateTime LastActivity { get; private set; } = DateTime.UtcNow;
-    
+
+    // Speed history ring-buffer: last 30 samples for sparkline display
+    private readonly double[] _speedHistory = new double[30];
+    private int _speedHistoryIndex;
+    /// <summary>Most-recent speed samples, oldest-first, 30 slots at ~1-2s intervals.</summary>
+    public IReadOnlyList<double> SpeedHistory => _speedHistory;
+
     public double CurrentSpeedBytes => _currentSpeed;
 
     public string SpeedDisplay => _currentSpeed > 1024 * 1024 
@@ -1975,7 +1981,10 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                  if (bytesDiff > 0)
                  {
                      var instantSpeed = bytesDiff / seconds;
-                     _currentSpeed = (_currentSpeed * 0.7) + (instantSpeed * 0.3); 
+                     _currentSpeed = (_currentSpeed * 0.7) + (instantSpeed * 0.3);
+                     // Push into sparkline ring-buffer
+                     _speedHistory[_speedHistoryIndex % 30] = _currentSpeed;
+                     _speedHistoryIndex++;
                  }
              }
          }
@@ -1988,6 +1997,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
          this.RaisePropertyChanged(nameof(TechnicalSummary));
          this.RaisePropertyChanged(nameof(SpeedDisplay));
          this.RaisePropertyChanged(nameof(CurrentSpeedBytes));
+         this.RaisePropertyChanged(nameof(SpeedHistory));
     }
 
     private void OnMetadataUpdated(TrackMetadataUpdatedEvent e)

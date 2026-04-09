@@ -1,0 +1,29 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{0AB3BF05-4346-4AA6-1389-037BE0695223}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SLSKDONET.Tests", "Tests\SLSKDONET.Tests\SLSKDONET.Tests.csproj", "{6A458103-9966-D121-6DFC-BCE96FC9ABBE}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6A458103-9966-D121-6DFC-BCE96FC9ABBE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6A458103-9966-D121-6DFC-BCE96FC9ABBE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6A458103-9966-D121-6DFC-BCE96FC9ABBE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6A458103-9966-D121-6DFC-BCE96FC9ABBE}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{6A458103-9966-D121-6DFC-BCE96FC9ABBE} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {B5F430A1-C6B0-4E3C-ADE6-08365AA75B47}
+	EndGlobalSection
+EndGlobal

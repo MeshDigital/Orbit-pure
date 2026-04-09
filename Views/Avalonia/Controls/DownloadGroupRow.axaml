@@ -86,6 +86,12 @@
                                        CornerRadius="2"
                                        Foreground="{DynamicResource AccentGradient}"
                                        Background="#333333"/>
+                         <!-- #140: Aggregate speed sparkline — visible only while group is active -->
+                         <controls:SparklineControl Values="{Binding AggregateSpeedHistory}"
+                                                     Height="20"
+                                                     Margin="0,4,0,0"
+                                                     IsVisible="{Binding IsActive}"
+                                                     ToolTip.Tip="Download speed — last 30 s"/>
                     </StackPanel>
 
                     <!-- 3. Actions -->

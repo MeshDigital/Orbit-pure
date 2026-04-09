@@ -1,0 +1,118 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:timeline="clr-namespace:SLSKDONET.Models.Timeline"
+             x:Class="SLSKDONET.Views.Avalonia.TimelinePage"
+             x:DataType="vm:TimelineViewModel"
+             Background="#1A1A1A">
+
+  <Grid RowDefinitions="Auto,Auto,*">
+
+    <!-- Header bar -->
+    <Border Grid.Row="0" Padding="20,14" Background="#0F0F14"
+            BorderBrush="#22FFFFFF" BorderThickness="0,0,0,1">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
+          <TextBlock Text="🎞" FontSize="20" VerticalAlignment="Center"/>
+          <TextBlock Text="TIMELINE EDITOR" FontSize="13" FontWeight="Bold"
+                     Foreground="#4EC9B0" VerticalAlignment="Center"/>
+          <Border Classes="pill" Margin="8,0,0,0">
+            <TextBlock Text="{Binding Session.Tracks.Count, StringFormat='{}{0} tracks'}"
+                       FontSize="10" Foreground="#888"/>
+          </Border>
+          <Border Classes="pill" Margin="4,0,0,0">
+            <TextBlock Text="{Binding Session.ProjectBpm, StringFormat='{}{0:0.0} BPM'}"
+                       FontSize="10" Foreground="#9CDCFE"/>
+          </Border>
+        </StackPanel>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+          <Button Content="↩ UNDO" Padding="10,6" FontSize="11"
+                  CornerRadius="6" Command="{Binding UndoCommand}"
+                  IsEnabled="{Binding CanUndo}"/>
+          <Button Content="↪ REDO" Padding="10,6" FontSize="11"
+                  CornerRadius="6" Command="{Binding RedoCommand}"
+                  IsEnabled="{Binding CanRedo}"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- Transport ruler -->
+    <Border Grid.Row="1" Background="#0F0F18" Height="32"
+            BorderBrush="#22FFFFFF" BorderThickness="0,0,0,1">
+      <Grid ColumnDefinitions="Auto,*">
+        <Border Grid.Column="0" Width="160" Background="#111" Padding="8,0">
+          <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <TextBlock Text="{Binding PlayheadBeat, StringFormat='Beat {0:0.0}'}"
+                       FontSize="11" FontFamily="JetBrains Mono, Consolas, monospace"
+                       Foreground="#4EC9B0"/>
+            <TextBlock Text="{Binding Session.TotalDurationSeconds, StringFormat='{}{0:0.0}s total'}"
+                       FontSize="10" Foreground="#555"/>
+          </StackPanel>
+        </Border>
+        <Slider Grid.Column="1" Minimum="0"
+                Maximum="{Binding Session.TotalBeats}"
+                Value="{Binding PlayheadBeat}"
+                Height="32" Margin="0"/>
+      </Grid>
+    </Border>
+
+    <!-- Track lanes -->
+    <ScrollViewer Grid.Row="2"
+                  HorizontalScrollBarVisibility="Auto"
+                  VerticalScrollBarVisibility="Auto">
+      <ItemsControl ItemsSource="{Binding Session.Tracks}" Margin="0,4">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <StackPanel Spacing="1"/>
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate DataType="timeline:TimelineTrack">
+            <Border Background="#12FFFFFF" Height="56"
+                    BorderBrush="#1AFFFFFF" BorderThickness="0,0,0,1">
+              <Grid ColumnDefinitions="160,*">
+                <!-- Track header / label -->
+                <Border Grid.Column="0" Background="#1A1A24" Padding="10,6"
+                        BorderBrush="#22FFFFFF" BorderThickness="0,0,1,0">
+                  <StackPanel VerticalAlignment="Center" Spacing="3">
+                    <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"
+                               Foreground="#DDD" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding Clips.Count, StringFormat='{}{0} clips'}"
+                               FontSize="9" Foreground="#555"/>
+                  </StackPanel>
+                </Border>
+                <!-- Clip blocks (simplified — beat-based left offset via margin) -->
+                <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Hidden"
+                              VerticalScrollBarVisibility="Disabled">
+                  <ItemsControl ItemsSource="{Binding Clips}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <Canvas/>
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate DataType="timeline:TimelineClip">
+                        <Border Background="#1A4EC9B0" CornerRadius="4"
+                                Height="44"
+                                Canvas.Left="{Binding StartBeat}"
+                                Width="{Binding LengthBeats}"
+                                Margin="0,4,2,4"
+                                Padding="6,4" Cursor="SizeWestEast"
+                                ToolTip.Tip="{Binding TrackUniqueHash}">
+                          <TextBlock Text="{Binding StartBeat, StringFormat='b{0:0.0}'}"
+                                     FontSize="9" Foreground="#4EC9B0" VerticalAlignment="Center"
+                                     TextTrimming="CharacterEllipsis"/>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+              </Grid>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+
+  </Grid>
+</UserControl>

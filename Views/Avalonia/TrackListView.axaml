@@ -260,7 +260,23 @@
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
-                <!-- Format Column -->
+                <!-- X-Ray Sparkline Column -->
+                <DataGridTemplateColumn Header="ENERGY" Width="90">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
+                            <controls:SparklineControl
+                                Points="{Binding EnergyCurvePoints}"
+                                LineBrush="#4EC9B0"
+                                FillBrush="#224EC9B0"
+                                LineThickness="1.2"
+                                Height="22"
+                                Margin="8,0"
+                                VerticalAlignment="Center"
+                                IsVisible="{Binding HasAnalysisData}"
+                                ToolTip.Tip="Energy contour — analysed audio"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTemplateColumn Header="FORMAT" Width="100" IsVisible="{Binding #TrackGrid.DataContext.IsFormatColumnVisible}">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:PlaylistTrackViewModel">

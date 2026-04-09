@@ -455,6 +455,45 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         : DownloadProfileStrict
             ? "STRICT overwrite: FLAC/WAV/AIFF/AIF + 320kbps floor"
             : "NON-STRICT overwrite: expanded formats + 320kbps floor";
+
+    // ── #140 Batch Profile ────────────────────────────────────────────────────
+    private BatchProfile _selectedBatchProfile = BatchProfile.DJSetPrep;
+
+    /// <summary>
+    /// Switches concurrency + quality floor as a single preset.
+    /// DJSetPrep   = 3 concurrent, strict quality filter.
+    /// Archival    = 1 concurrent, strictest quality filter (lossless only).
+    /// QuickPreview= 8 concurrent, non-strict quality filter.
+    /// </summary>
+    public BatchProfile SelectedBatchProfile
+    {
+        get => _selectedBatchProfile;
+        set
+        {
+            if (_selectedBatchProfile == value) return;
+            this.RaiseAndSetIfChanged(ref _selectedBatchProfile, value);
+            ApplyBatchProfile(value);
+        }
+    }
+
+    private void ApplyBatchProfile(BatchProfile profile)
+    {
+        switch (profile)
+        {
+            case BatchProfile.DJSetPrep:
+                MaxConcurrentDownloads = 3;
+                if (!DownloadProfileStrict) ApplyDownloadProfile("Strict");
+                break;
+            case BatchProfile.Archival:
+                MaxConcurrentDownloads = 1;
+                if (!DownloadProfileStricter) ApplyDownloadProfile("Stricter");
+                break;
+            case BatchProfile.QuickPreview:
+                MaxConcurrentDownloads = 8;
+                if (!DownloadProfileNonStrict) ApplyDownloadProfile("NonStrict");
+                break;
+        }
+    }
     
     // Commands
     public ICommand PauseAllCommand { get; }

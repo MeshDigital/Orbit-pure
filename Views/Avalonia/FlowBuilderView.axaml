@@ -1,0 +1,273 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             x:Class="SLSKDONET.Views.Avalonia.FlowBuilderView"
+             Background="#141414">
+
+    <Grid RowDefinitions="Auto,Auto,*">
+
+        <!-- ── Header bar ───────────────────────────────────────────────── -->
+        <Border Grid.Row="0"
+                Background="#1E1E1E"
+                BorderBrush="#3E3E3E"
+                BorderThickness="0,0,0,1"
+                Padding="20,12">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+
+                <!-- Title block -->
+                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+                    <TextBlock Text="🎛 FLOW BUILDER"
+                               FontSize="16" FontWeight="Bold"
+                               Foreground="#4EC9B0"/>
+                    <TextBlock Text="Build your DJ set — track order, transitions, energy flow"
+                               FontSize="11" Foreground="#666"/>
+                </StackPanel>
+
+                <!-- Playlist combo -->
+                <ComboBox Grid.Column="1"
+                          Margin="24,0,8,0"
+                          ItemsSource="{Binding Playlists}"
+                          SelectedItem="{Binding SelectedPlaylist}"
+                          PlaceholderText="Select a playlist…"
+                          VerticalAlignment="Center"
+                          MaxWidth="380"/>
+
+                <!-- Load -->
+                <Button Grid.Column="2"
+                        Content="▶ Load"
+                        Command="{Binding LoadSelectedPlaylistCommand}"
+                        IsEnabled="{Binding IsNotLoading}"
+                        Margin="4,0"
+                        VerticalAlignment="Center"/>
+
+                <!-- Suggest Next -->
+                <Button Grid.Column="3"
+                        Content="✦ Suggest Next"
+                        Command="{Binding SuggestNextCommand}"
+                        IsEnabled="{Binding IsNotLoading}"
+                        Margin="4,0"
+                        VerticalAlignment="Center"/>
+
+                <!-- Refresh list -->
+                <Button Grid.Column="4"
+                        Content="↻"
+                        Command="{Binding LoadPlaylistsCommand}"
+                        ToolTip.Tip="Refresh playlist list"
+                        Margin="4,0"
+                        VerticalAlignment="Center"
+                        Width="32"/>
+
+                <!-- Clear -->
+                <Button Grid.Column="5"
+                        Content="✕ Clear"
+                        Command="{Binding ClearCommand}"
+                        IsEnabled="{Binding HasTracks}"
+                        Margin="4,0"
+                        VerticalAlignment="Center"/>
+
+            </Grid>
+        </Border>
+
+        <!-- ── Status bar ────────────────────────────────────────────────── -->
+        <Border Grid.Row="1" Background="#181818" Padding="20,5">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <ProgressBar Grid.Column="0"
+                             IsVisible="{Binding IsLoading}"
+                             IsIndeterminate="True"
+                             Width="100" Height="2"
+                             VerticalAlignment="Center"
+                             Margin="0,0,12,0"/>
+                <TextBlock Grid.Column="1"
+                           Text="{Binding StatusText}"
+                           FontSize="11" Foreground="#888"
+                           VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2"
+                           FontSize="11" Foreground="#555"
+                           VerticalAlignment="Center">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}{0} tracks in set">
+                            <Binding Path="Tracks.Count"/>
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+            </Grid>
+        </Border>
+
+        <!-- ── Timeline area ─────────────────────────────────────────────── -->
+        <Grid Grid.Row="2">
+
+            <!-- Empty state placeholder -->
+            <StackPanel IsVisible="{Binding HasNoTracks}"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="14">
+                <TextBlock Text="🎵"
+                           FontSize="52"
+                           HorizontalAlignment="Center"/>
+                <TextBlock Text="Your set is empty"
+                           FontSize="20" FontWeight="SemiBold"
+                           Foreground="#4EC9B0"
+                           HorizontalAlignment="Center"/>
+                <TextBlock Text="Select a playlist above and click Load — or use ✦ Suggest Next to build from scratch."
+                           FontSize="13" Foreground="#666"
+                           HorizontalAlignment="Center"
+                           TextWrapping="Wrap"
+                           MaxWidth="420"
+                           TextAlignment="Center"/>
+            </StackPanel>
+
+            <!-- Horizontal timeline -->
+            <ScrollViewer IsVisible="{Binding HasTracks}"
+                          HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Disabled"
+                          Padding="20,28,20,20">
+
+                <ItemsControl ItemsSource="{Binding Tracks}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="0"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="vm:FlowTrackCardViewModel">
+                            <!-- Each item: [Card 196px] + [Bridge 56px] -->
+                            <Grid ColumnDefinitions="196,56">
+
+                                <!-- ── Track card ──────────────────────── -->
+                                <Border Grid.Column="0"
+                                        Width="192"
+                                        Background="#1E1E1E"
+                                        BorderBrush="#3C3C3C"
+                                        BorderThickness="1"
+                                        CornerRadius="7"
+                                        Margin="2,0,2,4">
+                                    <Grid RowDefinitions="4,Auto,36,Auto,Auto">
+
+                                        <!-- Key colour band -->
+                                        <Border Grid.Row="0"
+                                                Background="#4EC9B0"
+                                                CornerRadius="7,7,0,0"
+                                                Opacity="0.55"/>
+
+                                        <!-- Artist + Title -->
+                                        <StackPanel Grid.Row="1" Margin="10,8,10,4" Spacing="2">
+                                            <TextBlock Text="{Binding Artist}"
+                                                       FontSize="10" Foreground="#888"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding Title}"
+                                                       FontSize="12" FontWeight="SemiBold"
+                                                       Foreground="#E0E0E0"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+
+                                        <!-- Energy sparkline -->
+                                        <Border Grid.Row="2" Margin="10,0">
+                                            <controls:SparklineControl
+                                                Points="{Binding EnergyCurvePoints}"
+                                                LineBrush="#4EC9B0"
+                                                FillBrush="#224EC9B0"
+                                                LineThickness="1.2"/>
+                                        </Border>
+
+                                        <!-- BPM / Key / Time info row -->
+                                        <Grid Grid.Row="3"
+                                              ColumnDefinitions="*,*,*"
+                                              Margin="8,4,8,6">
+                                            <StackPanel Grid.Column="0" Spacing="1" HorizontalAlignment="Center">
+                                                <TextBlock Text="{Binding BpmDisplay}"
+                                                           FontSize="13" FontWeight="Bold"
+                                                           Foreground="#E0E0E0"
+                                                           HorizontalAlignment="Center"/>
+                                                <TextBlock Text="BPM"
+                                                           FontSize="9" Foreground="#555"
+                                                           HorizontalAlignment="Center"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Spacing="1" HorizontalAlignment="Center">
+                                                <TextBlock Text="{Binding KeyDisplay}"
+                                                           FontSize="13" FontWeight="Bold"
+                                                           Foreground="#4EC9B0"
+                                                           HorizontalAlignment="Center"/>
+                                                <TextBlock Text="KEY"
+                                                           FontSize="9" Foreground="#555"
+                                                           HorizontalAlignment="Center"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2" Spacing="1" HorizontalAlignment="Center">
+                                                <TextBlock Text="{Binding DurationDisplay}"
+                                                           FontSize="13" FontWeight="Bold"
+                                                           Foreground="#E0E0E0"
+                                                           HorizontalAlignment="Center"/>
+                                                <TextBlock Text="TIME"
+                                                           FontSize="9" Foreground="#555"
+                                                           HorizontalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <!-- Reorder / remove buttons -->
+                                        <StackPanel Grid.Row="4"
+                                                    Orientation="Horizontal"
+                                                    HorizontalAlignment="Center"
+                                                    Spacing="6"
+                                                    Margin="8,2,8,8">
+                                            <Button Content="◀"
+                                                    Command="{Binding MoveLeftCommand}"
+                                                    ToolTip.Tip="Move left"
+                                                    Width="28" Height="22"
+                                                    FontSize="10"
+                                                    Padding="0"/>
+                                            <Button Content="▶"
+                                                    Command="{Binding MoveRightCommand}"
+                                                    ToolTip.Tip="Move right"
+                                                    Width="28" Height="22"
+                                                    FontSize="10"
+                                                    Padding="0"/>
+                                            <Button Content="✕"
+                                                    Command="{Binding RemoveCommand}"
+                                                    ToolTip.Tip="Remove from set"
+                                                    Width="28" Height="22"
+                                                    FontSize="10"
+                                                    Padding="0"
+                                                    Foreground="#E74C3C"/>
+                                        </StackPanel>
+
+                                    </Grid>
+                                </Border>
+
+                                <!-- ── Transition bridge ───────────────── -->
+                                <Border Grid.Column="1"
+                                        IsVisible="{Binding HasBridge}"
+                                        VerticalAlignment="Top"
+                                        Margin="0,22,0,0"
+                                        ToolTip.Tip="{Binding Bridge.Tooltip}">
+                                    <StackPanel Spacing="4">
+
+                                        <!-- BPM delta -->
+                                        <TextBlock Text="{Binding Bridge.BpmDeltaDisplay}"
+                                                   FontSize="9" Foreground="#AAA"
+                                                   HorizontalAlignment="Center"/>
+
+                                        <!-- Coloured horizontal bar (score) -->
+                                        <Border Height="3"
+                                                CornerRadius="1.5"
+                                                Margin="4,0"
+                                                Background="{Binding Bridge.ScoreBrush}"/>
+
+                                        <!-- Key label -->
+                                        <TextBlock Text="{Binding Bridge.KeyLabel}"
+                                                   FontSize="9"
+                                                   Foreground="{Binding Bridge.ScoreBrush}"
+                                                   HorizontalAlignment="Center"/>
+
+                                    </StackPanel>
+                                </Border>
+
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</UserControl>
