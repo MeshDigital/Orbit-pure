@@ -430,6 +430,7 @@ public partial class App : Application
 
         // Import Plugin System
         services.AddSingleton<ImportOrchestrator>();
+        services.AddSingleton<IImportOrchestrationService, ImportOrchestrationServiceAdapter>();
         // Register concrete types for direct injection
         services.AddSingleton<Services.ImportProviders.SpotifyImportProvider>();
         services.AddSingleton<Services.ImportProviders.CsvImportProvider>();
@@ -584,6 +585,13 @@ public partial class App : Application
         services.AddSingleton<Services.Audio.StemPreferenceService>();
         services.AddSingleton<Services.Audio.MixdownService>();
         services.AddSingleton<Services.WorkstationSessionService>();
+        services.AddSingleton<Services.IUndoService, Services.UndoService>();
+
+        // ── Auto-cue / phrase detection pipeline ──────────────────────────
+        services.AddSingleton<Services.CueGenerationService>();
+        services.AddSingleton<Services.AudioAnalysis.CuePointDetectionService>();
+        services.AddSingleton<Services.AnalyzeTrackStructureJob>();
+
         services.AddSingleton<ViewModels.Workstation.WorkstationViewModel>();
         services.AddSingleton<Services.AnalysisQueueService>();
 
@@ -600,6 +608,10 @@ public partial class App : Application
 
         // ── Issue 2.2: Similarity Index ───────────────────────────────────
         services.AddSingleton<Services.Similarity.SimilarityIndex>();
+        services.AddSingleton<Services.ISimilarityService, Services.SimilarityServiceAdapter>();
+        // Section-level feature vectors (Intro/Drop/Outro per track) for
+        // transition-aware playlist optimisation — no new DB schema needed.
+        services.AddSingleton<Services.Similarity.SectionVectorService>();
 
         // ── Tasks 5.1-5.5: Dual Deck Engine + Sync ───────────────────────
         services.AddSingleton<ViewModels.DeckViewModel>();
@@ -613,6 +625,8 @@ public partial class App : Application
                 sp.GetRequiredService<Services.Audio.Separation.DemucsOnnxSeparator>(),
                 sp.GetRequiredService<Services.Audio.StemCacheService>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Audio.Separation.CachedStemSeparator>>()));
+        services.AddSingleton<Services.IStemSeparationService, Services.StemSeparationServiceAdapter>();
+        services.AddSingleton<Services.IWaveformCacheService, Services.WaveformCacheService>();
         services.AddSingleton<ViewModels.StemMixerViewModel>();
         services.AddSingleton<ViewModels.StemWaveformViewModel>();
         services.AddSingleton<ViewModels.NeuralMixEqViewModel>();

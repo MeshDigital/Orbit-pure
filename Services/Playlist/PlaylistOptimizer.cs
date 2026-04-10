@@ -7,6 +7,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
+using SLSKDONET.Models;
+using SLSKDONET.Services.Similarity;
 
 namespace SLSKDONET.Services.Playlist;
 
@@ -46,10 +48,14 @@ public sealed class PlaylistOptimizationResult
 public sealed class PlaylistOptimizer
 {
     private readonly ILogger<PlaylistOptimizer> _logger;
+    private readonly SectionVectorService? _sectionVectors;
 
-    public PlaylistOptimizer(ILogger<PlaylistOptimizer> logger)
+    public PlaylistOptimizer(
+        ILogger<PlaylistOptimizer> logger,
+        SectionVectorService? sectionVectors = null)
     {
         _logger = logger;
+        _sectionVectors = sectionVectors;
     }
 
     // ── Public API ─────────────────────────────────────────────────────────
@@ -86,7 +92,12 @@ public sealed class PlaylistOptimizer
         if (unanalyzed.Count > 0)
             _logger.LogWarning("[PlaylistOptimizer] {Count} track(s) have no audio features and will be appended.", unanalyzed.Count);
 
-        var ordered = GreedyOrder(analyzed, features, options);
+        // Pre-warm section vector cache so the O(n²) greedy loop can call
+        // TransitionCostCached synchronously without async overhead.
+        if (_sectionVectors != null && options.SectionTransitionWeight > 0)
+            await _sectionVectors.PreloadAsync(analyzed, cancellationToken);
+
+        var ordered = GreedyOrder(analyzed, features, options, _sectionVectors);
 
         // Apply optional energy-curve post-pass.
         if (options.EnergyCurve != EnergyCurvePattern.None && ordered.Count > 2)
@@ -108,7 +119,8 @@ public sealed class PlaylistOptimizer
     private List<string> GreedyOrder(
         List<string> hashes,
         Dictionary<string, AudioFeaturesEntity> features,
-        PlaylistOptimizerOptions options)
+        PlaylistOptimizerOptions options,
+        SectionVectorService? sectionVectors = null)
     {
         if (hashes.Count == 0) return hashes;
 
@@ -130,6 +142,12 @@ public sealed class PlaylistOptimizer
             foreach (var candidate in remaining)
             {
                 double cost = EdgeCost(currentFeature, features[candidate], options);
+
+                // Add section-level transition term (outro→intro energy/spectral match).
+                if (sectionVectors != null && options.SectionTransitionWeight > 0)
+                    cost += sectionVectors.TransitionCostCached(current, candidate)
+                            * options.SectionTransitionWeight;
+
                 if (cost < bestCost)
                 {
                     bestCost = cost;
@@ -266,6 +284,13 @@ public sealed class PlaylistOptimizer
     }
 
     // ── Camelot wheel distance ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Public wrapper so external callers (e.g. <see cref="Similarity.TrackMatchScorer"/>)
+    /// can access the Camelot distance without a full optimizer instance.
+    /// </summary>
+    public static double CamelotDistancePublic(string? keyA, string? keyB)
+        => CamelotDistance(keyA, keyB);
 
     /// <summary>
     /// Measures compatibility distance on the Camelot wheel.

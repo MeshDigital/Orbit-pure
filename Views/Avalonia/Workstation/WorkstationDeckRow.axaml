@@ -4,161 +4,239 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Workstation"
              xmlns:orbitControls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
-             xmlns:avConverters="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
              mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="120"
              x:Class="SLSKDONET.Views.Avalonia.Workstation.WorkstationDeckRow"
              x:DataType="vm:WorkstationDeckViewModel">
 
-    <Border Background="#1C1C1C" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1">
-        <Grid ColumnDefinitions="180,*,180">
+    <UserControl.Styles>
+        <Style Selector="ToggleButton.stem-toggle">
+            <Setter Property="Background" Value="#202020"/>
+            <Setter Property="BorderBrush" Value="#404040"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#DDDDDD"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Width" Value="34"/>
+        </Style>
+        <Style Selector="ToggleButton.stem-v:checked">
+            <Setter Property="Background" Value="#C2185B"/>
+            <Setter Property="BorderBrush" Value="#E91E63"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="ToggleButton.stem-d:checked">
+            <Setter Property="Background" Value="#1B5E20"/>
+            <Setter Property="BorderBrush" Value="#4CAF50"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="ToggleButton.stem-b:checked">
+            <Setter Property="Background" Value="#0D47A1"/>
+            <Setter Property="BorderBrush" Value="#2196F3"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="ToggleButton.stem-o:checked">
+            <Setter Property="Background" Value="#E65100"/>
+            <Setter Property="BorderBrush" Value="#FF9800"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Border.deck-dropzone.drag-over">
+            <Setter Property="BorderBrush" Value="#00D7FF"/>
+            <Setter Property="BorderThickness" Value="0,0,0,2"/>
+        </Style>
+        <Style Selector="Border.deck-dropzone.focused">
+            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+            <Setter Property="BorderThickness" Value="0,0,0,2"/>
+        </Style>
 
-            <!-- ── Col 0: EQ controls (left panel) ── -->
-            <Border Grid.Column="0" Background="#161616" Padding="10,6">
-                <StackPanel Spacing="4">
-                    <!-- Deck label + track title -->
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Border Background="#333" CornerRadius="3" Padding="6,2">
-                            <TextBlock Text="{Binding DeckLabel}"
-                                       FontSize="11" FontWeight="Black"
-                                       Foreground="White"/>
-                        </Border>
-                        <TextBlock Text="{Binding TrackTitle, TargetNullValue='— No Track —'}"
-                                   FontSize="11" Foreground="#AAA"
-                                   TextTrimming="CharacterEllipsis" MaxWidth="120"
-                                   VerticalAlignment="Center"/>
+        <!-- Hot-cue pad styles (CDJ colour scheme) -->
+        <Style Selector="Button.hotcue">
+            <Setter Property="Width" Value="32"/>
+            <Setter Property="Height" Value="20"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="CornerRadius" Value="3"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Opacity" Value="0.65"/>
+        </Style>
+        <Style Selector="Button.hotcue:pointerover"><Setter Property="Opacity" Value="1.0"/></Style>
+        <Style Selector="Button.hotcue-1"><Setter Property="Background" Value="#E91E63"/></Style>
+        <Style Selector="Button.hotcue-2"><Setter Property="Background" Value="#FF9800"/></Style>
+        <Style Selector="Button.hotcue-3"><Setter Property="Background" Value="#CDDC39"/><Setter Property="Foreground" Value="#111"/></Style>
+        <Style Selector="Button.hotcue-4"><Setter Property="Background" Value="#4CAF50"/></Style>
+        <Style Selector="Button.hotcue-5"><Setter Property="Background" Value="#00BCD4"/></Style>
+        <Style Selector="Button.hotcue-6"><Setter Property="Background" Value="#2196F3"/></Style>
+        <Style Selector="Button.hotcue-7"><Setter Property="Background" Value="#9C27B0"/></Style>
+        <Style Selector="Button.hotcue-8"><Setter Property="Background" Value="#9E9E9E"/></Style>
+    </UserControl.Styles>
+
+    <Border x:Name="DeckDropZone"
+            Classes="deck-dropzone"
+            Background="#191919"
+            BorderBrush="#2A2A2A"
+            BorderThickness="0,0,0,1"
+            Classes.focused="{Binding IsFocusedDeck}"
+            PointerPressed="OnDeckPointerPressed"
+            >
+        <Grid ColumnDefinitions="250,*">
+
+            <!-- Track strip floats above waveform edge -->
+            <Border Grid.Column="0"
+                    Background="#161616"
+                    Padding="12,8"
+                    ZIndex="5"
+                    BoxShadow="6 0 14 0 #40000000">
+                <Grid RowDefinitions="Auto,Auto,Auto">
+
+                    <!-- Title block -->
+                    <StackPanel Grid.Row="0" Spacing="2">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Background="#2D2D2D" CornerRadius="4" Padding="6,2">
+                                <TextBlock Text="{Binding DeckLabel}"
+                                           FontSize="11"
+                                           FontWeight="Bold"
+                                           Foreground="#F5F5F5"/>
+                            </Border>
+                            <TextBlock Text="{Binding TrackTitle, TargetNullValue='No Track Loaded'}"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Foreground="#E5E5E5"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding TrackArtist, TargetNullValue='—'}"
+                                   FontSize="11"
+                                   Foreground="#A0A0A0"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="{Binding DisplayBpm, StringFormat='{}{0:F1} BPM'}"
+                                       FontSize="10"
+                                       Foreground="#7FC7FF"/>
+                            <TextBlock Text="{Binding TrackKey, TargetNullValue='— Key'}"
+                                       FontSize="10"
+                                       Foreground="#95D36A"/>
+                        </StackPanel>
                     </StackPanel>
 
-                    <!-- EQ knob row (High / Mid / Low) -->
-                    <Grid ColumnDefinitions="*,*,*,*" Margin="0,4,0,0">
-                        <!-- High -->
-                        <StackPanel Grid.Column="0" HorizontalAlignment="Center" Spacing="3">
-                            <Slider Value="{Binding Stems.Vocals.GainDb}"
-                                    Minimum="-12" Maximum="12"
-                                    Orientation="Vertical" Height="36"
-                                    Width="20"
-                                    HorizontalAlignment="Center"
-                                    ToolTip.Tip="High EQ"/>
-                            <TextBlock Text="High" FontSize="9" Foreground="#666"
-                                       HorizontalAlignment="Center"/>
+                    <!-- Core stem toggles (V/D/B/O) -->
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">
+                        <ToggleButton Classes="stem-toggle stem-v"
+                                      IsChecked="{Binding Stems.Vocals.IsMuted, Mode=TwoWay}"
+                                      ToolTip.Tip="V = Vocals">V</ToggleButton>
+                        <ToggleButton Classes="stem-toggle stem-d"
+                                      IsChecked="{Binding Stems.Drums.IsMuted, Mode=TwoWay}"
+                                      ToolTip.Tip="D = Drums">D</ToggleButton>
+                        <ToggleButton Classes="stem-toggle stem-b"
+                                      IsChecked="{Binding Stems.Bass.IsMuted, Mode=TwoWay}"
+                                      ToolTip.Tip="B = Bass">B</ToggleButton>
+                        <ToggleButton Classes="stem-toggle stem-o"
+                                      IsChecked="{Binding Stems.Other.IsMuted, Mode=TwoWay}"
+                                      ToolTip.Tip="O = Other">O</ToggleButton>
+                    </StackPanel>
+
+                    <!-- Gain + VU + pitch + lock -->
+                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,8,0,0">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="GAIN"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"
+                                       Foreground="#A0A0A0"/>
+                            <Slider Minimum="-12"
+                                    Maximum="12"
+                                    Value="{Binding TrackGainDb, Mode=TwoWay}"/>
                         </StackPanel>
-                        <!-- Mid -->
-                        <StackPanel Grid.Column="1" HorizontalAlignment="Center" Spacing="3">
-                            <Slider Value="{Binding Stems.Drums.GainDb}"
-                                    Minimum="-12" Maximum="12"
-                                    Orientation="Vertical" Height="36" Width="20"
-                                    HorizontalAlignment="Center"
-                                    ToolTip.Tip="Mid EQ"/>
-                            <TextBlock Text="Mid" FontSize="9" Foreground="#666"
+
+                        <StackPanel Grid.Column="1" Spacing="4" Margin="10,0,0,0" HorizontalAlignment="Center">
+                            <TextBlock Text="VU"
+                                       FontSize="10"
+                                       Foreground="#A0A0A0"
                                        HorizontalAlignment="Center"/>
+                            <ProgressBar Minimum="0"
+                                         Maximum="1"
+                                         Value="{Binding VuLevel}"
+                                         Orientation="Vertical"
+                                         Width="10"
+                                         Height="52"
+                                         Foreground="#4CAF50"
+                                         Background="#2A2A2A"/>
                         </StackPanel>
-                        <!-- Low -->
-                        <StackPanel Grid.Column="2" HorizontalAlignment="Center" Spacing="3">
-                            <Slider Value="{Binding Stems.Bass.GainDb}"
-                                    Minimum="-12" Maximum="12"
-                                    Orientation="Vertical" Height="36" Width="20"
-                                    HorizontalAlignment="Center"
-                                    ToolTip.Tip="Low EQ"/>
-                            <TextBlock Text="Low" FontSize="9" Foreground="#666"
-                                       HorizontalAlignment="Center"/>
+
+                        <!-- Pitch fader -->
+                        <StackPanel Grid.Column="2" Spacing="2" Margin="8,0,0,0" HorizontalAlignment="Center">
+                            <TextBlock Text="{Binding Deck.TempoPercent, StringFormat='{}{0:+0.0;-0.0;+0.0}%'}"
+                                       FontSize="9" Foreground="#FFD700" HorizontalAlignment="Center"/>
+                            <Slider Orientation="Vertical"
+                                    Minimum="-8" Maximum="8"
+                                    Value="{Binding Deck.TempoPercent, Mode=TwoWay}"
+                                    Height="42" Width="16"
+                                    ToolTip.Tip="Pitch/Tempo ±8%"/>
+                            <ToggleButton IsChecked="{Binding Deck.KeyLock, Mode=TwoWay}"
+                                          FontSize="8" Width="32" Height="16" Padding="2,1"
+                                          CornerRadius="3"
+                                          Background="#252525" BorderBrush="#444"
+                                          ToolTip.Tip="Key Lock: hold pitch when adjusting tempo">KEY</ToggleButton>
                         </StackPanel>
-                        <!-- Filter -->
-                        <StackPanel Grid.Column="3" HorizontalAlignment="Center" Spacing="3">
-                            <Slider Value="{Binding Stems.Other.GainDb}"
-                                    Minimum="-12" Maximum="12"
-                                    Orientation="Vertical" Height="36" Width="20"
-                                    HorizontalAlignment="Center"
-                                    ToolTip.Tip="Filter"/>
-                            <TextBlock Text="Filter" FontSize="9" Foreground="#666"
-                                       HorizontalAlignment="Center"/>
-                        </StackPanel>
+
+                        <ToggleButton Grid.Column="3"
+                                      Margin="8,0,0,0"
+                                      VerticalAlignment="Bottom"
+                                      IsChecked="{Binding IsLocked, Mode=TwoWay}"
+                                      ToolTip.Tip="Lock track movement">🔒</ToggleButton>
                     </Grid>
-
-                    <!-- BPM + Key chips -->
-                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0">
-                        <Border Background="#1E2832" CornerRadius="4" Padding="6,2"
-                                IsVisible="{Binding DisplayBpm, Converter={x:Static avConverters:NumericConverters.IsNotZero}}">
-                            <TextBlock Text="{Binding DisplayBpm, StringFormat='{}{0:F1}'}"
-                                       FontSize="10" FontWeight="Bold"
-                                       Foreground="#00CFFF"/>
-                        </Border>
-                        <Border Background="#1E2818" CornerRadius="4" Padding="6,2"
-                                IsVisible="{Binding TrackKey, Converter={x:Static ObjectConverters.IsNotNull}}">
-                            <TextBlock Text="{Binding TrackKey}"
-                                       FontSize="10" FontWeight="Bold"
-                                       Foreground="#1DB954"/>
-                        </Border>
-                    </StackPanel>
-                </StackPanel>
+                </Grid>
             </Border>
 
-            <!-- ── Col 1: Waveform strip ── -->
-            <Panel Grid.Column="1" Background="#111">
-                <!-- Empty state -->
-                <TextBlock Text="Drop a track here or load from the playlist below"
-                           FontSize="11" Foreground="#444"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                           IsVisible="{Binding !IsLoaded}"/>
+            <!-- Waveform lane + hot-cue pads -->
+            <Grid Grid.Column="1" RowDefinitions="*,Auto" Background="#0E0E0E">
 
                 <!-- Waveform -->
-                <orbitControls:WaveformControl
-                    WaveformData="{Binding WaveformData}"
-                    Progress="{Binding PlaybackProgress}"
-                    Cues="{Binding CueEditor.Cues}"
-                    CueUpdatedCommand="{Binding CueEditor.UpdateCueCommand}"
-                    CueClickedCommand="{Binding Deck.SeekCommand}"
-                    IsVisible="{Binding IsLoaded}"
-                    SeekCommand="{Binding Deck.SeekCommand}"
-                    Foreground="#1DB954"
-                    Height="88"/>
-            </Panel>
+                <Border Grid.Row="0" Background="#101010" Padding="8,4">
+                    <Grid>
+                        <TextBlock Text="Load a track from the Flow Drawer to begin"
+                                   FontSize="11"
+                                   Foreground="#4A4A4A"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   IsVisible="{Binding !IsLoaded}"/>
 
-            <!-- ── Col 2: Stem preset shortcuts + transport ── -->
-            <Border Grid.Column="2" Background="#161616" Padding="8,6">
-                <StackPanel Spacing="6">
-
-                    <!-- Stem preset buttons -->
-                    <TextBlock Text="STEMS" FontSize="8" Foreground="#444"
-                               FontWeight="SemiBold" LetterSpacing="2"/>
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <Button Classes="chip" FontSize="10" Padding="6,3"
-                                Command="{Binding ToggleVocalOffCommand}"
-                                ToolTip.Tip="Mute / unmute vocals">🎤 Vox</Button>
-                        <Button Classes="chip" FontSize="10" Padding="6,3"
-                                Command="{Binding ToggleDrumsOnlyCommand}"
-                                ToolTip.Tip="Solo drums">🥁 Drums</Button>
-                        <Button Classes="chip" FontSize="10" Padding="6,3"
-                                Command="{Binding ToggleInstrumentalCommand}"
-                                ToolTip.Tip="Instrumental (no vocals)">🎸 Inst</Button>
-                    </StackPanel>
-
-                    <!-- Separate / progress -->
-                    <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding IsLoaded}">
-                        <ProgressBar Grid.Column="0" Value="{Binding Stems.SeparationProgress}"
-                                     Minimum="0" Maximum="1" Height="4"
-                                     Foreground="#BB86FC" Background="#2A2A2A"
-                                     IsVisible="{Binding Stems.IsSeparating}"
-                                     VerticalAlignment="Center"/>
-                        <Button Grid.Column="1" Classes="secondary" FontSize="10"
-                                Padding="6,3"
-                                Command="{Binding SeparateStemsCommand}"
-                                IsVisible="{Binding !StemsVisible}"
-                                ToolTip.Tip="Run stem separation (ONNX)">⚡ Separate</Button>
-                        <TextBlock Grid.Column="1" Text="✓ Stems ready" FontSize="10"
-                                   Foreground="#1DB954"
-                                   IsVisible="{Binding StemsVisible}"
-                                   VerticalAlignment="Center"/>
+                        <orbitControls:WaveformControl
+                            IsVisible="{Binding IsLoaded}"
+                            WaveformData="{Binding WaveformData}"
+                            LowBand="{Binding LowBandForWaveform}"
+                            MidBand="{Binding MidBandForWaveform}"
+                            HighBand="{Binding HighBandForWaveform}"
+                            ZoomLevel="{Binding WaveformZoomLevel}"
+                            ViewOffset="{Binding WaveformViewOffset}"
+                            FrequencyColorMode="{Binding IsSemanticDetailMode}"
+                            Progress="{Binding PlaybackProgress}"
+                            Cues="{Binding CueEditor.Cues}"
+                            CueUpdatedCommand="{Binding CueEditor.UpdateCueCommand}"
+                            CueClickedCommand="{Binding Deck.SeekCommand}"
+                            SeekCommand="{Binding Deck.SeekCommand}"
+                            Foreground="#4EC9B0"/>
                     </Grid>
+                </Border>
 
-                    <!-- Mini transport -->
-                    <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,4,0,0">
-                        <Button Classes="icon" Command="{Binding Deck.CueCommand}"
-                                ToolTip.Tip="Cue" FontSize="14">⏮</Button>
-                        <Button Classes="icon" Command="{Binding Deck.PlayPauseCommand}"
-                                FontSize="14"
-                                ToolTip.Tip="Play / Pause">▶</Button>
+                <!-- Hot-cue pads row -->
+                <Border Grid.Row="1"
+                        Background="#0A0A0A"
+                        BorderBrush="#1E1E1E"
+                        BorderThickness="0,1,0,0"
+                        Padding="8,3">
+                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Button Classes="hotcue hotcue-1" Command="{Binding HotCue1Command}" ToolTip.Tip="Hot Cue 1 — Set/Jump [1]">1</Button>
+                        <Button Classes="hotcue hotcue-2" Command="{Binding HotCue2Command}" ToolTip.Tip="Hot Cue 2 — Set/Jump [2]">2</Button>
+                        <Button Classes="hotcue hotcue-3" Command="{Binding HotCue3Command}" ToolTip.Tip="Hot Cue 3 — Set/Jump [3]">3</Button>
+                        <Button Classes="hotcue hotcue-4" Command="{Binding HotCue4Command}" ToolTip.Tip="Hot Cue 4 — Set/Jump [4]">4</Button>
+                        <Button Classes="hotcue hotcue-5" Command="{Binding HotCue5Command}" ToolTip.Tip="Hot Cue 5 — Set/Jump [5]">5</Button>
+                        <Button Classes="hotcue hotcue-6" Command="{Binding HotCue6Command}" ToolTip.Tip="Hot Cue 6 — Set/Jump [6]">6</Button>
+                        <Button Classes="hotcue hotcue-7" Command="{Binding HotCue7Command}" ToolTip.Tip="Hot Cue 7 — Set/Jump [7]">7</Button>
+                        <Button Classes="hotcue hotcue-8" Command="{Binding HotCue8Command}" ToolTip.Tip="Hot Cue 8 — Set/Jump [8]">8</Button>
                     </StackPanel>
-                </StackPanel>
-            </Border>
+                </Border>
+
+            </Grid>
         </Grid>
     </Border>
 </UserControl>

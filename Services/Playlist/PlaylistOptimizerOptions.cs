@@ -69,6 +69,21 @@ public sealed class PlaylistOptimizerOptions
     /// </summary>
     public double BpmJumpPenalty { get; init; } = 10.0;
 
+    // ── Section transition matching ────────────────────────────────────────
+    /// <summary>
+    /// Weight applied to the outro→intro section feature distance computed by
+    /// <see cref="Similarity.SectionVectorService.TransitionCostCached"/>.
+    ///
+    /// When &gt; 0 the optimizer prefers transitions where the energy/spectral
+    /// character of track A's OUTRO closely matches the character of track B's INTRO,
+    /// producing smoother mixes at the actual join point.
+    ///
+    /// Set to 0 to disable section-level matching entirely (pure scalar mode).
+    /// Default 2.0 — on par with a 1-step harmonic mismatch on the Camelot wheel.
+    /// Only effective if both tracks have phrase-detection data in the database.
+    /// </summary>
+    public double SectionTransitionWeight { get; init; } = 2.0;
+
     // ── Post-pass ──────────────────────────────────────────────────────────
     /// <summary>
     /// Desired energy curve shape applied after the greedy ordering pass.

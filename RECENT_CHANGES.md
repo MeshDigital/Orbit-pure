@@ -2,7 +2,83 @@
 
 ---
 
-## [Unreleased] — 2026-04-09
+## [Unreleased] — 2026-04-10
+
+### 🎛️ Cockpit Workstation — UI Feature Additions (Pure Wiring, Zero Backend Changes)
+
+Four mixing features wired to the already-complete `DeckEngine` backend:
+
+- **Crossfader A↔B** — horizontal slider in the transport bar centre; bound to `WorkstationViewModel.CrossfaderPosition` which wraps `DeckPair.CrossfaderPosition` (equal-power cos/sin law already in engine).
+- **Loop beat buttons** — 1 / 2 / 4 / 8-beat + Exit Loop row added to the right zone of the transport bar; `Loop1/2/4/8Command` + `ExitLoopFocusedCommand` in `WorkstationViewModel`.
+- **Per-deck pitch fader ±8% + Key Lock** — vertical `Slider` and `KEY` toggle added to each deck strip in `WorkstationDeckRow.axaml`; bound to existing `DeckViewModel.PitchSemitones` and `KeyLockEnabled`.
+- **8 hot-cue pad buttons per deck** — CDJ-style coloured pad row below the waveform in `WorkstationDeckRow.axaml`; `HotCue1Command`–`HotCue8Command` in `WorkstationDeckViewModel` call `DeckEngine.JumpToHotCue(slot)`.
+
+---
+
+### 🔍 Cue Point Auto-Analysis Pipeline — DI Registration + Batch Analyze Commands
+
+The full phrase/cue-detection pipeline (`StructuralAnalysisEngine` → `CuePointDetectionService` → `CueGenerationService` → `AnalyzeTrackStructureJob`) existed but was never registered in DI and thus never ran.
+
+**`App.axaml.cs`** — Registered `CueGenerationService`, `CuePointDetectionService`, `AnalyzeTrackStructureJob` as singletons.
+
+**`ViewModels/Workstation/WorkstationViewModel.cs`**:
+- `AnalyzePlaylistCuesCommand` — analyzes all tracks in the active playlist; skips any that already have cues via `ICuePointService.GetByTrackIdAsync`.
+- `AnalyzeSelectedCuesCommand` — same but scoped to the DataGrid selection; invoked from `OnAnalyzeSelectedClick` code-behind.
+- `IsAnalyzing`, `AnalysisProgress`, `AnalysisStatusText` — reactive state for live progress reporting.
+- `RunCueAnalysisAsync()` — shared worker: cancels previous run, iterates tracks, skip-guard, calls `AnalyzeTrackStructureJob.ExecuteAsync(hash, ct)`.
+
+**`Views/Avalonia/WorkstationPage.axaml`** — Flow Drawer header now has:
+- **⚡ Analyze Playlist** button (green) and **⚡ Selected** button (blue).
+- Collapsible progress strip (ProgressBar + status text) visible only while `IsAnalyzing` is true.
+
+---
+
+### 🧩 Section-Aware Playlist Optimisation — SectionVectorService
+
+The `PlaylistOptimizer` previously treated tracks as atomic scalars (BPM + key + global energy). The `TrackPhraseEntity` rows (Intro/Build/Drop/Breakdown/Outro with per-section energy) existed in the DB but were never consumed.
+
+**`Models/SectionFeatureVector.cs`** — Lightweight value type for one structural section: `EnergyLevel`, `StartRatio`, `DurationRatio`, `Arousal`, `Danceability`, `SpectralBrightness`, `Confidence`. Provides `DistanceTo()` (4-D Euclidean) and `TransitionScore()`.
+
+**`Services/Similarity/SectionVectorService.cs`** — Lazy-loading, in-memory cached service:
+- `GetSectionsAsync / GetIntroSectionAsync / GetOutroSectionAsync / GetPeakSectionAsync`
+- `TransitionCostCached(fromHash, toHash)` — synchronous outro→intro distance for use inside the O(n²) greedy loop
+- `PreloadAsync(hashes)` — bulk-warms cache before optimizer pass; `Invalidate` / `InvalidateAll`
+
+**`Services/Playlist/PlaylistOptimizerOptions`** — Added `SectionTransitionWeight = 2.0` (equivalent to ~1 Camelot step penalty; set to 0 to disable).
+
+**`Services/Playlist/PlaylistOptimizer`** — Before the greedy pass, calls `PreloadAsync`; inside the inner loop adds `TransitionCostCached × SectionTransitionWeight` to edge cost. The optimizer now naturally prefers successors whose Intro energy/spectral profile matches the current track's Outro.
+
+**`App.axaml.cs`** — Registered `SectionVectorService` as singleton.
+
+---
+
+### ⚡ Multi-Dimensional Track Compatibility Scoring — Double Drop Detection
+
+The Similar Tracks panel previously showed only a single raw embedding cosine score. There was no way to identify double-drop candidates or understand *why* two tracks matched.
+
+**`Models/TrackMatchScore.cs`** — Composite record with 6 scored dimensions (all 0–1):
+
+| Field | Formula / Source |
+|---|---|
+| `HarmonyScore` | `1 − CamelotDistance / 6` |
+| `BeatScore` | Best BPM ratio across 1:1, 2:1, 1:2, 3:2, 2:3 via `exp(−diff/3)` |
+| `SoundScore` | Embedding cosine similarity (2048-D ONNX or 128-D fallback) |
+| `DropSonicScore` | Drop section 4-D Euclidean match; falls back to `SoundScore` if no phrase data |
+| `DoubleDropScore` | Geometric mean of `Harmony × TightBeat × DropSonic` (±1 BPM tolerance); flags `IsPotentialDoubleDrop` at ≥ 0.75 |
+| `OverallScore` | `35% Sound + 25% Harmony + 20% Beat + 20% Drop` |
+
+**`Services/Similarity/TrackMatchScorer.cs`** — Pure static scorer; no DI, no state. Accepts `AudioFeaturesEntity` for both tracks, embedding cosine, and optional `SectionFeatureVector` for each track's Drop section. Exposes `CamelotDistancePublic` wrapper on `PlaylistOptimizer`.
+
+**`ViewModels/SimilarTracksViewModel.cs`** — `QueryAsync` now batch-loads `AudioFeaturesEntity` for seed + all hits in one EF query, preloads section vectors, calls `TrackMatchScorer.Compute` per hit, and passes `TrackMatchScore` to each row VM. `SimilarTrackRowViewModel` extended with `OverallScore`, `HarmonyScore`, `BeatScore`, `DropSonicScore`, `DoubleDropScore`, `HarmonyLabel`, `BeatLabel`, `DropLabel`, `IsPotentialDoubleDrop`.
+
+**`Views/Avalonia/SimilarTracksPanel.axaml`**:
+- **⚡ orange badge** on any row where `IsPotentialDoubleDrop` is true.
+- **H / B / D mini-scores** below the main Match% (purple=Harmony, blue=Beat, red=Drop).
+- **Harmony + Beat text labels**: "Same key", "2× (double time)", "±3.2 BPM", "Drop compatible", "⚡ Double drop ready".
+
+---
+
+
 
 ### 🐛 Expanded Player — Crash on Expand Button Fixed
 

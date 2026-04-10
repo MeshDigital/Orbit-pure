@@ -35,11 +35,17 @@
             <Setter Property="BorderBrush" Value="#2D5A3A"/>
             <Setter Property="BorderThickness" Value="1"/>
         </Style>
-        <Style Selector="Border.bridgeRow:pointerover">
-            <Setter Property="Background" Value="#253328"/>
+        <Style Selector="Border.ddBadge">
+            <Setter Property="Background" Value="#2A1A00"/>
+            <Setter Property="BorderBrush" Value="#FF9800"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="5,2"/>
+            <Setter Property="Margin" Value="0,2,0,0"/>
         </Style>
-        <Style Selector="Border.bridgeRow:pointerover Button.addBtn">
-            <Setter Property="Opacity" Value="1"/>
+        <Style Selector="TextBlock.miniScore">
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="Foreground" Value="#888"/>
         </Style>
     </UserControl.Styles>
 
@@ -98,12 +104,41 @@
                         <Border Classes="row">
                             <Grid ColumnDefinitions="*,Auto,Auto,Auto">
 
-                                <!-- Title + Artist -->
-                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding Title, FallbackValue='(loading…)'}"
-                                               Classes="value" TextTrimming="CharacterEllipsis"/>
+                                <!-- Title + Artist + score strip -->
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+                                    <Grid ColumnDefinitions="Auto,*">
+                                        <!-- Double-drop lightning badge -->
+                                        <Border Grid.Column="0"
+                                                Classes="ddBadge"
+                                                IsVisible="{Binding IsPotentialDoubleDrop}"
+                                                Margin="0,0,5,0"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="⚡" FontSize="11"/>
+                                        </Border>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding Title, FallbackValue='(loading…)'}"
+                                                   Classes="value" TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center"/>
+                                    </Grid>
                                     <TextBlock Text="{Binding Artist, FallbackValue=''}"
                                                Classes="label" TextTrimming="CharacterEllipsis"/>
+
+                                    <!-- Harmony + Beat labels (shown once loaded) -->
+                                    <StackPanel Orientation="Horizontal" Spacing="6"
+                                                IsVisible="{Binding HarmonyLabel,
+                                                    Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                        <TextBlock Text="{Binding HarmonyLabel}"
+                                                   Classes="miniScore" Foreground="#9F7AEA"/>
+                                        <TextBlock Text="·" Classes="miniScore"/>
+                                        <TextBlock Text="{Binding BeatLabel}"
+                                                   Classes="miniScore" Foreground="#63B3ED"/>
+                                        <!-- Drop label only when meaningful -->
+                                        <TextBlock Text="{Binding DropLabel}"
+                                                   Classes="miniScore"
+                                                   Foreground="#FF9800"
+                                                   IsVisible="{Binding DropLabel,
+                                                       Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                    </StackPanel>
                                 </StackPanel>
 
                                 <!-- Key badge -->
@@ -114,11 +149,31 @@
                                     <TextBlock Text="{Binding Key}" FontSize="11" Foreground="#90CDF4"/>
                                 </Border>
 
-                                <!-- Similarity score -->
-                                <StackPanel Grid.Column="2" VerticalAlignment="Center" MinWidth="48">
-                                    <TextBlock Classes="label" Text="Match" HorizontalAlignment="Center"/>
-                                    <TextBlock Classes="value" HorizontalAlignment="Center"
-                                               Text="{Binding Score, StringFormat={}{0:P0}}"/>
+                                <!-- Score columns: Overall + mini H/B/D breakdown -->
+                                <StackPanel Grid.Column="2" VerticalAlignment="Center"
+                                            Spacing="2" MinWidth="56">
+                                    <!-- Overall score (prominent) -->
+                                    <StackPanel Orientation="Vertical">
+                                        <TextBlock Classes="label" Text="Match" HorizontalAlignment="Center" FontSize="9"/>
+                                        <TextBlock Classes="value" HorizontalAlignment="Center" FontSize="13"
+                                                   Text="{Binding OverallScore, StringFormat={}{0:P0}}"/>
+                                    </StackPanel>
+                                    <!-- Mini H/B/D bars -->
+                                    <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto"
+                                          HorizontalAlignment="Center">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="H" Classes="miniScore" HorizontalAlignment="Center" Foreground="#9F7AEA"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="1" Text="B" Classes="miniScore" HorizontalAlignment="Center" Foreground="#63B3ED"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="2" Text="D" Classes="miniScore" HorizontalAlignment="Center" Foreground="#FC8181"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" HorizontalAlignment="Center"
+                                                   FontSize="10" Foreground="#9F7AEA"
+                                                   Text="{Binding HarmonyScore, StringFormat={}{0:P0}}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="1" HorizontalAlignment="Center"
+                                                   FontSize="10" Foreground="#63B3ED"
+                                                   Text="{Binding BeatScore, StringFormat={}{0:P0}}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="2" HorizontalAlignment="Center"
+                                                   FontSize="10" Foreground="#FC8181"
+                                                   Text="{Binding DropSonicScore, StringFormat={}{0:P0}}"/>
+                                    </Grid>
                                 </StackPanel>
 
                                 <!-- Add to playlist button -->
