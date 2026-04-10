@@ -1,12 +1,17 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Reactive;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
+using SLSKDONET.Data;
+using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Services.Similarity;
 
@@ -19,30 +24,59 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject
 {
     public string TrackHash { get; }
 
-    private string _title  = string.Empty;
-    private string _artist = string.Empty;
-    private string _key    = string.Empty;
+    private string _title          = string.Empty;
+    private string _artist         = string.Empty;
+    private string _key            = string.Empty;
     private float  _bpm;
     private double _score;
+    private float  _overallScore;
+    private float  _harmonyScore;
+    private float  _beatScore;
+    private float  _dropSonicScore;
+    private float  _doubleDropScore;
+    private string _harmonyLabel   = string.Empty;
+    private string _beatLabel      = string.Empty;
+    private string _dropLabel      = string.Empty;
+    private bool   _isPotentialDoubleDrop;
 
     public string Title  { get => _title;  private set => this.RaiseAndSetIfChanged(ref _title,  value); }
     public string Artist { get => _artist; private set => this.RaiseAndSetIfChanged(ref _artist, value); }
     public string Key    { get => _key;    private set => this.RaiseAndSetIfChanged(ref _key,    value); }
     public float  Bpm    { get => _bpm;    private set => this.RaiseAndSetIfChanged(ref _bpm,    value); }
 
-    /// <summary>Cosine similarity to the seed track (0–1). Higher is more similar.</summary>
-    public double Score
+    /// <summary>Raw embedding cosine similarity to the seed track (0–1).</summary>
+    public double Score { get => _score; set => this.RaiseAndSetIfChanged(ref _score, value); }
+
+    /// <summary>Weighted overall compatibility (0–1) from <see cref="TrackMatchScore"/>.</summary>
+    public float OverallScore    { get => _overallScore;    set => this.RaiseAndSetIfChanged(ref _overallScore,    value); }
+    public float HarmonyScore    { get => _harmonyScore;    set => this.RaiseAndSetIfChanged(ref _harmonyScore,    value); }
+    public float BeatScore       { get => _beatScore;       set => this.RaiseAndSetIfChanged(ref _beatScore,       value); }
+    public float DropSonicScore  { get => _dropSonicScore;  set => this.RaiseAndSetIfChanged(ref _dropSonicScore,  value); }
+    public float DoubleDropScore { get => _doubleDropScore; set => this.RaiseAndSetIfChanged(ref _doubleDropScore, value); }
+    public string HarmonyLabel   { get => _harmonyLabel;    set => this.RaiseAndSetIfChanged(ref _harmonyLabel,    value); }
+    public string BeatLabel      { get => _beatLabel;       set => this.RaiseAndSetIfChanged(ref _beatLabel,       value); }
+    public string DropLabel      { get => _dropLabel;       set => this.RaiseAndSetIfChanged(ref _dropLabel,       value); }
+
+    /// <summary>True when <see cref="DoubleDropScore"/> ≥ 0.75.</summary>
+    public bool IsPotentialDoubleDrop
     {
-        get => _score;
-        set => this.RaiseAndSetIfChanged(ref _score, value);
+        get => _isPotentialDoubleDrop;
+        set => this.RaiseAndSetIfChanged(ref _isPotentialDoubleDrop, value);
     }
 
-    public SimilarTrackRowViewModel(SimilarTrack result, DatabaseService db, ILogger logger)
+    public SimilarTrackRowViewModel(
+        SimilarTrack result,
+        DatabaseService db,
+        ILogger logger,
+        TrackMatchScore? matchScore = null)
     {
         TrackHash = result.TrackHash;
         _score    = result.Score;
 
-        // Async metadata lookup — fire-and-forget; notifies UI when features arrive
+        // Apply pre-computed match scores immediately if supplied.
+        if (matchScore is not null) ApplyMatchScore(matchScore);
+
+        // Async metadata lookup — fire-and-forget; notifies UI when features arrive.
         Task.Run(async () =>
         {
             try
@@ -62,6 +96,19 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject
             }
         });
     }
+
+    internal void ApplyMatchScore(TrackMatchScore s)
+    {
+        OverallScore          = s.OverallScore;
+        HarmonyScore          = s.HarmonyScore;
+        BeatScore             = s.BeatScore;
+        DropSonicScore        = s.DropSonicScore;
+        DoubleDropScore       = s.DoubleDropScore;
+        HarmonyLabel          = s.HarmonyLabel;
+        BeatLabel             = s.BeatLabel;
+        DropLabel             = s.DropLabel;
+        IsPotentialDoubleDrop = s.IsPotentialDoubleDrop;
+    }
 }
 
 /// <summary>
@@ -80,9 +127,10 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
     public const int DefaultTopN    = 12;
     public const int DebounceMs     = 300;
 
-    private readonly SimilarityIndex   _index;
-    private readonly DatabaseService   _db;
-    private readonly ILogger           _logger;
+    private readonly SimilarityIndex     _index;
+    private readonly DatabaseService     _db;
+    private readonly SectionVectorService? _sectionVectors;
+    private readonly ILogger             _logger;
     private readonly CompositeDisposable _disposables = new();
 
     // ── Seed ──────────────────────────────────────────────────────────────
@@ -140,11 +188,13 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
     public SimilarTracksViewModel(
         SimilarityIndex index,
         DatabaseService db,
-        ILogger<SimilarTracksViewModel> logger)
+        ILogger<SimilarTracksViewModel> logger,
+        SectionVectorService? sectionVectors = null)
     {
-        _index  = index;
-        _db     = db;
-        _logger = logger;
+        _index          = index;
+        _db             = db;
+        _logger         = logger;
+        _sectionVectors = sectionVectors;
 
         RefreshCommand = ReactiveCommand.CreateFromTask(
             () => QueryAsync(_seedTrackHash, CancellationToken.None));
@@ -176,11 +226,17 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
         {
             var hits = await _index.GetSimilarTracksAsync(hash, TopN, ct);
 
+            // Compute multi-dimensional match scores for every result.
+            var matchScores = await ComputeMatchScoresAsync(hash, hits, ct);
+
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
                 Results.Clear();
                 foreach (var hit in hits)
-                    Results.Add(new SimilarTrackRowViewModel(hit, _db, _logger));
+                {
+                    matchScores.TryGetValue(hit.TrackHash, out var ms);
+                    Results.Add(new SimilarTrackRowViewModel(hit, _db, _logger, ms));
+                }
 
                 StatusMessage = hits.Count == 0
                     ? "No similar tracks found — analysis embeddings may not be available."
@@ -201,6 +257,71 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
         {
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => IsBusy = false);
         }
+    }
+
+    // ── Match score computation ────────────────────────────────────────────
+
+    private async Task<Dictionary<string, TrackMatchScore>> ComputeMatchScoresAsync(
+        string seedHash,
+        IReadOnlyList<SimilarTrack> hits,
+        CancellationToken ct)
+    {
+        var result = new Dictionary<string, TrackMatchScore>(hits.Count);
+
+        try
+        {
+            // Batch-load audio features for seed + all candidates in one query.
+            var allHashes = new List<string>(hits.Count + 1) { seedHash };
+            allHashes.AddRange(hits.Select(h => h.TrackHash));
+
+            Dictionary<string, Data.Entities.AudioFeaturesEntity> featureMap;
+            using (var db = new AppDbContext())
+            {
+                var rows = await db.AudioFeatures
+                    .Where(f => allHashes.Contains(f.TrackUniqueHash))
+                    .ToListAsync(ct);
+                featureMap = rows.ToDictionary(r => r.TrackUniqueHash);
+            }
+
+            featureMap.TryGetValue(seedHash, out var seedFeatures);
+
+            // Pre-warm section vector cache for all involved tracks.
+            if (_sectionVectors != null)
+                await _sectionVectors.PreloadAsync(allHashes, ct);
+
+            Models.SectionFeatureVector? seedDrop = null;
+            if (_sectionVectors != null && seedFeatures != null)
+                seedDrop = await _sectionVectors.GetSectionAsync(
+                    seedHash, Data.Entities.PhraseType.Drop, ct);
+
+            foreach (var hit in hits)
+            {
+                if (ct.IsCancellationRequested) break;
+
+                featureMap.TryGetValue(hit.TrackHash, out var hitFeatures);
+
+                Models.SectionFeatureVector? hitDrop = null;
+                if (_sectionVectors != null && hitFeatures != null)
+                    hitDrop = await _sectionVectors.GetSectionAsync(
+                        hit.TrackHash, Data.Entities.PhraseType.Drop, ct);
+
+                var score = TrackMatchScorer.Compute(
+                    seedFeatures,
+                    hitFeatures,
+                    hit.Score,   // already cosine similarity (0-1) from SimilarityIndex
+                    seedDrop,
+                    hitDrop);
+
+                result[hit.TrackHash] = score;
+            }
+        }
+        catch (OperationCanceledException) { /* debounce cancelled */ }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[SimilarTracksVM] Match score computation failed");
+        }
+
+        return result;
     }
 
     public void Dispose() => _disposables.Dispose();

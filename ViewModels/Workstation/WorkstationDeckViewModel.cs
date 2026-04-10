@@ -100,6 +100,90 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
             ? (float)(Deck.PositionSeconds / Deck.DurationSeconds)
             : 0f;
 
+    /// <summary>
+    /// Track gain in dB for the deck output. Internally mapped to DeckEngine.VolumeLevel.
+    /// Note: DeckEngine currently caps at +6 dB equivalent.
+    /// </summary>
+    private double _trackGainDb;
+    public double TrackGainDb
+    {
+        get => _trackGainDb;
+        set
+        {
+            var clamped = Math.Clamp(value, -12.0, 12.0);
+            this.RaiseAndSetIfChanged(ref _trackGainDb, clamped);
+            var linear = (float)Math.Pow(10.0, clamped / 20.0);
+            Deck.Engine.VolumeLevel = Math.Clamp(linear, 0f, 2f);
+            this.RaisePropertyChanged(nameof(VuLevel));
+        }
+    }
+
+    /// <summary>Placeholder meter signal until full metering is integrated.</summary>
+    public double VuLevel
+    {
+        get
+        {
+            if (!Deck.IsPlaying)
+            {
+                return 0;
+            }
+
+            var movement = 0.15 + (PlaybackProgress * 0.75);
+            return Math.Clamp(movement, 0, 1);
+        }
+    }
+
+    private bool _isLocked;
+    public bool IsLocked
+    {
+        get => _isLocked;
+        set => this.RaiseAndSetIfChanged(ref _isLocked, value);
+    }
+
+    private bool _isFocusedDeck;
+    public bool IsFocusedDeck
+    {
+        get => _isFocusedDeck;
+        set => this.RaiseAndSetIfChanged(ref _isFocusedDeck, value);
+    }
+
+    // Stem-reactive waveform overlays
+    public byte[] LowBandForWaveform =>
+        WaveformData == null || Stems.Bass.IsMuted
+            ? Array.Empty<byte>()
+            : WaveformData.LowData;
+
+    public byte[] MidBandForWaveform =>
+        WaveformData == null || Stems.Drums.IsMuted
+            ? Array.Empty<byte>()
+            : WaveformData.MidData;
+
+    public byte[] HighBandForWaveform =>
+        WaveformData == null || (Stems.Vocals.IsMuted && Stems.Other.IsMuted)
+            ? Array.Empty<byte>()
+            : WaveformData.HighData;
+
+    private double _waveformZoomLevel = 1.0;
+    public double WaveformZoomLevel
+    {
+        get => _waveformZoomLevel;
+        set
+        {
+            var clamped = Math.Clamp(value, 1.0, 16.0);
+            this.RaiseAndSetIfChanged(ref _waveformZoomLevel, clamped);
+            this.RaisePropertyChanged(nameof(IsSemanticDetailMode));
+        }
+    }
+
+    private double _waveformViewOffset;
+    public double WaveformViewOffset
+    {
+        get => _waveformViewOffset;
+        set => this.RaiseAndSetIfChanged(ref _waveformViewOffset, Math.Clamp(value, 0.0, 1.0));
+    }
+
+    public bool IsSemanticDetailMode => WaveformZoomLevel >= 3.0;
+
     // ── Cue editor ────────────────────────────────────────────────────────────
     public CueEditorViewModel CueEditor { get; }
 
@@ -122,6 +206,11 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     /// <summary>Instantly mute Vocals stem (or unmute if already muted).</summary>
     public ReactiveCommand<Unit, Unit> ToggleVocalOffCommand { get; }
 
+    public ReactiveCommand<Unit, Unit> ToggleVocalsCommand { get; }
+    public ReactiveCommand<Unit, Unit> ToggleDrumsCommand { get; }
+    public ReactiveCommand<Unit, Unit> ToggleBassCommand { get; }
+    public ReactiveCommand<Unit, Unit> ToggleOtherCommand { get; }
+
     /// <summary>Solo Drums stem, mute everything else (toggle).</summary>
     public ReactiveCommand<Unit, Unit> ToggleDrumsOnlyCommand { get; }
 
@@ -130,6 +219,17 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
 
     /// <summary>Trigger ONNX stem separation for the loaded file.</summary>
     public ReactiveCommand<Unit, Unit> SeparateStemsCommand { get; }
+
+    // ── Hot-cue pad commands (slot 1–8 ≃ engine slots 0–7) ───────────────────────
+    // Set cue at current position if empty; jump if already set (matches CDJ behaviour).
+    public ReactiveCommand<Unit, Unit> HotCue1Command { get; }
+    public ReactiveCommand<Unit, Unit> HotCue2Command { get; }
+    public ReactiveCommand<Unit, Unit> HotCue3Command { get; }
+    public ReactiveCommand<Unit, Unit> HotCue4Command { get; }
+    public ReactiveCommand<Unit, Unit> HotCue5Command { get; }
+    public ReactiveCommand<Unit, Unit> HotCue6Command { get; }
+    public ReactiveCommand<Unit, Unit> HotCue7Command { get; }
+    public ReactiveCommand<Unit, Unit> HotCue8Command { get; }
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
@@ -151,6 +251,34 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         ToggleVocalOffCommand = ReactiveCommand.CreateFromTask(async () =>
         {
             Stems.Vocals.IsMuted = !Stems.Vocals.IsMuted;
+            await SaveStemPrefsAsync();
+        });
+
+        ToggleVocalsCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            Stems.Vocals.IsMuted = !Stems.Vocals.IsMuted;
+            RaiseWaveformBandPropertiesChanged();
+            await SaveStemPrefsAsync();
+        });
+
+        ToggleDrumsCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            Stems.Drums.IsMuted = !Stems.Drums.IsMuted;
+            RaiseWaveformBandPropertiesChanged();
+            await SaveStemPrefsAsync();
+        });
+
+        ToggleBassCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            Stems.Bass.IsMuted = !Stems.Bass.IsMuted;
+            RaiseWaveformBandPropertiesChanged();
+            await SaveStemPrefsAsync();
+        });
+
+        ToggleOtherCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            Stems.Other.IsMuted = !Stems.Other.IsMuted;
+            RaiseWaveformBandPropertiesChanged();
             await SaveStemPrefsAsync();
         });
 
@@ -177,6 +305,15 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         SeparateStemsCommand = ReactiveCommand.CreateFromTask(
             SeparateStemsAsync, canSeparate);
 
+        HotCue1Command = ReactiveCommand.Create(() => Deck.Engine.JumpToHotCue(0));
+        HotCue2Command = ReactiveCommand.Create(() => Deck.Engine.JumpToHotCue(1));
+        HotCue3Command = ReactiveCommand.Create(() => Deck.Engine.JumpToHotCue(2));
+        HotCue4Command = ReactiveCommand.Create(() => Deck.Engine.JumpToHotCue(3));
+        HotCue5Command = ReactiveCommand.Create(() => Deck.Engine.JumpToHotCue(4));
+        HotCue6Command = ReactiveCommand.Create(() => Deck.Engine.JumpToHotCue(5));
+        HotCue7Command = ReactiveCommand.Create(() => Deck.Engine.JumpToHotCue(6));
+        HotCue8Command = ReactiveCommand.Create(() => Deck.Engine.JumpToHotCue(7));
+
         // Show fader panel as soon as separation finishes
         this.WhenAnyValue(x => x.Stems.SeparationProgress)
             .Subscribe(p =>
@@ -185,6 +322,21 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
                     StemsVisible = true;
             })
             .DisposeWith(_disposables);
+
+        // Keep waveform progress/meter responsive during playback.
+        Deck.WhenAnyValue(x => x.PositionSeconds, x => x.DurationSeconds, x => x.DeckState)
+            .Subscribe(_ =>
+            {
+                this.RaisePropertyChanged(nameof(PlaybackProgress));
+                this.RaisePropertyChanged(nameof(VuLevel));
+            })
+            .DisposeWith(_disposables);
+
+        // Stem mute changes directly affect the rendered waveform color bands.
+        Stems.Vocals.WhenAnyValue(x => x.IsMuted).Subscribe(_ => OnStemMuteStateChanged()).DisposeWith(_disposables);
+        Stems.Drums.WhenAnyValue(x => x.IsMuted).Subscribe(_ => OnStemMuteStateChanged()).DisposeWith(_disposables);
+        Stems.Bass.WhenAnyValue(x => x.IsMuted).Subscribe(_ => OnStemMuteStateChanged()).DisposeWith(_disposables);
+        Stems.Other.WhenAnyValue(x => x.IsMuted).Subscribe(_ => OnStemMuteStateChanged()).DisposeWith(_disposables);
     }
 
     private Task LoadTrackAsync(string filePath)
@@ -194,8 +346,10 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         TrackTitle   = System.IO.Path.GetFileNameWithoutExtension(filePath);
         TrackArtist  = null;
         StemsVisible = false;
+        WaveformData = new WaveformAnalysisData();
         TrackHash    = null;  // No hash available from raw path — use LoadPlaylistTrackCommand for hash
         CueEditor.ClearCues();
+        RaiseWaveformBandPropertiesChanged();
         if (OnTrackLoaded != null) _ = OnTrackLoaded();
         return Task.CompletedTask;
     }
@@ -209,6 +363,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         TrackKey     = track.Key;
         DisplayBpm   = track.BPM ?? 0;
         StemsVisible = false;
+        WaveformData = track.WaveformDataObj;
         TrackHash    = track.TrackUniqueHash;
 
         if (!string.IsNullOrEmpty(TrackHash))
@@ -223,6 +378,40 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         }
 
         if (OnTrackLoaded != null) await OnTrackLoaded();
+
+        RaiseWaveformBandPropertiesChanged();
+    }
+
+    private void RaiseWaveformBandPropertiesChanged()
+    {
+        this.RaisePropertyChanged(nameof(LowBandForWaveform));
+        this.RaisePropertyChanged(nameof(MidBandForWaveform));
+        this.RaisePropertyChanged(nameof(HighBandForWaveform));
+    }
+
+    private void OnStemMuteStateChanged()
+    {
+        RaiseWaveformBandPropertiesChanged();
+        _ = SaveStemPrefsAsync();
+    }
+
+    public void UpdateWaveformViewport(double windowSeconds, double timelineOffsetSeconds)
+    {
+        windowSeconds = Math.Max(1.0, windowSeconds);
+
+        // 240 seconds on screen = zoom 1.0 baseline. Smaller windows zoom in.
+        WaveformZoomLevel = Math.Clamp(240.0 / windowSeconds, 1.0, 16.0);
+
+        if (Deck.DurationSeconds <= 0)
+        {
+            WaveformViewOffset = 0;
+            return;
+        }
+
+        var visibleFraction = Math.Min(1.0, windowSeconds / Deck.DurationSeconds);
+        var maxOffset = Math.Max(0.0, 1.0 - visibleFraction);
+        var raw = timelineOffsetSeconds / Deck.DurationSeconds;
+        WaveformViewOffset = Math.Clamp(raw, 0.0, maxOffset);
     }
 
     private void ApplyStemPrefs(StemPreference pref)
