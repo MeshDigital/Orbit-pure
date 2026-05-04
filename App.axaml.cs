@@ -17,8 +17,10 @@ using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.Entertainment;
 using SLSKDONET.Services.Library;
 using SLSKDONET.ViewModels;
+using SLSKDONET.Services.Input;
 using SLSKDONET.Views;
 using SLSKDONET.Views.Avalonia;
+using SLSKDONET.ViewModels.Settings;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -49,6 +51,10 @@ public partial class App : Application
         {
             // Configure services
             Services = ConfigureServices();
+
+            // Eagerly activate background queue listeners that subscribe to the event bus.
+            // Without resolving this singleton, manual Analyse actions appear to do nothing.
+            _ = Services.GetRequiredService<Services.AnalysisQueueService>();
 
             // Register shutdown handler to prevent orphaned processes
             desktop.Exit += async (_, __) =>
@@ -514,6 +520,11 @@ public partial class App : Application
         services.AddSingleton<IClipboardService, ClipboardService>();
         services.AddSingleton<IDialogService, DialogService>();
         services.AddSingleton<DashboardService>();
+        // Keyboard mapping system (Epic #119)
+        services.AddSingleton<IKeyboardMappingService, KeyboardMappingService>();
+        services.AddSingleton<IKeyboardTelemetryService, KeyboardTelemetryService>();
+        services.AddSingleton<KeyboardEventRouter>();
+        services.AddSingleton<KeyboardMappingsViewModel>();
         services.AddSingleton<GlobalHotkeyService>();
 
         // Global Shell Services
@@ -523,6 +534,8 @@ public partial class App : Application
 
         // ViewModels
         services.AddSingleton<MainViewModel>();
+        // Lazy<MainViewModel> breaks the circular dependency: MainViewModel → GlobalHotkeyService → KeyboardEventRouter → MainViewModel
+        services.AddSingleton(sp => new Lazy<MainViewModel>(sp.GetRequiredService<MainViewModel>));
         services.AddSingleton<SearchViewModel>();
         services.AddSingleton<UserCollectionViewModel>();
         services.AddSingleton<SearchFilterViewModel>(); // [FIX] Added missing registration
@@ -590,6 +603,9 @@ public partial class App : Application
         // ── Auto-cue / phrase detection pipeline ──────────────────────────
         services.AddSingleton<Services.CueGenerationService>();
         services.AddSingleton<Services.AudioAnalysis.CuePointDetectionService>();
+        services.AddSingleton<Services.PhraseAlignmentService>();
+        services.AddSingleton<Services.IPhraseAlignmentService>(sp =>
+            sp.GetRequiredService<Services.PhraseAlignmentService>());
         services.AddSingleton<Services.AnalyzeTrackStructureJob>();
 
         services.AddSingleton<ViewModels.Workstation.WorkstationViewModel>();
@@ -597,9 +613,17 @@ public partial class App : Application
 
         // ── Task 1.5: Beatgrid Detection ──────────────────────────────────
         services.AddSingleton<Services.AudioAnalysis.BeatgridDetectionService>();
+        services.AddSingleton<Services.AudioAnalysis.BpmDetectionService>();
+        services.AddSingleton<Services.AudioAnalysis.KeyDetectionService>();
+        services.AddSingleton<Services.AudioAnalysis.AudioIngestionPipeline>();
+        services.AddSingleton<Services.AudioAnalysis.EssentiaRunner>();
 
-        // ── Task 1.6: Waveform Extraction ─────────────────────────────────
+        // ── Task 1.6: Waveform + Energy Extraction ───────────────────────
         services.AddSingleton<Services.AudioAnalysis.WaveformExtractionService>();
+        services.AddSingleton<Services.AudioAnalysis.EnergyAnalysisService>();
+        services.AddSingleton<Services.AudioAnalysis.AudioAnalysisService>();
+        services.AddSingleton<Services.IAudioAnalysisService>(sp =>
+            sp.GetRequiredService<Services.AudioAnalysis.AudioAnalysisService>());
 
         // ── Issue 2.1: Embedding Extraction Service ───────────────────────
         services.AddSingleton<Services.Embeddings.EmbeddingExtractionService>();
@@ -826,8 +850,18 @@ public partial class App : Application
                 return true;
         }
 
-        // SocketException: connection refused (10061) or operation aborted (995)
-        if (ex is SocketException se && (se.NativeErrorCode == 10061 || se.NativeErrorCode == 995))
+        if (ex is IOException ioEx)
+        {
+            var ioMessage = ioEx.ToString();
+            if (ioMessage.Contains("Unable to read data from the transport connection", StringComparison.OrdinalIgnoreCase) ||
+                ioMessage.Contains("Failed to read", StringComparison.OrdinalIgnoreCase) ||
+                ioMessage.Contains("connected party did not properly respond", StringComparison.OrdinalIgnoreCase) ||
+                ioMessage.Contains("connected host has failed to respond", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        // SocketException: network timeout / connection refused / peer abort during Soulseek churn.
+        if (ex is SocketException se && (se.NativeErrorCode == 10060 || se.NativeErrorCode == 10061 || se.NativeErrorCode == 10054 || se.NativeErrorCode == 10053 || se.NativeErrorCode == 995))
             return true;
 
         // Timeout / inactivity / cancelled I/O noise from Soulseek.NET internals
@@ -835,14 +869,20 @@ public partial class App : Application
             return true;
 
         var msg = ex.Message;
+        var stackTraceText = ex.StackTrace ?? string.Empty;
         if (msg.Contains("timed out", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("failed to respond", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("Unable to read data from the transport connection", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("Failed to read", StringComparison.OrdinalIgnoreCase) ||
             msg.Contains("Inactivity timeout", StringComparison.OrdinalIgnoreCase) ||
             msg.Contains("Remote connection closed", StringComparison.OrdinalIgnoreCase) ||
             msg.Contains("I/O operation has been aborted", StringComparison.OrdinalIgnoreCase) ||
             msg.Contains("No connection could be made", StringComparison.OrdinalIgnoreCase) ||
             msg.Contains("An existing connection was forcibly closed", StringComparison.OrdinalIgnoreCase) ||
             msg.Contains("The operation was canceled", StringComparison.OrdinalIgnoreCase) ||
-            msg.Contains("MessageConnection", StringComparison.OrdinalIgnoreCase))
+            msg.Contains("MessageConnection", StringComparison.OrdinalIgnoreCase) ||
+            stackTraceText.Contains("Soulseek.Network.Tcp.Connection.ReadInternalAsync", StringComparison.OrdinalIgnoreCase) ||
+            stackTraceText.Contains("Soulseek.Network.MessageConnection.ReadContinuouslyAsync", StringComparison.OrdinalIgnoreCase))
             return true;
 
         // Any exception originating from Soulseek.NET library itself

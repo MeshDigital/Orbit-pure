@@ -173,11 +173,15 @@ public class SearchFilterViewModel : ReactiveObject
             if (result.Bitrate > 0 && result.Bitrate < effectiveMin) return false;
 
             // 2. Format
-            // Normalize extension
-            var ext = System.IO.Path.GetExtension(result.Model.Filename)?.TrimStart('.')?.ToUpperInvariant() ?? "";
-            
-            // Map "MPEG Layer 3" etc if needed, but usually extension is "mp3"
-            if (!formats.Contains(ext)) return false; 
+            // Prefer the filename extension, but fall back to the model format when the
+            // network result omits an extension. Unknown formats are allowed through so
+            // the UI doesn't appear empty when metadata is sparse.
+            var ext = System.IO.Path.GetExtension(result.Model.Filename)?.TrimStart('.');
+            var formatToken = !string.IsNullOrWhiteSpace(ext)
+                ? ext.ToUpperInvariant()
+                : (result.Model.Format ?? string.Empty).Trim().ToUpperInvariant();
+
+            if (!string.IsNullOrWhiteSpace(formatToken) && !formats.Contains(formatToken)) return false; 
 
             // 3. Reliability (Queue Length)
             // If High Reliability is ON, reject queues > 50
@@ -221,9 +225,12 @@ public class SearchFilterViewModel : ReactiveObject
         if (result.Bitrate > 0 && result.Bitrate < effectiveMin)
             return $"Bitrate below filter floor ({effectiveMin}kbps effective minimum)";
 
-        var ext = System.IO.Path.GetExtension(result.Model.Filename)?.TrimStart('.')?.ToUpperInvariant() ?? "UNKNOWN";
-        if (!SelectedFormats.Contains(ext))
-            return $"Format filtered out ({ext})";
+        var ext = System.IO.Path.GetExtension(result.Model.Filename)?.TrimStart('.');
+        var formatToken = !string.IsNullOrWhiteSpace(ext)
+            ? ext.ToUpperInvariant()
+            : (result.Model.Format ?? string.Empty).Trim().ToUpperInvariant();
+        if (!string.IsNullOrWhiteSpace(formatToken) && !SelectedFormats.Contains(formatToken))
+            return $"Format filtered out ({formatToken})";
 
         if (UseHighReliability && result.QueueLength > 50)
             return $"Queue too deep for high-reliability mode ({result.QueueLength})";
@@ -263,9 +270,12 @@ public class SearchFilterViewModel : ReactiveObject
             if (result.Bitrate > 0 && result.Bitrate < effectiveMin) return false;
 
             // 2. Format
-            var ext = System.IO.Path.GetExtension(result.Model.Filename)?.TrimStart('.')?.ToUpperInvariant() ?? "";
-            
-            if (!SelectedFormats.Contains(ext)) return false; 
+            var ext = System.IO.Path.GetExtension(result.Model.Filename)?.TrimStart('.');
+            var formatToken = !string.IsNullOrWhiteSpace(ext)
+                ? ext.ToUpperInvariant()
+                : (result.Model.Format ?? string.Empty).Trim().ToUpperInvariant();
+
+            if (!string.IsNullOrWhiteSpace(formatToken) && !SelectedFormats.Contains(formatToken)) return false; 
 
             // 3. Reliability
             if (UseHighReliability && result.QueueLength > 50) return false;

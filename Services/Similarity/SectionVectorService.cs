@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
@@ -126,6 +127,20 @@ public sealed class SectionVectorService
             .OrderByDescending(s => s.Confidence)
             .FirstOrDefault();
 
+    public async Task<float[]?> GetIntroVectorAsync(string trackHash, CancellationToken ct = default)
+        => (await GetIntroSectionAsync(trackHash, ct))?.Embedding;
+
+    public async Task<float[]?> GetOutroVectorAsync(string trackHash, CancellationToken ct = default)
+        => (await GetOutroSectionAsync(trackHash, ct))?.Embedding;
+
+    public async Task<float[]?> GetDropVectorAsync(string trackHash, int dropIndex = 1, CancellationToken ct = default)
+        => (await GetSectionsAsync(trackHash, ct))
+            .Where(s => s.SectionType == PhraseType.Drop)
+            .OrderByDescending(s => s.Confidence)
+            .Skip(Math.Max(0, dropIndex - 1))
+            .Select(s => s.Embedding)
+            .FirstOrDefault(e => e is { Length: > 0 });
+
     // ── Transition scoring ─────────────────────────────────────────────────
 
     /// <summary>
@@ -171,6 +186,41 @@ public sealed class SectionVectorService
 
         if (outro is null || intro is null) return 0.0;
         return outro.DistanceTo(intro);
+    }
+
+    public double TransitionScoreCached(string fromHash, string toHash)
+    {
+        var fromSections = GetCached(fromHash);
+        var toSections = GetCached(toHash);
+
+        var outro = fromSections.Where(s => s.SectionType == PhraseType.Outro)
+            .OrderByDescending(s => s.Confidence)
+            .FirstOrDefault();
+        var intro = toSections.Where(s => s.SectionType == PhraseType.Intro)
+            .OrderByDescending(s => s.Confidence)
+            .FirstOrDefault();
+
+        if (outro is null || intro is null)
+            return 0.5;
+
+        return outro.TransitionScore(intro);
+    }
+
+    public double DropSimilarityCached(string fromHash, string toHash)
+    {
+        var fromDrop = GetCached(fromHash)
+            .Where(s => s.SectionType == PhraseType.Drop)
+            .OrderByDescending(s => s.Confidence)
+            .FirstOrDefault();
+        var toDrop = GetCached(toHash)
+            .Where(s => s.SectionType == PhraseType.Drop)
+            .OrderByDescending(s => s.Confidence)
+            .FirstOrDefault();
+
+        if (fromDrop is null || toDrop is null)
+            return 0.0;
+
+        return Math.Clamp(1.0 - (fromDrop.DistanceTo(toDrop) / 2.0), 0.0, 1.0);
     }
 
     // ── Bulk preload ───────────────────────────────────────────────────────
@@ -238,16 +288,25 @@ public sealed class SectionVectorService
             float spectral     = af != null ? Math.Clamp(af.SpectralCentroid / 20_000f, 0f, 1f) : 0.3f;
 
             var vectors = phrases
-                .Select(p => new SectionFeatureVector
+                .Select(p =>
                 {
-                    SectionType        = p.Type,
-                    EnergyLevel        = Math.Clamp(p.EnergyLevel,              0f, 1f),
-                    StartRatio         = Math.Clamp(p.StartTimeSeconds / totalDuration, 0f, 1f),
-                    DurationRatio      = Math.Clamp(p.DurationSeconds  / totalDuration, 0f, 1f),
-                    Arousal            = arousalNorm,
-                    Danceability       = danceability,
-                    SpectralBrightness = spectral,
-                    Confidence         = Math.Clamp(p.Confidence,               0f, 1f),
+                    var sectionEmbedding = TryParseEmbedding(p.SectionEmbeddingJson);
+                    var fallbackEmbedding = PickTrackEmbedding(af);
+                    var effectiveEmbedding = sectionEmbedding is { Length: > 0 } ? sectionEmbedding : fallbackEmbedding;
+
+                    return new SectionFeatureVector
+                    {
+                        SectionType        = p.Type,
+                        EnergyLevel        = Math.Clamp(p.EnergyLevel, 0f, 1f),
+                        StartRatio         = Math.Clamp(p.StartTimeSeconds / totalDuration, 0f, 1f),
+                        DurationRatio      = Math.Clamp(p.DurationSeconds / totalDuration, 0f, 1f),
+                        Arousal            = arousalNorm,
+                        Danceability       = danceability,
+                        SpectralBrightness = spectral,
+                        Confidence         = Math.Clamp(p.Confidence, 0f, 1f),
+                        Embedding          = effectiveEmbedding,
+                        EmbeddingMagnitude = p.EmbeddingMagnitude > 0 ? p.EmbeddingMagnitude : ComputeMagnitude(effectiveEmbedding),
+                    };
                 })
                 .ToList();
 
@@ -269,5 +328,47 @@ public sealed class SectionVectorService
                 "[SectionVectorService] Failed loading sections for hash {Hash}", trackHash);
             return Array.Empty<SectionFeatureVector>();
         }
+    }
+
+    private static float[]? TryParseEmbedding(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<float[]>(json);
+            return parsed is { Length: > 0 } ? parsed : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static float[]? PickTrackEmbedding(AudioFeaturesEntity? features)
+    {
+        if (features == null)
+            return null;
+
+        if (features.DeepTextureEmbedding is { Length: > 0 })
+            return features.DeepTextureEmbedding;
+
+        if (features.VectorEmbedding is { Length: > 0 })
+            return features.VectorEmbedding;
+
+        return null;
+    }
+
+    private static float ComputeMagnitude(float[]? embedding)
+    {
+        if (embedding is not { Length: > 0 })
+            return 0f;
+
+        double sum = 0d;
+        foreach (var value in embedding)
+            sum += value * value;
+
+        return (float)Math.Sqrt(sum);
     }
 }

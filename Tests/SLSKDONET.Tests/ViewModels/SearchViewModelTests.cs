@@ -76,7 +76,54 @@ public class SearchViewModelTests
         Assert.True(collectionEvents <= vm.TotalResultsReceived, $"Expected batched UI updates, got {collectionEvents} collection change events for {vm.TotalResultsReceived} result(s).");
     }
 
+    [Fact]
+    public async Task AddToPlaylistCommand_PublishesSelectedResultsToProjectFlow()
+    {
+        using var scheduler = new EventLoopScheduler();
+        RxApp.MainThreadScheduler = scheduler;
+
+        var (vm, eventBus) = CreateViewModelWithBus((_, token) => FiniteTrackStream(Array.Empty<Track>(), token));
+        var searchResult = new AnalyzedSearchResultViewModel(new SLSKDONET.ViewModels.SearchResult(CreateTrack("mix-peer")));
+        vm.SelectedResults.Add(searchResult);
+
+        AddToProjectRequestEvent? captured = null;
+        eventBus.GetEvent<AddToProjectRequestEvent>().Subscribe(evt => captured = evt);
+
+        vm.AddToPlaylistCommand.Execute(null);
+        await Task.Delay(50);
+
+        Assert.NotNull(captured);
+        Assert.Single(captured!.Tracks);
+        Assert.True(searchResult.RawResult.IsAddedToProject);
+        Assert.Contains("Add to Mix", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ConvertToPlaylistTrack_MapsSearchTrackMetadata()
+    {
+        var track = CreateTrack("peer-map");
+        track.BPM = 128;
+        track.MusicalKey = "8A";
+        track.Energy = 0.74;
+        track.AlbumArtUrl = "https://example.com/art.jpg";
+
+        var mapped = SearchViewModel.ConvertToPlaylistTrack(track);
+
+        Assert.NotNull(mapped);
+        Assert.Equal("Artist", mapped!.Artist);
+        Assert.Equal("Track", mapped.Title);
+        Assert.Equal(128, mapped.BPM);
+        Assert.Equal("8A", mapped.MusicalKey);
+        Assert.Equal(0.74, mapped.Energy);
+        Assert.Equal("https://example.com/art.jpg", mapped.AlbumArtUrl);
+    }
+
     private static SearchViewModel CreateViewModel(Func<string, CancellationToken, IAsyncEnumerable<Track>> streamFactory)
+    {
+        return CreateViewModelWithBus(streamFactory).vm;
+    }
+
+    private static (SearchViewModel vm, EventBusService eventBus) CreateViewModelWithBus(Func<string, CancellationToken, IAsyncEnumerable<Track>> streamFactory)
     {
         var config = new AppConfig
         {
@@ -128,7 +175,7 @@ public class SearchViewModelTests
         var bulkCoordinator = new Mock<IBulkOperationCoordinator>();
         bulkCoordinator.SetupGet(x => x.IsRunning).Returns(false);
 
-        return new SearchViewModel(
+        var vm = new SearchViewModel(
             NullLogger<SearchViewModel>.Instance,
             soulseek: null!,
             config,
@@ -145,6 +192,8 @@ public class SearchViewModelTests
             fileNameFormatter: null!,
             eventBus,
             bulkCoordinator: bulkCoordinator.Object);
+
+        return (vm, eventBus);
     }
 
     private static async Task InvokeUnifiedSearchAsync(SearchViewModel vm)

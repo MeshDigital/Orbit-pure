@@ -24,7 +24,7 @@
             <StackPanel Spacing="24">
                 
                 <!-- My Spotify Hub -->
-                <Border Background="#1A1A1A" BorderBrush="#1DB954" BorderThickness="1" CornerRadius="12" Padding="32">
+                <Border Background="{DynamicResource RegionBrush}" BorderBrush="#1DB954" BorderThickness="1" CornerRadius="12" Padding="32">
                     <StackPanel Spacing="20">
                         <Grid ColumnDefinitions="*,Auto">
                             <StackPanel Grid.Column="0" Spacing="8">
@@ -125,7 +125,7 @@
                 </Border>
                 
                 <!-- Ad-hoc / Pasted Tracklist -->
-                <Border Background="#1A1A1A" BorderBrush="#FFC107" BorderThickness="1" CornerRadius="12" Padding="32">
+                <Border Background="{DynamicResource RegionBrush}" BorderBrush="#FFC107" BorderThickness="1" CornerRadius="12" Padding="32">
                     <StackPanel Spacing="16">
                         <StackPanel Orientation="Horizontal" Spacing="16">
                             <TextBlock Text="📋" FontSize="48"/>
@@ -289,7 +289,7 @@
                 
                 <!-- CSV Import -->
                 <Border Name="CsvDropZone" 
-                        Background="#1A1A1A" 
+                        Background="{DynamicResource RegionBrush}" 
                         BorderBrush="#3E3E3E" 
                         BorderThickness="1" 
                         CornerRadius="12" 
@@ -341,7 +341,7 @@
                 </Border>
                 
                 <!-- USB Import (Future) -->
-                <Border Background="#1A1A1A" BorderBrush="#3E3E3E" BorderThickness="1" CornerRadius="12" Padding="32" Opacity="0.5">
+                <Border Background="{DynamicResource RegionBrush}" BorderBrush="#3E3E3E" BorderThickness="1" CornerRadius="12" Padding="32" Opacity="0.5">
                     <StackPanel Spacing="16">
                         <StackPanel Orientation="Horizontal" Spacing="16">
                             <TextBlock Text="💾" FontSize="48"/>

@@ -103,7 +103,7 @@
     <!-- ═══════════════════════════════════════════════════════════════════════
          Root layout: header + two-pane body
     ════════════════════════════════════════════════════════════════════════ -->
-    <Grid RowDefinitions="Auto,*">
+    <Grid RowDefinitions="Auto,Auto,*">
 
         <!-- ── Page Header ────────────────────────────────────────────────── -->
         <Border Grid.Row="0"
@@ -148,8 +148,54 @@
             </StackPanel>
         </Border>
 
+        <Border Grid.Row="1"
+                Margin="16,12,16,0"
+                Background="#141414"
+                BorderBrush="#262626"
+                BorderThickness="1"
+                CornerRadius="12"
+                Padding="12">
+            <Grid ColumnDefinitions="*,*,*,*,*">
+                <Border Grid.Column="0" Background="#191919" CornerRadius="10" Padding="12,10">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="TRACKS" FontSize="10" Foreground="#777777" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding TotalTrackCount}" FontSize="22" FontWeight="Bold" Foreground="White"/>
+                        <TextBlock Text="Library indexed" FontSize="11" Foreground="#8A8A8A"/>
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="1" Background="#132217" CornerRadius="10" Padding="12,10">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="ANALYZED" FontSize="10" Foreground="#7BCB95" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding AnalyzedTrackCount}" FontSize="22" FontWeight="Bold" Foreground="#D8FFE5"/>
+                        <TextBlock Text="{Binding CompletionRateDisplay, StringFormat='{}{0} complete'}" FontSize="11" Foreground="#9CC9A9"/>
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="2" Background="#201A12" CornerRadius="10" Padding="12,10">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="PENDING" FontSize="10" Foreground="#D6A96F" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding PendingTrackCount}" FontSize="22" FontWeight="Bold" Foreground="#FFEAD2"/>
+                        <TextBlock Text="Awaiting analysis" FontSize="11" Foreground="#C2A485"/>
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="3" Background="#181D28" CornerRadius="10" Padding="12,10">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="QUEUE" FontSize="10" Foreground="#86AFFF" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding QueueTrackCount}" FontSize="22" FontWeight="Bold" Foreground="#E0E9FF"/>
+                        <TextBlock Text="Ready for next run" FontSize="11" Foreground="#94A7CE"/>
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="4" Background="#211726" CornerRadius="10" Padding="12,10">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="AUTOMIX" FontSize="10" Foreground="#D38BFF" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding PlaylistTrackCount}" FontSize="22" FontWeight="Bold" Foreground="#F2DEFF"/>
+                        <TextBlock Text="{Binding StemsReadyCount, StringFormat='{}{0} stem-ready'}" FontSize="11" Foreground="#BE9FD1"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
         <!-- ── Two-pane body ─────────────────────────────────────────────── -->
-        <Grid Grid.Row="1" ColumnDefinitions="1*,Auto,1*">
+        <Grid Grid.Row="2" ColumnDefinitions="1*,Auto,1*">
 
             <!-- ════════════════════════════════════════════════════════════
                  LEFT PANE — Track Library
@@ -278,7 +324,7 @@
             <DockPanel Grid.Column="2" Margin="8,16,16,16" LastChildFill="True">
 
                 <!-- Pane header + Start button -->
-                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,6">
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,6">
                     <StackPanel Grid.Column="0" Spacing="2">
                         <TextBlock Text="🧪  Analysis Queue"
                                    FontSize="14" FontWeight="SemiBold"
@@ -296,7 +342,15 @@
                             Content="▶  Start Analysis"
                             IsEnabled="{Binding CanStartAnalysis}"
                             Command="{Binding StartAnalysisCommand}"
-                            ToolTip.Tip="Start processing all queued tracks"/>
+                            ToolTip.Tip="Start processing all queued tracks"
+                            Margin="0,0,8,0"/>
+
+                    <Button Grid.Column="2"
+                            Classes="secondary"
+                            Content="✨ Build Automix"
+                            IsEnabled="{Binding CanCreateAutomix}"
+                            Command="{Binding CreateAutomixCommand}"
+                            ToolTip.Tip="Build a staged BPM-ordered automix from analyzed tracks"/>
                 </Grid>
 
                 <!-- Processing indicator banner -->
@@ -313,6 +367,24 @@
                         <TextBlock Text="Processing tracks…"
                                    FontSize="12" Foreground="#1DB954"
                                    VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <Border DockPanel.Dock="Top"
+                        Background="#161A22"
+                        BorderBrush="#293042"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="12,9"
+                        Margin="0,0,0,8">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="🎛  Automix staging"
+                                   FontSize="12" FontWeight="SemiBold" Foreground="#D9E4FF"/>
+                        <TextBlock Text="{Binding AutomixSelectionSummary}"
+                                   FontSize="11" Foreground="#93A2C2"/>
+                        <TextBlock Text="{Binding AutomixStatusMessage}"
+                                   FontSize="11" Foreground="#1DB954"
+                                   IsVisible="{Binding AutomixStatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                     </StackPanel>
                 </Border>
 
@@ -411,7 +483,7 @@
                                                     Margin="0,2,0,4"/>
 
                                                 <!-- Row 1: Cue count badge + BPM confidence + Key confidence + action buttons -->
-                                                <Grid ColumnDefinitions="Auto,*,*,Auto,Auto" Margin="0,0,0,4">
+                                                <Grid ColumnDefinitions="Auto,*,*,Auto,Auto,Auto" Margin="0,0,0,4">
                                                     <!-- Cue count badge -->
                                                     <Border Grid.Column="0" Classes="chip"
                                                             Background="#1A1A2E" CornerRadius="10"
@@ -456,8 +528,17 @@
                                                             ToolTip.Tip="Clear results and re-run analysis"
                                                             Margin="4,0,0,0"/>
 
-                                                    <!-- Copy JSON (developer mode only) -->
                                                     <Button Grid.Column="4"
+                                                            Classes="secondary"
+                                                            Content="{Binding PlaylistActionLabel}"
+                                                            FontSize="10" Padding="6,3"
+                                                            Command="{Binding $parent[UserControl].DataContext.TogglePlaylistCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip.Tip="Stage or remove this track for automix"
+                                                            Margin="4,0,0,0"/>
+
+                                                    <!-- Copy JSON (developer mode only) -->
+                                                    <Button Grid.Column="5"
                                                             Classes="secondary"
                                                             Content="{}{} JSON"
                                                             FontSize="10" Padding="6,3"

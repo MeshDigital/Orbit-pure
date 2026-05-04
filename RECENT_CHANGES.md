@@ -2,6 +2,61 @@
 
 ---
 
+## [Unreleased] — 2026-04-20
+
+### 🔎 Search-to-Mix Handoff + Theme Resource Cleanup
+
+This follow-up roadmap pass focused on acquisition-to-creation flow and shell consistency.
+
+- Added a batch **Add to Mix** action to the Search page so selected Soulseek results can be staged directly into the existing project and Flow handoff instead of only being downloaded.
+- Added selection summary feedback in the Search surface so batch staging stays visible while curating candidates.
+- Hardened the shell's Acquire navigation state so Import and Import Preview remain clearly anchored in the correct section during workflow transitions.
+- Replaced key hardcoded dark panel backgrounds on Import, Search, Workstation, and the tablet shell surface with a shared theme resource brush for more consistent theming and easier future tuning.
+- Refreshed the documentation set with a new roadmap-progress and doc-gap audit covering the latest player, workstation, search, and import work.
+
+#### ✅ Verification
+
+- Targeted regressions passed cleanly: 64 succeeded, 0 failed.
+
+---
+
+## [Unreleased] — 2026-04-19
+
+### 🎧 DJ Cockpit Workflow Polish — Session Summary
+
+This session focused on turning ORBIT into a more direct, musician-friendly prep and mix cockpit with smarter energy analysis, clearer deck controls, and faster player-to-workstation flow.
+
+#### ⚡ Energy Analysis & Structural Prep
+
+- Added a new energy-analysis pipeline via EnergyAnalysisService so tracks now receive deterministic whole-track and per-section energy scoring.
+- Extended AnalyzeTrackStructureJob to persist segmented energy, align structural phrases, and enrich phrase sections for downstream transition and similarity logic.
+- Registered the new analysis services in DI and validated the workflow with focused test coverage.
+
+#### 🎛️ Workstation Deck Clarity & Cue Prep
+
+- Replaced cryptic single-letter stem toggles with clear Vocal, Drum, Bass, and Other controls.
+- Added section-aware shortcuts for View, Build, Drop, and Outro navigation directly on each deck strip.
+- Auto-seeded hot cues from analyzed cue roles and exposed clearer cue-prep summaries, MARK and AUTO actions, and friendlier pad labels.
+- Hardened cue loading so cue hydration and reset flows behave deterministically on the UI thread.
+
+#### 🔀 Harmonic Guidance & Transition Readiness
+
+- Added live deck-side mix-readiness summaries, transition status text, and harmonic guidance for safer blends.
+- Added semitone shift controls with clearer current-key feedback for quick harmonic correction during prep.
+- Improved phrase-aware snapping and transition labeling so blend timing is easier to judge at a glance.
+
+#### ▶️ Player, Inspector, and Queue Workflow Polish
+
+- Upgraded the now-playing sidebar with a current-track context summary and compact DJ badges for tempo, key, energy, cues, and readiness state.
+- Added direct actions from the player for Inspector, Workstation, Add to Mix, and Reveal in Explorer.
+- Made queue items directly playable and removable from the sidebar for faster auditioning.
+
+#### ✅ Verification
+
+- Focused regressions covering the player and workstation workflow passed cleanly: 18 succeeded, 0 failed.
+
+---
+
 ## [Unreleased] — 2026-04-10
 
 ### 🎛️ Cockpit Workstation — UI Feature Additions (Pure Wiring, Zero Backend Changes)

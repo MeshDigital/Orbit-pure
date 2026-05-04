@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using SLSKDONET.Data.Entities;
 
 namespace SLSKDONET.Services;
 
@@ -44,6 +45,26 @@ public sealed class StructuralAnalysisResult
     /// </summary>
     public IReadOnlyList<(double TimestampSeconds, float Confidence)> Drops { get; init; }
         = Array.Empty<(double, float)>();
+
+    /// <summary>
+    /// Higher-level structural sections inferred from phrase windows and local energy.
+    /// These are persisted to TrackPhrases and used by the bridge / transition systems.
+    /// </summary>
+    public IReadOnlyList<StructuralSection> Sections { get; init; } = Array.Empty<StructuralSection>();
+}
+
+/// <summary>
+/// Typed structural section inferred from a phrase-sized time span.
+/// </summary>
+public sealed class StructuralSection
+{
+    public PhraseType Type { get; init; } = PhraseType.Unknown;
+    public double StartSeconds { get; init; }
+    public double EndSeconds { get; init; }
+    public float EnergyLevel { get; init; }
+    public float Confidence { get; init; }
+    public int OrderIndex { get; init; }
+    public string Label { get; init; } = string.Empty;
 }
 
 /// <summary>
@@ -256,6 +277,158 @@ public sealed class StructuralAnalysisEngine
         return drops;
     }
 
+    private static IReadOnlyList<StructuralSection> BuildSections(
+        IReadOnlyList<double> phraseBoundaries,
+        double durationSeconds,
+        IReadOnlyList<float>? energyCurve,
+        IReadOnlyList<(double TimestampSeconds, float Confidence)> drops)
+    {
+        if (durationSeconds <= 0)
+            return Array.Empty<StructuralSection>();
+
+        var orderedBoundaries = (phraseBoundaries ?? Array.Empty<double>())
+            .Where(t => t >= 0 && t < durationSeconds)
+            .Distinct()
+            .OrderBy(t => t)
+            .ToList();
+
+        if (orderedBoundaries.Count == 0 || orderedBoundaries[0] > 0)
+            orderedBoundaries.Insert(0, 0);
+        if (orderedBoundaries[^1] < durationSeconds)
+            orderedBoundaries.Add(durationSeconds);
+
+        int sectionCount = Math.Max(0, orderedBoundaries.Count - 1);
+        if (sectionCount == 0)
+            return Array.Empty<StructuralSection>();
+
+        float averageEnergy = energyCurve is { Count: > 0 } ? energyCurve.Average() : 0.5f;
+        float highThreshold = Math.Clamp(averageEnergy + 0.18f, 0.62f, 0.92f);
+        float lowThreshold = Math.Clamp(averageEnergy - 0.15f, 0.10f, 0.42f);
+
+        var sections = new List<StructuralSection>(sectionCount);
+        var counters = new Dictionary<PhraseType, int>();
+
+        for (int i = 0; i < sectionCount; i++)
+        {
+            double start = orderedBoundaries[i];
+            double end = orderedBoundaries[i + 1];
+            if (end <= start) continue;
+
+            float sectionEnergy = AverageEnergy(energyCurve, start, end, EnergyWindowSeconds);
+            var type = DetermineSectionType(
+                index: i,
+                sectionCount: sectionCount,
+                startSeconds: start,
+                endSeconds: end,
+                energyLevel: sectionEnergy,
+                averageEnergy: averageEnergy,
+                highThreshold: highThreshold,
+                lowThreshold: lowThreshold,
+                drops: drops);
+
+            counters[type] = counters.TryGetValue(type, out int existing) ? existing + 1 : 1;
+            float confidence = type switch
+            {
+                PhraseType.Intro or PhraseType.Outro => 0.96f,
+                PhraseType.Drop => Math.Clamp(0.75f + ClosestDropConfidence(start, end, drops) * 0.25f, 0f, 1f),
+                PhraseType.Build => 0.78f,
+                PhraseType.Breakdown => 0.74f,
+                PhraseType.Chorus => 0.70f,
+                _ => 0.62f,
+            };
+
+            sections.Add(new StructuralSection
+            {
+                Type = type,
+                StartSeconds = start,
+                EndSeconds = end,
+                EnergyLevel = Math.Clamp(sectionEnergy, 0f, 1f),
+                Confidence = confidence,
+                OrderIndex = i,
+                Label = BuildLabel(type, counters[type]),
+            });
+        }
+
+        return sections;
+    }
+
+    private static PhraseType DetermineSectionType(
+        int index,
+        int sectionCount,
+        double startSeconds,
+        double endSeconds,
+        float energyLevel,
+        float averageEnergy,
+        float highThreshold,
+        float lowThreshold,
+        IReadOnlyList<(double TimestampSeconds, float Confidence)> drops)
+    {
+        if (index == 0) return PhraseType.Intro;
+        if (index == sectionCount - 1) return PhraseType.Outro;
+
+        bool containsDrop = drops.Any(d => d.TimestampSeconds >= startSeconds && d.TimestampSeconds < endSeconds + EnergyWindowSeconds);
+        bool closeToDrop = drops.Any(d => d.TimestampSeconds >= startSeconds - EnergyWindowSeconds && d.TimestampSeconds < endSeconds + (EnergyWindowSeconds * 0.5));
+        bool immediatelyBeforeDrop = !containsDrop && drops.Any(d => d.TimestampSeconds >= endSeconds && d.TimestampSeconds <= endSeconds + (endSeconds - startSeconds));
+
+        if (containsDrop || (closeToDrop && energyLevel >= averageEnergy))
+            return PhraseType.Drop;
+
+        if (immediatelyBeforeDrop || energyLevel >= (highThreshold * 0.85f))
+            return PhraseType.Build;
+
+        if (energyLevel <= lowThreshold)
+            return PhraseType.Breakdown;
+
+        if (energyLevel >= highThreshold)
+            return PhraseType.Chorus;
+
+        return index % 2 == 0 ? PhraseType.Verse : PhraseType.Bridge;
+    }
+
+    private static float AverageEnergy(IReadOnlyList<float>? energyCurve, double startSeconds, double endSeconds, double windowSeconds)
+    {
+        if (energyCurve == null || energyCurve.Count == 0)
+            return 0.5f;
+
+        int startIndex = Math.Clamp((int)Math.Floor(startSeconds / Math.Max(windowSeconds, 0.25)), 0, energyCurve.Count - 1);
+        int endIndex = Math.Clamp((int)Math.Ceiling(endSeconds / Math.Max(windowSeconds, 0.25)), startIndex + 1, energyCurve.Count);
+        int count = Math.Max(1, endIndex - startIndex);
+
+        float sum = 0f;
+        for (int i = startIndex; i < startIndex + count && i < energyCurve.Count; i++)
+            sum += energyCurve[i];
+
+        return sum / count;
+    }
+
+    private static float ClosestDropConfidence(
+        double startSeconds,
+        double endSeconds,
+        IReadOnlyList<(double TimestampSeconds, float Confidence)> drops)
+    {
+        foreach (var drop in drops)
+        {
+            if (drop.TimestampSeconds >= startSeconds && drop.TimestampSeconds < endSeconds + EnergyWindowSeconds)
+                return drop.Confidence;
+        }
+
+        return drops.FirstOrDefault().Confidence;
+    }
+
+    private static string BuildLabel(PhraseType type, int ordinal)
+        => type switch
+        {
+            PhraseType.Intro => "Intro",
+            PhraseType.Outro => "Outro",
+            PhraseType.Drop => $"Drop {ordinal}",
+            PhraseType.Build => $"Build {ordinal}",
+            PhraseType.Breakdown => $"Breakdown {ordinal}",
+            PhraseType.Chorus => $"Chorus {ordinal}",
+            PhraseType.Verse => $"Verse {ordinal}",
+            PhraseType.Bridge => $"Bridge {ordinal}",
+            _ => $"Section {ordinal}",
+        };
+
     /// <summary>
     /// Convenience method: runs the complete analysis pipeline from already-computed data.
     /// </summary>
@@ -287,6 +460,8 @@ public sealed class StructuralAnalysisEngine
             drops = FindDrops(energyCurve, phrases, bpm, EnergyWindowSeconds);
         }
 
+        var sections = BuildSections(phrases, durationSeconds, energyCurve, drops);
+
         return new StructuralAnalysisResult
         {
             Bpm = bpm,
@@ -296,6 +471,7 @@ public sealed class StructuralAnalysisEngine
             EnergyCurve = energyCurve ?? Array.Empty<float>(),
             EnergyWindowSeconds = EnergyWindowSeconds,
             Drops = drops,
+            Sections = sections,
         };
     }
 }

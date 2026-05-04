@@ -53,7 +53,20 @@ namespace SLSKDONET.ViewModels
 
             // Mirror RightPanelService reactive properties
             this.WhenAnyValue(x => x._rightPanelService.CurrentPanelVm)
-                .Subscribe(_ => this.RaisePropertyChanged(nameof(CurrentContent)))
+                .Subscribe(vm =>
+                {
+                    this.RaisePropertyChanged(nameof(CurrentContent));
+
+                    if (vm is PlaylistTrackViewModel playlistTrack)
+                        _ = playlistTrack.LoadAnalysisDataAsync();
+
+                    SimilarTracksVm.PrimeFromInspectorContext(vm);
+
+                    if (vm is PlayerViewModel)
+                        ActiveTab = SidebarTab.Player;
+                    else if (vm != null && ActiveTab != SidebarTab.Similarity)
+                        ActiveTab = SidebarTab.Inspector;
+                })
                 .DisposeWith(_disposables);
             this.WhenAnyValue(x => x._rightPanelService.IsPanelOpen)
                 .Subscribe(_ => this.RaisePropertyChanged(nameof(IsVisible)))
@@ -65,10 +78,15 @@ namespace SLSKDONET.ViewModels
                 .Subscribe(_ => this.RaisePropertyChanged(nameof(ModeIcon)))
                 .DisposeWith(_disposables);
 
-            SwitchToPlayerCommand     = ReactiveCommand.Create(() => { ActiveTab = SidebarTab.Player;     _rightPanelService.IsPanelOpen = true; });
-            SwitchToInspectorCommand  = ReactiveCommand.Create(() => { ActiveTab = SidebarTab.Inspector;  _rightPanelService.IsPanelOpen = true; });
-            SwitchToSimilarityCommand = ReactiveCommand.Create(() => { ActiveTab = SidebarTab.Similarity; _rightPanelService.IsPanelOpen = true; });
-            CloseCommand              = ReactiveCommand.Create(() => { _rightPanelService.IsPanelOpen = false; });
+            SwitchToPlayerCommand     = ReactiveCommand.Create(() => { ActiveTab = SidebarTab.Player; _rightPanelService.IsPanelOpen = true; });
+            SwitchToInspectorCommand  = ReactiveCommand.Create(() => { ActiveTab = SidebarTab.Inspector; _rightPanelService.IsPanelOpen = true; });
+            SwitchToSimilarityCommand = ReactiveCommand.Create(() =>
+            {
+                SimilarTracksVm.PrimeFromInspectorContext(CurrentContent);
+                ActiveTab = SidebarTab.Similarity;
+                _rightPanelService.IsPanelOpen = true;
+            });
+            CloseCommand = ReactiveCommand.Create(() => _rightPanelService.ClosePanel());
         }
 
         public object? CurrentContent => _rightPanelService.CurrentPanelVm;
@@ -77,7 +95,7 @@ namespace SLSKDONET.ViewModels
         public string? ModeIcon => _rightPanelService.ModeIcon;
 
         /// <summary>Kept for backwards-compat with any code-behind callers.</summary>
-        public void Close() => _rightPanelService.IsPanelOpen = false;
+        public void Close() => _rightPanelService.ClosePanel();
 
         public void Dispose() => _disposables.Dispose();
     }

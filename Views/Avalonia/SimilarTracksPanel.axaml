@@ -68,6 +68,13 @@
                     ToolTip.Tip="Refresh" IsEnabled="{Binding !IsBusy}">
                 <TextBlock Text="↺" FontSize="14"/>
             </Button>
+            <Button Command="{Binding ShowSimilarModeCommand}"
+                    Background="#2D2D2D" Foreground="#DDD"
+                    BorderBrush="#4A4A4A" BorderThickness="1"
+                    CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
+                    IsVisible="{Binding IsBridgeMode}">
+                <TextBlock Text="← Similar List" FontSize="11"/>
+            </Button>
             <!-- Add All button (shown when there are results) -->
             <Button Command="{Binding AddAllCommand}"
                     Background="#1E3A2B" Foreground="#4EC9B0"
@@ -82,10 +89,9 @@
                     Background="#1A2A3A" Foreground="#63B3ED"
                     BorderBrush="#63B3ED" BorderThickness="1"
                     CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
-                    ToolTip.Tip="Find bridging tracks between 2 selected tracks"
-                    IsVisible="{Binding IsBridgeMode}"
+                    ToolTip.Tip="Find bridge-friendly transition ideas"
                     IsEnabled="{Binding !IsBusy}">
-                <TextBlock Text="↻ Refresh Bridge" FontSize="11"/>
+                <TextBlock Text="↻ Bridge Ideas" FontSize="11"/>
             </Button>
         </StackPanel>
 

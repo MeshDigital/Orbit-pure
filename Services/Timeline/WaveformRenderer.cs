@@ -272,6 +272,72 @@ public static class WaveformRenderer
         }
     }
 
+    // ── Task 4.2b: Phrase section overlay ─────────────────────────────────
+
+    /// <summary>
+    /// Draws 16-bar gridlines and phrase-colored section backgrounds over a waveform bitmap.
+    /// </summary>
+    public static void OverlayPhraseSections(
+        SKBitmap bmp,
+        IReadOnlyList<SLSKDONET.Models.PhraseSegment> phrases,
+        double trackDurationSeconds,
+        float bpm,
+        double zoom = 1.0,
+        double scrollOffset = 0.0)
+    {
+        if (bmp is null || phrases is null || phrases.Count == 0 || trackDurationSeconds <= 0) return;
+
+        using var canvas = new SKCanvas(bmp);
+        zoom = Math.Max(1.0, zoom);
+
+        double windowDuration = trackDurationSeconds / zoom;
+        double windowStart = scrollOffset * (trackDurationSeconds - windowDuration);
+
+        if (bpm > 0)
+        {
+            double phraseSeconds = (16d * 4d * 60d) / bpm;
+            using var gridPaint = new SKPaint
+            {
+                Color = new SKColor(255, 255, 255, 42),
+                StrokeWidth = 1f,
+                IsAntialias = false
+            };
+
+            for (double t = 0; t <= trackDurationSeconds; t += phraseSeconds)
+            {
+                if (t < windowStart || t > windowStart + windowDuration) continue;
+                float x = (float)((t - windowStart) / windowDuration * bmp.Width);
+                canvas.DrawLine(x, 0, x, bmp.Height, gridPaint);
+            }
+        }
+
+        foreach (var phrase in phrases)
+        {
+            double start = phrase.Start;
+            double end = phrase.Start + phrase.Duration;
+            if (end < windowStart || start > windowStart + windowDuration) continue;
+
+            float x1 = (float)((start - windowStart) / windowDuration * bmp.Width);
+            float x2 = (float)((end - windowStart) / windowDuration * bmp.Width);
+            if (x2 <= x1) continue;
+
+            var color = ResolvePhraseColor(phrase.Label);
+            using var fillPaint = new SKPaint { Color = color.WithAlpha(38), IsAntialias = false };
+            canvas.DrawRect(x1, 0, x2 - x1, bmp.Height, fillPaint);
+        }
+    }
+
+    private static SKColor ResolvePhraseColor(string? label)
+    {
+        var text = label ?? string.Empty;
+        if (text.Contains("intro", StringComparison.OrdinalIgnoreCase)) return SKColor.Parse("#1E3A5F");
+        if (text.Contains("build", StringComparison.OrdinalIgnoreCase) || text.Contains("riser", StringComparison.OrdinalIgnoreCase)) return SKColor.Parse("#FFB347");
+        if (text.Contains("drop", StringComparison.OrdinalIgnoreCase) || text.Contains("chorus", StringComparison.OrdinalIgnoreCase)) return SKColor.Parse("#DC143C");
+        if (text.Contains("break", StringComparison.OrdinalIgnoreCase) || text.Contains("bridge", StringComparison.OrdinalIgnoreCase)) return SKColor.Parse("#6A0DAD");
+        if (text.Contains("outro", StringComparison.OrdinalIgnoreCase)) return SKColor.Parse("#708090");
+        return SKColor.Parse("#708090");
+    }
+
     // ── Task 4.3: Cue-point markers ───────────────────────────────────────
 
     /// <summary>

@@ -96,7 +96,7 @@ public record TrackStructureAnalysisCompletedEvent(
     string? ErrorMessage = null);
 
 // Phase 24: Stem Workspace Communication
-public record OpenStemWorkspaceRequestEvent(string TrackGlobalId);
+public record OpenStemWorkspaceRequestEvent(PlaylistTrack Track, string? PreferredDeck = null, bool OpenStemRack = false);
 public record AnalysisProgressEvent(string TrackGlobalId, string CurrentStep, int ProgressPercent, float BpmConfidence = 0, float KeyConfidence = 0, float IntegrityScore = 0);
 public record TrackAnalysisFailedEvent(string TrackGlobalId, string Error);
 public record TrackAnalysisRequestedEvent(string TrackGlobalId, AnalysisTier Tier = AnalysisTier.Tier1); // New Trigger Event

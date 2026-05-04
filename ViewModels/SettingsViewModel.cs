@@ -8,6 +8,7 @@ using SLSKDONET.Configuration;
 using SLSKDONET.Services;
 using SLSKDONET.Services.Platform;
 using SLSKDONET.Views; // For AsyncRelayCommand
+using SLSKDONET.ViewModels.Settings;
 using Avalonia.Threading;
 
 using System.Collections.ObjectModel; // Added
@@ -121,6 +122,20 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>Opt-in toggle for local keyboard-action usage tracking (Task 19).</summary>
+    public bool EnableKeyboardTelemetry
+    {
+        get => _config.EnableKeyboardTelemetry;
+        set
+        {
+            if (_config.EnableKeyboardTelemetry != value)
+            {
+                _config.EnableKeyboardTelemetry = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
 
 
     public string FileNameFormat
@@ -1040,6 +1055,9 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
     public ICommand RefreshShareNowCommand { get; private set; } = null!;
 
+    // ── Keyboard Mapping sub-ViewModel (Epic #119) ────────────────────────────
+    public KeyboardMappingsViewModel KeyboardMappings { get; private set; } = null!;
+
     // Soulseek Connection Commands
     public ICommand SoulseekConnectCommand { get; private set; } = null!;
     public ICommand SoulseekDisconnectCommand { get; private set; } = null!;
@@ -1067,7 +1085,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         IEventBus eventBus,
         ISoulseekAdapter soulseek,
         ISoulseekCredentialService credentialService,
-        IConnectionLifecycleService lifecycle)
+        IConnectionLifecycleService lifecycle,
+        KeyboardMappingsViewModel keyboardMappings)
     {
         _logger = logger;
         _config = config;
@@ -1081,6 +1100,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _soulseek = soulseek;
         _credentialService = credentialService;
         _lifecycle = lifecycle;
+        KeyboardMappings = keyboardMappings;
 
         // Ensure default Client ID is set if empty
         if (string.IsNullOrEmpty(_config.SpotifyClientId))

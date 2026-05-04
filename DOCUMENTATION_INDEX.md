@@ -8,12 +8,25 @@
   - Usage examples for all features
   - Keyboard shortcuts and troubleshooting
   - Component reference guide
-- **[RECENT_CHANGES.md](RECENT_CHANGES.md)** 🆕 Latest release notes and implementation deltas (includes `0.1.0-alpha.49` heuristic search upgrade)
+- **[RECENT_CHANGES.md](RECENT_CHANGES.md)** 🆕 Latest release notes and implementation deltas (includes Apr 2026 cockpit, search-to-mix, and workflow polish)
 - **[DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md](DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md)** 🆕 Deep technical guide for the reactive search runtime, firehose handling, blend scoring, and search session control (Mar 2026)
+- **[DOCS/ROADMAP_PROGRESS_AND_DOC_GAPS_2026-04-20.md](DOCS/ROADMAP_PROGRESS_AND_DOC_GAPS_2026-04-20.md)** 🆕 Overview of the latest roadmap work plus an audit of missing standalone service and feature docs (Apr 2026)
 
 ### 🎯 Implementation Audit & Documentation Status
 
 > **NEW**: [DOCS/PHASE_IMPLEMENTATION_AUDIT.md](DOCS/PHASE_IMPLEMENTATION_AUDIT.md) - Complete phase-by-phase audit identifying 12 critical documentation gaps and 8 recommendations for new docs (Dec 25, 2025) ⭐
+>
+> **LATEST**: [DOCS/ROADMAP_PROGRESS_AND_DOC_GAPS_2026-04-20.md](DOCS/ROADMAP_PROGRESS_AND_DOC_GAPS_2026-04-20.md) - Current roadmap summary and the audit that drove the new Apr 2026 standalone workflow/service docs.
+
+### 🆕 Apr 2026 Workflow & Service Deep Dives
+- **[DOCS/WORKSTATION_COCKPIT_ROUTING.md](DOCS/WORKSTATION_COCKPIT_ROUTING.md)** - Player/search/project handoff into Workstation, Flow, and Stems
+- **[DOCS/STEM_CACHE_AND_PREFERENCES.md](DOCS/STEM_CACHE_AND_PREFERENCES.md)** - Stem cache lifecycle, model versioning, and per-track preference persistence
+- **[DOCS/WORKSTATION_SESSION_PERSISTENCE.md](DOCS/WORKSTATION_SESSION_PERSISTENCE.md)** - Autosave, restore, and crash-safe session recovery
+- **[DOCS/TRACK_COMPATIBILITY_SCORING.md](DOCS/TRACK_COMPATIBILITY_SCORING.md)** - Harmony, BPM, section-vector, and transition scoring model
+- **[DOCS/SEARCH_TO_MIX_WORKFLOW.md](DOCS/SEARCH_TO_MIX_WORKFLOW.md)** - Search multi-select staging into the mix workflow
+- **[DOCS/IMPORT_ORCHESTRATION_AND_PREVIEW.md](DOCS/IMPORT_ORCHESTRATION_AND_PREVIEW.md)** - ImportOrchestrator, preview-first intake, and duplicate prevention
+- **[DOCS/PLAYER_PREP_AND_ROUTING.md](DOCS/PLAYER_PREP_AND_ROUTING.md)** - Current-track prep summaries and creative launch actions from the player
+- **[DOCS/ANALYSIS_QUEUE_UX_SURFACES.md](DOCS/ANALYSIS_QUEUE_UX_SURFACES.md)** - How live analysis queue state is surfaced in player and Workstation UX
 
 ---
 

@@ -56,14 +56,29 @@
                 <Grid RowDefinitions="Auto,*,Auto">
                     
                     <!-- Header / Tools -->
-                    <Grid Grid.Row="0" Margin="12,16,12,8" ColumnDefinitions="Auto,*,Auto">
+                    <Grid Grid.Row="0" Margin="12,16,12,8" ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
                         <Button Grid.Column="0" Command="{Binding ToggleNavigationCommand}"
                                 Classes="icon-button" ToolTip.Tip="Toggle Library Navigation (Ctrl+Alt+N)" Margin="0,0,8,0">
                             <TextBlock Text="{Binding IsNavigationCollapsed, Converter={StaticResource BoolToTextConverter}, ConverterParameter='▶,◀'}" FontSize="16" Opacity="0.8"/>
                         </Button>
                         <TextBlock Grid.Column="1" Text="LIBRARY" FontSize="12" FontWeight="Bold" Foreground="#888" VerticalAlignment="Center" IsVisible="{Binding !IsNavigationCollapsed}"/>
 
-                        <DropDownButton Content="Tools" Classes="tool" CornerRadius="4" Padding="8,4" FontSize="12" Grid.Column="2" IsVisible="{Binding !IsNavigationCollapsed}">
+                        <Button Grid.Column="2" Command="{Binding Projects.AddPlaylistCommand}"
+                                Classes="icon-button" ToolTip.Tip="New Playlist" Padding="6,4"
+                                IsVisible="{Binding !IsNavigationCollapsed}">
+                            <TextBlock Text="➕" FontSize="14"/>
+                        </Button>
+                        <Button Grid.Column="3" Command="{Binding SyncPhysicalLibraryCommand}"
+                                Classes="icon-button" ToolTip.Tip="Sync Physical Library (Ctrl+L)" Padding="6,4"
+                                IsVisible="{Binding !IsNavigationCollapsed}">
+                            <TextBlock Text="🔗" FontSize="14"/>
+                        </Button>
+                        <Button Grid.Column="4" Command="{Binding Operations.RetryOfflineTracksCommand}"
+                                Classes="icon-button" ToolTip.Tip="Retry Offline Tracks" Padding="6,4"
+                                IsVisible="{Binding !IsNavigationCollapsed}">
+                            <TextBlock Text="🔄" FontSize="14"/>
+                        </Button>
+                        <DropDownButton Content="Tools" Classes="tool" CornerRadius="4" Padding="8,4" FontSize="12" Grid.Column="5" IsVisible="{Binding !IsNavigationCollapsed}">
                             <DropDownButton.Flyout>
                                 <MenuFlyout>
                                     <MenuItem Header="View Mode" Command="{Binding ToggleViewModeCommand}">

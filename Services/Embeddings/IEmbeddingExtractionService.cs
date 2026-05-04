@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using SLSKDONET.Data.Entities;
 using SLSKDONET.Data.Essentia;
 
 namespace SLSKDONET.Services.Embeddings;
@@ -24,6 +26,19 @@ public interface IEmbeddingExtractionService
     /// can be extracted.
     /// </summary>
     float[]? ExtractFromEssentiaOutput(EssentiaOutput output);
+
+    /// <summary>
+    /// Builds a section-specific embedding from the best available track embedding plus
+    /// local section dynamics. This is the reliability-first fallback used when full
+    /// PCM-slice model inference is not available in the current pipeline.
+    /// </summary>
+    Task<float[]?> ExtractSectionEmbeddingAsync(
+        AudioFeaturesEntity? features,
+        PhraseType sectionType,
+        double startSeconds,
+        double endSeconds,
+        IReadOnlyList<float>? localEnergyWindows = null,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Enqueues a background job that batch-syncs embeddings for all library tracks

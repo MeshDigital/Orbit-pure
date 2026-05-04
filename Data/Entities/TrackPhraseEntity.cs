@@ -45,6 +45,17 @@ public class TrackPhraseEntity
     /// Used for identifying drops vs breakdowns.
     /// </summary>
     public float EnergyLevel { get; set; }
+
+    /// <summary>
+    /// Alias used by the creative-cockpit roadmap and some newer scoring code.
+    /// Maps directly to <see cref="EnergyLevel"/> so no schema change is required.
+    /// </summary>
+    [NotMapped]
+    public float PhraseEnergy
+    {
+        get => EnergyLevel;
+        set => EnergyLevel = value;
+    }
     
     /// <summary>
     /// Confidence of the phrase detection (0.0 - 1.0).
@@ -60,6 +71,22 @@ public class TrackPhraseEntity
     /// Optional label (e.g., "Main Drop", "Second Verse").
     /// </summary>
     public string? Label { get; set; }
+
+    /// <summary>
+    /// Optional JSON-serialized section embedding derived from the phrase window.
+    /// Used for intro/outro/drop similarity and bridge scoring.
+    /// </summary>
+    public string? SectionEmbeddingJson { get; set; }
+
+    /// <summary>
+    /// Cached L2 norm of the section embedding for faster cosine similarity.
+    /// </summary>
+    public float EmbeddingMagnitude { get; set; }
+
+    /// <summary>
+    /// Version tag of the section embedding generator.
+    /// </summary>
+    public string EmbeddingModel { get; set; } = string.Empty;
 }
 
 /// <summary>

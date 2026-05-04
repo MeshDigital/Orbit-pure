@@ -113,6 +113,34 @@ public sealed class DeckSlotViewModel : ReactiveObject, IDisposable
         }
     }
 
+    private int _semitoneShift;
+    /// <summary>Pitch shift in semitones (−12 to +12). 0 = original key. Works independently of key-lock.</summary>
+    public int SemitoneShift
+    {
+        get => _semitoneShift;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _semitoneShift, value);
+            Engine.SemitoneShift = value;
+        }
+    }
+
+    private bool _vinylMode;
+    /// <summary>Vinyl mode vs CDJ mode toggle. When true, jog-wheel scratches like vinyl.</summary>
+    public bool VinylMode
+    {
+        get => _vinylMode;
+        set => this.RaiseAndSetIfChanged(ref _vinylMode, value);
+    }
+
+    private bool _headphoneCue;
+    /// <summary>Whether this deck is routed to the headphone monitor (PFL).</summary>
+    public bool HeadphoneCue
+    {
+        get => _headphoneCue;
+        set => this.RaiseAndSetIfChanged(ref _headphoneCue, value);
+    }
+
     // ─── Loop state (Task 5.4) ────────────────────────────────────────────────
 
     private double _selectedLoopBeats = 4.0;

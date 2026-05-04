@@ -189,6 +189,7 @@ public class SearchOrchestrationServiceTests
             MaxSearchVariations = 3,
             StrictSearchSufficientResultCount = 1,
             EnableStrictHighConfidenceShortCircuit = false,
+            EnableStrictSufficientResultShortCircuit = true,
             SearchThrottleDelayMs = 10,
             PreferredFormats = new List<string> { "mp3" },
             PreferredMinBitrate = 192

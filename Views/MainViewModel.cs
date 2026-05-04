@@ -51,6 +51,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ConnectionViewModel ConnectionViewModel { get; }
     public SettingsViewModel SettingsViewModel { get; }
     public HomeViewModel HomeViewModel { get; }
+    public TimelineViewModel TimelineViewModel { get; }
     public StatusBarViewModel StatusBar { get; }
     // Phase 24: Stem Workspace
     
@@ -72,7 +73,14 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public PageType CurrentPageType
     {
         get => _currentPageType;
-        set => SetProperty(ref _currentPageType, value);
+        set
+        {
+            if (SetProperty(ref _currentPageType, value))
+            {
+                EnsureNavigationGroupExpanded(value);
+                RaiseNavigationStateProperties();
+            }
+        }
     }
     
     // ... (StatusText property omitted for brevity, keeping existing) ...
@@ -92,6 +100,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         ConnectionViewModel connectionViewModel,
         SettingsViewModel settingsViewModel,
         HomeViewModel homeViewModel,
+        TimelineViewModel timelineViewModel,
         DownloadManager downloadManager,
         ISpotifyMetadataService spotifyMetadata,
         SpotifyAuthService spotifyAuth,
@@ -132,6 +141,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         ConnectionViewModel = connectionViewModel;
         SettingsViewModel = settingsViewModel;
         HomeViewModel = homeViewModel;
+        TimelineViewModel = timelineViewModel;
         StatusBar = new StatusBarViewModel(eventBus, _dependencyHealthService);
         
         // Setup Global Shell Fallbacks
@@ -160,6 +170,20 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                     IsPlayerSidebarVisible = true;
                 }
             }));
+
+        _disposables.Add(_eventBus.GetEvent<OpenStemWorkspaceRequestEvent>()
+            .Subscribe(_ => Dispatcher.UIThread.Post(() =>
+            {
+                IsGlobalSidebarOpen = false;
+                _navigationService.NavigateTo("Workstation");
+            })));
+
+        _disposables.Add(_eventBus.GetEvent<AddToTimelineRequestEvent>()
+            .Subscribe(_ => Dispatcher.UIThread.Post(() =>
+            {
+                IsGlobalSidebarOpen = false;
+                _navigationService.NavigateTo("Workstation");
+            })));
 
         // Initialize commands
         NavigateHomeCommand = new RelayCommand(NavigateToHome); // Phase 6D
@@ -233,6 +257,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         ToggleTopBarCommand = new RelayCommand(() => IsTopCommandBarVisible = !IsTopCommandBarVisible);
         ToggleTimelinePanelCommand = new RelayCommand(() => IsTimelinePanelOpen = !IsTimelinePanelOpen);
         ToggleOverlaysPanelCommand = new RelayCommand(() => IsOverlaysPanelOpen = !IsOverlaysPanelOpen);
+        ToggleAcquireCommand  = new RelayCommand(() => IsAcquireExpanded  = !IsAcquireExpanded);
+        ToggleSystemCommand   = new RelayCommand(() => IsSystemExpanded   = !IsSystemExpanded);
+        ToggleCreativeCommand = new RelayCommand(() => IsCreativeExpanded = !IsCreativeExpanded);
 
 
         // Spotify Hub Initialization (TODO: Phase 7 - Implement when needed)
@@ -481,6 +508,18 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         set => SetProperty(ref _isAcquireVisible, value);
     }
 
+    private bool _isAcquireExpanded = true;
+    public bool IsAcquireExpanded
+    {
+        get => _isAcquireExpanded;
+        set
+        {
+            SetProperty(ref _isAcquireExpanded, value);
+            OnPropertyChanged(nameof(AcquireChevron));
+        }
+    }
+    public string AcquireChevron => _isAcquireExpanded ? "▾" : "▸";
+
     private bool _isEnrichVisible = true;
     public bool IsEnrichVisible
     {
@@ -508,6 +547,37 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         get => _isSystemVisible;
         set => SetProperty(ref _isSystemVisible, value);
     }
+
+    private bool _isSystemExpanded = true;
+    public bool IsSystemExpanded
+    {
+        get => _isSystemExpanded;
+        set
+        {
+            SetProperty(ref _isSystemExpanded, value);
+            OnPropertyChanged(nameof(SystemChevron));
+        }
+    }
+    public string SystemChevron => _isSystemExpanded ? "▾" : "▸";
+
+    private bool _isCreativeVisible = true;
+    public bool IsCreativeVisible
+    {
+        get => _isCreativeVisible;
+        set => SetProperty(ref _isCreativeVisible, value);
+    }
+
+    private bool _isCreativeExpanded = true;
+    public bool IsCreativeExpanded
+    {
+        get => _isCreativeExpanded;
+        set
+        {
+            SetProperty(ref _isCreativeExpanded, value);
+            OnPropertyChanged(nameof(CreativeChevron));
+        }
+    }
+    public string CreativeChevron => _isCreativeExpanded ? "▾" : "▸";
 
     // ── Five-column layout — Epic 12 (#110) ───────────────────────────────
 
@@ -665,6 +735,89 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsPlayerInSidebar => !IsPlayerAtBottom && IsPlayerSidebarVisible && CurrentPageType != PageType.TheaterMode && CurrentPageType != PageType.NowPlaying;
     public bool IsPlayerAtBottomVisible => IsPlayerAtBottom && CurrentPageType != PageType.TheaterMode && CurrentPageType != PageType.NowPlaying;
 
+    // Phase 12.4: explicit nav-state flags for import/search overlays
+    public bool IsAcquireOverlayActive => IsAcquireOverlayPage(CurrentPageType);
+    public bool IsSystemOverlayActive => IsSystemOverlayPage(CurrentPageType);
+    public bool IsCreativeOverlayActive => IsCreativeOverlayPage(CurrentPageType);
+    public bool IsSearchOverlayActive => CurrentPageType == PageType.Search;
+    public bool IsProjectsOverlayActive => CurrentPageType == PageType.Projects;
+    public bool IsImportOverlayActive => CurrentPageType == PageType.Import;
+    public bool IsHomeOverlayActive => CurrentPageType == PageType.Home;
+    public bool IsLibraryOverlayActive => CurrentPageType == PageType.Library;
+    public bool IsAnalysisOverlayActive => CurrentPageType == PageType.Analysis;
+    public bool IsPlayerOverlayActive => CurrentPageType == PageType.NowPlaying;
+    public bool IsSettingsOverlayActive => CurrentPageType == PageType.Settings;
+    public bool IsWorkstationOverlayActive => IsCreativeOverlayPage(CurrentPageType);
+
+    private static readonly string[] NavigationOverlayPropertyNames =
+    [
+        nameof(IsAcquireOverlayActive),
+        nameof(IsSystemOverlayActive),
+        nameof(IsCreativeOverlayActive),
+        nameof(IsSearchOverlayActive),
+        nameof(IsProjectsOverlayActive),
+        nameof(IsImportOverlayActive),
+        nameof(IsHomeOverlayActive),
+        nameof(IsLibraryOverlayActive),
+        nameof(IsAnalysisOverlayActive),
+        nameof(IsPlayerOverlayActive),
+        nameof(IsSettingsOverlayActive),
+        nameof(IsWorkstationOverlayActive)
+    ];
+
+    public static PageType ResolvePageType(Type? pageType, PageType fallback)
+    {
+        if (pageType == null)
+        {
+            return fallback;
+        }
+
+        if (typeof(Avalonia.HomePage).IsAssignableFrom(pageType)) return PageType.Home;
+        if (typeof(Avalonia.SearchPage).IsAssignableFrom(pageType)) return PageType.Search;
+        if (typeof(Avalonia.LibraryPage).IsAssignableFrom(pageType)) return PageType.Library;
+        if (typeof(Avalonia.DownloadsPage).IsAssignableFrom(pageType)) return PageType.Projects;
+        if (typeof(Avalonia.ImportPage).IsAssignableFrom(pageType) || typeof(Avalonia.ImportPreviewPage).IsAssignableFrom(pageType)) return PageType.Import;
+        if (typeof(Avalonia.AnalysisPage).IsAssignableFrom(pageType)) return PageType.Analysis;
+        if (typeof(Avalonia.NowPlayingPage).IsAssignableFrom(pageType)) return PageType.NowPlaying;
+        if (typeof(Avalonia.SettingsPage).IsAssignableFrom(pageType)) return PageType.Settings;
+        if (typeof(Avalonia.WorkstationPage).IsAssignableFrom(pageType)) return PageType.Workstation;
+        if (pageType.Name.Contains("DecksPage", StringComparison.Ordinal)) return PageType.Decks;
+        if (pageType.Name.Contains("TimelinePage", StringComparison.Ordinal)) return PageType.Timeline;
+        if (pageType.Name.Contains("StemsPage", StringComparison.Ordinal)) return PageType.Stems;
+
+        return fallback;
+    }
+
+    public static bool IsAcquireOverlayPage(PageType pageType) => pageType is PageType.Search or PageType.Projects or PageType.Import;
+    public static bool IsSystemOverlayPage(PageType pageType) => pageType is PageType.Home or PageType.Library or PageType.Analysis or PageType.NowPlaying or PageType.Settings;
+    public static bool IsCreativeOverlayPage(PageType pageType) => pageType is PageType.Workstation or PageType.Decks or PageType.Timeline or PageType.Stems;
+
+    private void EnsureNavigationGroupExpanded(PageType pageType)
+    {
+        if (IsAcquireOverlayPage(pageType))
+        {
+            IsAcquireExpanded = true;
+        }
+
+        if (IsSystemOverlayPage(pageType))
+        {
+            IsSystemExpanded = true;
+        }
+
+        if (IsCreativeOverlayPage(pageType))
+        {
+            IsCreativeExpanded = true;
+        }
+    }
+
+    private void RaiseNavigationStateProperties()
+    {
+        foreach (var propertyName in NavigationOverlayPropertyNames)
+        {
+            OnPropertyChanged(propertyName);
+        }
+    }
+
     private double _baseFontSize = 14.0;
     public double BaseFontSize
     {
@@ -788,6 +941,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ToggleTopBarCommand { get; }
     public ICommand ToggleTimelinePanelCommand { get; }
     public ICommand ToggleOverlaysPanelCommand { get; }
+    public ICommand ToggleAcquireCommand  { get; }
+    public ICommand ToggleSystemCommand   { get; }
+    public ICommand ToggleCreativeCommand { get; }
     
     public bool IsGlobalSidebarOpen
     {
@@ -820,26 +976,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         if (page != null)
         {
             CurrentPage = page;
-            string pageName = page.GetType().Name;
-            
-            // Sync CurrentPageType based on the view type to keep UI highlights correct
-            CurrentPageType = pageName switch
-            {
-                "HomePage" => PageType.Home,
-                "SearchPage" => PageType.Search,
-                "LibraryPage" => PageType.Library,
-                "DownloadsPage" => PageType.Projects,
-                "SettingsPage" => PageType.Settings,
-                "ImportPage" => PageType.Import,
-                "ImportPreviewPage" => PageType.Import, // Map preview to Import category
-                "AnalysisPage" => PageType.Analysis,
-                "NowPlayingPage" => PageType.NowPlaying,
-                "WorkstationPage" => PageType.Workstation,
-                "DecksPage" => PageType.Decks,
-                "TimelinePage" => PageType.Timeline,
-                "StemsPage" => PageType.Stems,
-                _ => CurrentPageType
-            };
+            CurrentPageType = ResolvePageType(page.GetType(), CurrentPageType);
 
             // Handle Theater Mode Layout (Navigation is special because it affects sidebar size)
             if (CurrentPageType == PageType.TheaterMode)
@@ -1193,7 +1330,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                     ? $"Added '{trackList[0].Title}' to '{selectedProject.SourceTitle}'"
                     : $"Added {trackList.Count} tracks to '{selectedProject.SourceTitle}'";
                 
-                StatusText = message;
+                StatusText = $"{message} • opening Flow workspace";
+                _eventBus.Publish(new AddToTimelineRequestEvent(trackList));
             }
         }
         catch (Exception ex)

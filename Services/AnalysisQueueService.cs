@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -7,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using SLSKDONET.Configuration;
 using SLSKDONET.Data;
 using SLSKDONET.Models;
+using SLSKDONET.Services.AudioAnalysis;
 
 namespace SLSKDONET.Services;
 
@@ -31,6 +33,8 @@ public class AnalysisQueueService : IDisposable
     private readonly IEventBus _eventBus;
     private readonly ILogger<AnalysisQueueService> _logger;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly IAudioAnalysisService? _audioAnalysisService;
+    private readonly AnalyzeTrackStructureJob? _analyzeTrackStructureJob;
     private readonly IDisposable _requestSubscription;
     private readonly SemaphoreSlim _parallelismGate;
 
@@ -48,11 +52,15 @@ public class AnalysisQueueService : IDisposable
         IEventBus eventBus,
         ILogger<AnalysisQueueService> logger,
         IDbContextFactory<AppDbContext> dbFactory,
+        IAudioAnalysisService? audioAnalysisService = null,
+        AnalyzeTrackStructureJob? analyzeTrackStructureJob = null,
         AppConfig? config = null)
     {
         _eventBus = eventBus;
         _logger = logger;
         _dbFactory = dbFactory;
+        _audioAnalysisService = audioAnalysisService;
+        _analyzeTrackStructureJob = analyzeTrackStructureJob;
 
         int requested = config?.MaxConcurrentAnalyses ?? 0;
         MaxWorkers = requested > 0
@@ -116,13 +124,75 @@ public class AnalysisQueueService : IDisposable
                 await Task.Delay(StealthModeThrottleDelay).ConfigureAwait(false);
             }
 
-            // Record completion and surface it through the Glass Box status stream.
+            await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+
+            var filePath = await db.PlaylistTracks
+                .AsNoTracking()
+                .Where(t => t.TrackUniqueHash == evt.TrackGlobalId)
+                .Select(t => t.ResolvedFilePath)
+                .FirstOrDefaultAsync()
+                .ConfigureAwait(false);
+
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                filePath = await db.LibraryEntries
+                    .AsNoTracking()
+                    .Where(t => t.UniqueHash == evt.TrackGlobalId)
+                    .Select(t => t.FilePath)
+                    .FirstOrDefaultAsync()
+                    .ConfigureAwait(false);
+            }
+
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            {
+                var message = $"Track file not found for analysis: {evt.TrackGlobalId}";
+                _logger.LogWarning("{Message}", message);
+                _eventBus.Publish(new TrackAnalysisFailedEvent(evt.TrackGlobalId, message));
+                _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, false, message));
+                return;
+            }
+
+            if (_audioAnalysisService is null || _analyzeTrackStructureJob is null)
+            {
+                _logger.LogWarning("Analysis services are not available; completing request for {TrackGlobalId} in no-op mode.", evt.TrackGlobalId);
+                _processedCount++;
+                _currentTrackHash = null;
+                PublishStatus(_isStealthMode ? "Stealth (Low CPU)" : "Standard");
+                return;
+            }
+
+            _eventBus.Publish(new TrackAnalysisStartedEvent(evt.TrackGlobalId, Path.GetFileName(filePath)));
+
+            var analysis = await _audioAnalysisService
+                .AnalyzeFileAsync(filePath, evt.TrackGlobalId, cancellationToken: CancellationToken.None)
+                .ConfigureAwait(false);
+
+            if (analysis is null)
+            {
+                var message = $"Audio analysis returned no result for {Path.GetFileName(filePath)}";
+                _logger.LogWarning("{Message}", message);
+                _eventBus.Publish(new TrackAnalysisFailedEvent(evt.TrackGlobalId, message));
+                _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, false, message));
+                return;
+            }
+
+            await _analyzeTrackStructureJob.ExecuteAsync(evt.TrackGlobalId).ConfigureAwait(false);
+
             _processedCount++;
             _currentTrackHash = null;
             PublishStatus(_isStealthMode ? "Stealth (Low CPU)" : "Standard");
+            _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, true));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Analysis job failed for {TrackGlobalId}", evt.TrackGlobalId);
+            _eventBus.Publish(new TrackAnalysisFailedEvent(evt.TrackGlobalId, ex.Message));
+            _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, false, ex.Message));
         }
         finally
         {
+            _currentTrackHash = null;
+            PublishStatus(_isStealthMode ? "Stealth (Low CPU)" : "Standard");
             _parallelismGate.Release();
         }
     }

@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.ViewModels;
@@ -233,6 +234,49 @@ public class AnalysisPageViewModelTests : IDisposable
         Assert.True(c.MinBpm >= 80 && c.MinBpm <= 120);
         Assert.True(c.MaxBpm > c.MinBpm);
         Assert.True(c.MaxTracks >= 2);
+    }
+
+    [Fact]
+    public void DashboardCounts_ReflectLibraryQueueAndPlaylistState()
+    {
+        Assert.True(_vm.TotalTrackCount >= 10);
+        Assert.True(_vm.AnalyzedTrackCount >= 3);
+
+        var pending = _vm.LibraryTracks.First(t => !t.HasAnalysis);
+        _vm.AddToQueue(pending);
+
+        Assert.Equal(1, _vm.QueueTrackCount);
+        Assert.Contains("queued", _vm.QueueMetricsSummary, StringComparison.OrdinalIgnoreCase);
+
+        var analyzed = _vm.LibraryTracks.First(t => t.HasAnalysis);
+        _vm.TogglePlaylist(analyzed);
+
+        Assert.Equal(1, _vm.PlaylistTrackCount);
+    }
+
+    [Fact]
+    public void TrackAnalysisRequestedEvent_AddsMatchingLibraryTrackToAnalysisQueue()
+    {
+        var pending = _vm.LibraryTracks.First(t => !t.HasAnalysis);
+
+        _bus.Publish(new TrackAnalysisRequestedEvent(pending.TrackId));
+
+        Assert.True(pending.IsInQueue);
+        Assert.Contains(pending, _vm.AnalysisQueue);
+        Assert.Equal(AnalysisRunStatus.Queued, pending.AnalysisStatus);
+    }
+
+    [Fact]
+    public void Reanalyze_RequeuesCompletedTrack_AndClearsPreviousResults()
+    {
+        var analyzed = _vm.LibraryTracks.First(t => t.HasAnalysis);
+
+        _vm.Reanalyze(analyzed);
+
+        Assert.False(analyzed.HasAnalysis);
+        Assert.True(analyzed.IsInQueue);
+        Assert.Equal(AnalysisRunStatus.Queued, analyzed.AnalysisStatus);
+        Assert.Contains(analyzed, _vm.AnalysisQueue);
     }
 
     [Fact]

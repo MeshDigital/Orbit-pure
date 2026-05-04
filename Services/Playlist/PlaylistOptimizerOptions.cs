@@ -84,6 +84,18 @@ public sealed class PlaylistOptimizerOptions
     /// </summary>
     public double SectionTransitionWeight { get; init; } = 2.0;
 
+    /// <summary>
+    /// When enabled, the optimizer gives a small bonus to adjacent tracks whose drop sections
+    /// are close enough for live double-drop or swap style blends.
+    /// </summary>
+    public bool PreferDoubleDropFriendlySequences { get; init; } = true;
+
+    /// <summary>
+    /// Bonus strength applied when <see cref="PreferDoubleDropFriendlySequences"/> is enabled.
+    /// Higher values more strongly favor drop-to-drop texture continuity.
+    /// </summary>
+    public double DoubleDropPreferenceWeight { get; init; } = 1.25;
+
     // ── Post-pass ──────────────────────────────────────────────────────────
     /// <summary>
     /// Desired energy curve shape applied after the greedy ordering pass.

@@ -80,6 +80,7 @@ public class SearchOrchestrationService
         bool isAlbumSearch,
         bool fastClearance = false,
         int maxResultsPerLane = 5,
+        bool progressiveYield = false,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var searchPlan = _searchNormalization.BuildSearchPlan(query);
@@ -92,6 +93,7 @@ public class SearchOrchestrationService
             isAlbumSearch,
             fastClearance,
             maxResultsPerLane,
+            progressiveYield,
             cancellationToken))
         {
             yield return track;
@@ -119,6 +121,7 @@ public class SearchOrchestrationService
             isAlbumSearch,
             fastClearance,
             maxResultsPerLane,
+            progressiveYield: false,
             cancellationToken))
         {
             yield return track;
@@ -134,6 +137,7 @@ public class SearchOrchestrationService
         bool isAlbumSearch,
         bool fastClearance,
         int maxResultsPerLane,
+        bool progressiveYield,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var activeNow = Math.Max(1, Volatile.Read(ref _activeSearchCount) + 1);
@@ -230,6 +234,7 @@ public class SearchOrchestrationService
                     maxBitrate,
                     executionProfile,
                     maxResultsPerLane,
+                    progressiveYield,
                     cancellationToken))
                 {
                     if (seenHashes.Add(track.UniqueHash))
@@ -243,7 +248,7 @@ public class SearchOrchestrationService
                             strictHighConfidenceWinnerFound = true;
                         }
 
-                        if (fastClearance && !isAlbumSearch && IsFastLaneWinner(track, formatFilter, minBitrate))
+                        if (fastClearance && _config.EnableFastClearanceEarlyExit && !isAlbumSearch && IsFastLaneWinner(track, formatFilter, minBitrate))
                         {
                             _logger.LogInformation(
                                 "Fast lane triggered for '{Variation}'. Short-circuiting cascade on idle peer {User} ({Bitrate} kbps, queue {QueueLength}).",
@@ -265,7 +270,7 @@ public class SearchOrchestrationService
                         break;
                     }
 
-                    if (totalFound >= strictSufficientResultCount)
+                    if (_config.EnableStrictSufficientResultShortCircuit && totalFound >= strictSufficientResultCount)
                     {
                         _logger.LogInformation(
                             "Cascade Search: Strict variation reached sufficient result threshold ({Count}/{Threshold}). Skipping relaxed fallbacks.",
@@ -277,7 +282,7 @@ public class SearchOrchestrationService
 
                 // Smart Stop: If we found hits with a better strategy, don't fallback to noisier ones
                 // Unless it's an album search where we want as much coverage as possible.
-                if (foundInThisVariation && !isAlbumSearch && totalFound >= strictSufficientResultCount)
+                if (_config.EnableStrictSufficientResultShortCircuit && foundInThisVariation && !isAlbumSearch && totalFound >= strictSufficientResultCount)
                 {
                     _logger.LogInformation("Cascade Search: Found {Count} results for '{Variation}'. Stopping cascade.", totalFound, variation);
                     break;
@@ -348,6 +353,7 @@ public class SearchOrchestrationService
         int maxBitrate,
         SearchExecutionProfile executionProfile,
         int maxResultsToYield,
+        bool progressiveYield,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         // Brain buffer: desperate lanes get the full accumulator window.
@@ -396,6 +402,33 @@ public class SearchOrchestrationService
                     executionProfile,
                     brainBufferCts.Token);
             }
+            else if (progressiveYield)
+            {
+                // Progressive mode: use the outer cancellation token directly so collection
+                // runs for the natural Soulseek search duration (~SearchTimeout seconds)
+                // instead of waiting the full MinSearchDurationSeconds brain buffer.
+                // Results appear in ~SearchTimeout s instead of MinSearchDurationSeconds s.
+                await foreach (var track in _soulseek.StreamResultsAsync(
+                    networkQuery,
+                    formatFilter,
+                    (minBitrate, maxBitrate),
+                    DownloadMode.Normal,
+                    executionProfile,
+                    cancellationToken))
+                {
+                    _safetyFilter.EvaluateSafety(track, normalizedQuery);
+                    bufferedTracks.Add(track);
+
+                    if (_config.EnableAccumulatorPerfectMatchShortCircuit && IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
+                    {
+                        _logger.LogInformation(
+                            "Search accumulator short-circuit: found ideal candidate for '{Query}' from {User}.",
+                            normalizedQuery,
+                            track.Username ?? "Unknown");
+                        break;
+                    }
+                }
+            }
             else
             {
                 await foreach (var track in _soulseek.StreamResultsAsync(
@@ -409,7 +442,7 @@ public class SearchOrchestrationService
                     _safetyFilter.EvaluateSafety(track, normalizedQuery);
                     bufferedTracks.Add(track);
 
-                    if (IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
+                    if (_config.EnableAccumulatorPerfectMatchShortCircuit && IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
                     {
                         _logger.LogInformation(
                             "Search accumulator short-circuit: found ideal candidate for '{Query}' from {User}.",
@@ -467,7 +500,7 @@ public class SearchOrchestrationService
         var capacity = Math.Max(32, executionProfile.EffectiveFileLimit);
         var channel = Channel.CreateBounded<Track>(new BoundedChannelOptions(capacity)
         {
-            FullMode = BoundedChannelFullMode.DropOldest,
+            FullMode = BoundedChannelFullMode.Wait,
             SingleReader = true,
             SingleWriter = true
         });
@@ -509,7 +542,7 @@ public class SearchOrchestrationService
             {
                 bufferedTracks.Add(track);
 
-                if (IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
+                if (_config.EnableAccumulatorPerfectMatchShortCircuit && IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
                 {
                     _logger.LogInformation(
                         "Desperate lane short-circuit: found ideal candidate for '{Query}' from {User}.",

@@ -117,6 +117,89 @@ public sealed class EmbeddingExtractionService : IEmbeddingExtractionService
     }
 
     /// <inheritdoc/>
+    public Task<float[]?> ExtractSectionEmbeddingAsync(
+        AudioFeaturesEntity? features,
+        PhraseType sectionType,
+        double startSeconds,
+        double endSeconds,
+        IReadOnlyList<float>? localEnergyWindows = null,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        if (features == null)
+            return Task.FromResult<float[]?>(null);
+
+        var baseEmbedding = PickBestEmbedding(features);
+        if (baseEmbedding is not { Length: > 0 } && (localEnergyWindows == null || localEnergyWindows.Count == 0))
+            return Task.FromResult<float[]?>(null);
+
+        var windows = localEnergyWindows?.Count > 0
+            ? localEnergyWindows
+            : Array.Empty<float>();
+
+        float mean = windows.Count > 0 ? windows.Average() : Math.Clamp(features.Energy, 0f, 1f);
+        float max = windows.Count > 0 ? windows.Max() : mean;
+        float min = windows.Count > 0 ? windows.Min() : mean;
+        float variance = 0f;
+        if (windows.Count > 1)
+            variance = windows.Select(v => (v - mean) * (v - mean)).Average();
+
+        float slope = windows.Count > 1
+            ? Math.Clamp(0.5f + ((windows[^1] - windows[0]) * 0.5f), 0f, 1f)
+            : 0.5f;
+
+        double totalDuration = features.TrackDuration > 0 ? features.TrackDuration : Math.Max(endSeconds, 1d);
+        float startRatio = (float)Math.Clamp(startSeconds / Math.Max(1d, totalDuration), 0d, 1d);
+        float durationRatio = (float)Math.Clamp((endSeconds - startSeconds) / Math.Max(1d, totalDuration), 0d, 1d);
+
+        var vector = new List<float>
+        {
+            mean,
+            max,
+            min,
+            Math.Clamp(variance * 4f, 0f, 1f),
+            slope,
+            startRatio,
+            durationRatio,
+            Math.Clamp(features.Arousal / 9f, 0f, 1f),
+            Math.Clamp(features.Danceability, 0f, 1f),
+            Math.Clamp(features.SpectralCentroid / 20_000f, 0f, 1f),
+            Math.Clamp(features.Intensity, 0f, 1f),
+            Math.Clamp(features.OnsetRate / 8f, 0f, 1f),
+            sectionType == PhraseType.Intro ? 1f : 0f,
+            sectionType == PhraseType.Build ? 1f : 0f,
+            sectionType == PhraseType.Drop ? 1f : 0f,
+            sectionType == PhraseType.Breakdown ? 1f : 0f,
+            sectionType == PhraseType.Outro ? 1f : 0f,
+        };
+
+        if (baseEmbedding is { Length: > 0 })
+        {
+            int chunkSize = Math.Max(1, baseEmbedding.Length / 8);
+            for (int chunk = 0; chunk < 8; chunk++)
+            {
+                int offset = chunk * chunkSize;
+                if (offset >= baseEmbedding.Length)
+                {
+                    vector.Add(mean);
+                    continue;
+                }
+
+                int length = chunk == 7 ? baseEmbedding.Length - offset : Math.Min(chunkSize, baseEmbedding.Length - offset);
+                float avg = 0f;
+                for (int i = offset; i < offset + length; i++)
+                    avg += baseEmbedding[i];
+
+                avg /= Math.Max(1, length);
+                float projected = 0.5f + (avg * 0.10f) + ((mean - 0.5f) * 0.20f) + ((startRatio - 0.5f) * 0.10f);
+                vector.Add(Math.Clamp(projected, 0f, 1f));
+            }
+        }
+
+        return Task.FromResult<float[]?>(vector.ToArray());
+    }
+
     public void ScheduleBatchSync()
     {
         var job = new BackgroundJob

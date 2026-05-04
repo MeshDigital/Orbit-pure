@@ -45,6 +45,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     private readonly WorkstationSessionService _sessionService;
     private readonly IUndoService             _undoService;
     private readonly AnalyzeTrackStructureJob  _analyzeJob;
+    private readonly IEventBus                _eventBus;
     private readonly BpmSyncService           _bpmSync = new();
 
     // ── Decks ─────────────────────────────────────────────────────────────────
@@ -62,6 +63,13 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             {
                 deck.IsFocusedDeck = ReferenceEquals(deck, value);
             }
+
+            RefreshDeckTransitionGuidance();
+            RaiseHeaderProperties();
+            this.RaisePropertyChanged(nameof(IsDeckAFocused));
+            this.RaisePropertyChanged(nameof(IsDeckBFocused));
+            this.RaisePropertyChanged(nameof(IsDeckCFocused));
+            this.RaisePropertyChanged(nameof(IsDeckDFocused));
         }
     }
 
@@ -76,6 +84,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         set
         {
             this.RaiseAndSetIfChanged(ref _activePlaylist, value);
+            this.RaisePropertyChanged(nameof(ActivePlaylistFlowSummary));
             if (value != null)
                 _ = LoadPlaylistTracksAsync(value);
         }
@@ -96,6 +105,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             this.RaiseAndSetIfChanged(ref _timelineOffsetSeconds, Math.Clamp(value, 0, MaxTimelineOffsetSeconds));
             ApplyTimelineViewportToDecks();
             RaiseTimelineTickLabels();
+            this.RaisePropertyChanged(nameof(FlowWindowSummary));
         }
     }
 
@@ -112,6 +122,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             TimelineOffsetSeconds = TimelineOffsetSeconds;
             ApplyTimelineViewportToDecks();
             RaiseTimelineTickLabels();
+            this.RaisePropertyChanged(nameof(FlowWindowSummary));
         }
     }
 
@@ -181,10 +192,36 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public double MasterBpm
     {
         get => _masterBpm;
-        set => this.RaiseAndSetIfChanged(ref _masterBpm, value);
+        set
+        {
+            if (Math.Abs(_masterBpm - value) < 0.001)
+                return;
+
+            this.RaiseAndSetIfChanged(ref _masterBpm, value);
+            this.RaisePropertyChanged(nameof(MasterBpmDisplay));
+            RaiseHeaderProperties();
+        }
     }
 
     public string MasterBpmDisplay => MasterBpm > 0 ? $"{MasterBpm:F1}" : "—";
+    public string DeckStatusSummary => BuildDeckStatusSummary(Decks.Count(d => d.IsLoaded), Decks.Count, FocusedDeck?.DeckLabel, MasterBpm);
+    public string DeckFocusSummary => BuildDeckFocusSummary(Decks.Select(d => d.DeckLabel), Decks.Where(d => d.IsLoaded).Select(d => d.DeckLabel), FocusedDeck?.DeckLabel);
+    public string ActivePlaylistFlowSummary => BuildPlaylistFlowSummary(ActivePlaylist?.SourceTitle, PlaylistTracks.Count, Decks.Count(d => d.IsLoaded), ActiveMode);
+    private string _analysisQueueSummary = "Analysis lane idle • queue prep jobs from the player or flow drawer";
+    public string AnalysisQueueSummary
+    {
+        get => _analysisQueueSummary;
+        private set => this.RaiseAndSetIfChanged(ref _analysisQueueSummary, value);
+    }
+    public string ToolbarHint => BuildToolbarHint(ActiveMode, IsSnapEnabled, IsQuantizeEnabled);
+    public string FlowWindowSummary => BuildFlowWindowSummary(TimelineOffsetSeconds, TimelineWindowSeconds);
+    public string TransportStatusSummary => BuildTransportStatusSummary(IsPlaying, Decks.Count(d => d.IsLoaded), FocusedDeck?.DeckLabel, FocusedDeck?.Deck.IsLoopActive == true);
+    public string FocusedDeckActionSummary => BuildFocusedDeckActionSummary(FocusedDeck?.DeckLabel, FocusedDeck?.IsLoaded == true, FocusedDeck?.CueEditor.Cues.Any() == true, FocusedDeck?.StemsVisible == true);
+    public string MixCoachSummary => BuildMixCoachSummary(FocusedDeck?.DeckLabel, FocusedDeck?.HarmonicSuggestionText, FocusedDeck?.TransitionStatusText);
+    public bool IsDeckAFocused => string.Equals(FocusedDeck?.DeckLabel, "A", StringComparison.OrdinalIgnoreCase);
+    public bool IsDeckBFocused => string.Equals(FocusedDeck?.DeckLabel, "B", StringComparison.OrdinalIgnoreCase);
+    public bool IsDeckCFocused => string.Equals(FocusedDeck?.DeckLabel, "C", StringComparison.OrdinalIgnoreCase);
+    public bool IsDeckDFocused => string.Equals(FocusedDeck?.DeckLabel, "D", StringComparison.OrdinalIgnoreCase);
 
     // ── Crossfader ─────────────────────────────────────────────────────────────
 
@@ -202,6 +239,10 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         }
     }
 
+    // ── Keyboard overlay (F1 shortcut cheat-sheet) ───────────────────────────
+
+    public KeyboardOverlayViewModel KeyboardOverlay { get; } = new();
+
     // ── Global cockpit toggles ───────────────────────────────────────────────
 
     private bool _isSnapEnabled = true;
@@ -215,6 +256,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             {
                 HideSnapGuide();
             }
+
+            RaiseHeaderProperties();
         }
     }
 
@@ -222,8 +265,24 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public bool IsQuantizeEnabled
     {
         get => _isQuantizeEnabled;
-        set => this.RaiseAndSetIfChanged(ref _isQuantizeEnabled, value);
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _isQuantizeEnabled, value);
+            RaiseHeaderProperties();
+        }
     }
+
+    private bool _isMetronomeEnabled;
+    public bool IsMetronomeEnabled
+    {
+        get => _isMetronomeEnabled;
+        set => this.RaiseAndSetIfChanged(ref _isMetronomeEnabled, value);
+    }
+
+    // ── Tap Tempo ─────────────────────────────────────────────────────────────
+
+    private readonly System.Collections.Generic.List<DateTime> _tapTimes = new();
+    public ReactiveCommand<Unit, Unit> TapTempoCommand { get; }
 
     // ── Active mode ───────────────────────────────────────────────────────────
 
@@ -238,6 +297,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             this.RaisePropertyChanged(nameof(IsFlowMode));
             this.RaisePropertyChanged(nameof(IsStemsMode));
             this.RaisePropertyChanged(nameof(IsExportMode));
+            RaiseHeaderProperties();
         }
     }
 
@@ -281,6 +341,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit>          ExportMixCommand      { get; }
     /// <summary>Load a playlist track into the focused deck (or Deck A if none focused).</summary>
     public ReactiveCommand<PlaylistTrack, Unit> LoadToFocusedDeckCommand { get; }
+    public ReactiveCommand<string, Unit>        FocusDeckCommand      { get; }
     /// <summary>Load a playlist track into Deck A.</summary>
     public ReactiveCommand<PlaylistTrack, Unit> LoadToDeckACommand    { get; }
     /// <summary>Load a playlist track into Deck B.</summary>
@@ -339,7 +400,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         CachedStemSeparator stemSeparator, ICuePointService cueService,
         StemPreferenceService stemPrefService, MixdownService mixdown,
         WorkstationSessionService sessionService, IUndoService undoService,
-        AnalyzeTrackStructureJob analyzeJob)
+        AnalyzeTrackStructureJob analyzeJob, IEventBus eventBus)
     {
         _library         = library;
         _deckPair        = deckPair;
@@ -350,18 +411,45 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         _sessionService  = sessionService;
         _undoService     = undoService;
         _analyzeJob      = analyzeJob;
+        _eventBus        = eventBus;
 
         ExportPanel = new ExportDialogViewModel(mixdown);
 
         // Wrap existing DeckA / DeckB
         var deckA = new WorkstationDeckViewModel("A", deckPair.DeckA, stemSeparator, cueService, stemPrefService);
         var deckB = new WorkstationDeckViewModel("B", deckPair.DeckB, stemSeparator, cueService, stemPrefService);
-        deckA.OnTrackLoaded = SaveSessionAsync;
-        deckB.OnTrackLoaded = SaveSessionAsync;
+        deckA.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); await SaveSessionAsync(); };
+        deckB.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); await SaveSessionAsync(); };
+        deckA.OnDeckStateChanged = RefreshDeckTransitionGuidance;
+        deckB.OnDeckStateChanged = RefreshDeckTransitionGuidance;
         Decks.Add(deckA);
         Decks.Add(deckB);
 
         FocusedDeck = Decks.FirstOrDefault();
+
+        _eventBus.GetEvent<OpenStemWorkspaceRequestEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(evt => _ = HandleWorkspaceOpenRequestAsync(evt))
+            .DisposeWith(_disposables);
+
+        _eventBus.GetEvent<AddToTimelineRequestEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(evt => _ = HandleFlowLaunchRequestAsync(evt))
+            .DisposeWith(_disposables);
+
+        _eventBus.GetEvent<AnalysisQueueStatusChangedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(evt =>
+            {
+                AnalysisQueueSummary = BuildAnalysisQueueSummary(
+                    evt.QueuedCount,
+                    evt.ProcessedCount,
+                    evt.CurrentTrackHash,
+                    evt.IsPaused,
+                    evt.PerformanceMode,
+                    evt.MaxConcurrency);
+            })
+            .DisposeWith(_disposables);
 
         PlayPauseAllCommand = ReactiveCommand.Create(() =>
         {
@@ -371,6 +459,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
                 if (IsPlaying) d.Deck.Engine.Play();
                 else           d.Deck.Engine.Pause();
             }
+
+            RaiseHeaderProperties();
         });
 
         StopAllCommand = ReactiveCommand.Create(() =>
@@ -381,6 +471,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
                 d.Deck.Engine.Pause();
                 d.Deck.Engine.Cue();
             }
+
+            RaiseHeaderProperties();
         });
 
         AddDeckCommand = ReactiveCommand.Create(() =>
@@ -391,10 +483,13 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             var engine = new DeckEngine();
             var slot   = new DeckSlotViewModel(label, engine);
             var newDeck = new WorkstationDeckViewModel(label, slot, _stemSeparator, _cueService, _stemPrefService);
-            newDeck.OnTrackLoaded = SaveSessionAsync;
+            newDeck.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); await SaveSessionAsync(); };
+            newDeck.OnDeckStateChanged = RefreshDeckTransitionGuidance;
             Decks.Add(newDeck);
             newDeck.UpdateWaveformViewport(TimelineWindowSeconds, TimelineOffsetSeconds);
+            RefreshDeckTransitionGuidance();
             this.RaisePropertyChanged(nameof(MaxTimelineOffsetSeconds));
+            RaiseHeaderProperties();
         });
 
         RemoveDeckCommand = ReactiveCommand.Create<WorkstationDeckViewModel>(deck =>
@@ -403,8 +498,10 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             Decks.Remove(deck);
             deck.Dispose();
             FocusedDeck = Decks.FirstOrDefault();
+            RefreshDeckTransitionGuidance();
             this.RaisePropertyChanged(nameof(MaxTimelineOffsetSeconds));
             TimelineOffsetSeconds = TimelineOffsetSeconds;
+            RaiseHeaderProperties();
         });
 
         LoadPlaylistCommand = ReactiveCommand.CreateFromTask<PlaylistJob>(async job =>
@@ -433,31 +530,29 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         LoadToFocusedDeckCommand = ReactiveCommand.CreateFromTask<PlaylistTrack>(async t =>
         {
             var target = FocusedDeck ?? Decks.FirstOrDefault();
-            if (target != null)
+            await LoadTrackIntoDeckAsync(target, t);
+        });
+
+        FocusDeckCommand = ReactiveCommand.Create<string>(deckLabel =>
+        {
+            var targetDeck = Decks.FirstOrDefault(deck => string.Equals(deck.DeckLabel, deckLabel, StringComparison.OrdinalIgnoreCase));
+            if (targetDeck != null)
             {
-                await target.LoadPlaylistTrackCommand.Execute(t).FirstAsync();
-                ApplySmartSnapForDeckDrop(target);
+                FocusedDeck = targetDeck;
+                AnalysisStatusText = $"Deck {targetDeck.DeckLabel} focused for the next handoff.";
             }
         });
 
         LoadToDeckACommand = ReactiveCommand.CreateFromTask<PlaylistTrack>(async t =>
         {
             var deck = Decks.FirstOrDefault(d => d.DeckLabel == "A");
-            if (deck != null)
-            {
-                await deck.LoadPlaylistTrackCommand.Execute(t).FirstAsync();
-                ApplySmartSnapForDeckDrop(deck);
-            }
+            await LoadTrackIntoDeckAsync(deck, t);
         });
 
         LoadToDeckBCommand = ReactiveCommand.CreateFromTask<PlaylistTrack>(async t =>
         {
             var deck = Decks.FirstOrDefault(d => d.DeckLabel == "B");
-            if (deck != null)
-            {
-                await deck.LoadPlaylistTrackCommand.Execute(t).FirstAsync();
-                ApplySmartSnapForDeckDrop(deck);
-            }
+            await LoadTrackIntoDeckAsync(deck, t);
         });
 
         SyncBpmCommand = ReactiveCommand.Create(() =>
@@ -468,6 +563,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             if (deckA.DisplayBpm <= 0 || deckB.DisplayBpm <= 0) return;
             _bpmSync.BeatMatch(deckA.Deck.Engine, deckA.DisplayBpm, deckB.Deck.Engine, deckB.DisplayBpm);
             _bpmSync.PhaseAlign(deckA.Deck.Engine, deckA.DisplayBpm, deckB.Deck.Engine, deckB.DisplayBpm);
+            RaiseHeaderProperties();
         });
 
         ToggleLoopCommand = ReactiveCommand.Create(() =>
@@ -478,11 +574,25 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             else                   deck.SetLoopCommand.Execute().Subscribe();
         });
 
-        Loop1Command = ReactiveCommand.Create(() => { var d = FocusedDeck?.Deck; if (d == null) return; d.SelectedLoopBeats = 1; d.SetLoopCommand.Execute().Subscribe(); });
-        Loop2Command = ReactiveCommand.Create(() => { var d = FocusedDeck?.Deck; if (d == null) return; d.SelectedLoopBeats = 2; d.SetLoopCommand.Execute().Subscribe(); });
-        Loop4Command = ReactiveCommand.Create(() => { var d = FocusedDeck?.Deck; if (d == null) return; d.SelectedLoopBeats = 4; d.SetLoopCommand.Execute().Subscribe(); });
-        Loop8Command = ReactiveCommand.Create(() => { var d = FocusedDeck?.Deck; if (d == null) return; d.SelectedLoopBeats = 8; d.SetLoopCommand.Execute().Subscribe(); });
-        ExitLoopFocusedCommand = ReactiveCommand.Create(() => { FocusedDeck?.Deck.ExitLoopCommand.Execute().Subscribe(); });
+        Loop1Command = ReactiveCommand.Create(() => { var d = FocusedDeck?.Deck; if (d == null) return; d.SelectedLoopBeats = 1; d.SetLoopCommand.Execute().Subscribe(); RaiseHeaderProperties(); });
+        Loop2Command = ReactiveCommand.Create(() => { var d = FocusedDeck?.Deck; if (d == null) return; d.SelectedLoopBeats = 2; d.SetLoopCommand.Execute().Subscribe(); RaiseHeaderProperties(); });
+        Loop4Command = ReactiveCommand.Create(() => { var d = FocusedDeck?.Deck; if (d == null) return; d.SelectedLoopBeats = 4; d.SetLoopCommand.Execute().Subscribe(); RaiseHeaderProperties(); });
+        Loop8Command = ReactiveCommand.Create(() => { var d = FocusedDeck?.Deck; if (d == null) return; d.SelectedLoopBeats = 8; d.SetLoopCommand.Execute().Subscribe(); RaiseHeaderProperties(); });
+        ExitLoopFocusedCommand = ReactiveCommand.Create(() => { FocusedDeck?.Deck.ExitLoopCommand.Execute().Subscribe(); RaiseHeaderProperties(); });
+
+        TapTempoCommand = ReactiveCommand.Create(() =>
+        {
+            var now = DateTime.UtcNow;
+            // Discard taps older than 3 seconds (reset after pause)
+            _tapTimes.RemoveAll(t => (now - t).TotalSeconds > 3.0);
+            _tapTimes.Add(now);
+            if (_tapTimes.Count >= 2)
+            {
+                double totalSeconds = (_tapTimes[^1] - _tapTimes[0]).TotalSeconds;
+                double avgInterval  = totalSeconds / (_tapTimes.Count - 1);
+                MasterBpm = Math.Round(60.0 / avgInterval, 1);
+            }
+        });
 
         var canAnalyze = this.WhenAnyValue(x => x.IsAnalyzing, busy => !busy);
 
@@ -559,7 +669,15 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         targetDeck.Deck.SeekCommand.Execute(clampedStart).Subscribe();
 
         SnapGuideTimeSeconds = referenceCue.Timestamp;
-        SnapGuideLabel = $"SNAP {targetDeck.DeckLabel}:{targetCue.Role} -> {referenceDeck.DeckLabel}:{referenceCue.Role}";
+        SnapGuideLabel = WorkstationDeckViewModel.BuildTransitionStatus(
+            targetDeck.DeckLabel,
+            targetDeck.TrackKey,
+            targetDeck.DisplayBpm,
+            targetDeck.CueEditor.Cues,
+            referenceDeck.DeckLabel,
+            referenceDeck.TrackKey,
+            referenceDeck.DisplayBpm,
+            referenceDeck.CueEditor.Cues);
         IsSnapGuideVisible = true;
     }
 
@@ -645,6 +763,158 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         }
 
         return Math.Round(seconds / beatSeconds) * beatSeconds;
+    }
+
+    private void RefreshDeckTransitionGuidance()
+    {
+        foreach (var deck in Decks)
+        {
+            var referenceDeck = Decks
+                .Where(d => !ReferenceEquals(d, deck) && d.IsLoaded)
+                .OrderByDescending(d => d.IsFocusedDeck)
+                .FirstOrDefault();
+
+            if (referenceDeck == null || !deck.IsLoaded)
+            {
+                deck.UpdateTransitionStatus("Load another deck for live transition guidance");
+                deck.UpdateHarmonicGuidance(
+                    WorkstationDeckViewModel.BuildHarmonicSuggestionText(deck.TrackKey, null, deck.Deck.SemitoneShift));
+                continue;
+            }
+
+            deck.UpdateTransitionStatus(
+                WorkstationDeckViewModel.BuildTransitionStatus(
+                    deck.DeckLabel,
+                    deck.TrackKey,
+                    deck.DisplayBpm,
+                    deck.CueEditor.Cues,
+                    referenceDeck.DeckLabel,
+                    referenceDeck.TrackKey,
+                    referenceDeck.DisplayBpm,
+                    referenceDeck.CueEditor.Cues));
+            deck.UpdateHarmonicGuidance(
+                WorkstationDeckViewModel.BuildHarmonicSuggestionText(
+                    deck.TrackKey,
+                    referenceDeck.TrackKey,
+                    deck.Deck.SemitoneShift));
+        }
+
+        RaiseHeaderProperties();
+    }
+
+    public static string BuildDeckStatusSummary(int loadedDecks, int totalDecks, string? focusedDeckLabel, double masterBpm)
+    {
+        var focus = string.IsNullOrWhiteSpace(focusedDeckLabel) ? "Focus —" : $"Focus {focusedDeckLabel}";
+        var bpmText = masterBpm > 0 ? $"{masterBpm.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} BPM" : "Master BPM pending";
+        return $"{loadedDecks}/{Math.Max(1, totalDecks)} decks live • {focus} • {bpmText}";
+    }
+
+    public static string BuildDeckFocusSummary(IEnumerable<string> deckLabels, IEnumerable<string> liveDeckLabels, string? focusedDeckLabel)
+    {
+        var live = new HashSet<string>(liveDeckLabels ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        var ordered = (deckLabels ?? Enumerable.Empty<string>()).Take(4).ToList();
+        if (ordered.Count == 0)
+        {
+            return "Deck targets pending • add or load a deck to start routing";
+        }
+
+        var labels = ordered.Select(label =>
+        {
+            var state = live.Contains(label)
+                ? (string.Equals(label, focusedDeckLabel, StringComparison.OrdinalIgnoreCase) ? "focused" : "live")
+                : "open";
+            return $"{label} {state}";
+        });
+
+        return $"Deck targets • {string.Join(" • ", labels)}";
+    }
+
+    public static string BuildPlaylistFlowSummary(string? playlistTitle, int readyTrackCount, int liveDeckCount, WorkstationMode activeMode)
+    {
+        var title = string.IsNullOrWhiteSpace(playlistTitle) ? "No playlist selected" : playlistTitle;
+        var mode = activeMode == WorkstationMode.Flow ? "flow active" : activeMode == WorkstationMode.Stems ? "stems active" : "workstation active";
+        return $"{title} • {Math.Max(0, readyTrackCount)} flow-ready track{(readyTrackCount == 1 ? string.Empty : "s")} • {Math.Max(0, liveDeckCount)} live deck{(liveDeckCount == 1 ? string.Empty : "s")} • {mode}";
+    }
+
+    public static string BuildAnalysisQueueSummary(int queuedCount, int processedCount, string? currentTrackHash, bool isPaused, string? performanceMode, int maxConcurrency)
+    {
+        var mode = string.IsNullOrWhiteSpace(performanceMode) ? "Standard" : performanceMode;
+        var concurrency = maxConcurrency > 0 ? $"{maxConcurrency} lane{(maxConcurrency == 1 ? string.Empty : "s")}" : "auto lanes";
+
+        if (queuedCount <= 0 && string.IsNullOrWhiteSpace(currentTrackHash))
+        {
+            return $"Analysis idle • {processedCount} prepped • {mode} • {concurrency}";
+        }
+
+        if (isPaused)
+        {
+            return $"Analysis paused • {queuedCount} queued • {processedCount} prepped • {mode}";
+        }
+
+        return $"Analysis rolling • {queuedCount} queued • {processedCount} prepped • {mode} • {concurrency}";
+    }
+
+    public static string BuildToolbarHint(WorkstationMode activeMode, bool snapEnabled, bool quantizeEnabled)
+    {
+        var modeLabel = activeMode switch
+        {
+            WorkstationMode.Waveform => "Waveform",
+            WorkstationMode.Flow => "Flow",
+            WorkstationMode.Stems => "Stems",
+            WorkstationMode.Export => "Export",
+            _ => "Workstation"
+        };
+
+        return $"{modeLabel} mode • Snap {(snapEnabled ? "on" : "off")} • Quantize {(quantizeEnabled ? "on" : "off")} • F1 shortcuts";
+    }
+
+    public static string BuildFlowWindowSummary(double timelineOffsetSeconds, double timelineWindowSeconds)
+    {
+        var start = FormatTick(timelineOffsetSeconds);
+        var end = FormatTick(timelineOffsetSeconds + Math.Max(0, timelineWindowSeconds));
+        return $"Viewport {start} → {end} • {timelineWindowSeconds:F0}s window";
+    }
+
+    public static string BuildTransportStatusSummary(bool isPlaying, int loadedDecks, string? focusedDeckLabel, bool loopArmed)
+    {
+        var state = isPlaying ? "Live transport" : "Transport cued";
+        var deckText = $"{Math.Max(0, loadedDecks)} deck{(loadedDecks == 1 ? string.Empty : "s")} {(isPlaying ? "rolling" : "ready")}";
+        var focus = string.IsNullOrWhiteSpace(focusedDeckLabel) ? "Focus —" : $"Focus {focusedDeckLabel}";
+        var loop = loopArmed ? "loop armed" : "loop open";
+        return $"{state} • {deckText} • {focus} • {loop}";
+    }
+
+    public static string BuildFocusedDeckActionSummary(string? focusedDeckLabel, bool isLoaded, bool hasJumpCues, bool stemsReady)
+    {
+        if (string.IsNullOrWhiteSpace(focusedDeckLabel) || !isLoaded)
+            return "Focus a live deck to sync, jump cues, and shape stems";
+
+        var cueText = hasJumpCues ? "jump cues ready" : "prep cues next";
+        var stemText = stemsReady ? "stems live" : "separate stems next";
+        return $"Deck {focusedDeckLabel} • {cueText} • {stemText}";
+    }
+
+    public static string BuildMixCoachSummary(string? focusedDeckLabel, string? harmonicHint, string? transitionHint)
+    {
+        if (string.IsNullOrWhiteSpace(focusedDeckLabel))
+            return "Mix coach • focus a loaded deck for harmonic and transition guidance";
+
+        var harmonic = string.IsNullOrWhiteSpace(harmonicHint) ? "harmonic guidance pending" : harmonicHint;
+        var transition = string.IsNullOrWhiteSpace(transitionHint) ? "transition guidance pending" : transitionHint;
+        return $"Mix coach • Deck {focusedDeckLabel} • {harmonic} • {transition}";
+    }
+
+    private void RaiseHeaderProperties()
+    {
+        this.RaisePropertyChanged(nameof(DeckStatusSummary));
+        this.RaisePropertyChanged(nameof(DeckFocusSummary));
+        this.RaisePropertyChanged(nameof(ActivePlaylistFlowSummary));
+        this.RaisePropertyChanged(nameof(AnalysisQueueSummary));
+        this.RaisePropertyChanged(nameof(ToolbarHint));
+        this.RaisePropertyChanged(nameof(FlowWindowSummary));
+        this.RaisePropertyChanged(nameof(TransportStatusSummary));
+        this.RaisePropertyChanged(nameof(FocusedDeckActionSummary));
+        this.RaisePropertyChanged(nameof(MixCoachSummary));
     }
 
     private void HideSnapGuide()
@@ -766,11 +1036,103 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     {
         var tracks = await _library.GetPagedPlaylistTracksAsync(
             job.Id, skip: 0, take: 200);
+
+        var readyTracks = tracks
+            .Where(WorkstationDeckViewModel.IsTrackReadyForWorkstation)
+            .ToList();
+
+        var hiddenCount = Math.Max(0, tracks.Count - readyTracks.Count);
+
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             PlaylistTracks.Clear();
-            foreach (var t in tracks) PlaylistTracks.Add(t);
+            foreach (var t in readyTracks) PlaylistTracks.Add(t);
+            this.RaisePropertyChanged(nameof(ActivePlaylistFlowSummary));
+
+            AnalysisStatusText = readyTracks.Count == 0
+                ? "No workstation-ready tracks in this playlist yet. Download and analyze tracks first."
+                : hiddenCount > 0
+                    ? $"{readyTracks.Count} tracks ready for workstation • {hiddenCount} hidden until downloaded and analyzed."
+                    : $"{readyTracks.Count} tracks ready for workstation.";
         });
+    }
+
+    private async Task LoadTrackIntoDeckAsync(WorkstationDeckViewModel? deck, PlaylistTrack track)
+    {
+        if (deck == null)
+        {
+            return;
+        }
+
+        var readinessMessage = WorkstationDeckViewModel.GetTrackLoadReadinessMessage(track);
+        if (!string.IsNullOrWhiteSpace(readinessMessage))
+        {
+            deck.TrackLoadError = readinessMessage;
+            AnalysisStatusText = readinessMessage;
+            return;
+        }
+
+        await deck.LoadPlaylistTrackCommand.Execute(track).FirstAsync();
+
+        if (string.IsNullOrWhiteSpace(deck.TrackLoadError))
+        {
+            ApplySmartSnapForDeckDrop(deck);
+            AnalysisStatusText = $"Loaded {track.Artist} — {track.Title} into Deck {deck.DeckLabel}.";
+        }
+    }
+
+    private async Task HandleFlowLaunchRequestAsync(AddToTimelineRequestEvent request)
+    {
+        var tracks = request.Tracks?.Where(track => track != null).ToList();
+        if (tracks == null || tracks.Count == 0)
+        {
+            return;
+        }
+
+        ActiveMode = WorkstationMode.Flow;
+
+        var targetDeck = FocusedDeck ?? Decks.FirstOrDefault(deck => deck.DeckLabel == "A") ?? Decks.FirstOrDefault();
+        if (targetDeck != null)
+        {
+            FocusedDeck = targetDeck;
+
+            if (!targetDeck.IsLoaded)
+            {
+                await LoadTrackIntoDeckAsync(targetDeck, tracks[0]);
+            }
+
+            AnalysisStatusText = tracks.Count == 1
+                ? $"Flow launch ready for {tracks[0].Artist} — {tracks[0].Title} on Deck {targetDeck.DeckLabel}."
+                : $"Flow launch ready for {tracks.Count} selected tracks.";
+        }
+    }
+
+    private async Task HandleWorkspaceOpenRequestAsync(OpenStemWorkspaceRequestEvent request)
+    {
+        if (request.Track == null)
+        {
+            return;
+        }
+
+        ActiveMode = request.OpenStemRack ? WorkstationMode.Stems : WorkstationMode.Waveform;
+
+        var targetDeck = !string.IsNullOrWhiteSpace(request.PreferredDeck)
+            ? Decks.FirstOrDefault(deck => string.Equals(deck.DeckLabel, request.PreferredDeck, StringComparison.OrdinalIgnoreCase))
+            : FocusedDeck ?? Decks.FirstOrDefault(deck => deck.DeckLabel == "A") ?? Decks.FirstOrDefault();
+
+        if (targetDeck == null)
+        {
+            return;
+        }
+
+        FocusedDeck = targetDeck;
+        await LoadTrackIntoDeckAsync(targetDeck, request.Track);
+
+        if (request.OpenStemRack && string.IsNullOrWhiteSpace(targetDeck.TrackLoadError))
+        {
+            AnalysisStatusText = $"Opening stems for {request.Track.Artist} — {request.Track.Title} on Deck {targetDeck.DeckLabel}.";
+            await targetDeck.SeparateStemsCommand.Execute().FirstAsync();
+        }
     }
 
     private async Task OpenExportDialogAsync()

@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:conv="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:settingsViews="clr-namespace:SLSKDONET.Views.Avalonia.Settings"
              mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
              x:Class="SLSKDONET.Views.Avalonia.SettingsPage"
              Background="#1E1E1E" Foreground="White">
@@ -1004,6 +1005,23 @@
 
                     <Separator Background="#1B263B" Height="1"/>
 
+                    <!-- Keyboard Telemetry opt-in (Epic #119 Task 19) -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="Keyboard Usage Statistics (Local Only)"
+                                       FontWeight="SemiBold" Foreground="#E0E1DD"/>
+                            <TextBlock Text="Count which keyboard shortcuts you use most. Data is stored only on this device and never sent anywhere."
+                                       Foreground="#778DA9" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <CheckBox Grid.Column="1"
+                                  IsChecked="{Binding EnableKeyboardTelemetry, Mode=TwoWay}"
+                                  VerticalAlignment="Center"
+                                  AutomationProperties.Name="Enable local keyboard usage statistics"
+                                  Margin="16,0,0,0"/>
+                    </Grid>
+
+                    <Separator Background="#1B263B" Height="1"/>
+
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
                             <TextBlock Text="Redline Performance Test" FontWeight="SemiBold" Foreground="#E0E1DD"/>
@@ -1166,6 +1184,24 @@
                                TextWrapping="Wrap"
                                IsVisible="{Binding SoulseekConnectionStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                 </StackPanel>
+            </Border>
+
+            <!-- ═══════════════════════════════════════════════════════════════
+                 KEYBOARD MAPPINGS SECTION (Epic #119)
+            ═══════════════════════════════════════════════════════════════ -->
+            <Border Background="#121218" CornerRadius="12"
+                    BorderBrush="#1A4EC9B0" BorderThickness="1"
+                    Padding="24,20" Margin="0,0,0,16">
+              <StackPanel Spacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,8">
+                  <TextBlock Text="⌨" FontSize="18" VerticalAlignment="Center"/>
+                  <TextBlock Text="KEYBOARD MAPPINGS" FontSize="13" FontWeight="Bold"
+                             Foreground="#4EC9B0" VerticalAlignment="Center"/>
+                </StackPanel>
+                <settingsViews:KeyboardMappingsPage
+                    DataContext="{Binding KeyboardMappings}"
+                    MinHeight="400"/>
+              </StackPanel>
             </Border>
 
             <!-- Save Button -->

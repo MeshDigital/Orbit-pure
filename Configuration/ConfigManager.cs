@@ -151,7 +151,10 @@ public class ConfigManager
                 DashboardIsRightPanelOpen = !bool.TryParse(config["Dashboard:IsRightPanelOpen"], out var drpo) || drpo,
 
                 // [Import]
-                ImportWebShortcuts = ParseImportWebShortcuts(config["Import:WebShortcutsJson"])
+                ImportWebShortcuts = ParseImportWebShortcuts(config["Import:WebShortcutsJson"]),
+
+                // [Privacy]
+                EnableKeyboardTelemetry = bool.TryParse(config["Privacy:EnableKeyboardTelemetry"], out var ekt) && ekt,
             };
             
             // Apply defaults if loaded values are empty (for backward compatibility with old configs)
@@ -280,6 +283,10 @@ public class ConfigManager
         iniContent.AppendLine();
         iniContent.AppendLine("[Import]");
         iniContent.AppendLine($"WebShortcutsJson = {SerializeImportWebShortcuts(config.ImportWebShortcuts)}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Privacy]");
+        iniContent.AppendLine($"EnableKeyboardTelemetry = {config.EnableKeyboardTelemetry}");
 
         File.WriteAllText(_configPath, iniContent.ToString());
         _config = config;

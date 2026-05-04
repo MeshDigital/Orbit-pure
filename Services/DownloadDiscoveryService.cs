@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -114,6 +115,7 @@ public class DownloadDiscoveryService
         var tiers = _autoCleaner.Clean($"{track.Artist} - {track.Title}");
         var log = new SearchAttemptLog { CorrelationId = operationCorrelationId };
         var allowMp3Fallback = IsMp3FallbackAllowed(track);
+        var globalSeenCandidates = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
         
         // Phase 3D: Integrated Fallback - try lossless tiers first, then a single MP3 fallback if needed
         var queryTiers = new[] { tiers.Dirty, tiers.Smart, tiers.Aggressive };
@@ -149,7 +151,7 @@ public class DownloadDiscoveryService
                     var hardenedHedgeQuery = _hardeningService.NormalizeSearchQuery(hedgeRawQuery);
 
                     using var hedgeCts = CancellationTokenSource.CreateLinkedTokenSource(timedCt);
-                    var flacTask = PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, flacLog, operationCorrelationId, forceMp3: false);
+                    var flacTask = PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, flacLog, operationCorrelationId, globalSeenCandidates, forceMp3: false);
                     var hedgeTask = Task.Run(async () =>
                     {
                         try
@@ -163,7 +165,7 @@ public class DownloadDiscoveryService
                                 return new DiscoveryResult(null, hedgeLog);
                             }
                             _logger.LogInformation("[TIER MP3-Hedge] MP3 search: '{Query}' for {Title}", hardenedHedgeQuery, track.Title);
-                            return await PerformSearchTierAsync(track, hardenedHedgeQuery, "MP3-Hedge", hedgeCts.Token, blacklistedUsers, hedgeLog, operationCorrelationId, forceMp3: true);
+                            return await PerformSearchTierAsync(track, hardenedHedgeQuery, "MP3-Hedge", hedgeCts.Token, blacklistedUsers, hedgeLog, operationCorrelationId, globalSeenCandidates, forceMp3: true);
                         }
                         catch (OperationCanceledException)
                         {
@@ -171,30 +173,16 @@ public class DownloadDiscoveryService
                         }
                     }, hedgeCts.Token);
 
-                    var firstCompleted = await Task.WhenAny(flacTask, hedgeTask);
-                    var firstResult = await firstCompleted;
+                    var flacResult = await flacTask;
+                    var hedgeResult = await hedgeTask;
 
-                    if (firstCompleted == flacTask)
-                        MergeAttemptLog(log, flacLog);
-                    else
-                        MergeAttemptLog(log, hedgeLog);
+                    MergeAttemptLog(log, flacLog);
+                    MergeAttemptLog(log, hedgeLog);
 
-                    if (firstResult.BestMatch != null)
+                    var hedgedWinner = SelectPreferredResult(flacResult, hedgeResult);
+                    if (hedgedWinner.BestMatch != null)
                     {
-                        hedgeCts.Cancel();
-                        return firstResult;
-                    }
-
-                    var secondTask = firstCompleted == flacTask ? hedgeTask : flacTask;
-                    var secondResult = await secondTask;
-                    if (firstCompleted == flacTask)
-                        MergeAttemptLog(log, hedgeLog);
-                    else
-                        MergeAttemptLog(log, flacLog);
-
-                    if (secondResult.BestMatch != null)
-                    {
-                        return secondResult;
+                        return hedgedWinner;
                     }
 
                     if (timedCt.IsCancellationRequested) break;
@@ -202,7 +190,7 @@ public class DownloadDiscoveryService
                 }
 
                 _logger.LogInformation("Discovery Tier {Tier} (Lossless) for: {Query}", tierNames[i], hardenedQuery);
-                var result = await PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, log, operationCorrelationId, forceMp3: false);
+                var result = await PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, log, operationCorrelationId, globalSeenCandidates, forceMp3: false);
 
                 if (result.BestMatch != null) return result;
                 if (timedCt.IsCancellationRequested) break;
@@ -230,7 +218,7 @@ public class DownloadDiscoveryService
                 else
                 {
                     _logger.LogInformation("[TIER MP3-Fallback] MP3 search: '{Query}' for {Title}", hardenedFallbackQuery, track.Title);
-                    var fallbackResult = await PerformSearchTierAsync(track, hardenedFallbackQuery, "MP3-Fallback", timedCt, blacklistedUsers, log, operationCorrelationId, forceMp3: true);
+                    var fallbackResult = await PerformSearchTierAsync(track, hardenedFallbackQuery, "MP3-Fallback", timedCt, blacklistedUsers, log, operationCorrelationId, globalSeenCandidates, forceMp3: true);
                     if (fallbackResult.BestMatch != null)
                     {
                         _logger.LogInformation("✅ MP3 Fallback SUCCESS for {Title}.", track.Title);
@@ -352,7 +340,7 @@ public class DownloadDiscoveryService
         return "Network degraded; tuning lanes conservatively";
     }
 
-    private async Task<DiscoveryResult> PerformSearchTierAsync(PlaylistTrack track, string query, string tierName, CancellationToken ct, HashSet<string>? blacklistedUsers, SearchAttemptLog log, string correlationId, bool forceMp3 = false)
+    private async Task<DiscoveryResult> PerformSearchTierAsync(PlaylistTrack track, string query, string tierName, CancellationToken ct, HashSet<string>? blacklistedUsers, SearchAttemptLog log, string correlationId, ConcurrentDictionary<string, byte> globalSeenCandidates, bool forceMp3 = false)
     {
         void PublishStatus(string message, bool isError = false)
             => _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, message, isError, correlationId));
@@ -555,10 +543,12 @@ public class DownloadDiscoveryService
 
                         PublishStatus($"🏁 Golden match: {searchTrack.Username} ({searchTrack.Bitrate}kbps FLAC).");
 
-                        // Beta 2026: Cancel the tier's search stream — no need to wait for timeout
-                        tierCts.Cancel();
-
-                        return new DiscoveryResult(searchTrack, log, runnerUpSilverMatch);
+                        if (_config.EnableGoldenEarlyExit)
+                        {
+                            // Optional fast path. Disabled by default to preserve full stream coverage.
+                            tierCts.Cancel();
+                            return new DiscoveryResult(searchTrack, log, runnerUpSilverMatch);
+                        }
                     }
 
                     var fastLaneWinner = useFastLane &&
@@ -580,8 +570,11 @@ public class DownloadDiscoveryService
 
                         PublishStatus($"⚡ Fast lane winner: {searchTrack.Username} ({searchTrack.Bitrate}kbps, queue {queueLength}).");
 
-                        tierCts.Cancel();
-                        return new DiscoveryResult(searchTrack, log, runnerUpSilverMatch);
+                        if (_config.EnableFastLaneEarlyExit)
+                        {
+                            tierCts.Cancel();
+                            return new DiscoveryResult(searchTrack, log, runnerUpSilverMatch);
+                        }
                     }
 
                     if (score > 95)
@@ -590,7 +583,11 @@ public class DownloadDiscoveryService
                             score, searchTrack.Filename);
 
                         PublishStatus($"🚀 Found high-confidence match from {searchTrack.Username} ({score:F0}/100)");
-                        return new DiscoveryResult(searchTrack, log, runnerUpSilverMatch);
+
+                        if (_config.EnableQuickStrikeEarlyExit)
+                        {
+                            return new DiscoveryResult(searchTrack, log, runnerUpSilverMatch);
+                        }
                     }
 
                     if (score > 70)
@@ -666,6 +663,14 @@ public class DownloadDiscoveryService
                     continue;
                 }
 
+                // De-duplicate candidates across all lanes (lossless, hedge, and fallback)
+                // within one discovery operation so ranking is based on unique network options.
+                var globalCandidateKey = BuildGlobalCandidateKey(searchTrack);
+                if (!globalSeenCandidates.TryAdd(globalCandidateKey, 0))
+                {
+                    continue;
+                }
+
                 // Phase 14: Forensic Gatekeeping (The Bouncer)
                 // Audit Trail: Log why we rejected this candidate
                 var targetDurationSeconds = track.CanonicalDuration.HasValue ? track.CanonicalDuration.Value / 1000 : (int?)null;
@@ -679,28 +684,17 @@ public class DownloadDiscoveryService
                 
                 if (!safety.IsSafe && !track.IgnoreSafetyGuards)
                 {
-                    var toleratedMp3FallbackReason = forceMp3 && IsToleratedMp3FallbackSafetyReason(safety.Reason);
-                    if (!toleratedMp3FallbackReason)
-                    {
-                        log.RejectedByForensics++;
-                        // Log the rejection to the persistent audit trail
-                        PublishStatus($"Rejected {searchTrack.Username}: {safety.Reason}", true);
-                        // Phase 6: Security audit trail
-                        _eventBus.Publish(new SecurityAuditEvent(
-                            Category: SecurityAuditCategory.Gate,
-                            Severity: SecurityAuditSeverity.Block,
-                            Summary: $"Gate blocked: {safety.Reason}",
-                            Detail: $"Peer: {searchTrack.Username} | {safety.TechnicalDetails ?? $"Bitrate: {searchTrack.Bitrate}kbps"}",
-                            AssociatedHash: track.TrackUniqueHash));
-                        continue;
-                    }
-
-                    _logger.LogDebug(
-                        "[TIER {Tier}] MP3 fallback lane tolerated strict-lossless safety reason '{Reason}' for candidate {File} from {User}.",
-                        tierName,
-                        safety.Reason,
-                        searchTrack.Filename,
-                        searchTrack.Username);
+                    log.RejectedByForensics++;
+                    // Log the rejection to the persistent audit trail
+                    PublishStatus($"Rejected {searchTrack.Username}: {safety.Reason}", true);
+                    // Phase 6: Security audit trail
+                    _eventBus.Publish(new SecurityAuditEvent(
+                        Category: SecurityAuditCategory.Gate,
+                        Severity: SecurityAuditSeverity.Block,
+                        Summary: $"Gate blocked: {safety.Reason}",
+                        Detail: $"Peer: {searchTrack.Username} | {safety.TechnicalDetails ?? $"Bitrate: {searchTrack.Bitrate}kbps"}",
+                        AssociatedHash: track.TrackUniqueHash));
+                    continue;
                 }
 
                 if (!forceMp3 && !track.IgnoreSafetyGuards && (searchTrack.Format == "flac" && searchTrack.Bitrate < 400))
@@ -735,12 +729,12 @@ public class DownloadDiscoveryService
                     var flushResult = await EvaluatePendingCandidatesAsync();
                     if (flushResult != null) return flushResult;
 
-                    if (bestSilverMatch != null)
+                    if (_config.EnableSpeculativeEarlyAccept && bestSilverMatch != null)
                     {
-                        _logger.LogInformation("🥈 SPECULATIVE TRIGGER: 3s timeout reached with match ({Score}/100). Starting download. File: {File}",
-                            bestSilverScore, bestSilverMatch.Filename);
+                        _logger.LogInformation("🥈 SPECULATIVE TRIGGER: {WindowSeconds}s window reached with match ({Score}/100). Starting download. File: {File}",
+                            minSearchDurationSeconds, bestSilverScore, bestSilverMatch.Filename);
 
-                        PublishStatus($"⏳ 3s timeout reached. Processing silver match from {bestSilverMatch.Username}");
+                        PublishStatus($"⏳ {minSearchDurationSeconds}s window reached. Processing silver match from {bestSilverMatch.Username}");
                         return new DiscoveryResult(bestSilverMatch, log, runnerUpSilverMatch);
                     }
                 }
@@ -864,15 +858,53 @@ public class DownloadDiscoveryService
         return formats.Any(f => string.Equals(f?.Trim(), "mp3", StringComparison.OrdinalIgnoreCase));
     }
 
-    private static bool IsToleratedMp3FallbackSafetyReason(string? reason)
+    private static DiscoveryResult SelectPreferredResult(DiscoveryResult first, DiscoveryResult second)
     {
-        if (string.IsNullOrWhiteSpace(reason))
+        if (first.BestMatch == null) return second;
+        if (second.BestMatch == null) return first;
+
+        var a = first.BestMatch;
+        var b = second.BestMatch;
+
+        var aLossless = IsLosslessFormat(a.Format);
+        var bLossless = IsLosslessFormat(b.Format);
+
+        if (aLossless != bLossless)
+            return aLossless ? first : second;
+
+        if (a.CurrentRank != b.CurrentRank)
+            return a.CurrentRank > b.CurrentRank ? first : second;
+
+        if (a.Bitrate != b.Bitrate)
+            return a.Bitrate >= b.Bitrate ? first : second;
+
+        return first;
+    }
+
+    private static string BuildGlobalCandidateKey(Track track)
+    {
+        if (!string.IsNullOrWhiteSpace(track.UniqueHash))
+            return $"hash:{track.UniqueHash}";
+
+        var user = track.Username ?? string.Empty;
+        var file = track.Filename ?? string.Empty;
+        var size = track.Size?.ToString() ?? string.Empty;
+        var bitrate = track.Bitrate.ToString();
+        var format = track.Format ?? string.Empty;
+        return $"fallback:{user}|{file}|{size}|{bitrate}|{format}";
+    }
+
+    private static bool IsLosslessFormat(string? format)
+    {
+        if (string.IsNullOrWhiteSpace(format))
             return false;
 
-        return reason.Equals("Lossy Extension Rejected", StringComparison.OrdinalIgnoreCase) ||
-               reason.Equals("Unsupported Extension", StringComparison.OrdinalIgnoreCase) ||
-               reason.Equals("Bitrate Too Low", StringComparison.OrdinalIgnoreCase) ||
-               reason.Equals("Sample Rate Too Low", StringComparison.OrdinalIgnoreCase);
+        return format.Equals("flac", StringComparison.OrdinalIgnoreCase) ||
+               format.Equals("wav", StringComparison.OrdinalIgnoreCase) ||
+               format.Equals("aif", StringComparison.OrdinalIgnoreCase) ||
+               format.Equals("aiff", StringComparison.OrdinalIgnoreCase) ||
+               format.Equals("ape", StringComparison.OrdinalIgnoreCase) ||
+               format.Equals("alac", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? BuildDiscoveryReason(Track track, string? scoreBreakdown, bool useFastLane, int queueLength)

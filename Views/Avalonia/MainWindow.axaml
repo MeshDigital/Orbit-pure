@@ -37,15 +37,11 @@
         <!-- App Controls -->
         <KeyBinding Gesture="Ctrl+D" Command="{Binding NavigateProjectsCommand}"/>
         <KeyBinding Gesture="Ctrl+Shift+S" Command="{Binding NavigateSettingsCommand}"/>
-        <KeyBinding Gesture="Ctrl+Q" Command="{Binding QuitApplicationCommand}"/>
         <KeyBinding Gesture="Ctrl+P" Command="{Binding TogglePlayerCommand}"/>
-    <KeyBinding Gesture="Ctrl+Shift+P" Command="{Binding NavigatePlayerCommand}"/>
+        <KeyBinding Gesture="Ctrl+Shift+P" Command="{Binding NavigatePlayerCommand}"/>
         <KeyBinding Gesture="Ctrl+N" Command="{Binding ToggleNavigationCommand}"/>
-        <KeyBinding Gesture="Ctrl+K" Command="{Binding ToggleCommandPaletteCommand}"/>
         <KeyBinding Gesture="F10" Command="{Binding ToggleZenModeCommand}"/>
         <KeyBinding Gesture="F11" Command="{Binding ToggleTopBarCommand}"/>
-        <KeyBinding Gesture="Ctrl+Z" Command="{Binding UndoPlaylistCommand}"/>
-        <KeyBinding Gesture="Ctrl+Y" Command="{Binding RedoPlaylistCommand}"/>
     </Window.KeyBindings>
 
     <Window.Styles>
@@ -175,35 +171,6 @@
                                FontWeight="SemiBold"
                                VerticalAlignment="Center"/>
 
-                        <Border Background="#252526"
-                            CornerRadius="4"
-                            Padding="6,2"
-                            ToolTip.Tip="{Binding StatusBar.AdaptiveLaneTooltip}">
-                        <TextBlock Text="{Binding StatusBar.AdaptiveLaneReadout}"
-                               FontSize="11"
-                               Foreground="#9CDCFE"
-                               VerticalAlignment="Center"/>
-                        </Border>
-
-                        <Border Background="#252526"
-                            CornerRadius="4"
-                            Padding="6,2"
-                            ToolTip.Tip="{Binding StatusBar.SearchPressureTooltip}">
-                        <TextBlock Text="{Binding StatusBar.SearchPressureReadout}"
-                               FontSize="11"
-                               Foreground="#D7BA7D"
-                               VerticalAlignment="Center"/>
-                        </Border>
-                               
-                    <Button Command="{Binding ExecuteBrainTestCommand}"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            Padding="4"
-                            ToolTip.Tip="Run Smart Logic Verification"
-                            VerticalAlignment="Center">
-                        <TextBlock Text="🧠" FontSize="12" Opacity="0.5"/>
-                    </Button>
-
                     <TextBlock Text="{Binding ApplicationVersion, StringFormat='v{0}'}" 
                                Foreground="#555"
                                FontSize="10"
@@ -253,37 +220,19 @@
 
                         <Rectangle Width="1" Height="16" Fill="#333" Margin="4,0"/>
 
-                        <Button Command="{Binding TogglePlayerCommand}" 
-                                Background="Transparent" 
-                                BorderThickness="0" 
-                                Padding="6,4"
-                                ToolTip.Tip="Toggle Music Player">
-                            <TextBlock Text="🎵" Foreground="{Binding IsPlayerSidebarVisible, Converter={StaticResource ActiveColorConverter}}" FontSize="14"/>
-                        </Button>
-
-                        <Button Command="{Binding NavigatePlayerCommand}"
+                        <Button Command="{Binding Sidebar.SwitchToPlayerCommand}"
                                 Background="#221DB954"
                                 BorderBrush="#1DB954"
                                 BorderThickness="1"
                                 CornerRadius="10"
                                 Padding="10,4"
-                                ToolTip.Tip="Open Full Player View">
+                                ToolTip.Tip="Open media sidebar">
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="▣" FontSize="12" Foreground="#DFFFE8"/>
-                                <TextBlock Text="PLAYER" FontSize="10" FontWeight="Bold" Foreground="#DFFFE8"/>
+                                <TextBlock Text="♫" FontSize="12" Foreground="#DFFFE8"/>
+                                <TextBlock Text="MEDIA" FontSize="10" FontWeight="Bold" Foreground="#DFFFE8"/>
                             </StackPanel>
                         </Button>
-                        
-                        <Button Command="{Binding TogglePlayerLocationCommand}" 
-                                Background="Transparent" 
-                                BorderThickness="0" 
-                                Padding="6,4"
-                                ToolTip.Tip="Switch Player Location (Sidebar/Bottom)">
-                            <TextBlock Text="{Binding IsPlayerAtBottom, Converter={StaticResource PlayerDockIconConverter}}" 
-                                       FontSize="14" Foreground="#A0A0A0"/>
-                        </Button>
 
-                        <!-- Epic 12 #110: Toggle Timeline / Overlays panels -->
                         <Button Command="{Binding ToggleTimelinePanelCommand}"
                                 Background="Transparent"
                                 BorderThickness="0"
@@ -292,16 +241,6 @@
                                 ToolTip.Tip="Toggle Timeline panel">
                             <TextBlock Text="⏱" FontSize="14"
                                        Foreground="{Binding IsTimelinePanelOpen, Converter={StaticResource ActiveColorConverter}}"/>
-                        </Button>
-
-                        <Button Command="{Binding ToggleOverlaysPanelCommand}"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                Padding="6,4"
-                                MinWidth="44" MinHeight="44"
-                                ToolTip.Tip="Toggle Overlays panel">
-                            <TextBlock Text="✦" FontSize="14"
-                                       Foreground="{Binding IsOverlaysPanelOpen, Converter={StaticResource ActiveColorConverter}}"/>
                         </Button>
                         
                         <Button Command="{Binding NavigateSettingsCommand}"
@@ -341,6 +280,7 @@
                         <MenuItem Header="Show CURATE" IsChecked="{Binding IsCurateVisible}" ToggleType="CheckBox"/>
                         <MenuItem Header="Show DELIVER" IsChecked="{Binding IsDeliverVisible}" ToggleType="CheckBox"/>
                         <MenuItem Header="Show SYSTEM" IsChecked="{Binding IsSystemVisible}" ToggleType="CheckBox"/>
+                        <MenuItem Header="Show CREATIVE" IsChecked="{Binding IsCreativeVisible}" ToggleType="CheckBox"/>
                         <Separator/>
                         <MenuItem Header="Zen Mode (F10)" IsChecked="{Binding IsZenMode}" ToggleType="CheckBox"/>
                     </ContextMenu>
@@ -350,14 +290,18 @@
                         
                         <!-- ACQUIRE -->
                         <StackPanel IsVisible="{Binding IsAcquireVisible}">
-                            <Border Classes="GroupHeader" Padding="16,8,0,4">
-                                <TextBlock Text="ACQUIRE" Classes="GroupTitle" FontSize="11" FontWeight="Bold" Foreground="#666" LetterSpacing="1"/>
-                            </Border>
+                            <Button Classes="group-header" Command="{Binding ToggleAcquireCommand}"
+                                    Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch"
+                                    Padding="16,8,12,4" ToolTip.Tip="Collapse / expand">                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="ACQUIRE" FontSize="11" FontWeight="Bold" Foreground="#666" LetterSpacing="1" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding AcquireChevron}" FontSize="11" Foreground="#555" VerticalAlignment="Center"/>
+                                </Grid>
+                            </Button>
                             
-                            <StackPanel Spacing="2">
+                            <StackPanel Spacing="2" IsVisible="{Binding IsAcquireExpanded}">
                                 <Button Classes="nav" Command="{Binding NavigateSearchCommand}"
                                         ToolTip.Tip="Search"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Search}}">
+                                        Classes.selected="{Binding IsSearchOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
                                         <TextBlock Text="🔍" FontSize="16"/>
                                         <TextBlock Text="Search" FontSize="14"/>
@@ -366,7 +310,7 @@
 
                                 <Button Classes="nav" Command="{Binding NavigateProjectsCommand}"
                                         ToolTip.Tip="Inbox"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Projects}}">
+                                        Classes.selected="{Binding IsProjectsOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
                                         <TextBlock Text="📥" FontSize="16"/>
                                         <TextBlock Text="Inbox" FontSize="14"/>
@@ -375,7 +319,7 @@
 
                                 <Button Classes="nav" Command="{Binding NavigateImportCommand}"
                                         ToolTip.Tip="Import"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Import}}">
+                                        Classes.selected="{Binding IsImportOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
                                         <TextBlock Text="🔗" FontSize="16"/>
                                         <TextBlock Text="Import" FontSize="14"/>
@@ -388,14 +332,18 @@
 
                         <!-- SYSTEM UTILITIES -->
                         <StackPanel IsVisible="{Binding IsSystemVisible}">
-                            <Border Classes="GroupHeader" Padding="16,8,0,4">
-                                <TextBlock Text="SYSTEM" Classes="GroupTitle" FontSize="11" FontWeight="Bold" Foreground="#666" LetterSpacing="1"/>
-                            </Border>
+                            <Button Classes="group-header" Command="{Binding ToggleSystemCommand}"
+                                    Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch"
+                                    Padding="16,8,12,4" ToolTip.Tip="Collapse / expand">                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="SYSTEM" FontSize="11" FontWeight="Bold" Foreground="#666" LetterSpacing="1" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding SystemChevron}" FontSize="11" Foreground="#555" VerticalAlignment="Center"/>
+                                </Grid>
+                            </Button>
 
-                            <StackPanel Spacing="2">
+                            <StackPanel Spacing="2" IsVisible="{Binding IsSystemExpanded}">
                                  <Button Classes="nav" Command="{Binding NavigateHomeCommand}"
                                         ToolTip.Tip="Dashboard"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Home}}">
+                                        Classes.selected="{Binding IsHomeOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
                                         <TextBlock Text="🏠" FontSize="16"/>
                                         <TextBlock Text="Dashboard" FontSize="14"/>
@@ -404,7 +352,7 @@
 
                                 <Button Classes="nav" Command="{Binding NavigateLibraryCommand}"
                                         ToolTip.Tip="Library"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Library}}">
+                                        Classes.selected="{Binding IsLibraryOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
                                         <TextBlock Text="📚" FontSize="16"/>
                                         <TextBlock Text="Library" FontSize="14"/>
@@ -413,7 +361,7 @@
 
                                 <Button Classes="nav" Command="{Binding NavigateAnalysisCommand}"
                                         ToolTip.Tip="Analysis Pipeline"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Analysis}}">
+                                        Classes.selected="{Binding IsAnalysisOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
                                         <TextBlock Text="🔬" FontSize="16"/>
                                         <TextBlock Text="Analysis" FontSize="14"/>
@@ -422,7 +370,7 @@
 
                                 <Button Classes="nav" Command="{Binding NavigatePlayerCommand}"
                                         ToolTip.Tip="Player"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.NowPlaying}}">
+                                        Classes.selected="{Binding IsPlayerOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
                                         <TextBlock Text="🎛️" FontSize="16"/>
                                         <TextBlock Text="Player" FontSize="14"/>
@@ -431,7 +379,7 @@
 
                                 <Button Classes="nav" Command="{Binding NavigateSettingsCommand}"
                                         ToolTip.Tip="Settings"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Settings}}">
+                                        Classes.selected="{Binding IsSettingsOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
                                         <TextBlock Text="⚙️" FontSize="16"/>
                                         <TextBlock Text="Settings" FontSize="14"/>
@@ -440,15 +388,19 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <!-- MUSIC STUDIO -->
-                        <StackPanel>
-                            <Border Classes="GroupHeader" Padding="16,8,0,4">
-                                <TextBlock Text="MUSIC STUDIO" Classes="GroupTitle" FontSize="11" FontWeight="Bold" Foreground="#666" LetterSpacing="1"/>
-                            </Border>
-                            <StackPanel Spacing="2">
+                        <!-- CREATIVE -->
+                        <StackPanel IsVisible="{Binding IsCreativeVisible}">
+                            <Button Classes="group-header" Command="{Binding ToggleCreativeCommand}"
+                                    Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch"
+                                    Padding="16,8,12,4" ToolTip.Tip="Collapse / expand">                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="CREATIVE" FontSize="11" FontWeight="Bold" Foreground="#666" LetterSpacing="1" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding CreativeChevron}" FontSize="11" Foreground="#555" VerticalAlignment="Center"/>
+                                </Grid>
+                            </Button>
+                            <StackPanel Spacing="2" IsVisible="{Binding IsCreativeExpanded}">
                                 <Button Classes="nav" Command="{Binding NavigateWorkstationCommand}"
                                         ToolTip.Tip="Workstation — Decks, Timeline &amp; Stem Editor"
-                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource EqualityConverter}, ConverterParameter={x:Static models:PageType.Workstation}}">
+                                        Classes.selected="{Binding IsWorkstationOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
                                         <TextBlock Text="🎛️" FontSize="16"/>
                                         <TextBlock Text="Workstation" FontSize="14"/>
@@ -678,7 +630,7 @@
         ═════════════════════════════════════════════════════════════════════ -->
         <Grid Grid.Row="2"
               IsVisible="{Binding IsTabletMode}"
-              Background="#1A1A1A"
+              Background="{DynamicResource RegionBrush}"
               MaxHeight="300"
               ZIndex="10">
             <Grid.RowDefinitions>
@@ -689,18 +641,36 @@
             <!-- Sheet drag handle + tab bar -->
             <Border Grid.Row="0" Background="#252525" Padding="12,6"
                     BorderBrush="#3E3E3E" BorderThickness="0,1,0,0">
-                <StackPanel Orientation="Horizontal" Spacing="16" HorizontalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
                     <Button Background="Transparent" BorderThickness="0" Padding="8,4"
                             MinHeight="44" MinWidth="44"
-                            Command="{Binding Sidebar.Close}"
+                            Command="{Binding Sidebar.SwitchToPlayerCommand}"
+                            ToolTip.Tip="Player">
+                        <TextBlock Text="Player" FontSize="12" Foreground="#4EC9B0"/>
+                    </Button>
+                    <Button Background="Transparent" BorderThickness="0" Padding="8,4"
+                            MinHeight="44" MinWidth="44"
+                            Command="{Binding Sidebar.SwitchToInspectorCommand}"
                             ToolTip.Tip="Inspector">
                         <TextBlock Text="Inspector" FontSize="12" Foreground="#CCC"/>
+                    </Button>
+                    <Button Background="Transparent" BorderThickness="0" Padding="8,4"
+                            MinHeight="44" MinWidth="44"
+                            Command="{Binding Sidebar.SwitchToSimilarityCommand}"
+                            ToolTip.Tip="Similar Tracks">
+                        <TextBlock Text="Similar" FontSize="12" Foreground="#63B3ED"/>
                     </Button>
                     <Button Background="Transparent" BorderThickness="0" Padding="8,4"
                             MinHeight="44" MinWidth="44"
                             Command="{Binding ToggleTimelinePanelCommand}"
                             ToolTip.Tip="Timeline">
                         <TextBlock Text="Timeline" FontSize="12" Foreground="#9B8DFF"/>
+                    </Button>
+                    <Button Background="Transparent" BorderThickness="0" Padding="8,4"
+                            MinHeight="44" MinWidth="44"
+                            Command="{Binding Sidebar.CloseCommand}"
+                            ToolTip.Tip="Close side panel">
+                        <TextBlock Text="Close" FontSize="12" Foreground="#888"/>
                     </Button>
                 </StackPanel>
             </Border>

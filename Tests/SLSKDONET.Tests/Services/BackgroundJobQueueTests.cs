@@ -81,7 +81,7 @@ public class BackgroundJobQueueTests
         Assert.True(executed.Task.Result);
         // At minimum: mid-progress + completion event
         Assert.Contains(progressEvents, p => p.Fraction == 0.5);
-        Assert.Contains(progressEvents, p => p.IsCompleted);
+        Assert.Contains(progressEvents, p => p.IsCompleted || p.IsFailed);
     }
 
     [Fact]

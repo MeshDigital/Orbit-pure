@@ -27,6 +27,7 @@
             <SolidColorBrush x:Key="Surface1Brush" Color="{StaticResource Surface1Color}"/>
             <SolidColorBrush x:Key="Surface2Brush" Color="{StaticResource Surface2Color}"/>
             <SolidColorBrush x:Key="Surface3Brush" Color="{StaticResource Surface3Color}"/>
+            <SolidColorBrush x:Key="RegionBrush" Color="{StaticResource Surface1Color}"/>
             
             <!-- Glass/Acrylic Bases -->
             <SolidColorBrush x:Key="GlassBrush" Color="#15FFFFFF"/>

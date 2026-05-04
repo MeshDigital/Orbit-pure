@@ -469,6 +469,33 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     public string Format => Model.Format ?? "Unknown";
     public IEnumerable<OrbitCue> Cues => _cues;
     public bool HasCues => _cues.Count > 0;
+    public bool HasAnalysisData => HasBpm || HasKey || HasCues || HasGenre || SampleRate > 0 || EnergyCurvePoints.Count > 0;
+    public double BpmConfidence => Model.QualityConfidence is > 0 ? Math.Clamp(Model.QualityConfidence.Value, 0.0, 1.0) : (HasBpm ? 0.82 : 0.0);
+    public double RadarEnergy => Math.Clamp(Energy, 0.0, 1.0);
+    public double RadarDanceability => Math.Clamp(Danceability, 0.0, 1.0);
+    public double ValenceNorm => Math.Clamp(Valence, 0.0, 1.0);
+    public double ArousalNorm
+    {
+        get
+        {
+            var loudnessNorm = Model.Loudness.HasValue
+                ? Math.Clamp((Model.Loudness.Value + 18.0) / 18.0, 0.0, 1.0)
+                : 0.5;
+            return Math.Clamp((RadarEnergy * 0.65) + (loudnessNorm * 0.35), 0.0, 1.0);
+        }
+    }
+    public double RadarInstrumentalness => Math.Clamp(InstrumentalProbability, 0.0, 1.0);
+    public double AudioVocalDensity => Model.VocalDensityCurve?.Length > 0
+        ? Math.Clamp(Model.VocalDensityCurve.Average(), 0.0, 1.0)
+        : Math.Clamp(1.0 - InstrumentalProbability, 0.0, 1.0);
+    public string DetectedVocalTypeDisplay => AudioVocalDensity switch
+    {
+        >= 0.7 => "Vocal",
+        <= 0.25 => "Instrumental",
+        _ => "Mixed"
+    };
+    public IReadOnlyList<double> EnergyCurvePoints => BuildEnergyCurvePoints();
+    public IReadOnlyList<PhraseSegment> PhraseSegments => BuildPhraseSegments();
 
     // Inspector panel: last analysis timestamp + model version tooltip
     public string LastAnalyzedDisplay =>
@@ -855,6 +882,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     public ICommand SeparateStemsCommand { get; }
     public ICommand PlayCommand { get; }
     public ICommand RevealFileCommand { get; }
+    public ICommand OpenWorkstationCommand { get; }
     public ICommand AddToProjectCommand { get; }
     public ICommand ToggleLikeCommand { get; }
 
@@ -901,6 +929,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         SeparateStemsCommand = new RelayCommand(SeparateStems, () => State == PlaylistTrackState.Completed && !HasStems);
         PlayCommand = new RelayCommand(PlayTrack, () => IsCompleted);
         RevealFileCommand = new RelayCommand(RevealFile, () => IsCompleted);
+        OpenWorkstationCommand = new RelayCommand(OpenWorkstation, () => IsCompleted);
         AddToProjectCommand = new RelayCommand(() => _eventBus?.Publish(new Models.AddToProjectRequestEvent(new[] { Model })), () => IsCompleted);
         RetryCommand = new RelayCommand(FindNewVersion, () => CanHardRetry);
         HardRetryCommand = RetryCommand;
@@ -1528,6 +1557,12 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
                 OnPropertyChanged(nameof(HighData));
                 OnPropertyChanged(nameof(TechnicalSummary));
                 OnPropertyChanged(nameof(Cues));
+                OnPropertyChanged(nameof(PhraseSegments));
+                OnPropertyChanged(nameof(EnergyCurvePoints));
+                OnPropertyChanged(nameof(HasAnalysisData));
+                OnPropertyChanged(nameof(BpmConfidence));
+                OnPropertyChanged(nameof(AudioVocalDensity));
+                OnPropertyChanged(nameof(DetectedVocalTypeDisplay));
                 OnPropertyChanged(nameof(FileSizeBytes));
                 OnPropertyChanged(nameof(LoudnessDisplay));
                 OnPropertyChanged(nameof(Format));
@@ -1568,11 +1603,83 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     {
         if (_eventBus == null || string.IsNullOrEmpty(GlobalId)) return;
         _eventBus.Publish(new Models.StemSeparationRequestedEvent(GlobalId, Model.ResolvedFilePath ?? ""));
+        _eventBus.Publish(new Models.OpenStemWorkspaceRequestEvent(Model, OpenStemRack: true));
         
         // UI notification or temporary state if needed
-        ErrorMessage = "Stem separation queued...";
+        ErrorMessage = "Opening stem rack...";
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(DetailedStatusText));
+    }
+
+    private IReadOnlyList<double> BuildEnergyCurvePoints()
+    {
+        var low = WaveformData.LowData ?? Array.Empty<byte>();
+        var mid = WaveformData.MidData ?? Array.Empty<byte>();
+        var high = WaveformData.HighData ?? Array.Empty<byte>();
+        var len = Math.Max(low.Length, Math.Max(mid.Length, high.Length));
+        if (len == 0) return Array.Empty<double>();
+
+        var points = new double[len];
+        for (var i = 0; i < len; i++)
+        {
+            double sum = 0;
+            int count = 0;
+            if (i < low.Length) { sum += low[i] / 255.0; count++; }
+            if (i < mid.Length) { sum += mid[i] / 255.0; count++; }
+            if (i < high.Length) { sum += high[i] / 255.0; count++; }
+            points[i] = count > 0 ? sum / count : 0;
+        }
+
+        return points;
+    }
+
+    private IReadOnlyList<PhraseSegment> BuildPhraseSegments()
+    {
+        var duration = Math.Max(0.0, (Model.CanonicalDuration ?? 0) / 1000.0);
+        var orderedCues = _cues.OrderBy(c => c.Timestamp).ToList();
+
+        if (orderedCues.Count == 0)
+        {
+            if (duration <= 0)
+                return Array.Empty<PhraseSegment>();
+
+            var introEnd = Math.Max(8.0, duration * 0.15);
+            var outroStart = Math.Max(introEnd, duration * 0.82);
+            return new[]
+            {
+                new PhraseSegment { Label = "Intro", Start = 0f, Duration = (float)Math.Max(4.0, introEnd), Color = "#1E3A5F" },
+                new PhraseSegment { Label = "Main", Start = (float)introEnd, Duration = (float)Math.Max(4.0, outroStart - introEnd), Color = "#6A0DAD" },
+                new PhraseSegment { Label = "Outro", Start = (float)outroStart, Duration = (float)Math.Max(4.0, duration - outroStart), Color = "#708090" }
+            };
+        }
+
+        var segments = new List<PhraseSegment>(orderedCues.Count);
+        for (var i = 0; i < orderedCues.Count; i++)
+        {
+            var current = orderedCues[i];
+            var nextTime = i < orderedCues.Count - 1
+                ? orderedCues[i + 1].Timestamp
+                : Math.Max(duration, current.Timestamp + 8.0);
+
+            segments.Add(new PhraseSegment
+            {
+                Label = string.IsNullOrWhiteSpace(current.Name) ? $"Cue {i + 1}" : current.Name,
+                Start = (float)Math.Max(0.0, current.Timestamp),
+                Duration = (float)Math.Max(2.0, nextTime - current.Timestamp),
+                Confidence = (float)Math.Clamp(current.Confidence, 0.0, 1.0),
+                Color = string.IsNullOrWhiteSpace(current.Color) ? "#708090" : current.Color
+            });
+        }
+
+        return segments;
+    }
+
+    private void OpenWorkstation()
+    {
+        PlayTrack();
+
+        if (_eventBus != null)
+            _eventBus.Publish(new Models.OpenStemWorkspaceRequestEvent(Model));
     }
 
     private void PlayTrack()

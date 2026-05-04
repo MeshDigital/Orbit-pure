@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reactive;
 using Avalonia.Media;
 using ReactiveUI;
@@ -139,45 +140,75 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
 
     /// <summary>
     /// Computes and sets the transition bridge to the <paramref name="next"/> card.
-    /// Uses Camelot wheel distance + BPM delta for colour scoring.
+    /// Uses harmonic distance, tempo drift, and local outro→intro energy alignment.
     /// </summary>
-    public void SetBridgeTo(FlowTrackCardViewModel? next)
+    public void SetBridgeTo(FlowTrackCardViewModel? next, double? sectionBlendScore = null, double? doubleDropScore = null)
     {
         if (next == null) { Bridge = null; return; }
 
-        // BPM delta display
-        float myBpm   = float.TryParse(BpmDisplay, out var b1)  ? b1  : 0f;
+        float myBpm   = float.TryParse(BpmDisplay, out var b1) ? b1 : 0f;
         float nxtBpm  = float.TryParse(next.BpmDisplay, out var b2) ? b2 : 0f;
         float bpmDiff = myBpm > 0 && nxtBpm > 0 ? nxtBpm - myBpm : 0f;
         string bpmDeltaDisplay = bpmDiff == 0f ? "—"
             : bpmDiff > 0 ? $"+{bpmDiff:F1} BPM"
             : $"{bpmDiff:F1} BPM";
 
-        // Camelot distance → colour
         double camelotDist = CamelotDistance(KeyDisplay, next.KeyDisplay);
-        IBrush scoreBrush = camelotDist switch
+        double harmonicScore = Math.Clamp(1.0 - (camelotDist / 6.0), 0.0, 1.0);
+        double tempoScore = myBpm > 0 && nxtBpm > 0
+            ? Math.Clamp(Math.Exp(-Math.Abs(bpmDiff) / 4.0), 0.0, 1.0)
+            : 0.5;
+
+        double outroEnergy = EnergyCurvePoints.Count > 0
+            ? EnergyCurvePoints.Skip(Math.Max(0, EnergyCurvePoints.Count - 2)).Average()
+            : 0.5;
+        double introEnergy = next.EnergyCurvePoints.Count > 0
+            ? next.EnergyCurvePoints.Take(2).Average()
+            : 0.5;
+        double energyMatch = Math.Clamp(1.0 - Math.Abs(outroEnergy - introEnergy), 0.0, 1.0);
+
+        double sectionMatch = sectionBlendScore ?? energyMatch;
+
+        double transitionScore = Math.Clamp(
+            (harmonicScore * 0.35) +
+            (tempoScore * 0.15) +
+            (energyMatch * 0.20) +
+            (sectionMatch * 0.30),
+            0.0, 1.0);
+
+        IBrush scoreBrush = transitionScore switch
         {
-            <= 1 => new SolidColorBrush(Color.Parse("#4EC9B0")),   // compatible – teal
-            <= 2 => new SolidColorBrush(Color.Parse("#FFD700")),   // energy shift – yellow
-            <= 4 => new SolidColorBrush(Color.Parse("#FF8C00")),   // stretch – orange
-            _    => new SolidColorBrush(Color.Parse("#E74C3C")),   // clash – red
+            >= 0.82 => new SolidColorBrush(Color.Parse("#4EC9B0")),
+            >= 0.64 => new SolidColorBrush(Color.Parse("#B8E986")),
+            >= 0.45 => new SolidColorBrush(Color.Parse("#FFB347")),
+            _       => new SolidColorBrush(Color.Parse("#E74C3C")),
         };
 
-        string compatLabel = camelotDist switch
-        {
-            <= 1 => "✓ Compatible",
-            <= 2 => "~ Energy shift",
-            _    => "⚠ Key clash",
-        };
-        string keyLabel = $"{KeyDisplay} → {next.KeyDisplay}  {compatLabel}";
-        string tooltip  = $"BPM: {BpmDisplay} → {next.BpmDisplay}  |  Key: {keyLabel}";
+        string compatLabel = doubleDropScore is >= 0.78
+            ? "Double-drop friendly"
+            : transitionScore switch
+            {
+                >= 0.82 => "Smooth blend",
+                >= 0.64 => "Good bridge",
+                >= 0.45 => "Usable shift",
+                _       => "Risky transition",
+            };
+
+        string keyLabel = $"{KeyDisplay} → {next.KeyDisplay} · {(transitionScore * 100):F0}%";
+        string tooltip =
+            $"Flow: {(transitionScore * 100):F0}% ({compatLabel})\n" +
+            $"Key: {KeyDisplay} → {next.KeyDisplay}\n" +
+            $"BPM: {BpmDisplay} → {next.BpmDisplay} ({bpmDeltaDisplay})\n" +
+            $"Outro→Intro section match: {(sectionMatch * 100):F0}%\n" +
+            $"Energy contour match: {(energyMatch * 100):F0}%" +
+            (doubleDropScore.HasValue ? $"\nDrop-to-drop compatibility: {(doubleDropScore.Value * 100):F0}%" : string.Empty);
 
         Bridge = new FlowBridgeInfo
         {
             BpmDeltaDisplay = bpmDeltaDisplay,
-            ScoreBrush      = scoreBrush,
-            KeyLabel        = keyLabel,
-            Tooltip         = tooltip,
+            ScoreBrush = scoreBrush,
+            KeyLabel = keyLabel,
+            Tooltip = tooltip,
         };
     }
 

@@ -103,7 +103,7 @@ public sealed class PlaylistOptimizer
         if (options.EnergyCurve != EnergyCurvePattern.None && ordered.Count > 2)
             ordered = ApplyEnergyCurve(ordered, features, options.EnergyCurve);
 
-        double totalCost = ComputePathCost(ordered, features, options);
+        double totalCost = ComputePathCost(ordered, features, options, _sectionVectors);
 
         var result = ordered.Concat(unanalyzed).ToList();
         return new PlaylistOptimizationResult
@@ -143,10 +143,20 @@ public sealed class PlaylistOptimizer
             {
                 double cost = EdgeCost(currentFeature, features[candidate], options);
 
-                // Add section-level transition term (outro→intro energy/spectral match).
-                if (sectionVectors != null && options.SectionTransitionWeight > 0)
-                    cost += sectionVectors.TransitionCostCached(current, candidate)
-                            * options.SectionTransitionWeight;
+                if (sectionVectors != null)
+                {
+                    if (options.SectionTransitionWeight > 0)
+                    {
+                        double transitionMismatch = 1.0 - sectionVectors.TransitionScoreCached(current, candidate);
+                        cost += transitionMismatch * options.SectionTransitionWeight;
+                    }
+
+                    if (options.PreferDoubleDropFriendlySequences)
+                    {
+                        double dropBonus = sectionVectors.DropSimilarityCached(current, candidate);
+                        cost -= dropBonus * options.DoubleDropPreferenceWeight;
+                    }
+                }
 
                 if (cost < bestCost)
                 {
@@ -275,11 +285,24 @@ public sealed class PlaylistOptimizer
     private static double ComputePathCost(
         List<string> path,
         Dictionary<string, AudioFeaturesEntity> features,
-        PlaylistOptimizerOptions opts)
+        PlaylistOptimizerOptions opts,
+        SectionVectorService? sectionVectors)
     {
         double cost = 0;
         for (int i = 0; i < path.Count - 1; i++)
+        {
             cost += EdgeCost(features[path[i]], features[path[i + 1]], opts);
+
+            if (sectionVectors != null)
+            {
+                if (opts.SectionTransitionWeight > 0)
+                    cost += (1.0 - sectionVectors.TransitionScoreCached(path[i], path[i + 1])) * opts.SectionTransitionWeight;
+
+                if (opts.PreferDoubleDropFriendlySequences)
+                    cost -= sectionVectors.DropSimilarityCached(path[i], path[i + 1]) * opts.DoubleDropPreferenceWeight;
+            }
+        }
+
         return cost;
     }
 

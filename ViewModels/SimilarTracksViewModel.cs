@@ -7,22 +7,26 @@ using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Input;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using SLSKDONET.Data;
+using SLSKDONET.Events;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Services.Similarity;
+using SLSKDONET.Views;
 
 namespace SLSKDONET.ViewModels;
 
 /// <summary>
 /// One row in the Similar Tracks panel — a candidate track with its similarity score.
 /// </summary>
-public sealed class SimilarTrackRowViewModel : ReactiveObject
+public sealed class SimilarTrackRowViewModel : ReactiveObject, IDisposable
 {
     public string TrackHash { get; }
+    private bool _disposed;
 
     private string _title          = string.Empty;
     private string _artist         = string.Empty;
@@ -38,6 +42,8 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject
     private string _beatLabel      = string.Empty;
     private string _dropLabel      = string.Empty;
     private bool   _isPotentialDoubleDrop;
+    private readonly IEventBus? _eventBus;
+    private PlaylistTrack? _projectTrack;
 
     public string Title  { get => _title;  private set => this.RaiseAndSetIfChanged(ref _title,  value); }
     public string Artist { get => _artist; private set => this.RaiseAndSetIfChanged(ref _artist, value); }
@@ -64,14 +70,24 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject
         set => this.RaiseAndSetIfChanged(ref _isPotentialDoubleDrop, value);
     }
 
+    public ICommand AddToPlaylistCommand { get; }
+
     public SimilarTrackRowViewModel(
         SimilarTrack result,
         DatabaseService db,
         ILogger logger,
+        IEventBus? eventBus = null,
         TrackMatchScore? matchScore = null)
     {
         TrackHash = result.TrackHash;
         _score    = result.Score;
+        _eventBus = eventBus;
+
+        AddToPlaylistCommand = new RelayCommand(() =>
+        {
+            if (_eventBus == null) return;
+            _eventBus.Publish(new AddToProjectRequestEvent(new[] { ToPlaylistTrack() }));
+        });
 
         // Apply pre-computed match scores immediately if supplied.
         if (matchScore is not null) ApplyMatchScore(matchScore);
@@ -81,13 +97,48 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject
         {
             try
             {
+                using var context = new AppDbContext();
+
+                var libraryEntry = await context.LibraryEntries
+                    .AsNoTracking()
+                    .Where(e => e.UniqueHash == TrackHash)
+                    .Select(e => new { e.Artist, e.Title, e.Album, e.FilePath })
+                    .FirstOrDefaultAsync();
+
+                var playlistTrack = await context.PlaylistTracks
+                    .AsNoTracking()
+                    .Where(t => t.TrackUniqueHash == TrackHash)
+                    .OrderByDescending(t => t.AddedAt)
+                    .Select(t => new { t.Artist, t.Title, t.Album, t.ResolvedFilePath, t.Format })
+                    .FirstOrDefaultAsync();
+
                 var features = await db.GetAudioFeaturesByHashAsync(TrackHash);
-                if (features is null) return;
 
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
-                    Key = features.CamelotKey ?? features.Key ?? string.Empty;
-                    Bpm = features.Bpm;
+                    if (_disposed)
+                    {
+                        return;
+                    }
+
+                    var shortHash = TrackHash.Length > 8 ? TrackHash.Substring(0, 8) : TrackHash;
+                    Title = libraryEntry?.Title ?? playlistTrack?.Title ?? $"Track {shortHash}";
+                    Artist = libraryEntry?.Artist ?? playlistTrack?.Artist ?? "Unknown Artist";
+                    Key = features?.CamelotKey ?? features?.Key ?? string.Empty;
+                    Bpm = features?.Bpm ?? 0f;
+
+                    _projectTrack = new PlaylistTrack
+                    {
+                        TrackUniqueHash = TrackHash,
+                        Artist = Artist,
+                        Title = Title,
+                        Album = libraryEntry?.Album ?? playlistTrack?.Album ?? string.Empty,
+                        ResolvedFilePath = libraryEntry?.FilePath ?? playlistTrack?.ResolvedFilePath ?? string.Empty,
+                        Format = playlistTrack?.Format ?? System.IO.Path.GetExtension(libraryEntry?.FilePath ?? string.Empty).TrimStart('.'),
+                        BPM = Bpm,
+                        MusicalKey = Key,
+                        Status = TrackStatus.Downloaded
+                    };
                 });
             }
             catch (Exception ex)
@@ -96,6 +147,17 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject
             }
         });
     }
+
+    internal PlaylistTrack ToPlaylistTrack() =>
+        _projectTrack ?? new PlaylistTrack
+        {
+            TrackUniqueHash = TrackHash,
+            Artist = Artist,
+            Title = Title,
+            BPM = Bpm,
+            MusicalKey = Key,
+            Status = TrackStatus.Downloaded
+        };
 
     internal void ApplyMatchScore(TrackMatchScore s)
     {
@@ -108,6 +170,11 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject
         BeatLabel             = s.BeatLabel;
         DropLabel             = s.DropLabel;
         IsPotentialDoubleDrop = s.IsPotentialDoubleDrop;
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
     }
 }
 
@@ -127,11 +194,12 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
     public const int DefaultTopN    = 12;
     public const int DebounceMs     = 300;
 
-    private readonly SimilarityIndex     _index;
-    private readonly DatabaseService     _db;
+    private readonly SimilarityIndex       _index;
+    private readonly DatabaseService       _db;
+    private readonly IEventBus?            _eventBus;
     private readonly SectionVectorService? _sectionVectors;
-    private readonly ILogger             _logger;
-    private readonly CompositeDisposable _disposables = new();
+    private readonly ILogger               _logger;
+    private readonly CompositeDisposable   _disposables = new();
 
     // ── Seed ──────────────────────────────────────────────────────────────
 
@@ -150,8 +218,16 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
     // ── Results ───────────────────────────────────────────────────────────
 
     public ObservableCollection<SimilarTrackRowViewModel> Results { get; } = new();
+    public ObservableCollection<SimilarTrackRowViewModel> BridgeSuggestions { get; } = new();
 
     // ── State ─────────────────────────────────────────────────────────────
+
+    private bool _isBridgeMode;
+    public bool IsBridgeMode
+    {
+        get => _isBridgeMode;
+        private set => this.RaiseAndSetIfChanged(ref _isBridgeMode, value);
+    }
 
     private bool _isBusy;
     public bool IsBusy
@@ -182,6 +258,9 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
 
     /// <summary>Forces a refresh with the current seed hash, bypassing the debounce timer.</summary>
     public ReactiveCommand<Unit, Unit> RefreshCommand { get; }
+    public ReactiveCommand<Unit, Unit> AddAllCommand { get; }
+    public ReactiveCommand<Unit, Unit> BridgeSuggestionsCommand { get; }
+    public ReactiveCommand<Unit, Unit> ShowSimilarModeCommand { get; }
 
     // ── Constructor ───────────────────────────────────────────────────────
 
@@ -189,15 +268,33 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
         SimilarityIndex index,
         DatabaseService db,
         ILogger<SimilarTracksViewModel> logger,
+        IEventBus? eventBus = null,
         SectionVectorService? sectionVectors = null)
     {
         _index          = index;
         _db             = db;
         _logger         = logger;
+        _eventBus       = eventBus;
         _sectionVectors = sectionVectors;
+
+        StatusMessage = "Select a track in Library, Search, or Downloads to fill this sidebar.";
 
         RefreshCommand = ReactiveCommand.CreateFromTask(
             () => QueryAsync(_seedTrackHash, CancellationToken.None));
+        AddAllCommand = ReactiveCommand.Create(AddAllResultsToProject);
+        BridgeSuggestionsCommand = ReactiveCommand.CreateFromTask(RefreshBridgeSuggestionsAsync);
+        ShowSimilarModeCommand = ReactiveCommand.Create(() =>
+        {
+            IsBridgeMode = false;
+            StatusMessage = Results.Count == 0
+                ? "No similar tracks found for the current selection."
+                : null;
+        });
+
+        ReactiveUI.MessageBus.Current.Listen<OpenInspectorEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(evt => PrimeFromInspectorContext(evt.ViewModel))
+            .DisposeWith(_disposables);
 
         // Debounced subscription on SeedTrackHash changes
         this.WhenAnyValue(x => x.SeedTrackHash)
@@ -213,13 +310,25 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
 
     private async Task QueryAsync(string? hash, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(hash)) return;
+        if (string.IsNullOrWhiteSpace(hash))
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                Results.Clear();
+                BridgeSuggestions.Clear();
+                IsBridgeMode = false;
+                StatusMessage = "Select a downloaded track to view similar and bridge suggestions.";
+            });
+            return;
+        }
 
         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
             IsBusy = true;
+            IsBridgeMode = false;
             StatusMessage = null;
             Results.Clear();
+            BridgeSuggestions.Clear();
         });
 
         try
@@ -235,7 +344,7 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
                 foreach (var hit in hits)
                 {
                     matchScores.TryGetValue(hit.TrackHash, out var ms);
-                    Results.Add(new SimilarTrackRowViewModel(hit, _db, _logger, ms));
+                    Results.Add(new SimilarTrackRowViewModel(hit, _db, _logger, _eventBus, ms));
                 }
 
                 StatusMessage = hits.Count == 0
@@ -257,6 +366,68 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
         {
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => IsBusy = false);
         }
+    }
+
+    public void PrimeFromInspectorContext(object? viewModel)
+    {
+        switch (viewModel)
+        {
+            case PlaylistTrackViewModel playlistTrack:
+                _ = playlistTrack.LoadAnalysisDataAsync();
+                SeedTrackHash = playlistTrack.GlobalId;
+                StatusMessage = $"Finding matches for {playlistTrack.ArtistName} — {playlistTrack.TrackTitle}";
+                break;
+
+            case Downloads.UnifiedTrackViewModel unifiedTrack when !string.IsNullOrWhiteSpace(unifiedTrack.Model.TrackUniqueHash):
+                SeedTrackHash = unifiedTrack.Model.TrackUniqueHash;
+                StatusMessage = $"Finding matches for {unifiedTrack.Model.Artist} — {unifiedTrack.Model.Title}";
+                break;
+
+            case PlaylistTrack model when !string.IsNullOrWhiteSpace(model.TrackUniqueHash):
+                SeedTrackHash = model.TrackUniqueHash;
+                StatusMessage = $"Finding matches for {model.Artist} — {model.Title}";
+                break;
+
+            case AnalyzedSearchResultViewModel searchResult:
+                StatusMessage = $"Similar suggestions need a downloaded library track. Current selection: {searchResult.ArtistName} — {searchResult.TrackTitle}";
+                break;
+        }
+    }
+
+    private void AddAllResultsToProject()
+    {
+        if (_eventBus == null || Results.Count == 0)
+            return;
+
+        var tracks = Results.Select(r => r.ToPlaylistTrack()).ToList();
+        _eventBus.Publish(new AddToProjectRequestEvent(tracks));
+        StatusMessage = $"Queued {tracks.Count} tracks for project add.";
+    }
+
+    private Task RefreshBridgeSuggestionsAsync()
+    {
+        IsBridgeMode = true;
+        BridgeSuggestions.Clear();
+
+        foreach (var row in Results
+                     .OrderByDescending(r => r.DoubleDropScore > 0 ? ((r.DoubleDropScore * 0.6f) + (r.OverallScore * 0.4f)) : r.OverallScore)
+                     .Take(8))
+        {
+            BridgeSuggestions.Add(row);
+        }
+
+        if (BridgeSuggestions.Count == 0)
+        {
+            StatusMessage = string.IsNullOrWhiteSpace(SeedTrackHash)
+                ? "Select a track to generate bridge ideas."
+                : "No bridge candidates are ready for this track yet.";
+        }
+        else
+        {
+            StatusMessage = null;
+        }
+
+        return Task.CompletedTask;
     }
 
     // ── Match score computation ────────────────────────────────────────────
@@ -290,9 +461,14 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
                 await _sectionVectors.PreloadAsync(allHashes, ct);
 
             Models.SectionFeatureVector? seedDrop = null;
+            Models.SectionFeatureVector? seedOutro = null;
             if (_sectionVectors != null && seedFeatures != null)
+            {
                 seedDrop = await _sectionVectors.GetSectionAsync(
                     seedHash, Data.Entities.PhraseType.Drop, ct);
+                seedOutro = await _sectionVectors.GetSectionAsync(
+                    seedHash, Data.Entities.PhraseType.Outro, ct);
+            }
 
             foreach (var hit in hits)
             {
@@ -301,16 +477,23 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
                 featureMap.TryGetValue(hit.TrackHash, out var hitFeatures);
 
                 Models.SectionFeatureVector? hitDrop = null;
+                Models.SectionFeatureVector? hitIntro = null;
                 if (_sectionVectors != null && hitFeatures != null)
+                {
                     hitDrop = await _sectionVectors.GetSectionAsync(
                         hit.TrackHash, Data.Entities.PhraseType.Drop, ct);
+                    hitIntro = await _sectionVectors.GetSectionAsync(
+                        hit.TrackHash, Data.Entities.PhraseType.Intro, ct);
+                }
 
                 var score = TrackMatchScorer.Compute(
                     seedFeatures,
                     hitFeatures,
-                    hit.Score,   // already cosine similarity (0-1) from SimilarityIndex
+                    hit.Score,
                     seedDrop,
-                    hitDrop);
+                    hitDrop,
+                    seedOutro,
+                    hitIntro);
 
                 result[hit.TrackHash] = score;
             }

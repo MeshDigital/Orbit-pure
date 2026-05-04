@@ -1,0 +1,167 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Workstation"
+             mc:Ignorable="d"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.KeyboardOverlayView"
+             x:DataType="vm:KeyboardOverlayViewModel"
+             IsHitTestVisible="{Binding IsVisible}"
+             HorizontalAlignment="Stretch"
+             VerticalAlignment="Stretch">
+
+  <!-- Full-screen scrim — only visible when IsVisible=true -->
+  <Border Background="#D0000000"
+          HorizontalAlignment="Stretch"
+          VerticalAlignment="Stretch"
+          IsVisible="{Binding IsVisible}"
+          ZIndex="200"
+          PointerPressed="OnScrimPressed">
+
+    <!-- Centered card -->
+    <Border Background="#1C1C1E"
+            CornerRadius="14"
+            Padding="0"
+            Width="920"
+            MaxHeight="700"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            BoxShadow="0 12 48 0 #99000000">
+
+      <DockPanel>
+
+        <!-- ─── Header ─────────────────────────────────────────────── -->
+        <Border DockPanel.Dock="Top"
+                Background="#242428"
+                CornerRadius="14,14,0,0"
+                Padding="24,16">
+          <Grid ColumnDefinitions="*,Auto">
+
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12">
+              <!-- Keyboard icon -->
+              <Border Background="#333" CornerRadius="6" Padding="8,5">
+                <TextBlock Text="⌨" FontSize="16" VerticalAlignment="Center"/>
+              </Border>
+              <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock Text="Keyboard Shortcuts"
+                           FontSize="15" FontWeight="SemiBold"
+                           Foreground="#FFFFFF"/>
+                <TextBlock Text="{Binding ProfileName, StringFormat='Profile: {0}'}"
+                           FontSize="11" Foreground="#888"/>
+              </StackPanel>
+            </StackPanel>
+
+            <!-- Close hint -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal"
+                        VerticalAlignment="Center" Spacing="10">
+              <TextBlock Text="Press F1 to close"
+                         FontSize="11" Foreground="#666"
+                         VerticalAlignment="Center"/>
+              <Border Background="#333" CornerRadius="6" Padding="10,5">
+                <TextBlock Text="✕"
+                           FontSize="12" Foreground="#CCC"
+                           VerticalAlignment="Center"
+                           Cursor="Hand"
+                           PointerPressed="OnClosePressed"/>
+              </Border>
+            </StackPanel>
+
+          </Grid>
+        </Border>
+
+        <!-- ─── Body: grouped binding table ───────────────────────── -->
+        <ScrollViewer DockPanel.Dock="Bottom"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Padding="20,16,20,20">
+
+          <!-- Two-column category layout -->
+          <WrapPanel Orientation="Horizontal">
+
+            <ItemsControl ItemsSource="{Binding Groups}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <WrapPanel Orientation="Horizontal"/>
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:KeyGroupViewModel">
+
+                  <!-- Category card -->
+                  <Border Margin="0,0,16,16"
+                          Width="420"
+                          Background="#252528"
+                          CornerRadius="10"
+                          Padding="16,12">
+                    <StackPanel Spacing="0">
+
+                      <!-- Category header -->
+                      <Border BorderBrush="#333" BorderThickness="0,0,0,1" Margin="0,0,0,8" Padding="0,0,0,6">
+                        <TextBlock Text="{Binding Category}"
+                                   FontSize="11"
+                                   FontWeight="Bold"
+                                   Foreground="#00D7FF"
+                                   LetterSpacing="1"/>
+                      </Border>
+
+                      <!-- Binding rows -->
+                      <ItemsControl ItemsSource="{Binding Bindings}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="vm:OverlayBindingRow">
+                            <Grid ColumnDefinitions="*,Auto,Auto"
+                                  Margin="0,3,0,0">
+
+                              <!-- Action label -->
+                              <TextBlock Grid.Column="0"
+                                         Text="{Binding Action}"
+                                         FontSize="12"
+                                         Foreground="#C8C8CC"
+                                         VerticalAlignment="Center"/>
+
+                              <!-- Deck tag (A/B/C/D) — only shown for hardwired deck bindings -->
+                              <Border Grid.Column="1"
+                                      IsVisible="{Binding DeckTag, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                      Background="#2A3A4A"
+                                      CornerRadius="4"
+                                      Padding="5,2"
+                                      Margin="6,0,6,0"
+                                      VerticalAlignment="Center">
+                                <TextBlock Text="{Binding DeckTag, StringFormat='Deck {0}'}"
+                                           FontSize="10"
+                                           Foreground="#5599CC"/>
+                              </Border>
+
+                              <!-- Key badge -->
+                              <Border Grid.Column="2"
+                                      Background="#1A1A1C"
+                                      BorderBrush="#3A3A3C"
+                                      BorderThickness="1"
+                                      CornerRadius="5"
+                                      Padding="8,3"
+                                      VerticalAlignment="Center">
+                                <TextBlock Text="{Binding KeyCombo}"
+                                           FontSize="11"
+                                           FontFamily="Consolas,Courier New,monospace"
+                                           Foreground="#E0E0E0"/>
+                              </Border>
+
+                            </Grid>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+
+                    </StackPanel>
+                  </Border>
+
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+          </WrapPanel>
+        </ScrollViewer>
+
+      </DockPanel>
+    </Border>
+
+  </Border>
+</UserControl>

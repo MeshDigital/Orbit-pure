@@ -53,6 +53,7 @@
     <PackageReference Include="Avalonia.Controls.ItemsRepeater" Version="11.1.5" />
     <PackageReference Include="Avalonia.Controls.Skia" Version="11.2.0" />
     <PackageReference Include="DynamicData" Version="9.4.1" />
+    <PackageReference Include="LiteDB" Version="5.0.21" />
     <PackageReference Include="HnswLite" Version="1.0.6" />
     <PackageReference Include="HnswLite.RamStorage" Version="1.0.6" />
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />

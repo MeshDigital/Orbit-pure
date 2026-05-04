@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -69,6 +70,8 @@ public sealed class BackgroundJobWorker : BackgroundService
 
     private readonly BackgroundJobQueue _queue;
     private readonly ILogger<BackgroundJobWorker> _logger;
+    private readonly object _runningJobsGate = new();
+    private readonly HashSet<Task> _runningJobs = [];
 
     public BackgroundJobWorker(BackgroundJobQueue queue, ILogger<BackgroundJobWorker> logger)
     {
@@ -85,7 +88,8 @@ public sealed class BackgroundJobWorker : BackgroundService
             await semaphore.WaitAsync(stoppingToken);
 
             // Fire-and-forget per job; semaphore controls concurrency.
-            _ = Task.Run(async () =>
+            Task? jobTask = null;
+            jobTask = Task.Run(async () =>
             {
                 try
                 {
@@ -133,9 +137,36 @@ public sealed class BackgroundJobWorker : BackgroundService
                 }
                 finally
                 {
+                    if (jobTask != null)
+                    {
+                        lock (_runningJobsGate)
+                        {
+                            _runningJobs.Remove(jobTask);
+                        }
+                    }
                     semaphore.Release();
                 }
             }, stoppingToken);
+
+            lock (_runningJobsGate)
+            {
+                _runningJobs.Add(jobTask);
+            }
+        }
+
+        Task[] remainingJobs;
+        lock (_runningJobsGate)
+        {
+            remainingJobs = [.. _runningJobs];
+        }
+
+        try
+        {
+            await Task.WhenAll(remainingJobs);
+        }
+        catch
+        {
+            // Per-job failures are already surfaced via progress/error reporting.
         }
     }
 }
