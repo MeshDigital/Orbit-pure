@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -70,6 +71,24 @@ public class TimelineClipControl : Control
     /// Fade-in width as a fraction of the total clip width [0, 0.5].
     /// Set to 0 to disable the fade-in triangle.
     /// </summary>
+    public static readonly StyledProperty<System.Collections.Generic.IEnumerable<PhraseSegment>?> PhraseSegmentsProperty =
+        AvaloniaProperty.Register<TimelineClipControl, System.Collections.Generic.IEnumerable<PhraseSegment>?>(nameof(PhraseSegments));
+
+    public System.Collections.Generic.IEnumerable<PhraseSegment>? PhraseSegments
+    {
+        get => GetValue(PhraseSegmentsProperty);
+        set => SetValue(PhraseSegmentsProperty, value);
+    }
+
+    public static readonly StyledProperty<float> BpmProperty =
+        AvaloniaProperty.Register<TimelineClipControl, float>(nameof(Bpm), 0f);
+
+    public float Bpm
+    {
+        get => GetValue(BpmProperty);
+        set => SetValue(BpmProperty, value);
+    }
+
     public static readonly StyledProperty<double> FadeInFractionProperty =
         AvaloniaProperty.Register<TimelineClipControl, double>(nameof(FadeInFraction), 0.05);
 
@@ -98,6 +117,8 @@ public class TimelineClipControl : Control
             ClipColorProperty,
             ZoomLevelProperty,
             ScrollOffsetProperty,
+            PhraseSegmentsProperty,
+            BpmProperty,
             FadeInFractionProperty,
             FadeOutFractionProperty);
     }
@@ -163,6 +184,19 @@ public class TimelineClipControl : Control
                     bgColor: SKColors.Transparent,
                     zoom: _ctrl.ZoomLevel,
                     scrollOffset: _ctrl.ScrollOffset);
+
+                var phrases = _ctrl.PhraseSegments?.ToList();
+                if (phrases is { Count: > 0 })
+                {
+                    WaveformRenderer.OverlayPhraseSections(
+                        wfBmp,
+                        phrases,
+                        data.DurationSeconds,
+                        _ctrl.Bpm,
+                        _ctrl.ZoomLevel,
+                        _ctrl.ScrollOffset);
+                }
+
                 canvas.DrawBitmap(wfBmp, 0, 0);
             }
 

@@ -178,6 +178,7 @@ public sealed class DeckEngine : ISampleProvider, IDisposable
     private double    _cuePositionSecs  = 0;
     private double    _tempoPercent     = 0;
     private bool      _keyLock          = false;
+    private int       _semitoneShift    = 0;
 
     // Loop & hot cues
     private LoopRegion? _loop;
@@ -212,6 +213,16 @@ public sealed class DeckEngine : ISampleProvider, IDisposable
         set { lock (_lock) { _keyLock = value; RebuildChain(); } }
     }
 
+    /// <summary>
+    /// Semitone shift applied independently of key-lock (−12 to +12).
+    /// 0 = no shift. Combined with key-lock pitch factor when both are active.
+    /// </summary>
+    public int SemitoneShift
+    {
+        get => _semitoneShift;
+        set { lock (_lock) { _semitoneShift = Math.Clamp(value, -12, 12); RebuildChain(); } }
+    }
+
     // Volume persists across chain rebuilds (e.g., when key-lock toggles)
     private float _requestedVolume = 1f;
 
@@ -236,6 +247,11 @@ public sealed class DeckEngine : ISampleProvider, IDisposable
 
     public void LoadFile(string filePath)
     {
+        if (!System.IO.File.Exists(filePath))
+            throw new System.IO.FileNotFoundException(
+                $"Track file not found. It may have been moved or not yet downloaded: {System.IO.Path.GetFileName(filePath)}",
+                filePath);
+
         lock (_lock)
         {
             DisposeChain();
@@ -432,6 +448,33 @@ public sealed class DeckEngine : ISampleProvider, IDisposable
         HotCueChanged?.Invoke(this, slot);
     }
 
+    /// <summary>Loads a prepared set of hot cues, replacing any existing pad assignments.</summary>
+    public void LoadHotCues(IEnumerable<HotCue>? hotCues)
+    {
+        lock (_lock)
+        {
+            Array.Clear(_hotCues, 0, _hotCues.Length);
+
+            if (hotCues != null)
+            {
+                foreach (var cue in hotCues)
+                {
+                    if ((uint)cue.Slot >= 8) continue;
+                    _hotCues[cue.Slot] = new HotCue
+                    {
+                        Slot = cue.Slot,
+                        PositionSeconds = cue.PositionSeconds,
+                        Label = cue.Label,
+                        Color = cue.Color
+                    };
+                }
+            }
+        }
+
+        for (var i = 0; i < 8; i++)
+            HotCueChanged?.Invoke(this, i);
+    }
+
     // ─── ISampleProvider ──────────────────────────────────────────────────────
 
     public int Read(float[] buffer, int offset, int count)
@@ -466,13 +509,17 @@ public sealed class DeckEngine : ISampleProvider, IDisposable
 
     // ─── Private helpers ──────────────────────────────────────────────────────
 
-    /// <summary>Sets PlaybackRate on _rate from _tempoPercent; updates key-lock pitch correction.</summary>
+    /// <summary>Sets PlaybackRate on _rate; updates combined key-lock + semitone-shift pitch factor.</summary>
     private void ApplyTempo()
     {
         if (_rate == null) return;
         _rate.PlaybackRate = (float)(1.0 + _tempoPercent / 100.0);
-        if (_keyLock && _pitchCorrect != null)
-            _pitchCorrect.PitchFactor = 1.0f / _rate.PlaybackRate;
+        if (_pitchCorrect != null)
+        {
+            float keyLockFactor  = _keyLock ? 1.0f / _rate.PlaybackRate : 1.0f;
+            float semitoneFactor = (float)Math.Pow(2.0, _semitoneShift / 12.0);
+            _pitchCorrect.PitchFactor = keyLockFactor * semitoneFactor;
+        }
     }
 
     /// <summary>
@@ -483,10 +530,10 @@ public sealed class DeckEngine : ISampleProvider, IDisposable
     {
         if (_rate == null) return;
 
-        if (_keyLock)
+        bool needsPitch = _keyLock || _semitoneShift != 0;
+        if (needsPitch)
         {
-            float rate = (float)(1.0 + _tempoPercent / 100.0);
-            _pitchCorrect   = new SmbPitchShiftingSampleProvider(_rate) { PitchFactor = 1.0f / rate };
+            _pitchCorrect   = new SmbPitchShiftingSampleProvider(_rate) { PitchFactor = 1.0f };
             _volumeProvider = new VolumeSampleProvider(_pitchCorrect) { Volume = _requestedVolume };
         }
         else

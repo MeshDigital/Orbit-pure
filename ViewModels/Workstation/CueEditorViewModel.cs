@@ -97,7 +97,7 @@ public sealed class CueEditorViewModel : ReactiveObject, IDisposable
         UpdateUndoRedoState();
 
         var entities = await _cueService.GetByTrackIdAsync(trackHash);
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
             Cues.Clear();
             foreach (var e in entities)
@@ -186,7 +186,7 @@ public sealed class CueEditorViewModel : ReactiveObject, IDisposable
         }
 
         var remaining = await _cueService.GetByTrackIdAsync(TrackHash);
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
             Cues.Clear();
             foreach (var e in remaining)

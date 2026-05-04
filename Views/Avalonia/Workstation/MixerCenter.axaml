@@ -1,0 +1,130 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Workstation"
+             x:Class="SLSKDONET.Views.Avalonia.Workstation.MixerCenter"
+             x:DataType="vm:WorkstationViewModel"
+             Background="#1A1A1A">
+
+    <UserControl.Styles>
+        <Style Selector="ToggleButton.mixer-toggle">
+            <Setter Property="Background" Value="#1E1E1E"/>
+            <Setter Property="Foreground" Value="#A0A0A0"/>
+            <Setter Property="BorderBrush" Value="#3A3A3A"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+        <Style Selector="ToggleButton.mixer-toggle:checked">
+            <Setter Property="Foreground" Value="#00D7FF"/>
+            <Setter Property="BorderBrush" Value="#00D7FF"/>
+            <Setter Property="Background" Value="#0A1F25"/>
+        </Style>
+        <Style Selector="Button.tap-btn">
+            <Setter Property="Background" Value="#252525"/>
+            <Setter Property="Foreground" Value="#C8C8C8"/>
+            <Setter Property="BorderBrush" Value="#3A3A3A"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style Selector="Button.tap-btn:pressed">
+            <Setter Property="Background" Value="#1A3A4A"/>
+            <Setter Property="BorderBrush" Value="#00D7FF"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Border Background="#1A1A1A" BorderBrush="#2B2B2B" BorderThickness="0,1,0,0" Padding="12,6">
+        <Grid ColumnDefinitions="Auto,*,Auto">
+
+            <!-- ── Left: Crossfader ─────────────────────────────────────────────── -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6"
+                        VerticalAlignment="Center" HorizontalAlignment="Left">
+                <TextBlock Text="A" FontSize="13" FontWeight="Bold"
+                           Foreground="#7FC7FF" VerticalAlignment="Center"/>
+                <StackPanel Spacing="1" VerticalAlignment="Center">
+                    <TextBlock Text="XFADER" FontSize="9" FontWeight="SemiBold"
+                               Foreground="#666" HorizontalAlignment="Center"/>
+                    <Slider Minimum="0" Maximum="1"
+                            Value="{Binding CrossfaderPosition, Mode=TwoWay}"
+                            Width="160" VerticalAlignment="Center"
+                            ToolTip.Tip="Crossfader: ← Deck A  ·  Deck B →"/>
+                </StackPanel>
+                <TextBlock Text="B" FontSize="13" FontWeight="Bold"
+                           Foreground="#95D36A" VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <!-- ── Center: Transport + Loop ────────────────────────────────────── -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6"
+                        VerticalAlignment="Center" HorizontalAlignment="Center">
+
+                <!-- Transport -->
+                <Button Classes="icon" Command="{Binding StopAllCommand}" ToolTip.Tip="Stop / return to start">⏮</Button>
+                <Button Classes="icon" Command="{Binding SyncBpmCommand}" ToolTip.Tip="Beat-match Deck B to Deck A">⇌</Button>
+                <Button Classes="primary" Command="{Binding PlayPauseAllCommand}" ToolTip.Tip="Play / Pause all decks">▶</Button>
+                <Button Classes="icon" Command="{Binding ToggleLoopCommand}" ToolTip.Tip="Toggle loop on focused deck">⟳</Button>
+
+                <!-- Separator -->
+                <Border Width="1" Background="#444" Margin="4,0" VerticalAlignment="Stretch"/>
+
+                <!-- Loop beat buttons -->
+                <TextBlock Text="LOOP" FontSize="9" FontWeight="SemiBold"
+                           Foreground="#666" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                <Button Classes="icon" Command="{Binding Loop1Command}" ToolTip.Tip="1-beat loop">1</Button>
+                <Button Classes="icon" Command="{Binding Loop2Command}" ToolTip.Tip="2-beat loop">2</Button>
+                <Button Classes="icon" Command="{Binding Loop4Command}" ToolTip.Tip="4-beat loop">4</Button>
+                <Button Classes="icon" Command="{Binding Loop8Command}" ToolTip.Tip="8-beat loop">8</Button>
+                <Button Classes="icon" Command="{Binding ExitLoopFocusedCommand}"
+                        ToolTip.Tip="Exit loop" Foreground="#FF6B6B">✕</Button>
+            </StackPanel>
+
+            <!-- ── Right: Master BPM + Toggles ────────────────────────────────── -->
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
+                        VerticalAlignment="Center" HorizontalAlignment="Right">
+
+                <!-- Master BPM -->
+                <StackPanel Orientation="Vertical" Spacing="1" VerticalAlignment="Center">
+                    <TextBlock Text="MASTER BPM" FontSize="9" FontWeight="SemiBold"
+                               Foreground="#666" HorizontalAlignment="Center"/>
+                    <TextBox Width="72"
+                             Text="{Binding MasterBpm, Mode=TwoWay, StringFormat='{}{0:F1}'}"
+                             HorizontalContentAlignment="Center"
+                             VerticalContentAlignment="Center"
+                             FontSize="14"
+                             FontWeight="Bold"
+                             Foreground="#E8E8E8"
+                             Background="#252525"
+                             BorderBrush="#3A3A3A"
+                             ToolTip.Tip="Master BPM — edit directly or use Tap Tempo"/>
+                </StackPanel>
+
+                <!-- Tap Tempo -->
+                <Button Classes="tap-btn" Command="{Binding TapTempoCommand}"
+                        VerticalAlignment="Center"
+                        ToolTip.Tip="Tap Tempo — tap 4+ times to detect BPM">TAP</Button>
+
+                <!-- Separator -->
+                <Border Width="1" Background="#444" Margin="2,0" VerticalAlignment="Stretch"/>
+
+                <!-- SNAP toggle -->
+                <ToggleButton Classes="mixer-toggle"
+                              IsChecked="{Binding IsSnapEnabled, Mode=TwoWay}"
+                              ToolTip.Tip="Snap playhead to beat grid">SNAP</ToggleButton>
+
+                <!-- QUANTIZE toggle -->
+                <ToggleButton Classes="mixer-toggle"
+                              IsChecked="{Binding IsQuantizeEnabled, Mode=TwoWay}"
+                              ToolTip.Tip="Quantize hot-cue triggers to beat boundaries">QTZ</ToggleButton>
+
+                <!-- METRONOME toggle -->
+                <ToggleButton Classes="mixer-toggle"
+                              IsChecked="{Binding IsMetronomeEnabled, Mode=TwoWay}"
+                              ToolTip.Tip="Metronome click on master BPM">MET</ToggleButton>
+            </StackPanel>
+
+        </Grid>
+    </Border>
+</UserControl>

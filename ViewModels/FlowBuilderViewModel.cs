@@ -29,6 +29,7 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     private readonly CompositeDisposable _disposables = new();
     private readonly ILibraryService     _library;
     private readonly PlaylistOptimizer   _optimizer;
+    private readonly SLSKDONET.Services.Similarity.SectionVectorService? _sectionVectors;
 
     // ── Playlist selector ─────────────────────────────────────────────────────
 
@@ -79,10 +80,14 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
-    public FlowBuilderViewModel(ILibraryService library, PlaylistOptimizer optimizer)
+    public FlowBuilderViewModel(
+        ILibraryService library,
+        PlaylistOptimizer optimizer,
+        SLSKDONET.Services.Similarity.SectionVectorService? sectionVectors = null)
     {
         _library   = library;
         _optimizer = optimizer;
+        _sectionVectors = sectionVectors;
 
         LoadPlaylistsCommand = ReactiveCommand.CreateFromTask(LoadPlaylistsAsync);
         LoadSelectedPlaylistCommand = ReactiveCommand.CreateFromTask(
@@ -160,11 +165,12 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
                 Tracks.Clear();
                 foreach (var t in orderedTracks)
                     Tracks.Add(BuildCard(t));
-                RefreshBridges();
                 StatusText = result?.UnanalyzedTrackCount > 0
                     ? $"Loaded {Tracks.Count} tracks ({result.UnanalyzedTrackCount} unanalysed, appended at end)"
                     : $"Loaded {Tracks.Count} tracks — transitions optimised";
             });
+
+            await RefreshBridgesAsync();
         }
         catch (Exception ex)
         {
@@ -218,9 +224,10 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 Tracks.Add(BuildCard(nextTrack));
-                RefreshBridges();
                 StatusText = $"Added: {nextTrack.Artist} — {nextTrack.Title}";
             });
+
+            await RefreshBridgesAsync();
         }
         catch (Exception ex)
         {
@@ -255,7 +262,7 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
 
         Tracks.RemoveAt(idx);
         Tracks.Insert(newIdx, card);
-        RefreshBridges();
+        _ = RefreshBridgesAsync();
     }
 
     private void RemoveCard(PlaylistTrack track)
@@ -263,15 +270,37 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         var card = Tracks.FirstOrDefault(c => c.TrackHash == (track.TrackUniqueHash ?? ""));
         if (card == null) return;
         Tracks.Remove(card);
-        RefreshBridges();
+        _ = RefreshBridgesAsync();
     }
 
     // ── Bridge computation ────────────────────────────────────────────────────
 
-    private void RefreshBridges()
+    private async Task RefreshBridgesAsync()
     {
+        if (_sectionVectors != null)
+        {
+            var hashes = Tracks.Select(t => t.TrackHash).Where(h => !string.IsNullOrWhiteSpace(h)).ToList();
+            await _sectionVectors.PreloadAsync(hashes);
+        }
+
         for (int i = 0; i < Tracks.Count; i++)
-            Tracks[i].SetBridgeTo(i < Tracks.Count - 1 ? Tracks[i + 1] : null);
+        {
+            var next = i < Tracks.Count - 1 ? Tracks[i + 1] : null;
+            if (next == null)
+            {
+                Tracks[i].SetBridgeTo(null);
+                continue;
+            }
+
+            double? sectionBlend = _sectionVectors != null
+                ? _sectionVectors.TransitionScoreCached(Tracks[i].TrackHash, next.TrackHash)
+                : null;
+            double? doubleDropBlend = _sectionVectors != null
+                ? _sectionVectors.DropSimilarityCached(Tracks[i].TrackHash, next.TrackHash)
+                : null;
+
+            Tracks[i].SetBridgeTo(next, sectionBlend, doubleDropBlend);
+        }
     }
 
     private void RaiseTrackCollectionChanged()

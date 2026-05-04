@@ -1693,11 +1693,35 @@ public class SchemaMigratorService
                         ""EnergyLevel"" REAL NOT NULL DEFAULT 0,
                         ""Confidence"" REAL NOT NULL DEFAULT 0,
                         ""OrderIndex"" INTEGER NOT NULL DEFAULT 0,
-                        ""Label"" TEXT NULL
+                        ""Label"" TEXT NULL,
+                        ""SectionEmbeddingJson"" TEXT NULL,
+                        ""EmbeddingMagnitude"" REAL NOT NULL DEFAULT 0,
+                        ""EmbeddingModel"" TEXT NOT NULL DEFAULT ''
                     );
                     CREATE INDEX ""IX_TrackPhrases_TrackUniqueHash"" ON ""TrackPhrases"" (""TrackUniqueHash"");
                 ";
                 await command.ExecuteNonQueryAsync();
+            }
+
+            if (TableExists("TrackPhrases"))
+            {
+                if (!ColumnExists("TrackPhrases", "SectionEmbeddingJson"))
+                {
+                    command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""SectionEmbeddingJson"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                if (!ColumnExists("TrackPhrases", "EmbeddingMagnitude"))
+                {
+                    command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""EmbeddingMagnitude"" REAL NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                if (!ColumnExists("TrackPhrases", "EmbeddingModel"))
+                {
+                    command.CommandText = @"ALTER TABLE ""TrackPhrases"" ADD COLUMN ""EmbeddingModel"" TEXT NOT NULL DEFAULT '';";
+                    await command.ExecuteNonQueryAsync();
+                }
             }
 
             // 8. Phase 17: GenreCueTemplates Table

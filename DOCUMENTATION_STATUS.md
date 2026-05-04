@@ -1,14 +1,21 @@
 # 📚 Documentation Status Summary
-**Updated**: February 6, 2026  
-**Analysis Period**: Dec 21, 2025 - Feb 6, 2026
+**Updated**: April 20, 2026  
+**Analysis Period**: Dec 21, 2025 - Apr 20, 2026
 
 ---
 
 ## 🎯 Executive Summary
 
-**Good News**: ✅ 25+ obsolete files cleaned up, DJ Companion documented, Stem Workspace improved  
-**Action Required**: 📝 9 remaining systems need documentation  
-**Status**: Major workspace improvements completed with comprehensive architecture docs
+**Good News**: ✅ Major workflow docs were added for workstation routing, stem caching, import preview, search-to-mix, player prep, and analysis queue UX  
+**Action Required**: 📝 Continue refreshing older legacy docs as systems evolve  
+**Status**: Core Apr 2026 workflow documentation gaps have been closed
+
+### April 20, 2026 refresh
+- ✅ Search multi-select now stages results directly into the mix workflow
+- ✅ Import and shell overlay state were hardened for the Acquire flow
+- ✅ Key workflow pages now use a shared region theme brush instead of repeating hardcoded panel colors
+- ✅ New audit added: [DOCS/ROADMAP_PROGRESS_AND_DOC_GAPS_2026-04-20.md](DOCS/ROADMAP_PROGRESS_AND_DOC_GAPS_2026-04-20.md)
+- ✅ New standalone deep-dive docs added for workstation routing, stem cache/preferences, session persistence, scoring, search-to-mix, import preview, player prep, and analysis queue surfaces
 
 ---
 
@@ -36,18 +43,22 @@
 
 ## 🚨 Remaining Documentation Gaps
 
-### No Documentation (Should Be Added)
-1. **Stem Separation Architecture** - Major feature, needs comprehensive guide
-2. **Smart Playlists** - Complex rule engine
-3. **Intelligence Center** - AI matching features
-4. **Hardware Export** - DJ workflow documentation
-5. **Native Dependencies** - Installation/setup guide
+### Major Apr 2026 Gaps Closed
+The following standalone docs were created in this pass:
+1. **Workstation cockpit routing**
+2. **Stem cache and preferences**
+3. **Workstation session persistence**
+4. **Track compatibility scoring**
+5. **Search to mix workflow**
+6. **Import orchestration and preview**
+7. **Player prep and routing**
+8. **Analysis queue UX surfaces**
 
-### Outdated Documentation (Moderate Priority)
-1. **DATABASE_SCHEMA.md** - Missing 6 new entities
-2. **ARCHITECTURE.md** - Missing system integrations (partial)
-3. **FEATURES.md** - Mostly complete, minor gaps
-4. **ML_ENGINE_ARCHITECTURE.md** - Missing recent AI services
+### Remaining Legacy Refresh Work
+1. **DATABASE_SCHEMA.md** - still needs a broader schema refresh
+2. **ARCHITECTURE.md** - should absorb the latest cross-system integrations
+3. **ML_ENGINE_ARCHITECTURE.md** - may need updates for newer AI services
+4. **Older feature docs** - some historic pages still need consistency cleanup
 
 ---
 

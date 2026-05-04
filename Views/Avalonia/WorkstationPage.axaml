@@ -6,6 +6,7 @@
              xmlns:wsViews="clr-namespace:SLSKDONET.Views.Avalonia.Workstation"
              xmlns:models="clr-namespace:SLSKDONET.Models"
              xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
+             xmlns:ctrl="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="900"
              x:Class="SLSKDONET.Views.Avalonia.WorkstationPage"
              x:DataType="vm:WorkstationViewModel"
@@ -36,37 +37,71 @@
         <!-- Row 0: Global Header -->
         <Grid Grid.Row="0" RowDefinitions="Auto,Auto">
             <Border Grid.RowSpan="2"
-                    Background="#1A1A1A"
+                    Background="{DynamicResource RegionBrush}"
                     BorderBrush="#2F2F2F"
                     BorderThickness="0,0,0,1"/>
 
-            <Grid Grid.Row="0" Margin="12,8,12,0" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto">
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <TextBlock Text="GLOBAL BPM"
-                               FontSize="11"
+            <Grid Grid.Row="0" Margin="12,8,12,0" ColumnDefinitions="*,Auto,Auto,Auto">
+                <StackPanel Grid.Column="0" Spacing="6" VerticalAlignment="Center">
+                    <TextBlock Text="WORKSTATION"
+                               FontSize="15"
                                FontWeight="Bold"
-                               Foreground="#B0B0B0"
-                               VerticalAlignment="Center"/>
-                    <TextBox Width="84"
-                             Text="{Binding MasterBpm, Mode=TwoWay}"
-                             HorizontalContentAlignment="Center"
-                             VerticalContentAlignment="Center"
-                             FontWeight="SemiBold"
-                             Foreground="#E8E8E8"
-                             Background="#252525"/>
+                               Foreground="#F0F0F0"/>
+                    <TextBlock Text="{Binding DeckStatusSummary}"
+                               FontSize="11"
+                               Foreground="#8EC8FF"/>
+                    <TextBlock Text="{Binding DeckFocusSummary}"
+                               FontSize="10"
+                               Foreground="#D8B4FE"/>
+                    <TextBlock Text="{Binding ActivePlaylistFlowSummary}"
+                               FontSize="10"
+                               Foreground="#B8E986"
+                               TextWrapping="Wrap"
+                               MaxWidth="560"/>
+                    <TextBlock Text="{Binding AnalysisQueueSummary}"
+                               FontSize="10"
+                               Foreground="#9EEFFF"
+                               TextWrapping="Wrap"
+                               MaxWidth="560"/>
+                    <TextBlock Text="{Binding FlowWindowSummary}"
+                               FontSize="10"
+                               Foreground="#AFC6DD"/>
+                    <WrapPanel Orientation="Horizontal" ItemHeight="28">
+                        <ToggleButton Classes="header-toggle"
+                                      IsChecked="{Binding IsWaveformMode, Mode=OneWay}"
+                                      Command="{Binding SetModeCommand}"
+                                      CommandParameter="{x:Static vm:WorkstationMode.Waveform}">Wave</ToggleButton>
+                        <ToggleButton Classes="header-toggle"
+                                      Margin="6,0,0,0"
+                                      IsChecked="{Binding IsFlowMode, Mode=OneWay}"
+                                      Command="{Binding SetModeCommand}"
+                                      CommandParameter="{x:Static vm:WorkstationMode.Flow}">Flow</ToggleButton>
+                        <ToggleButton Classes="header-toggle"
+                                      Margin="6,0,0,0"
+                                      IsChecked="{Binding IsStemsMode, Mode=OneWay}"
+                                      Command="{Binding SetModeCommand}"
+                                      CommandParameter="{x:Static vm:WorkstationMode.Stems}">Stems</ToggleButton>
+                        <ToggleButton Classes="header-toggle"
+                                      Margin="6,0,0,0"
+                                      IsChecked="{Binding IsExportMode, Mode=OneWay}"
+                                      Command="{Binding SetModeCommand}"
+                                      CommandParameter="{x:Static vm:WorkstationMode.Export}">Export</ToggleButton>
+                        <ToggleButton Classes="header-toggle"
+                                      Margin="12,0,0,0"
+                                      IsChecked="{Binding IsSnapEnabled, Mode=TwoWay}">Snap</ToggleButton>
+                        <ToggleButton Classes="header-toggle"
+                                      Margin="6,0,0,0"
+                                      IsChecked="{Binding IsQuantizeEnabled, Mode=TwoWay}">Qtz</ToggleButton>
+                        <ToggleButton Classes="header-toggle"
+                                      Margin="6,0,0,0"
+                                      IsChecked="{Binding IsMetronomeEnabled, Mode=TwoWay}">Met</ToggleButton>
+                    </WrapPanel>
+                    <TextBlock Text="{Binding ToolbarHint}"
+                               FontSize="10"
+                               Foreground="#B8E986"/>
                 </StackPanel>
 
-                <ToggleButton Grid.Column="1"
-                              Margin="10,0,0,0"
-                              Classes="header-toggle"
-                              IsChecked="{Binding IsSnapEnabled, Mode=TwoWay}">SNAP</ToggleButton>
-
-                <ToggleButton Grid.Column="2"
-                              Margin="8,0,0,0"
-                              Classes="header-toggle"
-                              IsChecked="{Binding IsQuantizeEnabled, Mode=TwoWay}">QUANTIZE</ToggleButton>
-
-                <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <Button Classes="icon"
                             Command="{Binding UndoCommand}"
                             ToolTip.Tip="Undo [Ctrl+Z]">↩</Button>
@@ -75,17 +110,61 @@
                             ToolTip.Tip="Redo [Ctrl+Y]">↪</Button>
                 </StackPanel>
 
-                <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="6" Margin="10,0,0,0" VerticalAlignment="Center">
-                    <Button Classes="secondary"
-                            Command="{Binding AddDeckCommand}"
-                            ToolTip.Tip="Add deck (max 4)">+ Deck</Button>
-                    <Button Classes="icon" Command="{Binding PanLeftCommand}" ToolTip.Tip="Pan timeline left">◀</Button>
-                    <Button Classes="icon" Command="{Binding PanRightCommand}" ToolTip.Tip="Pan timeline right">▶</Button>
-                    <Button Classes="icon" Command="{Binding ZoomInCommand}" ToolTip.Tip="Zoom in">＋</Button>
-                    <Button Classes="icon" Command="{Binding ZoomOutCommand}" ToolTip.Tip="Zoom out">－</Button>
+                <StackPanel Grid.Column="2" Spacing="5" Margin="10,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding TransportStatusSummary}"
+                               FontSize="10"
+                               Foreground="#FFD58A"/>
+                    <TextBlock Text="{Binding FocusedDeckActionSummary}"
+                               FontSize="10"
+                               Foreground="#D8B4FE"/>
+                    <TextBlock Text="{Binding MixCoachSummary}"
+                               FontSize="10"
+                               Foreground="#9EEFFF"
+                               TextWrapping="Wrap"
+                               MaxWidth="420"/>
+                    <WrapPanel Orientation="Horizontal" ItemHeight="28">
+                        <Button Classes="secondary" Command="{Binding PlayPauseAllCommand}" ToolTip.Tip="Play or pause all decks">Play</Button>
+                        <Button Classes="secondary" Margin="6,0,0,0" Command="{Binding StopAllCommand}" ToolTip.Tip="Stop and cue all decks">Stop</Button>
+                        <Button Classes="secondary" Margin="6,0,0,0" Command="{Binding SyncBpmCommand}" ToolTip.Tip="Beat-match Deck B to Deck A">Sync</Button>
+                        <Button Classes="secondary" Margin="6,0,0,0" Command="{Binding TapTempoCommand}" ToolTip.Tip="Tap the master BPM">Tap</Button>
+                        <Button Classes="icon" Margin="10,0,0,0" Command="{Binding Loop1Command}" ToolTip.Tip="Set 1-beat loop">1</Button>
+                        <Button Classes="icon" Command="{Binding Loop2Command}" ToolTip.Tip="Set 2-beat loop">2</Button>
+                        <Button Classes="icon" Command="{Binding Loop4Command}" ToolTip.Tip="Set 4-beat loop">4</Button>
+                        <Button Classes="icon" Command="{Binding Loop8Command}" ToolTip.Tip="Set 8-beat loop">8</Button>
+                        <Button Classes="icon" Command="{Binding ExitLoopFocusedCommand}" ToolTip.Tip="Exit the focused loop">×</Button>
+                    </WrapPanel>
+                    <WrapPanel Orientation="Horizontal" ItemHeight="28">
+                        <ToggleButton Classes="header-toggle"
+                                      IsChecked="{Binding IsDeckAFocused, Mode=OneWay}"
+                                      Command="{Binding FocusDeckCommand}"
+                                      CommandParameter="A">A</ToggleButton>
+                        <ToggleButton Classes="header-toggle"
+                                      Margin="6,0,0,0"
+                                      IsChecked="{Binding IsDeckBFocused, Mode=OneWay}"
+                                      Command="{Binding FocusDeckCommand}"
+                                      CommandParameter="B">B</ToggleButton>
+                        <ToggleButton Classes="header-toggle"
+                                      Margin="6,0,0,0"
+                                      IsChecked="{Binding IsDeckCFocused, Mode=OneWay}"
+                                      Command="{Binding FocusDeckCommand}"
+                                      CommandParameter="C">C</ToggleButton>
+                        <ToggleButton Classes="header-toggle"
+                                      Margin="6,0,0,0"
+                                      IsChecked="{Binding IsDeckDFocused, Mode=OneWay}"
+                                      Command="{Binding FocusDeckCommand}"
+                                      CommandParameter="D">D</ToggleButton>
+                        <Button Classes="secondary"
+                                Margin="10,0,0,0"
+                                Command="{Binding AddDeckCommand}"
+                                ToolTip.Tip="Add deck (max 4)">+ Deck</Button>
+                        <Button Classes="icon" Margin="6,0,0,0" Command="{Binding PanLeftCommand}" ToolTip.Tip="Pan timeline left">◀</Button>
+                        <Button Classes="icon" Command="{Binding PanRightCommand}" ToolTip.Tip="Pan timeline right">▶</Button>
+                        <Button Classes="icon" Command="{Binding ZoomInCommand}" ToolTip.Tip="Zoom in">＋</Button>
+                        <Button Classes="icon" Command="{Binding ZoomOutCommand}" ToolTip.Tip="Zoom out">－</Button>
+                    </WrapPanel>
                 </StackPanel>
 
-                <Button Grid.Column="6"
+                <Button Grid.Column="3"
                         Margin="12,0,0,0"
                         Background="#0078D4"
                         Foreground="White"
@@ -154,53 +233,8 @@
                 </ItemsControl>
             </ScrollViewer>
 
-            <Border Grid.Row="2" Background="#1A1A1A" BorderBrush="#2B2B2B" BorderThickness="0,1,0,0" Padding="12,6">
-                <Grid ColumnDefinitions="*,Auto,*">
-
-                    <!-- Crossfader (left zone) -->
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6"
-                                VerticalAlignment="Center" HorizontalAlignment="Left">
-                        <TextBlock Text="A" FontSize="13" FontWeight="Bold"
-                                   Foreground="#7FC7FF" VerticalAlignment="Center"/>
-                        <StackPanel Spacing="1" VerticalAlignment="Center">
-                            <TextBlock Text="XFADER" FontSize="9" FontWeight="SemiBold"
-                                       Foreground="#666" HorizontalAlignment="Center"/>
-                            <Slider Minimum="0" Maximum="1"
-                                    Value="{Binding CrossfaderPosition, Mode=TwoWay}"
-                                    Width="160" VerticalAlignment="Center"
-                                    ToolTip.Tip="Crossfader: ← Deck A  ·  Deck B →"/>
-                        </StackPanel>
-                        <TextBlock Text="B" FontSize="13" FontWeight="Bold"
-                                   Foreground="#95D36A" VerticalAlignment="Center"/>
-                    </StackPanel>
-
-                    <!-- Transport centre -->
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <Button Classes="icon" Command="{Binding StopAllCommand}" ToolTip.Tip="Stop / return to start">⏮</Button>
-                        <Button Classes="icon" Command="{Binding SyncBpmCommand}" ToolTip.Tip="Beat-match Deck B to Deck A">⇌</Button>
-                        <Button Classes="primary" Command="{Binding PlayPauseAllCommand}" ToolTip.Tip="Play / Pause all decks">▶</Button>
-                        <Button Classes="icon" Command="{Binding ToggleLoopCommand}" ToolTip.Tip="Toggle loop on focused deck">⟳</Button>
-                    </StackPanel>
-
-                    <!-- Loop beat buttons (right zone) -->
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4"
-                                VerticalAlignment="Center" HorizontalAlignment="Right">
-                        <TextBlock Text="LOOP" FontSize="9" FontWeight="SemiBold"
-                                   Foreground="#666" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                        <Button Classes="icon" Command="{Binding Loop1Command}"
-                                ToolTip.Tip="1-beat loop">1</Button>
-                        <Button Classes="icon" Command="{Binding Loop2Command}"
-                                ToolTip.Tip="2-beat loop">2</Button>
-                        <Button Classes="icon" Command="{Binding Loop4Command}"
-                                ToolTip.Tip="4-beat loop">4</Button>
-                        <Button Classes="icon" Command="{Binding Loop8Command}"
-                                ToolTip.Tip="8-beat loop">8</Button>
-                        <Button Classes="icon" Command="{Binding ExitLoopFocusedCommand}"
-                                ToolTip.Tip="Exit loop" Foreground="#FF6B6B">✕</Button>
-                    </StackPanel>
-
-                </Grid>
-            </Border>
+            <!-- Row 2: Mixer Center Strip (crossfader · transport · BPM/SNAP/QTZ/MET) -->
+            <wsViews:MixerCenter Grid.Row="2"/>
         </Grid>
 
         <!-- Row 2: Resizer -->
@@ -217,7 +251,7 @@
             <Grid RowDefinitions="Auto,Auto,*">
 
                 <!-- Flow drawer header -->
-                <Border Grid.Row="0" Background="#1A1A1A" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1" Padding="10,6">
+                <Border Grid.Row="0" Background="{DynamicResource RegionBrush}" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1" Padding="10,6">
                     <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
                         <TextBlock Grid.Column="0" Text="FLOW DRAWER" FontSize="11" FontWeight="Bold" Foreground="#A0A0A0" VerticalAlignment="Center"/>
 
@@ -326,10 +360,14 @@
                                 <DataGridTextColumn Header="TITLE" Width="*" Binding="{Binding Title}"/>
                                 <DataGridTextColumn Header="KEY" Width="60" Binding="{Binding Key}"/>
                                 <DataGridTextColumn Header="BPM" Width="60" Binding="{Binding BPM, StringFormat='{}{0:F0}'}"/>
-                                <DataGridTemplateColumn Header="LOAD" Width="110" IsReadOnly="True">
+                                <DataGridTemplateColumn Header="LOAD" Width="150" IsReadOnly="True">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate x:DataType="models:PlaylistTrack">
                                             <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                                                <Button Content="F"
+                                                        Command="{Binding #PageRoot.DataContext.LoadToFocusedDeckCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Load to the focused deck"/>
                                                 <Button Content="A"
                                                         Command="{Binding #PageRoot.DataContext.LoadToDeckACommand}"
                                                         CommandParameter="{Binding}"
@@ -348,6 +386,12 @@
                 </Grid>
             </Grid>
         </Border>
+
+    <!-- Keyboard shortcut overlay — F1 to open/close, spans entire cockpit -->
+    <ctrl:KeyboardOverlayView Grid.Row="0" Grid.RowSpan="4"
+                              DataContext="{Binding KeyboardOverlay}"
+                              ZIndex="200"/>
+
     </Grid>
 </UserControl>
 

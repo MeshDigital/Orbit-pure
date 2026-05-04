@@ -169,9 +169,11 @@ namespace SLSKDONET.ViewModels
             get => _currentTrack;
             set
             {
+                var previousTrack = _currentTrack;
                 if (SetProperty(ref _currentTrack, value))
                 {
-                    OnPropertyChanged(nameof(WaveformData));
+                    AttachCurrentTrackObservers(previousTrack, value);
+                    RaiseCurrentTrackSummaryProperties();
                 }
             }
         }
@@ -181,6 +183,34 @@ namespace SLSKDONET.ViewModels
         /// Returns <see langword="null"/> when no track is loaded.
         /// </summary>
         public WaveformAnalysisData? WaveformData => _currentTrack?.WaveformData;
+        public bool HasCurrentTrack => _currentTrack is not null;
+        public string CurrentTrackContextSummary => BuildTrackContextSummary(_currentTrack);
+        public string CurrentTrackWorkflowHint => BuildTrackWorkflowHint(_currentTrack);
+        public string CurrentTrackWorkstationPrepSummary => BuildWorkstationPrepSummary(_currentTrack);
+        public string CurrentTrackRoutingSummary => BuildRoutingSummary(_currentTrack);
+        public string CurrentTrackTransitionPlanSummary => BuildTransitionPlanSummary(_currentTrack);
+        private string _analysisLaneSummary = "Analysis lane idle • queue prep jobs for cues, timing, and stems";
+        public string AnalysisLaneSummary
+        {
+            get => _analysisLaneSummary;
+            private set => SetProperty(ref _analysisLaneSummary, value);
+        }
+        public string CurrentTrackStatusBadge => BuildStatusBadge(_currentTrack);
+        public string CurrentTrackTempoBadge => _currentTrack is null || string.IsNullOrWhiteSpace(_currentTrack.BpmDisplay) || _currentTrack.BpmDisplay == "—"
+            ? "TEMPO —"
+            : $"TEMPO {_currentTrack.BpmDisplay}";
+        public string CurrentTrackKeyBadge => _currentTrack is null || string.IsNullOrWhiteSpace(_currentTrack.CamelotDisplay) || _currentTrack.CamelotDisplay == "—"
+            ? "KEY —"
+            : $"KEY {_currentTrack.CamelotDisplay}";
+        public string CurrentTrackEnergyBadge => _currentTrack is null || string.IsNullOrWhiteSpace(_currentTrack.EnergyRating) || _currentTrack.EnergyRating == "—"
+            ? "ENERGY —"
+            : $"ENERGY {_currentTrack.EnergyRating}/10";
+        public string CurrentTrackCueBadge => _currentTrack is null
+            ? "CUES —"
+            : _currentTrack.HasCues
+                ? $"CUES {_currentTrack.Cues.Count()}"
+                : "CUES AUTO";
+        public string CurrentTrackPhraseJumpSummary => BuildPhraseJumpSummary(_currentTrack?.Cues);
         
         // Shuffle & Repeat
         private bool _isShuffling;
@@ -415,9 +445,23 @@ namespace SLSKDONET.ViewModels
         public ICommand SeekCommand { get; } // Phase 12.6: Waveform Seeking
         public ICommand SeekForwardCommand { get; }
         public ICommand SeekBackwardCommand { get; }
+        public ICommand JumpToIntroCommand { get; }
+        public ICommand JumpToBuildCommand { get; }
+        public ICommand JumpToDropCommand { get; }
+        public ICommand JumpToOutroCommand { get; }
         public ICommand ToggleTheaterModeCommand { get; }
         public ICommand GoBackCommand { get; } // NowPlayingPage back navigation
         public ICommand OpenPlayerViewCommand { get; }
+        public ICommand OpenCurrentTrackInspectorCommand { get; }
+        public ICommand OpenCurrentTrackWorkstationCommand { get; }
+        public ICommand OpenCurrentTrackFlowCommand { get; }
+        public ICommand LoadCurrentTrackToDeckACommand { get; }
+        public ICommand LoadCurrentTrackToDeckBCommand { get; }
+        public ICommand AnalyzeCurrentTrackCommand { get; }
+        public ICommand SeparateCurrentTrackStemsCommand { get; }
+        public ICommand RevealCurrentTrackCommand { get; }
+        public ICommand AddCurrentTrackToProjectCommand { get; }
+        public ICommand PlayQueueItemCommand { get; }
 
         // Entertainment Engine Commands
         public ICommand ToggleAmbientModeCommand { get; }
@@ -500,6 +544,20 @@ namespace SLSKDONET.ViewModels
                 {
                     AddToQueue(evt.Track);
                 }
+            }).DisposeWith(_disposables);
+
+            eventBus.GetEvent<AnalysisQueueStatusChangedEvent>().Subscribe(evt =>
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    AnalysisLaneSummary = BuildAnalysisLaneSummary(
+                        evt.QueuedCount,
+                        evt.ProcessedCount,
+                        evt.CurrentTrackHash,
+                        evt.IsPaused,
+                        evt.PerformanceMode,
+                        evt.MaxConcurrency);
+                });
             }).DisposeWith(_disposables);
 
             // Phase 6B: Play Album Request (Queue Management)
@@ -624,6 +682,10 @@ namespace SLSKDONET.ViewModels
             SeekCommand = new RelayCommand<float>(Seek);
             SeekForwardCommand = new RelayCommand(() => SeekRelative(10)); // Seek forward 10 seconds
             SeekBackwardCommand = new RelayCommand(() => SeekRelative(-10)); // Seek backward 10 seconds
+            JumpToIntroCommand = new RelayCommand(() => JumpToPhrase(CueRole.Intro, 0.08d));
+            JumpToBuildCommand = new RelayCommand(() => JumpToPhrase(CueRole.Build, 0.35d));
+            JumpToDropCommand = new RelayCommand(() => JumpToPhrase(CueRole.Drop, 0.55d));
+            JumpToOutroCommand = new RelayCommand(() => JumpToPhrase(CueRole.Outro, 0.82d));
             ToggleTheaterModeCommand = new RelayCommand(() => _eventBus.Publish(new RequestTheaterModeEvent()));
             GoBackCommand = new RelayCommand(() => _eventBus.Publish(new NavigateToPageEvent("Library")));
             OpenPlayerViewCommand = new RelayCommand(() =>
@@ -633,6 +695,16 @@ namespace SLSKDONET.ViewModels
                 _rightPanelService.IsPanelOpen = false;
                 _navigationService.NavigateTo("Player");
             });
+            OpenCurrentTrackInspectorCommand = new RelayCommand(OpenCurrentTrackInspector);
+            OpenCurrentTrackWorkstationCommand = new RelayCommand(OpenCurrentTrackWorkstation);
+            OpenCurrentTrackFlowCommand = new RelayCommand(OpenCurrentTrackFlow);
+            LoadCurrentTrackToDeckACommand = new RelayCommand(() => RouteCurrentTrackToWorkstation("A"));
+            LoadCurrentTrackToDeckBCommand = new RelayCommand(() => RouteCurrentTrackToWorkstation("B"));
+            AnalyzeCurrentTrackCommand = new RelayCommand(AnalyzeCurrentTrack);
+            SeparateCurrentTrackStemsCommand = new RelayCommand(SeparateCurrentTrackStems);
+            RevealCurrentTrackCommand = new RelayCommand(RevealCurrentTrack);
+            AddCurrentTrackToProjectCommand = new RelayCommand(AddCurrentTrackToProject);
+            PlayQueueItemCommand = new RelayCommand<PlaylistTrackViewModel>(PlayQueueItem);
 
             // Entertainment Engine Commands
             ToggleAmbientModeCommand = new RelayCommand(() =>
@@ -655,7 +727,31 @@ namespace SLSKDONET.ViewModels
             });
             ToggleExpandedPlayerCommand = new RelayCommand(() =>
             {
-                IsExpandedPlayerOpen = !IsExpandedPlayerOpen;
+                try
+                {
+                    if (CurrentTrack == null)
+                    {
+                        PlaybackError = "Load a track before opening the expanded player.";
+                        HasPlaybackError = true;
+                        IsExpandedPlayerOpen = false;
+                        return;
+                    }
+
+                    var shouldOpen = !IsExpandedPlayerOpen;
+                    IsExpandedPlayerOpen = shouldOpen;
+
+                    if (shouldOpen)
+                    {
+                        IsQueueOpen = false;
+                        _rightPanelService.IsPanelOpen = false;
+                    }
+                }
+                catch (Exception)
+                {
+                    PlaybackError = "Could not open the expanded player.";
+                    HasPlaybackError = true;
+                    IsExpandedPlayerOpen = false;
+                }
             });
             CycleVisualizerPresetCommand = ReactiveCommand.Create(() =>
             {
@@ -764,6 +860,148 @@ namespace SLSKDONET.ViewModels
                 IsMuted = true;
                 _playerService.Volume = 0;
             }
+        }
+
+        private void OpenCurrentTrackInspector()
+        {
+            if (CurrentTrack == null)
+            {
+                PlaybackError = "Load a track before opening the inspector.";
+                HasPlaybackError = true;
+                return;
+            }
+
+            IsExpandedPlayerOpen = false;
+            IsQueueOpen = false;
+            _rightPanelService.OpenPanel(CurrentTrack, "TRACK INSPECTOR", "🔬");
+        }
+
+        private void OpenCurrentTrackWorkstation()
+        {
+            RouteCurrentTrackToWorkstation();
+        }
+
+        private void OpenCurrentTrackFlow()
+        {
+            if (CurrentTrack == null)
+            {
+                PlaybackError = "Load a track before opening the flow workspace.";
+                HasPlaybackError = true;
+                return;
+            }
+
+            if (!CurrentTrack.IsCompleted || string.IsNullOrWhiteSpace(CurrentTrack.Model.ResolvedFilePath))
+            {
+                PlaybackError = "Only completed local tracks can be sent to the flow workspace.";
+                HasPlaybackError = true;
+                return;
+            }
+
+            HasPlaybackError = false;
+            PlaybackError = string.Empty;
+            IsExpandedPlayerOpen = false;
+            IsQueueOpen = false;
+            _rightPanelService.IsPanelOpen = false;
+            _eventBus.Publish(new AddToTimelineRequestEvent(new[] { CurrentTrack.Model }));
+        }
+
+        private void RouteCurrentTrackToWorkstation(string? preferredDeck = null, bool openStemRack = false)
+        {
+            if (CurrentTrack == null)
+            {
+                PlaybackError = "Load a track before opening the workstation.";
+                HasPlaybackError = true;
+                return;
+            }
+
+            if (!CurrentTrack.IsCompleted || string.IsNullOrWhiteSpace(CurrentTrack.Model.ResolvedFilePath))
+            {
+                PlaybackError = "Only completed local tracks can be sent to the workstation.";
+                HasPlaybackError = true;
+                return;
+            }
+
+            HasPlaybackError = false;
+            PlaybackError = string.Empty;
+            IsExpandedPlayerOpen = false;
+            IsQueueOpen = false;
+            _rightPanelService.IsPanelOpen = false;
+            _eventBus.Publish(new OpenStemWorkspaceRequestEvent(CurrentTrack.Model, preferredDeck, openStemRack));
+        }
+
+        private void AnalyzeCurrentTrack()
+        {
+            if (CurrentTrack?.AnalyzeTrackCommand?.CanExecute(null) == true)
+            {
+                CurrentTrack.AnalyzeTrackCommand.Execute(null);
+                HasPlaybackError = false;
+                PlaybackError = string.Empty;
+                return;
+            }
+
+            PlaybackError = "Only completed local tracks can be analyzed.";
+            HasPlaybackError = true;
+        }
+
+        private void SeparateCurrentTrackStems()
+        {
+            if (CurrentTrack == null)
+            {
+                PlaybackError = "Load a track before opening the stem rack.";
+                HasPlaybackError = true;
+                return;
+            }
+
+            if (HasPersistedStems(CurrentTrack))
+            {
+                RouteCurrentTrackToWorkstation(openStemRack: true);
+                return;
+            }
+
+            if (CurrentTrack.SeparateStemsCommand?.CanExecute(null) == true)
+            {
+                CurrentTrack.SeparateStemsCommand.Execute(null);
+                HasPlaybackError = false;
+                PlaybackError = string.Empty;
+                return;
+            }
+
+            PlaybackError = "Stem prep is only available for completed local tracks.";
+            HasPlaybackError = true;
+        }
+
+        private void RevealCurrentTrack()
+        {
+            if (CurrentTrack?.RevealFileCommand?.CanExecute(null) == true)
+            {
+                CurrentTrack.RevealFileCommand.Execute(null);
+                return;
+            }
+
+            PlaybackError = "No local file is available to reveal.";
+            HasPlaybackError = true;
+        }
+
+        private void AddCurrentTrackToProject()
+        {
+            if (CurrentTrack?.AddToProjectCommand?.CanExecute(null) == true)
+            {
+                CurrentTrack.AddToProjectCommand.Execute(null);
+                return;
+            }
+
+            PlaybackError = "Load a completed track before adding it to the mix.";
+            HasPlaybackError = true;
+        }
+
+        private void PlayQueueItem(PlaylistTrackViewModel? track)
+        {
+            if (track == null)
+                return;
+
+            var index = Queue.IndexOf(track);
+            if (index >= 0)
+                PlayTrackAtIndex(index);
         }
 
         // Phase 9.3: Like Feature Implementation
@@ -1051,6 +1289,207 @@ namespace SLSKDONET.ViewModels
                 _ => RepeatMode.Off
             };
         }
+
+        public static string BuildTrackContextSummary(PlaylistTrackViewModel? track)
+        {
+            if (track == null)
+                return "Load a track to inspect analysis and send it to the workstation";
+
+            var parts = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(track.BpmDisplay) && track.BpmDisplay != "—")
+                parts.Add($"{track.BpmDisplay} BPM");
+
+            if (!string.IsNullOrWhiteSpace(track.CamelotDisplay) && track.CamelotDisplay != "—")
+                parts.Add(track.CamelotDisplay);
+
+            var genre = !string.IsNullOrWhiteSpace(track.DetectedSubGenre)
+                ? track.DetectedSubGenre
+                : !string.IsNullOrWhiteSpace(track.Model.PrimaryGenre)
+                    ? track.Model.PrimaryGenre
+                    : track.Model.Genres?
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .FirstOrDefault();
+
+            if (!string.IsNullOrWhiteSpace(genre))
+                parts.Add(genre);
+
+            return parts.Count == 0
+                ? "Ready for playback • open the Inspector for deeper track analysis"
+                : string.Join(" • ", parts.Take(3));
+        }
+
+        public static string BuildTrackWorkflowHint(PlaylistTrackViewModel? track)
+        {
+            if (track == null)
+                return "Queue a track to prep cues, inspect analysis, and route it into the workstation";
+
+            var parts = new List<string>();
+            parts.Add(track.IsCompleted
+                ? (track.HasAnalysisData ? "Analysis ready" : "Playback ready")
+                : track.StatusText);
+
+            if (!string.IsNullOrWhiteSpace(track.EnergyRating) && track.EnergyRating != "—")
+                parts.Add($"Energy {track.EnergyRating}/10");
+
+            parts.Add(track.HasCues
+                ? $"{track.Cues.Count()} cues loaded"
+                : "cue prep next");
+
+            return string.Join(" • ", parts);
+        }
+
+        public static string BuildWorkstationPrepSummary(PlaylistTrackViewModel? track)
+        {
+            if (track == null)
+                return "Prep a track to route it into the workstation";
+
+            if (!track.IsCompleted)
+                return "Finish the download before workstation prep";
+
+            bool hasPersistedCues = track.HasCues || !string.IsNullOrWhiteSpace(track.Model?.CuePointsJson);
+            bool hasPersistedStems = HasPersistedStems(track);
+
+            var parts = new List<string>
+            {
+                track.HasAnalysisData && hasPersistedCues ? "Workstation ready" : track.HasAnalysisData ? "Analysis loaded" : "Analyze for waveform and timing",
+                hasPersistedCues ? "cue jumps ready" : "cue prep recommended",
+                hasPersistedStems ? "stem rack ready" : "stems on demand"
+            };
+
+            return string.Join(" • ", parts);
+        }
+
+        public static string BuildRoutingSummary(PlaylistTrackViewModel? track)
+        {
+            if (track == null)
+                return "Route a track into Flow, Deck A/B, or the mix project from here";
+
+            if (!track.IsCompleted)
+                return "Complete the download to unlock deck routing and flow handoff";
+
+            var handoff = track.HasAnalysisData ? "deck handoff primed" : "analysis sharpens the handoff";
+            var project = "mix project armed";
+            var stems = HasPersistedStems(track) ? "stem rack on standby" : "stems available on demand";
+            return $"Flow launch ready • {project} • {handoff} • {stems}";
+        }
+
+        public static string BuildAnalysisLaneSummary(int queuedCount, int processedCount, string? currentTrackHash, bool isPaused, string? performanceMode, int maxConcurrency)
+        {
+            var mode = string.IsNullOrWhiteSpace(performanceMode) ? "Standard" : performanceMode;
+            var concurrency = maxConcurrency > 0 ? $"{maxConcurrency} lane{(maxConcurrency == 1 ? string.Empty : "s")}" : "auto lanes";
+
+            if (queuedCount <= 0 && string.IsNullOrWhiteSpace(currentTrackHash))
+            {
+                return $"Analysis lane idle • {processedCount} prepped • {mode} • {concurrency}";
+            }
+
+            if (isPaused)
+            {
+                return $"Analysis paused • {queuedCount} queued • {processedCount} prepped • {mode}";
+            }
+
+            return $"Analysis rolling • {queuedCount} queued • {processedCount} prepped • {mode} • {concurrency}";
+        }
+
+        public static string BuildTransitionPlanSummary(PlaylistTrackViewModel? track)
+        {
+            if (track == null)
+                return "Transition plan: load a track to map intro, drop, and exit anchors";
+
+            if (!track.IsCompleted)
+                return "Transition plan: finish the download before setting your entry and exit strategy";
+
+            bool hasPersistedCues = track.HasCues || !string.IsNullOrWhiteSpace(track.Model?.CuePointsJson);
+            var energy = !string.IsNullOrWhiteSpace(track.EnergyRating) && track.EnergyRating != "—"
+                ? $"energy {track.EnergyRating}/10"
+                : "energy pending";
+
+            if (!hasPersistedCues)
+                return $"Transition plan: analyze this track for intro/drop/outro anchors • {energy}";
+
+            return $"Transition plan: intro in • drop handoff ready • outro exit mapped • {energy}";
+        }
+
+        private static bool HasPersistedStems(PlaylistTrackViewModel? track)
+        {
+            if (track == null)
+                return false;
+
+            if (track.HasStems)
+                return true;
+
+            var resolvedFilePath = track.Model?.ResolvedFilePath;
+            if (string.IsNullOrWhiteSpace(resolvedFilePath))
+                return false;
+
+            try
+            {
+                var trackDir = System.IO.Path.GetDirectoryName(resolvedFilePath);
+                var trackName = System.IO.Path.GetFileNameWithoutExtension(resolvedFilePath);
+
+                if (string.IsNullOrWhiteSpace(trackDir) || string.IsNullOrWhiteSpace(trackName))
+                    return false;
+
+                var stemPathA = System.IO.Path.Combine(trackDir, "Stems", trackName);
+                var stemPathB = System.IO.Path.Combine(trackDir, $"{trackName}_Stems");
+                var stemPathC = System.IO.Path.Combine(trackDir, "_stems");
+
+                return (System.IO.Directory.Exists(stemPathA) && System.IO.Directory.GetFiles(stemPathA).Length > 0)
+                    || (System.IO.Directory.Exists(stemPathB) && System.IO.Directory.GetFiles(stemPathB).Length > 0)
+                    || (System.IO.Directory.Exists(stemPathC) && System.IO.Directory.GetFiles(stemPathC).Length > 0);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static string BuildPhraseJumpSummary(IEnumerable<OrbitCue>? cues)
+        {
+            if (cues == null)
+                return "Quick jump: guided Intro / Build / Drop / Outro";
+
+            var ordered = cues
+                .Where(c => c is not null)
+                .OrderBy(c => c.Timestamp)
+                .ToList();
+
+            if (ordered.Count == 0)
+                return "Quick jump: guided Intro / Build / Drop / Outro";
+
+            var labels = new List<string>();
+
+            if (FindFirstCueByRoles(ordered, CueRole.Intro, CueRole.PhraseStart) is not null)
+                labels.Add("Intro");
+            if (FindFirstCueByRoles(ordered, CueRole.Build, CueRole.Bridge) is not null)
+                labels.Add("Build");
+            if (FindFirstCueByRoles(ordered, CueRole.Drop, CueRole.Climax, CueRole.KickIn) is not null)
+                labels.Add("Drop");
+            if (FindLatestCueByRoles(ordered, CueRole.Outro, CueRole.Breakdown2, CueRole.Breakdown) is not null)
+                labels.Add("Outro");
+
+            return labels.Count == 0
+                ? "Quick jump: guided Intro / Build / Drop / Outro"
+                : $"Quick jump: {string.Join(" · ", labels)}";
+        }
+
+        private static string BuildStatusBadge(PlaylistTrackViewModel? track)
+        {
+            if (track == null)
+                return "STATUS IDLE";
+
+            if (!track.IsCompleted)
+                return $"STATUS {track.StatusText.ToUpperInvariant()}";
+
+            if (track.HasAnalysisData && track.HasCues)
+                return "STATUS MIX-READY";
+
+            if (track.HasAnalysisData)
+                return "STATUS ANALYZED";
+
+            return "STATUS READY";
+        }
         
         private void TogglePlayerDock()
         {
@@ -1145,6 +1584,89 @@ namespace SLSKDONET.ViewModels
         public void Seek(float position)
         {
             _playerService.Position = position;
+        }
+
+        private void JumpToPhrase(CueRole role, double fallbackRatio)
+        {
+            if (_playerService.Length <= 0)
+                return;
+
+            double durationSeconds = _playerService.Length / 1000.0;
+            double targetSeconds = ResolvePhraseJumpTarget(_currentTrack?.Cues, role, durationSeconds, fallbackRatio);
+            float targetPosition = (float)Math.Clamp(targetSeconds * 1000.0 / _playerService.Length, 0.0, 1.0);
+            Seek(targetPosition);
+        }
+
+        private static OrbitCue? FindFirstCueByRoles(IEnumerable<OrbitCue>? cues, params CueRole[] roles)
+        {
+            if (cues == null)
+                return null;
+
+            var roleSet = roles.Length == 0 ? null : new HashSet<CueRole>(roles);
+            return cues
+                .Where(c => c is not null && (roleSet == null || roleSet.Contains(c.Role)))
+                .OrderBy(c => c.Timestamp)
+                .FirstOrDefault();
+        }
+
+        private static OrbitCue? FindLatestCueByRoles(IEnumerable<OrbitCue>? cues, params CueRole[] roles)
+        {
+            if (cues == null)
+                return null;
+
+            var roleSet = roles.Length == 0 ? null : new HashSet<CueRole>(roles);
+            return cues
+                .Where(c => c is not null && (roleSet == null || roleSet.Contains(c.Role)))
+                .OrderByDescending(c => c.Timestamp)
+                .FirstOrDefault();
+        }
+
+        public static double ResolvePhraseJumpTarget(IEnumerable<OrbitCue>? cues, CueRole role, double durationSeconds, double fallbackRatio)
+        {
+            OrbitCue? cue = role switch
+            {
+                CueRole.Intro => FindFirstCueByRoles(cues, CueRole.Intro, CueRole.PhraseStart),
+                CueRole.Build => FindFirstCueByRoles(cues, CueRole.Build, CueRole.Bridge),
+                CueRole.Drop => FindFirstCueByRoles(cues, CueRole.Drop, CueRole.Climax, CueRole.KickIn),
+                CueRole.Outro => FindLatestCueByRoles(cues, CueRole.Outro, CueRole.Breakdown2, CueRole.Breakdown),
+                _ => FindFirstCueByRoles(cues, role)
+            };
+
+            if (cue is not null)
+                return Math.Max(0d, cue.Timestamp);
+
+            return Math.Max(0d, durationSeconds * Math.Clamp(fallbackRatio, 0d, 1d));
+        }
+
+        private void AttachCurrentTrackObservers(PlaylistTrackViewModel? previousTrack, PlaylistTrackViewModel? nextTrack)
+        {
+            if (previousTrack is not null)
+                previousTrack.PropertyChanged -= OnCurrentTrackPropertyChanged;
+
+            if (nextTrack is not null)
+                nextTrack.PropertyChanged += OnCurrentTrackPropertyChanged;
+        }
+
+        private void OnCurrentTrackPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            RaiseCurrentTrackSummaryProperties();
+        }
+
+        private void RaiseCurrentTrackSummaryProperties()
+        {
+            OnPropertyChanged(nameof(WaveformData));
+            OnPropertyChanged(nameof(HasCurrentTrack));
+            OnPropertyChanged(nameof(CurrentTrackContextSummary));
+            OnPropertyChanged(nameof(CurrentTrackWorkflowHint));
+            OnPropertyChanged(nameof(CurrentTrackWorkstationPrepSummary));
+            OnPropertyChanged(nameof(CurrentTrackRoutingSummary));
+            OnPropertyChanged(nameof(CurrentTrackTransitionPlanSummary));
+            OnPropertyChanged(nameof(CurrentTrackStatusBadge));
+            OnPropertyChanged(nameof(CurrentTrackTempoBadge));
+            OnPropertyChanged(nameof(CurrentTrackKeyBadge));
+            OnPropertyChanged(nameof(CurrentTrackEnergyBadge));
+            OnPropertyChanged(nameof(CurrentTrackCueBadge));
+            OnPropertyChanged(nameof(CurrentTrackPhraseJumpSummary));
         }
 
         // Seek relative by seconds

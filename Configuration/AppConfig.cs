@@ -21,7 +21,9 @@ public class AppConfig
     public int MaxDiscoveryLanes { get; set; } = 5; // Concurrent discovery jobs for seeker pipeline
     public int MaxSearchVariations { get; set; } = 2; // Cap cascade fan-out to avoid flooding
     public int StrictSearchSufficientResultCount { get; set; } = 5; // Strict-first: skip relaxed variations when enough strict hits were found
-    public bool EnableStrictHighConfidenceShortCircuit { get; set; } = true; // Strict-first: stop cascade on early high-confidence winner
+    public bool EnableStrictHighConfidenceShortCircuit { get; set; } = false; // When false, strict high-confidence hits do not skip relaxed variations
+    public bool EnableStrictSufficientResultShortCircuit { get; set; } = false; // When false, do not stop after strict variation simply because enough hits were found
+    public bool EnableFastClearanceEarlyExit { get; set; } = false; // When false, fast-clearance ranks across all active variations instead of yielding first winner
     public int SearchThrottleDelayMs { get; set; } = 200; // Protocol pacing to prevent flood protection
     public bool EnableSearchLoadShedding { get; set; } = true;
     public int ElevatedSearchPressureActiveSearches { get; set; } = 3;
@@ -43,6 +45,11 @@ public class AppConfig
     public int MaxPeerQueueLength { get; set; } = 50; // Ignore peers with very long queue lengths
     public int MinSearchDurationSeconds { get; set; } = 16; // Brain buffer floor: must be >= (SearchTimeout/1000 + 4) so queued searches get their full network window
     public int MinLosslessSearchDurationSeconds { get; set; } = 20; // Ensure FLAC/lossless-only discovery streams long enough before declaring no-result
+    public bool EnableSpeculativeEarlyAccept { get; set; } = false; // When false, keep streaming until lane completion/timeout before final selection
+    public bool EnableGoldenEarlyExit { get; set; } = false; // When false, golden hits are tracked but do not cancel the lane immediately
+    public bool EnableFastLaneEarlyExit { get; set; } = false; // When false, fast-lane candidates are ranked with all candidates
+    public bool EnableQuickStrikeEarlyExit { get; set; } = false; // When false, very high scores no longer short-circuit tier processing
+    public bool EnableAccumulatorPerfectMatchShortCircuit { get; set; } = false; // When false, accumulator keeps collecting until window close/cancel
     public bool EnableHedgedSearch { get; set; } = true;
     public int HedgedSearchDelaySeconds { get; set; } = 8; // Delay MP3 hedge so FLAC lanes get first chance to settle
     public bool EnableMp3Fallback { get; set; } = true; // Allow MP3 download when lossless is unavailable; set false for strict lossless-only
@@ -179,4 +186,11 @@ public class AppConfig
     public double AutomixHarmonicWeight { get; set; } = 3.0;
     public double AutomixTempoWeight    { get; set; } = 1.0;
     public double AutomixEnergyWeight   { get; set; } = 0.5;
+
+    // ── Privacy / Telemetry (Task 19 / Epic #119) ─────────────────────────
+    /// <summary>
+    /// When true, keyboard action usage is counted locally in LiteDB.
+    /// No data is ever sent externally. Default off (opt-in).
+    /// </summary>
+    public bool EnableKeyboardTelemetry { get; set; } = false;
 }

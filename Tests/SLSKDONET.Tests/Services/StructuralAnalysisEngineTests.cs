@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Xunit;
+using SLSKDONET.Data.Entities;
 using SLSKDONET.Services;
 
 namespace SLSKDONET.Tests.Services;
@@ -220,5 +221,37 @@ public class StructuralAnalysisEngineTests
 
         foreach (var (ts, _) in result.Drops)
             Assert.InRange(ts, 0.0, duration);
+    }
+
+    [Fact]
+    public void Analyze_WithEnergyCurve_EmitsStructuralSections()
+    {
+        float bpm = 128f;
+        double duration = 300.0;
+        var energy = Enumerable.Range(0, (int)duration)
+            .Select(i => i < 48 ? 0.20f : i < 96 ? 0.55f : i < 144 ? 0.95f : i < 220 ? 0.35f : 0.18f)
+            .ToList<float>();
+        energy[96] = 1.0f;
+
+        var result = StructuralAnalysisEngine.Analyze(bpm, duration, energy);
+
+        Assert.NotEmpty(result.Sections);
+        Assert.Equal(PhraseType.Intro, result.Sections.First().Type);
+        Assert.Equal(PhraseType.Outro, result.Sections.Last().Type);
+    }
+
+    [Fact]
+    public void Analyze_StrongPeak_ProducesDropOrBuildSection()
+    {
+        float bpm = 128f;
+        double duration = 300.0;
+        var energy = Enumerable.Range(0, (int)duration)
+            .Select(i => i < 64 ? 0.15f : i < 96 ? 0.45f : i < 160 ? 0.98f : 0.25f)
+            .ToList<float>();
+        energy[96] = 1.0f;
+
+        var result = StructuralAnalysisEngine.Analyze(bpm, duration, energy);
+
+        Assert.Contains(result.Sections, s => s.Type == PhraseType.Drop || s.Type == PhraseType.Build);
     }
 }

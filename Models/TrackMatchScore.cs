@@ -50,6 +50,12 @@ public sealed record TrackMatchScore
     /// </summary>
     public float DropSonicScore { get; init; }
 
+    /// <summary>
+    /// How well the outro of the current track flows into the intro of the next one.
+    /// This is the bridge-first transition score used by the playlist optimizer and UI.
+    /// </summary>
+    public float OutroIntroScore { get; init; }
+
     // ── Composite scores ───────────────────────────────────────────────────
 
     /// <summary>

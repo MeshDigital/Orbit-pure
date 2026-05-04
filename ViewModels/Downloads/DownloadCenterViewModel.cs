@@ -52,8 +52,10 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     private readonly DatabaseService _databaseService;
     private readonly CompositeDisposable _subscriptions = new();
     private DispatcherTimer? _uiBatchTimer;
+    private DispatcherTimer? _statusBannerTimer;
     private bool _hasPendingUiRefresh;
     private bool _isApplyingDownloadProfile;
+    private string? _globalStatusContext;
     
     // Collections (DynamicData Source)
     private readonly SourceCache<UnifiedTrackViewModel, string> _downloadsSource = new(x => x.GlobalId);
@@ -195,6 +197,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
                 this.RaisePropertyChanged(nameof(SessionFilterQueued));
                 this.RaisePropertyChanged(nameof(SessionFilterDone));
                 this.RaisePropertyChanged(nameof(SessionFilterFailed));
+                ApplySessionFilterBanner();
             }
         }
     }
@@ -237,6 +240,8 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
     public int SessionLedgerCount => _activeTracks?.Count ?? 0;
     public int VisibleSessionTrackCount => _sessionTracks?.Count ?? 0;
+    public bool HasSessionHistory => SessionLedgerCount > 0;
+    public bool HasVisibleSessionTracks => VisibleSessionTrackCount > 0;
 
     private string? _globalStatusMessage;
     public string? GlobalStatusMessage
@@ -285,6 +290,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
     public ICommand ToggleLogsCommand { get; }
     public ICommand ClearSecurityQualityLogsCommand { get; }
+    public ICommand DismissGlobalStatusCommand { get; }
     
     // Alias for HomeViewModel compatibility
     public string GlobalSpeedDisplay => GlobalSpeed;
@@ -536,6 +542,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         
         ToggleLogsCommand = ReactiveCommand.Create(() => ShowEngineLogs = !ShowEngineLogs);
         ClearSecurityQualityLogsCommand = ReactiveCommand.Create(() => { });
+        DismissGlobalStatusCommand = ReactiveCommand.Create(() => ClearGlobalStatus());
 
         // Phase 6: Security & Quality diagnostics feed (Shield / Gate visibility)
         _eventBus.GetEvent<SecurityAuditEvent>()
@@ -837,12 +844,21 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
         _activeTracks.ToObservableChangeSet()
             .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(_ => this.RaisePropertyChanged(nameof(SessionLedgerCount)))
+            .Subscribe(_ =>
+            {
+                this.RaisePropertyChanged(nameof(SessionLedgerCount));
+                this.RaisePropertyChanged(nameof(HasSessionHistory));
+            })
             .DisposeWith(_subscriptions);
 
         _sessionTracks.ToObservableChangeSet()
             .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(_ => this.RaisePropertyChanged(nameof(VisibleSessionTrackCount)))
+            .Subscribe(_ =>
+            {
+                this.RaisePropertyChanged(nameof(VisibleSessionTrackCount));
+                this.RaisePropertyChanged(nameof(HasVisibleSessionTracks));
+                ApplySessionFilterBanner();
+            })
             .DisposeWith(_subscriptions);
 
         // Phase 12.8: Grouped Session Pipeline
@@ -979,12 +995,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
         _eventBus.GetEvent<GlobalStatusEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(e =>
-            {
-                GlobalStatusMessage = e.Message;
-                IsGlobalStatusVisible = e.IsActive;
-                IsGlobalStatusError = e.IsError;
-            })
+            .Subscribe(ApplyGlobalStatusEvent)
             .DisposeWith(_subscriptions);
 
         // Phase 3.7 Fix: Respond to background hydration completion
@@ -1103,6 +1114,87 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         return string.IsNullOrWhiteSpace(track.PeerName)
             ? string.Empty
             : track.PeerName.Trim();
+    }
+
+    public static string? BuildSessionFilterBanner(string mode, int visibleCount)
+    {
+        if (string.IsNullOrWhiteSpace(mode) || string.Equals(mode, "All", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return $"{mode} filter active • {visibleCount} visible in the current session.";
+    }
+
+    public static bool ShouldAutoDismissGlobalStatus(GlobalStatusEvent evt)
+    {
+        return evt.IsActive
+            && !evt.IsError
+            && !string.IsNullOrWhiteSpace(evt.Message)
+            && evt.Message.Contains("profile", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ApplySessionFilterBanner()
+    {
+        var message = BuildSessionFilterBanner(SessionFilterMode, VisibleSessionTrackCount);
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            ClearGlobalStatus("session-filter");
+            return;
+        }
+
+        ShowGlobalStatus(message, isError: false, autoHide: false, context: "session-filter");
+    }
+
+    private void ApplyGlobalStatusEvent(GlobalStatusEvent evt)
+    {
+        if (!evt.IsActive || string.IsNullOrWhiteSpace(evt.Message))
+        {
+            ClearGlobalStatus();
+            return;
+        }
+
+        ShowGlobalStatus(evt.Message, evt.IsError, ShouldAutoDismissGlobalStatus(evt), evt.IsError ? "global-error" : "global-info");
+    }
+
+    private void ShowGlobalStatus(string message, bool isError, bool autoHide, string context)
+    {
+        _statusBannerTimer?.Stop();
+        _globalStatusContext = context;
+        GlobalStatusMessage = message;
+        IsGlobalStatusError = isError;
+        IsGlobalStatusVisible = true;
+
+        if (!autoHide)
+        {
+            return;
+        }
+
+        _statusBannerTimer ??= new DispatcherTimer();
+        _statusBannerTimer.Interval = TimeSpan.FromSeconds(3);
+        _statusBannerTimer.Tick -= OnStatusBannerTimerTick;
+        _statusBannerTimer.Tick += OnStatusBannerTimerTick;
+        _statusBannerTimer.Start();
+    }
+
+    private void OnStatusBannerTimerTick(object? sender, EventArgs e)
+    {
+        ClearGlobalStatus();
+    }
+
+    private void ClearGlobalStatus(string? context = null)
+    {
+        if (!string.IsNullOrWhiteSpace(context)
+            && !string.Equals(_globalStatusContext, context, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _statusBannerTimer?.Stop();
+        GlobalStatusMessage = null;
+        IsGlobalStatusVisible = false;
+        IsGlobalStatusError = false;
+        _globalStatusContext = null;
     }
 
     private Func<UnifiedTrackViewModel, bool> BuildFilter(string searchText)
@@ -1260,6 +1352,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     public void Dispose()
     {
         _uiBatchTimer?.Stop();
+        _statusBannerTimer?.Stop();
         _subscriptions.Dispose();
         _downloadsSource.Dispose();
     }

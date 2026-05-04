@@ -261,6 +261,13 @@ namespace SLSKDONET.Views.Avalonia.Controls
         private const double CueHitThreshold = 10.0;
         private const double HandleWidth = 8.0;
 
+        private static readonly Pen PhraseGridPen = new Pen(new SolidColorBrush(Color.FromArgb(48, 255, 255, 255)), 1);
+        private static readonly IBrush IntroPhraseBrush = new SolidColorBrush(Color.Parse("#1E3A5F"), 0.18);
+        private static readonly IBrush BuildPhraseBrush = new SolidColorBrush(Color.Parse("#FFB347"), 0.18);
+        private static readonly IBrush DropPhraseBrush = new SolidColorBrush(Color.Parse("#DC143C"), 0.18);
+        private static readonly IBrush BreakPhraseBrush = new SolidColorBrush(Color.Parse("#6A0DAD"), 0.18);
+        private static readonly IBrush OutroPhraseBrush = new SolidColorBrush(Color.Parse("#708090"), 0.18);
+
         // Beat-snap highlight state
         private double _snapHighlightSeconds = -1.0; // ≥0 while highlight is active
         private float _snapHighlightAlpha = 0f;
@@ -1039,45 +1046,69 @@ namespace SLSKDONET.Views.Avalonia.Controls
             var data = WaveformData;
             if (segments == null || data == null || data.DurationSeconds <= 0) return;
 
+            if (Bpm > 0)
+            {
+                double phraseSeconds = (16d * 4d * 60d) / Bpm;
+                if (phraseSeconds > 0)
+                {
+                    for (double t = 0; t < data.DurationSeconds; t += phraseSeconds)
+                    {
+                        double gridX = (t / data.DurationSeconds) * width;
+                        context.DrawLine(PhraseGridPen, new Point(gridX, 0), new Point(gridX, height));
+                    }
+                }
+            }
+
             var sorted = System.Linq.Enumerable.OrderBy(segments, s => s.Start).ToList();
             for (int i = 0; i < sorted.Count; i++)
             {
                 var s = sorted[i];
                 double x = (s.Start / data.DurationSeconds) * width;
                 double nextX = width;
-                
+
                 if (i < sorted.Count - 1)
-                {
                     nextX = (sorted[i + 1].Start / data.DurationSeconds) * width;
-                }
 
                 if (x >= width || nextX <= 0) continue;
 
-                var color = Color.Parse(s.Color ?? "#444444");
-                var brush = new SolidColorBrush(color, 0.15f); // Semi-transparent block
-                
+                var (brush, labelColor) = ResolvePhraseVisuals(s);
                 context.DrawRectangle(brush, null, new Rect(x, 0, Math.Max(0, nextX - x), height));
-                
-                // Draw Handles (Phase 2)
+
                 if (IsEditing)
                 {
-                    var handleBrush = new SolidColorBrush(color, 0.8f);
+                    var handleBrush = new SolidColorBrush(labelColor, 0.85f);
                     var handlePen = new Pen(handleBrush, 2);
-                    
-                    // Start Handle
-                    context.DrawRectangle(handleBrush, null, new Rect(x - HandleWidth/2, 0, HandleWidth, 15));
+
+                    context.DrawRectangle(handleBrush, null, new Rect(x - HandleWidth / 2, 0, HandleWidth, 15));
                     context.DrawLine(handlePen, new Point(x, 15), new Point(x, height));
-                    
-                    // End Handle
-                    context.DrawRectangle(handleBrush, null, new Rect(nextX - HandleWidth/2, height - 15, HandleWidth, 15));
+
+                    context.DrawRectangle(handleBrush, null, new Rect(nextX - HandleWidth / 2, height - 15, HandleWidth, 15));
                     context.DrawLine(handlePen, new Point(nextX, 0), new Point(nextX, height - 15));
                 }
 
-                // Draw Label at the bottom
                 var typeface = new Typeface(FontFamily.Default, FontStyle.Normal, FontWeight.Bold);
-                var formattedText = new FormattedText(s.Label.ToUpper(), System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 9, new SolidColorBrush(color, 0.6f));
+                var formattedText = new FormattedText(s.Label.ToUpper(), System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 9, new SolidColorBrush(labelColor, 0.72f));
                 context.DrawText(formattedText, new Point(x + 4, height - formattedText.Height - 4));
             }
+        }
+
+        private static (IBrush Brush, Color LabelColor) ResolvePhraseVisuals(PhraseSegment segment)
+        {
+            var label = segment.Label ?? string.Empty;
+
+            if (label.Contains("intro", StringComparison.OrdinalIgnoreCase))
+                return (IntroPhraseBrush, Color.Parse("#7FB3FF"));
+            if (label.Contains("build", StringComparison.OrdinalIgnoreCase) || label.Contains("riser", StringComparison.OrdinalIgnoreCase))
+                return (BuildPhraseBrush, Color.Parse("#FFB347"));
+            if (label.Contains("drop", StringComparison.OrdinalIgnoreCase) || label.Contains("chorus", StringComparison.OrdinalIgnoreCase))
+                return (DropPhraseBrush, Color.Parse("#FF6A7A"));
+            if (label.Contains("break", StringComparison.OrdinalIgnoreCase) || label.Contains("bridge", StringComparison.OrdinalIgnoreCase))
+                return (BreakPhraseBrush, Color.Parse("#C084FC"));
+            if (label.Contains("outro", StringComparison.OrdinalIgnoreCase))
+                return (OutroPhraseBrush, Color.Parse("#AAB7C4"));
+
+            var parsed = !string.IsNullOrWhiteSpace(segment.Color) ? Color.Parse(segment.Color) : Color.Parse("#708090");
+            return (new SolidColorBrush(parsed, 0.16f), parsed);
         }
 
         private void RenderCurves(DrawingContext context, double width, double height)

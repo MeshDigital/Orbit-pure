@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using SLSKDONET.Data;
@@ -17,6 +18,41 @@ namespace SLSKDONET.Tests.Services
         public PhraseAlignmentTests()
         {
             _service = new PhraseAlignmentService(new NullLogger<PhraseAlignmentService>());
+        }
+
+        [Fact]
+        public async Task AlignPhrasesAsync_SnapsToGenreAwareTemplate()
+        {
+            var raw = new List<RawBoundary>
+            {
+                new() { StartTimeSeconds = 1.2, Label = "Intro", Confidence = 0.7f, EnergyLevel = 0.2f },
+                new() { StartTimeSeconds = 59.8, Label = "Build", Confidence = 0.8f, EnergyLevel = 0.5f },
+                new() { StartTimeSeconds = 90.5, Label = "Drop", Confidence = 0.9f, EnergyLevel = 0.9f }
+            };
+
+            var phrases = await _service.AlignPhrasesAsync(raw, 128, "EDM", "track-1");
+
+            Assert.NotEmpty(phrases);
+            Assert.Equal(PhraseType.Intro, phrases[0].Type);
+            Assert.InRange(phrases[0].StartTimeSeconds, 0f, 0.5f);
+            Assert.Contains(phrases, p => p.Type == PhraseType.Drop);
+        }
+
+        [Fact]
+        public async Task AlignPhrasesAsync_UsesPopPresetShorterPhraseLengths()
+        {
+            var raw = new List<RawBoundary>
+            {
+                new() { StartTimeSeconds = 0.2, Label = "Intro", Confidence = 0.9f, EnergyLevel = 0.1f },
+                new() { StartTimeSeconds = 16.1, Label = "Drop", Confidence = 0.9f, EnergyLevel = 0.85f }
+            };
+
+            var phrases = await _service.AlignPhrasesAsync(raw, 120, "Pop", "track-2");
+
+            Assert.NotEmpty(phrases);
+            Assert.Equal(PhraseType.Intro, phrases[0].Type);
+            Assert.True(phrases[0].EndTimeSeconds > phrases[0].StartTimeSeconds);
+            Assert.Contains(phrases, p => p.Type == PhraseType.Drop || p.Type == PhraseType.Build);
         }
 
         [Fact]

@@ -67,6 +67,26 @@
             <Setter Property="BorderBrush" Value="#00BFFF"/>
             <Setter Property="Foreground" Value="White"/>
         </Style>
+        <Style Selector="Border.metricCard">
+            <Setter Property="Background" Value="#17191D"/>
+            <Setter Property="BorderBrush" Value="#2B3138"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="MinWidth" Value="150"/>
+        </Style>
+        <Style Selector="Border.metricCard.live">
+            <Setter Property="BorderBrush" Value="#00BCD4"/>
+        </Style>
+        <Style Selector="Border.metricCard.queued">
+            <Setter Property="BorderBrush" Value="#FFB300"/>
+        </Style>
+        <Style Selector="Border.metricCard.done">
+            <Setter Property="BorderBrush" Value="#30C97A"/>
+        </Style>
+        <Style Selector="Border.metricCard.failed">
+            <Setter Property="BorderBrush" Value="#FF6B6B"/>
+        </Style>
 
         <Style Selector="TextBlock.pulsing">
             <Style.Animations>
@@ -91,7 +111,7 @@
     <UserControl.Resources>
         <!-- Golden Row Template -->
         <DataTemplate x:Key="DownloadItemTemplate" DataType="vm:UnifiedTrackViewModel">
-            <Border Background="Transparent" Margin="0,0,0,8">
+            <Border Background="#16181B" CornerRadius="10" BorderBrush="#2B3138" BorderThickness="1" Margin="0,0,0,10">
                 <Border.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="Play" Command="{Binding PlayCommand}" IsVisible="{Binding IsCompleted}"><MenuItem.Icon><PathIcon Data="{StaticResource play_circle_regular}" Width="16" Height="16"/></MenuItem.Icon></MenuItem>
@@ -105,6 +125,21 @@
                 </Border.ContextMenu>
 
                 <StackPanel Spacing="0">
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="12,10,12,4">
+                        <Border IsVisible="{Binding IsCompleted}" Background="#11261B" BorderBrush="#30C97A" BorderThickness="1" CornerRadius="999" Padding="8,2">
+                            <TextBlock Text="READY" Foreground="#8EF0B8" FontSize="9" FontWeight="Bold"/>
+                        </Border>
+                        <Border IsVisible="{Binding IsActive}" Background="#10242A" BorderBrush="#00BCD4" BorderThickness="1" CornerRadius="999" Padding="8,2">
+                            <TextBlock Text="LIVE" Foreground="#8FE8F3" FontSize="9" FontWeight="Bold"/>
+                        </Border>
+                        <Border IsVisible="{Binding IsWaiting}" Background="#2C220B" BorderBrush="#FFB300" BorderThickness="1" CornerRadius="999" Padding="8,2">
+                            <TextBlock Text="QUEUED" Foreground="#FFD66B" FontSize="9" FontWeight="Bold"/>
+                        </Border>
+                        <Border IsVisible="{Binding IsFailed}" Background="#2A1717" BorderBrush="#FF6B6B" BorderThickness="1" CornerRadius="999" Padding="8,2">
+                            <TextBlock Text="ATTENTION" Foreground="#FFB1B1" FontSize="9" FontWeight="Bold"/>
+                        </Border>
+                        <TextBlock Text="{Binding DetailedStatusText}" Foreground="#7E8A95" FontSize="10" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
                     <c:StandardTrackRow Classes="card" MinimalBadges="True"/>
 
                     <!-- Unified log strip: single collapsible section, visible only when there is log data -->
@@ -239,7 +274,7 @@
                     </ContextMenu>
                 </Border.ContextMenu>
                 
-                <Border Background="#252526" CornerRadius="6" Padding="12" BorderBrush="#333" BorderThickness="1">
+                <Border Background="#191416" CornerRadius="10" Padding="12" BorderBrush="#5A2A2A" BorderThickness="1">
                     <Grid ColumnDefinitions="*, Auto">
                         <StackPanel Grid.Column="0" Spacing="4">
                         <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,2">
@@ -789,15 +824,24 @@
                             CornerRadius="8"
                             BorderThickness="1"
                             BorderBrush="#2C5D8A">
-                        <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Stretch">
-                            <TextBlock Text="ℹ️" FontSize="15" VerticalAlignment="Center" MinHeight="0"/>
-                            <TextBlock Text="{Binding GlobalStatusMessage}"
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <TextBlock Grid.Column="0" Text="ℹ️" FontSize="15" VerticalAlignment="Center" MinHeight="0"/>
+                            <TextBlock Grid.Column="1" Text="{Binding GlobalStatusMessage}"
                                        Foreground="#D9ECFF"
                                        FontWeight="SemiBold"
                                        VerticalAlignment="Center"
                                        TextWrapping="Wrap"
-                                       HorizontalAlignment="Left"/>
-                        </StackPanel>
+                                       HorizontalAlignment="Left"
+                                       Margin="12,0,12,0"/>
+                            <Button Grid.Column="2"
+                                    Command="{Binding DismissGlobalStatusCommand}"
+                                    Content="✕"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Foreground="#D9ECFF"
+                                    Padding="6,0"
+                                    ToolTip.Tip="Dismiss"/>
+                        </Grid>
                     </Border>
 
                     <!-- Global Status Indicator (Error) -->
@@ -810,20 +854,30 @@
                             CornerRadius="8"
                             BorderThickness="1"
                             BorderBrush="#B14646">
-                        <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Stretch">
-                            <TextBlock Text="⚠️" FontSize="16" VerticalAlignment="Top" Margin="0,2,0,0" MinHeight="0"/>
-                            <TextBlock Text="{Binding GlobalStatusMessage}"
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                            <TextBlock Grid.Column="0" Text="⚠️" FontSize="16" VerticalAlignment="Top" Margin="0,2,0,0" MinHeight="0"/>
+                            <TextBlock Grid.Column="1" Text="{Binding GlobalStatusMessage}"
                                        Foreground="White"
                                        FontWeight="SemiBold"
                                        VerticalAlignment="Top"
                                        TextWrapping="Wrap"
-                                       HorizontalAlignment="Left"/>
-                            <ProgressBar IsIndeterminate="True"
+                                       HorizontalAlignment="Left"
+                                       Margin="12,0,12,0"/>
+                            <ProgressBar Grid.Column="2"
+                                         IsIndeterminate="True"
                                          Width="100"
                                          Height="2"
                                          VerticalAlignment="Center"
                                          Margin="12,0,0,0"/>
-                        </StackPanel>
+                            <Button Grid.Column="3"
+                                    Command="{Binding DismissGlobalStatusCommand}"
+                                    Content="✕"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Foreground="White"
+                                    Padding="6,0"
+                                    ToolTip.Tip="Dismiss"/>
+                        </Grid>
                     </Border>
 
                         <!-- Beta 2026: Network Parent Health Warning -->
@@ -846,7 +900,7 @@
 
                     <!-- Empty State -->
                     <Border Grid.Row="1" 
-                            IsVisible="{Binding !HasAnyActiveOrQueued}"
+                            IsVisible="{Binding !HasSessionHistory}"
                             VerticalAlignment="Center"
                             HorizontalAlignment="Center">
                         <StackPanel Spacing="16" HorizontalAlignment="Center">
@@ -866,7 +920,7 @@
                     </Border>
 
                     <!-- Unified Session Ledger -->
-                    <Grid Grid.Row="1" RowDefinitions="Auto, *" IsVisible="{Binding HasAnyActiveOrQueued}">
+                    <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*" IsVisible="{Binding HasSessionHistory}">
 
                         <!-- Session toolbar: search + chips + compact actions -->
                         <StackPanel Grid.Row="0" Spacing="10" Margin="20,10,20,0">
@@ -950,7 +1004,61 @@
                             </Grid>
                         </StackPanel>
 
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="20,0,20,0">
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <Border Classes="metricCard live">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="LIVE TRANSFERS" FontSize="9" FontWeight="Bold" Foreground="#6A8492"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{Binding ActiveCount}" FontSize="20" FontWeight="Bold" Foreground="#DFFBFF"/>
+                                            <TextBlock Text="▶" FontSize="12" Foreground="#00BCD4" VerticalAlignment="Bottom" Margin="0,0,0,3"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                                <Border Classes="metricCard queued">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="ON DECK" FontSize="9" FontWeight="Bold" Foreground="#8B7A47"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{Binding QueuedCount}" FontSize="20" FontWeight="Bold" Foreground="#FFF1C7"/>
+                                            <TextBlock Text="⏳" FontSize="12" Foreground="#FFB300" VerticalAlignment="Bottom" Margin="0,0,0,3"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                                <Border Classes="metricCard done">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="COMPLETED" FontSize="9" FontWeight="Bold" Foreground="#6A8D77"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{Binding CompletedTodayCount}" FontSize="20" FontWeight="Bold" Foreground="#DDF9E8"/>
+                                            <TextBlock Text="✓" FontSize="12" Foreground="#30C97A" VerticalAlignment="Bottom" Margin="0,0,0,3"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                                <Border Classes="metricCard failed">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="REQUIRES ACTION" FontSize="9" FontWeight="Bold" Foreground="#A07A7A"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{Binding FailedCount}" FontSize="20" FontWeight="Bold" Foreground="#FFE4E4"/>
+                                            <TextBlock Text="⚠" FontSize="12" Foreground="#FF6B6B" VerticalAlignment="Bottom" Margin="0,0,0,3"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <Border Grid.Row="2"
+                                IsVisible="{Binding !HasVisibleSessionTracks}"
+                                Margin="20,12,20,0"
+                                Padding="14,12"
+                                Background="#15191C"
+                                BorderBrush="#2B3238"
+                                BorderThickness="1"
+                                CornerRadius="8">
+                            <TextBlock Text="No tracks match the current session filter."
+                                       Foreground="#9AA7B3"
+                                       FontStyle="Italic"/>
+                        </Border>
+
+                        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" IsVisible="{Binding HasVisibleSessionTracks}">
                             <StackPanel Spacing="32" Margin="24,16">
                                 <!-- CURRENT SESSION: all non-cleared tracks morph in-place -->
                                 <StackPanel Spacing="12">
@@ -1076,8 +1184,8 @@
             <TabItem Header="Completed History">
                 <Grid RowDefinitions="Auto,*">
                     <!-- Actions Bar (Search + Clear) -->
-                    <Border Grid.Row="0" Background="#1E1E1E" Padding="16,12" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
-                        <Grid ColumnDefinitions="*,Auto">
+                    <Border Grid.Row="0" Background="#10161A" Padding="16,12" BorderBrush="#234437" BorderThickness="0,0,0,1">
+                        <Grid ColumnDefinitions="*,Auto,Auto">
                             <TextBox Grid.Column="0" 
                                      Text="{Binding SearchText, Mode=TwoWay}"
                                      Watermark="Search completed tracks..."
@@ -1091,10 +1199,19 @@
                                 </TextBox.InnerLeftContent>
                             </TextBox>
                             
-                            <Button Grid.Column="1" Command="{Binding ClearCompletedCommand}"
+                            <Border Grid.Column="1" Background="#11261B" BorderBrush="#30C97A" BorderThickness="1" CornerRadius="999" Padding="10,4" Margin="12,0,0,0" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="✓" Foreground="#30C97A" FontSize="11"/>
+                                    <TextBlock Text="{Binding CompletedTodayCount, StringFormat='{}{0} ready'}" Foreground="#CFF7DE" FontSize="11" FontWeight="Bold"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Button Grid.Column="2" Command="{Binding ClearCompletedCommand}"
                                     HorizontalAlignment="Right"
-                                    Background="#333"
+                                    Background="#183224"
                                     Foreground="White"
+                                    BorderBrush="#30C97A"
+                                    BorderThickness="1"
                                     Padding="12,8"
                                     CornerRadius="6">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
@@ -1137,7 +1254,7 @@
             <TabItem Header="Failed History">
                 <Grid RowDefinitions="Auto,*">
                     <!-- Actions Bar (Search + Actions) -->
-                    <Border Grid.Row="0" Background="#1E1E1E" Padding="16,12" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
+                    <Border Grid.Row="0" Background="#1A1010" Padding="16,12" BorderBrush="#5A2A2A" BorderThickness="0,0,0,1">
                         <Grid ColumnDefinitions="*,Auto">
                              <TextBox Grid.Column="0" 
                                      Text="{Binding SearchText, Mode=TwoWay}"
@@ -1153,6 +1270,13 @@
                             </TextBox>
 
                             <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                                <Border Background="#2A1717" BorderBrush="#FF6B6B" BorderThickness="1" CornerRadius="999" Padding="10,4" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock Text="⚠" Foreground="#FF8C8C" FontSize="11"/>
+                                        <TextBlock Text="{Binding FailedCount, StringFormat='{}{0} flagged'}" Foreground="#FFE1E1" FontSize="11" FontWeight="Bold"/>
+                                    </StackPanel>
+                                </Border>
+
                                 <Button Command="{Binding RetryAllFailedCommand}"
                                         Background="#2E7D32"
                                         Foreground="White"
@@ -1165,7 +1289,9 @@
                                 </Button>
     
                                 <Button Command="{Binding ClearFailedCommand}"
-                                        Background="#333"
+                                        Background="#241515"
+                                        BorderBrush="#5A2A2A"
+                                        BorderThickness="1"
                                         Foreground="White"
                                         Padding="12,8"
                                         CornerRadius="6">

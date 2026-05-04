@@ -54,6 +54,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     private readonly IClipboardService _clipboardService;
     private readonly SearchOrchestrationService _searchOrchestration;
     private readonly IBulkOperationCoordinator _bulkCoordinator;
+    private readonly IEventBus _eventBus;
 
     private readonly FileNameFormatter _fileNameFormatter;
     private readonly HashSet<string> _runtimeExcludedPhrases = new(StringComparer.OrdinalIgnoreCase);
@@ -109,6 +110,13 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     public int DisplayedResultsCount => SearchResultsView.Count;
     public bool HasDisplayedResults => DisplayedResultsCount > 0;
     public bool AllResultsFilteredByRules => TotalResultsReceived > 0 && HiddenResultsCount >= TotalResultsReceived;
+    public bool HasSelectedResults => SelectedResults.Count > 0;
+    public string SelectedResultsSummary => SelectedResults.Count switch
+    {
+        0 => "Select results to download or stage into a mix.",
+        1 => $"1 result armed • {SelectedResults[0].DisplayName}",
+        _ => $"{SelectedResults.Count} results armed for batch download or Add to Mix"
+    };
     public string ShowHiddenResultsButtonText => ShowFilteredOutResults
         ? "Hide filtered-out"
         : $"Show filtered-out ({HiddenResultsCount})";
@@ -352,6 +360,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     public ICommand PasteTracklistCommand { get; }
     public ICommand CancelSearchCommand { get; }
     public ICommand AddToDownloadsCommand { get; }
+    public ICommand AddToPlaylistCommand { get; }
     public ReactiveCommand<object?, System.Reactive.Unit> DownloadSelectedCommand { get; }
     public ReactiveCommand<System.Reactive.Unit, System.Reactive.Unit> CopyMetadataCommand { get; }
     public ICommand ApplyPresetCommand { get; } // Phase 5: Search Presets
@@ -392,6 +401,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         _clipboardService = clipboardService;
         _searchOrchestration = searchOrchestration;
         _fileNameFormatter = fileNameFormatter;
+        _eventBus = eventBus;
         _bulkCoordinator = bulkCoordinator;
 
         // Reactive Status Updates
@@ -430,10 +440,19 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                 FilterViewModel.FilterChanged.StartWith(FilterViewModel.GetFilterPredicate()),
                 (showFiltered, filter) => new Func<AnalyzedSearchResultViewModel, bool>(vm =>
                 {
-                    var isVisible = filter(vm.RawResult);
-                    var reason = isVisible ? null : FilterViewModel.GetHiddenReason(vm.RawResult);
-                    vm.SetFilterVisibility(!isVisible, reason);
-                    return showFiltered || isVisible;
+                    try
+                    {
+                        var isVisible = filter(vm.RawResult);
+                        var reason = isVisible ? null : FilterViewModel.GetHiddenReason(vm.RawResult);
+                        vm.SetFilterVisibility(!isVisible, reason);
+                        return showFiltered || isVisible;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Search visibility evaluation failed for result {File}. Falling back to visible.", vm.Filename);
+                        vm.SetFilterVisibility(false, null);
+                        return true;
+                    }
                 }));
 
         _searchResults.Connect()
@@ -456,7 +475,13 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         // Commands
         var canSearch = this.WhenAnyValue(x => x.SearchQuery, query => !string.IsNullOrWhiteSpace(query));
         
-        UnifiedSearchCommand = ReactiveCommand.CreateFromTask(ExecuteUnifiedSearchAsync, canSearch);
+        var searchCmd = ReactiveCommand.CreateFromTask(ExecuteUnifiedSearchAsync, canSearch);
+        searchCmd.ThrownExceptions
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(ex => { IsSearching = false; IsListening = false; StatusText = $"⚠️ {ex.InnerException?.Message ?? ex.Message}"; })
+            .DisposeWith(_disposables);
+        UnifiedSearchCommand = searchCmd;
+
         ClearSearchCommand = ReactiveCommand.Create(() =>
         {
             ExecuteCancelSearch();
@@ -464,14 +489,44 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             _searchResults.Clear();
             ResetTelemetry();
         });
-        BrowseCsvCommand = ReactiveCommand.CreateFromTask(ExecuteBrowseCsvAsync);
-        PasteTracklistCommand = ReactiveCommand.CreateFromTask(ExecutePasteTracklistAsync);
+
+        var csvCmd = ReactiveCommand.CreateFromTask(ExecuteBrowseCsvAsync);
+        csvCmd.ThrownExceptions.ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(ex => StatusText = $"⚠️ {ex.Message}").DisposeWith(_disposables);
+        BrowseCsvCommand = csvCmd;
+
+        var pasteCmd = ReactiveCommand.CreateFromTask(ExecutePasteTracklistAsync);
+        pasteCmd.ThrownExceptions.ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(ex => StatusText = $"⚠️ {ex.Message}").DisposeWith(_disposables);
+        PasteTracklistCommand = pasteCmd;
+
         CancelSearchCommand = ReactiveCommand.Create(ExecuteCancelSearch);
-        AddToDownloadsCommand = ReactiveCommand.CreateFromTask(ExecuteAddToDownloadsAsync);
+
+        var addToDownloadsCmd = ReactiveCommand.CreateFromTask(ExecuteAddToDownloadsAsync);
+        addToDownloadsCmd.ThrownExceptions.ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(ex => StatusText = $"⚠️ {ex.Message}").DisposeWith(_disposables);
+        AddToDownloadsCommand = addToDownloadsCmd;
+
+        var addToPlaylistCmd = ReactiveCommand.CreateFromTask(ExecuteAddSelectedToPlaylistAsync);
+        addToPlaylistCmd.ThrownExceptions.ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(ex => StatusText = $"⚠️ {ex.Message}").DisposeWith(_disposables);
+        AddToPlaylistCommand = addToPlaylistCmd;
+
         DownloadSelectedCommand = ReactiveCommand.CreateFromTask<object?>(ExecuteDownloadSelectedAsync);
+        DownloadSelectedCommand.ThrownExceptions.ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(ex => StatusText = $"⚠️ {ex.Message}").DisposeWith(_disposables);
+
         CopyMetadataCommand = ReactiveCommand.CreateFromTask(ExecuteCopyMetadataAsync);
+        CopyMetadataCommand.ThrownExceptions.ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(ex => StatusText = $"⚠️ {ex.Message}").DisposeWith(_disposables);
+
         ApplyPresetCommand = ReactiveCommand.Create<string>(ExecuteApplyPreset);
-        BrowseUserSharesCommand = ReactiveCommand.CreateFromTask<AnalyzedSearchResultViewModel>(ExecuteBrowseUserSharesAsync);
+
+        var browseSharesCmd = ReactiveCommand.CreateFromTask<AnalyzedSearchResultViewModel>(ExecuteBrowseUserSharesAsync);
+        browseSharesCmd.ThrownExceptions.ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(ex => StatusText = $"⚠️ {ex.Message}").DisposeWith(_disposables);
+        BrowseUserSharesCommand = browseSharesCmd;
+
         CloseUserCollectionBrowserCommand = ReactiveCommand.Create(() => IsUserCollectionBrowserOpen = false);
         ToggleHiddenResultsCommand = ReactiveCommand.Create(ToggleHiddenResults);
         RelaxFiltersCommand = ReactiveCommand.Create(RelaxFilters);
@@ -479,6 +534,12 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         FilterViewModel.OnTokenSyncRequested = HandleTokenSync;
 
         // Contextual Sidebar: Update Right Panel when selection changes
+        SelectedResults.CollectionChanged += (_, _) =>
+        {
+            this.RaisePropertyChanged(nameof(HasSelectedResults));
+            this.RaisePropertyChanged(nameof(SelectedResultsSummary));
+        };
+
         this.WhenAnyValue(x => x.SelectedResults.Count)
             .Where(count => count == 1)
             .Subscribe(_ => 
@@ -616,6 +677,12 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
 
                 _searchResults.AddRange(batch);
 
+                HiddenResultsCount = _publicSearchResults.Count(vm => vm.IsFilteredOut);
+                if (!ShowFilteredOutResults && HiddenResultsCount > 0 && SearchResultsView.Count == 0)
+                {
+                    ShowFilteredOutResults = true;
+                }
+
                 TotalResultsReceived += batch.Count;
                 LastResultAtUtc = DateTime.UtcNow;
                 var elapsedMs = Math.Max(1.0, (LastResultAtUtc.Value - windowStartAt).TotalMilliseconds);
@@ -663,6 +730,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                     maxBitrate: MaxBitrate,
                     isAlbumSearch: IsAlbumSearch,
                     maxResultsPerLane: 200,
+                    progressiveYield: true,
                     cancellationToken: cts.Token))
                 {
                     if (_currentSearchSessionId != sessionId)
@@ -808,6 +876,75 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         StatusText = $"Opening {vm.User}'s collection...";
         await UserCollectionBrowser.LoadUserAsync(vm.User);
         IsUserCollectionBrowserOpen = true;
+    }
+
+    private async Task ExecuteAddSelectedToPlaylistAsync()
+    {
+        var selected = SelectedResults.ToList();
+        if (selected.Count == 0)
+        {
+            StatusText = "Select one or more search results to stage into a mix.";
+            return;
+        }
+
+        var tracks = selected
+            .Select(result => ConvertToPlaylistTrack(result.RawResult.Model))
+            .Where(track => track != null)
+            .Cast<PlaylistTrack>()
+            .ToList();
+
+        if (tracks.Count == 0)
+        {
+            StatusText = "No valid tracks available to add to a mix.";
+            return;
+        }
+
+        foreach (var result in selected)
+        {
+            result.RawResult.IsAddedToProject = true;
+        }
+
+        _eventBus.Publish(new AddToProjectRequestEvent(tracks));
+        StatusText = tracks.Count == 1
+            ? "1 result sent to Add to Mix."
+            : $"{tracks.Count} results sent to Add to Mix.";
+
+        await Task.CompletedTask;
+    }
+
+    public static PlaylistTrack? ConvertToPlaylistTrack(Track? track)
+    {
+        if (track == null)
+        {
+            return null;
+        }
+
+        var filePath = track.FilePath ?? track.LocalPath ?? track.Filename ?? string.Empty;
+
+        return new PlaylistTrack
+        {
+            TrackUniqueHash = track.UniqueHash,
+            Artist = track.Artist ?? "Unknown Artist",
+            Title = track.Title ?? Path.GetFileNameWithoutExtension(track.Filename) ?? "Unknown Track",
+            Album = track.Album ?? string.Empty,
+            SourcePlaylistName = track.SourceTitle ?? "Search Results",
+            SourceProvenance = track.Username,
+            ResolvedFilePath = filePath,
+            Format = track.Format,
+            CanonicalDuration = track.CanonicalDuration ?? (track.Length.HasValue ? track.Length.Value * 1000 : null),
+            Bitrate = track.Bitrate > 0 ? track.Bitrate : null,
+            BPM = track.BPM,
+            MusicalKey = track.MusicalKey,
+            Energy = track.Energy,
+            AlbumArtUrl = track.AlbumArtUrl,
+            SpotifyTrackId = track.SpotifyTrackId,
+            SpotifyAlbumId = track.SpotifyAlbumId,
+            SpotifyArtistId = track.SpotifyArtistId,
+            Genres = track.Genres,
+            Status = TrackStatus.Missing,
+            IsFlagged = track.IsFlagged,
+            FlagReason = track.FlagReason
+        };
     }
 
     private async Task ExecuteCopyMetadataAsync()

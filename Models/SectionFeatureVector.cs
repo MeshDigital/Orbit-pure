@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using SLSKDONET.Data.Entities;
 
 namespace SLSKDONET.Models;
@@ -53,21 +54,60 @@ public sealed class SectionFeatureVector
     /// <summary>Phrase detection confidence (0–1).</summary>
     public float Confidence { get; init; }
 
+    /// <summary>
+    /// Optional section-specific embedding generated from the local phrase window.
+    /// When present this is preferred over the old scalar-only heuristic.
+    /// </summary>
+    public float[]? Embedding { get; init; }
+
+    /// <summary>
+    /// Cached L2 norm of <see cref="Embedding"/> for faster cosine similarity.
+    /// </summary>
+    public float EmbeddingMagnitude { get; init; }
+
+    public bool HasEmbedding => Embedding is { Length: > 0 };
+
     // ── Similarity helpers ────────────────────────────────────────────────
 
     /// <summary>
-    /// Euclidean distance to <paramref name="other"/> in the 4-D feature space
-    /// (EnergyLevel, Arousal, Danceability, SpectralBrightness).
+    /// Distance to <paramref name="other"/> in the blended section space.
+    /// Falls back to the original 4-D heuristic when persisted embeddings are unavailable.
     /// Lower = sections are more alike.
-    /// Range: [0, 2] (max when all four dimensions are fully opposed).
+    /// Range remains approximately [0, 2].
     /// </summary>
     public double DistanceTo(SectionFeatureVector other)
     {
-        double de = EnergyLevel       - other.EnergyLevel;
-        double da = Arousal           - other.Arousal;
-        double dd = Danceability      - other.Danceability;
-        double ds = SpectralBrightness- other.SpectralBrightness;
-        return Math.Sqrt(de * de + da * da + dd * dd + ds * ds);
+        double de = EnergyLevel        - other.EnergyLevel;
+        double da = Arousal            - other.Arousal;
+        double dd = Danceability       - other.Danceability;
+        double ds = SpectralBrightness - other.SpectralBrightness;
+        double scalarDistance = Math.Sqrt(de * de + da * da + dd * dd + ds * ds);
+
+        if (HasEmbedding && other.HasEmbedding && Embedding!.Length == other.Embedding!.Length)
+        {
+            double cosine = CosineSimilarity(Embedding!, other.Embedding!, EmbeddingMagnitude, other.EmbeddingMagnitude);
+            double embeddingDistance = 1.0 - Math.Clamp(cosine, -1.0, 1.0);
+            return (scalarDistance * 0.45) + (embeddingDistance * 0.55);
+        }
+
+        return scalarDistance;
+    }
+
+    private static double CosineSimilarity(float[] a, float[] b, float aMagnitudeHint, float bMagnitudeHint)
+    {
+        if (a.Length == 0 || b.Length == 0 || a.Length != b.Length)
+            return 0.0;
+
+        double dot = 0.0;
+        for (int i = 0; i < a.Length; i++)
+            dot += a[i] * b[i];
+
+        double magA = aMagnitudeHint > 0 ? aMagnitudeHint : Math.Sqrt(a.Sum(v => v * v));
+        double magB = bMagnitudeHint > 0 ? bMagnitudeHint : Math.Sqrt(b.Sum(v => v * v));
+        if (magA <= 0 || magB <= 0)
+            return 0.0;
+
+        return dot / (magA * magB);
     }
 
     /// <summary>

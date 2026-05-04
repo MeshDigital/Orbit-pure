@@ -61,10 +61,16 @@ public static class TrackMatchScorer
         AudioFeaturesEntity? b,
         double embeddingCosine,
         SectionFeatureVector? dropA = null,
-        SectionFeatureVector? dropB = null)
+        SectionFeatureVector? dropB = null,
+        SectionFeatureVector? outroA = null,
+        SectionFeatureVector? introB = null)
     {
         if (a is null || b is null)
-            return TrackMatchScore.Unknown with { SoundScore = (float)Math.Clamp(embeddingCosine, 0, 1) };
+            return TrackMatchScore.Unknown with
+            {
+                SoundScore = (float)Math.Clamp(embeddingCosine, 0, 1),
+                OutroIntroScore = (float)Math.Clamp(embeddingCosine, 0, 1)
+            };
 
         // ── Harmony ───────────────────────────────────────────────────────
         float harmonyScore  = ComputeHarmony(a.CamelotKey, b.CamelotKey,
@@ -80,21 +86,18 @@ public static class TrackMatchScorer
         // ── Sound (embedding cosine) ──────────────────────────────────────
         float soundScore    = (float)Math.Clamp(embeddingCosine, 0.0, 1.0);
 
-        // ── Drop sonic (section-level, falls back to embedding) ───────────
+        // ── Transition + drop section scoring ─────────────────────────────
         float dropSonicScore = ComputeDropSonic(dropA, dropB, soundScore);
-
-        // ── Double-drop (geometric mean — all three must be high) ─────────
-        // Use a tighter beat tolerance here: small BPM drift kills a live double-drop.
-        float ddRaw      = (float)Math.Pow(
-            (double)harmonyScore * tightBeatScore * dropSonicScore, 1.0 / 3.0);
-        float doubleDropScore = Math.Clamp(ddRaw, 0f, 1f);
+        float outroIntroScore = ComputeTransitionScore(outroA, introB, soundScore);
+        float doubleDropScore = ComputeDoubleDropScore(harmonyScore, tightBeatScore, dropA, dropB, soundScore);
 
         // ── Overall (weighted sum) ────────────────────────────────────────
         float overall = Math.Clamp(
-            0.35f * soundScore +
-            0.25f * harmonyScore +
-            0.20f * beatScore +
-            0.20f * dropSonicScore,
+            0.28f * soundScore +
+            0.22f * harmonyScore +
+            0.18f * beatScore +
+            0.17f * dropSonicScore +
+            0.15f * outroIntroScore,
             0f, 1f);
 
         // ── Drop verdict label ────────────────────────────────────────────
@@ -108,6 +111,7 @@ public static class TrackMatchScorer
             BeatScore       = beatScore,
             SoundScore      = soundScore,
             DropSonicScore  = dropSonicScore,
+            OutroIntroScore = outroIntroScore,
             DoubleDropScore = doubleDropScore,
             OverallScore    = overall,
             HarmonyLabel    = harmonyLabel,
@@ -199,6 +203,38 @@ public static class TrackMatchScorer
 
     // ── Drop sonic ─────────────────────────────────────────────────────────
 
+    public static float ComputeTransitionScore(
+        SectionFeatureVector? outro,
+        SectionFeatureVector? intro,
+        float soundScoreFallback)
+    {
+        if (outro is null || intro is null)
+            return soundScoreFallback;
+
+        float structuralFlow = outro.TransitionScore(intro);
+        float energyFlow = ComputeEnergyCompatibility(outro.EnergyLevel, intro.EnergyLevel);
+
+        return Math.Clamp((structuralFlow * 0.65f) + (energyFlow * 0.35f), 0f, 1f);
+    }
+
+    public static float ComputeEnergyCompatibility(float outgoingEnergy, float incomingEnergy)
+    {
+        double difference = Math.Abs(outgoingEnergy - incomingEnergy);
+        return (float)Math.Clamp(1.0 - difference, 0.0, 1.0);
+    }
+
+    public static float ComputeDoubleDropScore(
+        float harmonyScore,
+        float tightBeatScore,
+        SectionFeatureVector? dropA,
+        SectionFeatureVector? dropB,
+        float soundScoreFallback)
+    {
+        float dropSonicScore = ComputeDropSonic(dropA, dropB, soundScoreFallback);
+        float ddRaw = (float)Math.Pow((double)harmonyScore * tightBeatScore * dropSonicScore, 1.0 / 3.0);
+        return Math.Clamp(ddRaw, 0f, 1f);
+    }
+
     private static float ComputeDropSonic(
         SectionFeatureVector? dropA,
         SectionFeatureVector? dropB,
@@ -207,8 +243,6 @@ public static class TrackMatchScorer
         if (dropA is null || dropB is null)
             return soundScoreFallback; // no section data; use global embedding
 
-        // SectionFeatureVector.DistanceTo() returns Euclidean in 4-D unit space.
-        // Max possible distance: sqrt(4) = 2.0.
         const double maxDist = 2.0;
         double dist = dropA.DistanceTo(dropB);
         return (float)Math.Clamp(1.0 - dist / maxDist, 0.0, 1.0);

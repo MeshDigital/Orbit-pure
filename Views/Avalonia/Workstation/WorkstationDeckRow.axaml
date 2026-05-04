@@ -17,7 +17,19 @@
             <Setter Property="Padding" Value="8,4"/>
             <Setter Property="CornerRadius" Value="6"/>
             <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="Width" Value="34"/>
+            <Setter Property="FontSize" Value="9"/>
+            <Setter Property="MinWidth" Value="60"/>
+        </Style>
+        <Style Selector="Button.phrase-chip">
+            <Setter Property="Background" Value="#20242A"/>
+            <Setter Property="BorderBrush" Value="#3E4958"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#D9E2F2"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="9"/>
+            <Setter Property="MinWidth" Value="60"/>
         </Style>
         <Style Selector="ToggleButton.stem-v:checked">
             <Setter Property="Background" Value="#C2185B"/>
@@ -80,7 +92,7 @@
             Classes.focused="{Binding IsFocusedDeck}"
             PointerPressed="OnDeckPointerPressed"
             >
-        <Grid ColumnDefinitions="250,*">
+        <Grid ColumnDefinitions="290,*">
 
             <!-- Track strip floats above waveform edge -->
             <Border Grid.Column="0"
@@ -88,7 +100,7 @@
                     Padding="12,8"
                     ZIndex="5"
                     BoxShadow="6 0 14 0 #40000000">
-                <Grid RowDefinitions="Auto,Auto,Auto">
+                <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto">
 
                     <!-- Title block -->
                     <StackPanel Grid.Row="0" Spacing="2">
@@ -117,26 +129,135 @@
                                        FontSize="10"
                                        Foreground="#95D36A"/>
                         </StackPanel>
+                        <TextBlock Text="{Binding MixReadinessText}"
+                                   FontSize="10"
+                                   Foreground="#8EC8FF"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding PerformanceStatusSummary}"
+                                   FontSize="10"
+                                   Foreground="#FFD58A"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding TransitionStatusText}"
+                                   FontSize="10"
+                                   Foreground="#B8E986"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding HarmonicSuggestionText}"
+                                   FontSize="10"
+                                   Foreground="#D8B4FE"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding WaveformDetailSummary}"
+                                   FontSize="10"
+                                   Foreground="#9EEFFF"
+                                   TextTrimming="CharacterEllipsis"/>
                     </StackPanel>
 
-                    <!-- Core stem toggles (V/D/B/O) -->
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">
-                        <ToggleButton Classes="stem-toggle stem-v"
-                                      IsChecked="{Binding Stems.Vocals.IsMuted, Mode=TwoWay}"
-                                      ToolTip.Tip="V = Vocals">V</ToggleButton>
-                        <ToggleButton Classes="stem-toggle stem-d"
-                                      IsChecked="{Binding Stems.Drums.IsMuted, Mode=TwoWay}"
-                                      ToolTip.Tip="D = Drums">D</ToggleButton>
-                        <ToggleButton Classes="stem-toggle stem-b"
-                                      IsChecked="{Binding Stems.Bass.IsMuted, Mode=TwoWay}"
-                                      ToolTip.Tip="B = Bass">B</ToggleButton>
-                        <ToggleButton Classes="stem-toggle stem-o"
-                                      IsChecked="{Binding Stems.Other.IsMuted, Mode=TwoWay}"
-                                      ToolTip.Tip="O = Other">O</ToggleButton>
+                    <WrapPanel Grid.Row="1" Orientation="Horizontal" ItemHeight="28" Margin="0,8,0,0">
+                        <Button Classes="phrase-chip"
+                                Command="{Binding Deck.PlayPauseCommand}"
+                                ToolTip.Tip="Play or pause this deck">PLAY</Button>
+                        <Button Classes="phrase-chip"
+                                Command="{Binding Deck.CueCommand}"
+                                ToolTip.Tip="Return to cue on this deck">CUE</Button>
+                        <Button Classes="phrase-chip"
+                                Command="{Binding Deck.SetLoopCommand}"
+                                ToolTip.Tip="Arm a loop on this deck">LOOP</Button>
+                        <Button Classes="phrase-chip"
+                                Command="{Binding Deck.HalfLoopCommand}"
+                                ToolTip.Tip="Halve the current loop length">HALF</Button>
+                        <Button Classes="phrase-chip"
+                                Command="{Binding Deck.DoubleLoopCommand}"
+                                ToolTip.Tip="Double the current loop length">DOUBLE</Button>
+                        <Button Classes="phrase-chip"
+                                Command="{Binding Deck.MoveLoopCommand}"
+                                CommandParameter="-1"
+                                ToolTip.Tip="Move the active loop earlier">◀ LOOP</Button>
+                        <Button Classes="phrase-chip"
+                                Command="{Binding Deck.MoveLoopCommand}"
+                                CommandParameter="1"
+                                ToolTip.Tip="Move the active loop later">LOOP ▶</Button>
+                        <Button Classes="phrase-chip"
+                                Command="{Binding Deck.ExitLoopCommand}"
+                                ToolTip.Tip="Exit the active loop on this deck">EXIT LOOP</Button>
+                        <ToggleButton Classes="stem-toggle"
+                                      IsChecked="{Binding Deck.KeyLock, Mode=TwoWay}"
+                                      ToolTip.Tip="Hold the musical key while changing tempo">KEY LOCK</ToggleButton>
+                    </WrapPanel>
+
+                    <!-- Clear stem controls -->
+                    <StackPanel Grid.Row="2" Spacing="4" Margin="0,8,0,0">
+                    </StackPanel>
+
+                    <!-- Clear stem controls -->
+                    <StackPanel Grid.Row="2" Spacing="4" Margin="0,8,0,0">
+                        <TextBlock Text="STEMS"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   Foreground="#A0A0A0"/>
+                        <TextBlock Text="{Binding StemControlSummary}"
+                                   FontSize="9"
+                                   Foreground="#B8E986"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <WrapPanel Orientation="Horizontal" ItemHeight="28">
+                            <Button Classes="phrase-chip"
+                                    Command="{Binding SeparateStemsCommand}"
+                                    ToolTip.Tip="Run stem separation for this deck">SEPARATE</Button>
+                            <Button Classes="phrase-chip"
+                                    Command="{Binding ToggleVocalOffCommand}"
+                                    ToolTip.Tip="Instant vocal-off preset">VOCAL OFF</Button>
+                            <Button Classes="phrase-chip"
+                                    Command="{Binding ToggleDrumsOnlyCommand}"
+                                    ToolTip.Tip="Solo the drums stem">DRUMS ONLY</Button>
+                            <Button Classes="phrase-chip"
+                                    Command="{Binding ToggleInstrumentalCommand}"
+                                    ToolTip.Tip="Quick instrumental preset">INST</Button>
+                        </WrapPanel>
+                        <WrapPanel Orientation="Horizontal" ItemWidth="64" ItemHeight="28">
+                            <ToggleButton Classes="stem-toggle stem-v"
+                                          IsChecked="{Binding Stems.Vocals.IsMuted, Mode=TwoWay}"
+                                          ToolTip.Tip="Mute or unmute the vocal stem">VOCAL</ToggleButton>
+                            <ToggleButton Classes="stem-toggle stem-d"
+                                          IsChecked="{Binding Stems.Drums.IsMuted, Mode=TwoWay}"
+                                          ToolTip.Tip="Mute or unmute the drum stem">DRUM</ToggleButton>
+                            <ToggleButton Classes="stem-toggle stem-b"
+                                          IsChecked="{Binding Stems.Bass.IsMuted, Mode=TwoWay}"
+                                          ToolTip.Tip="Mute or unmute the bass stem">BASS</ToggleButton>
+                            <ToggleButton Classes="stem-toggle stem-o"
+                                          IsChecked="{Binding Stems.Other.IsMuted, Mode=TwoWay}"
+                                          ToolTip.Tip="Mute or unmute all other musical elements">OTHER</ToggleButton>
+                        </WrapPanel>
+                    </StackPanel>
+
+                    <!-- Phrase jump shortcuts -->
+                    <StackPanel Grid.Row="3" Spacing="4" Margin="0,8,0,0">
+                        <TextBlock Text="SECTIONS"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   Foreground="#A0A0A0"/>
+                        <TextBlock Text="{Binding SectionJumpSummary}"
+                                   FontSize="9"
+                                   Foreground="#8EC8FF"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <WrapPanel Orientation="Horizontal" ItemWidth="64" ItemHeight="28">
+                            <Button Classes="phrase-chip"
+                                    Command="{Binding ViewWaveformCommand}"
+                                    ToolTip.Tip="Toggle between full-track and detailed waveform view">VIEW</Button>
+                            <Button Classes="phrase-chip"
+                                    Command="{Binding JumpToIntroCommand}"
+                                    ToolTip.Tip="Jump to the intro / opening cue">INTRO</Button>
+                            <Button Classes="phrase-chip"
+                                    Command="{Binding JumpToBuildCommand}"
+                                    ToolTip.Tip="Jump to the build or riser section">BUILD</Button>
+                            <Button Classes="phrase-chip"
+                                    Command="{Binding JumpToDropCommand}"
+                                    ToolTip.Tip="Jump to the first detected drop">DROP</Button>
+                            <Button Classes="phrase-chip"
+                                    Command="{Binding JumpToOutroCommand}"
+                                    ToolTip.Tip="Jump to the outro for transition planning">OUTRO</Button>
+                        </WrapPanel>
                     </StackPanel>
 
                     <!-- Gain + VU + pitch + lock -->
-                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,8,0,0">
+                    <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,8,0,0">
                         <StackPanel Grid.Column="0" Spacing="4">
                             <TextBlock Text="GAIN"
                                        FontSize="10"
@@ -172,10 +293,25 @@
                                     Height="42" Width="16"
                                     ToolTip.Tip="Pitch/Tempo ±8%"/>
                             <ToggleButton IsChecked="{Binding Deck.KeyLock, Mode=TwoWay}"
-                                          FontSize="8" Width="32" Height="16" Padding="2,1"
+                                          FontSize="8" Width="36" Height="16" Padding="2,1"
                                           CornerRadius="3"
                                           Background="#252525" BorderBrush="#444"
-                                          ToolTip.Tip="Key Lock: hold pitch when adjusting tempo">KEY</ToggleButton>
+                                          ToolTip.Tip="Key Lock: hold pitch when adjusting tempo">LOCK</ToggleButton>
+                            <TextBlock Text="{Binding CurrentKeyShiftText}"
+                                       FontSize="8"
+                                       Foreground="#D8B4FE"
+                                       HorizontalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal" Spacing="2" HorizontalAlignment="Center">
+                                <Button Width="18" Height="16" Padding="0"
+                                        Command="{Binding DecreaseKeyShiftCommand}"
+                                        ToolTip.Tip="Shift key down one semitone">-</Button>
+                                <Button Width="18" Height="16" Padding="0"
+                                        Command="{Binding ResetKeyShiftCommand}"
+                                        ToolTip.Tip="Reset key shift">0</Button>
+                                <Button Width="18" Height="16" Padding="0"
+                                        Command="{Binding IncreaseKeyShiftCommand}"
+                                        ToolTip.Tip="Shift key up one semitone">+</Button>
+                            </StackPanel>
                         </StackPanel>
 
                         <ToggleButton Grid.Column="3"
@@ -199,6 +335,21 @@
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"
                                    IsVisible="{Binding !IsLoaded}"/>
+
+                        <!-- Track load error — file not found or codec failure -->
+                        <Border Background="#33FF4444"
+                                CornerRadius="6"
+                                Padding="12,8"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                IsVisible="{Binding TrackLoadError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                            <TextBlock Text="{Binding TrackLoadError}"
+                                       FontSize="12"
+                                       Foreground="#FF8080"
+                                       TextWrapping="Wrap"
+                                       MaxWidth="400"
+                                       TextAlignment="Center"/>
+                        </Border>
 
                         <orbitControls:WaveformControl
                             IsVisible="{Binding IsLoaded}"
@@ -224,15 +375,33 @@
                         BorderBrush="#1E1E1E"
                         BorderThickness="0,1,0,0"
                         Padding="8,3">
-                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                        <Button Classes="hotcue hotcue-1" Command="{Binding HotCue1Command}" ToolTip.Tip="Hot Cue 1 — Set/Jump [1]">1</Button>
-                        <Button Classes="hotcue hotcue-2" Command="{Binding HotCue2Command}" ToolTip.Tip="Hot Cue 2 — Set/Jump [2]">2</Button>
-                        <Button Classes="hotcue hotcue-3" Command="{Binding HotCue3Command}" ToolTip.Tip="Hot Cue 3 — Set/Jump [3]">3</Button>
-                        <Button Classes="hotcue hotcue-4" Command="{Binding HotCue4Command}" ToolTip.Tip="Hot Cue 4 — Set/Jump [4]">4</Button>
-                        <Button Classes="hotcue hotcue-5" Command="{Binding HotCue5Command}" ToolTip.Tip="Hot Cue 5 — Set/Jump [5]">5</Button>
-                        <Button Classes="hotcue hotcue-6" Command="{Binding HotCue6Command}" ToolTip.Tip="Hot Cue 6 — Set/Jump [6]">6</Button>
-                        <Button Classes="hotcue hotcue-7" Command="{Binding HotCue7Command}" ToolTip.Tip="Hot Cue 7 — Set/Jump [7]">7</Button>
-                        <Button Classes="hotcue hotcue-8" Command="{Binding HotCue8Command}" ToolTip.Tip="Hot Cue 8 — Set/Jump [8]">8</Button>
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="HOT CUES"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   Foreground="#A0A0A0"/>
+                        <WrapPanel Orientation="Horizontal" ItemWidth="64" ItemHeight="28">
+                            <Button Classes="phrase-chip"
+                                    Command="{Binding AddCueAtPlayheadCommand}"
+                                    ToolTip.Tip="Drop a cue marker at the current playhead">MARK</Button>
+                            <Button Classes="phrase-chip"
+                                    Command="{Binding ResetCuePrepCommand}"
+                                    ToolTip.Tip="Reset user cue edits and restore analyzed cue prep">AUTO</Button>
+                        </WrapPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                            <Button Classes="hotcue hotcue-1" Command="{Binding HotCue1Command}" Content="{Binding HotCue1Text}" ToolTip.Tip="{Binding HotCue1Tooltip}"/>
+                            <Button Classes="hotcue hotcue-2" Command="{Binding HotCue2Command}" Content="{Binding HotCue2Text}" ToolTip.Tip="{Binding HotCue2Tooltip}"/>
+                            <Button Classes="hotcue hotcue-3" Command="{Binding HotCue3Command}" Content="{Binding HotCue3Text}" ToolTip.Tip="{Binding HotCue3Tooltip}"/>
+                            <Button Classes="hotcue hotcue-4" Command="{Binding HotCue4Command}" Content="{Binding HotCue4Text}" ToolTip.Tip="{Binding HotCue4Tooltip}"/>
+                            <Button Classes="hotcue hotcue-5" Command="{Binding HotCue5Command}" Content="{Binding HotCue5Text}" ToolTip.Tip="{Binding HotCue5Tooltip}"/>
+                            <Button Classes="hotcue hotcue-6" Command="{Binding HotCue6Command}" Content="{Binding HotCue6Text}" ToolTip.Tip="{Binding HotCue6Tooltip}"/>
+                            <Button Classes="hotcue hotcue-7" Command="{Binding HotCue7Command}" Content="{Binding HotCue7Text}" ToolTip.Tip="{Binding HotCue7Tooltip}"/>
+                            <Button Classes="hotcue hotcue-8" Command="{Binding HotCue8Command}" Content="{Binding HotCue8Text}" ToolTip.Tip="{Binding HotCue8Tooltip}"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding HotCueSummary}"
+                                   FontSize="10"
+                                   Foreground="#7CB8FF"
+                                   TextTrimming="CharacterEllipsis"/>
                     </StackPanel>
                 </Border>
 

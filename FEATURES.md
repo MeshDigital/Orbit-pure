@@ -76,6 +76,9 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Tempo Matching**: BPM synchronization with ±6% tolerance ranges
 - **Energy Flow**: Directional mixing guidance (build → peak → cooldown)
 - **Style Recommendations**: Genre-based track suggestions
+- **Direct Player Handoff**: The current track can jump straight from the player into Workstation, Flow, Stems, or a target deck for faster prep
+- **Search-to-Mix Staging**: Multi-selected Soulseek search results can be sent directly into the mix-building workflow with a batch Add to Mix action
+- **Live Prep Visibility**: Player and Workstation headers surface cue, stem, routing, transition, and analysis-lane readiness summaries
 - **Session Persistence**: Workstation state (loaded tracks, deck positions, active mode, timeline zoom/offset) is autosaved to `%APPDATA%\Antigravity\workstation-session.json` using atomic temp-file swap writes — survives crashes, power loss, and normal app close; fully restored on next launch including cue points and stem preferences
 - **Analyse Track**: Single-track audio analysis trigger from the library right-click context menu (`🔬 Analyse Track`)
 

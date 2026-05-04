@@ -21,6 +21,7 @@ namespace SLSKDONET.Services.Audio
             {
                 float beatDuration = 60f / bpm;
                 float barDuration = beatDuration * 4;
+                float sixteenBarDuration = barDuration * 16;
 
                 // Beats within window
                 int firstBeat = (int)Math.Max(0, Math.Floor(windowStart / beatDuration));
@@ -30,8 +31,16 @@ namespace SLSKDONET.Services.Audio
                     candidates.Add(i * beatDuration);
                 }
 
-                // Bars within window (already covered by beats, but we might want to prioritize them)
-                // for visual feedback we'd distinguish these.
+                // Strong DJ phrase anchors: full bars and 16-bar blocks.
+                int firstBar = (int)Math.Max(0, Math.Floor(windowStart / barDuration));
+                int lastBar = (int)Math.Ceiling(windowEnd / barDuration);
+                for (int i = firstBar; i <= lastBar; i++)
+                    candidates.Add(i * barDuration);
+
+                int firstPhrase = (int)Math.Max(0, Math.Floor(windowStart / sixteenBarDuration));
+                int lastPhrase = (int)Math.Ceiling(windowEnd / sixteenBarDuration);
+                for (int i = firstPhrase; i <= lastPhrase; i++)
+                    candidates.Add(i * sixteenBarDuration);
             }
 
             // 2. Structural Landmarks
@@ -44,7 +53,7 @@ namespace SLSKDONET.Services.Audio
             return candidates.Distinct().OrderBy(c => c).ToList();
         }
 
-        public static float Snap(float currentTime, SnappingMode mode, float bpm, IEnumerable<float> landmarks, float thresholdSeconds = 0.05f)
+        public static float Snap(float currentTime, SnappingMode mode, float bpm, IEnumerable<float> landmarks, float thresholdSeconds = 0.015f)
         {
             if (mode == SnappingMode.Free) return currentTime;
 

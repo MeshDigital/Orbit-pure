@@ -164,13 +164,26 @@
                             <ToggleSwitch IsChecked="{Binding FilterViewModel.HideSuspects}" OnContent="Safety On" OffContent="Safety Off" ToolTip.Tip="Filter out potential fake/upscaled files"/>
 
                             <!-- Add to Downloads Button -->
-                            <Button Command="{Binding AddToDownloadsCommand}" IsEnabled="{Binding !!SelectedResults.Count}" Classes="primary" Padding="16,6">
+                            <Button Command="{Binding AddToDownloadsCommand}" IsEnabled="{Binding HasSelectedResults}" Classes="primary" Padding="16,6">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <TextBlock Text="⬇️"/>
                                     <TextBlock Text="{Binding SelectedResults.Count, StringFormat='Download ({0})'}" />
                                 </StackPanel>
                             </Button>
+
+                            <Button Command="{Binding AddToPlaylistCommand}" IsEnabled="{Binding HasSelectedResults}" Classes="secondary" Padding="16,6">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="🎚️"/>
+                                    <TextBlock Text="{Binding SelectedResults.Count, StringFormat='Add to Mix ({0})'}" />
+                                </StackPanel>
+                            </Button>
                         </StackPanel>
+
+                        <TextBlock Text="{Binding SelectedResultsSummary}"
+                                   Foreground="#8FD6A8"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"
+                                   IsVisible="{Binding HasSelectedResults}"/>
 
                         <Border IsVisible="{Binding AllResultsFilteredByRules}"
                                 Background="#3A2A00"
@@ -198,7 +211,7 @@
 
             <!-- Results DataGrid -->
             <dg:DataGrid x:Name="ResultsGrid" Grid.Row="1" 
-                         ItemsSource="{ReflectionBinding SearchResultsView}"
+                         ItemsSource="{Binding SearchResultsView}"
                          SelectionMode="Extended"
                          CanUserResizeColumns="True"
                          CanUserSortColumns="True"
@@ -206,10 +219,26 @@
                          Background="Transparent"
                          BorderThickness="0"
                          HeadersVisibility="Column"
+                         GridLinesVisibility="Horizontal"
+                         HorizontalGridLinesBrush="#1F2730"
+                         VerticalGridLinesBrush="#151A20"
+                         RowBackground="#0F1318"
                          Margin="16,0">
+                <dg:DataGrid.Styles>
+                    <Style Selector="DataGridRow:nth-child(even)">
+                        <Setter Property="Background" Value="#121821"/>
+                    </Style>
+                    <Style Selector="DataGridRow:pointerover">
+                        <Setter Property="Background" Value="#18202A"/>
+                    </Style>
+                    <Style Selector="DataGridRow:selected">
+                        <Setter Property="Background" Value="#223041"/>
+                    </Style>
+                </dg:DataGrid.Styles>
                 <dg:DataGrid.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="Download Selected" Command="{Binding DownloadSelectedCommand}"/>
+                        <MenuItem Header="Add Selected to Mix" Command="{Binding AddToPlaylistCommand}"/>
                         <MenuItem Header="Explore User Collection" 
                                   Command="{Binding BrowseUserSharesCommand}"
                                   CommandParameter="{Binding #ResultsGrid.SelectedItem}"/>
@@ -238,13 +267,15 @@
                     <dg:DataGridTemplateColumn Header="Match" Width="80">
                         <dg:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate DataType="vm:AnalyzedSearchResultViewModel">
-                                <Border CornerRadius="4" Padding="6,4" 
-                                        Background="{Binding MatchConfidenceColor}"
+                                <Border CornerRadius="999" Padding="8,3"
+                                        Background="#182127"
+                                        BorderBrush="{Binding MatchConfidenceColor}"
+                                        BorderThickness="1"
                                         VerticalAlignment="Center" HorizontalAlignment="Center">
                                     <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <TextBlock Text="🎯" FontSize="10"/>
-                                        <TextBlock Text="{Binding MatchConfidence, StringFormat='{}{0:0}%'}" 
-                                                   FontSize="10" FontWeight="Bold" Foreground="Black"/>
+                                        <TextBlock Text="●" FontSize="9" Foreground="{Binding MatchConfidenceColor}"/>
+                                        <TextBlock Text="{Binding MatchConfidence, StringFormat='{}{0:0}%'}"
+                                                   FontSize="10" FontWeight="SemiBold" Foreground="#EAF2F7"/>
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>
@@ -255,69 +286,62 @@
                     <dg:DataGridTemplateColumn Header="Track Details" Width="*">
                         <dg:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate DataType="vm:AnalyzedSearchResultViewModel">
-                                <StackPanel Margin="8,4" Spacing="2" Opacity="{Binding Opacity}">
-                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" 
-                                               TextTrimming="CharacterEllipsis" Foreground="{Binding ForegroundColor}"/>
-                                    
-                                    <!-- Match Reason -->
-                                    <Border CornerRadius="4" Padding="6,1" HorizontalAlignment="Left" 
-                                            Margin="0,2" IsVisible="{Binding HasMatchReason}">
-                                        <Border.Background>
-                                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                                <GradientStop Offset="0" Color="#512BD4"/>
-                                                <GradientStop Offset="1" Color="#C30052"/>
-                                            </LinearGradientBrush>
-                                        </Border.Background>
-                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <TextBlock Text="✨" FontSize="10" Foreground="White"/>
-                                            <TextBlock Text="{Binding MatchReason}" FontSize="10" 
-                                                       FontWeight="Bold" Foreground="White"/>
-                                        </StackPanel>
-                                    </Border>
+                                <StackPanel Margin="8,8" Spacing="4" Opacity="{Binding Opacity}">
+                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"
+                                               FontSize="13"
+                                               TextTrimming="CharacterEllipsis" Foreground="#F3F5F7"/>
 
-                                    <Border CornerRadius="4" Padding="6,1" HorizontalAlignment="Left"
-                                            Margin="0,2" Background="#A16207"
+                                    <TextBlock Text="{Binding MatchReason, StringFormat='Why this matched: {0}'}"
+                                               FontSize="10"
+                                               Foreground="#AEB9C5"
+                                               TextWrapping="Wrap"
+                                               IsVisible="{Binding HasMatchReason}"/>
+
+                                    <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"
+                                            Margin="0,2,0,0" Background="#2A2415" BorderBrush="#7A6224" BorderThickness="1"
                                             IsVisible="{Binding IsFilteredOut}"
                                             ToolTip.Tip="{Binding FilteredOutReason}">
                                         <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <TextBlock Text="👁" FontSize="10" Foreground="White"/>
-                                            <TextBlock Text="FILTERED OUT" FontSize="10"
-                                                       FontWeight="Bold" Foreground="White"/>
+                                            <TextBlock Text="⚠" FontSize="10" Foreground="#FFD27A"/>
+                                            <TextBlock Text="Filtered by current rules" FontSize="10"
+                                                       FontWeight="SemiBold" Foreground="#F6E6B6"/>
                                         </StackPanel>
                                     </Border>
 
-                                    <!-- High Risk Badge -->
-                                    <Border CornerRadius="4" Padding="6,1" HorizontalAlignment="Left" 
-                                            Margin="0,2" Background="#E91E63"
+                                    <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"
+                                            Margin="0,2,0,0" Background="#301C22" BorderBrush="#8A3D56" BorderThickness="1"
                                             IsVisible="{ReflectionBinding ShowHighRiskBadge}"
                                             ToolTip.Tip="{ReflectionBinding FlagReason}">
                                         <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <TextBlock Text="⚠️" FontSize="10" Foreground="White"/>
-                                            <TextBlock Text="HIGH RISK" FontSize="10" 
-                                                       FontWeight="Bold" Foreground="White"/>
+                                            <TextBlock Text="⚠" FontSize="10" Foreground="#FF9FBA"/>
+                                            <TextBlock Text="Needs review" FontSize="10"
+                                                       FontWeight="SemiBold" Foreground="#FFD7E3"/>
                                         </StackPanel>
                                     </Border>
 
-                                    <Border CornerRadius="4" Padding="6,1" HorizontalAlignment="Left"
-                                            Margin="0,2" Background="#B45309"
+                                    <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"
+                                            Margin="0,2,0,0" Background="#302515" BorderBrush="#8C6A2A" BorderThickness="1"
                                             IsVisible="{ReflectionBinding IsSuspiciousLossless}"
                                             ToolTip.Tip="{ReflectionBinding SuspiciousLosslessReason}">
                                         <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <TextBlock Text="⚠️" FontSize="10" Foreground="White"/>
-                                            <TextBlock Text="FAKE FLAC?" FontSize="10"
-                                                       FontWeight="Bold" Foreground="White"/>
+                                            <TextBlock Text="⚠" FontSize="10" Foreground="#FFD27A"/>
+                                            <TextBlock Text="Possible fake lossless" FontSize="10"
+                                                       FontWeight="SemiBold" Foreground="#F6E6B6"/>
                                         </StackPanel>
                                     </Border>
 
                                     <!-- Sub-info -->
                                     <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <Border Background="#333" CornerRadius="3" Padding="3,0">
-                                            <TextBlock Text="{Binding RawResult.FileFormat}" Foreground="#CCC" FontSize="10"/>
+                                        <Border Background="#20262D" BorderBrush="#36414D" BorderThickness="1" CornerRadius="3" Padding="5,1">
+                                            <TextBlock Text="{Binding RawResult.FileFormat}" Foreground="#D6DEE7" FontSize="10" FontWeight="SemiBold"/>
                                         </Border>
-                                        <TextBlock Text="{Binding AudioQualityDisplay}" Foreground="#FFD700" FontSize="11" FontWeight="SemiBold" IsVisible="{Binding !!AudioQualityDisplay.Length}"/>
-                                        <TextBlock Text="{Binding DisplaySize}" Foreground="#888" FontSize="11"/>
-                                        <TextBlock Text="•" Foreground="#444"/>
-                                        <TextBlock Text="{Binding User}" Foreground="#007ACC" FontSize="11"/>
+                                        <Border Background="#2A2415" BorderBrush="#5B4B20" BorderThickness="1" CornerRadius="3" Padding="5,1"
+                                                IsVisible="{Binding !!AudioQualityDisplay.Length}">
+                                            <TextBlock Text="{Binding AudioQualityDisplay}" Foreground="#E7D39C" FontSize="10"/>
+                                        </Border>
+                                        <TextBlock Text="{Binding DisplaySize}" Foreground="#9AA7B4" FontSize="10" VerticalAlignment="Center"/>
+                                        <TextBlock Text="•" Foreground="#4C5864" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding User}" Foreground="#78AEE8" FontSize="10" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </StackPanel>
                             </DataTemplate>
@@ -344,7 +368,7 @@
             </StackPanel>
 
             <!-- Footer / Ghost Counter -->
-            <Border Grid.Row="2" Background="#1A1A1A" BorderBrush="#333" BorderThickness="0,1,0,0" Padding="12,4">
+            <Border Grid.Row="2" Background="{DynamicResource RegionBrush}" BorderBrush="#333" BorderThickness="0,1,0,0" Padding="12,4">
                 <StackPanel Orientation="Horizontal" Spacing="24">
                     <TextBlock Text="{Binding StatusText}" Foreground="#CCC" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,20,0"/>
 

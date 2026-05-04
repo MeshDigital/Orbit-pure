@@ -128,7 +128,63 @@
                            TextTrimming="CharacterEllipsis"
                            TextAlignment="Center"
                            IsVisible="{Binding IsLoading, Converter={StaticResource BoolInverseConverter}}"/>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+                <Border Background="#181A1F"
+                        BorderBrush="#2B3240"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="10,6"
+                        IsVisible="{Binding IsLoading, Converter={StaticResource BoolInverseConverter}}">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="{Binding CurrentTrackContextSummary}"
+                                   FontSize="11"
+                                   Foreground="#AFC6DD"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"/>
+                        <TextBlock Text="{Binding CurrentTrackWorkflowHint}"
+                                   FontSize="10"
+                                   Foreground="#8FD6A8"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"/>
+                        <TextBlock Text="{Binding CurrentTrackWorkstationPrepSummary}"
+                                   FontSize="10"
+                                   Foreground="#D9C7FF"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"/>
+                        <TextBlock Text="{Binding CurrentTrackRoutingSummary}"
+                                   FontSize="10"
+                                   Foreground="#8FD6A8"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"/>
+                        <TextBlock Text="{Binding CurrentTrackTransitionPlanSummary}"
+                                   FontSize="10"
+                                   Foreground="#FFD58A"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"/>
+                        <TextBlock Text="{Binding AnalysisLaneSummary}"
+                                   FontSize="10"
+                                   Foreground="#9EEFFF"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+                <WrapPanel HorizontalAlignment="Center" ItemHeight="24" Margin="0,0,0,2">
+                    <Border Background="#1F2933" BorderBrush="#324556" BorderThickness="1" CornerRadius="999" Padding="8,3">
+                        <TextBlock Text="{Binding CurrentTrackStatusBadge}" FontSize="9" FontWeight="SemiBold" Foreground="#D9EEFF"/>
+                    </Border>
+                    <Border Background="#1E3224" BorderBrush="#2E6B4D" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="6,0,0,0">
+                        <TextBlock Text="{Binding CurrentTrackTempoBadge}" FontSize="9" FontWeight="SemiBold" Foreground="#DFFFE8"/>
+                    </Border>
+                    <Border Background="#2A2035" BorderBrush="#6E4A88" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="6,0,0,0">
+                        <TextBlock Text="{Binding CurrentTrackKeyBadge}" FontSize="9" FontWeight="SemiBold" Foreground="#F2DEFF"/>
+                    </Border>
+                    <Border Background="#332B18" BorderBrush="#8E7340" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="6,0,0,0">
+                        <TextBlock Text="{Binding CurrentTrackEnergyBadge}" FontSize="9" FontWeight="SemiBold" Foreground="#FFF3D8"/>
+                    </Border>
+                    <Border Background="#2D2D2D" BorderBrush="#4C4C4C" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="6,0,0,0">
+                        <TextBlock Text="{Binding CurrentTrackCueBadge}" FontSize="9" FontWeight="SemiBold" Foreground="#E3E3E3"/>
+                    </Border>
+                </WrapPanel>
+                <WrapPanel HorizontalAlignment="Center" ItemHeight="30" Margin="0,2,0,0">
                     <Button Command="{Binding ToggleExpandedPlayerCommand}"
                             Padding="10,4"
                             Background="#2D2D2D"
@@ -139,13 +195,115 @@
                     </Button>
                     <Button Command="{Binding OpenPlayerViewCommand}"
                             Padding="10,4"
+                            Margin="6,0,0,0"
                             Background="#221DB954"
                             BorderBrush="#1DB954"
                             BorderThickness="1"
                             ToolTip.Tip="Open Full Player View">
-                        <TextBlock Text="PLAYER" FontSize="10" FontWeight="Bold" Foreground="#DFFFE8"/>
+                        <TextBlock Text="FULL VIEW" FontSize="10" FontWeight="Bold" Foreground="#DFFFE8"/>
                     </Button>
-                </StackPanel>
+                    <Button Command="{Binding $parent[Window].DataContext.TogglePlayerLocationCommand}"
+                            Padding="10,4"
+                            Margin="6,0,0,0"
+                            Background="#2D2D2D"
+                            BorderBrush="#3E3E3E"
+                            BorderThickness="1"
+                            ToolTip.Tip="Move player between the sidebar and bottom dock">
+                        <TextBlock Text="{Binding $parent[Window].DataContext.IsPlayerAtBottom, Converter={StaticResource BoolToTextConverter}, ConverterParameter='DOCK: BOTTOM,DOCK: RIGHT'}"
+                                   FontSize="10" FontWeight="Bold" Foreground="#CCCCCC"/>
+                    </Button>
+                </WrapPanel>
+                <WrapPanel HorizontalAlignment="Center" ItemHeight="30">
+                    <Button Command="{Binding AnalyzeCurrentTrackCommand}"
+                            IsEnabled="{Binding HasCurrentTrack}"
+                            Padding="10,4"
+                            Background="#332B18"
+                            BorderBrush="#8E7340"
+                            BorderThickness="1"
+                            ToolTip.Tip="Analyze the current track for cue prep and timing data">
+                        <TextBlock Text="ANALYZE" FontSize="10" FontWeight="Bold" Foreground="#FFF3D8"/>
+                    </Button>
+                    <Button Command="{Binding SeparateCurrentTrackStemsCommand}"
+                            IsEnabled="{Binding HasCurrentTrack}"
+                            Padding="10,4"
+                            Margin="6,0,0,0"
+                            Background="#1E3224"
+                            BorderBrush="#4EC9B0"
+                            BorderThickness="1"
+                            ToolTip.Tip="Open or prepare stems for the current track in the workstation">
+                        <TextBlock Text="STEMS" FontSize="10" FontWeight="Bold" Foreground="#DFFFE8"/>
+                    </Button>
+                    <Button Command="{Binding OpenCurrentTrackInspectorCommand}"
+                            IsEnabled="{Binding HasCurrentTrack}"
+                            Padding="10,4"
+                            Margin="6,0,0,0"
+                            Background="#1D2A3A"
+                            BorderBrush="#5DADE2"
+                            BorderThickness="1"
+                            ToolTip.Tip="Open the current track in the Inspector">
+                        <TextBlock Text="INSPECT" FontSize="10" FontWeight="Bold" Foreground="#D9EEFF"/>
+                    </Button>
+                    <Button Command="{Binding OpenCurrentTrackWorkstationCommand}"
+                            IsEnabled="{Binding HasCurrentTrack}"
+                            Padding="10,4"
+                            Margin="6,0,0,0"
+                            Background="#2A2035"
+                            BorderBrush="#C586C0"
+                            BorderThickness="1"
+                            ToolTip.Tip="Send the current track to the focused workstation deck">
+                        <TextBlock Text="WORKSTATION" FontSize="10" FontWeight="Bold" Foreground="#F2DEFF"/>
+                    </Button>
+                    <Button Command="{Binding OpenCurrentTrackFlowCommand}"
+                            IsEnabled="{Binding HasCurrentTrack}"
+                            Padding="10,4"
+                            Margin="6,0,0,0"
+                            Background="#183020"
+                            BorderBrush="#5BCB8A"
+                            BorderThickness="1"
+                            ToolTip.Tip="Open the current track in the flow workspace">
+                        <TextBlock Text="FLOW" FontSize="10" FontWeight="Bold" Foreground="#DFFFE8"/>
+                    </Button>
+                    <Button Command="{Binding LoadCurrentTrackToDeckACommand}"
+                            IsEnabled="{Binding HasCurrentTrack}"
+                            Padding="10,4"
+                            Margin="6,0,0,0"
+                            Background="#1B2230"
+                            BorderBrush="#7DA2F7"
+                            BorderThickness="1"
+                            ToolTip.Tip="Send the current track straight to Deck A">
+                        <TextBlock Text="DECK A" FontSize="10" FontWeight="Bold" Foreground="#DDE7FF"/>
+                    </Button>
+                    <Button Command="{Binding LoadCurrentTrackToDeckBCommand}"
+                            IsEnabled="{Binding HasCurrentTrack}"
+                            Padding="10,4"
+                            Margin="6,0,0,0"
+                            Background="#1B2230"
+                            BorderBrush="#7DA2F7"
+                            BorderThickness="1"
+                            ToolTip.Tip="Send the current track straight to Deck B">
+                        <TextBlock Text="DECK B" FontSize="10" FontWeight="Bold" Foreground="#DDE7FF"/>
+                    </Button>
+                    <Button Command="{Binding AddCurrentTrackToProjectCommand}"
+                            IsEnabled="{Binding HasCurrentTrack}"
+                            Padding="10,4"
+                            Margin="6,0,0,0"
+                            Background="#1E3224"
+                            BorderBrush="#4EC9B0"
+                            BorderThickness="1"
+                            ToolTip.Tip="Add the current track to the mix project">
+                        <TextBlock Text="ADD TO MIX" FontSize="10" FontWeight="Bold" Foreground="#DFFFE8"/>
+                    </Button>
+                    <Button Command="{Binding RevealCurrentTrackCommand}"
+                            IsEnabled="{Binding HasCurrentTrack}"
+                            Padding="10,4"
+                            Margin="6,0,0,0"
+                            Background="#2D2D2D"
+                            BorderBrush="#3E3E3E"
+                            BorderThickness="1"
+                            ToolTip.Tip="Reveal the current file in Explorer">
+                        <TextBlock Text="REVEAL" FontSize="10" FontWeight="Bold" Foreground="#CCCCCC"/>
+                    </Button>
+                </WrapPanel>
             </StackPanel>
         </StackPanel>
         
@@ -185,6 +343,33 @@
                                Foreground="#B3B3B3"
                                HorizontalAlignment="Right"/>
                 </Grid>
+
+                <Border Background="#181A1F"
+                        BorderBrush="#2B3240"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="8,6">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="{Binding CurrentTrackPhraseJumpSummary}"
+                                   FontSize="10"
+                                   Foreground="#B7CCE0"
+                                   TextWrapping="Wrap"/>
+                        <WrapPanel HorizontalAlignment="Center" ItemHeight="26">
+                            <Button Command="{Binding JumpToIntroCommand}" IsEnabled="{Binding HasCurrentTrack}" Padding="8,3" Background="#1D2A3A" BorderBrush="#3E566E" BorderThickness="1" ToolTip.Tip="Jump to the prepared intro cue or guided intro position">
+                                <TextBlock Text="INTRO" FontSize="9" FontWeight="Bold" Foreground="#D9EEFF"/>
+                            </Button>
+                            <Button Command="{Binding JumpToBuildCommand}" IsEnabled="{Binding HasCurrentTrack}" Padding="8,3" Margin="6,0,0,0" Background="#2A2035" BorderBrush="#6E4A88" BorderThickness="1" ToolTip.Tip="Jump to the build-up marker">
+                                <TextBlock Text="BUILD" FontSize="9" FontWeight="Bold" Foreground="#F2DEFF"/>
+                            </Button>
+                            <Button Command="{Binding JumpToDropCommand}" IsEnabled="{Binding HasCurrentTrack}" Padding="8,3" Margin="6,0,0,0" Background="#332B18" BorderBrush="#8E7340" BorderThickness="1" ToolTip.Tip="Jump to the drop / impact section">
+                                <TextBlock Text="DROP" FontSize="9" FontWeight="Bold" Foreground="#FFF3D8"/>
+                            </Button>
+                            <Button Command="{Binding JumpToOutroCommand}" IsEnabled="{Binding HasCurrentTrack}" Padding="8,3" Margin="6,0,0,0" Background="#1E3224" BorderBrush="#2E6B4D" BorderThickness="1" ToolTip.Tip="Jump to the outro / mix-out zone">
+                                <TextBlock Text="OUTRO" FontSize="9" FontWeight="Bold" Foreground="#DFFFE8"/>
+                            </Button>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
             </StackPanel>
             
             <!-- Playback Controls -->
@@ -438,19 +623,51 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                                    <Border Padding="8,6" CornerRadius="6" Background="#262626">
-                                        <StackPanel Spacing="2">
-                                            <TextBlock Text="{Binding TrackTitle}"
-                                                       FontSize="11"
-                                                       Foreground="White"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       MaxWidth="180"/>
-                                            <TextBlock Text="{Binding ArtistName}"
-                                                       FontSize="10"
-                                                       Foreground="#AFAFAF"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       MaxWidth="180"/>
-                                        </StackPanel>
+                                    <Border Padding="6" CornerRadius="6" Background="#262626">
+                                        <Grid ColumnDefinitions="*,Auto,Auto">
+                                            <Button Grid.Column="0"
+                                                    Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Background="Transparent"
+                                                    BorderThickness="0"
+                                                    HorizontalContentAlignment="Stretch"
+                                                    ToolTip.Tip="Play this queued track now">
+                                                <StackPanel Spacing="2">
+                                                    <TextBlock Text="{Binding TrackTitle}"
+                                                               FontSize="11"
+                                                               Foreground="White"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               MaxWidth="140"/>
+                                                    <TextBlock Text="{Binding ArtistName}"
+                                                               FontSize="10"
+                                                               Foreground="#AFAFAF"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               MaxWidth="140"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Grid.Column="1"
+                                                    Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Width="26" Height="26"
+                                                    Padding="0"
+                                                    Background="#1E3A2B"
+                                                    BorderBrush="#1DB954"
+                                                    BorderThickness="1"
+                                                    ToolTip.Tip="Play queued track">
+                                                <TextBlock Text="▶" Foreground="#DFFFE8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Button>
+                                            <Button Grid.Column="2"
+                                                    Command="{Binding $parent[UserControl].DataContext.RemoveFromQueueCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Width="26" Height="26"
+                                                    Padding="0"
+                                                    Background="#3A1E1E"
+                                                    BorderBrush="#8B3A3A"
+                                                    BorderThickness="1"
+                                                    ToolTip.Tip="Remove from queue">
+                                                <TextBlock Text="✕" Foreground="#FFD6D6" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Button>
+                                        </Grid>
                                     </Border>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>

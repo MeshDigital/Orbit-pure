@@ -64,6 +64,16 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     // which was holding _collectionLock on every incoming data packet.
     private readonly ConcurrentDictionary<string, DownloadContext> _activeByUsername = new(StringComparer.OrdinalIgnoreCase);
 
+    // Epic 4.1: Per-peer connection gate — limits simultaneous TCP connections to any one
+    // Soulseek peer to exactly 1.  Without this, 3 concurrent downloads from the same user
+    // can trigger a remote-queue rejection chain and eventually a soft-ban.
+    // Semaphores are created lazily and are never removed (peers are finite in number).
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _perPeerGates =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private SemaphoreSlim GetOrCreatePeerGate(string username) =>
+        _perPeerGates.GetOrAdd(username, _ => new SemaphoreSlim(1, 1));
+
     // Opt-P3: Thread-safe RNG for retry jitter (avoids Random allocation per call)
     private static readonly Random _jitterRandom = new();
 
@@ -400,6 +410,23 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             // The ProcessQueueLoop will call RefillQueueAsync when needed, 
             // which is now project-aware to prevent mass-activation.
             // await RefillQueueAsync(); // Removed global refill on init
+
+            // Epic 4.1: Restore persisted download queue so pending tracks survive restarts.
+            // LoadPersistedDownloadQueueTracksAsync filters to Status=Missing and prunes
+            // stale rows, so we only hydrate valid pending work items.
+            try
+            {
+                var persistedPending = await _databaseService.LoadPersistedDownloadQueueTracksAsync();
+                if (persistedPending.Count > 0)
+                {
+                    HydrateAndAddEntities(persistedPending);
+                    _logger.LogInformation("[QueueRestore] Restored {Count} pending tracks from persisted download queue", persistedPending.Count);
+                }
+            }
+            catch (Exception queueEx)
+            {
+                _logger.LogError(queueEx, "[QueueRestore] Failed to restore persisted queue on startup — queue will be empty until re-imported");
+            }
 
 
             // Issue #48: reset zombie downloads that were Active (in-progress) when
@@ -815,6 +842,29 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
              {
                  _ = RefillQueueAsync(pid);
              }
+
+             // Epic 4.1: Snapshot the pending queue to DownloadQueueItems so these tracks
+             // survive an app restart and appear as Pending on next launch.
+             _ = Task.Run(async () =>
+             {
+                 try
+                 {
+                     List<Guid> pendingIds;
+                     lock (_collectionLock)
+                     {
+                         pendingIds = _downloads
+                             .Where(d => d.State == PlaylistTrackState.Pending && d.Model.Id != Guid.Empty)
+                             .Select(d => d.Model.Id)
+                             .ToList();
+                     }
+                     await _databaseService.SaveDownloadQueueSnapshotAsync(pendingIds);
+                     _logger.LogDebug("[QueuePersist] Saved {Count} pending tracks to queue snapshot", pendingIds.Count);
+                 }
+                 catch (Exception ex)
+                 {
+                     _logger.LogDebug(ex, "[QueuePersist] Failed to save queue snapshot after QueueTracks");
+                 }
+             });
              
              // Auto-start engine if not running and we have tracks to process
              if (!IsRunning)
@@ -1126,6 +1176,17 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             else
             {
                 _networkHealth.RecordTransferOutcome(ctx.FailureReason ?? DownloadFailureReason.TransferFailed);
+            }
+
+            // Epic 4.1: Remove terminal tracks from the persisted queue so they
+            // don't reappear after a restart as phantom pending items.
+            if (ctx.Model.Id != Guid.Empty)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try { await _databaseService.RemoveFromDownloadQueueAsync(ctx.Model.Id); }
+                    catch (Exception ex) { _logger.LogDebug(ex, "[QueuePersist] Failed to remove {TrackId} from download queue", ctx.Model.Id); }
+                });
             }
         }
         
@@ -2570,11 +2631,19 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 ctx.RetryCount++;
                 if (ctx.RetryCount < _config.MaxDownloadRetries)
                 {
-                    var delayMinutes = transferDisposition.DelayMinutes ?? Math.Pow(2, ctx.RetryCount); // 2, 4, 8, 16...
-                    ctx.NextRetryTime = DateTime.UtcNow.AddMinutes(delayMinutes);
-                    ctx.Model.Priority = 20; // LOW PRIORITY: Send retries to back of queue (fresh downloads = priority 10)
-                    await UpdateStateAsync(ctx, PlaylistTrackState.Pending, $"Retrying in {delayMinutes}m: {transferDisposition.OperatorMessage}");
-                    _logger.LogInformation("Scheduled retry #{Count} for {GlobalId} at {Time} (low priority)", ctx.RetryCount, ctx.GlobalId, ctx.NextRetryTime);
+                    // Epic 4.1: Use seconds-scale exponential backoff (1s → 2s → 4s → 8s, capped 32s)
+                    // for transient network failures (Delay == null).  Fixed delays (e.g. 2 minutes
+                    // for peer-queue rejection) are respected verbatim.
+                    TimeSpan retryDelay = transferDisposition.Delay
+                        ?? TimeSpan.FromSeconds(Math.Min(32, Math.Pow(2, ctx.RetryCount - 1)));
+                    ctx.NextRetryTime = DateTime.UtcNow.Add(retryDelay);
+                    ctx.Model.Priority = 20; // LOW PRIORITY: Send retries to back of queue
+                    var delayDesc = retryDelay.TotalSeconds < 60
+                        ? $"{retryDelay.TotalSeconds:0}s"
+                        : $"{retryDelay.TotalMinutes:0.#}m";
+                    await UpdateStateAsync(ctx, PlaylistTrackState.Pending, $"Retrying in {delayDesc}: {transferDisposition.OperatorMessage}");
+                    _logger.LogInformation("Scheduled retry #{Count} for {GlobalId} at {Time} (low priority, delay={Delay})",
+                        ctx.RetryCount, ctx.GlobalId, ctx.NextRetryTime, delayDesc);
                 }
                 else
                 {
@@ -2587,7 +2656,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     internal sealed record TransferFailureDisposition(
         DownloadFailureReason RetryFailureReason,
         bool AllowHedgeFailover,
-        double? DelayMinutes,
+        /// <summary>
+        /// Fixed retry delay.  Null means use exponential seconds backoff (1s → 2s → 4s → 8s …).
+        /// </summary>
+        TimeSpan? Delay,
         string OperatorMessage);
 
     internal static TransferFailureDisposition ClassifyTransferFailure(Exception ex)
@@ -2601,7 +2673,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             return new TransferFailureDisposition(
                 DownloadFailureReason.RemoteAccessDenied,
                 AllowHedgeFailover: false,
-                DelayMinutes: null,
+                Delay: null,
                 OperatorMessage: "peer denied transfer access");
         }
 
@@ -2612,7 +2684,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             return new TransferFailureDisposition(
                 DownloadFailureReason.RemoteQueueDenied,
                 AllowHedgeFailover: true,
-                DelayMinutes: 2,
+                Delay: TimeSpan.FromMinutes(2),   // Peer needs time to free a slot
                 OperatorMessage: "peer queue rejected transfer");
         }
 
@@ -2621,26 +2693,28 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             message.Contains("Unable to read", StringComparison.OrdinalIgnoreCase) ||
             ex is IOException)
         {
+            // Transient TCP failure → seconds-scale back-off (Epic 4.1)
             return new TransferFailureDisposition(
                 DownloadFailureReason.NetworkError,
                 AllowHedgeFailover: true,
-                DelayMinutes: 2,
+                Delay: null,   // null → exponential seconds backoff in retry logic
                 OperatorMessage: "network transfer error");
         }
 
         if (ex is TimeoutException)
         {
+            // Transient timeout → seconds-scale back-off (Epic 4.1)
             return new TransferFailureDisposition(
                 DownloadFailureReason.Timeout,
                 AllowHedgeFailover: true,
-                DelayMinutes: 1,
+                Delay: null,   // null → exponential seconds backoff in retry logic
                 OperatorMessage: "transfer timeout");
         }
 
         return new TransferFailureDisposition(
             DownloadFailureReason.PeerRejected,
             AllowHedgeFailover: false,
-            DelayMinutes: null,
+            Delay: null,
             OperatorMessage: string.IsNullOrWhiteSpace(message) ? "peer rejected transfer" : message);
     }
 
@@ -2969,39 +3043,51 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         });
 
         // STEP 5: Download to .part file with resume support
+        // Epic 4.1: Acquire per-peer gate before opening the TCP connection.
+        // If a different track is already transferring from this same peer, we wait here
+        // rather than open a second simultaneous connection (which often causes queue rejection).
+        var peerGate = GetOrCreatePeerGate(bestMatch.Username!);
+        await peerGate.WaitAsync(ct);
         bool success;
         try
         {
-            success = await _soulseek.DownloadAsync(
-                bestMatch.Username!,
-                bestMatch.Filename!,
-                partPath,          // Download to .part file
-                bestMatch.Size,
-                progress,
-                lifecycleUpdate: update =>
-                {
-                    switch (update.Phase)
+            try
+            {
+                success = await _soulseek.DownloadAsync(
+                    bestMatch.Username!,
+                    bestMatch.Filename!,
+                    partPath,          // Download to .part file
+                    bestMatch.Size,
+                    progress,
+                    lifecycleUpdate: update =>
                     {
-                        case TransferLifecyclePhase.RemoteQueued:
-                            _ = UpdateStateAsync(ctx, PlaylistTrackState.Queued, update.Detail ?? "Queued remotely by peer");
-                            _eventBus.Publish(new Events.TrackDetailedStatusEvent(
-                                ctx.GlobalId,
-                                $"⏳ Remote queue: {bestMatch.Username} is holding the transfer in queue.",
-                                false,
-                                ctx.CorrelationId));
-                            break;
-                        case TransferLifecyclePhase.Transferring:
-                            _ = UpdateStateAsync(ctx, PlaylistTrackState.Downloading, update.Detail);
-                            break;
-                    }
-                },
-                ct: stallMonitorCts.Token,
-                startOffset: startPosition      // Resume from existing bytes
-            );
+                        switch (update.Phase)
+                        {
+                            case TransferLifecyclePhase.RemoteQueued:
+                                _ = UpdateStateAsync(ctx, PlaylistTrackState.Queued, update.Detail ?? "Queued remotely by peer");
+                                _eventBus.Publish(new Events.TrackDetailedStatusEvent(
+                                    ctx.GlobalId,
+                                    $"⏳ Remote queue: {bestMatch.Username} is holding the transfer in queue.",
+                                    false,
+                                    ctx.CorrelationId));
+                                break;
+                            case TransferLifecyclePhase.Transferring:
+                                _ = UpdateStateAsync(ctx, PlaylistTrackState.Downloading, update.Detail);
+                                break;
+                        }
+                    },
+                    ct: stallMonitorCts.Token,
+                    startOffset: startPosition      // Resume from existing bytes
+                );
+            }
+            catch (OperationCanceledException) when (stalledByMonitor)
+            {
+                throw new TimeoutException("Local stall monitor triggered (10s with no throughput). Dropping peer.");
+            }
         }
-        catch (OperationCanceledException) when (stalledByMonitor)
+        finally
         {
-            throw new TimeoutException("Local stall monitor triggered (10s with no throughput). Dropping peer.");
+            peerGate.Release();
         }
 
         if (success)
