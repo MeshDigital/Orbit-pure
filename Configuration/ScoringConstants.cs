@@ -162,6 +162,115 @@ public static class ScoringConstants
         /// <summary>Weight for preferred conditions score</summary>
         public static readonly int PreferredWeight = 500;
     }
+
+    /// <summary>
+    /// Shared scoring constants for library-intelligence matching pipelines.
+    /// Keep values centralized so TrackSimilarityService and TrackMatchScorer stay aligned.
+    /// </summary>
+    public static class Matching
+    {
+        /// <summary>Whole-track contribution to final similarity score.</summary>
+        public static readonly double WholeTrackBlendWeight = 0.55;
+
+        /// <summary>Segment-level contribution to final similarity score.</summary>
+        public static readonly double SegmentBlendWeight = 0.45;
+
+        /// <summary>Intro role contribution in segment-level scoring.</summary>
+        public static readonly double SegmentIntroWeight = 0.15;
+
+        /// <summary>Build role contribution in segment-level scoring.</summary>
+        public static readonly double SegmentBuildWeight = 0.20;
+
+        /// <summary>Drop role contribution in segment-level scoring.</summary>
+        public static readonly double SegmentDropWeight = 0.30;
+
+        /// <summary>Breakdown role contribution in segment-level scoring.</summary>
+        public static readonly double SegmentBreakdownWeight = 0.20;
+
+        /// <summary>Outro role contribution in segment-level scoring.</summary>
+        public static readonly double SegmentOutroWeight = 0.15;
+
+        /// <summary>Beat decay width used for general beat compatibility.</summary>
+        public static readonly double BeatDecayBpmWidth = 3.0;
+
+        /// <summary>Tighter beat decay width for double-drop readiness.</summary>
+        public static readonly double TightBeatDecayBpmWidth = 1.0;
+
+        /// <summary>Weight of structural section flow in transition scoring.</summary>
+        public static readonly float TransitionStructuralWeight = 0.65f;
+
+        /// <summary>Weight of energy continuity in transition scoring.</summary>
+        public static readonly float TransitionEnergyWeight = 0.35f;
+
+        /// <summary>Overall weight for embedding/sound similarity in track-match scoring.</summary>
+        public static readonly float OverallSoundWeight = 0.28f;
+
+        /// <summary>Overall weight for harmonic compatibility in track-match scoring.</summary>
+        public static readonly float OverallHarmonyWeight = 0.22f;
+
+        /// <summary>Overall weight for beat compatibility in track-match scoring.</summary>
+        public static readonly float OverallBeatWeight = 0.18f;
+
+        /// <summary>Overall weight for drop-sonic compatibility in track-match scoring.</summary>
+        public static readonly float OverallDropSonicWeight = 0.17f;
+
+        /// <summary>Overall weight for outro-intro transition compatibility in track-match scoring.</summary>
+        public static readonly float OverallOutroIntroWeight = 0.15f;
+
+        /// <summary>BlendSafe harmonic weight.</summary>
+        public static readonly double BlendSafeHarmonicWeight = 0.28;
+
+        /// <summary>BlendSafe energy weight.</summary>
+        public static readonly double BlendSafeEnergyWeight = 0.18;
+
+        /// <summary>BlendSafe rhythm weight.</summary>
+        public static readonly double BlendSafeRhythmWeight = 0.16;
+
+        /// <summary>BlendSafe timbre weight.</summary>
+        public static readonly double BlendSafeTimbreWeight = 0.12;
+
+        /// <summary>BlendSafe structure weight.</summary>
+        public static readonly double BlendSafeStructureWeight = 0.16;
+
+        /// <summary>BlendSafe mood weight.</summary>
+        public static readonly double BlendSafeMoodWeight = 0.10;
+
+        /// <summary>EnergyDrive harmonic weight.</summary>
+        public static readonly double EnergyDriveHarmonicWeight = 0.18;
+
+        /// <summary>EnergyDrive energy weight.</summary>
+        public static readonly double EnergyDriveEnergyWeight = 0.26;
+
+        /// <summary>EnergyDrive rhythm weight.</summary>
+        public static readonly double EnergyDriveRhythmWeight = 0.24;
+
+        /// <summary>EnergyDrive timbre weight.</summary>
+        public static readonly double EnergyDriveTimbreWeight = 0.10;
+
+        /// <summary>EnergyDrive structure weight.</summary>
+        public static readonly double EnergyDriveStructureWeight = 0.12;
+
+        /// <summary>EnergyDrive mood weight.</summary>
+        public static readonly double EnergyDriveMoodWeight = 0.10;
+
+        /// <summary>GenreCohesion harmonic weight.</summary>
+        public static readonly double GenreCohesionHarmonicWeight = 0.16;
+
+        /// <summary>GenreCohesion energy weight.</summary>
+        public static readonly double GenreCohesionEnergyWeight = 0.16;
+
+        /// <summary>GenreCohesion rhythm weight.</summary>
+        public static readonly double GenreCohesionRhythmWeight = 0.14;
+
+        /// <summary>GenreCohesion timbre weight.</summary>
+        public static readonly double GenreCohesionTimbreWeight = 0.22;
+
+        /// <summary>GenreCohesion structure weight.</summary>
+        public static readonly double GenreCohesionStructureWeight = 0.16;
+
+        /// <summary>GenreCohesion mood weight.</summary>
+        public static readonly double GenreCohesionMoodWeight = 0.16;
+    }
     
     /// <summary>
     /// Tiebreaker constants

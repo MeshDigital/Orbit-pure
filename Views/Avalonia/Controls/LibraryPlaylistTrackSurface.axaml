@@ -1,0 +1,170 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.LibraryPlaylistTrackSurface"
+             x:DataType="vm:Library.TrackListViewModel"
+             Background="#1E1E1E">
+
+    <UserControl.Styles>
+        <Style Selector="Border.track-row">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="#2A2A2E"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+        </Style>
+        <Style Selector="Border.track-row:pointerover">
+            <Setter Property="Background" Value="#252A30"/>
+        </Style>
+        <Style Selector="Border.track-row.selected">
+            <Setter Property="Background" Value="#3300BFFF"/>
+            <Setter Property="BorderBrush" Value="#3B6FA1"/>
+        </Style>
+        <Style Selector="Border.track-row.focused">
+            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+        </Style>
+        <Style Selector="Grid:focus-within Border.track-row.selected">
+            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,*" Focusable="True" KeyDown="OnRootKeyDown" PointerPressed="OnRootPointerPressed" PointerExited="OnRootPointerExited">
+        <Border Grid.Row="0" Background="#1A1A1D" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="16,8">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0"
+                           Text="Playlist Surface (Gate 1)"
+                           FontSize="11"
+                           FontWeight="SemiBold"
+                           Foreground="#8FA7C0"
+                           VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1"
+                           Text="{Binding FilteredTracks.Count, StringFormat='{}{0} tracks'}"
+                           FontSize="11"
+                           Foreground="#666"
+                           VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" ScrollChanged="OnTrackScrollChanged">
+            <ItemsRepeater ItemsSource="{Binding FilteredTracks}">
+                <ItemsRepeater.Layout>
+                    <StackLayout Spacing="0"/>
+                </ItemsRepeater.Layout>
+                <ItemsRepeater.ItemTemplate>
+                    <DataTemplate DataType="vm:PlaylistTrackViewModel">
+                        <StackPanel Spacing="0">
+                            <Border Classes="track-row"
+                                    Classes.selected="{Binding IsSelected}"
+                                    Padding="16,8"
+                                    Focusable="True"
+                                    PointerPressed="OnTrackRowPointerPressed"
+                                    PointerEntered="OnTrackRowPointerEntered"
+                                    PointerMoved="OnTrackRowPointerMoved"
+                                    PointerExited="OnTrackRowPointerExited">
+                                <Grid ColumnDefinitions="Auto,Auto,160,*,90,110,120,80">
+                                    <Border Grid.Column="0"
+                                            Width="8"
+                                            Height="8"
+                                            CornerRadius="4"
+                                            VerticalAlignment="Center"
+                                            Background="{Binding State, Converter={StaticResource TrackStateToColorConverter}}"/>
+
+                                    <Button Grid.Column="1"
+                                            Command="{Binding $parent[views:LibraryPage].DataContext.Operations.AddToQueueCommand}"
+                                            CommandParameter="{Binding}"
+                                            Width="24"
+                                            Height="24"
+                                            Margin="10,0,10,0"
+                                            Padding="0"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            ToolTip.Tip="Queue track">
+                                        <TextBlock Text="＋" FontSize="11" Foreground="#6F8192" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Button>
+
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding Artist}"
+                                               Margin="0,0,10,0"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               FontSize="12"
+                                               TextTrimming="CharacterEllipsis"/>
+
+                                    <TextBlock Grid.Column="3"
+                                               Text="{Binding Title}"
+                                               Margin="0,0,10,0"
+                                               VerticalAlignment="Center"
+                                               Foreground="White"
+                                               FontWeight="SemiBold"
+                                               FontSize="12"
+                                               TextTrimming="CharacterEllipsis"/>
+
+                                    <controls:SparklineControl Grid.Column="4"
+                                                               Points="{Binding EnergyCurvePoints}"
+                                                               LineBrush="#4EC9B0"
+                                                               FillBrush="#224EC9B0"
+                                                               LineThickness="1.2"
+                                                               Height="22"
+                                                               Margin="0,0,10,0"
+                                                               VerticalAlignment="Center"
+                                                               IsVisible="{Binding HasAnalysisData}"
+                                                               ToolTip.Tip="Energy contour — analysed audio"/>
+
+                                    <Border Grid.Column="5"
+                                            Background="#1A1F2C"
+                                            BorderBrush="#3300BFFF"
+                                            BorderThickness="1"
+                                            CornerRadius="4"
+                                            Padding="6,2"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Center"
+                                            Margin="0,0,10,0">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="{Binding Format}" FontSize="9" FontWeight="Bold" Foreground="#00BFFF" Opacity="0.8"/>
+                                            <TextBlock Text="{Binding Bitrate, StringFormat='{}{0}k'}" FontSize="9" Foreground="#00BFFF"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Grid.Column="6"
+                                            Background="{Binding IntegrityColor}"
+                                            CornerRadius="10"
+                                            Padding="8,3"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Center"
+                                            Margin="0,0,10,0"
+                                            ToolTip.Tip="{Binding ForensicHudText}">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="{Binding IntegrityBadge}" FontSize="10"/>
+                                            <TextBlock Text="{Binding ForensicVerdictText}" FontSize="10" FontWeight="SemiBold" Foreground="Black"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <TextBlock Grid.Column="7"
+                                               Text="{Binding DurationDisplay}"
+                                               VerticalAlignment="Center"
+                                               HorizontalAlignment="Right"
+                                               Foreground="#A0A0A0"
+                                               FontSize="10"/>
+                                </Grid>
+                            </Border>
+
+                            <controls:InsertBetweenRowControl
+                                InsertBetweenCommand="{Binding $parent[views:LibraryPage].DataContext.PrepareSmartInsertAfterTrackCommand}"
+                                InsertBetweenCommandParameter="{Binding}"
+                                PointerEntered="OnInsertGapPointerEntered"
+                                PointerMoved="OnInsertGapPointerMoved"
+                                PointerExited="OnInsertGapPointerExited"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsRepeater.ItemTemplate>
+            </ItemsRepeater>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

@@ -9,6 +9,8 @@ using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Views;
 using SLSKDONET.Events;
+using SLSKDONET.Models.Musical;
+using SLSKDONET.Services.Similarity;
 
 namespace SLSKDONET.ViewModels;
 
@@ -51,11 +53,107 @@ public partial class LibraryViewModel
     private void OnTrackSelectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
     {
         var selectedTracks = Tracks.SelectedTracks.ToList();
+        _ = DoubleInspector.HandleSelectionChangedAsync(selectedTracks);
+
+        if (selectedTracks.Count == 2)
+        {
+            ReactiveUI.MessageBus.Current.SendMessage(
+                OpenInspectorEvent.Create(DoubleInspector, "Library.TrackSelection.Double"));
+        }
         
         if (selectedTracks.Count == 1)
         {
             var single = selectedTracks.First();
-            ReactiveUI.MessageBus.Current.SendMessage(new OpenInspectorEvent(single));
+            single.ClearInspectorA10PairwiseContext();
+            ReactiveUI.MessageBus.Current.SendMessage(OpenInspectorEvent.Create(single, "Library.TrackSelection.Single"));
+            RefreshSavedDoublesForLeadTrack(single);
+            _ = TryAttachInspectorPairwiseContextAsync(single);
+            _ = TrackInspector.TryAttachEnhancementsAsync(single);
+        }
+        else
+        {
+            TrackInspector.ClearEnhancements();
+            RefreshSavedDoublesForLeadTrack(null);
+
+            if (selectedTracks.Count == 0 && IsLibraryIntelligencePanelVisible)
+            {
+                ReactiveUI.MessageBus.Current.SendMessage(
+                    OpenInspectorEvent.Create(Intelligence, "Library.TrackSelection.EmptyIntelligence"));
+            }
+            else if (selectedTracks.Count == 0)
+            {
+                ReactiveUI.MessageBus.Current.SendMessage(new CloseInspectorEvent());
+            }
+        }
+
+        _ = Intelligence.RefreshSuggestNextCandidatesAsync();
+        _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
+    }
+
+    private async Task TryAttachInspectorPairwiseContextAsync(PlaylistTrackViewModel selected)
+    {
+        try
+        {
+            var ordered = Tracks.FilteredTracks?.OfType<PlaylistTrackViewModel>().ToList()
+                ?? new List<PlaylistTrackViewModel>();
+            if (ordered.Count == 0)
+                return;
+
+            var selectedIndex = ordered.IndexOf(selected);
+            if (selectedIndex < 0)
+                return;
+
+            PlaylistTrackViewModel? neighbor = null;
+            string relationLabel = string.Empty;
+
+            if (selectedIndex + 1 < ordered.Count)
+            {
+                neighbor = ordered[selectedIndex + 1];
+                relationLabel = "Next";
+            }
+            else if (selectedIndex > 0)
+            {
+                neighbor = ordered[selectedIndex - 1];
+                relationLabel = "Previous";
+            }
+
+            if (neighbor is null)
+                return;
+
+            if (string.IsNullOrWhiteSpace(selected.GlobalId) || string.IsNullOrWhiteSpace(neighbor.GlobalId))
+                return;
+
+            var similarity = TrackSimilarityService;
+            if (similarity is null)
+                return;
+
+            var score = await similarity.ScoreAsync(
+                selected.GlobalId,
+                neighbor.GlobalId,
+                TrackSimilarityProfile.BlendSafe).ConfigureAwait(false);
+
+            if (score is null)
+                return;
+
+            // Skip stale writes when user has moved selection before async scoring completed.
+            if (Tracks.SelectedTracks.Count != 1 || !ReferenceEquals(Tracks.SelectedTracks.FirstOrDefault(), selected))
+                return;
+
+            var contextLabel = $"{relationLabel}: {neighbor.ArtistName} - {neighbor.TrackTitle}";
+            var reasonTags = string.Join(" • ", score.ReasonTags.Take(2));
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                selected.SetInspectorA10PairwiseContext(
+                    contextLabel,
+                    score.FinalSimilarity,
+                    score.VectorScores.Harmonic,
+                    score.VectorScores.Rhythm,
+                    score.SegmentScores.Drop,
+                    reasonTags));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to compute inspector pairwise A10 context for {TrackHash}", selected.GlobalId);
         }
     }
 
@@ -74,10 +172,29 @@ public partial class LibraryViewModel
     /// </summary>
     private async void OnProjectSelected(object? sender, PlaylistJob? project)
     {
+        SetSmartPlaylistContextMode(false);
+        RaiseLibraryIntelligenceContextStateChanged();
+
+        if (project == null || project.Id == Guid.Empty)
+        {
+            Intelligence.ResetSmartInsertPairContext();
+            _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
+            ReactiveUI.MessageBus.Current.SendMessage(new CloseInspectorEvent());
+            return;
+        }
+
         if (project != null)
         {
             _logger.LogInformation("LibraryViewModel.OnProjectSelected: Switching to project {Title} (ID: {Id})", project.SourceTitle, project.Id);
             await Tracks.LoadProjectTracksAsync(project);
+            await RefreshSavedDoublesAsync();
+            _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
+
+            if (Tracks.SelectedTracks.Count == 0)
+            {
+                ReactiveUI.MessageBus.Current.SendMessage(
+                    OpenInspectorEvent.Create(Intelligence, "Library.ProjectSelection.EmptyIntelligence"));
+            }
         }
     }
 
@@ -88,6 +205,10 @@ public partial class LibraryViewModel
     private async void OnSmartPlaylistSelected(object? sender, Library.SmartPlaylist? playlist)
     {
         if (playlist == null) return;
+
+        SetSmartPlaylistContextMode(true);
+        RaiseLibraryIntelligenceContextStateChanged();
+        Intelligence.ResetSmartInsertPairContext();
 
         try
         {
@@ -103,12 +224,13 @@ public partial class LibraryViewModel
                 
                 // 2. Load matching tracks via TrackListViewModel
                 await Tracks.LoadSmartCrateAsync(ids);
+                await RefreshSavedDoublesAsync();
                 
                 _logger.LogInformation("Loaded Smart Crate '{Name}' with {Count} tracks", playlist.Name, ids.Count);
             }
             else
             {
-                // Legacy: In-Memory Smart Playlists
+                // In-memory smart playlist fallback for playlists without DB-backed definitions.
                 _notificationService.Show("Smart Playlist", $"Loading {playlist.Name}", NotificationType.Information);
                 
                 // Execute filter on loaded memory state

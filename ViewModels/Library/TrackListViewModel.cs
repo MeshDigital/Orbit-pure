@@ -596,7 +596,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         _config = config;
         _bulkCoordinator = bulkCoordinator;
 
-        Hierarchical = new HierarchicalLibraryViewModel(config, downloadManager, artworkCache);
+        Hierarchical = new HierarchicalLibraryViewModel(config, downloadManager, artworkCache, eventBus);
         
         ToggleColumnFilterStripCommand = ReactiveCommand.Create(() => IsColumnFilterStripVisible = !IsColumnFilterStripVisible);
 

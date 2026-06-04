@@ -1,0 +1,142 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             mc:Ignorable="d"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.DoubleInspectorPanel"
+             x:DataType="vm:LibraryDoubleInspectorViewModel">
+
+    <ScrollViewer Padding="14,12">
+        <StackPanel Spacing="12">
+            <TextBlock Text="Double Inspector"
+                       FontSize="13"
+                       FontWeight="SemiBold"
+                       Foreground="#D8E5F2"/>
+
+            <Border Background="#20242A" BorderBrush="#2E343D" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{Binding HeaderTitle}"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#EAF4FF"
+                               TextWrapping="Wrap"/>
+
+                    <Grid ColumnDefinitions="*,*">
+                        <Border Grid.Column="0" Background="#1A2027" BorderBrush="#2B333D" BorderThickness="1" CornerRadius="6" Padding="8,6">
+                            <StackPanel Spacing="3">
+                                <TextBlock Text="Track A" FontSize="9" Foreground="#6E8297"/>
+                                <TextBlock Text="{Binding TrackA.TrackTitle}" FontSize="11" Foreground="#D8E5F2" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding TrackA.ArtistName}" FontSize="10" Foreground="#9AB2C9" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="1" Margin="10,0,0,0" Background="#1A2027" BorderBrush="#2B333D" BorderThickness="1" CornerRadius="6" Padding="8,6">
+                            <StackPanel Spacing="3">
+                                <TextBlock Text="Track B" FontSize="9" Foreground="#6E8297"/>
+                                <TextBlock Text="{Binding TrackB.TrackTitle}" FontSize="11" Foreground="#D8E5F2" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding TrackB.ArtistName}" FontSize="10" Foreground="#9AB2C9" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border IsVisible="{Binding IsPairAnalyzable}"
+                    Background="#1C242C"
+                    BorderBrush="#2E4C63"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="10,8">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Compatibility"
+                               FontSize="11"
+                               FontWeight="SemiBold"
+                               Foreground="#9ED9C8"/>
+
+                    <TextBlock Text="{Binding KeyCompatibilitySummary}" FontSize="10" Foreground="#D8E5F2" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding BpmDifferenceSummary}" FontSize="10" Foreground="#D8E5F2" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding EnergyAlignmentSummary}" FontSize="10" Foreground="#D8E5F2" TextWrapping="Wrap"/>
+
+                    <Border Background="#1A2027" BorderBrush="#2B333D" BorderThickness="1" CornerRadius="6" Padding="8,6">
+                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Transition score (A10.4)" FontSize="10" Foreground="#8FA7C0"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding TransitionScore, StringFormat='{}{0:P0}'}" FontSize="10" Foreground="#D8E5F2"/>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,4,0,0" Text="Harmonic" FontSize="10" Foreground="#8FA7C0"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,4,0,0" Text="{Binding HarmonicScore, StringFormat='{}{0:P0}'}" FontSize="10" Foreground="#D8E5F2"/>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,4,0,0" Text="Beat" FontSize="10" Foreground="#8FA7C0"/>
+                            <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,4,0,0" Text="{Binding BeatScore, StringFormat='{}{0:P0}'}" FontSize="10" Foreground="#D8E5F2"/>
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,4,0,0" Text="Segment alignment (drop)" FontSize="10" Foreground="#8FA7C0"/>
+                            <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,4,0,0" Text="{Binding DropScore, StringFormat='{}{0:P0}'}" FontSize="10" Foreground="#D8E5F2"/>
+                        </Grid>
+                    </Border>
+
+                    <TextBlock IsVisible="{Binding HasPairContext}"
+                               Text="{Binding ReasonTags}"
+                               FontSize="9"
+                               Foreground="#8FA7C0"
+                               TextWrapping="Wrap"/>
+
+                    <TextBlock IsVisible="{Binding HasPairContext}"
+                               Text="{Binding TransitionStyleLabel, StringFormat='Transition style: {0}'}"
+                               FontSize="9"
+                               Foreground="#9ED9C8"
+                               TextWrapping="Wrap"/>
+
+                    <TextBlock IsVisible="{Binding HasPairContext}"
+                               Text="{Binding TransitionStyleReason}"
+                               FontSize="9"
+                               Foreground="#7A8C9F"
+                               TextWrapping="Wrap"/>
+
+                    <TextBlock IsVisible="{Binding IsPairScoreLoading}"
+                               Text="Evaluating A10 pairwise context..."
+                               FontSize="9"
+                               Foreground="#7A8C9F"/>
+                </StackPanel>
+            </Border>
+
+            <Border IsVisible="{Binding !IsPairAnalyzable}"
+                    Background="#2A201C"
+                    BorderBrush="#6A4A3A"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="12,10">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Both tracks must be analyzed"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#FFD5B8"/>
+                    <TextBlock Text="Run analysis for both tracks to unlock key, BPM, energy, and transition scoring."
+                               FontSize="10"
+                               Foreground="#EFD8C9"
+                               TextWrapping="Wrap"/>
+                        <Button Command="{Binding AnalyzeSelectedPairCommand}"
+                            HorizontalAlignment="Stretch"
+                            Padding="12,8"
+                            FontSize="11"
+                            Content="Analyze both"/>
+                </StackPanel>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Command="{Binding FavoriteSelectedPairAsDoubleCommand}"
+                        Content="Favorite as Double"
+                        FontSize="10"
+                        Padding="10,4"/>
+                <Button Command="{Binding OpenSelectedPairInWorkstationCommand}"
+                        Content="Open in Workstation as Pair"
+                        FontSize="10"
+                        Padding="10,4"/>
+            </StackPanel>
+
+            <TextBlock Text="Why these work together and suggested bridges arrive in the next intelligence slice."
+                       FontSize="9"
+                       Foreground="#7A8C9F"
+                       TextWrapping="Wrap"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

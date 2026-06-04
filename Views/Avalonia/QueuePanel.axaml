@@ -25,7 +25,7 @@
                             Background="Transparent"
                             Foreground="#4CAF50"
                             Padding="12,6"
-                            ToolTip.Tip="Back to Player">
+                            ToolTip.Tip="Back to now playing">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <TextBlock Text="⬅️"/>
                             <TextBlock Text="Back"/>

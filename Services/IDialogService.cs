@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using SLSKDONET.Models;
+using SLSKDONET.ViewModels;
 
 namespace SLSKDONET.Services;
 
@@ -41,4 +42,6 @@ public interface IDialogService
     /// </summary>
     /// <returns>Selected folder path or null if cancelled.</returns>
     Task<string?> OpenFolderDialogAsync(string title);
+
+    Task ShowSuggestedFlowImpactAsync(SuggestedFlowImpactViewModel vm);
 }

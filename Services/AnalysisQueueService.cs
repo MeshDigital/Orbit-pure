@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
 using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -37,6 +39,8 @@ public class AnalysisQueueService : IDisposable
     private readonly AnalyzeTrackStructureJob? _analyzeTrackStructureJob;
     private readonly IDisposable _requestSubscription;
     private readonly SemaphoreSlim _parallelismGate;
+    private readonly ConcurrentDictionary<string, byte> _activeTrackHashes = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, byte> _scheduledTrackHashes = new(StringComparer.Ordinal);
 
     private bool _isStealthMode;
     private int _queuedCount;
@@ -93,11 +97,23 @@ public class AnalysisQueueService : IDisposable
 
     private void OnAnalysisRequested(TrackAnalysisRequestedEvent evt)
     {
+        if (string.IsNullOrWhiteSpace(evt.TrackGlobalId))
+        {
+            _logger.LogWarning("Ignoring analysis request with empty track hash.");
+            return;
+        }
+
+        if (!_scheduledTrackHashes.TryAdd(evt.TrackGlobalId, 0))
+        {
+            _logger.LogDebug("Suppressing duplicate analysis request for track {TrackGlobalId}", evt.TrackGlobalId);
+            PublishStatus(_isStealthMode ? "Stealth (Low CPU)" : "Standard");
+            return;
+        }
+
         _logger.LogDebug("Analysis requested for track {TrackGlobalId} at tier {Tier}",
             evt.TrackGlobalId, evt.Tier);
 
-        _queuedCount++;
-        _currentTrackHash = evt.TrackGlobalId;
+        Interlocked.Increment(ref _queuedCount);
         PublishStatus(_isStealthMode ? "Stealth (Low CPU)" : "Standard");
 
         // Fire-and-forget the async dispatch so the subscription callback returns quickly.
@@ -115,6 +131,7 @@ public class AnalysisQueueService : IDisposable
     /// </summary>
     private async Task DispatchAnalysisJobAsync(TrackAnalysisRequestedEvent evt)
     {
+        var completedOrFailed = false;
         await _parallelismGate.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -147,21 +164,28 @@ public class AnalysisQueueService : IDisposable
             {
                 var message = $"Track file not found for analysis: {evt.TrackGlobalId}";
                 _logger.LogWarning("{Message}", message);
+                PublishProgress(evt.TrackGlobalId, "File not found", 100);
                 _eventBus.Publish(new TrackAnalysisFailedEvent(evt.TrackGlobalId, message));
                 _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, false, message));
+                completedOrFailed = true;
                 return;
             }
 
             if (_audioAnalysisService is null || _analyzeTrackStructureJob is null)
             {
                 _logger.LogWarning("Analysis services are not available; completing request for {TrackGlobalId} in no-op mode.", evt.TrackGlobalId);
-                _processedCount++;
-                _currentTrackHash = null;
+                Interlocked.Increment(ref _processedCount);
+                PublishProgress(evt.TrackGlobalId, "Analysis services unavailable", 100);
+                _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, false, "Analysis services unavailable"));
+                completedOrFailed = true;
                 PublishStatus(_isStealthMode ? "Stealth (Low CPU)" : "Standard");
                 return;
             }
 
+            _activeTrackHashes.TryAdd(evt.TrackGlobalId, 0);
+            _currentTrackHash = evt.TrackGlobalId;
             _eventBus.Publish(new TrackAnalysisStartedEvent(evt.TrackGlobalId, Path.GetFileName(filePath)));
+            PublishProgress(evt.TrackGlobalId, "Analyzing audio", 20);
 
             var analysis = await _audioAnalysisService
                 .AnalyzeFileAsync(filePath, evt.TrackGlobalId, cancellationToken: CancellationToken.None)
@@ -171,40 +195,67 @@ public class AnalysisQueueService : IDisposable
             {
                 var message = $"Audio analysis returned no result for {Path.GetFileName(filePath)}";
                 _logger.LogWarning("{Message}", message);
+                PublishProgress(evt.TrackGlobalId, "Analysis returned no result", 100);
                 _eventBus.Publish(new TrackAnalysisFailedEvent(evt.TrackGlobalId, message));
                 _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, false, message));
+                completedOrFailed = true;
                 return;
             }
 
+            PublishProgress(evt.TrackGlobalId, "Computing structure", 75);
             await _analyzeTrackStructureJob.ExecuteAsync(evt.TrackGlobalId).ConfigureAwait(false);
 
-            _processedCount++;
-            _currentTrackHash = null;
+            Interlocked.Increment(ref _processedCount);
+            PublishProgress(evt.TrackGlobalId, "Completed", 100);
             PublishStatus(_isStealthMode ? "Stealth (Low CPU)" : "Standard");
             _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, true));
+            completedOrFailed = true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Analysis job failed for {TrackGlobalId}", evt.TrackGlobalId);
+            PublishProgress(evt.TrackGlobalId, "Analysis failed", 100);
             _eventBus.Publish(new TrackAnalysisFailedEvent(evt.TrackGlobalId, ex.Message));
             _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, false, ex.Message));
+            completedOrFailed = true;
         }
         finally
         {
-            _currentTrackHash = null;
+            if (completedOrFailed)
+            {
+                var remaining = Interlocked.Decrement(ref _queuedCount);
+                if (remaining < 0)
+                {
+                    Interlocked.Exchange(ref _queuedCount, 0);
+                }
+            }
+
+            _activeTrackHashes.TryRemove(evt.TrackGlobalId, out _);
+            _scheduledTrackHashes.TryRemove(evt.TrackGlobalId, out _);
+            _currentTrackHash = _activeTrackHashes.Keys.FirstOrDefault()
+                ?? _scheduledTrackHashes.Keys.FirstOrDefault();
             PublishStatus(_isStealthMode ? "Stealth (Low CPU)" : "Standard");
             _parallelismGate.Release();
         }
     }
 
+    private void PublishProgress(string trackGlobalId, string step, int percent)
+    {
+        _eventBus.Publish(new AnalysisProgressEvent(
+            trackGlobalId,
+            step,
+            Math.Clamp(percent, 0, 100)));
+    }
+
     private void PublishStatus(string performanceMode)
     {
         _eventBus.Publish(new AnalysisQueueStatusChangedEvent(
-            QueuedCount: _queuedCount,
-            ProcessedCount: _processedCount,
+            QueuedCount: Math.Max(0, Volatile.Read(ref _queuedCount)),
+            ProcessedCount: Math.Max(0, Volatile.Read(ref _processedCount)),
             CurrentTrackHash: _currentTrackHash,
             IsPaused: false,
-            PerformanceMode: performanceMode));
+            PerformanceMode: performanceMode,
+            MaxConcurrency: MaxWorkers));
     }
 
     public void Dispose()

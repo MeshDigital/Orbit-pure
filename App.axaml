@@ -91,6 +91,12 @@
         <StreamGeometry x:Key="pause_regular">M14,19H18V5H14M6,19H10V5H6V19Z</StreamGeometry>
         <StreamGeometry x:Key="dismiss_regular">M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z</StreamGeometry>
         <StreamGeometry x:Key="arrow_counterclockwise_regular">M13,3A9,9 0 0,0 4,12H1L4.89,15.89L8.78,12H6A7,7 0 0,1 13,5A7,7 0 0,1 20,12A7,7 0 0,1 13,19C11.07,19 9.32,18.21 8.06,16.94L6.64,18.36C8.27,20 10.5,21 13,21A9,9 0 0,0 22,12A9,9 0 0,0 13,3Z</StreamGeometry>
+        <!-- Workstation SVG-mapped icon geometries (assets/icons/svg) -->
+        <StreamGeometry x:Key="ws_redo_regular">M11,3A9,9 0 0,1 20,12H23L19.11,15.89L15.22,12H18A7,7 0 0,0 11,5A7,7 0 0,0 4,12A7,7 0 0,0 11,19C12.93,19 14.68,18.21 15.94,16.94L17.36,18.36C15.73,20 13.5,21 11,21A9,9 0 0,1 2,12A9,9 0 0,1 11,3Z</StreamGeometry>
+        <StreamGeometry x:Key="ws_pan_left_regular">M15,18L9,12L15,6V18Z</StreamGeometry>
+        <StreamGeometry x:Key="ws_pan_right_regular">M9,6L15,12L9,18V6Z</StreamGeometry>
+        <StreamGeometry x:Key="ws_zoom_in_regular">M11,7H13V11H17V13H13V17H11V13H7V11H11V7Z</StreamGeometry>
+        <StreamGeometry x:Key="ws_zoom_out_regular">M7,11H17V13H7V11Z</StreamGeometry>
         <StreamGeometry x:Key="radar_regular">M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6A6,6 0 0,0 6,12A6,6 0 0,0 12,18A6,6 0 0,0 18,12A6,6 0 0,0 12,6M12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12A2,2 0 0,1 12,10</StreamGeometry>
         <StreamGeometry x:Key="music_regular">M21,3V15.5A3.5,3.5 0 0,1 17.5,19A3.5,3.5 0 0,1 14,15.5A3.5,3.5 0 0,1 17.5,12C18.04,12 18.55,12.12 19,12.34V6.47L9,8.6V17.5A3.5,3.5 0 0,1 5.5,21A3.5,3.5 0 0,1 2,17.5A3.5,3.5 0 0,1 5.5,14C6.04,14 6.55,14.12 7,14.34V6L21,3Z</StreamGeometry>
         <StreamGeometry x:Key="mic_regular">M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z</StreamGeometry>
@@ -115,6 +121,7 @@
         <FluentTheme/>
         <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml"/>
         <StyleInclude Source="avares://Avalonia.Controls.TreeDataGrid/Themes/Fluent.axaml"/>
+        <StyleInclude Source="avares://ORBIT/src/UI/Tokens/DpiTokens.axaml"/>
         <StyleInclude Source="avares://ORBIT/Themes/AvaloniaTheme.axaml"/>
         <StyleInclude Source="avares://ORBIT/Themes/GlassConsoleStyles.axaml"/>
 

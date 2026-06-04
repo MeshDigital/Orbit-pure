@@ -22,7 +22,7 @@
         </Style>
         <Style Selector="Button.ActionBtn:hover">
             <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
         </Style>
         <Style Selector="ToggleButton.ActionBtn">
             <Setter Property="Background" Value="Transparent"/>
@@ -35,11 +35,11 @@
         </Style>
         <Style Selector="ToggleButton.ActionBtn:hover">
             <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
         </Style>
         <Style Selector="ToggleButton.ActionBtn:checked">
-            <Setter Property="Background" Value="#3300BFFF"/>
-            <Setter Property="Foreground" Value="#00BFFF"/>
+            <Setter Property="Background" Value="{DynamicResource AccentGlowBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
         </Style>
 
         <Style Selector="Button.pending">
@@ -54,13 +54,13 @@
             <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
         <Style Selector="Border.IntegrityBadge.Secure">
-            <Setter Property="Background" Value="#2000FF00"/>
-            <Setter Property="BorderBrush" Value="#00FF00"/>
+            <Setter Property="Background" Value="{DynamicResource GlassThinBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BrushSuccess}"/>
             <Setter Property="BorderThickness" Value="1"/>
         </Style>
         <Style Selector="Border.IntegrityBadge.Suspect">
-            <Setter Property="Background" Value="#20FFD700"/>
-            <Setter Property="BorderBrush" Value="#FFD700"/>
+            <Setter Property="Background" Value="{DynamicResource GlassThinBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BrushWarning}"/>
             <Setter Property="BorderThickness" Value="1"/>
         </Style>
         
@@ -103,11 +103,11 @@
         
         <!-- Card Style (Phase 0.7) -->
         <Style Selector=":is(UserControl).card Border.root">
-            <Setter Property="Background" Value="#252526"/>
-            <Setter Property="BorderBrush" Value="#333"/>
+            <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Padding" Value="12"/>
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusMd}"/>
+            <Setter Property="Padding" Value="{DynamicResource PaddingMd}"/>
             <Setter Property="Margin" Value="0,0,0,8"/>
         </Style>
 
@@ -120,11 +120,11 @@
         <Style Selector="Border.InFlightRow">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0,0,0,1"/>
-            <Setter Property="BorderBrush" Value="#222222"/>
-            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="Padding" Value="{DynamicResource PaddingMd}"/>
         </Style>
         <Style Selector="Border.InFlightRow:hover">
-            <Setter Property="Background" Value="#33FFFFFF"/>
+            <Setter Property="Background" Value="{DynamicResource GlassHeavyBrush}"/>
         </Style>
 
         <Style Selector="TextBlock.LED">
@@ -134,9 +134,9 @@
         </Style>
 
         <Style Selector="Border.root.active">
-            <Setter Property="BorderBrush" Value="#00BCD4"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BoxShadow" Value="0 0 15 0 #2000BCD4"/>
+            <Setter Property="BoxShadow" Value="{DynamicResource ShadowAccent}"/>
             <Style.Animations>
                 <Animation Duration="0:0:3" IterationCount="Infinite">
                     <KeyFrame KeyTime="0:0:0"><Setter Property="Opacity" Value="1.0" /></KeyFrame>
@@ -147,13 +147,13 @@
         </Style>
         
         <Style Selector="Border.root.stalled">
-            <Setter Property="BorderBrush" Value="Orange"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BrushWarning}"/>
             <Setter Property="Opacity" Value="0.7"/>
             <Style.Animations>
                 <Animation Duration="0:0:1" IterationCount="Infinite">
-                    <KeyFrame KeyTime="0:0:0"><Setter Property="BorderBrush" Value="OrangeRed"/></KeyFrame>
+                    <KeyFrame KeyTime="0:0:0"><Setter Property="BorderBrush" Value="{DynamicResource BrushWarning}"/></KeyFrame>
                     <KeyFrame KeyTime="0:0:0.5"><Setter Property="BorderBrush" Value="Transparent"/></KeyFrame>
-                    <KeyFrame KeyTime="0:0:1"><Setter Property="BorderBrush" Value="OrangeRed"/></KeyFrame>
+                    <KeyFrame KeyTime="0:0:1"><Setter Property="BorderBrush" Value="{DynamicResource BrushWarning}"/></KeyFrame>
                 </Animation>
             </Style.Animations>
         </Style>
@@ -161,12 +161,12 @@
         <!-- Unified Session Ledger: completed row — faint green tint, dimmed -->
         <Style Selector="Border.root.completed">
             <Setter Property="Opacity" Value="0.65"/>
-            <Setter Property="Background" Value="#0D1DB954"/>
+            <Setter Property="Background" Value="{DynamicResource BrushAccentSubtle}"/>
         </Style>
 
         <!-- Unified Session Ledger: failed row — faint red tint -->
         <Style Selector="Border.root.failed">
-            <Setter Property="Background" Value="#1A2C1F1F"/>
+            <Setter Property="Background" Value="{DynamicResource GlassHeavyBrush}"/>
         </Style>
 
         <!-- Always reveal action hub for terminal states so the user can act without hovering -->
@@ -209,13 +209,13 @@
             <Border Grid.Column="0" Width="44" Height="44" Margin="6,4,8,4" CornerRadius="4" ClipToBounds="True" Background="{DynamicResource SurfaceBrush}" VerticalAlignment="Center">
                 <Panel>
                     <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill" RenderOptions.BitmapInterpolationMode="MediumQuality" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-                    <PathIcon Data="{StaticResource music_regular}" Foreground="#333" Width="20" Height="20" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNull}}"/>
+                    <PathIcon Data="{StaticResource music_regular}" Foreground="{DynamicResource TextDisabledBrush}" Width="20" Height="20" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNull}}"/>
                     
                     <!-- Progress Overlay -->
-                    <Arc Width="36" Height="36" StartAngle="-90" SweepAngle="{Binding Progress, Converter={StaticResource PercentageToAngleConverter}}" Stroke="#00BFFF" StrokeThickness="2" IsVisible="{Binding IsActive}" Opacity="0.8"/>
+                    <Arc Width="36" Height="36" StartAngle="-90" SweepAngle="{Binding Progress, Converter={StaticResource PercentageToAngleConverter}}" Stroke="{DynamicResource AccentBrush}" StrokeThickness="2" IsVisible="{Binding IsActive}" Opacity="0.8"/>
                     
                     <!-- Activity Icons (Phase 11.1 Gating) -->
-                    <Border Background="#66000000" IsVisible="{Binding IsActive}" CornerRadius="4">
+                    <Border Background="{DynamicResource GlassHeavyBrush}" IsVisible="{Binding IsActive}" CornerRadius="4">
                         <Panel>
                              <TextBlock Text="🔍" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding IsSearching}">
                                  <TextBlock.Styles>
@@ -235,7 +235,7 @@
                     </Border>
                     
                     <!-- Enrichment Progress (Phase 2.1) -->
-                    <Arc Stroke="#C586C0" StrokeThickness="2" StartAngle="0" SweepAngle="300" Width="42" Height="42" IsVisible="{Binding IsAnalyzing}">
+                    <Arc Stroke="{DynamicResource BrushStemOther}" StrokeThickness="2" StartAngle="0" SweepAngle="300" Width="42" Height="42" IsVisible="{Binding IsAnalyzing}">
                         <Arc.RenderTransform>
                             <RotateTransform Angle="0"/>
                         </Arc.RenderTransform>
@@ -256,7 +256,7 @@
                     </Arc>
 
                     <!-- Spotify/MB Enrichment Progress (Phase 2.1) -->
-                    <Arc Stroke="#1DB954" StrokeThickness="2" StartAngle="180" SweepAngle="120" Width="48" Height="48" IsVisible="{Binding IsEnriching}">
+                    <Arc Stroke="{DynamicResource BrushSuccess}" StrokeThickness="2" StartAngle="180" SweepAngle="120" Width="48" Height="48" IsVisible="{Binding IsEnriching}">
                         <Arc.RenderTransform>
                             <RotateTransform Angle="0"/>
                         </Arc.RenderTransform>
@@ -277,22 +277,22 @@
                     </Arc>
 
                     <!-- Phase 12.3: Bulk Selection Overlay -->
-                    <Border Background="#40000000" IsVisible="{Binding IsSelected}" VerticalAlignment="Stretch" HorizontalAlignment="Stretch"/>
+                    <Border Background="{DynamicResource GlassHeavyBrush}" IsVisible="{Binding IsSelected}" VerticalAlignment="Stretch" HorizontalAlignment="Stretch"/>
                     <CheckBox IsChecked="{Binding IsSelected}" 
                               HorizontalAlignment="Left" VerticalAlignment="Top" 
                               Margin="-2,-2,0,0">
                          <CheckBox.Styles>
                              <Style Selector="CheckBox">
                                  <Setter Property="Opacity" Value="0"/> 
-                                 <Setter Property="Background" Value="#222"/>
-                                 <Setter Property="BorderBrush" Value="#666"/>
+                                 <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+                                 <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
                              </Style>
                              <Style Selector="CheckBox:pointerover">
                                  <Setter Property="Opacity" Value="1"/>
                              </Style>
                              <Style Selector="CheckBox:checked">
                                  <Setter Property="Opacity" Value="1"/>
-                                 <Setter Property="Background" Value="#00BFFF"/>
+                                 <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
                              </Style>
                          </CheckBox.Styles>
                     </CheckBox>
@@ -324,9 +324,9 @@
                 <Panel>
                      <!-- The Data is Present -->
                      <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding HasBpm}">
-                         <TextBlock Text="{Binding BpmDisplay}" Foreground="#AAA" FontSize="11" Width="32" TextAlignment="Right" VerticalAlignment="Center"/>
+                         <TextBlock Text="{Binding BpmDisplay}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Width="32" TextAlignment="Right" VerticalAlignment="Center"/>
                          <Border Background="{Binding ColorBrush}" CornerRadius="4" Padding="4,1" MinWidth="32" VerticalAlignment="Center">
-                             <TextBlock Text="{Binding CamelotDisplay}" Foreground="White" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center"/>
+                             <TextBlock Text="{Binding CamelotDisplay}" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center"/>
                          </Border>
                      </StackPanel>
 
@@ -343,8 +343,8 @@
                 <Panel>
                     <!-- STATE A: Searching (Clean, No clutter) -->
                     <StackPanel Spacing="4" IsVisible="{Binding IsSearching}">
-                        <TextBlock Text="Searching Soulseek..." Classes="pulsing" FontSize="11" Foreground="#00BCD4" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding SearchCountdownDisplay, StringFormat='{}Time Left: {0}'}" FontSize="10" Foreground="#5A7080" Opacity="0.8"/>
+                        <TextBlock Text="Searching Soulseek..." Classes="pulsing" FontSize="11" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding SearchCountdownDisplay, StringFormat='{}Time Left: {0}'}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" Opacity="0.8"/>
                     </StackPanel>
 
                     <!-- STATE B: Downloading / Finalized (Metrics visible) -->
@@ -360,13 +360,13 @@
                              </Border>
                              
                              <!-- Technical Bitrate/Duration -->
-                             <TextBlock Text="{Binding TechnicalSummary}" FontSize="10" Foreground="#888" VerticalAlignment="Center" Opacity="0.8"/>
+                             <TextBlock Text="{Binding TechnicalSummary}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Opacity="0.8"/>
 
                              <!-- Synergy (Core) -->
-                             <Border Background="#1A1F2C" CornerRadius="4" Padding="6,2" BorderBrush="#00BFFF" BorderThickness="1" IsVisible="{Binding HasCrossProjectReference}">
+                             <Border Background="{DynamicResource GlassThinBrush}" CornerRadius="4" Padding="6,2" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" IsVisible="{Binding HasCrossProjectReference}">
                                  <StackPanel Orientation="Horizontal" Spacing="6">
                                      <TextBlock Text="🔗" FontSize="10" VerticalAlignment="Center"/>
-                                     <TextBlock Text="{Binding CrossProjectReference}" FontSize="9" Foreground="#00BFFF" FontWeight="Black" VerticalAlignment="Center" MaxWidth="120" TextTrimming="CharacterEllipsis"/>
+                                     <TextBlock Text="{Binding CrossProjectReference}" FontSize="9" Foreground="{DynamicResource AccentBrush}" FontWeight="Black" VerticalAlignment="Center" MaxWidth="120" TextTrimming="CharacterEllipsis"/>
                                  </StackPanel>
                              </Border>
                         </StackPanel>
@@ -379,8 +379,8 @@
                              <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsDownloading}">
                                  <Border Background="{StaticResource AccentBrush}" CornerRadius="4" Padding="4,1">
                                      <StackPanel Orientation="Horizontal" Spacing="4">
-                                         <TextBlock Text="{Binding SpeedTrend}" FontSize="9" FontWeight="Black" Foreground="Black"/>
-                                         <TextBlock Text="{Binding SpeedDisplay}" FontSize="9" FontWeight="Bold" Foreground="Black"/>
+                                         <TextBlock Text="{Binding SpeedTrend}" FontSize="9" FontWeight="Black" Foreground="{DynamicResource BrushBg0}"/>
+                                         <TextBlock Text="{Binding SpeedDisplay}" FontSize="9" FontWeight="Bold" Foreground="{DynamicResource BrushBg0}"/>
                                      </StackPanel>
                                  </Border>
                                  <!-- Speed sparkline (30-point rolling history) -->
@@ -390,16 +390,16 @@
                              </StackPanel>
                              
                              <!-- Rejection Summary (Core) -->
-                             <TextBlock Text="{Binding RejectionSummary}" FontSize="9" Foreground="#666" VerticalAlignment="Center" IsVisible="{Binding IsFailed}" TextTrimming="CharacterEllipsis" MaxWidth="300" Opacity="0.7"/>
+                                 <TextBlock Text="{Binding RejectionSummary}" FontSize="9" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" IsVisible="{Binding IsFailed}" TextTrimming="CharacterEllipsis" MaxWidth="300" Opacity="0.7"/>
                         </StackPanel>
 
-                        <Border IsVisible="{Binding HasIncomingResults}" Background="#1A2028" BorderBrush="{Binding LatestIncomingStateColor}" BorderThickness="1" CornerRadius="4" Padding="6,3" MaxWidth="520">
+                        <Border IsVisible="{Binding HasIncomingResults}" Background="{DynamicResource GlassThinBrush}" BorderBrush="{Binding LatestIncomingStateColor}" BorderThickness="1" CornerRadius="4" Padding="6,3" MaxWidth="520">
                             <Grid ColumnDefinitions="Auto,Auto,*">
-                                <TextBlock Grid.Column="0" Text="{Binding LatestIncomingTimeDisplay}" FontSize="9" Foreground="#888" VerticalAlignment="Center"/>
-                                <Border Grid.Column="1" Background="#1D2228" BorderBrush="{Binding LatestIncomingStateColor}" BorderThickness="1" CornerRadius="3" Padding="5,1" VerticalAlignment="Center" Margin="8,0,0,0">
+                                <TextBlock Grid.Column="0" Text="{Binding LatestIncomingTimeDisplay}" FontSize="9" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                                <Border Grid.Column="1" Background="{DynamicResource SecondaryBackgroundBrush}" BorderBrush="{Binding LatestIncomingStateColor}" BorderThickness="1" CornerRadius="3" Padding="5,1" VerticalAlignment="Center" Margin="8,0,0,0">
                                     <TextBlock Text="{Binding LatestIncomingStateLabel}" FontSize="9" FontWeight="Bold" Foreground="{Binding LatestIncomingStateColor}"/>
                                 </Border>
-                                <TextBlock Grid.Column="2" Text="{Binding LatestIncomingMessage}" FontSize="10" Foreground="#B0BEC5" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                <TextBlock Grid.Column="2" Text="{Binding LatestIncomingMessage}" FontSize="10" Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="8,0,0,0"/>
                             </Grid>
                         </Border>
                     </StackPanel>
@@ -410,9 +410,9 @@
             <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center" Spacing="4" Margin="8,0" IsVisible="{Binding !IsCompact, ElementName=RootControl}">
                 <!-- Quality Pill -->
                 <Border IsVisible="{Binding HasQualityPill}"
-                        Background="#1A1F2C" BorderBrush="#00BFFF" BorderThickness="1"
+                        Background="{DynamicResource GlassThinBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
                         CornerRadius="10" Padding="8,1" ToolTip.Tip="Bitrate / sample rate from Soulseek attributes">
-                    <TextBlock Text="{Binding QualityPillText}" FontSize="9" FontWeight="Bold" Foreground="#00BFFF" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding QualityPillText}" FontSize="9" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center"/>
                 </Border>
 
                 <!-- Forensic Badge -->
@@ -430,7 +430,7 @@
 
                 <!-- Spectral Integrity Badge (shown on completed tracks after post-download analysis) -->
                 <Border IsVisible="{Binding HasSpectralVerdict}"
-                        Background="#15000000"
+                    Background="{DynamicResource GlassThinBrush}"
                         BorderBrush="{Binding SpectralVerdictColor}"
                         BorderThickness="1"
                         CornerRadius="10" Padding="8,1"
@@ -442,13 +442,13 @@
                 </Border>
 
                 <!-- Warning Badges (Shield, Risk, etc) -->
-                <Border IsVisible="{Binding IsHighRisk}" Background="#E91E63" CornerRadius="4" Padding="6,2" ToolTip.Tip="{Binding FlagReason}">
-                    <TextBlock Text="HIGH RISK" FontSize="9" FontWeight="Bold" Foreground="White"/>
+                <Border IsVisible="{Binding IsHighRisk}" Background="{DynamicResource BrushError}" CornerRadius="4" Padding="6,2" ToolTip.Tip="{Binding FlagReason}">
+                    <TextBlock Text="HIGH RISK" FontSize="9" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}"/>
                 </Border>
                 
                 <!-- Match Reasons (Only if not minimal) -->
-                <Border IsVisible="{Binding !MinimalBadges}" Background="{StaticResource GlassThinBrush}" BorderBrush="#30FFD700" BorderThickness="1" CornerRadius="4" Padding="6,2">
-                    <TextBlock Text="{Binding DiscoveryBadgeText}" FontSize="9" Foreground="#FFD700" IsVisible="{Binding DiscoveryBadgeText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                <Border IsVisible="{Binding !MinimalBadges}" Background="{StaticResource GlassThinBrush}" BorderBrush="{DynamicResource BrushWarning}" BorderThickness="1" CornerRadius="4" Padding="6,2">
+                    <TextBlock Text="{Binding DiscoveryBadgeText}" FontSize="9" Foreground="{DynamicResource BrushWarning}" IsVisible="{Binding DiscoveryBadgeText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                 </Border>
                 
                 <!-- Peer Info -->
@@ -460,24 +460,24 @@
             <!-- Column 6: Action Hub (Unified Session Ledger) -->
             <StackPanel Grid.Column="6" Classes="ActionHub" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center" Margin="0,0,8,0">
                 <!-- Session Ledger: terminal state indicators -->
-                <TextBlock Text="✓" FontSize="13" FontWeight="Black" Foreground="#4CAF50" IsVisible="{Binding IsCompleted}" Margin="0,0,4,0"/>
-                <TextBlock Text="✕" FontSize="13" FontWeight="Black" Foreground="#FF5252" IsVisible="{Binding IsFailed}" Margin="0,0,4,0"/>
+                <TextBlock Text="✓" FontSize="13" FontWeight="Black" Foreground="{DynamicResource BrushSuccess}" IsVisible="{Binding IsCompleted}" Margin="0,0,4,0"/>
+                <TextBlock Text="✕" FontSize="13" FontWeight="Black" Foreground="{DynamicResource BrushError}" IsVisible="{Binding IsFailed}" Margin="0,0,4,0"/>
 
                 <!-- Group 1: Terminal/Success -->
                 <Button Classes="ActionBtn" Command="{Binding PlayCommand}" IsVisible="{Binding IsCompleted}" ToolTip.Tip="Play"><PathIcon Data="{StaticResource play_circle_regular}" Width="18" Height="18" Foreground="{StaticResource AccentBrush}"/></Button>
                 <Button Classes="ActionBtn" Command="{Binding RevealFileCommand}" IsVisible="{Binding IsCompleted}" ToolTip.Tip="Show in Explorer"><PathIcon Data="{StaticResource folder_open_regular}" Width="16" Height="16"/></Button>
                 
                 <!-- Group 2: Recovery (Core Feature) -->
-                <Button Classes="ActionBtn" Command="{Binding ViewAllSearchResultsCommand}" IsVisible="{Binding IsFailed}" ToolTip.Tip="Deep Search (Manual Overwrite)" Background="#1000BFFF" BorderBrush="#2000BFFF" BorderThickness="1">
-                    <PathIcon Data="{StaticResource search_regular}" Width="16" Height="16" Foreground="#00BFFF"/>
+                <Button Classes="ActionBtn" Command="{Binding ViewAllSearchResultsCommand}" IsVisible="{Binding IsFailed}" ToolTip.Tip="Deep Search (Manual Overwrite)" Background="{DynamicResource AccentGlowBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1">
+                    <PathIcon Data="{StaticResource search_regular}" Width="16" Height="16" Foreground="{DynamicResource AccentBrush}"/>
                 </Button>
-                <Button Classes="ActionBtn" Command="{Binding RetryCommand}" IsVisible="{Binding CanRetry}" ToolTip.Tip="Retry"><PathIcon Data="{StaticResource arrow_counterclockwise_regular}" Width="14" Height="14" Foreground="#4CAF50"/></Button>
+                <Button Classes="ActionBtn" Command="{Binding RetryCommand}" IsVisible="{Binding CanRetry}" ToolTip.Tip="Retry"><PathIcon Data="{StaticResource arrow_counterclockwise_regular}" Width="14" Height="14" Foreground="{DynamicResource BrushSuccess}"/></Button>
 
                 <!-- Group 3: Active Controls -->
-                <Button Classes="ActionBtn" Command="{Binding ForceStartCommand}" IsVisible="{Binding CanForceStart}" ToolTip.Tip="Force Start (Priority 0)"><PathIcon Data="{StaticResource rocket_regular}" Width="18" Height="18" Foreground="#FFD700"/></Button>
-                <Button Classes="ActionBtn" Command="{Binding ResumeCommand}" IsVisible="{Binding CanResume}" ToolTip.Tip="Resume"><PathIcon Data="{StaticResource play_regular}" Width="14" Height="14" Foreground="#4CAF50"/></Button>
+                <Button Classes="ActionBtn" Command="{Binding ForceStartCommand}" IsVisible="{Binding CanForceStart}" ToolTip.Tip="Force Start (Priority 0)"><PathIcon Data="{StaticResource rocket_regular}" Width="18" Height="18" Foreground="{DynamicResource BrushWarning}"/></Button>
+                <Button Classes="ActionBtn" Command="{Binding ResumeCommand}" IsVisible="{Binding CanResume}" ToolTip.Tip="Resume"><PathIcon Data="{StaticResource play_regular}" Width="14" Height="14" Foreground="{DynamicResource BrushSuccess}"/></Button>
                 <Button Classes="ActionBtn" Command="{Binding PauseCommand}" IsVisible="{Binding IsActive}" ToolTip.Tip="Pause"><PathIcon Data="{StaticResource pause_regular}" Width="14" Height="14"/></Button>
-                <Button Classes="ActionBtn" Command="{Binding CancelCommand}" IsVisible="{Binding IsActive}" ToolTip.Tip="Cancel"><PathIcon Data="{StaticResource dismiss_regular}" Width="14" Height="14" Foreground="#FF6666"/></Button>
+                <Button Classes="ActionBtn" Command="{Binding CancelCommand}" IsVisible="{Binding IsActive}" ToolTip.Tip="Cancel"><PathIcon Data="{StaticResource dismiss_regular}" Width="14" Height="14" Foreground="{DynamicResource BrushError}"/></Button>
                 
                 <ToggleButton Classes="ActionBtn" IsChecked="{Binding IsConsoleOpen}" ToolTip.Tip="Toggle Live Log"><PathIcon Data="{StaticResource text_bullet_list_square_regular}" Width="14" Height="14"/></ToggleButton>
             </StackPanel>
@@ -485,7 +485,7 @@
 
         <!-- Phase 12.8: Progress Underline (Hyper-optimized render) -->
         <ProgressBar Grid.Row="1" Height="2" Minimum="0" Maximum="100" Value="{Binding Progress}" 
-                     IsVisible="{Binding IsActive}" Foreground="#00BFFF" Background="Transparent" 
+                     IsVisible="{Binding IsActive}" Foreground="{DynamicResource AccentBrush}" Background="Transparent" 
                      BorderThickness="0" CornerRadius="0" VerticalAlignment="Bottom"
                      Opacity="0.8"/>
     </Grid>

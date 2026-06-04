@@ -32,7 +32,7 @@ public sealed class SearchLimitExceededException : Exception
 /// <summary>
 /// Real Soulseek.NET adapter for network interactions.
 /// </summary>
-public class SoulseekAdapter : ISoulseekAdapter, IDisposable
+public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
 {
     private sealed record RuntimeNetworkConfigSnapshot(int ConnectTimeout, int ListenPort);
 
@@ -44,6 +44,7 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
     private readonly ILogger<SoulseekAdapter> _logger;
     private readonly AppConfig _config;
     private readonly IEventBus _eventBus;
+    private readonly FrequentSourceService? _frequentSourceService;
     private readonly SemaphoreSlim _connectLock = new(1, 1);
     public bool IsConnected => _client?.State.HasFlag(SoulseekClientStates.Connected) == true && 
                               !_client.State.HasFlag(SoulseekClientStates.Disconnecting);
@@ -82,13 +83,14 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
         "ExcludedSearchPhrasesReceived"
     };
 
-    public SoulseekAdapter(ILogger<SoulseekAdapter> logger, AppConfig config, Network.ProtocolHardeningService hardeningService, IEventBus eventBus, INetworkHealthService healthService)
+    public SoulseekAdapter(ILogger<SoulseekAdapter> logger, AppConfig config, Network.ProtocolHardeningService hardeningService, IEventBus eventBus, INetworkHealthService healthService, FrequentSourceService? frequentSourceService = null)
     {
         _logger = logger;
         _config = config;
         _hardeningService = hardeningService;
         _eventBus = eventBus;
         _healthService = healthService;
+        _frequentSourceService = frequentSourceService;
     }
 
     private SoulseekClient? _client;
@@ -1792,6 +1794,22 @@ public class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 this._logger.LogInformation("Download completed: {Filename}", filename);
                 progress?.Report(1.0);
                 _eventBus.Publish(new TransferFinishedEvent(filename, username));
+
+                try
+                {
+                    await TryRecordFrequentSourceDownloadAsync(
+                        _frequentSourceService,
+                        username,
+                        filename,
+                        size,
+                        lastBytes,
+                        DateTime.UtcNow,
+                        ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Frequent Sources hook failed for {Username}/{Filename}", username, filename);
+                }
                 
                 DownloadCompleted?.Invoke(this, new DownloadCompletedEventArgs(filename, username, true));
                 

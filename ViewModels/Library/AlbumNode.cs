@@ -18,6 +18,7 @@ public class AlbumNode : ILibraryNode, INotifyPropertyChanged
 {
     private readonly DownloadManager? _downloadManager;
     private readonly ArtworkCacheService? _artworkCacheService;
+    private readonly IEventBus? _eventBus;
     private ArtworkProxy? _artwork;
     
     public string? AlbumTitle { get; set; }
@@ -103,12 +104,13 @@ public class AlbumNode : ILibraryNode, INotifyPropertyChanged
         return new SolidColorBrush(Color.FromRgb(r, g, b));
     }
 
-    public AlbumNode(string? albumTitle, string? artist, DownloadManager? downloadManager = null, ArtworkCacheService? artworkCacheService = null)
+    public AlbumNode(string? albumTitle, string? artist, DownloadManager? downloadManager = null, ArtworkCacheService? artworkCacheService = null, IEventBus? eventBus = null)
     {
         AlbumTitle = albumTitle;
         Artist = artist;
         _downloadManager = downloadManager;
         _artworkCacheService = artworkCacheService;
+        _eventBus = eventBus;
         
         DownloadAlbumCommand = new RelayCommand(DownloadAlbum);
         DownloadMissingCommand = new RelayCommand(DownloadMissing);
@@ -161,13 +163,16 @@ public class AlbumNode : ILibraryNode, INotifyPropertyChanged
 
     private void PlayAlbum()
     {
-        // TODO: Wire up to PlayerService via LibraryViewModel or EventBus
-        // For now, simple placeholder or invoke a track play
-        if (Tracks.Any())
-        {
-            // Just requesting play of first track? Or queue all?
-            // PlayerViewModel.Instance.PlayTrack(Tracks.First()); 
-        }
+        if (!Tracks.Any()) return;
+
+        var tracks = Tracks
+            .Where(t => t.Model != null && !string.IsNullOrEmpty(t.Model.ResolvedFilePath))
+            .Select(t => t.Model)
+            .ToList();
+
+        if (tracks.Count == 0) return;
+
+        _eventBus?.Publish(new PlayAlbumRequestEvent(tracks));
     }
 
     private void UpdateAlbumArt()

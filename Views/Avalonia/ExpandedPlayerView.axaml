@@ -43,7 +43,7 @@
                         Background="Transparent"
                         BorderThickness="0"
                         Padding="8"
-                        ToolTip.Tip="Collapse player">
+                        ToolTip.Tip="Collapse now playing">
                     <TextBlock Text="⌃" FontSize="22" Foreground="White" />
                 </Button>
 

@@ -311,7 +311,11 @@ public sealed class PhraseAlignmentService : IPhraseAlignmentService
             return Presets["EDM"];
         }
 
-        var normalized = genreHint.Trim().Replace("-", string.Empty).Replace(" ", string.Empty);
+        var normalized = new string(genreHint
+            .Trim()
+            .ToLowerInvariant()
+            .Where(char.IsLetterOrDigit)
+            .ToArray());
 
         if (normalized.Contains("techhouse", StringComparison.OrdinalIgnoreCase))
         {

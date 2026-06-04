@@ -1,8 +1,13 @@
 using System;
 using System.Linq;
+using System.Reflection;
+using System.Reactive.Linq;
+using System.Threading.Tasks;
+using Moq;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Services.Library;
 using SLSKDONET.ViewModels;
 using Xunit;
 
@@ -23,7 +28,8 @@ public class AnalysisPageViewModelTests : IDisposable
 
     public AnalysisPageViewModelTests()
     {
-        _vm = new AnalysisPageViewModel(_bus);
+        var projectionService = new LifecycleProjectionService(new Mock<ILibraryService>().Object);
+        _vm = new AnalysisPageViewModel(_bus, lifecycleProjectionService: projectionService);
     }
 
     public void Dispose()
@@ -225,6 +231,25 @@ public class AnalysisPageViewModelTests : IDisposable
         Assert.Contains("BPM", _vm.AutomixStatusMessage, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task CreateAutomixPlaylistAsync_SortsByBpm_WhenOptimizerUnavailable()
+    {
+        foreach (var t in _vm.LibraryTracks.Where(t => t.HasAnalysis))
+            _vm.TogglePlaylist(t);
+
+        _vm.AutomixConstraints.MinBpm = 0;
+        _vm.AutomixConstraints.MaxBpm = 300;
+
+        await _vm.CreateAutomixPlaylistAsync();
+
+        var bpms = _vm.PlaylistTracks
+            .Select(t => t.AnalysisData?.Mechanics.Bpm ?? t.Bpm ?? 0)
+            .ToList();
+
+        for (int i = 1; i < bpms.Count; i++)
+            Assert.True(bpms[i] >= bpms[i - 1], $"Track {i} BPM {bpms[i]} is less than previous {bpms[i - 1]}");
+    }
+
     // ── AutomixConstraints ────────────────────────────────────────────────
 
     [Fact]
@@ -267,6 +292,42 @@ public class AnalysisPageViewModelTests : IDisposable
     }
 
     [Fact]
+    public void FileIngestionQueuedEvent_IncrementsIngestionBacklog()
+    {
+        var before = _vm.IngestionBacklogCount;
+
+        _bus.Publish(new FileIngestionQueuedEvent("hash-1", Guid.NewGuid(), @"C:\\music\\queued.flac", DateTime.UtcNow));
+
+        Assert.Equal(before + 1, _vm.IngestionBacklogCount);
+        Assert.Contains("Ingestion pending", _vm.AutomixStatusMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void FileIngestionCompletedEvent_DecrementsBacklogAndIncrementsCatalog()
+    {
+        _bus.Publish(new FileIngestionQueuedEvent("hash-2", Guid.NewGuid(), @"C:\\music\\queued.flac", DateTime.UtcNow));
+        var backlogBeforeComplete = _vm.IngestionBacklogCount;
+        var catalogBeforeComplete = _vm.IndexedCatalogCount;
+
+        _bus.Publish(new FileIngestionCompletedEvent("hash-2", Guid.NewGuid(), @"C:\\music\\queued.flac", DateTime.UtcNow));
+
+        Assert.Equal(Math.Max(0, backlogBeforeComplete - 1), _vm.IngestionBacklogCount);
+        Assert.Equal(catalogBeforeComplete + 1, _vm.IndexedCatalogCount);
+        Assert.Contains("Indexed", _vm.AutomixStatusMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void FileMissingDetectedEvent_IncrementsStaleIndexedCount()
+    {
+        InvokeHandler(_vm, "OnFileIngestionCompleted", new FileIngestionCompletedEvent("hash-indexed", Guid.NewGuid(), @"C:\\music\\indexed.flac", DateTime.UtcNow));
+
+        InvokeHandler(_vm, "OnFileMissingDetected", new FileMissingDetectedEvent("hash-missing", @"C:\\music\\missing.flac", DateTime.UtcNow, "test"));
+
+        Assert.True(_vm.StaleIndexedCount >= 0);
+        Assert.Contains("Stale", _vm.AutomixStatusMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Reanalyze_RequeuesCompletedTrack_AndClearsPreviousResults()
     {
         var analyzed = _vm.LibraryTracks.First(t => t.HasAnalysis);
@@ -280,6 +341,49 @@ public class AnalysisPageViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task TrackAnalysisCompletedEvent_Success_RemovesTrackFromQueueAndMarksCompleted()
+    {
+        var pending = _vm.LibraryTracks.First(t => !t.HasAnalysis);
+        _vm.AddToQueue(pending);
+
+        InvokeHandler(_vm, "OnTrackAnalysisStarted", new TrackAnalysisStartedEvent(pending.TrackId, "pending.flac"));
+        await InvokeAsyncHandler(_vm, "OnTrackAnalysisCompletedAsync", new TrackAnalysisCompletedEvent(pending.TrackId, true));
+
+        Assert.False(pending.IsInQueue);
+        Assert.DoesNotContain(pending, _vm.AnalysisQueue);
+        Assert.Equal(AnalysisRunStatus.Completed, pending.AnalysisStatus);
+    }
+
+    [Fact]
+    public async Task TrackAnalysisCompletedEvent_Failure_RemovesTrackFromQueueAndMarksFailed()
+    {
+        var pending = _vm.LibraryTracks.First(t => !t.HasAnalysis);
+        _vm.AddToQueue(pending);
+
+        InvokeHandler(_vm, "OnTrackAnalysisFailed", new TrackAnalysisFailedEvent(pending.TrackId, "decoder error"));
+        await InvokeAsyncHandler(_vm, "OnTrackAnalysisCompletedAsync", new TrackAnalysisCompletedEvent(pending.TrackId, false, "decoder error"));
+
+        Assert.False(pending.IsInQueue);
+        Assert.DoesNotContain(pending, _vm.AnalysisQueue);
+        Assert.Equal(AnalysisRunStatus.Failed, pending.AnalysisStatus);
+        Assert.Contains("decoder error", pending.AnalysisError, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task StartAnalysisAsync_PublishesTrackAnalysisRequestsForQueuedTracks()
+    {
+        var pending = _vm.LibraryTracks.First(t => !t.HasAnalysis);
+        _vm.AddToQueue(pending);
+
+        var publishedRequests = 0;
+        using var sub = _bus.GetEvent<TrackAnalysisRequestedEvent>().Subscribe(_ => publishedRequests++);
+
+        await _vm.StartAnalysisAsync();
+
+        Assert.True(publishedRequests >= 1);
+    }
+
+    [Fact]
     public void AutomixConstraints_RaisesPropertyChangedOnMatchKeyChange()
     {
         var c = new AutomixConstraints();
@@ -287,5 +391,24 @@ public class AnalysisPageViewModelTests : IDisposable
         c.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(AutomixConstraints.MatchKey)) changed = true; };
         c.MatchKey = !c.MatchKey;
         Assert.True(changed);
+    }
+
+    private static void InvokeHandler(object instance, string methodName, object evt)
+    {
+        var method = instance.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException($"Method not found: {methodName}");
+        method.Invoke(instance, new[] { evt });
+    }
+
+    private static async Task InvokeAsyncHandler(object instance, string methodName, object evt)
+    {
+        var method = instance.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException($"Method not found: {methodName}");
+
+        var task = method.Invoke(instance, new[] { evt }) as Task;
+        if (task is not null)
+        {
+            await task;
+        }
     }
 }

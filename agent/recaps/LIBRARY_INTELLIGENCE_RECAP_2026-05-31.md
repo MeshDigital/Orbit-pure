@@ -1,0 +1,137 @@
+# Library Intelligence Recap 2026-05-31
+
+Status: Active Continuation
+
+## Completed
+- Lane driver initialized.
+- Discoverability and recap pack created.
+- Seed slice artifact LI-001 created.
+- Gate baseline passed: build and Library filter tests.
+- LI-001 completed: added a regression test for `EnsureDefaultFolderAsync` relative-path normalization and confirmed the scanner contract deduplicates relative and absolute forms of the same folder.
+- LI-002 completed: hardened `SectionVectorService` input guards and neutral defaults for missing section data, then added regression tests for null/whitespace hashes and no-section fallback behavior.
+- LI-002 gates passed: section-vector focused tests (5/5), lane build gate, and Library test gate (74/74).
+- LI-003 completed: reconciled scoring constants across `TrackSimilarityService` and `TrackMatchScorer` by centralizing matching weights and blend ratios under `ScoringConstants.Matching`.
+- LI-003 gates passed: focused scoring tests (11/11), lane build gate, and Library test gate (74/74).
+- LI-004 completed: shifted library health updates to drift-marker semantics in `TrackRepository` and moved canonical cadence decisions to `DashboardService` adaptive refresh checks.
+- LI-004 gates passed: cadence-focused tests + guard suites (75/75), lane build gate, and Library test gate (79/79).
+- LI-005 completed: added sparse metadata regression coverage for `SuggestNextCandidateViewModel` and `PlaylistUpgradeCandidateViewModel` fallback display and score clamping contracts.
+- LI-005 gates passed: sparse-metadata focused tests + guard suites (75/75), lane build gate, and Library test gate (79/79).
+- LI-006 completed: hardened `EnsureDefaultFolderAsync` with normalized duplicate-row consolidation, re-enable semantics for existing disabled rows, and transient registration retry behavior for lock/busy database conditions.
+- LI-006 gates passed: scanner+queue focused tests (10/10), lane build gate, and Library test gate (81/81).
+- LI-007 completed: analysis queue now suppresses duplicate in-flight requests per track hash to keep queued-state reporting coherent without status inflation.
+- LI-007 gates passed: scanner+queue focused tests (10/10), lane build gate, and Library test gate (81/81).
+- LI-008 completed: intelligence discoverability/index/recap surfaces synchronized to capture LI-006 and LI-007 contract deltas and validation anchors.
+- LI-008 gates passed: lane build gate and Library test gate (81/81).
+- LI-009 completed: strict auto-download candidate filtering now honors per-track intelligence overrides (`PreferredFormats`, `MinBitrateOverride`) with safe fallback behavior for non-positive override values.
+- LI-009 gates passed: strict auto-download focused tests (30/30), lane build gate, and Library test gate (81/81).
+- LI-010 completed: lane closure checkpoint and pending risk register published at `DOCS/recaps/LIBRARY_INTELLIGENCE_RISK_REGISTER.md`.
+- LI-011 completed: lane queue extended through LI-014 to preserve post-closure continuation without restarting numbering.
+- LI-012 completed: strict-mode compatibility regression contract pinned for preferred-format precedence and bitrate-override fallback behavior.
+- LI-013 completed: lane discoverability, index, and recap surfaces synchronized for LI-009 and LI-010 outputs.
+- LI-014 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-015 completed: strict auto-download filter resolution centralized via `AutoDownloadStrictFilterPolicy` to keep query-time and candidate-time format/bitrate policies aligned.
+- LI-016 completed: strict duration gating now normalizes seconds-scale `CanonicalDuration` metadata before duration filtering.
+- LI-017 completed: regression contracts added for preferred-format fallback parity, zero-override bitrate-token parity, and seconds-scale duration normalization behavior.
+- LI-018 completed: risk register updated to mark filter-parity and duration-unit risks mitigated with validation baseline.
+- LI-019 completed: discoverability/index/recap/memory surfaces synchronized for LI-015 through LI-018 outputs.
+- LI-020 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-021 completed: sparse-metadata strict acceptance now applies metadata-confidence adjustments and an enforced floor when thresholds are lowered.
+- LI-022 completed: `AutoSearchServiceTests` now pins sparse-floor rejection and non-sparse acceptance behavior under lowered threshold settings.
+- LI-023 completed: compatibility gate tasks added in `.vscode/tasks.json` to run strict auto-download and Library surfaces together.
+- LI-024 completed: compatibility validation baseline executed (strict subset 35/35, strict+Library 116/116, build and memory governance pass).
+- LI-025 completed: risk register reconciled to close the final two open risks.
+- LI-026 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-027 completed: scorer continuation wave opened and hardening targets mapped from residual nullable/sparse scorer risk signals.
+- LI-028 completed: `MatchScorer` nullable options dereference removed in bitrate/size scoring path.
+- LI-029 completed: `MatchScorerTests` now pin sparse-metadata conservative scoring and null-options bounded-score safety.
+- LI-030 completed: LI compatibility gate expanded in `.vscode/tasks.json` to include `MatchScorerTests`.
+- LI-031 completed: discoverability/recap/risk/memory surfaces synchronized for LI-027 through LI-030 outputs.
+- LI-032 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-033 completed: scorer risk intake re-opened for fallback-policy and format-normalization drift.
+- LI-034 completed: `MatchScorer` format normalization hardened and optional MP3 fallback scoring activated.
+- LI-035 completed: scorer regression contracts added for MP3 fallback uplift and dotted/whitespace extension normalization.
+- LI-036 completed: scorer-inclusive compatibility baseline refreshed (strict+scorer 47/47, strict+Library+scorer 128/128).
+- LI-037 completed: discoverability/recap/risk/memory surfaces synchronized for LI-033 through LI-036 outputs.
+- LI-038 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-039 completed: strict fallback policy parity hardened so OnHold MP3-only mode now requires `EnableMp3Fallback`.
+- LI-040 completed: `MatchScorer` bitrate guard hardened to normalize extension-derived format values before FLAC transcode checks.
+- LI-041 completed: regression contracts added for config-disabled OnHold fallback behavior and extension-derived FLAC transcode detection.
+- LI-042 completed: scorer-inclusive compatibility baseline refreshed (strict+scorer 49/49, strict+Library+scorer 130/130).
+- LI-043 completed: discoverability/recap/risk/memory surfaces synchronized for LI-039 through LI-042 outputs.
+- LI-044 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-051 completed: strict/scorer parity hardened so malformed non-empty candidate format metadata now falls back to normalized filename extension in both strict filtering and scorer allowlist checks.
+- LI-051 gates passed: strict+scorer focused tests (53/53) and strict+Library+scorer compatibility baseline (134/134).
+- LI-052 completed: strict/scorer parity hardened so MIME-style candidate format metadata now normalizes to allowlist-compatible extensions before fallback logic, including extension-missing candidate handling.
+- LI-052 gates passed: strict+scorer focused tests (55/55) and strict+Library+scorer compatibility baseline (136/136).
+- LI-053 completed: strict-policy risk intake identified adapter-boundary format drift for MIME-style preferred format values.
+- LI-054 completed: `AutoDownloadStrictFilterPolicy` normalization hardened for MIME-style format values, metadata suffixes, and `x-` prefixes.
+- LI-055 completed: adapter-boundary regression contract added to assert MIME-style preferred formats are normalized before adapter search calls.
+- LI-056 gates passed: strict+scorer focused tests (56/56), strict+Library+scorer compatibility baseline (137/137), memory governance PASS, build PASS.
+- LI-057 completed: governance surfaces synchronized for LI-053 through LI-056 outputs.
+- LI-058 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-059 completed: strict/scorer continuation risk intake identified MIME subtype alias canonicalization drift (`audio/mpeg` => `mpeg`) and metadata-fragment leakage risk in strict preferred-format parsing.
+- LI-060 completed: strict policy, strict filtering, and scorer normalization hardened with canonical MIME alias mapping and malformed metadata-fragment token hygiene.
+- LI-061 completed: regression contracts added in `SoulseekSearchHelperTests`, `MatchScorerTests`, and `AutoSearchServiceTests` for MIME alias canonicalization and adapter-boundary token filtering.
+- LI-062 gates passed: strict+scorer focused tests (60/60), strict+Library+scorer compatibility baseline (141/141), memory governance PASS, build PASS.
+- LI-063 completed: governance surfaces synchronized for LI-059 through LI-062 outputs.
+- LI-064 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-065 completed: strict verification continuation risk intake identified prefetch format-policy drift from raw config allowlist resolution and extension-only format checks.
+- LI-066 completed: `PrefetchVerifier` format gate now resolves strict policy allowed formats, canonicalizes MIME aliases, and supports candidate-format fallback for extensionless staging paths.
+- LI-067 completed: regression contracts added in `PrefetchVerifierTests` for per-track MIME alias policy parity and extensionless staging fallback behavior.
+- LI-068 gates passed: focused prefetch tests (2/2), strict+scorer focused tests (60/60), strict+Library+scorer compatibility baseline (141/141), memory governance PASS, build PASS.
+- LI-069 completed: governance surfaces synchronized for LI-065 through LI-068 outputs.
+- LI-070 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-071 completed: strict diagnostic continuation risk intake identified candidate format-description drift for extensionless MIME metadata and missing fallback labels.
+- LI-072 completed: `SoulseekSearchHelper.DescribeCandidate` now renders canonicalized extension/format labels with explicit unknown fallback behavior.
+- LI-073 completed: helper regression contracts added for MIME alias description labels and unknown-format fallback behavior.
+- LI-074 gates passed: helper-focused tests (21/21), strict+scorer focused tests (62/62), strict+Library+scorer compatibility baseline (143/143), memory governance PASS, build PASS.
+- LI-075 completed: governance surfaces synchronized for LI-071 through LI-074 outputs.
+- LI-076 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-077 completed: scorer continuation risk intake identified malformed caller allowlist token drift that could suppress valid format scoring.
+- LI-078 completed: `MatchScorer` allowlist normalization now filters malformed tokens and falls back to default lossless allowlist when effective allowlist is empty.
+- LI-079 completed: scorer regression contracts added for malformed allowlist fallback behavior.
+- LI-080 gates passed: scorer-focused tests (17/17), strict+scorer focused tests (63/63), strict+Library+scorer compatibility baseline (144/144), memory governance PASS, build PASS.
+- LI-081 completed: governance surfaces synchronized for LI-077 through LI-080 outputs.
+- LI-082 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-083 completed: continuation risk intake identified adapter-bound normalization drift where helper streaming paths accepted raw format tokens without strict/scorer canonicalization parity.
+- LI-084 completed: `SoulseekSearchHelper` now normalizes/canonicalizes adapter-bound `allowedFormats` and applies malformed-token hygiene before adapter-bound streaming and ext-token emission.
+- LI-085 completed: helper regression contract `SearchCandidatesAsync_CanonicalizesAdapterBoundAllowedFormats` added to pin MIME alias canonicalization, dotted extension normalization, and malformed token suppression.
+- LI-086 gates passed: targeted adapter-bound contract (1/1), helper-focused tests (22/22), strict+scorer focused tests (64/64), strict+Library+scorer compatibility baseline (145/145), memory governance PASS, build PASS.
+- LI-087 completed: governance surfaces synchronized for LI-083 through LI-086 outputs.
+- LI-088 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-089 completed: scorer continuation risk intake identified trusted-source reliability drift due to case-sensitive/whitespace-sensitive repeated-source matching.
+- LI-090 completed: `MatchScorer.ScoreReliability` now resolves repeated-source matches using trim-safe case-insensitive comparison.
+- LI-091 completed: scorer regression contract `TreatsRepeatedSourcesAsCaseInsensitiveAndTrimmed` added in `MatchScorerTests`.
+- LI-092 gates passed: scorer-focused tests (18/18), strict+scorer focused tests (65/65), strict+Library+scorer compatibility baseline (146/146), memory governance PASS, build PASS.
+- LI-093 completed: governance surfaces synchronized for LI-089 through LI-092 outputs.
+- LI-094 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-095 completed: helper continuation risk intake identified malformed caller allowlist token drift that could fail closed in helper candidate filtering.
+- LI-096 completed: `SoulseekSearchHelper.FilterCandidates` now applies malformed-token allowlist hygiene and default lossless fallback when effective allowlist normalizes to empty.
+- LI-097 completed: helper regression contract `FilterCandidates_FallsBackToDefaultAllowlistWhenConfiguredAllowlistIsMalformed` added in `SoulseekSearchHelperTests`.
+- LI-098 gates passed: helper-focused tests (23/23), strict+scorer focused tests (66/66), strict+Library+scorer compatibility baseline (147/147), memory governance PASS, build PASS.
+- LI-099 completed: governance surfaces synchronized for LI-095 through LI-098 outputs.
+- LI-100 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-101 completed: strict/helper/scorer continuation risk intake identified comma-delimited MIME metadata normalization drift for extensionless candidates.
+- LI-102 completed: `AutoDownloadStrictFilterPolicy`, `SoulseekSearchHelper`, and `MatchScorer` now trim format metadata at first semicolon/comma separator during normalization.
+- LI-103 completed: regression contracts `FilterCandidates_CanonicalizesCommaDelimitedMimeMpegWithoutExtensionFallback` and `CanonicalizesCommaDelimitedMimeMpegAliasWhenFilenameHasNoExtension` added in helper/scorer suites.
+- LI-104 gates passed: helper-focused tests (24/24), scorer-focused tests (19/19), strict+scorer focused tests (68/68), strict+Library+scorer compatibility baseline (149/149), memory governance PASS, build PASS.
+- LI-105 completed: governance surfaces synchronized for LI-101 through LI-104 outputs.
+- LI-106 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-107 completed: strict/helper/scorer continuation risk intake identified whitespace-delimited MIME metadata normalization drift for extensionless candidates and preferred-format resolution.
+- LI-108 completed: `AutoDownloadStrictFilterPolicy`, `SoulseekSearchHelper`, and `MatchScorer` now trim format metadata at first whitespace separator during normalization.
+- LI-109 completed: regression contracts `EnabledSearch_CanonicalizesWhitespaceDelimitedMimeMpegPreferredFormats_BeforeAdapterSearch`, `FilterCandidates_CanonicalizesWhitespaceDelimitedMimeMpegWithoutExtensionFallback`, and `CanonicalizesWhitespaceDelimitedMimeMpegAliasWhenFilenameHasNoExtension` added in strict/helper/scorer suites.
+- LI-110 gates passed: helper-focused tests (25/25), scorer-focused tests (20/20), strict+scorer focused tests (71/71), strict+Library+scorer compatibility baseline (152/152), memory governance PASS, build PASS.
+- LI-111 completed: governance surfaces synchronized for LI-107 through LI-110 outputs.
+- LI-112 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-113 completed: strict/helper/scorer continuation risk intake identified quoted MIME metadata normalization drift for adapter-bound preferred formats and extensionless candidates.
+- LI-114 completed: `AutoDownloadStrictFilterPolicy`, `SoulseekSearchHelper`, and `MatchScorer` now trim quote wrappers around MIME metadata during normalization.
+- LI-115 completed: quoted MIME canonicalization regression coverage added in `AutoSearchServiceTests`, `SoulseekSearchHelperTests`, and `MatchScorerTests`.
+- LI-116 gates passed: helper-focused tests (26/26), scorer-focused tests (20/20), strict+scorer focused tests (72/72), strict+Library+scorer compatibility baseline (153/153), memory governance PASS, build PASS.
+- LI-117 completed: governance surfaces synchronized for LI-113 through LI-116 outputs.
+- LI-118 completed: continuation checkpoint published and next-slice execution pointer rolled forward.
+- LI-119 completed: strict/helper/scorer normalization now trims wrapper-delimited MIME tokens (`[]`, `()`, `{}`, `<>`, quotes) and refreshed adapter-bound/helper/scorer regression coverage.
+- LI-119 gates passed: helper-focused tests (26/26), scorer-focused tests (21/21), strict+scorer focused tests (73/73), strict+Library+scorer compatibility baseline (154/154), memory governance PASS, build PASS.
+- LI-120 completed: governance surfaces synchronized and queue-120 closure checkpoint published.
+
+## Next
+- Extend the Library Intelligence driver queue with a new backlog revision before continuation.

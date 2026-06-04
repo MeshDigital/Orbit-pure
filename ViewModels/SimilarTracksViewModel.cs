@@ -14,7 +14,9 @@ using ReactiveUI;
 using SLSKDONET.Data;
 using SLSKDONET.Events;
 using SLSKDONET.Models;
+using SLSKDONET.Models.Musical;
 using SLSKDONET.Services;
+using SLSKDONET.Services.Playlist;
 using SLSKDONET.Services.Similarity;
 using SLSKDONET.Views;
 
@@ -42,6 +44,16 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject, IDisposable
     private string _beatLabel      = string.Empty;
     private string _dropLabel      = string.Empty;
     private bool   _isPotentialDoubleDrop;
+    private bool   _isBridgeBetweenCandidate;
+    private bool   _isInsertConfirmArmed;
+    private CancellationTokenSource? _insertConfirmTimeoutCts;
+    private float  _bridgeFromScore;
+    private float  _bridgeToScore;
+    private string _bridgeFromHash = string.Empty;
+    private string _bridgeToHash = string.Empty;
+    private string _transitionStyleLabel = string.Empty;
+    private string _transitionStyleReason = string.Empty;
+    private bool   _addToProjectOnBridgeInsert = true;
     private readonly IEventBus? _eventBus;
     private PlaylistTrack? _projectTrack;
 
@@ -62,6 +74,39 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject, IDisposable
     public string HarmonyLabel   { get => _harmonyLabel;    set => this.RaiseAndSetIfChanged(ref _harmonyLabel,    value); }
     public string BeatLabel      { get => _beatLabel;       set => this.RaiseAndSetIfChanged(ref _beatLabel,       value); }
     public string DropLabel      { get => _dropLabel;       set => this.RaiseAndSetIfChanged(ref _dropLabel,       value); }
+    public bool IsBridgeBetweenCandidate
+    {
+        get => _isBridgeBetweenCandidate;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _isBridgeBetweenCandidate, value);
+            this.RaisePropertyChanged(nameof(AddActionLabel));
+            this.RaisePropertyChanged(nameof(AddActionToolTip));
+        }
+    }
+    public bool IsInsertConfirmArmed
+    {
+        get => _isInsertConfirmArmed;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _isInsertConfirmArmed, value);
+            this.RaisePropertyChanged(nameof(AddActionLabel));
+            this.RaisePropertyChanged(nameof(AddActionToolTip));
+        }
+    }
+    public float BridgeFromScore { get => _bridgeFromScore; set => this.RaiseAndSetIfChanged(ref _bridgeFromScore, value); }
+    public float BridgeToScore { get => _bridgeToScore; set => this.RaiseAndSetIfChanged(ref _bridgeToScore, value); }
+    public string BridgeFromHash { get => _bridgeFromHash; set => this.RaiseAndSetIfChanged(ref _bridgeFromHash, value); }
+    public string BridgeToHash { get => _bridgeToHash; set => this.RaiseAndSetIfChanged(ref _bridgeToHash, value); }
+    public string TransitionStyleLabel { get => _transitionStyleLabel; set => this.RaiseAndSetIfChanged(ref _transitionStyleLabel, value); }
+    public string TransitionStyleReason { get => _transitionStyleReason; set => this.RaiseAndSetIfChanged(ref _transitionStyleReason, value); }
+    public bool AddToProjectOnBridgeInsert { get => _addToProjectOnBridgeInsert; set => this.RaiseAndSetIfChanged(ref _addToProjectOnBridgeInsert, value); }
+    public string AddActionLabel => IsBridgeBetweenCandidate
+        ? (IsInsertConfirmArmed ? "✓" : "Insert")
+        : "+";
+    public string AddActionToolTip => IsBridgeBetweenCandidate
+        ? (IsInsertConfirmArmed ? "Click again to confirm insertion between selected tracks" : "Insert this bridge candidate between selected tracks")
+        : "Add to project/playlist";
 
     /// <summary>True when <see cref="DoubleDropScore"/> ≥ 0.75.</summary>
     public bool IsPotentialDoubleDrop
@@ -86,7 +131,28 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject, IDisposable
         AddToPlaylistCommand = new RelayCommand(() =>
         {
             if (_eventBus == null) return;
-            _eventBus.Publish(new AddToProjectRequestEvent(new[] { ToPlaylistTrack() }));
+
+            if (IsBridgeBetweenCandidate && !IsInsertConfirmArmed)
+            {
+                IsInsertConfirmArmed = true;
+                ArmInsertConfirmationTimeout();
+                return;
+            }
+
+            var track = ToPlaylistTrack();
+            if (!IsBridgeBetweenCandidate || AddToProjectOnBridgeInsert)
+                _eventBus.Publish(new AddToProjectRequestEvent(new[] { track }));
+
+            if (IsBridgeBetweenCandidate
+                && !string.IsNullOrWhiteSpace(BridgeFromHash)
+                && !string.IsNullOrWhiteSpace(BridgeToHash))
+            {
+                ReactiveUI.MessageBus.Current.SendMessage(
+                    new InsertBridgeTrackBetweenEvent(BridgeFromHash, BridgeToHash, track));
+            }
+
+            IsInsertConfirmArmed = false;
+            CancelInsertConfirmationTimeout();
         });
 
         // Apply pre-computed match scores immediately if supplied.
@@ -175,6 +241,47 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject, IDisposable
     public void Dispose()
     {
         _disposed = true;
+        CancelInsertConfirmationTimeout();
+    }
+
+    private void ArmInsertConfirmationTimeout()
+    {
+        CancelInsertConfirmationTimeout();
+
+        _insertConfirmTimeoutCts = new CancellationTokenSource();
+        var token = _insertConfirmTimeoutCts.Token;
+
+        Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(4), token);
+                if (token.IsCancellationRequested || _disposed)
+                    return;
+
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    if (!_disposed)
+                        IsInsertConfirmArmed = false;
+                });
+            }
+            catch (TaskCanceledException)
+            {
+                // expected when user confirms quickly or row is disposed
+            }
+        }, token);
+    }
+
+    private void CancelInsertConfirmationTimeout()
+    {
+        if (_insertConfirmTimeoutCts is null)
+            return;
+
+        try { _insertConfirmTimeoutCts.Cancel(); }
+        catch { /* ignore cancellation race */ }
+
+        _insertConfirmTimeoutCts.Dispose();
+        _insertConfirmTimeoutCts = null;
     }
 }
 
@@ -198,6 +305,9 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
     private readonly DatabaseService       _db;
     private readonly IEventBus?            _eventBus;
     private readonly SectionVectorService? _sectionVectors;
+    private readonly PlaylistIntelligenceService? _playlistIntelligence;
+    private readonly TrackSimilarityService? _trackSimilarityService;
+    private readonly TransitionStyleClassifier? _transitionStyleClassifier;
     private readonly ILogger               _logger;
     private readonly CompositeDisposable   _disposables = new();
 
@@ -215,6 +325,22 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
         set => this.RaiseAndSetIfChanged(ref _seedTrackHash, value);
     }
 
+    private string? _fromTrackHash;
+    /// <summary>First track in a bridge search (the one ending, whose outro we need to match).</summary>
+    public string? FromTrackHash
+    {
+        get => _fromTrackHash;
+        set => this.RaiseAndSetIfChanged(ref _fromTrackHash, value);
+    }
+
+    private string? _toTrackHash;
+    /// <summary>Second track in a bridge search (the one we're jumping to, whose intro we need to match).</summary>
+    public string? ToTrackHash
+    {
+        get => _toTrackHash;
+        set => this.RaiseAndSetIfChanged(ref _toTrackHash, value);
+    }
+
     // ── Results ───────────────────────────────────────────────────────────
 
     public ObservableCollection<SimilarTrackRowViewModel> Results { get; } = new();
@@ -226,8 +352,28 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
     public bool IsBridgeMode
     {
         get => _isBridgeMode;
-        private set => this.RaiseAndSetIfChanged(ref _isBridgeMode, value);
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _isBridgeMode, value);
+            this.RaisePropertyChanged(nameof(IsSimilarMode));
+            this.RaisePropertyChanged(nameof(IsAnyBridgeMode));
+        }
     }
+
+    private bool _isBridgeBetweenMode;
+    public bool IsBridgeBetweenMode
+    {
+        get => _isBridgeBetweenMode;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _isBridgeBetweenMode, value);
+            this.RaisePropertyChanged(nameof(IsSimilarMode));
+            this.RaisePropertyChanged(nameof(IsAnyBridgeMode));
+        }
+    }
+
+    public bool IsSimilarMode => !IsBridgeMode && !IsBridgeBetweenMode;
+    public bool IsAnyBridgeMode => IsBridgeMode || IsBridgeBetweenMode;
 
     private bool _isBusy;
     public bool IsBusy
@@ -242,6 +388,23 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
         get => _statusMessage;
         private set => this.RaiseAndSetIfChanged(ref _statusMessage, value);
     }
+
+    private bool _isBridgeInsertOnlyMode = true;
+    public bool IsBridgeInsertOnlyMode
+    {
+        get => _isBridgeInsertOnlyMode;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _isBridgeInsertOnlyMode, value);
+            this.RaisePropertyChanged(nameof(BridgeInsertModeLabel));
+            this.RaisePropertyChanged(nameof(BridgeInsertModeToolTip));
+        }
+    }
+
+    public string BridgeInsertModeLabel => IsBridgeInsertOnlyMode ? "Insert Only" : "Insert + Add";
+    public string BridgeInsertModeToolTip => IsBridgeInsertOnlyMode
+        ? "Bridge insert will only update Flow Builder"
+        : "Bridge insert will update Flow Builder and add to project";
 
     // ── Count ─────────────────────────────────────────────────────────────
 
@@ -261,6 +424,9 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> AddAllCommand { get; }
     public ReactiveCommand<Unit, Unit> BridgeSuggestionsCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowSimilarModeCommand { get; }
+    public ReactiveCommand<Unit, Unit> FindBridgeBetweenCommand { get; }
+    public ReactiveCommand<Unit, Unit> ReturnToBridgeListCommand { get; }
+    public ReactiveCommand<Unit, Unit> ToggleBridgeInsertModeCommand { get; }
 
     // ── Constructor ───────────────────────────────────────────────────────
 
@@ -269,13 +435,19 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
         DatabaseService db,
         ILogger<SimilarTracksViewModel> logger,
         IEventBus? eventBus = null,
-        SectionVectorService? sectionVectors = null)
+        SectionVectorService? sectionVectors = null,
+        PlaylistIntelligenceService? playlistIntelligence = null,
+        TrackSimilarityService? trackSimilarityService = null,
+        TransitionStyleClassifier? transitionStyleClassifier = null)
     {
         _index          = index;
         _db             = db;
         _logger         = logger;
         _eventBus       = eventBus;
         _sectionVectors = sectionVectors;
+        _playlistIntelligence = playlistIntelligence;
+        _trackSimilarityService = trackSimilarityService;
+        _transitionStyleClassifier = transitionStyleClassifier;
 
         StatusMessage = "Select a track in Library, Search, or Downloads to fill this sidebar.";
 
@@ -290,10 +462,27 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
                 ? "No similar tracks found for the current selection."
                 : null;
         });
+        FindBridgeBetweenCommand = ReactiveCommand.CreateFromTask(FindBridgeBetweenAsync);
+        ReturnToBridgeListCommand = ReactiveCommand.Create(() =>
+        {
+            IsBridgeBetweenMode = false;
+            BridgeSuggestions.Clear();
+            StatusMessage = null;
+        });
+        ToggleBridgeInsertModeCommand = ReactiveCommand.Create(() =>
+        {
+            IsBridgeInsertOnlyMode = !IsBridgeInsertOnlyMode;
+            ApplyBridgeInsertModeToRows();
+        });
 
         ReactiveUI.MessageBus.Current.Listen<OpenInspectorEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(evt => PrimeFromInspectorContext(evt.ViewModel))
+            .DisposeWith(_disposables);
+
+        ReactiveUI.MessageBus.Current.Listen<FindBridgeBetweenTracksEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(evt => HandleFindBridgeBetweenRequest(evt))
             .DisposeWith(_disposables);
 
         // Debounced subscription on SeedTrackHash changes
@@ -368,6 +557,16 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
         }
     }
 
+    private void HandleFindBridgeBetweenRequest(FindBridgeBetweenTracksEvent evt)
+    {
+        FromTrackHash = evt.FromTrackHash;
+        ToTrackHash = evt.ToTrackHash;
+        var fromTitle = evt.FromTrackTitle ?? evt.FromTrackHash[..Math.Min(8, evt.FromTrackHash.Length)];
+        var toTitle = evt.ToTrackTitle ?? evt.ToTrackHash[..Math.Min(8, evt.ToTrackHash.Length)];
+        StatusMessage = $"Finding bridges between \"{fromTitle}\" and \"{toTitle}\"...";
+        FindBridgeBetweenCommand.Execute().Subscribe();
+    }
+
     public void PrimeFromInspectorContext(object? viewModel)
     {
         switch (viewModel)
@@ -391,7 +590,47 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
             case AnalyzedSearchResultViewModel searchResult:
                 StatusMessage = $"Similar suggestions need a downloaded library track. Current selection: {searchResult.ArtistName} — {searchResult.TrackTitle}";
                 break;
+
+            case LibraryDoubleInspectorViewModel doubleInspector:
+                PrimeFromLibraryContext(doubleInspector.Library, "Double Inspector");
+                break;
+
+            case PlaylistIntelligenceViewModel intelligence:
+                PrimeFromLibraryContext(intelligence.Library, "Playlist Intelligence");
+                break;
         }
+    }
+
+    private void PrimeFromLibraryContext(LibraryViewModel? library, string contextLabel)
+    {
+        var selectedTrack = library?.Tracks?.SelectedTracks?
+            .OfType<PlaylistTrackViewModel>()
+            .FirstOrDefault(track => !string.IsNullOrWhiteSpace(track.GlobalId));
+
+        if (selectedTrack is not null)
+        {
+            _ = selectedTrack.LoadAnalysisDataAsync();
+            SeedTrackHash = selectedTrack.GlobalId;
+            StatusMessage = $"Finding matches for {selectedTrack.ArtistName} — {selectedTrack.TrackTitle}";
+            return;
+        }
+
+        var fallbackTrack = library?.Tracks?.FilteredTracks?
+            .OfType<PlaylistTrackViewModel>()
+            .FirstOrDefault(track => !string.IsNullOrWhiteSpace(track.GlobalId))
+            ?? library?.Tracks?.CurrentProjectTracks?
+                .OfType<PlaylistTrackViewModel>()
+                .FirstOrDefault(track => !string.IsNullOrWhiteSpace(track.GlobalId));
+
+        if (fallbackTrack is not null)
+        {
+            SeedTrackHash = fallbackTrack.GlobalId;
+            StatusMessage = $"Finding matches for {fallbackTrack.ArtistName} — {fallbackTrack.TrackTitle}";
+            return;
+        }
+
+        SeedTrackHash = null;
+        StatusMessage = $"{contextLabel} is open. Select a library track to generate similar suggestions.";
     }
 
     private void AddAllResultsToProject()
@@ -428,6 +667,169 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
         }
 
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Finds bridge candidates between two tracks (from→to).
+    /// Shows tracks that smoothly connect the first track's outro to the second track's intro.
+    /// </summary>
+    private async Task FindBridgeBetweenAsync()
+    {
+        if (string.IsNullOrWhiteSpace(FromTrackHash) || string.IsNullOrWhiteSpace(ToTrackHash) || _sectionVectors == null)
+        {
+            StatusMessage = "Two tracks must be selected to find bridges between them.";
+            return;
+        }
+
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            IsBusy = true;
+            IsBridgeBetweenMode = true;
+            BridgeSuggestions.Clear();
+            StatusMessage = "Finding bridge candidates…";
+        });
+
+        try
+        {
+            // Get all library tracks as candidates
+            IReadOnlyList<string> candidateHashes;
+            using (var db = new AppDbContext())
+            {
+                // Only consider tracks that are analyzed and present in local library with a file path.
+                candidateHashes = await (
+                    from af in db.AudioFeatures.AsNoTracking()
+                    join le in db.LibraryEntries.AsNoTracking()
+                        on af.TrackUniqueHash equals le.UniqueHash
+                    where af.TrackUniqueHash != FromTrackHash
+                          && af.TrackUniqueHash != ToTrackHash
+                          && !string.IsNullOrWhiteSpace(le.FilePath)
+                    select af.TrackUniqueHash)
+                    .Distinct()
+                    .AsNoTracking()
+                    .ToListAsync();
+            }
+
+            var bridgeCandidates = _playlistIntelligence != null
+                ? await _playlistIntelligence.InsertBetweenAsync(
+                    FromTrackHash,
+                    ToTrackHash,
+                    candidateHashes,
+                    topK: 12,
+                    ct: CancellationToken.None)
+                : null;
+
+            var legacyBridgeCandidates = bridgeCandidates == null && _sectionVectors != null
+                ? await _sectionVectors.FindBridgeCandidatesAsync(
+                    FromTrackHash,
+                    ToTrackHash,
+                    candidateHashes,
+                    CancellationToken.None)
+                : null;
+
+            var styledBridgeCandidates = new List<(PlaylistRecommendation Recommendation, TransitionStyleResult? TransitionStyle)>();
+            if (bridgeCandidates != null)
+            {
+                foreach (var recommendation in bridgeCandidates)
+                {
+                    styledBridgeCandidates.Add((
+                        recommendation,
+                        await BuildTransitionStyleForBridgeCandidateAsync(FromTrackHash, recommendation.TrackHash).ConfigureAwait(false)));
+                }
+            }
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                BridgeSuggestions.Clear();
+                var count = 0;
+
+                if (bridgeCandidates != null)
+                {
+                    foreach (var (recommendation, transitionStyle) in styledBridgeCandidates)
+                    {
+                        var result = new SimilarTrack(recommendation.TrackHash, recommendation.Score);
+
+                        var row = new SimilarTrackRowViewModel(result, _db, _logger, _eventBus)
+                        {
+                            IsBridgeBetweenCandidate = true,
+                            BridgeFromScore = (float)recommendation.SimilarityScore,
+                            BridgeToScore = (float)recommendation.TransitionScore,
+                            BridgeFromHash = FromTrackHash,
+                            BridgeToHash = ToTrackHash,
+                            AddToProjectOnBridgeInsert = !IsBridgeInsertOnlyMode,
+                            OverallScore = (float)recommendation.Score,
+                            HarmonyScore = (float)recommendation.HarmonicScore,
+                            BeatScore = (float)recommendation.SimilarityScore,
+                            DropSonicScore = (float)recommendation.EnergyFitScore,
+                            HarmonyLabel = recommendation.ReasonTags.ElementAtOrDefault(0) ?? "A10 bridge fit",
+                            BeatLabel = recommendation.ReasonTags.ElementAtOrDefault(1) ?? "Segment-aware transition",
+                            DropLabel = recommendation.ReasonTags.ElementAtOrDefault(2) ?? string.Empty,
+                            TransitionStyleLabel = transitionStyle?.Label ?? string.Empty,
+                            TransitionStyleReason = transitionStyle?.Reason ?? string.Empty,
+                        };
+                        BridgeSuggestions.Add(row);
+                        count++;
+                    }
+                }
+                else if (legacyBridgeCandidates != null)
+                {
+                    foreach (var (trackHash, bridgeScore, aToXScore, xToBScore) in legacyBridgeCandidates.Take(12))
+                    {
+                        var result = new SimilarTrack(trackHash, bridgeScore);
+
+                        var row = new SimilarTrackRowViewModel(result, _db, _logger, _eventBus)
+                        {
+                            IsBridgeBetweenCandidate = true,
+                            BridgeFromScore = (float)aToXScore,
+                            BridgeToScore = (float)xToBScore,
+                            BridgeFromHash = FromTrackHash,
+                            BridgeToHash = ToTrackHash,
+                            AddToProjectOnBridgeInsert = !IsBridgeInsertOnlyMode,
+                            OverallScore = (float)bridgeScore
+                        };
+                        BridgeSuggestions.Add(row);
+                        count++;
+                    }
+                }
+
+                StatusMessage = count == 0
+                    ? "No bridge candidates found between these tracks."
+                    : bridgeCandidates != null
+                        ? $"Found {count} A10 bridge candidate(s)"
+                        : $"Found {count} bridge candidate(s)";
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[SimilarTracksVM] FindBridgeBetweenAsync failed");
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                StatusMessage = "Error finding bridge candidates.");
+        }
+        finally
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => IsBusy = false);
+        }
+    }
+
+    private async Task<TransitionStyleResult?> BuildTransitionStyleForBridgeCandidateAsync(string fromTrackHash, string candidateTrackHash)
+    {
+        if (_trackSimilarityService is null || _transitionStyleClassifier is null)
+            return null;
+
+        var snapshot = await _trackSimilarityService.BuildSnapshotAsync(
+            fromTrackHash,
+            candidateTrackHash,
+            TrackSimilarityProfile.BlendSafe,
+            CancellationToken.None).ConfigureAwait(false);
+
+        if (snapshot is null)
+            return null;
+
+        return _transitionStyleClassifier.Classify(
+            snapshot.Left,
+            snapshot.Right,
+            snapshot.Result,
+            snapshot.LeftSections,
+            snapshot.RightSections);
     }
 
     // ── Match score computation ────────────────────────────────────────────
@@ -508,4 +910,10 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
     }
 
     public void Dispose() => _disposables.Dispose();
+
+    private void ApplyBridgeInsertModeToRows()
+    {
+        foreach (var row in BridgeSuggestions.Where(r => r.IsBridgeBetweenCandidate))
+            row.AddToProjectOnBridgeInsert = !IsBridgeInsertOnlyMode;
+    }
 }

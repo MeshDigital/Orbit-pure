@@ -547,7 +547,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                  var single = SelectedResults.FirstOrDefault();
                  if (single != null)
                  {
-                     MessageBus.Current.SendMessage(new OpenInspectorEvent(single));
+                     MessageBus.Current.SendMessage(OpenInspectorEvent.Create(single, "Search.Selection.Single"));
                  }
             })
             .DisposeWith(_disposables);

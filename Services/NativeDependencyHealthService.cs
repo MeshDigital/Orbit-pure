@@ -117,15 +117,15 @@ public class NativeDependencyHealthService
     protected virtual async Task<DependencyStatus> CheckEssentiaAsync()
     {
         // Logic from EssentiaAnalyzerService regarding path precedence
-        var toolsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Tools", "Essentia", ESSENTIA_EXECUTABLE);
+        // Mirror EssentiaRunner search order: Tools/ flat first, then Tools/Essentia/
+        var toolsFlat    = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Tools", ESSENTIA_EXECUTABLE);
+        var toolsNested  = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Tools", "Essentia", ESSENTIA_EXECUTABLE);
+        var toolsPath    = File.Exists(toolsFlat) ? toolsFlat : toolsNested;
         string finalPath = toolsPath;
 
         if (!File.Exists(toolsPath))
         {
-            // Try generic name in PATH? Essentia usually isn't in PATH for this bespoke extractor, 
-            // but let's emulate the Service's logic if it supports a fallback/PATH check.
-            // EssentiaAnalyzerService checks specific Tools path first.
-            return new DependencyStatus("Essentia", false, "N/A", toolsPath, "Binary not found in Tools/Essentia");
+            return new DependencyStatus("Essentia", false, "N/A", toolsPath, "Binary not found in Tools/ or Tools/Essentia/");
         }
 
         try

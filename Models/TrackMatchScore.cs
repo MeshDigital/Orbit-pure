@@ -76,7 +76,13 @@ public sealed record TrackMatchScore
 
     /// <summary>
     /// Weighted overall match quality (0–1):
-    /// <code>0.35 × SoundScore + 0.25 × HarmonyScore + 0.20 × BeatScore + 0.20 × DropSonicScore</code>
+    /// <code>
+    /// 0.28 × SoundScore
+    /// + 0.22 × HarmonyScore
+    /// + 0.18 × BeatScore
+    /// + 0.17 × DropSonicScore
+    /// + 0.15 × OutroIntroScore
+    /// </code>
     /// </summary>
     public float OverallScore { get; init; }
 

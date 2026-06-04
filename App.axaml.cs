@@ -15,6 +15,7 @@ using SLSKDONET.Services;
 using SLSKDONET.Services.InputParsers;
 using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.Entertainment;
+using SLSKDONET.Services.AutoDownload;
 using SLSKDONET.Services.Library;
 using SLSKDONET.ViewModels;
 using SLSKDONET.Services.Input;
@@ -390,6 +391,7 @@ public partial class App : Application
         
         //Session 1: Performance Optimization - Smart caching layer
         services.AddSingleton<LibraryCacheService>();
+        services.AddSingleton<ISavedDoublesService, SavedDoublesService>();
         
         // Session 2: Performance Optimization - Extracted services
         services.AddSingleton<LibraryOrganizationService>();
@@ -462,6 +464,7 @@ public partial class App : Application
         services.AddSingleton<DownloadLogService>();
         services.AddSingleton<LibraryService>();
         services.AddSingleton<ILibraryService>(provider => provider.GetRequiredService<LibraryService>());
+        services.AddSingleton<ILifecycleProjectionService, LifecycleProjectionService>();
         services.AddSingleton<ColumnConfigurationService>();
         services.AddSingleton<SmartCrateService>();
         services.AddSingleton<PlaylistExportService>();
@@ -496,6 +499,10 @@ public partial class App : Application
         services.AddSingleton<SearchNormalizationService>();
         services.AddSingleton<ISafetyFilterService, SafetyFilterService>();
         services.AddSingleton<SearchResultMatcher>();
+        services.AddSingleton<AutoSearchService>();
+        services.AddSingleton<MatchScorer>();
+        services.AddSingleton<SoulseekSearchHelper>();
+        services.AddSingleton<PrefetchVerifier>();
         services.AddSingleton<ISmartPlaylistService, SmartPlaylistService>();
         
         
@@ -519,6 +526,7 @@ public partial class App : Application
         services.AddSingleton<INotificationService, NotificationServiceAdapter>();
         services.AddSingleton<IClipboardService, ClipboardService>();
         services.AddSingleton<IDialogService, DialogService>();
+        services.AddSingleton<Services.Telemetry.FlowBuilderSuggestionTelemetryService>();
         services.AddSingleton<DashboardService>();
         // Keyboard mapping system (Epic #119)
         services.AddSingleton<IKeyboardMappingService, KeyboardMappingService>();
@@ -615,8 +623,16 @@ public partial class App : Application
         services.AddSingleton<Services.AudioAnalysis.BeatgridDetectionService>();
         services.AddSingleton<Services.AudioAnalysis.BpmDetectionService>();
         services.AddSingleton<Services.AudioAnalysis.KeyDetectionService>();
+        services.AddSingleton<Services.AudioAnalysis.EnergyScoringService>();
+        services.AddSingleton<Services.AudioAnalysis.HarmonicAnalysisService>();
+        services.AddSingleton<Services.AudioAnalysis.HarmonicCompatibilityService>();
+        services.AddSingleton<Services.AudioAnalysis.TrackFingerprintBuilderService>();
+        services.AddSingleton<Services.AudioAnalysis.TrackFingerprintStore>();
+        services.AddSingleton<Services.AudioAnalysis.TrackFingerprintBackfillService>();
         services.AddSingleton<Services.AudioAnalysis.AudioIngestionPipeline>();
         services.AddSingleton<Services.AudioAnalysis.EssentiaRunner>();
+        services.AddSingleton<Services.FrequentSourceService>();
+        services.AddSingleton<Services.PrefetchService>();
 
         // ── Task 1.6: Waveform + Energy Extraction ───────────────────────
         services.AddSingleton<Services.AudioAnalysis.WaveformExtractionService>();
@@ -636,6 +652,9 @@ public partial class App : Application
         // Section-level feature vectors (Intro/Drop/Outro per track) for
         // transition-aware playlist optimisation — no new DB schema needed.
         services.AddSingleton<Services.Similarity.SectionVectorService>();
+        services.AddSingleton<Services.Similarity.TrackSimilarityService>();
+        services.AddSingleton<Services.Similarity.TransitionStyleClassifier>();
+        services.AddSingleton<Services.Playlist.PlaylistIntelligenceService>();
 
         // ── Tasks 5.1-5.5: Dual Deck Engine + Sync ───────────────────────
         services.AddSingleton<ViewModels.DeckViewModel>();

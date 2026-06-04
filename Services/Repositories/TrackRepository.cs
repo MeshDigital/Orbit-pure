@@ -791,21 +791,22 @@ public class TrackRepository : ITrackRepository
     {
         try
         {
-            var totalTracks = await context.PlaylistTracks.CountAsync();
-            var hqTracks = await context.PlaylistTracks.CountAsync(t => t.Bitrate >= 256 || (t.Format != null && t.Format.ToLower() == "flac"));
-            var lowBitrateTracks = await context.PlaylistTracks.CountAsync(t => t.Status == TrackStatus.Downloaded && t.Bitrate > 0 && t.Bitrate < 256);
-            
-            var health = await context.LibraryHealth.FindAsync(1) ?? new LibraryHealthEntity { Id = 1 };
-            
-            health.TotalTracks = totalTracks;
-            health.HqTracks = hqTracks;
-            health.UpgradableCount = lowBitrateTracks;
-            health.LastScanDate = DateTime.Now;
-            
-            if (context.Entry(health).State == EntityState.Detached)
+            // Track-level updates happen frequently. Only mark drift here and let DashboardService
+            // own canonical aggregate recomputation to avoid partial-field divergence.
+            var health = await context.LibraryHealth.FindAsync(1);
+            if (health == null)
             {
+                health = new LibraryHealthEntity
+                {
+                    Id = 1,
+                    PendingUpdates = 1,
+                    LastScanDate = DateTime.MinValue,
+                };
                 context.LibraryHealth.Add(health);
+                return;
             }
+
+            health.PendingUpdates = Math.Min(int.MaxValue, health.PendingUpdates + 1);
         }
         catch (Exception ex)
         {
@@ -964,6 +965,8 @@ public class TrackRepository : ITrackRepository
             Energy = (e.AudioFeatures?.Energy > 0) ? e.AudioFeatures.Energy : e.Energy,
             Danceability = (e.AudioFeatures?.Danceability > 0) ? e.AudioFeatures.Danceability : e.Danceability,
             Valence = (e.AudioFeatures?.Valence > 0) ? e.AudioFeatures.Valence : e.Valence,
+            Arousal = (e.AudioFeatures?.Arousal > 0) ? (double?)e.AudioFeatures.Arousal : null,
+            IsDjTool = e.AudioFeatures?.IsDjTool ?? false,
             MusicalKey = !string.IsNullOrEmpty(e.AudioFeatures?.Key) ? e.AudioFeatures.Key : e.MusicalKey,
             CanonicalDuration = e.DurationSeconds * 1000,
             SortOrder = 0,

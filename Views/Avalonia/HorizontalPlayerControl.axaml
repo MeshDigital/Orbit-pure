@@ -26,7 +26,7 @@
                             BorderThickness="0"
                             HorizontalAlignment="Stretch"
                             VerticalAlignment="Stretch"
-                            ToolTip.Tip="Open expanded player">
+                            ToolTip.Tip="Open expanded now playing view">
                         <Panel>
                             <!-- Phase 1.7: Vibe Visualizer (Mini-Glow) -->
                             <controls:VibeVisualizer IsPlaying="{Binding IsPlaying}"
@@ -238,10 +238,10 @@
                         Background="#221DB954"
                         BorderBrush="#1DB954"
                         BorderThickness="1"
-                        ToolTip.Tip="Open full player view">
+                        ToolTip.Tip="Open full now playing view">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <TextBlock Text="▣" FontSize="16" Foreground="#DFFFE8"/>
-                        <TextBlock Text="PLAYER" FontSize="10" FontWeight="Bold"
+                        <TextBlock Text="FULL VIEW" FontSize="10" FontWeight="Bold"
                                    VerticalAlignment="Center" Foreground="#DFFFE8"/>
                     </StackPanel>
                 </Button>

@@ -1,5 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Reactive.Subjects;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -61,5 +65,41 @@ public class AnalysisQueueTests
         Assert.False(_service.IsStealthMode);
         // We look for anything that isn't Stealth in the PerformanceMode string
         _eventBusMock.Verify(x => x.Publish(It.Is<AnalysisQueueStatusChangedEvent>(e => !e.PerformanceMode.Contains("Stealth"))), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public async Task DuplicateInFlightRequests_AreSuppressed_ForSameTrackHash()
+    {
+        var requestStream = new Subject<TrackAnalysisRequestedEvent>();
+        var statusEvents = new List<AnalysisQueueStatusChangedEvent>();
+
+        var eventBusMock = new Mock<IEventBus>();
+        eventBusMock.Setup(x => x.GetEvent<TrackAnalysisRequestedEvent>())
+            .Returns(requestStream);
+        eventBusMock.Setup(x => x.Publish(It.IsAny<AnalysisQueueStatusChangedEvent>()))
+            .Callback<AnalysisQueueStatusChangedEvent>(evt => statusEvents.Add(evt));
+
+        var loggerMock = new Mock<ILogger<AnalysisQueueService>>();
+        var dbFactoryMock = new Mock<IDbContextFactory<AppDbContext>>();
+        dbFactoryMock
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                var options = new DbContextOptionsBuilder<AppDbContext>()
+                    .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+                    .Options;
+                return new AppDbContext(options);
+            });
+
+        using var service = new AnalysisQueueService(eventBusMock.Object, loggerMock.Object, dbFactoryMock.Object);
+        service.SetStealthMode(true);
+
+        requestStream.OnNext(new TrackAnalysisRequestedEvent("dup-track-hash"));
+        requestStream.OnNext(new TrackAnalysisRequestedEvent("dup-track-hash"));
+
+        await Task.Delay(100);
+
+        Assert.NotEmpty(statusEvents);
+        Assert.Equal(1, statusEvents.Max(e => e.QueuedCount));
     }
 }

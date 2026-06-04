@@ -1,0 +1,434 @@
+# Workstation Cockpit Memory
+
+Status: Source of truth for Workstation UI architecture and refactor decisions.
+Last Updated: 2026-05-11
+
+## Progress Log
+- 2026-05-07: Task 1 baseline started.
+  - Added global DPI token resource file at src/UI/Tokens/DpiTokens.axaml.
+  - Wired token include in App.axaml.
+  - Migrated key Workstation header/deck controls to token-backed sizing and compact overrides.
+  - Build validation passed.
+- 2026-05-07: Task 1 continuation.
+  - Added persisted workstation density override in AppConfig: Auto | Compact | Normal | Touch.
+  - Added density selector controls in Workstation header.
+  - Wired WorkstationPage to honor runtime/config density override.
+  - Tokenized MixerCenter and propagated density classes into mixer strip.
+  - Build validation passed.
+- 2026-05-07: Task 4 foundation started.
+  - Replaced hardcoded workstation mode buttons with a VM-backed ToolOptions collection in WorkstationViewModel.
+  - Added staged placeholders for Automation and Samples so the cockpit can express its target tool model without pretending those surfaces are implemented yet.
+  - Added active tool summary text in the Workstation header to make the selected cockpit context explicit.
+  - Build validation passed.
+- 2026-05-07: Task 8 foundation started.
+  - Refactored the right inspector to switch content by active tool instead of always showing waveform-focused summaries.
+  - Added Flow, Stems, and Export inspector sections driven by existing Workstation and ExportPanel state.
+  - Kept export inspector deck data synchronized with loaded workstation decks.
+  - Build validation passed.
+- 2026-05-07: Cockpit shell follow-up.
+  - Promoted the workstation tool selector into the persistent header so tool switching is always visible.
+  - Kept the Workspace Tools expander focused on secondary toggles like Snap, Quantize, Metronome, and density.
+  - Build validation passed.
+- 2026-05-07: Header declutter continuation.
+  - Moved focused deck selection toggles and loop pads out of the header transport cluster and into the waveform inspector.
+  - Left the header focused on global transport and timeline viewport actions.
+  - Build validation passed.
+- 2026-05-07: Mode-signaled cockpit context.
+  - Updated header status lines to show tool-specific context (waveform mix coach, flow playlist summary, stems status, export status) by active tool.
+  - Added active tool lane badges to the timeline strip (Waveform Lane, Flow Overlay, Stems Overlay, Export Preview).
+  - Build validation passed.
+- 2026-05-07: Main-canvas tool lane foundation.
+  - Added a dedicated tool lane row between the timeline ruler and deck rows in the workstation canvas.
+  - Implemented first active lane surfaces for Flow, Stems, and Export while keeping waveform deck rows persistent.
+  - Shifted mixer strip to remain anchored below deck rows after the new lane row insertion.
+  - Build validation passed.
+- 2026-05-07: Tool lane continuation.
+  - Added explicit Waveform lane content so all active tools now have a lane surface in the dedicated tool-lane row.
+  - Introduced lane-specific DPI tokens and lane styles (WsPadLane / WsPadLaneCompact, Border.ws-lane) for better density consistency.
+  - Migrated lane strip and lane text sizing to shared token resources.
+  - Build validation passed.
+- 2026-05-07: Header and inspector clarity pass.
+  - Removed duplicated tool-context status lines from the central header block now that lane and inspector surfaces carry that context.
+  - Scoped top playlist summary visibility to Flow mode and scoped focused-deck summary chip visibility to Waveform mode.
+  - Migrated key header and inspector typography to workstation font tokens (WsFontSm / WsFontMd / WsFontLg).
+  - Build validation passed.
+- 2026-05-07: Inspector/lane dedupe continuation.
+  - Removed redundant Flow, Stems, and Export status chips from inspector sections where equivalent status now lives in the dedicated tool lane row.
+  - Kept inspector focus on actionable controls and deeper per-tool context.
+  - Migrated remaining inspector section labels and chip text to workstation font tokens.
+  - Build validation passed.
+- 2026-05-07: Interactive lane controls.
+  - Added direct Flow lane actions for playlist analysis and track overlay access.
+  - Added Stems lane quick actions for Separate, Instrumental, and Drums Only on the focused deck.
+  - Added Export lane quick actions for WAV/MP3/FLAC format presets and one-click Export launch.
+  - Added lightweight format preset commands to ExportDialogViewModel to support lane-level export actions.
+  - Build validation passed.
+- 2026-05-08: Lane action guardrails and density tokens.
+  - Added explicit lane action guard properties in WorkstationViewModel (playlist readiness, focused deck readiness, export readiness).
+  - Bound lane actions to those guards so Flow/Stems/Export lane actions disable cleanly when prerequisites are missing.
+  - Added inspector padding tokens (WsPadInspector / WsPadInspectorCompact) and applied them through a compact-aware inspector style.
+  - Build validation passed.
+- 2026-05-08: Guardrail messaging and header tokenization continuation.
+  - Added dynamic disabled-action tooltip hints for Flow, Stems, and Export lane actions so disabled controls explain missing prerequisites.
+  - Added tokenized header margin resources (WsMarginHeaderMain / WsMarginHeaderTools / WsMarginHeaderChips) and applied them in WorkstationPage.
+  - Removed explicit density-button paddings in favor of shared secondary-button token styling.
+  - Build validation passed.
+- 2026-05-08: Lane disabled visuals + header-right tokenization.
+  - Added lane-action disabled visual styling so unavailable lane buttons are visibly de-emphasized, not only tooltip-explained.
+  - Added and applied primary/header-right token resources (WsPadPrimary, WsPadPrimaryCompact, WsMarginHeaderCenter, WsMarginHeaderRight).
+  - Switched header Export Mixdown button to a tokenized primary class and removed remaining hardcoded header-right paddings/margins in this section.
+  - Build validation passed.
+- 2026-05-08: Timeline/drawer token continuation + deck-first header declutter.
+  - Added timeline and drawer token resources (timeline slider/chips/snap-guide sizing and flow-drawer header padding) and migrated corresponding literals in WorkstationPage.
+  - Removed deck-centric Sync and +Deck controls from the global header transport cluster.
+  - Added Sync A/B and +Deck actions to the Waveform inspector deck-focus section so deck actions remain available in contextual tool space.
+  - Build validation passed.
+- 2026-05-08: Header chip declutter continuation.
+  - Removed focused-deck action summary chip from the global header chip row to keep header context global-first.
+  - Added focused-deck action summary into the Waveform inspector chip stack so this guidance stays in deck-context tooling.
+  - Build validation passed.
+- 2026-05-08: Global transport status split.
+  - Added GlobalTransportSummary in WorkstationViewModel so header status can stay global (transport state + loaded deck count) without focused deck/loop detail.
+  - Switched header chip binding to GlobalTransportSummary and removed duplicated center transport status text block.
+  - Kept deck-focused transport/action detail in Waveform inspector context via existing focused-deck summaries.
+  - Build validation passed.
+- 2026-05-08: Actionable flow drawer CTA strip (Task 7 progression).
+  - Added persistent CTA buttons in the flow drawer status strip: Download Tracks, Analyze Playlist, Import Local Files, and Load into Workstation.
+  - Wired Download/Import CTAs to app navigation via NavigateToPageEvent (Projects / Import).
+  - Wired Load into Workstation CTA to open the existing track-list overlay for immediate deck loading workflow.
+  - Build validation passed.
+- 2026-05-08: Context-aware empty-state CTA visibility.
+  - Added WorkstationViewModel CTA state booleans (ShouldShowAcquireCtas / ShouldShowReadyTrackCtas) derived from ready-track availability.
+  - Updated flow drawer status strip to show acquisition CTAs (Download/Import) when no ready tracks exist, and show production CTAs (Analyze/Load) once tracks are ready.
+  - Hooked CTA state property raises into lane action updates so transitions react live to playlist readiness changes.
+  - Build validation passed.
+- 2026-05-08: Five-slice CTA intelligence + status-strip tokenization continuation.
+  - Added finer CTA state and guidance in WorkstationViewModel: playlist-aware CTA visibility, CTA state summary text, and dynamic CTA tooltip hints.
+  - Ensured CTA state refreshes immediately when active playlist changes (not only when playlist track collection mutates).
+  - Added drawer status-strip DPI tokens (busy/idle paddings, trailing margin, CTA row margin) and applied them in WorkstationPage.
+  - Added flow status summary line in idle strip to explain whether user should acquire/import tracks or proceed with analyze/load actions.
+  - Added CTA keyboard shortcuts (Ctrl+Shift+P/I/L) and updated the cockpit shortcut legend.
+  - Added guard in Load-into-workstation CTA handler so keyboard shortcuts do not open overlay when no ready tracks are available.
+  - Build validation passed.
+- 2026-05-08: Full next-five implementation batch.
+  - Added explicit no-playlist CTA state (`ShouldShowSelectPlaylistCta`) and a real Focus Playlist action that opens/focuses the flow drawer playlist selector.
+  - Expanded the Flow lane from a thin action row into a richer readiness/work-queue surface with readiness summary and analysis queue chips.
+  - Promoted Automation and Samples from disabled placeholders to real cockpit modes with active tool selection, dedicated lane surfaces, and first-pass inspector shells.
+  - Added more workstation token coverage for overlay padding, overlay header margin, track-pool padding, and splitter height.
+  - Replaced core workstation glyph-only controls with vector `PathIcon` usage in header transport/navigation and focused-loop exit.
+  - Build validation passed.
+- 2026-05-08: Next five slices continuation (Task 9 + Task 10).
+  - Remapped shell-level Player/NowPlaying navigation events to Workstation so cockpit routing remains unified.
+  - Updated main shell keybinding (`Ctrl+Shift+P`) and sidebar System nav entry to route to Workstation instead of a separate Player destination.
+  - Added workstation architecture doc: `docs/workstation/architecture.md`.
+  - Added workstation tools doc: `docs/workstation/tools.md`.
+  - Added workstation timeline doc: `docs/workstation/timeline.md`.
+  - Build validation passed.
+- 2026-05-08: Task 2 SVG pipeline foundation slice.
+  - Created `assets/icons/svg/` and added initial workstation icon set (`play`, `stop`, `undo`, `redo`, `pan-left`, `pan-right`, `zoom-in`, `zoom-out`, `close`).
+  - Added SVG migration guide and workstation control mapping in `assets/icons/svg/README.md`.
+  - Updated epic task status notes to track phased SVG migration completion criteria.
+  - Build validation passed.
+- 2026-05-08: Task 2 SVG migration continuation (resource centralization).
+  - Added centralized workstation icon geometry resources in `App.axaml` for redo/pan/zoom actions mapped to the SVG pack.
+  - Replaced remaining inline `PathIcon` geometry literals in `WorkstationPage.axaml` with shared resource keys.
+  - `WorkstationPage` now has no inline cockpit path literals for header transport/navigation icons.
+  - Build validation passed.
+- 2026-05-08: Task 3 source-of-truth decision closure.
+  - Confirmed `Views/Avalonia/WorkstationPage.axaml` as the canonical cockpit migration surface for this epic.
+  - Deferred extraction to `src/Workstation/CockpitView.axaml` until post-stabilization to avoid parallel cockpit drift.
+  - Updated epic task status notes so future slices have a single implementation path.
+- 2026-05-08: Task 9 residual semantics cleanup continuation.
+  - Updated shell tab and tablet sheet wording from `Player` to `Now Playing` where these controls represent media panel context rather than a separate cockpit destination.
+  - Updated compact horizontal player action label/tooltip to `Now Playing` phrasing for consistency with workstation-primary navigation semantics.
+  - Build validation passed.
+- 2026-05-08: Task 4 regression coverage continuation.
+  - Added focused cockpit summary tests for `BuildAutomationModeSummary` and `BuildSamplesModeSummary` in `Tests/SLSKDONET.Tests/ViewModels/WorkstationDeckViewModelTests.cs`.
+  - Extended navigation resolver coverage in `Tests/SLSKDONET.Tests/ViewModels/MainViewModelNavigationTests.cs` to include `NowPlayingPage -> PageType.NowPlaying`.
+  - Updated readiness test fixture (`IsTrackReadyForWorkstation_RequiresLocalFileAndPrepData`) to include required hash + cue prep data so it matches current eligibility rules.
+  - Full targeted cockpit test files now pass.
+- 2026-05-08: Task 5 QA checklist logging pass (documentation closure in progress).
+  - Added explicit QA matrix snapshot to epic with PASS/PARTIAL/NOT RUN outcomes and follow-up actions.
+  - Captured automated validation (`dotnet build`, targeted cockpit tests) and identified remaining manual matrix work (resolution/scaling/keyboard/latency).
+- 2026-05-08: Plan refresh + semantics hardening continuation.
+  - Updated epic `Next Execution Plan` block to reflect completed slices and define the next forward queue (manual QA matrix, remap hardening tests, UX copy polish).
+  - Normalized remaining tooltip copy in expanded/compact media surfaces to now-playing wording.
+  - Added `MainViewModel.ShouldRemapToWorkstationDestination` and unit coverage for Player/NowPlaying alias remap behavior.
+  - Validation passed (`MainViewModelNavigationTests` + full solution build).
+- 2026-05-08: QA matrix execution continuation (automated portion).
+  - Ran desktop startup smoke via `dotnet run --project SLSKDONET.csproj`; app reached ORBIT boot/service initialization logs with no immediate runtime exception.
+  - Updated epic QA snapshot with runtime smoke PASS.
+  - Remaining QA matrix rows still require human-observed visual and interaction verification (resolution/scaling/clipping/latency).
+- 2026-05-08: QA matrix execution completion (manual confirmations).
+  - Manual validation confirmed PASS for multi-resolution visual checks (1080p/1440p/4K/5K).
+  - Manual validation confirmed PASS for Windows scaling checks (100/125/150/200).
+  - Manual validation confirmed PASS for keyboard flow, clipping risk, loaded/unloaded track behavior, and timeline responsiveness.
+  - Epic QA matrix row set is now closed as PASS.
+- 2026-05-09: Post-QA plan refresh + final media-surface wording cleanup.
+  - Rewrote epic `Next Execution Plan` to remove completed slices and define the next concrete queue from the new baseline.
+  - Removed lingering user-visible `Player` destination wording from queue/sidebar/full-view media surfaces where these controls are contextual now-playing surfaces.
+  - Collapsed duplicate QA snapshot rows in the epic so the recorded state is clean and current.
+  - Build validation passed.
+- 2026-05-09: Media action deduplication + first inspector-first workstation declutter.
+  - Standardized visible now-playing shell labels so sidebar, bottom dock, and full view use one action vocabulary (`OVERLAY`, `FULL VIEW`).
+  - Removed duplicated shell actions from the sidebar now-playing overflow menu, leaving overflow focused on track-specific actions.
+  - Removed the duplicate workstation header `Export Mixdown...` action because export lane and inspector surfaces already cover that workflow.
+  - Build validation passed.
+- 2026-05-09: Continued inspector-first workstation declutter.
+  - Removed redundant export format quick-actions (`WAV`, `MP3`, `FLAC`) from the export lane because the export inspector already owns format/output configuration.
+  - Removed the redundant stems-lane `Separate` action, leaving separation entry in the stems inspector while keeping lane-level quick mix toggles.
+  - Build validation passed.
+- 2026-05-09: Continued load/analyze declutter.
+  - Removed the duplicate ready-track drawer `Analyze Playlist` CTA because the drawer header and flow lane already expose the same command.
+  - Kept `Load into Workstation` in the ready-track CTA block so the drawer still has a single direct progression action.
+  - Build validation passed.
+- 2026-05-09: Continued generic-load declutter.
+  - Removed the generic `Load` CTA from the samples inspector because the drawer CTA and per-track grid load commands already cover progression and deck targeting.
+  - Removed the generic flow-lane `Load to Deck` CTA for the same reason, leaving the drawer as the single generic load surface.
+  - Build validation passed.
+- 2026-05-09: Heavy workstation shell declutter after visual review.
+  - Removed duplicate header diagnostics/workspace-tools panels and redundant transport/mode summary surfaces that were stacking above the timeline.
+  - Removed repeated flow analysis/readiness summaries from the flow lane and flow inspector so the same prep state is no longer shown in multiple adjacent regions.
+  - Runtime smoke after the structural pass stayed active; build validation passed after stopping the running app to clear the file lock.
+- 2026-05-09: Issue backlog reconciliation.
+  - Converted the broad workstation complaint/master-list input into a deduplicated issue-ready backlog document at `DOCS/WORKSTATION_COCKPIT_ISSUE_BACKLOG.md`.
+  - Explicitly separated closed/partial/create-now items so GitHub issue generation does not recreate already implemented epic work.
+  - Linked the backlog from the active cockpit epic.
+- 2026-05-09: Issue-generation source upgrade.
+  - Expanded the backlog so the partial items now have full follow-up issue drafts with why/description/acceptance criteria/implementation plan.
+  - Added an authoritative merged issue-generation section and a VS Code agent prompt block.
+  - The backlog file is now the canonical source for future cockpit GitHub issue generation.
+- 2026-05-09: Epic issue-link registry added.
+  - Added a pending link registry to the active cockpit epic for every A/B backlog item.
+  - The registry preserves title order so future GitHub issue URLs can be inserted without remapping the backlog.
+- 2026-05-09: Workstation shell declutter continuation.
+  - Removed the redundant `ActivePlaylistFlowSummary` line from the global header so the flow context is only shown in the more contextual lower shell surfaces.
+  - Validation passed for `Views/Avalonia/WorkstationPage.axaml` after the edit.
+- 2026-05-09: Workstation shell declutter continuation.
+  - Removed the redundant `FocusedDeckActionSummary` line from the waveform lane so detailed deck-action context remains in the inspector instead of being repeated in both lane and inspector surfaces.
+  - Validation passed for `Views/Avalonia/WorkstationPage.axaml` after the edit.
+- 2026-05-09: Workstation shell declutter continuation.
+  - Removed the redundant `WorkstationEligibilitySummary` chip from the flow inspector so drawer status remains the canonical bulk-workflow eligibility surface.
+  - Removed the redundant `FlowCtaStateSummary` chip from the samples inspector so acquisition/readiness CTA guidance remains in the drawer rather than repeating in the inspector.
+  - Removed the redundant `AnalysisQueueSummary` chip from the automation inspector so automation mode stays focused on automation-specific controls.
+  - Removed duplicate inspector copies of `AutomationModeSummary` and `SamplesModeSummary` so those mode summaries remain in the active lane rather than repeating in both lane and inspector.
+  - Validation passed for `Views/Avalonia/WorkstationPage.axaml` and `dotnet build ORBIT-Pure.sln -nologo` succeeded with baseline warnings only.
+- 2026-05-09: Canonical cockpit foundation document added.
+  - Added `DOCS/WORKSTATION_COCKPIT_FOUNDATION.md` as the canonical product, workflow, and UI specification for Workstation cockpit implementation.
+  - Linked the foundation document from the cockpit epic so future UI work reads the product spec before implementation.
+- 2026-05-09: Empty timeline canvas slice.
+  - Added `HasLoadedDecks` and `TimelineEmptyCanvasSummary` to `WorkstationViewModel` so the view can distinguish between an active timeline and an empty-but-still-visible canvas state.
+  - Replaced the bare deck-row area with a grid that preserves the deck rows and overlays an explicit empty timeline scaffold when no decks are loaded.
+  - Validation passed for `Views/Avalonia/WorkstationPage.axaml`, `ViewModels/Workstation/WorkstationViewModel.cs`, and `dotnet build ORBIT-Pure.sln -nologo` with baseline warnings only.
+- 2026-05-09: Deck-chrome reduction and timeline guardrail continuation.
+  - Reduced deck-first shell framing in `Views/Avalonia/WorkstationPage.axaml` by removing deck-labeled header/inspector wording and keeping controls in contextual surfaces.
+  - Continued duplicate-surface sweep by removing header `ActiveToolSummary` and flow-inspector `FlowWindowSummary` duplicates.
+  - Added `Tests/SLSKDONET.Tests/Architecture/WorkstationTimelineLayoutGuardTests.cs` to enforce persistent timeline scaffold rendering and non-replacement empty-state overlay behavior.
+  - Validation passed for `Views/Avalonia/WorkstationPage.axaml`, `dotnet build ORBIT-Pure.sln -nologo`, and `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj --filter "FullyQualifiedName~WorkstationTimelineLayoutGuardTests"`.
+- 2026-05-09: Flow planning and runtime QA gates documented.
+  - Added `DOCS/workstation/flow-integration-blueprint.md` to define phased timeline-native Flow implementation (passive overlays, interactive handles, inspector coupling, drawer support role).
+  - Added `DOCS/workstation/runtime-qa-cockpit-gate.md` as a manual sign-off checklist before deep cockpit feature slices.
+  - Linked both documents into `DOCS/WORKSTATION_COCKPIT_EPIC.md` so future slices must pass through blueprint + QA gate review.
+- 2026-05-09: Flow Slice 1 passive overlay implementation.
+  - Added VM-side passive transition entities in `ViewModels/Workstation/WorkstationViewModel.cs` via `FlowTransitionOverlayViewModel` and `FlowTransitions` computed from loaded deck anchors.
+  - Added timeline rendering layers in `Views/Avalonia/WorkstationPage.axaml` for passive transition regions, phrase guides, beat guides, and compatibility labels in Flow mode.
+  - Kept overlays non-interactive (`IsHitTestVisible=False`) and preserved existing timeline scaffold/deck-row layering.
+  - Extended `Tests/SLSKDONET.Tests/Architecture/WorkstationTimelineLayoutGuardTests.cs` to guard passive overlay presence and bindings.
+  - Validation passed for `dotnet build ORBIT-Pure.sln -nologo` and `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj --filter "FullyQualifiedName~WorkstationTimelineLayoutGuardTests"`.
+- 2026-05-09: Flow Slice 2 selection and inspector coupling.
+  - Added selected-transition state in `WorkstationViewModel` (`SelectedFlowTransitionKey`, `SelectedFlowTransition`) plus selection commands (`SelectFlowTransitionCommand`, `ClearFlowTransitionSelectionCommand`).
+  - Extended Flow overlay entities with stable transition keys, selection flags, and transition length metadata.
+  - Wired `WorkstationPage` Flow overlay blocks to selectable buttons with visual highlight, and surfaced selected transition details in Flow inspector context.
+  - Updated tests: architecture guards now assert selection command + inspector bindings, and VM tests verify selected transition overlay state.
+  - Validation passed for `dotnet build ORBIT-Pure.sln -nologo` and `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj --filter "FullyQualifiedName~WorkstationTimelineLayoutGuardTests|FullyQualifiedName~BuildFlowTransitions_"`.
+- 2026-05-10: Flow Slice 3 interactive transition handles.
+  - Added transition timing metadata to Flow overlays (`StartSeconds`, `EndSeconds`, phrase/beat guide seconds) and per-transition length overrides in `WorkstationViewModel`.
+  - Implemented drag-based transition-length preview and commit methods with phrase/beat snap behavior and undo integration via `IUndoService`.
+  - Added in-lane resize handles in `WorkstationPage.axaml` and pointer interaction handlers in `WorkstationPage.axaml.cs` for press/move/release drag flow.
+  - Extended inspector Flow context with snap status (`FlowInspectorSnapLabel`) and kept drawer role unchanged.
+  - Expanded tests with length override/snap assertions and handle hook guard coverage.
+  - Validation passed for `dotnet build ORBIT-Pure.sln -nologo` and `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj --filter "FullyQualifiedName~WorkstationTimelineLayoutGuardTests|FullyQualifiedName~BuildFlowTransitions_"`.
+- 2026-05-10: Flow Slice 4 transition preset blueprint authored.
+  - Added `DOCS/workstation/flow-slice-4-transition-presets-blueprint.md` as the next-slice execution spec for transition presets and musical intelligence.
+  - Blueprint defines preset catalog, harmonic and energy compatibility scoring model, inspector preset UI, apply/reset command flow, undo checkpoints, and guard + VM test scope.
+  - Linked blueprint into cockpit epic learning plan and backlog progress to keep Slice 4 governance aligned with foundation and QA gate flow.
+- 2026-05-10: Cockpit create-now backlog materialized to GitHub issues.
+  - Added `Tools/create-workstation-cockpit-issues.ps1` to generate the 12 create-now cockpit issues with canonical labels and structured issue bodies.
+  - Executed script against `MeshDigital/Orbit-pure`, creating issues `#153-#164` (B1-B12) and returning URLs for governance closure.
+  - Updated epic issue-link registry and backlog snapshot so docs and GitHub now represent the same operational backlog state.
+- 2026-05-10: Flow Slice 4.1 implementation started (Issue #160).
+  - Extended `ViewModels/Workstation/WorkstationViewModel.cs` with transition preset catalog model, harmonic/energy scoring helpers, combined compatibility scoring, warning flag generation, and preset suggestion ranking scaffolding.
+  - Extended `FlowTransitionOverlayViewModel` with Slice 4 compatibility metadata and suggested preset IDs so inspector coupling can bind to scored transition context in Slice 4.2.
+  - Added focused tests in `Tests/SLSKDONET.Tests/ViewModels/WorkstationDeckViewModelTests.cs` for harmonic and energy score bucket mapping plus risky/mismatch preset ranking behavior.
+  - Validation passed with targeted build and workstation guard/VM tests.
+- 2026-05-10: Flow Slice 4.2 implementation completed (Issue #161).
+  - Added `_flowTransitionPresetOverrides` dictionary, `ApplyFlowPresetCommand` (ReactiveCommand<string, Unit>), `ResetFlowPresetCommand`, `SetFlowTransitionPresetOverride` helper, and `FlowTransitionPresetOperation` (IUndoableOperation) to WorkstationViewModel.
+  - Updated `BuildFlowTransitions` static method to accept `presetOverrides` param; updated `FlowTransitions` property to pass `_flowTransitionPresetOverrides`.
+  - Added `FlowInspectorTopSuggestedPresetId` property (feeds CommandParameter for Apply Preset button).
+  - Wired 7 new inspector chips (harmonic/energy/combined score, warnings, preset label, suggestions) + Apply/Reset preset buttons to Flow inspector StackPanel in `WorkstationPage.axaml`.
+  - Extended `WorkstationTimelineLayoutGuardTests` with 9 new binding assertions (7 labels + 2 commands).
+  - Build: 0 errors; 13/13 targeted tests pass.
+- 2026-05-10: Flow Slice 4.3 implementation completed (Issue #162).
+  - Extended `FlowTransitionPresetOperation` to store/restore both preset ID and length seconds for atomic undo of preset+length changes.
+  - `ApplyFlowPresetCommand` now also snaps the transition length to `preset.DefaultLengthSeconds` when applying a preset.
+  - `ResetFlowPresetCommand` now also calls `ClearFlowTransitionLengthOverride` on reset.
+  - Added `CycleFlowPresetCommand` (ReactiveCommand<Unit, Unit>) — cycles through top suggested presets with undo+length-snap.
+  - Added `FlowInspectorCurveLabel` and `FlowInspectorBandStrategyLabel` inspector properties (with `ResolveCurveLabel`, `ResolveBandStrategyLabel`, `CurveTypeDisplayName`, `BandStrategyDisplayName` helpers).
+  - Added `IsPresetApplied` bool property to `FlowTransitionOverlayViewModel` (`AppliedPresetId != null`).
+  - Fixed `BuildFlowTransitions` to properly resolve `appliedPresetId` from `presetOverrides` dictionary.
+  - XAML: added Cycle button, curve chip, band strategy text, and blue indicator stripe (`IsPresetApplied`) to timeline transition block.
+  - Guard tests: 6 new assertions; VM tests: 4 new (overlay preset state + catalog defaults). 17/17 pass.
+- 2026-05-10: Flow Slice 4.4 closure pass completed.
+  - Confirmed Slice 4 exit criteria: apply/reset/cycle commands, score visibility, deterministic undo/redo, no duplicate preset-state surfaces, and focused build/tests green.
+  - Synced governance docs to reflect Slice 4 completion and immediate continuation into playlist-native flow overlays.
+- 2026-05-10: Flow Slice 5 playlist roadmap implementation completed.
+  - Added `PlaylistFlowTransitionViewModel` and `BuildPlaylistFlowTransitions(...)` in `WorkstationViewModel` to map playlist-ordered track pairs into timeline markers.
+  - Added `FlowPlaylistTransitions`, `HasFlowPlaylistTransitions`, and `IsFlowPlaylistOverlayVisible` to expose the full playlist transition map in Flow mode.
+  - Added read-only playlist compatibility marker lane in `WorkstationPage.axaml` under deck transition blocks with per-transition tooltips.
+  - Extended architecture and VM test coverage (`FlowPlaylistTransitions` bindings + `BuildPlaylistFlowTransitions_*` behavior tests).
+  - Validation passed: focused flow suite 19/19 passing.
+- 2026-05-10: Cockpit readability/contrast continuation (A10 partial).
+  - Increased contrast for low-visibility timeline ruler ticks, inspector secondary text, drawer idle status lines, and track-pool helper copy in `WorkstationPage.axaml`.
+  - Kept layout and command surfaces unchanged; this pass is visual legibility-only to reduce scan friction.
+- 2026-05-11: A1 cockpit-grid tightening continuation.
+  - Reduced drawer default footprint (`CockpitGrid` bottom row 300 -> 280) to increase active timeline area.
+  - Reduced inspector rail width (`Grid` right column 300 -> 276) and converted inspector framing to a rounded, translucent satellite card instead of a hard side wall.
+  - Softened lane/header rail framing tones and tightened Flow overlay hint card width to reduce panel dominance and keep timeline visual priority.
+  - Kept all commands and workflows unchanged; this slice is layout hierarchy and chrome reduction only.
+- 2026-05-11: A10.1 readability token normalization (drawer/tab/data-grid).
+  - Added local readability brushes (`WsTextPrimaryReadable`, `WsTextSecondaryReadable`, `WsTextMutedReadable`, `WsTextHintReadable`) in `WorkstationPage.axaml`.
+  - Added local styles for `TabControl.drawer-tabs TabItem.drawer-tab` and `DataGrid.drawer-grid` to standardize readable foregrounds in drawer-heavy surfaces.
+  - Applied readability brushes to flow drawer status text and track-pool helper copy; applied `drawer-grid` class to both drawer track grids.
+  - Validation passed: build green and focused flow/guard tests 19/19.
+- 2026-05-11: A10.2 inspector and lane microcopy normalization.
+  - Replaced remaining low-contrast inspector/lane microcopy foreground literals with readability tokens in `WorkstationPage.axaml` (timeline ticks, lane summaries, flow overlay hint, empty timeline guidance, inspector metadata rows, and export microcopy labels).
+  - Kept semantic accent colors for mode chips/warnings intact while moving neutral informational copy to tokenized readability tiers.
+  - Added architecture guard `WorkstationReadability_DoesNotUseLegacyMutedHexForegroundLiterals` in `WorkstationTimelineLayoutGuardTests` to block reintroduction of known legacy low-contrast muted hex values.
+  - Validation passed: build green and focused flow/guard tests 20/20.
+- 2026-05-11: A10.3 theme/readability governance hardening.
+  - Moved workstation readability brushes (`WsTextPrimaryReadable`, `WsTextSecondaryReadable`, `WsTextMutedReadable`, `WsTextHintReadable`) from local view scope into global theme resources in `Themes/AvaloniaTheme.axaml`.
+  - Removed duplicated local brush definitions from `Views/Avalonia/WorkstationPage.axaml` so cockpit readability tiers are theme-governed from one source.
+  - Upgraded architecture guard to whitelist policy via `WorkstationReadability_OnlyUsesWhitelistedHexForegroundAccents`, enforcing a compact allowed semantic-hex set for cockpit foreground literals.
+  - Validation passed: build green and focused flow/guard tests 20/20.
+- 2026-05-11: A9.1 phrase-aware snapping engine extension.
+  - Extended `FlowTransitionOverlayViewModel` with `PhraseSnapCandidatesSeconds` metadata and populated it in `BuildFlowTransitions` from phrase-role cues plus transition anchors.
+  - Added `ComputePhraseAwareSnapEndSeconds(...)` in `WorkstationViewModel` and routed drag-length snapping through phrase-first candidate resolution with beat-guide fallback.
+  - Added focused tests in `WorkstationDeckViewModelTests`: phrase candidate priority, beat fallback behavior, and non-empty phrase candidate metadata on transition overlays.
+  - Validation passed: build green and focused flow/guard tests 22/22.
+- 2026-05-11: A9.2 editable phrase markers on timeline.
+  - Added phrase marker drag affordance to Flow overlays in `WorkstationPage.axaml` (`OnFlowPhraseMarkerPointerPressed/Moved/Released`) so phrase guides can be edited directly in canvas context.
+  - Added phrase-marker resize interaction state and handlers in `WorkstationPage.axaml.cs`, mirroring transition-length drag UX and selecting the active transition during marker edits.
+  - Added `_flowTransitionPhraseMarkerOverrides` plus preview/commit VM APIs in `WorkstationViewModel` (`PreviewFlowPhraseMarkerFromCanvasDelta`, `CommitFlowPhraseMarkerFromCanvasDelta`) with undo support via `FlowTransitionPhraseMarkerOperation`.
+  - Wired phrase marker overrides into `BuildFlowTransitions` so edited markers persist in overlay state and remain part of snap candidate metadata.
+  - Extended guards and tests: architecture assertions for phrase marker pointer hooks; VM coverage for phrase marker override application. Validation passed: build green and focused flow/guard tests 23/23.
+- 2026-05-11: A9.4-C phrase-region merge + inference rules.
+  - Replaced single-region transition assignment with a deterministic merge pipeline in `WorkstationViewModel`: inferred region build from cue anchors, normalization/clamp/sort, overlap+adjacency merge (0.1s tolerance), explicit override shaping (drop/trim/split), and final provenance+confidence recomputation.
+  - Updated `FlowTransitionOverlayViewModel` phrase-region summary behavior to compute active region preference (explicit-first), total span seconds, and provenance label (`Explicit`/`Inferred`/`Mixed`).
+  - Extended inspector phrase-region metadata properties (`FlowInspectorPhraseRegionCount`, `FlowInspectorPhraseRegionSpanSeconds`, `FlowInspectorPhraseRegionProvenanceLabel`) and compact label formatting (`N regions · X.Ys · Provenance`).
+  - Refined `ComputePhraseAwareSnapEndSeconds` priority order to prefer explicit boundaries, then mixed, then inferred, then phrase-marker candidates, then beat fallback.
+  - Added focused VM tests for inferred merge behavior, explicit-over-inferred shaping, mixed provenance, confidence recompute, explicit snap priority, and merged summary labels; focused validation passed 24/24.
+- 2026-05-11: Post-A9 cleanup and confidence closure.
+  - Fixed `HierarchicalLibraryViewModel` disposal hygiene by implementing `IDisposable`, detaching the column-layout persistence handler, and disposing debounce resources so the ViewModel passes the event-bus disposal guard.
+  - Re-ran the formerly failing non-slice tests (`AllTypes_WithEventBusField_MustImplementIDisposable`, `Worker_ExecutesJob_AndReportsCompletion`) and confirmed both green.
+  - Re-ran the full test suite and reached 756/756 passing, establishing a fully green post-A9 baseline.
+  - A9 is now treated as structurally complete: snapping, editable markers, explicit marker confidence, region editing, region merge intelligence, provenance rollup, inspector reporting, and undo behavior all align under one tested model.
+- 2026-05-11: A9 flow-intelligence design note added.
+  - Added `DOCS/workstation/flow-intelligence-design-note.md` as the implementation contract for the completed A9 phrasing subsystem.
+  - Captured the five-stage region pipeline, provenance semantics, inspector reporting contract, snap priority order, editing guarantees, and safe tuning boundaries.
+  - This note is now the canonical fast-path reference for future phrasing work, so engineers do not have to reconstruct the subsystem model from code and tests.
+- 2026-05-11: A9 provenance UX copy pass completed.
+  - Replaced raw user-facing provenance labels in Flow phrase-region summaries from `Explicit` / `Inferred` / `Mixed` to `Manual` / `Suggested` / `Hybrid`.
+  - Kept the underlying phrasing semantics, provenance enums, and merge logic unchanged.
+  - Focused flow tests and workstation layout guards remained green after the copy-only update.
+
+## Current Baseline
+- Flow subsystem status: solid enough to extend without reopening architecture.
+- Confidence level: high on model correctness, medium on interaction-feel tuning.
+- Full validation state: `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj` passing (756/756).
+
+## Recommended Next Focus Order
+1. A9 interaction-feel tuning pass.
+  - Audit small drag deadzones and snap-threshold feel now that behavior is stable and test-backed.
+  - Why first: tuning is safest now that the model and wording are locked down.
+
+2. A10 continuation only after the A9 feel pass.
+  - Resume broad cockpit readability/contrast cleanup once phrasing terminology and interaction feel are frozen enough not to churn labels twice.
+
+3. Regression coverage expansion.
+  - Add focused tests whenever command routing, overlay wording, or interaction thresholds change.
+
+## Cockpit Philosophy
+- Workstation is a single DAW-grade cockpit, not a mode-switched dashboard.
+- Timeline is the center of gravity and remains visible during core workflows.
+- User context must be preserved while switching tools.
+- Empty states must advance the workflow with explicit next actions.
+
+## Comparison Notes vs DJ.Studio Pro
+- DJ.Studio strengths to match:
+  - timeline-first interaction model
+  - compact, high-density UI on desktop
+  - in-context editing of transitions and structure
+  - minimal mode friction
+- Orbit differentiation targets:
+  - AI-assisted phrase and transition guidance
+  - richer automation and stem hybrid workflows
+  - analysis-informed transition recommendations
+
+## DPI Token System
+- Introduce and standardize tokens:
+  - size-xs, size-sm, size-md, size-lg
+  - padding-xs, padding-sm, padding-md, padding-lg
+  - icon-sm, icon-md, icon-lg
+  - font-xs, font-sm, font-md, font-lg
+- Density modes:
+  - Compact (default desktop)
+  - Normal
+  - Touch
+- Runtime density selection should consider render scaling and viewport width.
+
+## Layout Grid
+- Header: global transport/session controls only.
+- Main canvas: timeline + waveform + active tool lanes.
+- Right inspector: contextual per active tool and selected entity.
+- Bottom drawer: track list, suggestions, and drag pool.
+- Left nav: remove Player, keep Workstation as single playback/edit entry.
+
+## Tool Toggle Model
+- Primary tool tabs/toggles:
+  - Waveform
+  - Flow
+  - Stems
+  - Automation
+  - Samples
+  - Export
+- Tool toggle changes lane visibility and inspector content, not page context.
+- Timeline remains visible regardless of selected tool.
+- Current implementation uses a WorkstationViewModel tool collection as the shared source for cockpit tool buttons.
+- Automation and Samples are intentionally disabled placeholders until their shell and overlay architecture exists.
+
+## Inspector Behavior
+- Inspector content is contextual by active tool and selected object.
+- Inspector should avoid global clutter and only surface relevant controls.
+- No duplicate controls between header and inspector.
+- Current implementation has first-pass tool-aware inspector surfaces for Waveform, Flow, Stems, and Export.
+- Next inspector step is to remove more duplicated deck/action controls from the header as equivalent inspector destinations mature.
+
+## Timeline Rules
+- Timeline is always visible and interactive.
+- Waveforms persist in all production tools.
+- Tool-specific overlays/lane blocks appear in place.
+- Snapping and phrase cues should remain visible in flow/stems/automation modes.
+
+## Empty State Rules
+- No blocking warning-only states.
+- Always provide next actions:
+  - Download Tracks
+  - Analyze Playlist
+  - Import Local Files
+  - Load into Workstation
+- Use contextual inline guidance over high-attention global warnings.
+
+## Expansion Notes
+- Add transition presets and automation templates.
+- Add performance benchmarks and probe history for timeline interactions.
+- Add feature flags for staged cockpit migration.

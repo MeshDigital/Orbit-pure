@@ -6,22 +6,25 @@ namespace SLSKDONET.Services.AudioAnalysis;
 
 /// <summary>
 /// Computes a Mixed-In-Key-style energy score (1–10) from Essentia low-level
-/// features: Danceability, DynamicComplexity, and average loudness (RMS/LUFS).
+/// features: Danceability, DynamicComplexity, average loudness, and Arousal.
 ///
 /// Formula:
-///   raw = w_dance * Danceability + w_dynamic * DynamicComplexity_norm + w_loud * Loudness_norm
+///   raw = w_dance * Danceability + w_dynamic * DynamicComplexity_norm
+///       + w_loud * Loudness_norm + w_arousal * Arousal_norm
 ///   EnergyScore = round(clamp(raw * 10, 1, 10))
 ///
-/// Weights are empirically tuned to match the intuitive MIK 1–10 scale:
-///   - Danceability  (0-1)  drives 40 % of the score
-///   - DynamicComplexity (0–9 typical range, normalised) drives 35 %
-///   - Loudness (0–1 normalised from RMS or LUFS) drives 25 %
+/// Weights:
+///   - Danceability      (0–1)          35 %
+///   - DynamicComplexity (normalised)   25 %
+///   - Loudness          (normalised)   20 %
+///   - Arousal           (Russell 1–9) 20 %
 /// </summary>
 public sealed class EnergyScoringService
 {
-    private const float WeightDanceability      = 0.40f;
-    private const float WeightDynamicComplexity = 0.35f;
-    private const float WeightLoudness          = 0.25f;
+    private const float WeightDanceability      = 0.35f;
+    private const float WeightDynamicComplexity = 0.25f;
+    private const float WeightLoudness          = 0.20f;
+    private const float WeightArousal           = 0.20f;
 
     /// <summary>
     /// Typical maximum for Essentia DynamicComplexity (beyond this = heavily dynamic).
@@ -56,9 +59,16 @@ public sealed class EnergyScoringService
         // Normalise RMS (0–1 linear where 1 = full-scale)
         float loudNorm = rms > 0f ? Math.Clamp(rms, 0f, 1f) : NormaliseLufs(target.LoudnessLUFS);
 
+        // Normalise Arousal from Russell circumplex scale (1–9) → [0, 1]
+        // Only trust values that were set from emomusic model (i.e., not the 5.0 default)
+        float arousalNorm = target.Arousal is > 1f and not 5f
+            ? Math.Clamp((target.Arousal - 1f) / 8f, 0f, 1f)
+            : 0.5f; // neutral contribution when no emomusic data
+
         float raw = WeightDanceability      * Math.Clamp(danceability, 0f, 1f)
                   + WeightDynamicComplexity * dynNorm
-                  + WeightLoudness          * loudNorm;
+                  + WeightLoudness          * loudNorm
+                  + WeightArousal           * arousalNorm;
 
         // Map [0, 1] → [1, 10]
         int score = (int)Math.Round(Math.Clamp(raw * 10f, 1f, 10f));

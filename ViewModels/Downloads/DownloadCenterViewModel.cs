@@ -70,6 +70,21 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     private readonly ReadOnlyObservableCollection<UnifiedTrackViewModel> _failedDownloads;
     public ReadOnlyObservableCollection<UnifiedTrackViewModel> FailedDownloads => _failedDownloads;
 
+    // Download Center v2 (Slice 1): stable projection rows for future card-based layout.
+    private readonly ReadOnlyObservableCollection<DownloadRowViewModel> _hubRows;
+    public ReadOnlyObservableCollection<DownloadRowViewModel> HubRows => _hubRows;
+
+    private readonly ReadOnlyObservableCollection<DownloadRowViewModel> _hubActiveRows;
+    public ReadOnlyObservableCollection<DownloadRowViewModel> HubActiveRows => _hubActiveRows;
+
+    private readonly ReadOnlyObservableCollection<DownloadRowViewModel> _hubAttentionRows;
+    public ReadOnlyObservableCollection<DownloadRowViewModel> HubAttentionRows => _hubAttentionRows;
+
+    private readonly ReadOnlyObservableCollection<DownloadRowViewModel> _hubCompletedRows;
+    public ReadOnlyObservableCollection<DownloadRowViewModel> HubCompletedRows => _hubCompletedRows;
+
+    public ObservableCollection<DownloadRowViewModel> HubCompletedRecentRows { get; } = new();
+
     // Phase 2: Active Groups (Album-Centric)
     private readonly ReadOnlyObservableCollection<DownloadGroupViewModel> _activeGroups;
     public ReadOnlyObservableCollection<DownloadGroupViewModel> ActiveGroups => _activeGroups;
@@ -320,7 +335,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             this.RaiseAndSetIfChanged(ref _selectedTrack, value);
             if (value != null)
             {
-                ReactiveUI.MessageBus.Current.SendMessage(new SLSKDONET.Events.OpenInspectorEvent(value, "TRACK INSPECTOR", "🔍"));
+                ReactiveUI.MessageBus.Current.SendMessage(SLSKDONET.Events.OpenInspectorEvent.Create(value, "Downloads.Selection.Single"));
             }
         }
     }
@@ -747,6 +762,41 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             .Subscribe()
             .DisposeWith(_subscriptions);
 
+        // Download Center v2 (Slice 1): unified row projection for future card-based hub.
+        var hubRowComparer = SortExpressionComparer<DownloadRowViewModel>
+            .Ascending(x => x.Priority)
+            .ThenByDescending(x => x.LastUpdatedUtc);
+
+        sharedSource
+            .Filter(x => !x.IsClearedFromDownloadCenter)
+            .Transform(x => new DownloadRowViewModel(x))
+            .SortAndBind(out _hubRows, hubRowComparer)
+            .Subscribe()
+            .DisposeWith(_subscriptions);
+
+        _hubRows.ToObservableChangeSet()
+            .Filter(x => x.Priority == DownloadRowPriority.Active)
+            .Bind(out _hubActiveRows)
+            .Subscribe()
+            .DisposeWith(_subscriptions);
+
+        _hubRows.ToObservableChangeSet()
+            .Filter(x => x.Priority == DownloadRowPriority.Attention)
+            .Bind(out _hubAttentionRows)
+            .Subscribe()
+            .DisposeWith(_subscriptions);
+
+        _hubRows.ToObservableChangeSet()
+            .Filter(x => x.Priority == DownloadRowPriority.Completed)
+            .Bind(out _hubCompletedRows)
+            .Subscribe()
+            .DisposeWith(_subscriptions);
+
+        _hubCompletedRows.ToObservableChangeSet()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(_ => RefreshHubCompletedRecentRows())
+            .DisposeWith(_subscriptions);
+
         // 1.1 Ongoing Downloads (Downloading/Searching state)
         sharedSource
             .Filter(x => x.State == PlaylistTrackState.Downloading || x.State == PlaylistTrackState.Searching)
@@ -998,6 +1048,46 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             .Subscribe(ApplyGlobalStatusEvent)
             .DisposeWith(_subscriptions);
 
+        _eventBus.GetEvent<FileIngestionQueuedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(evt =>
+                ShowGlobalStatus(
+                    $"Ingestion pending: {BuildIngestionDisplayName(evt.FilePath, evt.TrackUniqueHash)}",
+                    isError: false,
+                    autoHide: true,
+                    context: "ingestion-lifecycle"))
+            .DisposeWith(_subscriptions);
+
+        _eventBus.GetEvent<FileIngestionStartedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(evt =>
+                ShowGlobalStatus(
+                    $"Indexing: {BuildIngestionDisplayName(evt.FilePath, evt.TrackUniqueHash)}",
+                    isError: false,
+                    autoHide: true,
+                    context: "ingestion-lifecycle"))
+            .DisposeWith(_subscriptions);
+
+        _eventBus.GetEvent<FileIngestionCompletedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(evt =>
+                ShowGlobalStatus(
+                    $"Ready: {BuildIngestionDisplayName(evt.FilePath, evt.TrackUniqueHash)}",
+                    isError: false,
+                    autoHide: true,
+                    context: "ingestion-lifecycle"))
+            .DisposeWith(_subscriptions);
+
+        _eventBus.GetEvent<FileMissingDetectedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(evt =>
+                ShowGlobalStatus(
+                    $"Missing file detected: {BuildIngestionDisplayName(evt.FilePath, evt.TrackUniqueHash)}",
+                    isError: true,
+                    autoHide: false,
+                    context: "ingestion-lifecycle"))
+            .DisposeWith(_subscriptions);
+
         // Phase 3.7 Fix: Respond to background hydration completion
         _eventBus.GetEvent<DownloadManagerHydratedEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
@@ -1019,6 +1109,8 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         // Start global speed calculator
         StartGlobalSpeedTimer();
 
+        RefreshHubCompletedRecentRows();
+
         // Phase 3.7: Defensive Hydration - Catch up if Manager already finished while we were initializing
         if (_downloadManager.IsHydrated)
         {
@@ -1026,6 +1118,15 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             InitialHydration();
         }
         
+    }
+
+    private void RefreshHubCompletedRecentRows()
+    {
+        HubCompletedRecentRows.Clear();
+        foreach (var row in _hubCompletedRows.Take(20))
+        {
+            HubCompletedRecentRows.Add(row);
+        }
     }
 
     private void ApplyDownloadProfile(string mode)
@@ -1203,6 +1304,16 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
         return vm => vm.TrackTitle.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
                      vm.ArtistName.Contains(searchText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static string BuildIngestionDisplayName(string? filePath, string? fallbackHash)
+    {
+        if (!string.IsNullOrWhiteSpace(filePath))
+        {
+            return System.IO.Path.GetFileName(filePath);
+        }
+
+        return string.IsNullOrWhiteSpace(fallbackHash) ? "unknown track" : fallbackHash;
     }
 
     private static bool MatchesSessionFilter(UnifiedTrackViewModel vm, string mode)

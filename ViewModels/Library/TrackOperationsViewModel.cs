@@ -292,16 +292,59 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task ExecuteDownloadAlbum(PlaylistTrackViewModel? track)
     {
+        track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
         if (track == null) return;
 
-        _logger.LogInformation("Download album command for track: {Artist} - {Album}", 
-            track.Artist, track.Album);
+        var album = track.Album?.Trim();
+        if (string.IsNullOrWhiteSpace(album))
+        {
+            _logger.LogWarning("Download album skipped: selected track has no album metadata");
+            _eventBus.Publish(new NotificationEvent("Download Album", "Track has no album metadata.", NotificationType.Warning));
+            return;
+        }
 
-        // TODO: Implement album download logic
-        // This would need to:
-        // 1. Find all tracks with same album
-        // 2. Queue them for download
-        // 3. Show progress
+        var sameAlbumTracks = (LibraryViewModel?.Tracks.CurrentProjectTracks ?? [])
+            .Where(t => t.Model != null
+                && string.Equals(t.Album?.Trim(), album, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(t.Model.ResolvedFilePath))
+            .ToList();
+
+        if (sameAlbumTracks.Count == 0 && _mainViewModel != null)
+        {
+            sameAlbumTracks = _mainViewModel.AllGlobalTracks
+                .Where(t => t.Model != null
+                    && string.Equals(t.Album?.Trim(), album, StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(t.Model.ResolvedFilePath))
+                .ToList();
+        }
+
+        if (sameAlbumTracks.Count == 0)
+        {
+            _logger.LogWarning("Download album found no tracks for album: {Album}", album);
+            _eventBus.Publish(new NotificationEvent("Download Album", $"No tracks found for album \"{album}\".", NotificationType.Warning));
+            return;
+        }
+
+        var queueBatch = sameAlbumTracks
+            .Select(t => t.Model)
+            .Where(m => m != null)
+            .GroupBy(m => m.TrackUniqueHash)
+            .Select(g => g.First())
+            .ToList();
+
+        foreach (var candidate in queueBatch)
+        {
+            candidate.Priority = 0;
+        }
+
+        _downloadManager.QueueTracks(queueBatch);
+
+        _logger.LogInformation(
+            "Queued {Count} track(s) for album download: {Artist} - {Album}",
+            queueBatch.Count,
+            track.Artist,
+            album);
+
         await Task.CompletedTask;
     }
 
@@ -322,6 +365,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to remove track");
+            _eventBus.Publish(new NotificationEvent("Remove Track", "Failed to remove track.", NotificationType.Error));
         }
     }
 
@@ -362,6 +406,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         if (string.IsNullOrEmpty(filePath))
         {
             _logger.LogWarning("Cannot open folder - no resolved file path");
+            _eventBus.Publish(new NotificationEvent("Open Folder", "Track has no local file path.", NotificationType.Warning));
             return;
         }
 
@@ -378,15 +423,17 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
                     Verb = "open"
                 });
                 _logger.LogInformation("Opened folder: {Directory}", directory);
-              }
+            }
             else
             {
                 _logger.LogWarning("Directory does not exist: {Directory}", directory);
+                _eventBus.Publish(new NotificationEvent("Open Folder", "Folder not found on disk.", NotificationType.Warning));
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to open folder");
+            _eventBus.Publish(new NotificationEvent("Open Folder", "Could not open folder.", NotificationType.Error));
         }
     }
 

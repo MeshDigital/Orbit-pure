@@ -74,6 +74,28 @@ public class LibraryService : ILibraryService
         _logger.LogDebug("Global Cache MISS (Library Index), loading from DB");
         var entities = await _databaseService.GetAllLibraryEntriesAsync().ConfigureAwait(false);
         var entries = entities.Select(EntityToLibraryEntry).ToList();
+
+        foreach (var staleEntry in entries.Where(e =>
+                     !string.IsNullOrWhiteSpace(e.FilePath) &&
+                     !System.IO.File.Exists(e.FilePath)))
+        {
+            await LogIngestionLifecycleAsync(
+                Guid.Empty,
+                "ingestion_missing_detected",
+                new
+                {
+                    trackHash = staleEntry.UniqueHash,
+                    filePath = staleEntry.FilePath,
+                    detectedAtUtc = DateTime.UtcNow,
+                    source = "LibraryService.LoadAllLibraryEntriesAsync"
+                });
+
+            _eventBus.Publish(new FileMissingDetectedEvent(
+                staleEntry.UniqueHash,
+                staleEntry.FilePath,
+                DateTime.UtcNow,
+                "LibraryService.LoadAllLibraryEntriesAsync"));
+        }
         
         _cache.CacheGlobalLibrary(entries);
         return entries;
@@ -195,6 +217,23 @@ public class LibraryService : ILibraryService
                 if (!System.IO.File.Exists(track.ResolvedFilePath))
                 {
                     _logger.LogWarning("Skipping index for missing file: {Path}", track.ResolvedFilePath);
+                    await LogIngestionLifecycleAsync(
+                        track.PlaylistId,
+                        "ingestion_missing_detected",
+                        new
+                        {
+                            trackHash = track.TrackUniqueHash,
+                            playlistTrackId = track.Id,
+                            filePath = track.ResolvedFilePath,
+                            detectedAtUtc = DateTime.UtcNow,
+                            source = "LibraryService.SyncLibraryEntriesFromTracksAsync"
+                        });
+
+                    _eventBus.Publish(new FileMissingDetectedEvent(
+                        track.TrackUniqueHash,
+                        track.ResolvedFilePath,
+                        DateTime.UtcNow,
+                        "LibraryService.SyncLibraryEntriesFromTracksAsync"));
                     continue;
                 }
 
@@ -223,7 +262,47 @@ public class LibraryService : ILibraryService
                     Comments = track.Comments
                 };
 
+                var hash = string.IsNullOrWhiteSpace(track.TrackUniqueHash)
+                    ? track.Id.ToString("N")
+                    : track.TrackUniqueHash;
+
+                await LogIngestionLifecycleAsync(
+                    track.PlaylistId,
+                    "ingestion_started",
+                    new
+                    {
+                        trackHash = hash,
+                        playlistTrackId = track.Id,
+                        filePath = track.ResolvedFilePath,
+                        startedAtUtc = DateTime.UtcNow,
+                        source = "LibraryService.SyncLibraryEntriesFromTracksAsync"
+                    });
+
+                _eventBus.Publish(new FileIngestionStartedEvent(
+                    hash,
+                    track.Id,
+                    track.ResolvedFilePath,
+                    DateTime.UtcNow));
+
                 await SaveOrUpdateLibraryEntryAsync(entry);
+
+                await LogIngestionLifecycleAsync(
+                    track.PlaylistId,
+                    "ingestion_completed",
+                    new
+                    {
+                        trackHash = hash,
+                        playlistTrackId = track.Id,
+                        filePath = track.ResolvedFilePath,
+                        completedAtUtc = DateTime.UtcNow,
+                        source = "LibraryService.SyncLibraryEntriesFromTracksAsync"
+                    });
+
+                _eventBus.Publish(new FileIngestionCompletedEvent(
+                    hash,
+                    track.Id,
+                    track.ResolvedFilePath,
+                    DateTime.UtcNow));
                 addedCount++;
             }
 
@@ -242,6 +321,28 @@ public class LibraryService : ILibraryService
     {
         try
         {
+            var hash = string.IsNullOrWhiteSpace(track.TrackUniqueHash)
+                ? track.Id.ToString("N")
+                : track.TrackUniqueHash;
+
+            await LogIngestionLifecycleAsync(
+                track.PlaylistId,
+                "ingestion_started",
+                new
+                {
+                    trackHash = hash,
+                    playlistTrackId = track.Id,
+                    filePath = finalPath,
+                    startedAtUtc = DateTime.UtcNow,
+                    source = "LibraryService.AddTrackToLibraryIndexAsync"
+                });
+
+            _eventBus.Publish(new FileIngestionStartedEvent(
+                hash,
+                track.Id,
+                finalPath,
+                DateTime.UtcNow));
+
             var entry = new LibraryEntry
             {
                 UniqueHash = track.TrackUniqueHash,
@@ -267,6 +368,24 @@ public class LibraryService : ILibraryService
             };
 
             await SaveOrUpdateLibraryEntryAsync(entry);
+
+            await LogIngestionLifecycleAsync(
+                track.PlaylistId,
+                "ingestion_completed",
+                new
+                {
+                    trackHash = hash,
+                    playlistTrackId = track.Id,
+                    filePath = finalPath,
+                    completedAtUtc = DateTime.UtcNow,
+                    source = "LibraryService.AddTrackToLibraryIndexAsync"
+                });
+
+            _eventBus.Publish(new FileIngestionCompletedEvent(
+                hash,
+                track.Id,
+                finalPath,
+                DateTime.UtcNow));
             
             // Session 2: Invalidate global cache
             _cache.InvalidateGlobalLibrary();
@@ -276,6 +395,18 @@ public class LibraryService : ILibraryService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to index completed track {Title} for All Tracks view", track.Title);
+        }
+    }
+
+    private async Task LogIngestionLifecycleAsync(Guid playlistId, string action, object details)
+    {
+        try
+        {
+            await _databaseService.LogActivityAsync(IngestionActivityLogFactory.Create(playlistId, action, details)).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to write ingestion activity log {Action}", action);
         }
     }
 
@@ -943,6 +1074,14 @@ public class LibraryService : ILibraryService
 
     private PlaylistTrack EntityToPlaylistTrack(PlaylistTrackEntity entity)
     {
+        var playlistWaveform = ResolveWaveformBands(
+            entity.TechnicalDetails?.WaveformData,
+            entity.TechnicalDetails?.RmsData,
+            entity.TechnicalDetails?.LowData,
+            entity.TechnicalDetails?.MidData,
+            entity.TechnicalDetails?.HighData,
+            entity.AudioFeatures?.WaveformBlob);
+
         return new PlaylistTrack
         {
             Id = entity.Id,
@@ -973,11 +1112,11 @@ public class LibraryService : ILibraryService
             SpotifyArtistId = entity.SpotifyArtistId,
             AlbumArtUrl = entity.AlbumArtUrl,
             // Load waveform bands from TechnicalDetails (Lazy loaded via Include in Repository)
-            WaveformData = entity.TechnicalDetails?.WaveformData ?? Array.Empty<byte>(), 
-            RmsData = entity.TechnicalDetails?.RmsData ?? Array.Empty<byte>(),
-            LowData = entity.TechnicalDetails?.LowData ?? Array.Empty<byte>(),
-            MidData = entity.TechnicalDetails?.MidData ?? Array.Empty<byte>(),
-            HighData = entity.TechnicalDetails?.HighData ?? Array.Empty<byte>(),
+            WaveformData = playlistWaveform.PeakData,
+            RmsData = playlistWaveform.RmsData,
+            LowData = playlistWaveform.LowData,
+            MidData = playlistWaveform.MidData,
+            HighData = playlistWaveform.HighData,
             ArtistImageUrl = entity.ArtistImageUrl,
             Genres = entity.Genres,
             Popularity = entity.Popularity,
@@ -1132,6 +1271,14 @@ public class LibraryService : ILibraryService
     
     private LibraryEntry EntityToLibraryEntry(LibraryEntryEntity entity)
     {
+        var libraryWaveform = ResolveWaveformBands(
+            entity.WaveformData,
+            entity.RmsData,
+            entity.LowData,
+            entity.MidData,
+            entity.HighData,
+            entity.AudioFeatures?.WaveformBlob);
+
         return new LibraryEntry
         {
             Id = entity.Id,
@@ -1170,11 +1317,11 @@ public class LibraryService : ILibraryService
             TruePeak = entity.TruePeak,
             DynamicRange = entity.DynamicRange,
             
-            WaveformData = entity.WaveformData ?? Array.Empty<byte>(),
-            RmsData = entity.RmsData ?? Array.Empty<byte>(),
-            LowData = entity.LowData ?? Array.Empty<byte>(),
-            MidData = entity.MidData ?? Array.Empty<byte>(),
-            HighData = entity.HighData ?? Array.Empty<byte>(),
+            WaveformData = libraryWaveform.PeakData,
+            RmsData = libraryWaveform.RmsData,
+            LowData = libraryWaveform.LowData,
+            MidData = libraryWaveform.MidData,
+            HighData = libraryWaveform.HighData,
             
             // Dual-Truth
             SpotifyBPM = entity.SpotifyBPM,
@@ -1183,7 +1330,123 @@ public class LibraryService : ILibraryService
             ManualKey = entity.ManualKey,
             
             InstrumentalProbability = entity.InstrumentalProbability // Phase 18.2
+            ,
+            BpmConfidence = entity.AudioFeatures?.BpmConfidence,
+            KeyConfidence = entity.AudioFeatures?.KeyConfidence,
+            BpmStability = entity.AudioFeatures?.BpmStability,
+            CamelotKey = entity.AudioFeatures?.CamelotKey,
+            ChordProgression = entity.AudioFeatures?.ChordProgression,
+            LoudnessLufs = entity.AudioFeatures?.LoudnessLUFS,
+            DropTimeSeconds = entity.AudioFeatures?.DropTimeSeconds,
+            DropConfidence = entity.AudioFeatures?.DropConfidence,
+            EnergyCurveJson = entity.AudioFeatures?.EnergyCurveJson,
+            SegmentedEnergyJson = entity.AudioFeatures?.SegmentedEnergyJson,
+            GenreDistributionJson = entity.AudioFeatures?.GenreDistributionJson,
+            VocalDensity = entity.AudioFeatures?.VocalDensity,
+            VocalType = entity.AudioFeatures?.DetectedVocalType ?? entity.VocalType
         };
+    }
+
+    private static (byte[] PeakData, byte[] RmsData, byte[] LowData, byte[] MidData, byte[] HighData) ResolveWaveformBands(
+        byte[]? peakData,
+        byte[]? rmsData,
+        byte[]? lowData,
+        byte[]? midData,
+        byte[]? highData,
+        byte[]? packedWaveformBlob)
+    {
+        var resolvedPeak = peakData ?? Array.Empty<byte>();
+        var resolvedRms = rmsData ?? Array.Empty<byte>();
+        var resolvedLow = lowData ?? Array.Empty<byte>();
+        var resolvedMid = midData ?? Array.Empty<byte>();
+        var resolvedHigh = highData ?? Array.Empty<byte>();
+
+        var needsBlobFallback = resolvedLow.Length == 0 || resolvedMid.Length == 0 || resolvedHigh.Length == 0;
+        if (needsBlobFallback && TryUnpackWaveformBlob(packedWaveformBlob, out var unpackedLow, out var unpackedMid, out var unpackedHigh))
+        {
+            resolvedLow = unpackedLow;
+            resolvedMid = unpackedMid;
+            resolvedHigh = unpackedHigh;
+        }
+
+        if (resolvedPeak.Length == 0)
+        {
+            resolvedPeak = SynthesizePeakData(resolvedLow, resolvedMid, resolvedHigh);
+        }
+
+        if (resolvedRms.Length == 0)
+        {
+            resolvedRms = SynthesizeRmsData(resolvedLow, resolvedMid, resolvedHigh);
+        }
+
+        return (resolvedPeak, resolvedRms, resolvedLow, resolvedMid, resolvedHigh);
+    }
+
+    private static bool TryUnpackWaveformBlob(
+        byte[]? packedWaveformBlob,
+        out byte[] lowBand,
+        out byte[] midBand,
+        out byte[] highBand)
+    {
+        const int bandLength = 1000;
+        const int totalLength = bandLength * 3;
+
+        lowBand = Array.Empty<byte>();
+        midBand = Array.Empty<byte>();
+        highBand = Array.Empty<byte>();
+
+        if (packedWaveformBlob is null || packedWaveformBlob.Length < totalLength)
+        {
+            return false;
+        }
+
+        lowBand = new byte[bandLength];
+        midBand = new byte[bandLength];
+        highBand = new byte[bandLength];
+
+        Buffer.BlockCopy(packedWaveformBlob, 0, lowBand, 0, bandLength);
+        Buffer.BlockCopy(packedWaveformBlob, bandLength, midBand, 0, bandLength);
+        Buffer.BlockCopy(packedWaveformBlob, bandLength * 2, highBand, 0, bandLength);
+
+        return true;
+    }
+
+    private static byte[] SynthesizePeakData(byte[] lowBand, byte[] midBand, byte[] highBand)
+    {
+        var length = Math.Min(lowBand.Length, Math.Min(midBand.Length, highBand.Length));
+        if (length <= 0)
+        {
+            return Array.Empty<byte>();
+        }
+
+        var peakData = new byte[length];
+        for (var i = 0; i < length; i++)
+        {
+            peakData[i] = Math.Max(lowBand[i], Math.Max(midBand[i], highBand[i]));
+        }
+
+        return peakData;
+    }
+
+    private static byte[] SynthesizeRmsData(byte[] lowBand, byte[] midBand, byte[] highBand)
+    {
+        var length = Math.Min(lowBand.Length, Math.Min(midBand.Length, highBand.Length));
+        if (length <= 0)
+        {
+            return Array.Empty<byte>();
+        }
+
+        var rmsData = new byte[length];
+        for (var i = 0; i < length; i++)
+        {
+            var low = lowBand[i];
+            var mid = midBand[i];
+            var high = highBand[i];
+            var rms = Math.Sqrt((low * low + mid * mid + high * high) / 3.0);
+            rmsData[i] = (byte)Math.Clamp(rms, 0.0, 255.0);
+        }
+
+        return rmsData;
     }
 
     private LibraryEntryEntity LibraryEntryToEntity(LibraryEntry entry)

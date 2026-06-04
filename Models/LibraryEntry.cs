@@ -83,7 +83,9 @@ public class LibraryEntry
     public double? Energy { get; set; }
     public double? Danceability { get; set; }
     public double? Valence { get; set; }
+    public double? Arousal { get; set; }
     public double? InstrumentalProbability { get; set; } // Phase 18.2
+    public bool IsDjTool { get; set; }
     
     // Dual-Truth Metadata
     public double? SpotifyBPM { get; set; }
@@ -124,4 +126,18 @@ public class LibraryEntry
     public double? VocalIntensity { get; set; }
     public double? VocalStartSeconds { get; set; }
     public double? VocalEndSeconds { get; set; }
+
+    // Analysis enrichment extensions (AudioFeatures projection)
+    public double? BpmConfidence { get; set; }
+    public double? KeyConfidence { get; set; }
+    public double? BpmStability { get; set; }
+    public string? CamelotKey { get; set; }
+    public string? ChordProgression { get; set; }
+    public double? LoudnessLufs { get; set; }
+    public double? DropTimeSeconds { get; set; }
+    public double? DropConfidence { get; set; }
+    public string? EnergyCurveJson { get; set; }
+    public string? SegmentedEnergyJson { get; set; }
+    public string? GenreDistributionJson { get; set; }
+    public double? VocalDensity { get; set; }
 }

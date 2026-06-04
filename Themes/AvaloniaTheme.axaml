@@ -40,6 +40,12 @@
             <SolidColorBrush x:Key="TextPrimaryBrush" Color="#E5FFFFFF"/>
             <SolidColorBrush x:Key="TextSecondaryBrush" Color="#909090"/>
             <SolidColorBrush x:Key="TextDisabledBrush" Color="#505050"/>
+
+            <!-- Workstation readability tiers (A10 contract) -->
+            <SolidColorBrush x:Key="WsTextPrimaryReadable" Color="#E4EDF6"/>
+            <SolidColorBrush x:Key="WsTextSecondaryReadable" Color="#C3D2DE"/>
+            <SolidColorBrush x:Key="WsTextMutedReadable" Color="#A8BCCF"/>
+            <SolidColorBrush x:Key="WsTextHintReadable" Color="#92A8BC"/>
             
             <!-- Borders -->
             <SolidColorBrush x:Key="BorderBrush" Color="#22FFFFFF"/>

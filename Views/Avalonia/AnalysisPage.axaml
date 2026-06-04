@@ -9,7 +9,8 @@
              mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="800"
              x:Class="SLSKDONET.Views.Avalonia.AnalysisPage"
              x:DataType="vm:AnalysisPageViewModel"
-             Background="#1A1A1A" Foreground="White">
+             SizeChanged="OnPageSizeChanged"
+             Background="{DynamicResource BrushBg1}" Foreground="White">
 
     <UserControl.Styles>
 
@@ -22,18 +23,18 @@
 
         <!-- ── Queue / library row ──────────────────────────────────────────── -->
         <Style Selector="Border.trackRow">
-            <Setter Property="Background" Value="#242424"/>
+            <Setter Property="Background" Value="{DynamicResource BrushBg2}"/>
             <Setter Property="CornerRadius" Value="6"/>
             <Setter Property="Padding" Value="10,8"/>
             <Setter Property="Margin" Value="0,2"/>
         </Style>
         <Style Selector="Border.trackRow:pointerover">
-            <Setter Property="Background" Value="#2E2E2E"/>
+            <Setter Property="Background" Value="{DynamicResource BrushBg3}"/>
         </Style>
 
         <!-- ── Primary action button ────────────────────────────────────────── -->
         <Style Selector="Button.primary">
-            <Setter Property="Background" Value="#1DB954"/>
+            <Setter Property="Background" Value="{DynamicResource BrushAccent}"/>
             <Setter Property="Foreground" Value="Black"/>
             <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="FontSize" Value="13"/>
@@ -41,47 +42,47 @@
             <Setter Property="Padding" Value="16,8"/>
         </Style>
         <Style Selector="Button.primary:pointerover">
-            <Setter Property="Background" Value="#1ED760"/>
+            <Setter Property="Background" Value="{DynamicResource BrushAccentDim}"/>
         </Style>
         <Style Selector="Button.primary:disabled">
-            <Setter Property="Background" Value="#2A2A2A"/>
-            <Setter Property="Foreground" Value="#666666"/>
+            <Setter Property="Background" Value="{DynamicResource BrushBorder1}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BrushText2}"/>
         </Style>
 
         <!-- ── Secondary action button ──────────────────────────────────────── -->
         <Style Selector="Button.secondary">
-            <Setter Property="Background" Value="#252525"/>
-            <Setter Property="Foreground" Value="#1DB954"/>
+            <Setter Property="Background" Value="{DynamicResource BrushBg2}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BrushAccent}"/>
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="CornerRadius" Value="6"/>
             <Setter Property="Padding" Value="10,5"/>
-            <Setter Property="BorderBrush" Value="#1DB954"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BrushAccent}"/>
             <Setter Property="BorderThickness" Value="1"/>
         </Style>
         <Style Selector="Button.secondary:pointerover">
-            <Setter Property="Background" Value="#1A2A1A"/>
+            <Setter Property="Background" Value="{DynamicResource BrushAccentSubtle}"/>
         </Style>
         <Style Selector="Button.secondary:disabled">
-            <Setter Property="Background" Value="#1C1C1C"/>
-            <Setter Property="Foreground" Value="#444444"/>
-            <Setter Property="BorderBrush" Value="#333333"/>
+            <Setter Property="Background" Value="{DynamicResource BrushBg2}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BrushTextDisabled}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BrushBorder1}"/>
         </Style>
 
         <!-- ── Danger / remove button ───────────────────────────────────────── -->
         <Style Selector="Button.removeBtn">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#FF4444"/>
+            <Setter Property="Foreground" Value="{DynamicResource BrushError}"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Padding" Value="4,2"/>
             <Setter Property="BorderThickness" Value="0"/>
         </Style>
         <Style Selector="Button.removeBtn:pointerover">
-            <Setter Property="Foreground" Value="#FF6666"/>
+            <Setter Property="Foreground" Value="{DynamicResource BrushError}"/>
         </Style>
 
         <!-- ── Add button ───────────────────────────────────────────────────── -->
         <Style Selector="Button.addBtn">
-            <Setter Property="Background" Value="#1DB954"/>
+            <Setter Property="Background" Value="{DynamicResource BrushAccent}"/>
             <Setter Property="Foreground" Value="Black"/>
             <Setter Property="CornerRadius" Value="16"/>
             <Setter Property="Width" Value="30"/>
@@ -93,8 +94,8 @@
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
         <Style Selector="Button.addBtn:disabled">
-            <Setter Property="Background" Value="#1A2A1A"/>
-            <Setter Property="Foreground" Value="#1DB954"/>
+            <Setter Property="Background" Value="{DynamicResource BrushAccentSubtle}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BrushAccent}"/>
             <Setter Property="Opacity" Value="0.7"/>
         </Style>
 
@@ -107,8 +108,8 @@
 
         <!-- ── Page Header ────────────────────────────────────────────────── -->
         <Border Grid.Row="0"
-                Background="#161616"
-                BorderBrush="#2A2A2A"
+                Background="{DynamicResource BrushBg0}"
+                BorderBrush="{DynamicResource BrushBorder1}"
                 BorderThickness="0,0,0,1"
                 Padding="20,14">
             <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
@@ -117,15 +118,15 @@
                     <TextBlock Text="Audio Analysis Pipeline"
                                FontSize="18" FontWeight="Bold" Foreground="White"/>
                     <TextBlock Text="Queue tracks for ML analysis · Inspect results"
-                               FontSize="12" Foreground="#888888"/>
+                               FontSize="12" Foreground="{DynamicResource BrushText1}"/>
                 </StackPanel>
 
                 <!-- Processing state label -->
                 <Border CornerRadius="10" Padding="10,4" Margin="16,0,0,0"
-                        Background="#252525">
+                        Background="{DynamicResource BrushBg2}">
                     <TextBlock Text="{Binding ProcessingState}"
                                FontSize="11" FontWeight="SemiBold"
-                               Foreground="#1DB954"/>
+                               Foreground="{DynamicResource BrushAccent}"/>
                 </Border>
 
                 <!-- Queue runtime metrics (avg time · throughput · elapsed) -->
@@ -133,16 +134,16 @@
                             IsVisible="{Binding HasQueueMetrics}"
                             VerticalAlignment="Center">
                     <StackPanel>
-                        <TextBlock Text="AVG TIME" FontSize="9" Foreground="#555" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding AvgAnalysisTimeDisplay}" FontSize="12" Foreground="#1DB954" FontWeight="SemiBold"/>
+                        <TextBlock Text="AVG TIME" FontSize="9" Foreground="{DynamicResource BrushText2}" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding AvgAnalysisTimeDisplay}" FontSize="12" Foreground="{DynamicResource BrushAccent}" FontWeight="SemiBold"/>
                     </StackPanel>
                     <StackPanel>
-                        <TextBlock Text="THROUGHPUT" FontSize="9" Foreground="#555" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding ThroughputDisplay}" FontSize="12" Foreground="#1DB954" FontWeight="SemiBold"/>
+                        <TextBlock Text="THROUGHPUT" FontSize="9" Foreground="{DynamicResource BrushText2}" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding ThroughputDisplay}" FontSize="12" Foreground="{DynamicResource BrushAccent}" FontWeight="SemiBold"/>
                     </StackPanel>
                     <StackPanel>
-                        <TextBlock Text="ELAPSED" FontSize="9" Foreground="#555" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding ElapsedTimeDisplay}" FontSize="12" Foreground="#1DB954" FontWeight="SemiBold"/>
+                        <TextBlock Text="ELAPSED" FontSize="9" Foreground="{DynamicResource BrushText2}" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding ElapsedTimeDisplay}" FontSize="12" Foreground="{DynamicResource BrushAccent}" FontWeight="SemiBold"/>
                     </StackPanel>
                 </StackPanel>
             </StackPanel>
@@ -150,57 +151,96 @@
 
         <Border Grid.Row="1"
                 Margin="16,12,16,0"
-                Background="#141414"
-                BorderBrush="#262626"
+                Background="{DynamicResource BrushBg1}"
+                BorderBrush="{DynamicResource BrushBorder1}"
                 BorderThickness="1"
                 CornerRadius="12"
                 Padding="12">
-            <Grid ColumnDefinitions="*,*,*,*,*">
-                <Border Grid.Column="0" Background="#191919" CornerRadius="10" Padding="12,10">
+            <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="*,*,*,*,*">
+                    <Border Grid.Column="0" Background="{DynamicResource BrushBg2}" CornerRadius="10" Padding="12,10">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="ON DISK" FontSize="10" Foreground="{DynamicResource BrushText1}" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding OnDiskIndexedTrackCount}" FontSize="22" FontWeight="Bold" Foreground="White"/>
+                            <TextBlock Text="Indexed and physically present" FontSize="11" Foreground="{DynamicResource BrushText1}"/>
+                        </StackPanel>
+                    </Border>
+                <Border Grid.Column="1" Background="{DynamicResource BrushAccentSubtle}" CornerRadius="10" Padding="12,10">
                     <StackPanel Spacing="2">
-                        <TextBlock Text="TRACKS" FontSize="10" Foreground="#777777" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding TotalTrackCount}" FontSize="22" FontWeight="Bold" Foreground="White"/>
-                        <TextBlock Text="Library indexed" FontSize="11" Foreground="#8A8A8A"/>
+                        <TextBlock Text="ANALYZED" FontSize="10" Foreground="{DynamicResource BrushSuccess}" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding AnalyzedTrackCount}" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource BrushText0}"/>
+                        <TextBlock Text="{Binding CompletionRateDisplay, StringFormat='{}{0} complete'}" FontSize="11" Foreground="{DynamicResource BrushText1}"/>
                     </StackPanel>
                 </Border>
-                <Border Grid.Column="1" Background="#132217" CornerRadius="10" Padding="12,10">
+                <Border Grid.Column="2" Background="{DynamicResource BrushBg2}" CornerRadius="10" Padding="12,10">
                     <StackPanel Spacing="2">
-                        <TextBlock Text="ANALYZED" FontSize="10" Foreground="#7BCB95" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding AnalyzedTrackCount}" FontSize="22" FontWeight="Bold" Foreground="#D8FFE5"/>
-                        <TextBlock Text="{Binding CompletionRateDisplay, StringFormat='{}{0} complete'}" FontSize="11" Foreground="#9CC9A9"/>
+                        <TextBlock Text="PENDING" FontSize="10" Foreground="{DynamicResource BrushWarning}" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding PendingTrackCount}" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource BrushText0}"/>
+                        <TextBlock Text="Awaiting analysis" FontSize="11" Foreground="{DynamicResource BrushText1}"/>
                     </StackPanel>
                 </Border>
-                <Border Grid.Column="2" Background="#201A12" CornerRadius="10" Padding="12,10">
+                <Border Grid.Column="3" Background="{DynamicResource BrushBg2}" CornerRadius="10" Padding="12,10">
                     <StackPanel Spacing="2">
-                        <TextBlock Text="PENDING" FontSize="10" Foreground="#D6A96F" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding PendingTrackCount}" FontSize="22" FontWeight="Bold" Foreground="#FFEAD2"/>
-                        <TextBlock Text="Awaiting analysis" FontSize="11" Foreground="#C2A485"/>
+                        <TextBlock Text="QUEUE" FontSize="10" Foreground="{DynamicResource BrushInfo}" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding QueueTrackCount}" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource BrushText0}"/>
+                        <TextBlock Text="Ready for next run" FontSize="11" Foreground="{DynamicResource BrushText1}"/>
                     </StackPanel>
                 </Border>
-                <Border Grid.Column="3" Background="#181D28" CornerRadius="10" Padding="12,10">
+                <Border Grid.Column="4" Background="{DynamicResource BrushBg2}" CornerRadius="10" Padding="12,10">
                     <StackPanel Spacing="2">
-                        <TextBlock Text="QUEUE" FontSize="10" Foreground="#86AFFF" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding QueueTrackCount}" FontSize="22" FontWeight="Bold" Foreground="#E0E9FF"/>
-                        <TextBlock Text="Ready for next run" FontSize="11" Foreground="#94A7CE"/>
+                        <TextBlock Text="WANTED" FontSize="10" Foreground="{DynamicResource BrushStemOther}" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding DesiredDownloadCount}" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource BrushText0}"/>
+                        <TextBlock Text="Pending/hold/failed targets" FontSize="11" Foreground="{DynamicResource BrushText1}"/>
                     </StackPanel>
                 </Border>
-                <Border Grid.Column="4" Background="#211726" CornerRadius="10" Padding="12,10">
-                    <StackPanel Spacing="2">
-                        <TextBlock Text="AUTOMIX" FontSize="10" Foreground="#D38BFF" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding PlaylistTrackCount}" FontSize="22" FontWeight="Bold" Foreground="#F2DEFF"/>
-                        <TextBlock Text="{Binding StemsReadyCount, StringFormat='{}{0} stem-ready'}" FontSize="11" Foreground="#BE9FD1"/>
-                    </StackPanel>
+                </Grid>
+                <Border Background="{DynamicResource BrushBg2}"
+                        BorderBrush="{DynamicResource BrushBorder2}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="10,7">
+                    <TextBlock Text="{Binding LibraryCountDifferentiationSummary}"
+                               FontSize="11"
+                               Foreground="{DynamicResource BrushText1}"
+                               TextWrapping="Wrap"/>
                 </Border>
-            </Grid>
+            </StackPanel>
         </Border>
 
         <!-- ── Two-pane body ─────────────────────────────────────────────── -->
-        <Grid Grid.Row="2" ColumnDefinitions="1*,Auto,1*">
+        <Grid Grid.Row="2" ColumnDefinitions="1*,Auto,1*" RowDefinitions="Auto,*">
+
+            <Border Grid.Row="0"
+                    Grid.Column="0"
+                    Grid.ColumnSpan="3"
+                    Margin="16,8,16,0"
+                    Padding="8,6"
+                    Background="{DynamicResource BrushBg2}"
+                    BorderBrush="{DynamicResource BrushBorder2}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    IsVisible="{Binding IsCompactLayout}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ToggleButton Classes="secondary"
+                                  IsChecked="{Binding IsLibraryPaneSelected, Mode=OneWay}"
+                                  Command="{Binding SetPaneModeCommand}"
+                                  CommandParameter="{x:Static vm:AnalysisPaneMode.Library}">Library</ToggleButton>
+                    <ToggleButton Classes="secondary"
+                                  IsChecked="{Binding IsQueuePaneSelected, Mode=OneWay}"
+                                  Command="{Binding SetPaneModeCommand}"
+                                  CommandParameter="{x:Static vm:AnalysisPaneMode.Queue}">Queue</ToggleButton>
+                </StackPanel>
+            </Border>
 
             <!-- ════════════════════════════════════════════════════════════
                  LEFT PANE — Track Library
             ════════════════════════════════════════════════════════════ -->
-            <DockPanel Grid.Column="0" Margin="16,16,8,16" LastChildFill="True">
+            <DockPanel Grid.Row="1"
+                       Grid.Column="0"
+                       Grid.ColumnSpan="{Binding LibraryPaneColumnSpan}"
+                       Margin="16,16,8,16"
+                       LastChildFill="True"
+                       IsVisible="{Binding ShowLibraryPane}">
 
                 <!-- Pane header -->
                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10" Spacing="8">
@@ -210,7 +250,7 @@
                         <TextBlock Grid.Column="0"
                                    Text="📚  Track Library"
                                    FontSize="14" FontWeight="SemiBold"
-                                   Foreground="#C0C0C0"
+                                   Foreground="{DynamicResource BrushText0}"
                                    VerticalAlignment="Center"/>
                         <Button Grid.Column="1"
                                 Classes="secondary"
@@ -222,8 +262,8 @@
                     <!-- Search bar -->
                     <TextBox Text="{Binding SearchText, Mode=TwoWay}"
                              Watermark="Search by title or artist…"
-                             Background="#242424"
-                             BorderBrush="#3A3A3A"
+                             Background="{DynamicResource BrushBg2}"
+                             BorderBrush="{DynamicResource BrushBorder2}"
                              BorderThickness="1"
                              CornerRadius="6"
                              Padding="10,6"
@@ -243,10 +283,10 @@
                                 <TextBlock Text="🔍" FontSize="32"
                                            HorizontalAlignment="Center" Opacity="0.4"/>
                                 <TextBlock Text="No tracks match your search"
-                                           FontSize="13" Foreground="#555555"
+                                           FontSize="13" Foreground="{DynamicResource BrushText2}"
                                            HorizontalAlignment="Center"/>
                                 <TextBlock Text="Try a different title or artist name"
-                                           FontSize="11" Foreground="#444444"
+                                           FontSize="11" Foreground="{DynamicResource BrushTextDisabled}"
                                            HorizontalAlignment="Center"/>
                             </StackPanel>
                         </Border>
@@ -270,8 +310,8 @@
                                                            FontSize="13" FontWeight="SemiBold"
                                                            Foreground="White"/>
                                                 <TextBlock Text="{Binding Artist}"
-                                                           FontSize="11" Foreground="#888888"/>
-                                                <!-- BPM / Key / Analysed badges -->
+                                                           FontSize="11" Foreground="{DynamicResource BrushText1}"/>
+                                                <!-- BPM / Key / analyzed badges -->
                                                 <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,3,0,0">
                                                     <Border Classes="chip"
                                                             Background="{Binding Bpm, Converter={StaticResource BpmBackgroundConverter}}"
@@ -281,15 +321,15 @@
                                                             <Run Text="{Binding Bpm, StringFormat='{}{0:F0} BPM'}"/>
                                                         </TextBlock>
                                                     </Border>
-                                                    <Border Classes="chip" Background="#1A2233"
+                                                    <Border Classes="chip" Background="{DynamicResource BrushBg2}"
                                                             IsVisible="{Binding MusicalKey, Converter={x:Static ObjectConverters.IsNotNull}}">
                                                         <TextBlock Text="{Binding MusicalKey}"
-                                                                   FontSize="10" Foreground="#64B5F6"/>
+                                                                   FontSize="10" Foreground="{DynamicResource BrushInfo}"/>
                                                     </Border>
-                                                    <Border Classes="chip" Background="#1A2A1A"
+                                                    <Border Classes="chip" Background="{DynamicResource BrushAccentSubtle}"
                                                             IsVisible="{Binding HasAnalysis}">
-                                                        <TextBlock Text="✓ Analysed"
-                                                                   FontSize="10" Foreground="#66BB6A"/>
+                                                        <TextBlock Text="✓ Analyzed"
+                                                                   FontSize="10" Foreground="{DynamicResource BrushSuccess}"/>
                                                     </Border>
                                                 </StackPanel>
                                             </StackPanel>
@@ -313,28 +353,55 @@
             </DockPanel>
 
             <!-- ── Divider ────────────────────────────────────────────────── -->
-            <Rectangle Grid.Column="1" Width="1"
-                       Fill="#2A2A2A"
+            <Rectangle Grid.Row="1"
+                       Grid.Column="1" Width="1"
+                       Fill="{DynamicResource BrushBorder1}"
                        VerticalAlignment="Stretch"
-                       Margin="0,16"/>
+                       Margin="0,16"
+                       IsVisible="{Binding !IsCompactLayout}"/>
 
             <!-- ════════════════════════════════════════════════════════════
                  RIGHT PANE — Analysis Queue
             ════════════════════════════════════════════════════════════ -->
-            <DockPanel Grid.Column="2" Margin="8,16,16,16" LastChildFill="True">
+            <DockPanel Grid.Row="1"
+                       Grid.Column="{Binding QueuePaneColumn}"
+                       Grid.ColumnSpan="{Binding QueuePaneColumnSpan}"
+                       Margin="8,16,16,16"
+                       LastChildFill="True"
+                       IsVisible="{Binding ShowQueuePane}">
 
                 <!-- Pane header + Start button -->
-                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,6">
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" Margin="0,0,0,6">
                     <StackPanel Grid.Column="0" Spacing="2">
                         <TextBlock Text="🧪  Analysis Queue"
                                    FontSize="14" FontWeight="SemiBold"
-                                   Foreground="#C0C0C0"
+                                   Foreground="{DynamicResource BrushText0}"
                                    VerticalAlignment="Center"/>
                         <!-- Queue metrics summary -->
                         <TextBlock Text="{Binding QueueMetricsSummary}"
-                                   FontSize="11" Foreground="#666"
+                                   FontSize="11" Foreground="{DynamicResource BrushText2}"
                                    IsVisible="{Binding QueueMetricsSummary,
                                        Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        <TextBlock Text="{Binding PerformanceDiagnosticsSummary}"
+                                   FontSize="10"
+                                   Foreground="{DynamicResource BrushText1}"
+                                   IsVisible="{Binding IsDeveloperMode}"/>
+                        <TextBlock Text="{Binding PerformanceProbeSummary}"
+                               FontSize="10"
+                               Foreground="{DynamicResource BrushText1}"
+                               IsVisible="{Binding IsDeveloperMode}"
+                               TextTrimming="CharacterEllipsis"/>
+                        <ItemsControl ItemsSource="{Binding PerformanceProbeRuns}"
+                                      IsVisible="{Binding HasPerformanceProbeRuns}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding DisplayLabel}"
+                                               FontSize="9"
+                                               Foreground="{Binding SeverityColor}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
 
                     <Button Grid.Column="1"
@@ -351,12 +418,33 @@
                             IsEnabled="{Binding CanCreateAutomix}"
                             Command="{Binding CreateAutomixCommand}"
                             ToolTip.Tip="Build a staged BPM-ordered automix from analyzed tracks"/>
+
+                        <Button Grid.Column="3"
+                            Classes="ghost"
+                            Content="Run Probe"
+                            Command="{Binding RunPerformanceProbeCommand}"
+                            IsVisible="{Binding IsDeveloperMode}"
+                            ToolTip.Tip="Run developer filter-latency probe"/>
+
+                            <Button Grid.Column="4"
+                                Classes="ghost"
+                                Content="Copy Snapshot"
+                                Command="{Binding CopyPerformanceSnapshotCommand}"
+                                IsVisible="{Binding IsDeveloperMode}"
+                                ToolTip.Tip="Copy diagnostics snapshot to clipboard"/>
+
+                            <Button Grid.Column="5"
+                                Classes="ghost"
+                                Content="Clear History"
+                                Command="{Binding ClearPerformanceProbeHistoryCommand}"
+                                IsVisible="{Binding IsDeveloperMode}"
+                                ToolTip.Tip="Clear probe run history"/>
                 </Grid>
 
                 <!-- Processing indicator banner -->
                 <Border DockPanel.Dock="Top"
-                        Background="#0D2A1A"
-                        BorderBrush="#1DB954"
+                        Background="{DynamicResource BrushAccentSubtle}"
+                        BorderBrush="{DynamicResource BrushAccent}"
                         BorderThickness="1"
                         CornerRadius="6"
                         Padding="12,8"
@@ -365,28 +453,106 @@
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <TextBlock Text="⏳" FontSize="14" VerticalAlignment="Center"/>
                         <TextBlock Text="Processing tracks…"
-                                   FontSize="12" Foreground="#1DB954"
+                                   FontSize="12" Foreground="{DynamicResource BrushAccent}"
                                    VerticalAlignment="Center"/>
                     </StackPanel>
                 </Border>
 
                 <Border DockPanel.Dock="Top"
-                        Background="#161A22"
-                        BorderBrush="#293042"
+                        Background="{DynamicResource BrushBg2}"
+                        BorderBrush="{DynamicResource BrushBorder2}"
                         BorderThickness="1"
                         CornerRadius="6"
                         Padding="12,9"
                         Margin="0,0,0,8">
                     <StackPanel Spacing="4">
                         <TextBlock Text="🎛  Automix staging"
-                                   FontSize="12" FontWeight="SemiBold" Foreground="#D9E4FF"/>
+                                   FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource BrushText0}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Button Content="Stage analyzed"
+                            Classes="secondary"
+                            Command="{Binding StageAllAnalyzedForAutomixCommand}"
+                            ToolTip.Tip="Stage all analyzed tracks for automix generation"/>
+                        <Button Content="Clear staging"
+                            Classes="ghost"
+                            Command="{Binding ClearAutomixStagingCommand}"
+                            ToolTip.Tip="Remove all staged tracks"/>
+                    </StackPanel>
                         <TextBlock Text="{Binding AutomixSelectionSummary}"
-                                   FontSize="11" Foreground="#93A2C2"/>
+                                   FontSize="11" Foreground="{DynamicResource BrushText1}"/>
                         <TextBlock Text="{Binding AutomixStatusMessage}"
-                                   FontSize="11" Foreground="#1DB954"
+                                   FontSize="11" Foreground="{DynamicResource BrushAccent}"
                                    IsVisible="{Binding AutomixStatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                     </StackPanel>
                 </Border>
+
+                        <Border DockPanel.Dock="Top"
+                            Background="{DynamicResource BrushBg2}"
+                            BorderBrush="{DynamicResource BrushBorder2}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="12,10"
+                            Margin="0,0,0,8">
+                            <StackPanel Spacing="6">
+                            <TextBlock Text="Automix constraints"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource BrushText0}"/>
+                            <Grid ColumnDefinitions="70,*,44" RowDefinitions="Auto,Auto,Auto">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Min BPM" FontSize="10" Foreground="{DynamicResource BrushText1}" VerticalAlignment="Center"/>
+                                <Slider Grid.Row="0" Grid.Column="1"
+                                    Minimum="70" Maximum="190"
+                                        Value="{Binding AutomixConstraints.MinBpm, Mode=TwoWay}"
+                                        Margin="0,2,0,2"/>
+                                <TextBlock Grid.Row="0" Grid.Column="2"
+                                       Text="{Binding AutomixConstraints.MinBpm, StringFormat='{}{0:F0}'}"
+                                       FontSize="10" Foreground="{DynamicResource BrushText1}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Max BPM" FontSize="10" Foreground="{DynamicResource BrushText1}" VerticalAlignment="Center"/>
+                                <Slider Grid.Row="1" Grid.Column="1"
+                                    Minimum="80" Maximum="210"
+                                        Value="{Binding AutomixConstraints.MaxBpm, Mode=TwoWay}"
+                                        Margin="0,2,0,2"/>
+                                <TextBlock Grid.Row="1" Grid.Column="2"
+                                       Text="{Binding AutomixConstraints.MaxBpm, StringFormat='{}{0:F0}'}"
+                                       FontSize="10" Foreground="{DynamicResource BrushText1}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Max tracks" FontSize="10" Foreground="{DynamicResource BrushText1}" VerticalAlignment="Center"/>
+                                <Slider Grid.Row="2" Grid.Column="1"
+                                    Minimum="5" Maximum="60"
+                                        Value="{Binding AutomixConstraints.MaxTracks, Mode=TwoWay}"
+                                        Margin="0,2,0,2"/>
+                                <TextBlock Grid.Row="2" Grid.Column="2"
+                                       Text="{Binding AutomixConstraints.MaxTracks}"
+                                       FontSize="10" Foreground="{DynamicResource BrushText1}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <Grid ColumnDefinitions="Auto,Auto,Auto,*">
+                                <CheckBox Grid.Column="0"
+                                      Content="Match key"
+                                      IsChecked="{Binding AutomixConstraints.MatchKey, Mode=TwoWay}"
+                                          Foreground="{DynamicResource BrushText1}"
+                                          Margin="0,0,12,0"/>
+                                <TextBlock Grid.Column="1"
+                                       Text="Energy jump"
+                                       FontSize="10"
+                                       Foreground="{DynamicResource BrushText1}"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,12,0"/>
+                                <Slider Grid.Column="2"
+                                    Width="120"
+                                    Minimum="1"
+                                    Maximum="9"
+                                        Value="{Binding AutomixConstraints.MaxEnergyJump, Mode=TwoWay}"
+                                        Margin="0,0,12,0"/>
+                                <TextBlock Grid.Column="3"
+                                       Text="{Binding AutomixConstraints.MaxEnergyJump, StringFormat='Max jump {0}'}"
+                                       FontSize="10"
+                                       Foreground="{DynamicResource BrushText1}"
+                                       VerticalAlignment="Center"/>
+                            </Grid>
+                            </StackPanel>
+                        </Border>
 
                 <!-- Queue items -->
                 <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto">
@@ -400,10 +566,10 @@
                                 <TextBlock Text="🧪" FontSize="32"
                                            HorizontalAlignment="Center" Opacity="0.4"/>
                                 <TextBlock Text="Your analysis queue is empty"
-                                           FontSize="13" Foreground="#555555"
+                                           FontSize="13" Foreground="{DynamicResource BrushText2}"
                                            HorizontalAlignment="Center"/>
                                 <TextBlock Text='Click ＋ on a track or use "Queue All Unanalyzed"'
-                                           FontSize="11" Foreground="#444444"
+                                           FontSize="11" Foreground="{DynamicResource BrushTextDisabled}"
                                            HorizontalAlignment="Center"/>
                             </StackPanel>
                         </Border>
@@ -427,7 +593,7 @@
                                                                FontSize="13" FontWeight="SemiBold"
                                                                Foreground="White"/>
                                                     <TextBlock Text="{Binding Artist}"
-                                                               FontSize="11" Foreground="#888888"/>
+                                                               FontSize="11" Foreground="{DynamicResource BrushText1}"/>
                                                 </StackPanel>
 
                                                 <!-- Status icon + remove button -->
@@ -445,7 +611,7 @@
                                                     <!-- Completed checkmark -->
                                                     <TextBlock Text="✓"
                                                                FontSize="14"
-                                                               Foreground="#1DB954"
+                                                               Foreground="{DynamicResource BrushAccent}"
                                                                VerticalAlignment="Center"
                                                                IsVisible="{Binding IsCompleted}"/>
 
@@ -463,70 +629,37 @@
                                                 <ProgressBar Value="{Binding ProgressPercent}"
                                                              Minimum="0" Maximum="100"
                                                              Height="4"
-                                                             Foreground="#1DB954"
-                                                             Background="#2A2A2A"/>
+                                                             Foreground="{DynamicResource BrushAccent}"
+                                                             Background="{DynamicResource BrushBorder1}"/>
                                                 <TextBlock Text="{Binding CurrentStep}"
                                                            FontSize="10"
-                                                           Foreground="#888888"/>
+                                                           Foreground="{DynamicResource BrushText1}"/>
                                             </StackPanel>
 
                                             <!-- ── Completed track: enriched card ── -->
                                             <StackPanel IsVisible="{Binding IsCompleted}" Spacing="6">
-
-                                                <!-- Waveform strip (tri-band, 60px) -->
-                                                <controls:WaveformControl
-                                                    LowBand="{Binding WaveformLow}"
-                                                    MidBand="{Binding WaveformMid}"
-                                                    HighBand="{Binding WaveformHigh}"
-                                                    Height="60"
-                                                    IsVisible="{Binding HasWaveform}"
-                                                    Margin="0,2,0,4"/>
-
-                                                <!-- Row 1: Cue count badge + BPM confidence + Key confidence + action buttons -->
-                                                <Grid ColumnDefinitions="Auto,*,*,Auto,Auto,Auto" Margin="0,0,0,4">
-                                                    <!-- Cue count badge -->
+                                                <!-- Always-visible summary strip -->
+                                                <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" Margin="0,0,0,2">
                                                     <Border Grid.Column="0" Classes="chip"
-                                                            Background="#1A1A2E" CornerRadius="10"
-                                                            IsVisible="{Binding CueCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}"
-                                                            VerticalAlignment="Center">
-                                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                                            <TextBlock Text="🎯" FontSize="10"/>
-                                                            <TextBlock FontSize="10" Foreground="#BB86FC">
-                                                                <Run Text="{Binding CueCount}"/>
-                                                                <Run Text="cues"/>
-                                                            </TextBlock>
-                                                        </StackPanel>
+                                                            Background="{DynamicResource BrushBg2}"
+                                                            IsVisible="{Binding CueCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}">
+                                                        <TextBlock FontSize="10" Foreground="{DynamicResource BrushStemOther}">
+                                                            <Run Text="🎯 "/>
+                                                            <Run Text="{Binding CueCount}"/>
+                                                            <Run Text=" cues"/>
+                                                        </TextBlock>
+                                                    </Border>
+                                                    <Border Grid.Column="1" Classes="chip" Background="{DynamicResource BrushAccentSubtle}">
+                                                        <TextBlock Text="{Binding BpmConfidenceTier, StringFormat='Tonal {0}'}" FontSize="10" Foreground="{DynamicResource BrushSuccess}"/>
+                                                    </Border>
+                                                    <Border Grid.Column="2" Classes="chip" Background="{DynamicResource BrushBg2}">
+                                                        <TextBlock Text="{Binding KeyConfidenceTier, StringFormat='Key {0}'}" FontSize="10" Foreground="{DynamicResource BrushInfo}"/>
                                                     </Border>
 
-                                                    <!-- BPM confidence bar -->
-                                                    <StackPanel Grid.Column="1" Margin="8,0,4,0" VerticalAlignment="Center"
-                                                                IsVisible="{Binding HasConfidenceData}">
-                                                        <TextBlock Text="Tonal confidence" FontSize="9" Foreground="#555"/>
-                                                        <ProgressBar Value="{Binding BpmConfidence}"
-                                                                     Minimum="0" Maximum="1" Height="4"
-                                                                     Foreground="#1DB954" Background="#2A2A2A"
-                                                                     Margin="0,2,0,0"/>
+                                                    <StackPanel Grid.Column="3" Margin="8,0,6,0" Spacing="1" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding DominantMoodLabel}" FontSize="10" Foreground="{DynamicResource BrushText0}"/>
+                                                        <TextBlock Text="{Binding GenreSummary}" FontSize="10" Foreground="{DynamicResource BrushText1}" TextTrimming="CharacterEllipsis" MaxWidth="320"/>
                                                     </StackPanel>
-
-                                                    <!-- Key confidence bar -->
-                                                    <StackPanel Grid.Column="2" Margin="4,0,8,0" VerticalAlignment="Center"
-                                                                IsVisible="{Binding HasConfidenceData}">
-                                                        <TextBlock Text="Key confidence" FontSize="9" Foreground="#555"/>
-                                                        <ProgressBar Value="{Binding KeyConfidence}"
-                                                                     Minimum="0" Maximum="1" Height="4"
-                                                                     Foreground="#64B5F6" Background="#2A2A2A"
-                                                                     Margin="0,2,0,0"/>
-                                                    </StackPanel>
-
-                                                    <!-- Re-analyze button -->
-                                                    <Button Grid.Column="3"
-                                                            Classes="secondary"
-                                                            Content="↺ Re-analyze"
-                                                            FontSize="10" Padding="6,3"
-                                                            Command="{Binding $parent[UserControl].DataContext.ReanalyzeCommand}"
-                                                            CommandParameter="{Binding}"
-                                                            ToolTip.Tip="Clear results and re-run analysis"
-                                                            Margin="4,0,0,0"/>
 
                                                     <Button Grid.Column="4"
                                                             Classes="secondary"
@@ -537,8 +670,20 @@
                                                             ToolTip.Tip="Stage or remove this track for automix"
                                                             Margin="4,0,0,0"/>
 
-                                                    <!-- Copy JSON (developer mode only) -->
                                                     <Button Grid.Column="5"
+                                                            Background="{DynamicResource BrushBg2}"
+                                                            BorderBrush="{DynamicResource BrushError}"
+                                                            BorderThickness="1"
+                                                            Foreground="{DynamicResource BrushError}"
+                                                            CornerRadius="6"
+                                                            Content="↺ Re-analyze"
+                                                            FontSize="10" Padding="6,3"
+                                                            Command="{Binding $parent[UserControl].DataContext.ReanalyzeCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip.Tip="Clear results and re-run analysis"
+                                                            Margin="4,0,0,0"/>
+
+                                                    <Button Grid.Column="6"
                                                             Classes="secondary"
                                                             Content="{}{} JSON"
                                                             FontSize="10" Padding="6,3"
@@ -549,77 +694,146 @@
                                                             Margin="4,0,0,0"/>
                                                 </Grid>
 
-                                                <!-- Mood bars -->
-                                                <TextBlock Text="Mood Profile"
-                                                           FontSize="10" Foreground="#666666"
-                                                           FontWeight="SemiBold"/>
-                                                <Grid ColumnDefinitions="65,*"
-                                                      RowDefinitions="Auto,Auto,Auto">
-                                                    <TextBlock Grid.Row="0" Grid.Column="0"
-                                                               Text="😊 Happy" FontSize="10"
-                                                               Foreground="#888888" VerticalAlignment="Center"/>
-                                                    <ProgressBar Grid.Row="0" Grid.Column="1"
-                                                                 Value="{Binding AnalysisData.Moods.Happy}"
-                                                                 Minimum="0" Maximum="100" Height="5"
-                                                                 Foreground="#FFD700" Background="#2A2A2A"
-                                                                 Margin="0,2"/>
+                                                <Border Background="{DynamicResource BrushBg2}"
+                                                        BorderBrush="{DynamicResource BrushError}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="6"
+                                                        Padding="8,6"
+                                                        IsVisible="{Binding HasAnalysisError}">
+                                                    <TextBlock Text="{Binding AnalysisError}"
+                                                               FontSize="10"
+                                                               Foreground="{DynamicResource BrushError}"
+                                                               TextWrapping="Wrap"/>
+                                                </Border>
 
-                                                    <TextBlock Grid.Row="1" Grid.Column="0"
-                                                               Text="😤 Aggressive" FontSize="10"
-                                                               Foreground="#888888" VerticalAlignment="Center"/>
-                                                    <ProgressBar Grid.Row="1" Grid.Column="1"
-                                                                 Value="{Binding AnalysisData.Moods.Aggressive}"
-                                                                 Minimum="0" Maximum="100" Height="5"
-                                                                 Foreground="#FF5252" Background="#2A2A2A"
-                                                                 Margin="0,2"/>
+                                                <Expander Header="Insight details" IsExpanded="False" Foreground="{DynamicResource BrushText1}">
+                                                    <StackPanel Spacing="6" Margin="0,6,0,0">
+                                                        <controls:WaveformControl
+                                                            WaveformData="{Binding WaveformData}"
+                                                            Height="56"
+                                                            IsVisible="{Binding HasWaveform}"/>
 
-                                                    <TextBlock Grid.Row="2" Grid.Column="0"
-                                                               Text="😌 Relaxed" FontSize="10"
-                                                               Foreground="#888888" VerticalAlignment="Center"/>
-                                                    <ProgressBar Grid.Row="2" Grid.Column="1"
-                                                                 Value="{Binding AnalysisData.Moods.Relaxed}"
-                                                                 Minimum="0" Maximum="100" Height="5"
-                                                                 Foreground="#64B5F6" Background="#2A2A2A"
-                                                                 Margin="0,2"/>
-                                                </Grid>
+                                                        <Border Background="{DynamicResource BrushBg2}" BorderBrush="{DynamicResource BrushBorder2}" BorderThickness="1" CornerRadius="6" Padding="8,6">
+                                                            <StackPanel Spacing="4">
+                                                                <TextBlock Text="Energy arc" FontSize="10" Foreground="{DynamicResource BrushInfo}" FontWeight="SemiBold"/>
+                                                                <controls:SparklineControl
+                                                                    Points="{Binding EnergyCurvePoints}"
+                                                                    LineBrush="{DynamicResource BrushSuccess}"
+                                                                    FillBrush="{DynamicResource BrushAccentSubtle}"
+                                                                    Height="30"
+                                                                    IsVisible="{Binding HasEnergyCurve}"/>
+                                                                <TextBlock Text="{Binding StructuralSummary}" FontSize="10" Foreground="{DynamicResource BrushText1}"/>
+                                                            </StackPanel>
+                                                        </Border>
 
-                                                <!-- Affective: Arousal / Valence -->
-                                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                                    <TextBlock FontSize="10" Foreground="#888888">
-                                                        <Run Text="Arousal "/>
-                                                        <Run Text="{Binding AnalysisData.Affective.Arousal, StringFormat='{}{0:+0.00;-0.00}'}"
-                                                             Foreground="#BB86FC"/>
-                                                    </TextBlock>
-                                                    <TextBlock FontSize="10" Foreground="#888888">
-                                                        <Run Text="Valence "/>
-                                                        <Run Text="{Binding AnalysisData.Affective.Valence, StringFormat='{}{0:+0.00;-0.00}'}"
-                                                             Foreground="#BB86FC"/>
-                                                    </TextBlock>
-                                                </StackPanel>
+                                                        <Border Background="{DynamicResource BrushBg2}" BorderBrush="{DynamicResource BrushBorder2}" BorderThickness="1" CornerRadius="6" Padding="8,6">
+                                                            <StackPanel Spacing="4">
+                                                                <TextBlock Text="Phrase shape" FontSize="10" Foreground="{DynamicResource BrushInfo}" FontWeight="SemiBold"/>
+                                                                <controls:SparklineControl
+                                                                    Points="{Binding SegmentedEnergyPoints}"
+                                                                    LineBrush="{DynamicResource BrushAccent}"
+                                                                    FillBrush="{DynamicResource BrushAccentSubtle}"
+                                                                    Height="26"
+                                                                    IsVisible="{Binding HasSegmentedEnergy}"/>
+                                                                <ItemsControl ItemsSource="{Binding PhraseTimelineBlocks}"
+                                                                              IsVisible="{Binding HasPhraseTimeline}">
+                                                                    <ItemsControl.ItemsPanel>
+                                                                        <ItemsPanelTemplate>
+                                                                            <StackPanel Orientation="Horizontal" Spacing="4"/>
+                                                                        </ItemsPanelTemplate>
+                                                                    </ItemsControl.ItemsPanel>
+                                                                    <ItemsControl.ItemTemplate>
+                                                                        <DataTemplate>
+                                                                            <Border Width="{Binding WidthPx}"
+                                                                                    Height="16"
+                                                                                    CornerRadius="3"
+                                                                                    Background="{Binding FillColor}"
+                                                                                    ToolTip.Tip="{Binding Tooltip}">
+                                                                                <TextBlock Text="{Binding Label}"
+                                                                                           FontSize="9"
+                                                                                           Foreground="{DynamicResource BrushText0}"
+                                                                                           HorizontalAlignment="Center"
+                                                                                           VerticalAlignment="Center"
+                                                                                           TextTrimming="CharacterEllipsis"
+                                                                                           Margin="3,0"/>
+                                                                            </Border>
+                                                                        </DataTemplate>
+                                                                    </ItemsControl.ItemTemplate>
+                                                                </ItemsControl>
+                                                            </StackPanel>
+                                                        </Border>
 
-                                                <!-- Genre chips -->
-                                                <ItemsControl ItemsSource="{Binding AnalysisData.Genres}">
-                                                    <ItemsControl.ItemsPanel>
-                                                        <ItemsPanelTemplate>
-                                                            <WrapPanel Orientation="Horizontal"/>
-                                                        </ItemsPanelTemplate>
-                                                    </ItemsControl.ItemsPanel>
-                                                    <ItemsControl.ItemTemplate>
-                                                        <DataTemplate>
-                                                            <Border Classes="chip" Background="#1A1A2E">
-                                                                <TextBlock Text="{Binding Label}"
-                                                                           FontSize="10"
-                                                                           Foreground="#BB86FC"/>
-                                                            </Border>
-                                                        </DataTemplate>
-                                                    </ItemsControl.ItemTemplate>
-                                                </ItemsControl>
+                                                        <Grid ColumnDefinitions="*,*" Margin="0,2,0,0">
+                                                            <TextBlock Grid.Column="0" Text="{Binding ConfidenceSemanticsSummary}" FontSize="10" Foreground="{DynamicResource BrushSuccess}"/>
+                                                            <TextBlock Grid.Column="1" Text="{Binding VocalProfileSummary}" FontSize="10" Foreground="{DynamicResource BrushText0}"/>
+                                                        </Grid>
 
-                                                <!-- Last analyzed / model version -->
-                                                <TextBlock FontSize="10" Foreground="#444"
-                                                           ToolTip.Tip="{Binding ModelVersion}">
+                                                        <Border Background="{DynamicResource BrushBg2}"
+                                                                BorderBrush="{DynamicResource BrushError}"
+                                                                BorderThickness="1"
+                                                                CornerRadius="6"
+                                                                Padding="8,6"
+                                                                IsVisible="{Binding HasStemError}">
+                                                            <TextBlock Text="{Binding StemError}" FontSize="10" Foreground="{DynamicResource BrushError}" TextWrapping="Wrap"/>
+                                                        </Border>
+
+                                                        <TextBlock Text="{Binding HarmonicProfileSummary}" FontSize="10" Foreground="{DynamicResource BrushText0}"/>
+                                                        <TextBlock Text="{Binding QualityProfileSummary}" FontSize="10" Foreground="{DynamicResource BrushText1}"/>
+
+                                                        <TextBlock Text="Mood profile" FontSize="10" Foreground="{DynamicResource BrushText2}" FontWeight="SemiBold"/>
+                                                        <Grid ColumnDefinitions="74,*"
+                                                              RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+                                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Happy" FontSize="10" Foreground="{DynamicResource BrushText1}"/>
+                                                            <ProgressBar Grid.Row="0" Grid.Column="1" Value="{Binding AnalysisData.Moods.Happy}" Minimum="0" Maximum="100" Height="5" Foreground="{DynamicResource BrushWarning}" Background="{DynamicResource BrushBorder1}" Margin="0,2"/>
+
+                                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Sad" FontSize="10" Foreground="{DynamicResource BrushText1}"/>
+                                                            <ProgressBar Grid.Row="1" Grid.Column="1" Value="{Binding AnalysisData.Moods.Sad}" Minimum="0" Maximum="100" Height="5" Foreground="{DynamicResource BrushInfo}" Background="{DynamicResource BrushBorder1}" Margin="0,2"/>
+
+                                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Aggressive" FontSize="10" Foreground="{DynamicResource BrushText1}"/>
+                                                            <ProgressBar Grid.Row="2" Grid.Column="1" Value="{Binding AnalysisData.Moods.Aggressive}" Minimum="0" Maximum="100" Height="5" Foreground="{DynamicResource BrushError}" Background="{DynamicResource BrushBorder1}" Margin="0,2"/>
+
+                                                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Relaxed" FontSize="10" Foreground="{DynamicResource BrushText1}"/>
+                                                            <ProgressBar Grid.Row="3" Grid.Column="1" Value="{Binding AnalysisData.Moods.Relaxed}" Minimum="0" Maximum="100" Height="5" Foreground="{DynamicResource BrushInfo}" Background="{DynamicResource BrushBorder1}" Margin="0,2"/>
+
+                                                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Party" FontSize="10" Foreground="{DynamicResource BrushText1}"/>
+                                                            <ProgressBar Grid.Row="4" Grid.Column="1" Value="{Binding AnalysisData.Moods.Party}" Minimum="0" Maximum="100" Height="5" Foreground="{DynamicResource BrushStemOther}" Background="{DynamicResource BrushBorder1}" Margin="0,2"/>
+                                                        </Grid>
+
+                                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                                            <TextBlock FontSize="10" Foreground="{DynamicResource BrushText1}">
+                                                                <Run Text="Arousal "/>
+                                                                <Run Text="{Binding AnalysisData.Affective.Arousal, StringFormat='{}{0:+0.00;-0.00}'}" Foreground="{DynamicResource BrushStemOther}"/>
+                                                            </TextBlock>
+                                                            <TextBlock FontSize="10" Foreground="{DynamicResource BrushText1}">
+                                                                <Run Text="Valence "/>
+                                                                <Run Text="{Binding AnalysisData.Affective.Valence, StringFormat='{}{0:+0.00;-0.00}'}" Foreground="{DynamicResource BrushStemOther}"/>
+                                                            </TextBlock>
+                                                        </StackPanel>
+
+                                                        <ItemsControl ItemsSource="{Binding AnalysisData.Genres}">
+                                                            <ItemsControl.ItemsPanel>
+                                                                <ItemsPanelTemplate>
+                                                                    <WrapPanel Orientation="Horizontal"/>
+                                                                </ItemsPanelTemplate>
+                                                            </ItemsControl.ItemsPanel>
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <Border Classes="chip" Background="{DynamicResource BrushBg2}">
+                                                                        <TextBlock FontSize="10" Foreground="{DynamicResource BrushStemOther}">
+                                                                            <Run Text="{Binding Label}"/>
+                                                                            <Run Text=" "/>
+                                                                            <Run Text="{Binding Confidence, StringFormat='{}{0:P0}'}"/>
+                                                                        </TextBlock>
+                                                                    </Border>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </StackPanel>
+                                                </Expander>
+
+                                                <TextBlock FontSize="10" Foreground="{DynamicResource BrushTextDisabled}" ToolTip.Tip="{Binding ModelVersion}">
                                                     <Run Text="Analyzed: "/>
-                                                    <Run Text="{Binding LastAnalyzedDisplay}" Foreground="#555"/>
+                                                    <Run Text="{Binding LastAnalyzedDisplay}" Foreground="{DynamicResource BrushText2}"/>
                                                 </TextBlock>
 
                                             </StackPanel>
@@ -636,3 +850,4 @@
         </Grid>
     </Grid>
 </UserControl>
+

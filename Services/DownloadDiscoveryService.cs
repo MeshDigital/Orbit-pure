@@ -109,7 +109,7 @@ public class DownloadDiscoveryService
 
         // Global discovery timeout: if all tiers combined take > 90s, abort cleanly.
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(120)); // Bumped for fallback support
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(45)); // Global discovery timeout: 45s (was 120s causing slowness)
         var timedCt = timeoutCts.Token;
 
         var tiers = _autoCleaner.Clean($"{track.Artist} - {track.Title}");
@@ -590,7 +590,7 @@ public class DownloadDiscoveryService
                         }
                     }
 
-                    if (score > 70)
+                    if (score > 85) // Raised threshold from 70 to 85 — avoid marginal matches
                     {
                         UpdateTopSilverCandidates(searchTrack, score);
                     }

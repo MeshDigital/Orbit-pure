@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Diagnostics;
@@ -12,6 +13,8 @@ using ReactiveUI;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Services.Library;
+using SLSKDONET.Services.Playlist;
 
 namespace SLSKDONET.ViewModels;
 
@@ -26,6 +29,12 @@ public enum AnalysisProcessingState
     Error
 }
 
+public enum AnalysisPaneMode
+{
+    Library,
+    Queue
+}
+
 /// <summary>
 /// Represents a single track entry in the analysis queue or library list,
 /// carrying both display metadata and the result of ML analysis.
@@ -37,18 +46,31 @@ public class AnalysisTrackItem : ReactiveObject
     private int _progressPercent;
     private string _currentStep = string.Empty;
     private bool _isInQueue;
-    private readonly byte[] _waveformLow;
-    private readonly byte[] _waveformMid;
-    private readonly byte[] _waveformHigh;
-    private readonly int _cueCount;
+    private byte[] _waveformLow;
+    private byte[] _waveformMid;
+    private byte[] _waveformHigh;
+    private int _cueCount;
+    private IReadOnlyList<double> _energyCurvePoints;
+    private IReadOnlyList<double> _segmentedEnergyPoints;
+    private double? _dropTimeSeconds;
+    private double? _dropConfidence;
+    private double? _qualityConfidence;
+    private double? _bpmStability;
+    private double? _vocalDensity;
+    private double? _loudnessLufs;
+    private string? _camelotKey;
+    private string? _chordProgression;
+    private string _vocalTypeLabel;
+    private IReadOnlyList<PhraseTimelineBlock> _phraseTimelineBlocks;
+    private double _durationSeconds;
 
-    public string TrackId { get; }
-    public string Artist { get; }
-    public string Title { get; }
-    public string? Album { get; }
-    public double? Bpm { get; }
-    public string? MusicalKey { get; }
-    public string? FilePath { get; }
+    public string TrackId { get; private set; }
+    public string Artist { get; private set; }
+    public string Title { get; private set; }
+    public string? Album { get; private set; }
+    public double? Bpm { get; private set; }
+    public string? MusicalKey { get; private set; }
+    public string? FilePath { get; private set; }
 
     /// <summary>Current analysis run status (Queued → Processing → Completed/Failed).</summary>
     public AnalysisRunStatus AnalysisStatus
@@ -201,12 +223,28 @@ public class AnalysisTrackItem : ReactiveObject
     public bool HasConfidenceData => AnalysisData is not null;
     public double BpmConfidence => AnalysisData?.Mechanics.TonalProbability ?? 0;
     public double KeyConfidence => AnalysisData is null ? 0 : Math.Clamp((AnalysisData.Mechanics.TonalProbability * 0.85) + 0.1, 0, 1);
+    public string BpmConfidenceTier => ToConfidenceTier(BpmConfidence);
+    public string KeyConfidenceTier => ToConfidenceTier(KeyConfidence);
+    public string ConfidenceSemanticsSummary => $"Tonal {BpmConfidenceTier} • Key {KeyConfidenceTier}";
     public int CueCount => HasAnalysis ? _cueCount : 0;
     public byte[] WaveformLow => _waveformLow;
     public byte[] WaveformMid => _waveformMid;
     public byte[] WaveformHigh => _waveformHigh;
+    public WaveformAnalysisData WaveformData => BuildWaveformAnalysisData();
     public bool HasWaveform => _waveformLow.Length > 0 || _waveformMid.Length > 0 || _waveformHigh.Length > 0;
+    public IReadOnlyList<double> EnergyCurvePoints => _energyCurvePoints;
+    public bool HasEnergyCurve => _energyCurvePoints.Count >= 2;
+    public IReadOnlyList<double> SegmentedEnergyPoints => _segmentedEnergyPoints;
+    public bool HasSegmentedEnergy => _segmentedEnergyPoints.Count >= 2;
+    public IReadOnlyList<PhraseTimelineBlock> PhraseTimelineBlocks => _phraseTimelineBlocks;
+    public bool HasPhraseTimeline => _phraseTimelineBlocks.Count > 0;
+    public string DominantMoodLabel => ResolveDominantMoodLabel(AnalysisData?.Moods);
+    public string VocalProfileSummary => BuildVocalProfileSummary(_vocalTypeLabel, _vocalDensity);
+    public string HarmonicProfileSummary => BuildHarmonicProfileSummary(_camelotKey, AnalysisData?.Mechanics.KeyScale, _chordProgression);
+    public string QualityProfileSummary => BuildQualityProfileSummary(_qualityConfidence, _loudnessLufs, _bpmStability);
+    public string StructuralSummary => BuildStructuralSummary(_dropTimeSeconds, _dropConfidence);
     public string PrimaryGenre => AnalysisData?.Genres.OrderByDescending(g => g.Confidence).FirstOrDefault()?.Label ?? "Unclassified";
+    public string GenreSummary => BuildGenreSummary(AnalysisData?.Genres);
     public string PlaylistActionLabel => IsInPlaylist ? "− Remove from Mix" : "＋ Add to Mix";
     public string StatusLabel => AnalysisStatus switch
     {
@@ -230,7 +268,19 @@ public class AnalysisTrackItem : ReactiveObject
         byte[]? midBand = null,
         byte[]? highBand = null,
         DateTime? lastAnalyzedAt = null,
-        string? modelVersion = null)
+        string? modelVersion = null,
+        IReadOnlyList<double>? energyCurvePoints = null,
+        IReadOnlyList<double>? segmentedEnergyPoints = null,
+        double? dropTimeSeconds = null,
+        double? dropConfidence = null,
+        double? qualityConfidence = null,
+        double? bpmStability = null,
+        double? vocalDensity = null,
+        string? vocalTypeLabel = null,
+        double? loudnessLufs = null,
+        string? camelotKey = null,
+        string? chordProgression = null,
+        double? durationSeconds = null)
     {
         TrackId = trackId;
         Artist = artist;
@@ -247,11 +297,286 @@ public class AnalysisTrackItem : ReactiveObject
         _stemsReady = analysisData?.Stems?.AreGenerated ?? false;
         _lastAnalyzedAt = lastAnalyzedAt ?? (analysisData is not null ? DateTime.UtcNow.AddMinutes(-EstimateCueCount(trackId) * 7) : null);
         _modelVersion = modelVersion ?? (analysisData is not null ? "essentia-2.1-b6" : null);
+        _energyCurvePoints = energyCurvePoints ?? Array.Empty<double>();
+        _segmentedEnergyPoints = segmentedEnergyPoints ?? Array.Empty<double>();
+        _dropTimeSeconds = dropTimeSeconds;
+        _dropConfidence = dropConfidence;
+        _qualityConfidence = qualityConfidence;
+        _bpmStability = bpmStability;
+        _vocalDensity = vocalDensity;
+        _vocalTypeLabel = string.IsNullOrWhiteSpace(vocalTypeLabel) ? "Unknown" : vocalTypeLabel;
+        _loudnessLufs = loudnessLufs;
+        _camelotKey = camelotKey;
+        _chordProgression = chordProgression;
+        _phraseTimelineBlocks = BuildPhraseTimeline(_segmentedEnergyPoints, _dropTimeSeconds);
+        _durationSeconds = durationSeconds ?? 0;
 
         if (analysisData is not null)
             _analysisStatus = AnalysisRunStatus.Completed;
     }
 
+    public void UpdateFrom(AnalysisTrackItem source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        TrackId = source.TrackId;
+        Artist = source.Artist;
+        Title = source.Title;
+        Album = source.Album;
+        Bpm = source.Bpm;
+        MusicalKey = source.MusicalKey;
+        FilePath = source.FilePath;
+
+        _analysisStatus = source._analysisStatus;
+        _analysisData = source._analysisData;
+        _progressPercent = source._progressPercent;
+        _currentStep = source._currentStep;
+        _isInQueue = source._isInQueue;
+
+        _waveformLow = source._waveformLow.ToArray();
+        _waveformMid = source._waveformMid.ToArray();
+        _waveformHigh = source._waveformHigh.ToArray();
+        _cueCount = source._cueCount;
+        _energyCurvePoints = source._energyCurvePoints.ToArray();
+        _segmentedEnergyPoints = source._segmentedEnergyPoints.ToArray();
+        _dropTimeSeconds = source._dropTimeSeconds;
+        _dropConfidence = source._dropConfidence;
+        _qualityConfidence = source._qualityConfidence;
+        _bpmStability = source._bpmStability;
+        _vocalDensity = source._vocalDensity;
+        _loudnessLufs = source._loudnessLufs;
+        _camelotKey = source._camelotKey;
+        _chordProgression = source._chordProgression;
+        _vocalTypeLabel = source._vocalTypeLabel;
+        _phraseTimelineBlocks = source._phraseTimelineBlocks.ToArray();
+        _durationSeconds = source._durationSeconds;
+
+        _stemsReady = source._stemsReady;
+        _isInPlaylist = source._isInPlaylist;
+        _analysisError = source._analysisError;
+        _stemError = source._stemError;
+        _lastAnalyzedAt = source._lastAnalyzedAt;
+        _modelVersion = source._modelVersion;
+
+        this.RaisePropertyChanged(string.Empty);
+    }
+
+    private WaveformAnalysisData BuildWaveformAnalysisData()
+    {
+        var peakData = BuildPeakData(_waveformLow, _waveformMid, _waveformHigh);
+        var rmsData = BuildRmsData(_waveformLow, _waveformMid, _waveformHigh);
+
+        return new WaveformAnalysisData
+        {
+            PeakData = peakData,
+            RmsData = rmsData,
+            LowData = _waveformLow,
+            MidData = _waveformMid,
+            HighData = _waveformHigh,
+            DurationSeconds = Math.Max(1, _durationSeconds),
+            PointsPerSecond = peakData.Length > 0 && _durationSeconds > 0
+                ? Math.Max(1, (int)Math.Round(peakData.Length / _durationSeconds))
+                : 100
+        };
+    }
+
+    private static byte[] BuildPeakData(byte[] lowData, byte[] midData, byte[] highData)
+    {
+        var length = Math.Min(lowData.Length, Math.Min(midData.Length, highData.Length));
+        if (length <= 0)
+            return Array.Empty<byte>();
+
+        var peakData = new byte[length];
+        for (var i = 0; i < length; i++)
+        {
+            peakData[i] = Math.Max(lowData[i], Math.Max(midData[i], highData[i]));
+        }
+
+        return peakData;
+    }
+
+    private static byte[] BuildRmsData(byte[] lowData, byte[] midData, byte[] highData)
+    {
+        var length = Math.Min(lowData.Length, Math.Min(midData.Length, highData.Length));
+        if (length <= 0)
+            return Array.Empty<byte>();
+
+        var rmsData = new byte[length];
+        for (var i = 0; i < length; i++)
+        {
+            var low = lowData[i];
+            var mid = midData[i];
+            var high = highData[i];
+            var rms = Math.Sqrt((low * low + mid * mid + high * high) / 3.0);
+            rmsData[i] = (byte)Math.Clamp(rms, 0.0, 255.0);
+        }
+
+        return rmsData;
+    }
+
+    private static string ToConfidenceTier(double value)
+    {
+        if (value >= 0.8) return "High";
+        if (value >= 0.6) return "Medium";
+        return "Low";
+    }
+
+    private static string ResolveDominantMoodLabel(MoodData? moods)
+    {
+        if (moods == null) return "Mood unknown";
+
+        var ranked = new[]
+        {
+            ("Happy", moods.Happy),
+            ("Sad", moods.Sad),
+            ("Aggressive", moods.Aggressive),
+            ("Relaxed", moods.Relaxed),
+            ("Party", moods.Party),
+        };
+
+        var top = ranked.OrderByDescending(item => item.Item2).First();
+        return $"{top.Item1} {top.Item2:F0}%";
+    }
+
+    private static string BuildVocalProfileSummary(string vocalTypeLabel, double? vocalDensity)
+    {
+        if (!vocalDensity.HasValue)
+        {
+            return $"Vocal profile: {vocalTypeLabel}";
+        }
+
+        return $"Vocal profile: {vocalTypeLabel} ({vocalDensity.Value * 100:F0}% density)";
+    }
+
+    private static string BuildHarmonicProfileSummary(string? camelotKey, string? keyScale, string? chordProgression)
+    {
+        var key = string.IsNullOrWhiteSpace(keyScale) ? "Unknown key" : keyScale;
+        var camelot = string.IsNullOrWhiteSpace(camelotKey) ? "—" : camelotKey;
+        var chords = string.IsNullOrWhiteSpace(chordProgression) ? "" : $" • {chordProgression}";
+        return $"Harmonic: {key} ({camelot}){chords}";
+    }
+
+    private static string BuildQualityProfileSummary(double? qualityConfidence, double? loudnessLufs, double? bpmStability)
+    {
+        var confidenceText = qualityConfidence.HasValue ? $"Q {qualityConfidence.Value * 100:F0}%" : "Q —";
+        var loudnessText = loudnessLufs.HasValue ? $"LUFS {loudnessLufs.Value:F1}" : "LUFS —";
+        var stabilityText = bpmStability.HasValue ? $"Stability {bpmStability.Value * 100:F0}%" : "Stability —";
+        return $"{confidenceText} • {loudnessText} • {stabilityText}";
+    }
+
+    private static string BuildStructuralSummary(double? dropTimeSeconds, double? dropConfidence)
+    {
+        if (!dropTimeSeconds.HasValue)
+        {
+            return "Structure: drop marker unavailable";
+        }
+
+        var ts = TimeSpan.FromSeconds(Math.Max(0, dropTimeSeconds.Value));
+        var confidence = dropConfidence.HasValue ? $" ({dropConfidence.Value * 100:F0}% conf)" : string.Empty;
+        return $"Structure: drop near {ts.Minutes}:{ts.Seconds:00}{confidence}";
+    }
+
+    private static string BuildGenreSummary(IReadOnlyCollection<GenrePrediction>? genres)
+    {
+        if (genres == null || genres.Count == 0)
+        {
+            return "Genre: Unclassified";
+        }
+
+        var top = genres.OrderByDescending(g => g.Confidence).Take(3).ToList();
+        return "Genre: " + string.Join(" / ", top.Select(g => $"{g.Label} {g.Confidence * 100:F0}%"));
+    }
+
+    private static IReadOnlyList<PhraseTimelineBlock> BuildPhraseTimeline(
+        IReadOnlyList<double> segmentedEnergy,
+        double? dropTimeSeconds)
+    {
+        if (segmentedEnergy.Count < 2)
+        {
+            return Array.Empty<PhraseTimelineBlock>();
+        }
+
+        var blocks = new List<PhraseTimelineBlock>(segmentedEnergy.Count);
+        var count = segmentedEnergy.Count;
+        var dropSegmentIndex = dropTimeSeconds.HasValue
+            ? segmentedEnergy
+                .Select((value, index) => (value, index))
+                .OrderByDescending(pair => pair.value)
+                .First().index
+            : -1;
+
+        for (var i = 0; i < count; i++)
+        {
+            var energy = Math.Clamp(segmentedEnergy[i], 0.0, 1.0);
+            var start = i / (double)count;
+            var end = (i + 1) / (double)count;
+
+            string label;
+            if (i == 0)
+            {
+                label = "Intro";
+            }
+            else if (i == count - 1)
+            {
+                label = "Outro";
+            }
+            else if (energy >= 0.78)
+            {
+                label = "Drop";
+            }
+            else if (energy <= 0.36)
+            {
+                label = "Break";
+            }
+            else if (energy >= 0.62)
+            {
+                label = "Build";
+            }
+            else
+            {
+                label = "Verse";
+            }
+
+            if (i == dropSegmentIndex)
+            {
+                label = "Drop";
+            }
+
+            blocks.Add(new PhraseTimelineBlock(
+                label,
+                start,
+                end,
+                (end - start) * 100.0,
+                Math.Max(26.0, (end - start) * 280.0),
+                ResolvePhraseColor(label, energy),
+                $"{label} • energy {(energy * 100):F0}%"));
+        }
+
+        return blocks;
+    }
+
+    private static string ResolvePhraseColor(string label, double energy)
+    {
+        return label switch
+        {
+            "Intro" => "#3A4A5A",
+            "Build" => "#5A4A2A",
+            "Drop" => "#7A2A2A",
+            "Break" => "#2A4A5A",
+            "Outro" => "#3A3A46",
+            _ => energy >= 0.6 ? "#4A5A3A" : "#3A4A3A"
+        };
+    }
+
+
+public sealed record PhraseTimelineBlock(
+    string Label,
+    double StartRatio,
+    double EndRatio,
+    double WidthPercent,
+    double WidthPx,
+    string FillColor,
+    string Tooltip);
     private static int EstimateCueCount(string seed)
     {
         var hash = Math.Abs(seed.Aggregate(17, (current, c) => current * 31 + c));
@@ -283,16 +608,32 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 {
     private readonly IEventBus _eventBus;
     private readonly ILibraryService? _libraryService;
+    private readonly ILifecycleProjectionService _lifecycleProjectionService;
     private readonly IClipboardService? _clipboardService;
+    private readonly PlaylistOptimizer? _playlistOptimizer;
     private readonly CompositeDisposable _disposables = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Stopwatch _analysisSessionStopwatch = new();
+    private readonly Dictionary<string, DateTime> _trackAnalysisStartedAtUtc = new(StringComparer.Ordinal);
 
     private AnalysisProcessingState _processingState = AnalysisProcessingState.Idle;
     private string? _currentProcessingTrackId;
     private string _searchText = string.Empty;
+    private bool _isCompactLayout;
+    private AnalysisPaneMode _activePaneMode = AnalysisPaneMode.Queue;
     private int _completedAnalysisRuns;
     private double _totalAnalysisSeconds;
+    private double _lastFilterMilliseconds;
+    private double _averageFilterMilliseconds;
+    private int _filterSampleCount;
+    private int _filteredTrackCount;
+    private double _lastQueueMutationMilliseconds;
+    private string? _performanceProbeSummary;
+    private int _indexedCatalogCount;
+    private int _staleIndexedCount;
+    private int _desiredDownloadCount;
+    private int _ingestionBacklogCount;
+    private int _onDiskIndexedTrackCount;
 
     // ── Collections ─────────────────────────────────────────────────────────────
 
@@ -304,6 +645,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
     /// <summary>Tracks staged for analysis by the user.</summary>
     public ObservableCollection<AnalysisTrackItem> AnalysisQueue { get; } = new();
+    public ObservableCollection<PerformanceProbeRun> PerformanceProbeRuns { get; } = new();
 
     // ── State ────────────────────────────────────────────────────────────────────
 
@@ -331,13 +673,54 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         set
         {
             this.RaiseAndSetIfChanged(ref _searchText, value);
-            ApplyFilter();
         }
     }
 
     public bool IsIdle => ProcessingState == AnalysisProcessingState.Idle;
     public bool IsProcessing => ProcessingState == AnalysisProcessingState.Processing;
     public bool CanStartAnalysis => !IsProcessing && AnalysisQueue.Any(t => t.AnalysisStatus != AnalysisRunStatus.Completed);
+    public bool IsCompactLayout
+    {
+        get => _isCompactLayout;
+        private set
+        {
+            if (_isCompactLayout == value)
+                return;
+
+            this.RaiseAndSetIfChanged(ref _isCompactLayout, value);
+            this.RaisePropertyChanged(nameof(ShowLibraryPane));
+            this.RaisePropertyChanged(nameof(ShowQueuePane));
+            this.RaisePropertyChanged(nameof(IsLibraryPaneSelected));
+            this.RaisePropertyChanged(nameof(IsQueuePaneSelected));
+            this.RaisePropertyChanged(nameof(QueuePaneColumn));
+            this.RaisePropertyChanged(nameof(QueuePaneColumnSpan));
+            this.RaisePropertyChanged(nameof(LibraryPaneColumnSpan));
+        }
+    }
+
+    public AnalysisPaneMode ActivePaneMode
+    {
+        get => _activePaneMode;
+        private set
+        {
+            if (_activePaneMode == value)
+                return;
+
+            this.RaiseAndSetIfChanged(ref _activePaneMode, value);
+            this.RaisePropertyChanged(nameof(ShowLibraryPane));
+            this.RaisePropertyChanged(nameof(ShowQueuePane));
+            this.RaisePropertyChanged(nameof(IsLibraryPaneSelected));
+            this.RaisePropertyChanged(nameof(IsQueuePaneSelected));
+        }
+    }
+
+    public bool ShowLibraryPane => !IsCompactLayout || ActivePaneMode == AnalysisPaneMode.Library;
+    public bool ShowQueuePane => !IsCompactLayout || ActivePaneMode == AnalysisPaneMode.Queue;
+    public bool IsLibraryPaneSelected => ActivePaneMode == AnalysisPaneMode.Library;
+    public bool IsQueuePaneSelected => ActivePaneMode == AnalysisPaneMode.Queue;
+    public int QueuePaneColumn => IsCompactLayout ? 0 : 2;
+    public int QueuePaneColumnSpan => IsCompactLayout ? 3 : 1;
+    public int LibraryPaneColumnSpan => IsCompactLayout ? 3 : 1;
 
     /// <summary>True when the filtered library list is empty (e.g. search returned no results).</summary>
     public bool IsLibraryEmpty => FilteredLibraryTracks.Count == 0;
@@ -346,6 +729,11 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public bool IsQueueEmpty => AnalysisQueue.Count == 0;
 
     public int TotalTrackCount => LibraryTracks.Count;
+    public int OnDiskIndexedTrackCount => _onDiskIndexedTrackCount;
+    public int IndexedCatalogCount => _indexedCatalogCount;
+    public int StaleIndexedCount => _staleIndexedCount;
+    public int DesiredDownloadCount => _desiredDownloadCount;
+    public int IngestionBacklogCount => _ingestionBacklogCount;
     public int AnalyzedTrackCount => LibraryTracks.Count(t => t.HasAnalysis);
     public int PendingTrackCount => LibraryTracks.Count(t => !t.HasAnalysis);
     public int QueueTrackCount => AnalysisQueue.Count;
@@ -356,10 +744,23 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public bool IsDeveloperMode => Debugger.IsAttached || string.Equals(Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase);
     public string AvgAnalysisTimeDisplay => _completedAnalysisRuns == 0 ? "—" : $"{_totalAnalysisSeconds / _completedAnalysisRuns:F1}s";
     public string ThroughputDisplay => _completedAnalysisRuns == 0 ? "—" : $"{_completedAnalysisRuns / Math.Max(_analysisSessionStopwatch.Elapsed.TotalMinutes, 1.0 / 60.0):F1}/min";
+    public string FilterPerformanceDisplay => $"Filter {_lastFilterMilliseconds:F1} ms (avg {_averageFilterMilliseconds:F1} ms)";
+    public string InteractionPerformanceDisplay => _lastQueueMutationMilliseconds <= 0
+        ? "Queue update —"
+        : $"Queue update {_lastQueueMutationMilliseconds:F1} ms";
+    public string PerformanceDiagnosticsSummary => $"{_filteredTrackCount}/{LibraryTracks.Count} visible • {FilterPerformanceDisplay} • {InteractionPerformanceDisplay}";
+    public string? PerformanceProbeSummary
+    {
+        get => _performanceProbeSummary;
+        private set => this.RaiseAndSetIfChanged(ref _performanceProbeSummary, value);
+    }
+    public bool HasPerformanceProbeRuns => PerformanceProbeRuns.Count > 0;
     public string ElapsedTimeDisplay => _analysisSessionStopwatch.Elapsed == TimeSpan.Zero
         ? "—"
         : _analysisSessionStopwatch.Elapsed.ToString(_analysisSessionStopwatch.Elapsed.TotalHours >= 1 ? @"hh\:mm\:ss" : @"mm\:ss");
     public string QueueMetricsSummary => $"{QueueTrackCount} queued • {AnalyzedTrackCount} analyzed • {PendingTrackCount} remaining";
+    public string LibraryCountDifferentiationSummary =>
+        $"Wanted downloads: {DesiredDownloadCount} • Ingestion backlog: {IngestionBacklogCount} • Physical on-disk indexed: {OnDiskIndexedTrackCount} • Stale indexed rows: {StaleIndexedCount}";
     public string CompletionRateDisplay => TotalTrackCount == 0 ? "0%" : $"{(AnalyzedTrackCount * 100.0 / TotalTrackCount):F0}%";
     public string AutomixSelectionSummary => PlaylistTrackCount == 0
         ? "No tracks staged for automix yet."
@@ -378,18 +779,25 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
     /// <summary>Starts sequential analysis of all queued tracks.</summary>
     public ReactiveCommand<Unit, Unit> StartAnalysisCommand { get; }
+    public ReactiveCommand<Unit, Unit> RunPerformanceProbeCommand { get; }
 
     /// <summary>Re-queues a completed track and clears cached output.</summary>
     public ReactiveCommand<AnalysisTrackItem, Unit> ReanalyzeCommand { get; }
 
     /// <summary>Copies the full analysis JSON for a track to the clipboard.</summary>
     public ReactiveCommand<AnalysisTrackItem, Unit> CopyAnalysisJsonCommand { get; }
+    public ReactiveCommand<Unit, Unit> CopyPerformanceSnapshotCommand { get; }
+    public ReactiveCommand<Unit, Unit> ClearPerformanceProbeHistoryCommand { get; }
 
     /// <summary>Generates an automix playlist from tracks that have completed analysis.</summary>
     public ReactiveCommand<Unit, Unit> CreateAutomixCommand { get; }
 
     /// <summary>Adds a track to the automix playlist (or removes it if already present).</summary>
     public ReactiveCommand<AnalysisTrackItem, Unit> TogglePlaylistCommand { get; }
+    public ReactiveCommand<Unit, Unit> StageAllAnalyzedForAutomixCommand { get; }
+    public ReactiveCommand<Unit, Unit> ClearAutomixStagingCommand { get; }
+
+    public ReactiveCommand<AnalysisPaneMode, Unit> SetPaneModeCommand { get; }
 
     // ── Automix state ────────────────────────────────────────────────────────────
 
@@ -415,11 +823,18 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
     // ── Constructor ──────────────────────────────────────────────────────────────
 
-    public AnalysisPageViewModel(IEventBus eventBus, ILibraryService? libraryService = null, IClipboardService? clipboardService = null)
+    public AnalysisPageViewModel(
+        IEventBus eventBus,
+        ILifecycleProjectionService lifecycleProjectionService,
+        ILibraryService? libraryService = null,
+        IClipboardService? clipboardService = null,
+        PlaylistOptimizer? playlistOptimizer = null)
     {
         _eventBus = eventBus;
         _libraryService = libraryService;
         _clipboardService = clipboardService;
+        _lifecycleProjectionService = lifecycleProjectionService;
+        _playlistOptimizer = playlistOptimizer;
 
         if (_libraryService is null)
             LoadMockData();
@@ -436,16 +851,23 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
         var canStart = this.WhenAnyValue(x => x.CanStartAnalysis);
         StartAnalysisCommand = ReactiveCommand.CreateFromTask(StartAnalysisAsync, canStart);
+        RunPerformanceProbeCommand = ReactiveCommand.Create(RunPerformanceProbe);
         ReanalyzeCommand = ReactiveCommand.Create<AnalysisTrackItem>(Reanalyze);
         CopyAnalysisJsonCommand = ReactiveCommand.CreateFromTask<AnalysisTrackItem>(CopyAnalysisJsonAsync);
+        CopyPerformanceSnapshotCommand = ReactiveCommand.CreateFromTask(CopyPerformanceSnapshotAsync);
+        ClearPerformanceProbeHistoryCommand = ReactiveCommand.Create(ClearPerformanceProbeHistory);
 
-        CreateAutomixCommand = ReactiveCommand.Create(CreateAutomixPlaylist);
+        CreateAutomixCommand = ReactiveCommand.CreateFromTask(CreateAutomixPlaylistAsync);
         TogglePlaylistCommand = ReactiveCommand.Create<AnalysisTrackItem>(TogglePlaylist);
+        StageAllAnalyzedForAutomixCommand = ReactiveCommand.Create(StageAllAnalyzedForAutomix);
+        ClearAutomixStagingCommand = ReactiveCommand.Create(ClearAutomixStaging);
+        SetPaneModeCommand = ReactiveCommand.Create<AnalysisPaneMode>(SetPaneMode);
 
         // Keep all computed dashboard metrics in sync as the collections change.
         LibraryTracks.CollectionChanged += (_, _) => RefreshComputedState();
         AnalysisQueue.CollectionChanged += (_, _) => RefreshComputedState();
         PlaylistTracks.CollectionChanged += (_, _) => RefreshComputedState();
+        PerformanceProbeRuns.CollectionChanged += (_, _) => this.RaisePropertyChanged(nameof(HasPerformanceProbeRuns));
 
         // React to per-track progress events
         _eventBus.GetEvent<AnalysisProgressEvent>()
@@ -453,10 +875,55 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             .Subscribe(OnAnalysisProgress)
             .DisposeWith(_disposables);
 
+        _eventBus.GetEvent<TrackAnalysisStartedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(OnTrackAnalysisStarted)
+            .DisposeWith(_disposables);
+
+        _eventBus.GetEvent<TrackAnalysisFailedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(OnTrackAnalysisFailed)
+            .DisposeWith(_disposables);
+
+        _eventBus.GetEvent<TrackAnalysisCompletedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(evt =>
+            {
+                _ = OnTrackAnalysisCompletedAsync(evt);
+            })
+            .DisposeWith(_disposables);
+
+        _eventBus.GetEvent<AnalysisQueueStatusChangedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(OnAnalysisQueueStatusChanged)
+            .DisposeWith(_disposables);
+
         _eventBus.GetEvent<TrackAnalysisRequestedEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(OnTrackAnalysisRequested)
             .DisposeWith(_disposables);
+
+        _eventBus.GetEvent<FileIngestionQueuedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(OnFileIngestionQueued)
+            .DisposeWith(_disposables);
+
+        _eventBus.GetEvent<FileIngestionCompletedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(OnFileIngestionCompleted)
+            .DisposeWith(_disposables);
+
+        _eventBus.GetEvent<FileMissingDetectedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(OnFileMissingDetected)
+            .DisposeWith(_disposables);
+
+        this.WhenAnyValue(x => x.SearchText)
+            .Throttle(TimeSpan.FromMilliseconds(220), RxApp.MainThreadScheduler)
+            .Subscribe(_ => ApplyFilter())
+            .DisposeWith(_disposables);
+
+        UpdateLayoutMode(1280);
     }
 
     // ── Commands / Actions ───────────────────────────────────────────────────────
@@ -464,21 +931,24 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     /// <summary>Adds a library track to the analysis queue (if not already present).</summary>
     public void AddToQueue(AnalysisTrackItem track)
     {
-        if (!AnalysisQueue.Any(t => t.TrackId == track.TrackId))
-            AnalysisQueue.Add(track);
-
-        track.IsInQueue = true;
-        track.AnalysisStatus = AnalysisRunStatus.Queued;
-        track.ProgressPercent = 0;
-        track.CurrentStep = "Queued for analysis";
-        RefreshComputedState();
+        var timer = Stopwatch.StartNew();
+        AddToQueueCore(track, refreshState: true);
+        timer.Stop();
+        _lastQueueMutationMilliseconds = timer.Elapsed.TotalMilliseconds;
+        this.RaisePropertyChanged(nameof(InteractionPerformanceDisplay));
+        this.RaisePropertyChanged(nameof(PerformanceDiagnosticsSummary));
     }
 
     /// <summary>Removes a track from the analysis queue.</summary>
     public void RemoveFromQueue(AnalysisTrackItem track)
     {
+        var timer = Stopwatch.StartNew();
         AnalysisQueue.Remove(track);
         track.IsInQueue = false;
+        timer.Stop();
+        _lastQueueMutationMilliseconds = timer.Elapsed.TotalMilliseconds;
+        this.RaisePropertyChanged(nameof(InteractionPerformanceDisplay));
+        this.RaisePropertyChanged(nameof(PerformanceDiagnosticsSummary));
         RefreshComputedState();
     }
 
@@ -503,136 +973,231 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         AutomixStatusMessage = $"Copied analysis payload for {track.Artist} — {track.Title}.";
     }
 
+    private async Task CopyPerformanceSnapshotAsync()
+    {
+        if (_clipboardService is null)
+            return;
+
+        var snapshot = string.Join(Environment.NewLine,
+            "Analysis Performance Snapshot",
+            $"UTC: {DateTime.UtcNow:O}",
+            $"Tracks: {TotalTrackCount}",
+            $"Visible: {_filteredTrackCount}",
+            $"Queue: {QueueTrackCount}",
+            $"Analyzed: {AnalyzedTrackCount}",
+            $"{FilterPerformanceDisplay}",
+            $"{InteractionPerformanceDisplay}",
+            PerformanceProbeSummary ?? "Probe not run yet");
+
+        await _clipboardService.SetTextAsync(snapshot);
+        AutomixStatusMessage = "Copied performance snapshot to clipboard.";
+    }
+
+    private void ClearPerformanceProbeHistory()
+    {
+        PerformanceProbeRuns.Clear();
+        PerformanceProbeSummary = "Probe history cleared.";
+        AutomixStatusMessage = "Cleared developer performance probe history.";
+    }
+
     /// <summary>Adds all visible unanalyzed tracks that are not yet in the queue.</summary>
     public void QueueAllUnanalyzed()
     {
+        var timer = Stopwatch.StartNew();
         foreach (var track in FilteredLibraryTracks.Where(t => !t.HasAnalysis && !t.IsInQueue))
-            AddToQueue(track);
+            AddToQueueCore(track, refreshState: false);
+
+        timer.Stop();
+        _lastQueueMutationMilliseconds = timer.Elapsed.TotalMilliseconds;
+        this.RaisePropertyChanged(nameof(InteractionPerformanceDisplay));
+        this.RaisePropertyChanged(nameof(PerformanceDiagnosticsSummary));
+        RefreshComputedState();
     }
 
     /// <summary>
-    /// Starts sequential mock analysis of every track in the queue.
-    /// Each track is simulated with a 3-second "processing" delay.
+    /// Starts queued analysis by publishing one request event per pending track.
+    /// Progress/completion is driven by queue-service events.
     /// </summary>
-    public async Task StartAnalysisAsync()
+    public Task StartAnalysisAsync()
     {
-        if (!CanStartAnalysis) return;
+        if (!CanStartAnalysis)
+            return Task.CompletedTask;
 
         ProcessingState = AnalysisProcessingState.Processing;
-        if (!_analysisSessionStopwatch.IsRunning)
-            _analysisSessionStopwatch.Start();
+        if (!_analysisSessionStopwatch.IsRunning || _analysisSessionStopwatch.Elapsed == TimeSpan.Zero)
+            _analysisSessionStopwatch.Restart();
 
         var queue = AnalysisQueue.Where(t => t.AnalysisStatus != AnalysisRunStatus.Completed).ToList();
 
         foreach (var track in queue)
         {
-            if (_cts.Token.IsCancellationRequested) break;
+            if (_cts.Token.IsCancellationRequested)
+                break;
 
-            var trackTimer = Stopwatch.StartNew();
-            CurrentProcessingTrackId = track.TrackId;
-            track.AnalysisStatus = AnalysisRunStatus.Processing;
+            track.AnalysisStatus = AnalysisRunStatus.Queued;
             track.ProgressPercent = 0;
-
-            // Simulate the ML pipeline in discrete steps
-            await SimulateTrackAnalysisAsync(track, _cts.Token);
-
-            if (!_cts.Token.IsCancellationRequested)
-            {
-                track.AnalysisData = GenerateMockAnalysisData(track);
-                track.AnalysisStatus = AnalysisRunStatus.Completed;
-                track.ProgressPercent = 100;
-                track.CurrentStep = "✓ Completed";
-                track.LastAnalyzedAt = DateTime.UtcNow;
-                track.ModelVersion = "essentia-2.1-b6";
-                track.AnalysisError = null;
-                trackTimer.Stop();
-                _completedAnalysisRuns++;
-                _totalAnalysisSeconds += trackTimer.Elapsed.TotalSeconds;
-            }
-
-            RefreshComputedState();
+            track.CurrentStep = "Queued for analysis";
+            track.AnalysisError = null;
+            _eventBus.Publish(new TrackAnalysisRequestedEvent(track.TrackId));
         }
 
-        CurrentProcessingTrackId = null;
-        ProcessingState = _cts.Token.IsCancellationRequested
-            ? AnalysisProcessingState.Error
-            : AnalysisProcessingState.Completed;
         RefreshComputedState();
-    }
-
-    // ── Private helpers ──────────────────────────────────────────────────────────
-
-    private static readonly string[] SimulatedSteps =
-    {
-        "Probing file integrity...",
-        "Extracting waveform...",
-        "Running Essentia BPM/key analysis...",
-        "Running TensorFlow mood models...",
-        "Computing embeddings...",
-        "Saving to database..."
-    };
-
-    private static async Task SimulateTrackAnalysisAsync(
-        AnalysisTrackItem track, CancellationToken ct)
-    {
-        int totalSteps = SimulatedSteps.Length;
-        for (int i = 0; i < totalSteps; i++)
-        {
-            if (ct.IsCancellationRequested) return;
-
-            track.CurrentStep = SimulatedSteps[i];
-            track.ProgressPercent = (int)((i / (double)totalSteps) * 100);
-
-            await Task.Delay(500, ct).ConfigureAwait(false);
-        }
-    }
-
-    private static AnalysisData GenerateMockAnalysisData(AnalysisTrackItem track)
-    {
-        // Use a stable seed derived from the string content (not object hash code)
-        // so repeated calls for the same track produce the same mock values.
-        int seed = 0;
-        foreach (char c in track.TrackId) seed = seed * 31 + c;
-        var rng = new Random(Math.Abs(seed));
-
-        return new AnalysisData
-        {
-            Mechanics = new MechanicsData
-            {
-                Bpm = track.Bpm ?? (120.0 + rng.NextDouble() * 40.0),
-                KeyScale = track.MusicalKey ?? "C Major",
-                TonalProbability = 0.7 + rng.NextDouble() * 0.3
-            },
-            Affective = new AffectiveData
-            {
-                Arousal = rng.NextDouble() * 2.0 - 1.0,
-                Valence = rng.NextDouble() * 2.0 - 1.0
-            },
-            Moods = new MoodData
-            {
-                Happy = rng.NextDouble() * 100,
-                Sad = rng.NextDouble() * 100,
-                Aggressive = rng.NextDouble() * 100,
-                Relaxed = rng.NextDouble() * 100,
-                Party = rng.NextDouble() * 100
-            },
-            Genres = new System.Collections.Generic.List<GenrePrediction>
-            {
-                new() { Label = "Electronic", Confidence = 0.6 + rng.NextDouble() * 0.4 },
-                new() { Label = "House",      Confidence = 0.3 + rng.NextDouble() * 0.4 },
-                new() { Label = "Techno",     Confidence = rng.NextDouble() * 0.3 }
-            },
-            Stems = new StemData { AreGenerated = false }
-        };
+        return Task.CompletedTask;
     }
 
     private void OnAnalysisProgress(AnalysisProgressEvent evt)
     {
-        var track = AnalysisQueue.FirstOrDefault(t => t.TrackId == evt.TrackGlobalId);
+        var track = FindTrack(evt.TrackGlobalId);
         if (track is null) return;
+
+        CurrentProcessingTrackId = evt.TrackGlobalId;
+        if (track.AnalysisStatus != AnalysisRunStatus.Completed)
+            track.AnalysisStatus = AnalysisRunStatus.Processing;
 
         track.ProgressPercent = evt.ProgressPercent;
         track.CurrentStep = evt.CurrentStep;
+        ProcessingState = AnalysisProcessingState.Processing;
+        RefreshComputedState();
+    }
+
+    private void OnTrackAnalysisStarted(TrackAnalysisStartedEvent evt)
+    {
+        var track = FindTrack(evt.TrackGlobalId);
+        if (track is null)
+            return;
+
+        _trackAnalysisStartedAtUtc[evt.TrackGlobalId] = DateTime.UtcNow;
+        CurrentProcessingTrackId = evt.TrackGlobalId;
+        ProcessingState = AnalysisProcessingState.Processing;
+
+        track.AnalysisStatus = AnalysisRunStatus.Processing;
+        track.ProgressPercent = Math.Max(track.ProgressPercent, 1);
+        track.CurrentStep = $"Analyzing {evt.FileName}";
+        track.AnalysisError = null;
+        RefreshComputedState();
+    }
+
+    private void OnTrackAnalysisFailed(TrackAnalysisFailedEvent evt)
+    {
+        var track = FindTrack(evt.TrackGlobalId);
+        if (track is null)
+            return;
+
+        track.AnalysisStatus = AnalysisRunStatus.Failed;
+        track.CurrentStep = "Analysis failed";
+        track.AnalysisError = evt.Error;
+        track.ProgressPercent = 100;
+        RefreshComputedState();
+    }
+
+    private async Task OnTrackAnalysisCompletedAsync(TrackAnalysisCompletedEvent evt)
+    {
+        var track = FindTrack(evt.TrackGlobalId);
+        if (track is null)
+        {
+            TryFinalizeProcessingState();
+            return;
+        }
+
+        if (evt.Success)
+        {
+            AnalysisTrackItem? refreshedTrack = null;
+            if (_libraryService is not null)
+            {
+                try
+                {
+                    var entry = await _libraryService.FindLibraryEntryAsync(evt.TrackGlobalId).ConfigureAwait(true);
+                    if (entry is not null)
+                    {
+                        refreshedTrack = MapLibraryEntryToTrack(entry);
+                        refreshedTrack.IsInPlaylist = track.IsInPlaylist;
+                    }
+                }
+                catch
+                {
+                    // Ignore refresh lookup failures; keep status updates flowing.
+                }
+            }
+
+            if (refreshedTrack is not null)
+            {
+                track.UpdateFrom(refreshedTrack);
+            }
+
+            track.AnalysisStatus = AnalysisRunStatus.Completed;
+            track.ProgressPercent = 100;
+            track.CurrentStep = "Completed";
+            track.AnalysisError = null;
+            track.LastAnalyzedAt = DateTime.UtcNow;
+            track.ModelVersion ??= "essentia-live";
+
+            _completedAnalysisRuns++;
+            if (_trackAnalysisStartedAtUtc.TryGetValue(evt.TrackGlobalId, out var startedAt))
+            {
+                _trackAnalysisStartedAtUtc.Remove(evt.TrackGlobalId);
+                _totalAnalysisSeconds += Math.Max(0.0, (DateTime.UtcNow - startedAt).TotalSeconds);
+            }
+        }
+        else
+        {
+            track.AnalysisStatus = AnalysisRunStatus.Failed;
+            track.ProgressPercent = 100;
+            track.CurrentStep = "Analysis failed";
+            track.AnalysisError = string.IsNullOrWhiteSpace(evt.ErrorMessage) ? "Analysis failed." : evt.ErrorMessage;
+            _trackAnalysisStartedAtUtc.Remove(evt.TrackGlobalId);
+        }
+
+        track.IsInQueue = false;
+        AnalysisQueue.Remove(track);
+
+        if (string.Equals(CurrentProcessingTrackId, evt.TrackGlobalId, StringComparison.Ordinal))
+        {
+            CurrentProcessingTrackId = null;
+        }
+
+        TryFinalizeProcessingState();
+        RefreshComputedState();
+    }
+
+    private void OnAnalysisQueueStatusChanged(AnalysisQueueStatusChangedEvent evt)
+    {
+        if (!string.IsNullOrWhiteSpace(evt.CurrentTrackHash))
+        {
+            CurrentProcessingTrackId = evt.CurrentTrackHash;
+        }
+
+        if (evt.QueuedCount > 0 || !string.IsNullOrWhiteSpace(evt.CurrentTrackHash))
+        {
+            ProcessingState = AnalysisProcessingState.Processing;
+            return;
+        }
+
+        TryFinalizeProcessingState();
+    }
+
+    private AnalysisTrackItem? FindTrack(string trackId)
+    {
+        return AnalysisQueue.FirstOrDefault(t => t.TrackId == trackId)
+            ?? LibraryTracks.FirstOrDefault(t => t.TrackId == trackId);
+    }
+
+    private void TryFinalizeProcessingState()
+    {
+        var hasPending = AnalysisQueue.Any(t => t.AnalysisStatus is AnalysisRunStatus.Queued or AnalysisRunStatus.Processing);
+        if (hasPending)
+        {
+            ProcessingState = AnalysisProcessingState.Processing;
+            return;
+        }
+
+        if (_analysisSessionStopwatch.IsRunning)
+        {
+            _analysisSessionStopwatch.Stop();
+        }
+
+        ProcessingState = _completedAnalysisRuns > 0
+            ? AnalysisProcessingState.Completed
+            : AnalysisProcessingState.Idle;
     }
 
     private void OnTrackAnalysisRequested(TrackAnalysisRequestedEvent evt)
@@ -658,19 +1223,119 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         AddToQueue(track);
     }
 
-    private void ApplyFilter()
+    private void OnFileIngestionQueued(FileIngestionQueuedEvent evt)
     {
+        ApplyLifecycleMetrics(_lifecycleProjectionService.ApplyFileIngestionQueued(GetCurrentLifecycleMetrics()));
+
+        AutomixStatusMessage = $"Ingestion pending: {System.IO.Path.GetFileName(evt.FilePath)}";
+        RefreshComputedState();
+    }
+
+    private void OnFileIngestionCompleted(FileIngestionCompletedEvent evt)
+    {
+        ApplyLifecycleMetrics(_lifecycleProjectionService.ApplyFileIngestionCompleted(GetCurrentLifecycleMetrics()));
+
+        AutomixStatusMessage = $"Indexed: {System.IO.Path.GetFileName(evt.FilePath)}";
+        RefreshComputedState();
+    }
+
+    private void OnFileMissingDetected(FileMissingDetectedEvent evt)
+    {
+        ApplyLifecycleMetrics(_lifecycleProjectionService.ApplyFileMissingDetected(GetCurrentLifecycleMetrics()));
+
+        AutomixStatusMessage = $"Stale index detected: {System.IO.Path.GetFileName(evt.FilePath)}";
+        RefreshComputedState();
+    }
+
+    private void ApplyFilter(string? queryOverride = null)
+    {
+        var timer = Stopwatch.StartNew();
         FilteredLibraryTracks.Clear();
-        var query = string.IsNullOrWhiteSpace(SearchText)
+        var activeQuery = queryOverride ?? SearchText;
+        var query = string.IsNullOrWhiteSpace(activeQuery)
             ? LibraryTracks
             : LibraryTracks.Where(t =>
-                t.Title.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
-                t.Artist.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+                t.Title.Contains(activeQuery, StringComparison.OrdinalIgnoreCase) ||
+                t.Artist.Contains(activeQuery, StringComparison.OrdinalIgnoreCase));
 
         foreach (var t in query)
             FilteredLibraryTracks.Add(t);
 
+        timer.Stop();
+        _lastFilterMilliseconds = timer.Elapsed.TotalMilliseconds;
+        _filterSampleCount++;
+        _averageFilterMilliseconds += (_lastFilterMilliseconds - _averageFilterMilliseconds) / _filterSampleCount;
+        _filteredTrackCount = FilteredLibraryTracks.Count;
+
         this.RaisePropertyChanged(nameof(IsLibraryEmpty));
+        this.RaisePropertyChanged(nameof(FilterPerformanceDisplay));
+        this.RaisePropertyChanged(nameof(PerformanceDiagnosticsSummary));
+    }
+
+    private void RunPerformanceProbe()
+    {
+        var probeQueries = new[]
+        {
+            string.Empty,
+            "a",
+            "the",
+            "mix",
+            "house",
+            "zzzz"
+        };
+
+        var samples = new List<double>(probeQueries.Length);
+        var originalQuery = SearchText;
+
+        foreach (var query in probeQueries)
+        {
+            var timer = Stopwatch.StartNew();
+            ApplyFilter(query);
+            timer.Stop();
+            samples.Add(timer.Elapsed.TotalMilliseconds);
+        }
+
+        // Restore user-visible query results after the probe run.
+        ApplyFilter(originalQuery);
+
+        if (samples.Count == 0)
+        {
+            PerformanceProbeSummary = "Probe did not collect samples.";
+            return;
+        }
+
+        var average = samples.Average();
+        var max = samples.Max();
+        var p95Index = Math.Max(0, (int)Math.Ceiling(samples.Count * 0.95) - 1);
+        var p95 = samples.OrderBy(x => x).ElementAt(p95Index);
+
+        var previousP95 = PerformanceProbeRuns.Count > 0 ? PerformanceProbeRuns[0].P95Ms : (double?)null;
+        var p95Delta = previousP95.HasValue ? p95 - previousP95.Value : (double?)null;
+
+        PerformanceProbeSummary = $"Probe {samples.Count} queries • avg {average:F1} ms • p95 {p95:F1} ms • max {max:F1} ms";
+        PerformanceProbeRuns.Insert(0, new PerformanceProbeRun(DateTime.UtcNow, samples.Count, average, p95, max, p95Delta));
+        while (PerformanceProbeRuns.Count > 10)
+        {
+            PerformanceProbeRuns.RemoveAt(PerformanceProbeRuns.Count - 1);
+        }
+
+        AutomixStatusMessage = "Developer performance probe completed.";
+    }
+
+    private void AddToQueueCore(AnalysisTrackItem track, bool refreshState)
+    {
+        if (!AnalysisQueue.Any(t => t.TrackId == track.TrackId))
+            AnalysisQueue.Add(track);
+
+        track.IsInQueue = true;
+        track.AnalysisStatus = AnalysisRunStatus.Queued;
+        track.ProgressPercent = 0;
+        track.CurrentStep = "Queued for analysis";
+
+        if (refreshState)
+        {
+            RefreshComputedState();
+        }
     }
 
     private async Task LoadLibraryAsync()
@@ -681,15 +1346,26 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                 return;
 
             var entries = await _libraryService.LoadAllLibraryEntriesAsync();
+            var existingEntries = entries
+                .Where(e => !string.IsNullOrWhiteSpace(e.FilePath) && System.IO.File.Exists(e.FilePath))
+                .ToList();
+
+            var lifecycleMetrics = await _lifecycleProjectionService.ComputeMetricsAsync().ConfigureAwait(false);
+            ApplyLifecycleMetrics(lifecycleMetrics);
+
             LibraryTracks.Clear();
 
-            foreach (var entry in entries
+            foreach (var entry in existingEntries
                 .OrderByDescending(e => e.AddedAt)
-                .Take(400)
                 .Select(MapLibraryEntryToTrack))
             {
                 HookTrack(entry);
                 LibraryTracks.Add(entry);
+            }
+
+            if (lifecycleMetrics.StaleIndexed > 0)
+            {
+                AutomixStatusMessage = $"Loaded {existingEntries.Count} valid tracks; skipped {lifecycleMetrics.StaleIndexed} stale index entries.";
             }
 
             ApplyFilter();
@@ -706,6 +1382,25 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         }
     }
 
+    private LifecycleMetrics GetCurrentLifecycleMetrics()
+    {
+        return new LifecycleMetrics(
+            _onDiskIndexedTrackCount,
+            _indexedCatalogCount,
+            _staleIndexedCount,
+            _ingestionBacklogCount,
+            _desiredDownloadCount);
+    }
+
+    private void ApplyLifecycleMetrics(LifecycleMetrics metrics)
+    {
+        _onDiskIndexedTrackCount = Math.Max(0, metrics.PhysicalOnDisk);
+        _indexedCatalogCount = Math.Max(0, metrics.IndexedCatalog);
+        _staleIndexedCount = Math.Max(0, metrics.StaleIndexed);
+        _ingestionBacklogCount = Math.Max(0, metrics.IngestionBacklog);
+        _desiredDownloadCount = Math.Max(0, metrics.DesiredDownloads);
+    }
+
     private AnalysisTrackItem MapLibraryEntryToTrack(LibraryEntry entry)
     {
         var hasRealAnalysis = entry.IsEnriched
@@ -714,6 +1409,10 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             || !string.IsNullOrWhiteSpace(entry.PrimaryGenre)
             || entry.Energy.HasValue
             || entry.Valence.HasValue;
+
+        var energyCurvePoints = ParseEnergyCurvePoints(entry.EnergyCurveJson, entry.Energy);
+        var segmentedEnergyPoints = ParseSegmentedEnergyPoints(entry.SegmentedEnergyJson, energyCurvePoints);
+        var genrePredictions = BuildGenrePredictions(entry);
 
         AnalysisData? analysisData = null;
         if (hasRealAnalysis)
@@ -726,7 +1425,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                 {
                     Bpm = entry.BPM ?? entry.SpotifyBPM ?? 0,
                     KeyScale = entry.MusicalKey ?? entry.SpotifyKey ?? string.Empty,
-                    TonalProbability = Math.Clamp(entry.QualityConfidence ?? 0.82, 0.1, 1.0)
+                    TonalProbability = Math.Clamp(entry.KeyConfidence ?? entry.QualityConfidence ?? 0.82, 0.1, 1.0)
                 },
                 Affective = new AffectiveData
                 {
@@ -741,20 +1440,28 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                     Relaxed = 100 - energyPercent,
                     Party = Math.Clamp((energyPercent + valencePercent) / 2.0, 0, 100)
                 },
-                Genres = string.IsNullOrWhiteSpace(entry.PrimaryGenre) && string.IsNullOrWhiteSpace(entry.Genres)
-                    ? new()
-                    {
-                        new GenrePrediction { Label = "Analyzed", Confidence = 0.75 }
-                    }
-                    : (entry.PrimaryGenre ?? entry.Genres ?? string.Empty)
-                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                        .Take(3)
-                        .Select((label, index) => new GenrePrediction
-                        {
-                            Label = label,
-                            Confidence = Math.Max(0.35, 0.85 - (index * 0.15))
-                        })
-                        .ToList(),
+                Genres = genrePredictions,
+                Stems = new StemData { AreGenerated = false }
+            };
+        }
+
+        if (analysisData == null)
+        {
+            analysisData = new AnalysisData
+            {
+                Mechanics = new MechanicsData
+                {
+                    Bpm = entry.BPM ?? entry.SpotifyBPM ?? 0,
+                    KeyScale = entry.MusicalKey ?? entry.SpotifyKey ?? string.Empty,
+                    TonalProbability = Math.Clamp(entry.KeyConfidence ?? entry.QualityConfidence ?? 0.55, 0.1, 1.0)
+                },
+                Affective = new AffectiveData
+                {
+                    Arousal = 0,
+                    Valence = 0
+                },
+                Moods = new MoodData(),
+                Genres = genrePredictions,
                 Stems = new StemData { AreGenerated = false }
             };
         }
@@ -773,7 +1480,161 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             midBand: entry.MidData,
             highBand: entry.HighData,
             lastAnalyzedAt: entry.IsEnriched ? entry.AddedAt : null,
-            modelVersion: entry.IsEnriched ? "library-cache" : null);
+            modelVersion: entry.IsEnriched ? "library-cache" : null,
+            energyCurvePoints: energyCurvePoints,
+            segmentedEnergyPoints: segmentedEnergyPoints,
+            dropTimeSeconds: entry.DropTimeSeconds,
+            dropConfidence: entry.DropConfidence,
+            qualityConfidence: entry.QualityConfidence,
+            bpmStability: entry.BpmStability,
+            vocalDensity: entry.VocalDensity,
+            vocalTypeLabel: entry.VocalType.ToDisplayLabel(),
+            loudnessLufs: entry.LoudnessLufs,
+            camelotKey: entry.CamelotKey,
+                chordProgression: entry.ChordProgression,
+                durationSeconds: entry.DurationSeconds);
+    }
+
+    private static List<double> ParseSegmentedEnergyPoints(string? segmentedEnergyJson, IReadOnlyList<double> fallbackCurve)
+    {
+        if (!string.IsNullOrWhiteSpace(segmentedEnergyJson) && segmentedEnergyJson != "[]")
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(segmentedEnergyJson);
+                if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                {
+                    var points = new List<double>();
+                    foreach (var element in doc.RootElement.EnumerateArray())
+                    {
+                        if (element.TryGetDouble(out var value))
+                        {
+                            // Segmented energy is commonly 1-10; normalize to 0-1 for sparkline consistency.
+                            points.Add(value > 1.0 ? Math.Clamp(value / 10.0, 0.0, 1.0) : Math.Clamp(value, 0.0, 1.0));
+                        }
+                    }
+
+                    if (points.Count >= 2)
+                    {
+                        return points;
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore malformed JSON and fall back.
+            }
+        }
+
+        if (fallbackCurve.Count >= 2)
+        {
+            return fallbackCurve.ToList();
+        }
+
+        return new List<double> { 0.3, 0.45, 0.6, 0.75, 0.68, 0.52, 0.40, 0.35 };
+    }
+
+    public void UpdateLayoutMode(double width)
+    {
+        var compact = width < 1180;
+        IsCompactLayout = compact;
+
+        if (!compact)
+        {
+            ActivePaneMode = AnalysisPaneMode.Queue;
+        }
+    }
+
+    private void SetPaneMode(AnalysisPaneMode mode)
+    {
+        ActivePaneMode = mode;
+    }
+
+    private static List<double> ParseEnergyCurvePoints(string? energyCurveJson, double? fallbackEnergy)
+    {
+        if (!string.IsNullOrWhiteSpace(energyCurveJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(energyCurveJson);
+                if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                {
+                    var points = new List<double>();
+                    foreach (var element in doc.RootElement.EnumerateArray())
+                    {
+                        if (element.TryGetDouble(out var value))
+                        {
+                            points.Add(value);
+                        }
+                    }
+
+                    if (points.Count >= 2)
+                    {
+                        return points;
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore malformed JSON and fall back to synthetic points.
+            }
+        }
+
+        var baseEnergy = Math.Clamp(fallbackEnergy ?? 0.5, 0.0, 1.0);
+        return new List<double>
+        {
+            Math.Clamp(baseEnergy * 0.65, 0.0, 1.0),
+            Math.Clamp(baseEnergy * 0.85, 0.0, 1.0),
+            Math.Clamp(baseEnergy * 1.05, 0.0, 1.0),
+            Math.Clamp(baseEnergy * 1.15, 0.0, 1.0),
+            Math.Clamp(baseEnergy * 0.95, 0.0, 1.0),
+            Math.Clamp(baseEnergy * 0.80, 0.0, 1.0),
+        };
+    }
+
+    private static List<GenrePrediction> BuildGenrePredictions(LibraryEntry entry)
+    {
+        if (!string.IsNullOrWhiteSpace(entry.GenreDistributionJson) && entry.GenreDistributionJson != "{}")
+        {
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<Dictionary<string, double>>(entry.GenreDistributionJson);
+                if (parsed != null && parsed.Count > 0)
+                {
+                    return parsed
+                        .OrderByDescending(kvp => kvp.Value)
+                        .Take(4)
+                        .Select(kvp => new GenrePrediction
+                        {
+                            Label = kvp.Key,
+                            Confidence = Math.Clamp(kvp.Value, 0.0, 1.0)
+                        })
+                        .ToList();
+                }
+            }
+            catch
+            {
+                // Ignore malformed JSON and use fallback list.
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(entry.PrimaryGenre) || !string.IsNullOrWhiteSpace(entry.Genres))
+        {
+            return (entry.PrimaryGenre ?? entry.Genres ?? string.Empty)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Take(3)
+                .Select((label, index) => new GenrePrediction
+                {
+                    Label = label,
+                    Confidence = Math.Max(0.35, 0.85 - (index * 0.15))
+                })
+                .ToList();
+        }
+
+        return new List<GenrePrediction>
+        {
+            new() { Label = "Analyzed", Confidence = 0.75 }
+        };
     }
 
     private static int ParseCueCount(string? cuePointsJson)
@@ -812,6 +1673,11 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(CanStartAnalysis));
         this.RaisePropertyChanged(nameof(IsQueueEmpty));
         this.RaisePropertyChanged(nameof(TotalTrackCount));
+            this.RaisePropertyChanged(nameof(OnDiskIndexedTrackCount));
+            this.RaisePropertyChanged(nameof(IndexedCatalogCount));
+            this.RaisePropertyChanged(nameof(StaleIndexedCount));
+            this.RaisePropertyChanged(nameof(DesiredDownloadCount));
+            this.RaisePropertyChanged(nameof(IngestionBacklogCount));
         this.RaisePropertyChanged(nameof(AnalyzedTrackCount));
         this.RaisePropertyChanged(nameof(PendingTrackCount));
         this.RaisePropertyChanged(nameof(QueueTrackCount));
@@ -822,9 +1688,13 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(ThroughputDisplay));
         this.RaisePropertyChanged(nameof(ElapsedTimeDisplay));
         this.RaisePropertyChanged(nameof(QueueMetricsSummary));
+        this.RaisePropertyChanged(nameof(LibraryCountDifferentiationSummary));
         this.RaisePropertyChanged(nameof(CompletionRateDisplay));
         this.RaisePropertyChanged(nameof(CanCreateAutomix));
         this.RaisePropertyChanged(nameof(AutomixSelectionSummary));
+        this.RaisePropertyChanged(nameof(FilterPerformanceDisplay));
+        this.RaisePropertyChanged(nameof(InteractionPerformanceDisplay));
+        this.RaisePropertyChanged(nameof(PerformanceDiagnosticsSummary));
     }
 
     /// <summary>
@@ -947,6 +1817,37 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         }
     }
 
+    public void StageAllAnalyzedForAutomix()
+    {
+        PlaylistTracks.Clear();
+        foreach (var track in LibraryTracks.Where(t => t.HasAnalysis).OrderBy(t => t.Artist).ThenBy(t => t.Title))
+        {
+            if (!PlaylistTracks.Contains(track))
+            {
+                PlaylistTracks.Add(track);
+            }
+
+            track.IsInPlaylist = true;
+        }
+
+        AutomixStatusMessage = PlaylistTracks.Count == 0
+            ? "No analyzed tracks available for staging yet."
+            : $"Staged {PlaylistTracks.Count} analyzed track(s) for automix.";
+        RefreshComputedState();
+    }
+
+    public void ClearAutomixStaging()
+    {
+        foreach (var track in PlaylistTracks)
+        {
+            track.IsInPlaylist = false;
+        }
+
+        PlaylistTracks.Clear();
+        AutomixStatusMessage = "Automix staging cleared.";
+        RefreshComputedState();
+    }
+
     /// <summary>
     /// Builds an ordered automix sequence from <see cref="PlaylistTracks"/> using
     /// <see cref="AutomixConstraints"/>.  Sorts by BPM within the allowed range,
@@ -954,21 +1855,21 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     /// </summary>
     public void CreateAutomixPlaylist()
     {
+        CreateAutomixPlaylistAsync().GetAwaiter().GetResult();
+    }
+
+    public async Task CreateAutomixPlaylistAsync()
+    {
         if (PlaylistTracks.Count < 2)
         {
-            AutomixStatusMessage = "Add at least 2 analysed tracks to the playlist first.";
+            AutomixStatusMessage = "Add at least 2 analyzed tracks to the playlist first.";
             return;
         }
 
         var c = AutomixConstraints;
 
-        // Filter tracks that satisfy BPM bounds
         var eligible = PlaylistTracks
-            .Where(t =>
-            {
-                var bpm = t.AnalysisData?.Mechanics.Bpm ?? t.Bpm ?? 0;
-                return bpm >= c.MinBpm && bpm <= c.MaxBpm;
-            })
+            .Where(IsEligibleForAutomix)
             .ToList();
 
         if (eligible.Count < 2)
@@ -977,15 +1878,120 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             return;
         }
 
-        // Sort by BPM so transitions are smooth
-        var ordered = eligible.OrderBy(t => t.AnalysisData?.Mechanics.Bpm ?? t.Bpm ?? 0).ToList();
+        var maxTracks = Math.Max(2, c.MaxTracks);
+        var ordered = await TryBuildOptimizedOrderAsync(eligible, c, maxTracks).ConfigureAwait(true)
+            ?? BuildFallbackOrder(eligible, maxTracks);
 
         PlaylistTracks.Clear();
         foreach (var t in ordered) PlaylistTracks.Add(t);
 
-        AutomixStatusMessage = $"Automix ready: {ordered.Count} tracks, "
-            + $"{ordered.First().AnalysisData?.Mechanics.Bpm ?? 0:F0}–"
-            + $"{ordered.Last().AnalysisData?.Mechanics.Bpm  ?? 0:F0} BPM.";
+        if (ordered.Count < 2)
+        {
+            AutomixStatusMessage = "Not enough tracks available to build automix ordering.";
+            return;
+        }
+
+        var minBpm = ordered.First().AnalysisData?.Mechanics.Bpm ?? ordered.First().Bpm ?? 0;
+        var maxBpm = ordered.Last().AnalysisData?.Mechanics.Bpm ?? ordered.Last().Bpm ?? 0;
+        AutomixStatusMessage = $"Automix ready: {ordered.Count} tracks, {minBpm:F0}–{maxBpm:F0} BPM.";
+    }
+
+    private bool IsEligibleForAutomix(AnalysisTrackItem track)
+    {
+        var bpm = track.AnalysisData?.Mechanics.Bpm ?? track.Bpm ?? 0;
+        return bpm >= AutomixConstraints.MinBpm && bpm <= AutomixConstraints.MaxBpm;
+    }
+
+    private async Task<List<AnalysisTrackItem>?> TryBuildOptimizedOrderAsync(
+        IReadOnlyList<AnalysisTrackItem> eligibleTracks,
+        AutomixConstraints constraints,
+        int maxTracks)
+    {
+        if (_playlistOptimizer is null)
+            return null;
+
+        var optimizerTrackHashes = MapTracksToOptimizerHashes(eligibleTracks);
+        if (optimizerTrackHashes.Count < 2)
+            return null;
+
+        var optimizerOptions = BuildOptimizerOptions(constraints);
+
+        try
+        {
+            var result = await _playlistOptimizer
+                .OptimizeAsync(optimizerTrackHashes, optimizerOptions, _cts.Token)
+                .ConfigureAwait(true);
+
+            if (result.OrderedHashes.Count == 0)
+                return null;
+
+            var orderedByHash = RebuildTrackOrderFromHashes(eligibleTracks, result.OrderedHashes);
+            return orderedByHash.Count >= 2
+                ? orderedByHash.Take(maxTracks).ToList()
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static List<string> MapTracksToOptimizerHashes(IReadOnlyList<AnalysisTrackItem> tracks)
+    {
+        return tracks
+            .Select(t => t.TrackId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static List<AnalysisTrackItem> RebuildTrackOrderFromHashes(
+        IReadOnlyList<AnalysisTrackItem> sourceTracks,
+        IReadOnlyList<string> orderedHashes)
+    {
+        var byHash = sourceTracks
+            .Where(t => !string.IsNullOrWhiteSpace(t.TrackId))
+            .GroupBy(t => t.TrackId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        var ordered = new List<AnalysisTrackItem>(orderedHashes.Count);
+        foreach (var hash in orderedHashes)
+        {
+            if (byHash.TryGetValue(hash, out var track))
+            {
+                ordered.Add(track);
+            }
+        }
+
+        return ordered;
+    }
+
+    private static List<AnalysisTrackItem> BuildFallbackOrder(IReadOnlyList<AnalysisTrackItem> tracks, int maxTracks)
+    {
+        return tracks
+            .OrderBy(t => t.AnalysisData?.Mechanics.Bpm ?? t.Bpm ?? 0)
+            .Take(maxTracks)
+            .ToList();
+    }
+
+    private static PlaylistOptimizerOptions BuildOptimizerOptions(AutomixConstraints constraints)
+    {
+        var curve = constraints.EnergyCurve switch
+        {
+            "Rising" => EnergyCurvePattern.Rising,
+            "Wave" => EnergyCurvePattern.Wave,
+            "Peak" => EnergyCurvePattern.Peak,
+            _ => EnergyCurvePattern.None,
+        };
+
+        return new PlaylistOptimizerOptions
+        {
+            HarmonicWeight = constraints.HarmonicWeight,
+            TempoWeight = constraints.TempoWeight,
+            EnergyWeight = constraints.EnergyWeight,
+            MaxBpmJump = Math.Max(1, constraints.MaxBpm - constraints.MinBpm),
+            EnergyCurve = curve,
+        };
     }
 }
 
@@ -1069,4 +2075,39 @@ public class AutomixConstraints : ReactiveObject
         get => _energyWeight;
         set => this.RaiseAndSetIfChanged(ref _energyWeight, Math.Clamp(value, 0.0, 10.0));
     }
+}
+
+public sealed record PerformanceProbeRun(
+    DateTime TimestampUtc,
+    int QueryCount,
+    double AverageMs,
+    double P95Ms,
+    double MaxMs,
+    double? DeltaP95Ms)
+{
+    public string TrendArrow => DeltaP95Ms switch
+    {
+        null => "•",
+        > 0.35 => "↑",
+        < -0.35 => "↓",
+        _ => "→"
+    };
+
+    public string TrendText => DeltaP95Ms.HasValue ? $"{DeltaP95Ms.Value:+0.0;-0.0;0.0} ms" : "baseline";
+
+    public string SeverityLabel => P95Ms switch
+    {
+        <= 6.0 => "good",
+        <= 14.0 => "warn",
+        _ => "slow"
+    };
+
+    public string SeverityColor => P95Ms switch
+    {
+        <= 6.0 => "#7BD88F",
+        <= 14.0 => "#F1C15A",
+        _ => "#FF8A80"
+    };
+
+    public string DisplayLabel => $"{TimestampUtc:HH:mm:ss} · {SeverityLabel} · {TrendArrow} {TrendText} · {QueryCount}q · avg {AverageMs:F1} ms · p95 {P95Ms:F1} ms · max {MaxMs:F1} ms";
 }

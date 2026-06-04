@@ -106,6 +106,60 @@
             </Style.Animations>
             <Setter Property="RenderTransform" Value="scale(1)"/>
         </Style>
+
+        <!-- Download Hub v2: Fluent-inspired structural styling -->
+        <Style Selector="Border.hubHeader">
+            <Setter Property="Background" Value="#141A20"/>
+            <Setter Property="BorderBrush" Value="#2A353E"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+        </Style>
+        <Style Selector="Border.hubSectionCard">
+            <Setter Property="Background" Value="#12171C"/>
+            <Setter Property="BorderBrush" Value="#253039"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="14,12"/>
+        </Style>
+        <Style Selector="Border.hubRow">
+            <Setter Property="Background" Value="#171D24"/>
+            <Setter Property="BorderBrush" Value="#2C3740"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="16,14"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.18"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.hubRow:pointerover">
+            <Setter Property="Background" Value="#1C232B"/>
+        </Style>
+        <Style Selector="Button.hubPrimary">
+            <Setter Property="Background" Value="#223746"/>
+            <Setter Property="BorderBrush" Value="#3A596D"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#EAF5FC"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="12,7"/>
+        </Style>
+        <Style Selector="Button.hubPrimary:pointerover">
+            <Setter Property="Background" Value="#284255"/>
+        </Style>
+        <Style Selector="Border.hubBadge">
+            <Setter Property="Background" Value="#10161B"/>
+            <Setter Property="CornerRadius" Value="999"/>
+            <Setter Property="Padding" Value="8,2"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+        </Style>
+        <Style Selector="Expander.hubDetails">
+            <Setter Property="Background" Value="#12181E"/>
+            <Setter Property="BorderBrush" Value="#24303A"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="8,6"/>
+        </Style>
     </UserControl.Styles>
 
     <UserControl.Resources>
@@ -499,6 +553,56 @@
             </Border>
         </DataTemplate>
 
+        <!-- Download Center v2 Hub Row Template -->
+        <DataTemplate x:Key="HubDownloadRowTemplate" DataType="vm:DownloadRowViewModel">
+            <Border Classes="hubRow">
+                <StackPanel Spacing="10">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                        <Border Grid.Column="0" Background="#1E2328" Width="26" Height="26" CornerRadius="13" VerticalAlignment="Center">
+                            <TextBlock Text="↓" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#A9BBC8" FontSize="12"/>
+                        </Border>
+
+                        <StackPanel Grid.Column="1" Spacing="4" Margin="12,0,0,0">
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Foreground="White" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding StatusText}" Foreground="#8DA0AE" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                            <ProgressBar IsVisible="{Binding IsProgressVisible}" Value="{Binding Progress}" Minimum="0" Maximum="1" Height="4"/>
+                        </StackPanel>
+
+                        <Button Grid.Column="2"
+                            Classes="hubPrimary"
+                                Command="{Binding PrimaryAction}"
+                                Content="{Binding PrimaryActionLabel}"
+                                Margin="12,0,0,0"
+                                VerticalAlignment="Center"/>
+
+                        <Menu Grid.Column="3" VerticalAlignment="Center" Margin="12,0,0,0">
+                            <MenuItem Header="⋯" Foreground="#C4D0D8">
+                                <MenuItem Header="Pause" Command="{Binding Track.PauseCommand}"/>
+                                <MenuItem Header="Resume" Command="{Binding Track.ResumeCommand}"/>
+                                <MenuItem Header="Force Start" Command="{Binding Track.ForceStartCommand}"/>
+                                <MenuItem Header="Retry" Command="{Binding Track.RetryCommand}"/>
+                                <MenuItem Header="Reveal" Command="{Binding Track.RevealFileCommand}"/>
+                                <MenuItem Header="Cancel" Command="{Binding Track.CancelCommand}"/>
+                            </MenuItem>
+                        </Menu>
+                    </Grid>
+
+                    <Border Classes="hubBadge" BorderBrush="{Binding StatusAccent}" BorderThickness="1">
+                        <TextBlock Text="{Binding StatusBadgeText}" Foreground="{Binding StatusAccent}" FontSize="9" FontWeight="Bold"/>
+                    </Border>
+
+                    <Expander Classes="hubDetails" Header="Details" IsExpanded="{Binding IsDetailsExpanded}">
+                        <StackPanel Spacing="4" Margin="0,6,0,0">
+                            <TextBlock Text="{Binding PeerSummary, StringFormat='Peer: {0}'}" Foreground="#9FB0BB" FontSize="11"/>
+                            <TextBlock Text="{Binding RetrySummary, StringFormat='Retries: {0}'}" Foreground="#9FB0BB" FontSize="11"/>
+                            <TextBlock Text="{Binding DiagnosticsSummary, StringFormat='Diagnostics: {0}'}" Foreground="#9FB0BB" FontSize="11" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding FilePathSummary, StringFormat='Path: {0}'}" Foreground="#7B8C97" FontSize="10" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
         <!-- Phase 12.8: Download Group Template (Session Ledger) -->
         <DataTemplate x:Key="DownloadGroupTemplate" x:DataType="vm:DownloadGroupViewModel">
             <StackPanel Spacing="1">
@@ -810,6 +914,79 @@
                     <Setter Property="Foreground" Value="#4CAF50"/>
                 </Style>
             </TabControl.Styles>
+
+            <!-- Current Session Tab -->
+            <TabItem Header="Downloads Hub">
+                <Grid RowDefinitions="Auto,*">
+                    <Border Grid.Row="0" Classes="hubHeader" Padding="18,14">
+                        <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                            <TextBlock Grid.Column="0" Text="Downloads" FontSize="20" FontWeight="SemiBold" Foreground="#F1F7FB"/>
+                            <Border Grid.Column="1" Background="#1C2A22" BorderBrush="#2E7049" BorderThickness="1" CornerRadius="999" Padding="10,3" VerticalAlignment="Center" Margin="10,0,0,0">
+                                <TextBlock Text="{Binding ActiveCount, StringFormat='{}{0} active'}" Foreground="#9DE7BD" FontSize="11" FontWeight="Bold"/>
+                            </Border>
+                            <TextBox Grid.Column="3"
+                                     Width="260"
+                                     Text="{Binding SearchText, Mode=TwoWay}"
+                                     Watermark="Filter downloads..."
+                                     Background="#202124"
+                                     BorderBrush="#343436"
+                                     BorderThickness="1"
+                                     CornerRadius="6"
+                                     Margin="10,0,0,0">
+                                <TextBox.InnerLeftContent>
+                                    <PathIcon Data="{StaticResource search_regular}" Width="13" Height="13" Margin="10,0,0,0" Opacity="0.5"/>
+                                </TextBox.InnerLeftContent>
+                            </TextBox>
+                        </Grid>
+                    </Border>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="16" Margin="16,16,16,24">
+                            <Border Classes="hubSectionCard" IsVisible="{Binding HubActiveRows.Count}">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Active Downloads" FontSize="12" FontWeight="Bold" Foreground="#99C7DB"/>
+                                    <ItemsRepeater ItemsSource="{Binding HubActiveRows}">
+                                        <ItemsRepeater.Layout>
+                                            <StackLayout Spacing="0"/>
+                                        </ItemsRepeater.Layout>
+                                        <ItemsRepeater.ItemTemplate>
+                                            <StaticResource ResourceKey="HubDownloadRowTemplate"/>
+                                        </ItemsRepeater.ItemTemplate>
+                                    </ItemsRepeater>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Classes="hubSectionCard" IsVisible="{Binding HubAttentionRows.Count}">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Failed / Attention Needed" FontSize="12" FontWeight="Bold" Foreground="#E0A3A3"/>
+                                    <ItemsRepeater ItemsSource="{Binding HubAttentionRows}">
+                                        <ItemsRepeater.Layout>
+                                            <StackLayout Spacing="0"/>
+                                        </ItemsRepeater.Layout>
+                                        <ItemsRepeater.ItemTemplate>
+                                            <StaticResource ResourceKey="HubDownloadRowTemplate"/>
+                                        </ItemsRepeater.ItemTemplate>
+                                    </ItemsRepeater>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Classes="hubSectionCard">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Completed" FontSize="12" FontWeight="Bold" Foreground="#9ED4B0"/>
+                                    <ItemsRepeater ItemsSource="{Binding HubCompletedRecentRows}">
+                                        <ItemsRepeater.Layout>
+                                            <StackLayout Spacing="0"/>
+                                        </ItemsRepeater.Layout>
+                                        <ItemsRepeater.ItemTemplate>
+                                            <StaticResource ResourceKey="HubDownloadRowTemplate"/>
+                                        </ItemsRepeater.ItemTemplate>
+                                    </ItemsRepeater>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </TabItem>
 
             <!-- Current Session Tab -->
             <TabItem Header="Current Session">

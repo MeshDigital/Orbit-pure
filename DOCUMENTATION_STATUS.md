@@ -1,14 +1,71 @@
 # 📚 Documentation Status Summary
-**Updated**: April 20, 2026  
-**Analysis Period**: Dec 21, 2025 - Apr 20, 2026
+**Updated**: May 29, 2026  
+**Analysis Period**: Dec 21, 2025 - May 29, 2026
 
 ---
 
 ## 🎯 Executive Summary
 
-**Good News**: ✅ Major workflow docs were added for workstation routing, stem caching, import preview, search-to-mix, player prep, and analysis queue UX  
-**Action Required**: 📝 Continue refreshing older legacy docs as systems evolve  
-**Status**: Core Apr 2026 workflow documentation gaps have been closed
+**Good News**: ✅ Major workflow docs were added for workstation routing, stem caching, import preview, search-to-mix, player prep, and analysis queue UX. May 26 memory-backlog hardening was completed with focused regression coverage and consolidated verification.
+**Action Required**: 📝 Continue refreshing older legacy docs as systems evolve.
+**Status**: Core Apr 2026 workflow documentation gaps are closed; May 26 hardening follow-through is documented in [RECENT_CHANGES.md](RECENT_CHANGES.md).
+
+### May 29, 2026 sidebar-unification closure follow-up
+- ✅ Sidebar/intelligence lane closure handoff snapshot added in [DOCS/LIBRARY_SIDEBAR_UNIFICATION_CLOSURE_HANDOFF_2026-05-29.md](DOCS/LIBRARY_SIDEBAR_UNIFICATION_CLOSURE_HANDOFF_2026-05-29.md).
+- ✅ Documentation index synchronized with active migration memory plan + closure handoff references.
+- ✅ Ongoing slice execution and focused-gate status tracked in [DOCS/memory/library_sidebar_unification_plan.md](DOCS/memory/library_sidebar_unification_plan.md) and [DOCS/CURRENT_AND_FUTURE_PLAN_SUMMARY.md](DOCS/CURRENT_AND_FUTURE_PLAN_SUMMARY.md).
+- ✅ Migration-era assertion archive published in [DOCS/LIBRARY_SIDEBAR_UNIFICATION_ASSERTION_ARCHIVE_2026-05-29.md](DOCS/LIBRARY_SIDEBAR_UNIFICATION_ASSERTION_ARCHIVE_2026-05-29.md).
+- ✅ Closure sign-off pack and consolidated timeline index published in [DOCS/LIBRARY_SIDEBAR_UNIFICATION_CLOSURE_SIGNOFF_PACK_2026-05-29.md](DOCS/LIBRARY_SIDEBAR_UNIFICATION_CLOSURE_SIGNOFF_PACK_2026-05-29.md).
+- ✅ Retrospective closure index and handoff-readiness checklist published in [DOCS/LIBRARY_SIDEBAR_UNIFICATION_RETROSPECTIVE_INDEX_2026-05-29.md](DOCS/LIBRARY_SIDEBAR_UNIFICATION_RETROSPECTIVE_INDEX_2026-05-29.md).
+- ✅ Guardrail drift watch and closure recap pack published for follow-on maintenance and maintainer handoff.
+- ✅ Documentation drift monitor, archive checksum snapshot, and lane stabilization memo published for long-tail closure maintenance.
+- ✅ Long-tail watchlist, maintainers FAQ, ownership map, and maintenance cadence note published for ongoing lane stewardship.
+- ✅ Index-condensation guidance, docs navigation note, cross-link audit, regression command reference, supersession protocol, and long-tail maintenance checklist published for archive upkeep.
+- ✅ Maintenance map refinement, archive grouping strategy, runbook, glossary, retention policy, and focused-gate troubleshooting note published for post-closure operations.
+- ✅ Doc template starter, archive/index cross-reference note, memory summary, and documentation consolidation checkpoint published for future closure-maintenance waves.
+- ✅ Archive shaping guide, governance note, template rubric, index pruning policy, review cadence matrix, and escalation rubric published for governance-focused maintenance.
+- ✅ Naming patterns, memory-sync checklist, artifact taxonomy, and archive-governance checkpoint published for the next consolidation layer.
+- ✅ Governance compression note, maintenance heuristics, artifact grouping hygiene, archive navigation labels, and quick-start descriptor consistency note published for archive-operations hygiene.
+- ✅ Dependency map, validation rubric, archive-operations runbook, memory capture heuristics, and archive-operations checkpoint published for the latest consolidation wave.
+- ✅ Active grouping matrix, historical segmentation guide, descriptor cleanup note, archive pruning decision tree, and playbook shorthand published for discoverability shaping.
+- ✅ Contract upkeep checklist, relationship map refinement, governance FAQ addendum, batching rubric, and discoverability audit checkpoint published for the latest batching and audit wave.
+- ✅ Index grouping prototype, supersession examples, validation output guide, memory hygiene rubric, and cross-link minimalism guide published for the next refinement wave.
+- ✅ Artifact lifecycle map, archive onboarding note, governance-wave checklist, index alignment checkpoint, and archive stewardship checkpoint published for archive stewardship follow-through.
+- ✅ Quick-start grouping comparison, archive role legend, maintainer handoff checklist, contract assertion minimization, and annotation style guide published for the consolidation-prep wave.
+- ✅ Closure anti-patterns, wave exit criteria, discoverability regression examples, onboarding matrix, and consolidated stewardship checkpoint published for the latest archive-quality wave.
+- ✅ Quick-start grouping stress-test note, artifact-role crosswalk refinement, maintainer escalation table, contract drift triage examples, and annotation consistency checklist published for consolidation hardening.
+- ✅ Redundancy filter note, validation reporting shorthand guide, onboarding handoff compression note, governance review scoreboard, and post-wave consolidation checkpoint published for the current follow-through wave.
+- ✅ Grouping navigation delta note, role-to-artifact coverage audit, escalation boundary FAQ, contract review sampling guide, and annotation drift examples published for navigation and review hardening.
+- ✅ Archive overlap pruning checklist, validation shorthand examples pack, maintainer restart quick-reference, governance scoreboard rubric, and consolidation-wave readiness checkpoint published for continuation readiness.
+- ✅ Grouping index stress-case matrix, crosswalk evidence traces, escalation exception handling, contract maintenance sampling checklist, and annotation normalization examples published for evidence-driven continuation.
+- ✅ Overlap retirement decision table, validation recap compression rubric, onboarding restart pitfalls note, governance review cadence addendum, and consolidation-wave signoff checkpoint published for closure standardization.
+- ✅ Grouping drift scenario matrix, role-evidence handoff map, escalation timeout decision note, contract upkeep verification table, and annotation lint shorthand guide published for drift-resilient execution.
+- ✅ Overlap deprecation checklist, validation delta narration template, restart-confidence checklist, governance drift alert note, and consolidation continuity checkpoint published for continuation reliability.
+- ✅ Grouping resilience scorecard, role-coverage exception map, escalation routing fallback note, contract-index drift triage matrix, and annotation consistency quick-lint checklist published for reinforcement resilience.
+- ✅ Overlap archive retirement playbook, validation evidence brevity guide, maintainer relaunch starter pack, governance variance review card, and reinforcement-wave readiness checkpoint published for next-wave reliability.
+- ✅ Grouping rollback decision matrix, role continuity exception FAQ, escalation handoff timing table, contract drift correction cookbook, and annotation noise reduction rubric published for rollback and correction readiness.
+- ✅ Overlap consolidation audit map, validation evidence one-line pack, maintainer reboot checklist, governance anomaly response card, and resilience-wave signoff checkpoint published for resilience closeout discipline.
+- ✅ Grouping rollback validation examples, role continuity evidence pack, escalation latency troubleshooting note, contract correction anti-patterns list, and annotation brevity normalization checklist published for continuity-proofing.
+- ✅ Overlap retirement verification matrix, validation one-line quality bar, maintainer restart handoff micro-pack, governance anomaly escalation matrix, and reinforcement continuity signoff checkpoint published for closeout reliability.
+- ✅ Grouping rollback impact scorecard, role continuity risk register, escalation latency SLA note, contract correction validation matrix, and annotation clarity benchmark pack published for continuity risk governance.
+- ✅ Overlap retirement traceability map, validation brevity compliance checklist, maintainer restart confidence card, governance anomaly closure checklist, and reinforcement wave handoff checkpoint published for reinforcement handoff reliability.
+- ✅ Grouping rollback regression watchlist, role continuity escalation rubric, escalation SLA exception matrix, contract correction audit runbook, and annotation benchmark drift log published for escalation-governed continuity.
+- ✅ Overlap traceability QA checklist, validation brevity style card, restart confidence verification map, governance closure evidence pack, and continuity reinforcement signoff checkpoint published for reinforcement signoff stability.
+- ✅ Grouping rollback closure audit grid, role continuity incident ledger, escalation SLA remediation playbook, contract correction anomaly drill card, and annotation clarity enforcement checklist published for closure-control rigor.
+- ✅ Overlap traceability retirement rubric, validation brevity exception register, maintainer restart readiness scorecard, governance anomaly postmortem template, and reinforcement continuity transition checkpoint published for resilient transition governance.
+- ✅ Grouping rollback closure confidence matrix, role continuity incident response card, escalation remediation verification checklist, contract anomaly recovery playbook, and annotation enforcement drift tracker published for confidence-governed closure.
+- ✅ Overlap retirement evidence map, validation brevity waiver protocol, restart readiness regression checklist, governance postmortem synthesis note, and reinforcement completion handoff checkpoint published for reinforcement completion readiness.
+- ✅ Grouping rollback closure verification ledger, role continuity incident escalation map, escalation remediation evidence checklist, contract anomaly containment matrix, and annotation drift correction playbook published for containment-guided closure verification.
+- ✅ Overlap retirement validation dashboard, validation brevity exemption criteria card, restart regression mitigation checklist, governance synthesis evidence grid, and reinforcement closure transition signoff checkpoint published for transition assurance.
+- ✅ Grouping rollback closure attestation card, role continuity escalation response matrix, escalation remediation audit trail note, contract containment evidence checklist, and annotation correction consistency rubric published for attestation-grade closure control.
+- ✅ Overlap validation exception ledger, validation brevity exemption review card, restart mitigation signoff checklist, governance synthesis closure memo, and reinforcement closure handoff readiness checkpoint published for handoff-grade closure readiness.
+- ✅ Grouping closure attestation evidence grid, continuity escalation response audit map, remediation audit trail verification checklist, contract containment exception matrix, and annotation consistency drift monitor published for exception-aware closure governance.
+- ✅ Overlap exception resolution dashboard, brevity exemption expiry tracker, restart signoff regression matrix, governance synthesis action register, and reinforcement handoff closure checkpoint published for follow-through readiness.
+
+### May 26, 2026 hardening follow-up
+- ✅ Added focused regression suites for soft-clear durability, folder scanner path dedupe, and section-vector embedding precedence.
+- ✅ Re-verified Soulseek transient timeout noise filtering behavior in global exception handling.
+- ✅ Consolidated memory-backlog verification sweep passed: 61 succeeded, 0 failed.
 
 ### April 20, 2026 refresh
 - ✅ Search multi-select now stages results directly into the mix workflow
@@ -137,9 +194,9 @@ Update outdated documentation:
 4. Update `FEATURES.md` if user-facing
 
 ### For Users:
-- New features documented in `FEATURES.md` (needs update)
-- Change history in `RECENT_CHANGES.md` (needs update)
-- Roadmap in `ROADMAP_CONSOLIDATED.md` (✅ up to date)
+- New workflow and service deep-dives are indexed in `DOCUMENTATION_INDEX.md`.
+- Change history is current in `RECENT_CHANGES.md` (including May 26 hardening follow-up).
+- Roadmap/doc-gap status is tracked in `DOCS/ROADMAP_PROGRESS_AND_DOC_GAPS_2026-04-20.md`.
 
 ---
 
@@ -149,8 +206,8 @@ Update outdated documentation:
 |----------|--------|--------|
 | [DOCUMENTATION_AUDIT_JAN2026.md](DOCUMENTATION_AUDIT_JAN2026.md) | ✅ Complete | Read for full analysis |
 | [DOCS/DOCUMENTATION_ACTION_PLAN.md](DOCS/DOCUMENTATION_ACTION_PLAN.md) | ✅ Complete | Follow this plan |
-| [FEATURES.md](FEATURES.md) | ⚠️ Outdated | Needs 6 new features |
-| [RECENT_CHANGES.md](RECENT_CHANGES.md) | ⚠️ Outdated | Missing Jan 16-21 |
+| [FEATURES.md](FEATURES.md) | ⚠️ Partial refresh | Continue legacy-section cleanup as systems evolve |
+| [RECENT_CHANGES.md](RECENT_CHANGES.md) | ✅ Current | Use as the canonical release delta log |
 | [DATABASE_SCHEMA.md](DOCS/DATABASE_SCHEMA.md) | ⚠️ Outdated | Missing 6 entities |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | ⚠️ Outdated | Missing 5 systems |
 
@@ -160,7 +217,7 @@ Update outdated documentation:
 
 **Current State**:
 - 📊 Documentation Coverage: ~60%
-- 📋 Outdated Docs: 15 files
+- 📋 Legacy refresh backlog: active (see quick links table)
 - 🗂️ Obsolete Files: 0 (cleaned up!)
 
 **Target State** (2-3 weeks):
@@ -181,7 +238,7 @@ Update outdated documentation:
 
 ---
 
-**Last Updated**: February 6, 2026  
+**Last Updated**: May 26, 2026  
 **Audit By**: AI Documentation Agent  
 **Files Generated**: 
 - `DOCUMENTATION_AUDIT_JAN2026.md` (master analysis)

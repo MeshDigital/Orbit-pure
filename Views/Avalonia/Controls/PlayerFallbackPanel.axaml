@@ -1,0 +1,314 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:converters="clr-namespace:SLSKDONET.Converters"
+             mc:Ignorable="d"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.PlayerFallbackPanel"
+             x:DataType="vm:LibraryViewModel">
+
+    <UserControl.Resources>
+        <converters:EnergyToColorConverter x:Key="EnergyToColorConverter"/>
+    </UserControl.Resources>
+
+    <UserControl.Styles>
+        <Style Selector="Border.contextualSavedDoubleRow">
+            <Setter Property="Background" Value="#1F2A34"/>
+            <Setter Property="BorderBrush" Value="#33424F"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="7,5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.18"/>
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.18"/>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.18"/>
+                </Transitions>
+            </Setter>
+        </Style>
+
+        <Style Selector="Border.contextualSavedDoubleRow:pointerover">
+            <Setter Property="Background" Value="#2B3946"/>
+            <Setter Property="BorderBrush" Value="#5B748A"/>
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+
+        <Style Selector="Button.viewAllSavedDoublesLink">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="FontSize" Value="9"/>
+            <Setter Property="Foreground" Value="#9BCBF5"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Opacity" Value="0.86"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.16"/>
+                </Transitions>
+            </Setter>
+        </Style>
+
+        <Style Selector="Button.viewAllSavedDoublesLink:pointerover">
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+
+        <Style Selector="Border.savedDoubleQueueBadge">
+            <Setter Property="Background" Value="#1E2C24"/>
+            <Setter Property="BorderBrush" Value="#3A5A4A"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="6,1"/>
+        </Style>
+    </UserControl.Styles>
+
+    <ScrollViewer Padding="14,12">
+        <StackPanel Spacing="12">
+            <TextBlock Text="Now Playing"
+                       FontSize="13"
+                       FontWeight="SemiBold"
+                       Foreground="#D8E5F2"/>
+
+            <Border Background="#20242A" BorderBrush="#2E343D" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                <Grid ColumnDefinitions="88,*">
+                    <Border Grid.Column="0"
+                            Width="80"
+                            Height="80"
+                            CornerRadius="6"
+                            ClipToBounds="True"
+                            Background="#12161C"
+                            BorderBrush="#2E343D"
+                            BorderThickness="1">
+                        <Panel>
+                            <Image Source="{Binding PlayerViewModel.CurrentTrack.ArtworkBitmap}"
+                                   Stretch="UniformToFill"
+                                   IsVisible="{Binding PlayerViewModel.CurrentTrack.ArtworkBitmap, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                            <Border IsVisible="{Binding PlayerViewModel.CurrentTrack.ArtworkBitmap, Converter={x:Static ObjectConverters.IsNull}}"
+                                    Background="#1B2028">
+                                <TextBlock Text="♫"
+                                           FontSize="28"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Foreground="#465464"/>
+                            </Border>
+                        </Panel>
+                    </Border>
+
+                    <StackPanel Grid.Column="1" Margin="10,0,0,0" Spacing="4" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding PlayerViewModel.TrackTitle}"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Foreground="#EAF4FF"
+                                   TextWrapping="Wrap"
+                                   MaxLines="2"/>
+                        <TextBlock Text="{Binding PlayerViewModel.TrackArtist}"
+                                   FontSize="10"
+                                   Foreground="#9AB2C9"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding PlayerViewModel.CurrentTrackContextSummary}"
+                                   FontSize="9"
+                                   Foreground="#7A8C9F"
+                                   TextWrapping="Wrap"
+                                   MaxLines="2"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border Background="#1C242C" BorderBrush="#2E4C63" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                <StackPanel Spacing="8">
+                    <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
+                        <TextBlock Grid.Column="0"
+                                   Text="{Binding PlayerViewModel.CurrentTimeStr}"
+                                   FontSize="9"
+                                   Foreground="#8FA7C0"
+                                   VerticalAlignment="Center"/>
+
+                        <Slider x:Name="SeekSlider"
+                                Grid.Column="1"
+                                Margin="8,0"
+                                Minimum="0"
+                                Maximum="1"
+                                Value="{Binding PlayerViewModel.Position, Mode=OneWay}"
+                                PointerReleased="OnSeekSliderPointerReleased"/>
+
+                        <TextBlock Grid.Column="2"
+                                   Text="{Binding PlayerViewModel.TotalTimeStr}"
+                                   FontSize="9"
+                                   Foreground="#8FA7C0"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                        <Button Command="{Binding PlayerViewModel.SeekBackwardCommand}"
+                                Content="-10s"
+                                FontSize="10"
+                                Padding="10,4"/>
+
+                        <Button Command="{Binding PlayerViewModel.TogglePlayPauseCommand}"
+                                FontSize="10"
+                                Padding="14,4">
+                            <TextBlock Text="{Binding PlayerViewModel.IsPlaying, Converter={StaticResource BoolToPlayPauseIconConverter}}"
+                                       FontSize="12"/>
+                        </Button>
+
+                        <Button Command="{Binding PlayerViewModel.SeekForwardCommand}"
+                                Content="+10s"
+                                FontSize="10"
+                                Padding="10,4"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Background="#1A2027" BorderBrush="#2B333D" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                <StackPanel Spacing="6">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0"
+                                   Text="Queue preview"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   Foreground="#8FA7C0"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding PlayerViewModel.Queue.Count, StringFormat='{}{0}'}"
+                                   FontSize="10"
+                                   Foreground="#8FA7C0"/>
+                    </Grid>
+
+                    <ItemsControl ItemsSource="{Binding PlayerViewModel.Queue}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Spacing="3"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <TextBlock Grid.Column="0" Text="•" FontSize="10" Foreground="#6E8297" Margin="0,0,4,0"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding TrackTitle}"
+                                               FontSize="9"
+                                               Foreground="#C6D6E6"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <Border Grid.Column="2"
+                                            Classes="savedDoubleQueueBadge"
+                                            IsVisible="{Binding IsSavedDoublePartner}"
+                                            Margin="6,0,0,0">
+                                        <StackPanel Orientation="Horizontal" Spacing="3">
+                                            <Ellipse Width="5" Height="5" Fill="#8BBCA7" VerticalAlignment="Center"/>
+                                            <TextBlock Text="Saved double" FontSize="8" Foreground="#9ED9C8"/>
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <Border Background="#1A2027"
+                    BorderBrush="#2B333D"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="10,8"
+                    IsVisible="{Binding HasSavedDoublesForCurrentPlayerTrack}">
+                <StackPanel Spacing="5">
+                    <TextBlock Text="Saved doubles from current track"
+                               FontSize="10"
+                               FontWeight="SemiBold"
+                               Foreground="#CDE6FF"/>
+
+                    <ItemsControl ItemsSource="{Binding SavedDoublesForCurrentPlayerTrackPreview}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Spacing="4"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Classes="contextualSavedDoubleRow">
+                                    <Button Command="{Binding $parent[controls:PlayerFallbackPanel].DataContext.ActivateSavedDoubleCommand}"
+                                            CommandParameter="{Binding}"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            HorizontalContentAlignment="Stretch"
+                                            Padding="0">
+                                        <StackPanel Spacing="3">
+                                            <TextBlock Text="{Binding DirectionLabel}"
+                                                       FontSize="8"
+                                                       Foreground="#8FA7C0"/>
+
+                                            <TextBlock Text="{Binding CounterpartTrackTitle}"
+                                                       FontSize="10"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="#D8E5F2"
+                                                       TextTrimming="CharacterEllipsis"/>
+
+                                            <TextBlock Text="{Binding CounterpartArtistName}"
+                                                       FontSize="9"
+                                                       Foreground="#8FA7C0"
+                                                       TextTrimming="CharacterEllipsis"/>
+
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <Border Background="#233141" CornerRadius="4" Padding="5,1">
+                                                    <StackPanel Orientation="Horizontal" Spacing="2">
+                                                        <TextBlock Text="A" FontSize="8" Foreground="#7D93A8"/>
+                                                        <TextBlock Text="{Binding TrackA.CamelotDisplay}" FontSize="8" Foreground="#B7CCE0"/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <Border Background="#233141" CornerRadius="4" Padding="5,1">
+                                                    <StackPanel Orientation="Horizontal" Spacing="2">
+                                                        <TextBlock Text="A" FontSize="8" Foreground="#7D93A8"/>
+                                                        <TextBlock Text="{Binding TrackA.BpmDisplay}" FontSize="8" Foreground="#B7CCE0"/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <Border Background="#2E263E" CornerRadius="4" Padding="5,1">
+                                                    <StackPanel Orientation="Horizontal" Spacing="2">
+                                                        <TextBlock Text="B" FontSize="8" Foreground="#8F79B1"/>
+                                                        <TextBlock Text="{Binding TrackB.CamelotDisplay}" FontSize="8" Foreground="#C9B5FF"/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <Border Background="#2E263E" CornerRadius="4" Padding="5,1">
+                                                    <StackPanel Orientation="Horizontal" Spacing="2">
+                                                        <TextBlock Text="B" FontSize="8" Foreground="#8F79B1"/>
+                                                        <TextBlock Text="{Binding TrackB.BpmDisplay}" FontSize="8" Foreground="#C9B5FF"/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <Border Background="#1E2C24" CornerRadius="4" Padding="5,1">
+                                                    <StackPanel Orientation="Horizontal" Spacing="3">
+                                                        <Ellipse Width="6"
+                                                                 Height="6"
+                                                                 VerticalAlignment="Center"
+                                                                 Fill="{Binding TrackB.Energy, Converter={StaticResource EnergyToColorConverter}}"/>
+                                                        <TextBlock Text="Energy" FontSize="8" Foreground="#8BBCA7"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Button>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Button Classes="viewAllSavedDoublesLink"
+                            IsVisible="{Binding HasMoreSavedDoublesForCurrentPlayerTrack}"
+                            Command="{Binding ViewAllSavedDoublesCommand}"
+                            Content="View all in sidebar"/>
+                </StackPanel>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Command="{Binding PlayerViewModel.OpenCurrentTrackWorkstationCommand}"
+                        Content="Open in Workstation"
+                        FontSize="10"
+                        Padding="10,4"/>
+                <Button Command="{Binding PlayerViewModel.OpenPlayerViewCommand}"
+                        Content="Show full player"
+                        FontSize="10"
+                        Padding="10,4"/>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

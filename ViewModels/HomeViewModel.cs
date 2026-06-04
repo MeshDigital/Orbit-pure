@@ -33,6 +33,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     private readonly CrashRecoveryJournal _crashJournal; // Phase 3A: Transparency
     private readonly INotificationService _notificationService;
     private readonly IEventBus _eventBus;
+    private readonly SearchViewModel _searchViewModel;
     private IDisposable? _eventSubscription;
     private PropertyChangedEventHandler? _connectionChangedHandler;
     private bool _isDisposed;
@@ -89,6 +90,8 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ClearDeadLettersCommand { get; }
     public ICommand NavigateLibraryCommand { get; }
     public ICommand ViewPlaylistCommand { get; }
+    public ICommand UpgradeBronzeCommand { get; }
+    public ICommand RunMissionCommand { get; }
 
 
     public ObservableCollection<GenrePlanetViewModel> TopGenres { get; } = new();
@@ -143,7 +146,8 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         CrashRecoveryJournal crashJournal,
         INotificationService notificationService,
         IEventBus eventBus,
-        LibraryViewModel libraryViewModel)
+        LibraryViewModel libraryViewModel,
+        SearchViewModel searchViewModel)
     {
         _logger = logger;
         _dashboardService = dashboardService;
@@ -158,6 +162,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         _notificationService = notificationService;
         _eventBus = eventBus;
         _libraryViewModel = libraryViewModel;
+        _searchViewModel = searchViewModel;
 
         // Subscribe to Mission Control Updates (Smart Throttled & IEquatable)
         _eventSubscription = _eventBus.GetEvent<DashboardSnapshot>().Subscribe(snapshot =>
@@ -197,6 +202,8 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         ViewPlaylistCommand = new RelayCommand<PlaylistCardViewModel>(ExecuteViewPlaylist);
         QuickSearchCommand = new AsyncRelayCommand<SpotifyTrackViewModel>(ExecuteQuickSearchAsync);
         ClearDeadLettersCommand = new AsyncRelayCommand(ClearDeadLettersAsync);
+        UpgradeBronzeCommand = new RelayCommand(() => _navigationService.NavigateTo("Library"));
+        RunMissionCommand = new AsyncRelayCommand<MissionOperation>(ExecuteRunMissionAsync);
 
 
         _connectionChangedHandler = (s, e) =>
@@ -301,6 +308,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         finally
         {
             IsLoadingHealth = false;
+            Dispatcher.UIThread.Post(PopulateActiveMissions);
         }
     }
 
@@ -424,15 +432,80 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     private async Task ExecuteQuickSearchAsync(SpotifyTrackViewModel? track)
     {
         if (track == null) return;
-        
-        // Navigate to search
+        _searchViewModel.SearchQuery = $"{track.Artist} {track.Title}".Trim();
         _navigationService.NavigateTo("Search");
-        
-        // Find SearchViewModel and trigger search
-        // Since SearchViewModel is likely a singleton or registered in DI
-        // we can trigger its property changes or a command if we have access.
-        // For now, let's assume we navigate and the user can see the intent.
-        // Better: We should have a way to pass parameters to Navigation.
+        await Task.Delay(50); // allow navigation frame to settle
+        if (_searchViewModel.UnifiedSearchCommand.CanExecute(null))
+            _searchViewModel.UnifiedSearchCommand.Execute(null);
+    }
+
+    private Task ExecuteRunMissionAsync(MissionOperation? mission)
+    {
+        if (mission == null) return Task.CompletedTask;
+        switch (mission.Type)
+        {
+            case Models.OperationType.Download:
+                _navigationService.NavigateTo("Projects");
+                break;
+            case Models.OperationType.Analysis:
+                _navigationService.NavigateTo("Analysis");
+                break;
+            default:
+                _navigationService.NavigateTo("Library");
+                break;
+        }
+        return Task.CompletedTask;
+    }
+
+    private void PopulateActiveMissions()
+    {
+        ActiveMissions.Clear();
+        if (LibraryHealth == null) return;
+
+        if (LibraryHealth.BronzeCount > 0)
+            ActiveMissions.Add(new MissionOperation
+            {
+                Icon = "🥉",
+                Name = "Upgrade Bronze Tracks",
+                StatusText = $"{LibraryHealth.BronzeCount} tracks below quality threshold",
+                Type = Models.OperationType.Download
+            });
+
+        if (LibraryHealth.UpgradableCount > 0)
+            ActiveMissions.Add(new MissionOperation
+            {
+                Icon = "⬆️",
+                Name = "Re-download Low Bitrate",
+                StatusText = $"{LibraryHealth.UpgradableCount} tracks with low bitrate",
+                Type = Models.OperationType.Download
+            });
+
+        if (LibraryHealth.PendingUpdates > 0)
+            ActiveMissions.Add(new MissionOperation
+            {
+                Icon = "🏷️",
+                Name = "Enrich Metadata",
+                StatusText = $"{LibraryHealth.PendingUpdates} tracks missing metadata",
+                Type = Models.OperationType.Enrichment
+            });
+
+        if (LibraryHealth.IssuesCount > 0)
+            ActiveMissions.Add(new MissionOperation
+            {
+                Icon = "🔧",
+                Name = "Repair Dead Letters",
+                StatusText = $"{LibraryHealth.IssuesCount} items need recovery",
+                Type = Models.OperationType.System
+            });
+
+        if (ActiveMissions.Count == 0)
+            ActiveMissions.Add(new MissionOperation
+            {
+                Icon = "✅",
+                Name = "Library is Healthy",
+                StatusText = "No missions required",
+                Type = Models.OperationType.System
+            });
     }
 
     public void Dispose()

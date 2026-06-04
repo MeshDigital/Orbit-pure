@@ -211,7 +211,7 @@
                             </Grid>
                             
                             <ScrollViewer Grid.Row="1" MaxHeight="450" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
-                                <ItemsControl ItemsSource="{Binding ActiveOperations}">
+                                <ItemsControl ItemsSource="{Binding CurrentSnapshot.ActiveOperations}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <Panel>

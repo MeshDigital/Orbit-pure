@@ -1,4 +1,5 @@
 using System;
+using SLSKDONET.Configuration;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
 
@@ -34,14 +35,6 @@ public static class TrackMatchScorer
     /// Exponential-decay half-width for the <see cref="TrackMatchScore.BeatScore"/>.
     /// 3 BPM → score ≈ 0.37, 6 BPM → score ≈ 0.14. Tuned for "feels compatible".
     /// </summary>
-    private const double BeatDecayBpmWidth = 3.0;
-
-    /// <summary>
-    /// Tighter BPM tolerance used only for <see cref="TrackMatchScore.DoubleDropScore"/>.
-    /// 1 BPM → score ≈ 0.37, 2 BPM → score ≈ 0.14. Must lock tight to double-drop.
-    /// </summary>
-    private const double TightBeatDecayBpmWidth = 1.0;
-
     // ── Main entry point ──────────────────────────────────────────────────
 
     /// <summary>
@@ -77,11 +70,11 @@ public static class TrackMatchScorer
                                              out string harmonyLabel);
 
         // ── Beat ──────────────────────────────────────────────────────────
-        float beatScore     = ComputeBeat(a.Bpm, b.Bpm, BeatDecayBpmWidth,
+        float beatScore     = ComputeBeat(a.Bpm, b.Bpm, ScoringConstants.Matching.BeatDecayBpmWidth,
                                           out string beatLabel,
                                           out double bestDiff,
                                           out string _);
-        float tightBeatScore = ComputeBeatFromBestDiff(bestDiff, TightBeatDecayBpmWidth);
+        float tightBeatScore = ComputeBeatFromBestDiff(bestDiff, ScoringConstants.Matching.TightBeatDecayBpmWidth);
 
         // ── Sound (embedding cosine) ──────────────────────────────────────
         float soundScore    = (float)Math.Clamp(embeddingCosine, 0.0, 1.0);
@@ -93,11 +86,11 @@ public static class TrackMatchScorer
 
         // ── Overall (weighted sum) ────────────────────────────────────────
         float overall = Math.Clamp(
-            0.28f * soundScore +
-            0.22f * harmonyScore +
-            0.18f * beatScore +
-            0.17f * dropSonicScore +
-            0.15f * outroIntroScore,
+            ScoringConstants.Matching.OverallSoundWeight * soundScore +
+            ScoringConstants.Matching.OverallHarmonyWeight * harmonyScore +
+            ScoringConstants.Matching.OverallBeatWeight * beatScore +
+            ScoringConstants.Matching.OverallDropSonicWeight * dropSonicScore +
+            ScoringConstants.Matching.OverallOutroIntroWeight * outroIntroScore,
             0f, 1f);
 
         // ── Drop verdict label ────────────────────────────────────────────
@@ -214,7 +207,11 @@ public static class TrackMatchScorer
         float structuralFlow = outro.TransitionScore(intro);
         float energyFlow = ComputeEnergyCompatibility(outro.EnergyLevel, intro.EnergyLevel);
 
-        return Math.Clamp((structuralFlow * 0.65f) + (energyFlow * 0.35f), 0f, 1f);
+        return Math.Clamp(
+            (structuralFlow * ScoringConstants.Matching.TransitionStructuralWeight) +
+            (energyFlow * ScoringConstants.Matching.TransitionEnergyWeight),
+            0f,
+            1f);
     }
 
     public static float ComputeEnergyCompatibility(float outgoingEnergy, float incomingEnergy)

@@ -1,0 +1,118 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignWidth="900"
+             d:DesignHeight="28"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.InsertBetweenRowControl"
+             x:Name="Root"
+             Classes.magnetic-hover="{Binding IsMagneticHover, ElementName=Root}"
+             Height="28">
+
+    <UserControl.Styles>
+        <Style Selector="Border.gap-shell">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="16,2"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.12"/>
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.12"/>
+                </Transitions>
+            </Setter>
+        </Style>
+
+        <Style Selector="UserControl:pointerover Border.gap-shell">
+            <Setter Property="Background" Value="#14212A"/>
+            <Setter Property="BorderBrush" Value="#2D7D93"/>
+            <Setter Property="BorderThickness" Value="0,1,0,1"/>
+        </Style>
+
+        <Style Selector="UserControl.magnetic-hover Border.gap-shell">
+            <Setter Property="Background" Value="#14212A"/>
+            <Setter Property="BorderBrush" Value="#2D7D93"/>
+            <Setter Property="BorderThickness" Value="0,1,0,1"/>
+        </Style>
+
+        <Style Selector="Button.gap-button">
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="IsHitTestVisible" Value="False"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Padding" Value="10,3"/>
+            <Setter Property="Margin" Value="0,2,0,0"/>
+            <Setter Property="Background" Value="#143A4A"/>
+            <Setter Property="BorderBrush" Value="#2D7D93"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+            <Setter Property="RenderTransform">
+                <ScaleTransform ScaleX="1" ScaleY="1"/>
+            </Setter>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.14"/>
+                    <ThicknessTransition Property="Margin" Duration="0:0:0.14"/>
+                </Transitions>
+            </Setter>
+        </Style>
+
+        <Style Selector="UserControl:pointerover Button.gap-button">
+            <Setter Property="Opacity" Value="1"/>
+            <Setter Property="IsHitTestVisible" Value="True"/>
+            <Setter Property="Margin" Value="0,0,0,0"/>
+        </Style>
+
+        <Style Selector="UserControl.magnetic-hover Button.gap-button">
+            <Setter Property="Opacity" Value="1"/>
+            <Setter Property="IsHitTestVisible" Value="True"/>
+            <Setter Property="Margin" Value="0,0,0,0"/>
+        </Style>
+
+        <Style Selector="Button.gap-button:pressed">
+            <Setter Property="Opacity" Value="0.88"/>
+            <Setter Property="Background" Value="#1B4D5F"/>
+            <Setter Property="BorderBrush" Value="#4AA0B8"/>
+            <Setter Property="RenderTransform">
+                <ScaleTransform ScaleX="0.98" ScaleY="0.98"/>
+            </Setter>
+        </Style>
+    </UserControl.Styles>
+
+    <Border Classes="gap-shell">
+        <Grid ColumnDefinitions="Auto,*">
+            <Button Grid.Column="0"
+                    Classes="gap-button"
+                    Command="{Binding InsertBetweenCommand, ElementName=Root}"
+                    CommandParameter="{Binding InsertBetweenCommandParameter, ElementName=Root}"
+                    ToolTip.Tip="Add track that fits between this row and the next row">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <TextBlock Text="+" FontSize="11" FontWeight="SemiBold" Foreground="#9ED9C8"/>
+                    <TextBlock Text="Add track that fits here" FontSize="10" Foreground="#9ED9C8"/>
+                </StackPanel>
+            </Button>
+
+            <Border Grid.Column="1"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Center"
+                    Margin="8,0,0,0"
+                    Padding="6,2"
+                    CornerRadius="8"
+                    Background="#143648"
+                    BorderBrush="#2B607A"
+                    BorderThickness="1"
+                    IsVisible="{Binding IsMagneticHover, ElementName=Root}">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <Ellipse Width="5" Height="5" Fill="#4EC9B0" VerticalAlignment="Center"/>
+                    <TextBlock Text="fit"
+                               FontSize="8"
+                               FontWeight="SemiBold"
+                               Foreground="#9ED9C8"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

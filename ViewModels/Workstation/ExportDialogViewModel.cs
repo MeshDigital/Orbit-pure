@@ -100,6 +100,9 @@ public sealed class ExportDialogViewModel : ReactiveObject, IDisposable
 
     public ReactiveCommand<Unit, Unit> ExportCommand { get; }
     public ReactiveCommand<Unit, Unit> CancelCommand  { get; }
+    public ReactiveCommand<Unit, Unit> SetWavFormatCommand { get; }
+    public ReactiveCommand<Unit, Unit> SetMp3FormatCommand { get; }
+    public ReactiveCommand<Unit, Unit> SetFlacFormatCommand { get; }
 
     private CancellationTokenSource? _cts;
 
@@ -116,6 +119,9 @@ public sealed class ExportDialogViewModel : ReactiveObject, IDisposable
 
         ExportCommand = ReactiveCommand.CreateFromTask(RunExportAsync, canExport);
         CancelCommand = ReactiveCommand.Create(Cancel);
+        SetWavFormatCommand = ReactiveCommand.Create(() => { SelectedFormat = "WAV"; });
+        SetMp3FormatCommand = ReactiveCommand.Create(() => { SelectedFormat = "MP3"; });
+        SetFlacFormatCommand = ReactiveCommand.Create(() => { SelectedFormat = "FLAC"; });
     }
 
     /// <summary>Populates the deck list from active workstation decks.</summary>

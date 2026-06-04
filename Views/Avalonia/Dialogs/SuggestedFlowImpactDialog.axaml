@@ -1,0 +1,13 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SLSKDONET.Views.Avalonia.Dialogs.SuggestedFlowImpactDialog"
+        Title="Suggested Flow Impact"
+        Width="720"
+        Height="520"
+        MinWidth="640"
+        MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True"
+        SystemDecorations="Full">
+  <Grid Name="RootGrid" />
+</Window>

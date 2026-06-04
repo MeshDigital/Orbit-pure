@@ -126,6 +126,7 @@ public class ConfigManager
                 LibraryNavigationAutoHideActivationToggleCount = int.TryParse(config["Library:NavigationAutoHideActivationToggleCount"], out var navAutoHideActivationCount)
                     ? Math.Max(2, navAutoHideActivationCount)
                     : 3,
+                UseNewPlaylistSurface = bool.TryParse(config["Library:UseNewPlaylistSurface"], out var useNewPlaylistSurface) && useNewPlaylistSurface,
                 UpgradeScoutEnabled = bool.TryParse(config["Library:UpgradeScoutEnabled"], out var use) && use,
                 UpgradeMinBitrateThreshold = int.TryParse(config["Library:UpgradeMinBitrateThreshold"], out var umbt) ? umbt : 320,
                 UpgradeMinGainKbps = int.TryParse(config["Library:UpgradeMinGainKbps"], out var umgk) ? umgk : 128,
@@ -149,6 +150,27 @@ public class ConfigManager
                 DashboardRightPanelWidth = double.TryParse(config["Dashboard:RightPanelWidth"], out var rpw) ? rpw : 320,
                 DashboardIsNavigationCollapsed = bool.TryParse(config["Dashboard:IsNavigationCollapsed"], out var dnc) && dnc,
                 DashboardIsRightPanelOpen = !bool.TryParse(config["Dashboard:IsRightPanelOpen"], out var drpo) || drpo,
+
+                // [Workstation]
+                WorkstationOverlaySizeMode = config["Workstation:OverlaySizeMode"] ?? "Auto",
+                WorkstationOverlayManualWidth = double.TryParse(config["Workstation:OverlayManualWidth"], out var womw) ? womw : 0,
+                WorkstationOverlayManualHeight = double.TryParse(config["Workstation:OverlayManualHeight"], out var womh) ? womh : 0,
+                WorkstationOverlayIsOpen = bool.TryParse(config["Workstation:OverlayIsOpen"], out var woio) && woio,
+                WorkstationDrawerTabIndex = int.TryParse(config["Workstation:DrawerTabIndex"], out var wdti) ? Math.Clamp(wdti, 0, 4) : 0,
+                WorkstationActivePlaylistId = config["Workstation:ActivePlaylistId"],
+
+                // [FlowBuilder]
+                FlowBuilderSelectedPlaylistId = config["FlowBuilder:SelectedPlaylistId"],
+                FlowBuilderRestoreContentOnStartup = !bool.TryParse(config["FlowBuilder:RestoreContentOnStartup"], out var fbrc) || fbrc,
+                EnableFlowBuilderSuggestedFlowPreview = !bool.TryParse(config["FlowBuilder:EnableSuggestedFlowPreview"], out var efbsp) || efbsp,
+                EnableFlowBuilderSuggestedFlowTelemetry = !bool.TryParse(config["FlowBuilder:EnableSuggestedFlowTelemetry"], out var efbst) || efbst,
+                FlowBuilderSuggestedFlowPreviewRolloutPercent = int.TryParse(config["FlowBuilder:SuggestedFlowPreviewRolloutPercent"], out var fsprp)
+                    ? Math.Clamp(fsprp, 0, 100)
+                    : 10,
+
+                // [FrequentSources]
+                EnableFrequentSources = bool.TryParse(config["FrequentSources:EnableFrequentSources"], out var efs) && efs,
+                FrequentSourcesStagingPath = config["FrequentSources:StagingPath"] ?? string.Empty,
 
                 // [Import]
                 ImportWebShortcuts = ParseImportWebShortcuts(config["Import:WebShortcutsJson"]),
@@ -252,6 +274,7 @@ public class ConfigManager
         iniContent.AppendLine($"NavigationCollapsed = {config.LibraryNavigationCollapsed}");
         iniContent.AppendLine($"NavigationAutoHideEnabled = {config.LibraryNavigationAutoHideEnabled}");
         iniContent.AppendLine($"NavigationAutoHideActivationToggleCount = {Math.Max(2, config.LibraryNavigationAutoHideActivationToggleCount)}");
+        iniContent.AppendLine($"UseNewPlaylistSurface = {config.UseNewPlaylistSurface}");
         iniContent.AppendLine($"UpgradeScoutEnabled = {config.UpgradeScoutEnabled}");
         iniContent.AppendLine($"UpgradeMinBitrateThreshold = {config.UpgradeMinBitrateThreshold}");
         iniContent.AppendLine($"UpgradeMinGainKbps = {config.UpgradeMinGainKbps}");
@@ -279,6 +302,28 @@ public class ConfigManager
         iniContent.AppendLine($"RightPanelWidth = {config.DashboardRightPanelWidth}");
         iniContent.AppendLine($"IsNavigationCollapsed = {config.DashboardIsNavigationCollapsed}");
         iniContent.AppendLine($"IsRightPanelOpen = {config.DashboardIsRightPanelOpen}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Workstation]");
+        iniContent.AppendLine($"OverlaySizeMode = {config.WorkstationOverlaySizeMode}");
+        iniContent.AppendLine($"OverlayManualWidth = {config.WorkstationOverlayManualWidth}");
+        iniContent.AppendLine($"OverlayManualHeight = {config.WorkstationOverlayManualHeight}");
+        iniContent.AppendLine($"OverlayIsOpen = {config.WorkstationOverlayIsOpen}");
+        iniContent.AppendLine($"DrawerTabIndex = {Math.Max(0, config.WorkstationDrawerTabIndex)}");
+        iniContent.AppendLine($"ActivePlaylistId = {config.WorkstationActivePlaylistId}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[FlowBuilder]");
+        iniContent.AppendLine($"SelectedPlaylistId = {config.FlowBuilderSelectedPlaylistId}");
+        iniContent.AppendLine($"RestoreContentOnStartup = {config.FlowBuilderRestoreContentOnStartup}");
+        iniContent.AppendLine($"EnableSuggestedFlowPreview = {config.EnableFlowBuilderSuggestedFlowPreview}");
+        iniContent.AppendLine($"EnableSuggestedFlowTelemetry = {config.EnableFlowBuilderSuggestedFlowTelemetry}");
+        iniContent.AppendLine($"SuggestedFlowPreviewRolloutPercent = {Math.Clamp(config.FlowBuilderSuggestedFlowPreviewRolloutPercent, 0, 100)}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[FrequentSources]");
+        iniContent.AppendLine($"EnableFrequentSources = {config.EnableFrequentSources}");
+        iniContent.AppendLine($"StagingPath = {config.FrequentSourcesStagingPath}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[Import]");

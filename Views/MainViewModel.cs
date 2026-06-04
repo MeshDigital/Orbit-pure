@@ -10,6 +10,7 @@ using SLSKDONET.Configuration;
 using SLSKDONET.Services;
 using SLSKDONET.ViewModels;
 using Avalonia.Threading;
+using Avalonia.Controls;
 using System.Collections.Generic; // Added this using directive
 using SLSKDONET.Models;
 using System.Reactive.Linq;
@@ -151,7 +152,28 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _disposables.Add(ReactiveUI.MessageBus.Current.Listen<SLSKDONET.Events.OpenInspectorEvent>()
             .Subscribe(evt =>
             {
+                var source = NormalizeInspectorOpenSource(evt.Source);
+
+                if (!ShouldApplyInspectorPayload(evt.ViewModel))
+                {
+                    _logger.LogInformation("Inspector open ignored because payload was null on page {PageType}", CurrentPageType);
+                    return;
+                }
+
+                if (!ShouldApplyInspectorOpenForCurrentPage(source, CurrentPageType))
+                {
+                    _logger.LogInformation("Inspector open ignored as stale source {Source} on page {PageType}", source, CurrentPageType);
+                    return;
+                }
+
+                _logger.LogInformation("Inspector open requested from {Source} ({Title})", source, evt.Title);
                 _rightPanelService.OpenPanel(evt.ViewModel, evt.Title, evt.Icon);
+            }));
+
+        _disposables.Add(ReactiveUI.MessageBus.Current.Listen<SLSKDONET.Events.CloseInspectorEvent>()
+            .Subscribe(_ =>
+            {
+                _rightPanelService.ClosePanel();
             }));
 
         _disposables.Add(_rightPanelService
@@ -304,10 +326,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             Dispatcher.UIThread.Post(() =>
             {
-                if (string.Equals(evt.PageName, "Player", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(evt.PageName, "NowPlaying", StringComparison.OrdinalIgnoreCase))
+                if (ShouldRemapToWorkstationDestination(evt.PageName))
                 {
-                    NavigateToPlayer();
+                    NavigateToWorkstation();
                     return;
                 }
 
@@ -788,6 +809,74 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         return fallback;
     }
 
+    public static bool ShouldRemapToWorkstationDestination(string? pageName)
+    {
+        return string.Equals(pageName, "Player", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(pageName, "NowPlaying", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static string NormalizeInspectorOpenSource(string? source)
+    {
+        return string.IsNullOrWhiteSpace(source) ? "Unknown" : source.Trim();
+    }
+
+    public static bool ShouldApplyInspectorPayload(object? viewModel)
+    {
+        return viewModel is not null;
+    }
+
+    public static bool ShouldApplyInspectorOpenForCurrentPage(string? source, PageType currentPageType)
+    {
+        var normalizedSource = NormalizeInspectorOpenSource(source);
+
+        if (string.Equals(normalizedSource, "Unknown", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (normalizedSource.StartsWith("Library.", StringComparison.Ordinal))
+        {
+            return currentPageType == PageType.Library;
+        }
+
+        if (normalizedSource.StartsWith("Search.", StringComparison.Ordinal))
+        {
+            return currentPageType == PageType.Search;
+        }
+
+        if (normalizedSource.StartsWith("Downloads.", StringComparison.Ordinal))
+        {
+            return currentPageType == PageType.Projects;
+        }
+
+        if (normalizedSource.StartsWith("FlowBuilder.", StringComparison.Ordinal))
+        {
+            return currentPageType is PageType.Workstation or PageType.Decks or PageType.Timeline or PageType.Stems;
+        }
+
+        return true;
+    }
+
+    public static bool ShouldCloseInspectorOnRouteTransition(PageType previousPageType, PageType nextPageType, object? currentPanelVm, object playerPanelVm)
+    {
+        if (currentPanelVm == null)
+        {
+            return false;
+        }
+
+        if (ReferenceEquals(currentPanelVm, playerPanelVm))
+        {
+            return false;
+        }
+
+        return previousPageType != nextPageType;
+    }
+
+    public static SplitViewDisplayMode ResolveSidebarDisplayMode(double width)
+    {
+        return width < 1024 ? SplitViewDisplayMode.Overlay : SplitViewDisplayMode.Inline;
+    }
+
     public static bool IsAcquireOverlayPage(PageType pageType) => pageType is PageType.Search or PageType.Projects or PageType.Import;
     public static bool IsSystemOverlayPage(PageType pageType) => pageType is PageType.Home or PageType.Library or PageType.Analysis or PageType.NowPlaying or PageType.Settings;
     public static bool IsCreativeOverlayPage(PageType pageType) => pageType is PageType.Workstation or PageType.Decks or PageType.Timeline or PageType.Stems;
@@ -975,8 +1064,14 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         if (page != null)
         {
+            var previousPageType = CurrentPageType;
             CurrentPage = page;
             CurrentPageType = ResolvePageType(page.GetType(), CurrentPageType);
+
+            if (ShouldCloseInspectorOnRouteTransition(previousPageType, CurrentPageType, _rightPanelService.CurrentPanelVm, PlayerViewModel))
+            {
+                ReactiveUI.MessageBus.Current.SendMessage(new SLSKDONET.Events.CloseInspectorEvent());
+            }
 
             // Handle Theater Mode Layout (Navigation is special because it affects sidebar size)
             if (CurrentPageType == PageType.TheaterMode)
@@ -1048,8 +1143,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         PlayerViewModel.IsExpandedPlayerOpen = false;
         PlayerViewModel.IsQueueOpen = false;
         IsGlobalSidebarOpen = false;
-        _navigationService.NavigateTo("Player");
-        _logger.LogInformation("Navigated to Player page.");
+        _navigationService.NavigateTo("Workstation");
+        _logger.LogInformation("Player navigation was remapped to Workstation.");
     }
 
     private void NavigateToImport()

@@ -12,6 +12,7 @@ namespace SLSKDONET.ViewModels
     {
         private readonly IRightPanelService _rightPanelService;
         private readonly CompositeDisposable _disposables = new();
+        private object? _lastInspectorContent;
 
         private SidebarTab _activeTab = SidebarTab.Inspector;
         public SidebarTab ActiveTab
@@ -60,12 +61,24 @@ namespace SLSKDONET.ViewModels
                     if (vm is PlaylistTrackViewModel playlistTrack)
                         _ = playlistTrack.LoadAnalysisDataAsync();
 
-                    SimilarTracksVm.PrimeFromInspectorContext(vm);
+                    if (vm is not null && vm is not PlayerViewModel && vm is not SimilarTracksViewModel)
+                    {
+                        _lastInspectorContent = vm;
+                        SimilarTracksVm.PrimeFromInspectorContext(vm);
+                    }
 
                     if (vm is PlayerViewModel)
+                    {
                         ActiveTab = SidebarTab.Player;
+                    }
+                    else if (vm is SimilarTracksViewModel)
+                    {
+                        ActiveTab = SidebarTab.Similarity;
+                    }
                     else if (vm != null && ActiveTab != SidebarTab.Similarity)
+                    {
                         ActiveTab = SidebarTab.Inspector;
+                    }
                 })
                 .DisposeWith(_disposables);
             this.WhenAnyValue(x => x._rightPanelService.IsPanelOpen)
@@ -78,13 +91,30 @@ namespace SLSKDONET.ViewModels
                 .Subscribe(_ => this.RaisePropertyChanged(nameof(ModeIcon)))
                 .DisposeWith(_disposables);
 
-            SwitchToPlayerCommand     = ReactiveCommand.Create(() => { ActiveTab = SidebarTab.Player; _rightPanelService.IsPanelOpen = true; });
-            SwitchToInspectorCommand  = ReactiveCommand.Create(() => { ActiveTab = SidebarTab.Inspector; _rightPanelService.IsPanelOpen = true; });
+            SwitchToPlayerCommand     = ReactiveCommand.Create(() =>
+            {
+                ActiveTab = SidebarTab.Player;
+                _rightPanelService.OpenPanel(PlayerVm, "NOW PLAYING", "🎵");
+            });
+            SwitchToInspectorCommand  = ReactiveCommand.Create(() =>
+            {
+                ActiveTab = SidebarTab.Inspector;
+
+                if (_lastInspectorContent != null)
+                {
+                    _rightPanelService.OpenPanel(_lastInspectorContent, "TRACK INSPECTOR", "🔬");
+                }
+                else
+                {
+                    _rightPanelService.IsPanelOpen = true;
+                }
+            });
             SwitchToSimilarityCommand = ReactiveCommand.Create(() =>
             {
-                SimilarTracksVm.PrimeFromInspectorContext(CurrentContent);
+                var context = _lastInspectorContent ?? CurrentContent;
+                SimilarTracksVm.PrimeFromInspectorContext(context);
                 ActiveTab = SidebarTab.Similarity;
-                _rightPanelService.IsPanelOpen = true;
+                _rightPanelService.OpenPanel(SimilarTracksVm, "SIMILAR TRACKS", "🔗");
             });
             CloseCommand = ReactiveCommand.Create(() => _rightPanelService.ClosePanel());
         }

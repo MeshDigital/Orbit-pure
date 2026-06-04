@@ -10,7 +10,7 @@
              x:DataType="vm:PlayerViewModel"
              Background="#252526">
     
-    <!-- Vertical Player for Right Sidebar -->
+    <!-- Vertical now-playing panel for the right sidebar -->
     <Grid ColumnDefinitions="2*,*" RowDefinitions="Auto,Auto,*,Auto">
         
         <!-- Header -->
@@ -190,8 +190,8 @@
                             Background="#2D2D2D"
                             BorderBrush="#3E3E3E"
                             BorderThickness="1"
-                            ToolTip.Tip="Open Expanded Player">
-                        <TextBlock Text="EXPAND" FontSize="10" FontWeight="Bold" Foreground="#DDEEE3"/>
+                            ToolTip.Tip="Open now playing overlay">
+                        <TextBlock Text="OVERLAY" FontSize="10" FontWeight="Bold" Foreground="#DDEEE3"/>
                     </Button>
                     <Button Command="{Binding OpenPlayerViewCommand}"
                             Padding="10,4"
@@ -199,7 +199,7 @@
                             Background="#221DB954"
                             BorderBrush="#1DB954"
                             BorderThickness="1"
-                            ToolTip.Tip="Open Full Player View">
+                            ToolTip.Tip="Open full now playing view">
                         <TextBlock Text="FULL VIEW" FontSize="10" FontWeight="Bold" Foreground="#DFFFE8"/>
                     </Button>
                     <Button Command="{Binding $parent[Window].DataContext.TogglePlayerLocationCommand}"
@@ -208,101 +208,54 @@
                             Background="#2D2D2D"
                             BorderBrush="#3E3E3E"
                             BorderThickness="1"
-                            ToolTip.Tip="Move player between the sidebar and bottom dock">
-                        <TextBlock Text="{Binding $parent[Window].DataContext.IsPlayerAtBottom, Converter={StaticResource BoolToTextConverter}, ConverterParameter='DOCK: BOTTOM,DOCK: RIGHT'}"
+                            ToolTip.Tip="Move now playing between the sidebar and bottom dock">
+                        <TextBlock Text="{Binding $parent[Window].DataContext.IsPlayerAtBottom, Converter={StaticResource BoolToTextConverter}, ConverterParameter='DOCK: BOTTOM,DOCK: SIDEBAR'}"
                                    FontSize="10" FontWeight="Bold" Foreground="#CCCCCC"/>
                     </Button>
                 </WrapPanel>
                 <WrapPanel HorizontalAlignment="Center" ItemHeight="30">
-                    <Button Command="{Binding AnalyzeCurrentTrackCommand}"
-                            IsEnabled="{Binding HasCurrentTrack}"
-                            Padding="10,4"
-                            Background="#332B18"
-                            BorderBrush="#8E7340"
-                            BorderThickness="1"
-                            ToolTip.Tip="Analyze the current track for cue prep and timing data">
-                        <TextBlock Text="ANALYZE" FontSize="10" FontWeight="Bold" Foreground="#FFF3D8"/>
-                    </Button>
-                    <Button Command="{Binding SeparateCurrentTrackStemsCommand}"
-                            IsEnabled="{Binding HasCurrentTrack}"
-                            Padding="10,4"
-                            Margin="6,0,0,0"
-                            Background="#1E3224"
-                            BorderBrush="#4EC9B0"
-                            BorderThickness="1"
-                            ToolTip.Tip="Open or prepare stems for the current track in the workstation">
-                        <TextBlock Text="STEMS" FontSize="10" FontWeight="Bold" Foreground="#DFFFE8"/>
-                    </Button>
-                    <Button Command="{Binding OpenCurrentTrackInspectorCommand}"
-                            IsEnabled="{Binding HasCurrentTrack}"
-                            Padding="10,4"
-                            Margin="6,0,0,0"
-                            Background="#1D2A3A"
-                            BorderBrush="#5DADE2"
-                            BorderThickness="1"
-                            ToolTip.Tip="Open the current track in the Inspector">
-                        <TextBlock Text="INSPECT" FontSize="10" FontWeight="Bold" Foreground="#D9EEFF"/>
-                    </Button>
-                    <Button Command="{Binding OpenCurrentTrackWorkstationCommand}"
-                            IsEnabled="{Binding HasCurrentTrack}"
-                            Padding="10,4"
-                            Margin="6,0,0,0"
-                            Background="#2A2035"
-                            BorderBrush="#C586C0"
-                            BorderThickness="1"
-                            ToolTip.Tip="Send the current track to the focused workstation deck">
-                        <TextBlock Text="WORKSTATION" FontSize="10" FontWeight="Bold" Foreground="#F2DEFF"/>
-                    </Button>
-                    <Button Command="{Binding OpenCurrentTrackFlowCommand}"
-                            IsEnabled="{Binding HasCurrentTrack}"
-                            Padding="10,4"
-                            Margin="6,0,0,0"
-                            Background="#183020"
-                            BorderBrush="#5BCB8A"
-                            BorderThickness="1"
-                            ToolTip.Tip="Open the current track in the flow workspace">
-                        <TextBlock Text="FLOW" FontSize="10" FontWeight="Bold" Foreground="#DFFFE8"/>
-                    </Button>
-                    <Button Command="{Binding LoadCurrentTrackToDeckACommand}"
-                            IsEnabled="{Binding HasCurrentTrack}"
-                            Padding="10,4"
-                            Margin="6,0,0,0"
-                            Background="#1B2230"
-                            BorderBrush="#7DA2F7"
-                            BorderThickness="1"
-                            ToolTip.Tip="Send the current track straight to Deck A">
-                        <TextBlock Text="DECK A" FontSize="10" FontWeight="Bold" Foreground="#DDE7FF"/>
-                    </Button>
-                    <Button Command="{Binding LoadCurrentTrackToDeckBCommand}"
-                            IsEnabled="{Binding HasCurrentTrack}"
-                            Padding="10,4"
-                            Margin="6,0,0,0"
-                            Background="#1B2230"
-                            BorderBrush="#7DA2F7"
-                            BorderThickness="1"
-                            ToolTip.Tip="Send the current track straight to Deck B">
-                        <TextBlock Text="DECK B" FontSize="10" FontWeight="Bold" Foreground="#DDE7FF"/>
-                    </Button>
-                    <Button Command="{Binding AddCurrentTrackToProjectCommand}"
-                            IsEnabled="{Binding HasCurrentTrack}"
-                            Padding="10,4"
-                            Margin="6,0,0,0"
-                            Background="#1E3224"
-                            BorderBrush="#4EC9B0"
-                            BorderThickness="1"
-                            ToolTip.Tip="Add the current track to the mix project">
-                        <TextBlock Text="ADD TO MIX" FontSize="10" FontWeight="Bold" Foreground="#DFFFE8"/>
-                    </Button>
-                    <Button Command="{Binding RevealCurrentTrackCommand}"
-                            IsEnabled="{Binding HasCurrentTrack}"
-                            Padding="10,4"
-                            Margin="6,0,0,0"
-                            Background="#2D2D2D"
-                            BorderBrush="#3E3E3E"
-                            BorderThickness="1"
-                            ToolTip.Tip="Reveal the current file in Explorer">
-                        <TextBlock Text="REVEAL" FontSize="10" FontWeight="Bold" Foreground="#CCCCCC"/>
-                    </Button>
+                    <DropDownButton Content="⋮"
+                                    IsEnabled="{Binding HasCurrentTrack}"
+                                    Padding="8,4"
+                                    Background="#2D2D2D"
+                                    BorderBrush="#3E3E3E"
+                                    BorderThickness="1"
+                                    ToolTip.Tip="Pro actions">
+                        <DropDownButton.Flyout>
+                            <MenuFlyout>
+                                <MenuItem Header="Analyze Track" Command="{Binding AnalyzeCurrentTrackCommand}">
+                                    <MenuItem.Icon><TextBlock Text="📊"/></MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="Extract Stems" Command="{Binding SeparateCurrentTrackStemsCommand}">
+                                    <MenuItem.Icon><TextBlock Text="🎵"/></MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="Open Inspector" Command="{Binding OpenCurrentTrackInspectorCommand}">
+                                    <MenuItem.Icon><TextBlock Text="🔍"/></MenuItem.Icon>
+                                </MenuItem>
+                                <Separator/>
+                                <MenuItem Header="Send To Workstation" Command="{Binding OpenCurrentTrackWorkstationCommand}">
+                                    <MenuItem.Icon><TextBlock Text="🎛"/></MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="Open In Flow" Command="{Binding OpenCurrentTrackFlowCommand}">
+                                    <MenuItem.Icon><TextBlock Text="🌊"/></MenuItem.Icon>
+                                </MenuItem>
+                                <Separator/>
+                                <MenuItem Header="Load To Deck A" Command="{Binding LoadCurrentTrackToDeckACommand}">
+                                    <MenuItem.Icon><TextBlock Text="A"/></MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="Load To Deck B" Command="{Binding LoadCurrentTrackToDeckBCommand}">
+                                    <MenuItem.Icon><TextBlock Text="B"/></MenuItem.Icon>
+                                </MenuItem>
+                                <Separator/>
+                                <MenuItem Header="Add To Mix" Command="{Binding AddCurrentTrackToProjectCommand}">
+                                    <MenuItem.Icon><TextBlock Text="➕"/></MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="Reveal In Explorer" Command="{Binding RevealCurrentTrackCommand}">
+                                    <MenuItem.Icon><TextBlock Text="📂"/></MenuItem.Icon>
+                                </MenuItem>
+                            </MenuFlyout>
+                        </DropDownButton.Flyout>
+                    </DropDownButton>
                 </WrapPanel>
             </StackPanel>
         </StackPanel>
@@ -349,25 +302,22 @@
                         BorderThickness="1"
                         CornerRadius="6"
                         Padding="8,6">
-                    <StackPanel Spacing="6">
-                        <TextBlock Text="{Binding CurrentTrackPhraseJumpSummary}"
-                                   FontSize="10"
-                                   Foreground="#B7CCE0"
-                                   TextWrapping="Wrap"/>
-                        <WrapPanel HorizontalAlignment="Center" ItemHeight="26">
-                            <Button Command="{Binding JumpToIntroCommand}" IsEnabled="{Binding HasCurrentTrack}" Padding="8,3" Background="#1D2A3A" BorderBrush="#3E566E" BorderThickness="1" ToolTip.Tip="Jump to the prepared intro cue or guided intro position">
-                                <TextBlock Text="INTRO" FontSize="9" FontWeight="Bold" Foreground="#D9EEFF"/>
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Phrase Navigation" FontSize="9" Foreground="#888888" LetterSpacing="1" FontWeight="SemiBold"/>
+                        <Grid ColumnDefinitions="*,*,*,*">
+                            <Button Grid.Column="0" Command="{Binding JumpToIntroCommand}" IsEnabled="{Binding HasCurrentTrack}" Padding="8,4" Background="#2D2D2D" BorderBrush="#3E3E3E" BorderThickness="1" ToolTip.Tip="Jump to intro">
+                                <TextBlock Text="Intro" FontSize="8" FontWeight="SemiBold" Foreground="#CCCCCC"/>
                             </Button>
-                            <Button Command="{Binding JumpToBuildCommand}" IsEnabled="{Binding HasCurrentTrack}" Padding="8,3" Margin="6,0,0,0" Background="#2A2035" BorderBrush="#6E4A88" BorderThickness="1" ToolTip.Tip="Jump to the build-up marker">
-                                <TextBlock Text="BUILD" FontSize="9" FontWeight="Bold" Foreground="#F2DEFF"/>
+                            <Button Grid.Column="1" Command="{Binding JumpToBuildCommand}" IsEnabled="{Binding HasCurrentTrack}" Padding="8,4" Margin="4,0,0,0" Background="#2D2D2D" BorderBrush="#3E3E3E" BorderThickness="1" ToolTip.Tip="Jump to build">
+                                <TextBlock Text="Build" FontSize="8" FontWeight="SemiBold" Foreground="#CCCCCC"/>
                             </Button>
-                            <Button Command="{Binding JumpToDropCommand}" IsEnabled="{Binding HasCurrentTrack}" Padding="8,3" Margin="6,0,0,0" Background="#332B18" BorderBrush="#8E7340" BorderThickness="1" ToolTip.Tip="Jump to the drop / impact section">
-                                <TextBlock Text="DROP" FontSize="9" FontWeight="Bold" Foreground="#FFF3D8"/>
+                            <Button Grid.Column="2" Command="{Binding JumpToDropCommand}" IsEnabled="{Binding HasCurrentTrack}" Padding="8,4" Margin="4,0,0,0" Background="#2D2D2D" BorderBrush="#3E3E3E" BorderThickness="1" ToolTip.Tip="Jump to drop">
+                                <TextBlock Text="Drop" FontSize="8" FontWeight="SemiBold" Foreground="#CCCCCC"/>
                             </Button>
-                            <Button Command="{Binding JumpToOutroCommand}" IsEnabled="{Binding HasCurrentTrack}" Padding="8,3" Margin="6,0,0,0" Background="#1E3224" BorderBrush="#2E6B4D" BorderThickness="1" ToolTip.Tip="Jump to the outro / mix-out zone">
-                                <TextBlock Text="OUTRO" FontSize="9" FontWeight="Bold" Foreground="#DFFFE8"/>
+                            <Button Grid.Column="3" Command="{Binding JumpToOutroCommand}" IsEnabled="{Binding HasCurrentTrack}" Padding="8,4" Margin="4,0,0,0" Background="#2D2D2D" BorderBrush="#3E3E3E" BorderThickness="1" ToolTip.Tip="Jump to outro">
+                                <TextBlock Text="Outro" FontSize="8" FontWeight="SemiBold" Foreground="#CCCCCC"/>
                             </Button>
-                        </WrapPanel>
+                        </Grid>
                     </StackPanel>
                 </Border>
             </StackPanel>
@@ -571,6 +521,28 @@
                     <TextBlock Text="📋" FontSize="16" Foreground="{Binding IsQueueOpen, Converter={StaticResource BoolToColorConverter}}"/>
                 </Button>
             </StackPanel>
+            
+            <!-- Compact Info Footer -->
+            <Border Background="#1E1E1E" 
+                    BorderBrush="#2D2D2D" 
+                    BorderThickness="0,1,0,0" 
+                    Padding="12,8" 
+                    IsVisible="{Binding HasCurrentTrack}">
+                <StackPanel Spacing="4">
+                    <Grid ColumnDefinitions="*,*">
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="KEY" FontSize="8" Foreground="#888888" LetterSpacing="1" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding MusicalKey, TargetNullValue='-'}" 
+                                       FontSize="11" Foreground="White" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="2" Margin="12,0,0,0">
+                            <TextBlock Text="BPM" FontSize="8" Foreground="#888888" LetterSpacing="1" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding BPM, StringFormat={}{0:F0}, TargetNullValue='-'}" 
+                                       FontSize="11" Foreground="White" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
         </StackPanel>
 
         <Border Grid.Column="1"
