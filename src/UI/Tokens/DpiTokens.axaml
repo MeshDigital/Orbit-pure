@@ -1,0 +1,73 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <Styles.Resources>
+    <ResourceDictionary>
+      <!-- Workstation density tokens: base (normal desktop) -->
+      <x:Double x:Key="WsFontXs">8</x:Double>
+      <x:Double x:Key="WsFontSm">10</x:Double>
+      <x:Double x:Key="WsFontMd">11</x:Double>
+      <x:Double x:Key="WsFontLg">12</x:Double>
+
+      <Thickness x:Key="WsPadHeaderToggle">12,5</Thickness>
+      <Thickness x:Key="WsPadSecondary">10,5</Thickness>
+      <Thickness x:Key="WsPadPrimary">14,7</Thickness>
+      <Thickness x:Key="WsPadChip">8,3</Thickness>
+      <Thickness x:Key="WsPadLane">10,5</Thickness>
+      <Thickness x:Key="WsPadInspector">12,10</Thickness>
+      <Thickness x:Key="WsPadDrawerHeader">10,6</Thickness>
+      <Thickness x:Key="WsPadDrawerStatusBusy">10,4</Thickness>
+      <Thickness x:Key="WsPadDrawerStatusIdle">10,2</Thickness>
+      <Thickness x:Key="WsPadTrackPool">8,6</Thickness>
+      <Thickness x:Key="WsPadOverlay">12</Thickness>
+      <Thickness x:Key="WsMarginHeaderMain">12,8,12,0</Thickness>
+      <Thickness x:Key="WsMarginHeaderCenter">10,0,0,0</Thickness>
+      <Thickness x:Key="WsMarginHeaderRight">12,0,0,0</Thickness>
+      <Thickness x:Key="WsMarginHeaderTools">8,2,0,0</Thickness>
+      <Thickness x:Key="WsMarginHeaderChips">0,3,0,0</Thickness>
+      <Thickness x:Key="WsMarginTimelineSlider">220,6,180,6</Thickness>
+      <Thickness x:Key="WsMarginLaneModeChips">8,0,0,0</Thickness>
+      <Thickness x:Key="WsMarginDrawerStatusTrailing">10,0,0,0</Thickness>
+      <Thickness x:Key="WsMarginDrawerCtas">0,4,0,0</Thickness>
+      <Thickness x:Key="WsMarginOverlayHeader">0,0,0,8</Thickness>
+      <Thickness x:Key="WsPadSnapGuide">6,1</Thickness>
+      <Thickness x:Key="WsPadPhraseChip">7,3</Thickness>
+      <Thickness x:Key="WsPadStemToggle">8,4</Thickness>
+
+      <x:Double x:Key="WsHotCueWidth">32</x:Double>
+      <x:Double x:Key="WsHotCueHeight">20</x:Double>
+      <x:Double x:Key="WsHotCueFontSize">10</x:Double>
+
+      <x:Double x:Key="WsIconButtonSize">28</x:Double>
+      <x:Double x:Key="WsIconButtonFontSize">11</x:Double>
+      <x:Double x:Key="WsTimelineHeight">4</x:Double>
+      <x:Double x:Key="WsSnapGuideMarkerWidth">2</x:Double>
+      <x:Double x:Key="WsSnapGuideMarkerHeight">18</x:Double>
+      <x:Double x:Key="WsFontXxs">9</x:Double>
+      <x:Double x:Key="WsSplitterHeight">8</x:Double>
+
+      <!-- Compact desktop density overrides -->
+      <Thickness x:Key="WsPadHeaderToggleCompact">8,3</Thickness>
+      <Thickness x:Key="WsPadSecondaryCompact">8,4</Thickness>
+      <Thickness x:Key="WsPadPrimaryCompact">10,5</Thickness>
+      <Thickness x:Key="WsPadChipCompact">6,2</Thickness>
+      <Thickness x:Key="WsPadLaneCompact">8,4</Thickness>
+      <Thickness x:Key="WsPadInspectorCompact">10,8</Thickness>
+      <Thickness x:Key="WsPadDrawerHeaderCompact">8,4</Thickness>
+      <Thickness x:Key="WsPadDrawerStatusBusyCompact">8,3</Thickness>
+      <Thickness x:Key="WsPadDrawerStatusIdleCompact">8,2</Thickness>
+      <Thickness x:Key="WsPadTrackPoolCompact">6,4</Thickness>
+      <Thickness x:Key="WsPadOverlayCompact">10,8</Thickness>
+      <Thickness x:Key="WsPadPhraseChipCompact">6,3</Thickness>
+      <Thickness x:Key="WsPadStemToggleCompact">6,3</Thickness>
+
+      <x:Double x:Key="WsHotCueWidthCompact">28</x:Double>
+      <x:Double x:Key="WsHotCueHeightCompact">18</x:Double>
+      <x:Double x:Key="WsHotCueFontSizeCompact">9</x:Double>
+
+      <x:Double x:Key="WsIconButtonSizeCompact">24</x:Double>
+      <x:Double x:Key="WsIconButtonFontSizeCompact">10</x:Double>
+    </ResourceDictionary>
+  </Styles.Resources>
+
+</Styles>

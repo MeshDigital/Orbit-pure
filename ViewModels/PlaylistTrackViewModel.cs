@@ -54,6 +54,13 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         }
     }
 
+    private bool _isSavedDoublePartner;
+    public bool IsSavedDoublePartner
+    {
+        get => _isSavedDoublePartner;
+        set => SetProperty(ref _isSavedDoublePartner, value);
+    }
+
     private int _sortOrder;
     public DateTime AddedAt => Model?.AddedAt ?? DateTime.MinValue;
 
@@ -478,12 +485,18 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     {
         get
         {
+            // Prefer emomusic-derived Arousal (already 0-1 normalised)
+            if (Model.Arousal is > 0.0 and var a)
+                return Math.Clamp(a, 0.0, 1.0);
+
+            // Heuristic fallback when no Essentia data is present
             var loudnessNorm = Model.Loudness.HasValue
                 ? Math.Clamp((Model.Loudness.Value + 18.0) / 18.0, 0.0, 1.0)
                 : 0.5;
             return Math.Clamp((RadarEnergy * 0.65) + (loudnessNorm * 0.35), 0.0, 1.0);
         }
     }
+    public bool IsDjTool => Model.IsDjTool;
     public double RadarInstrumentalness => Math.Clamp(InstrumentalProbability, 0.0, 1.0);
     public double AudioVocalDensity => Model.VocalDensityCurve?.Length > 0
         ? Math.Clamp(Model.VocalDensityCurve.Average(), 0.0, 1.0)
@@ -502,6 +515,103 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         _technicalEntity?.LastUpdated is { } dt
             ? dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
             : "—";
+
+    private bool _hasInspectorA10PairwiseContext;
+    public bool HasInspectorA10PairwiseContext
+    {
+        get => _hasInspectorA10PairwiseContext;
+        private set => SetProperty(ref _hasInspectorA10PairwiseContext, value);
+    }
+
+    private string _inspectorA10PairContextLabel = string.Empty;
+    public string InspectorA10PairContextLabel
+    {
+        get => _inspectorA10PairContextLabel;
+        private set => SetProperty(ref _inspectorA10PairContextLabel, value);
+    }
+
+    private double _inspectorA10OverallScore;
+    public double InspectorA10OverallScore
+    {
+        get => _inspectorA10OverallScore;
+        private set => SetProperty(ref _inspectorA10OverallScore, value);
+    }
+
+    private double _inspectorA10HarmonicScore;
+    public double InspectorA10HarmonicScore
+    {
+        get => _inspectorA10HarmonicScore;
+        private set => SetProperty(ref _inspectorA10HarmonicScore, value);
+    }
+
+    private double _inspectorA10BeatScore;
+    public double InspectorA10BeatScore
+    {
+        get => _inspectorA10BeatScore;
+        private set => SetProperty(ref _inspectorA10BeatScore, value);
+    }
+
+    private double _inspectorA10DropScore;
+    public double InspectorA10DropScore
+    {
+        get => _inspectorA10DropScore;
+        private set => SetProperty(ref _inspectorA10DropScore, value);
+    }
+
+    private string _inspectorA10ReasonTags = string.Empty;
+    public string InspectorA10ReasonTags
+    {
+        get => _inspectorA10ReasonTags;
+        private set => SetProperty(ref _inspectorA10ReasonTags, value);
+    }
+
+    private string _inspectorTransitionStyleLabel = string.Empty;
+    public string InspectorTransitionStyleLabel
+    {
+        get => _inspectorTransitionStyleLabel;
+        private set => SetProperty(ref _inspectorTransitionStyleLabel, value);
+    }
+
+    private string _inspectorTransitionStyleReason = string.Empty;
+    public string InspectorTransitionStyleReason
+    {
+        get => _inspectorTransitionStyleReason;
+        private set => SetProperty(ref _inspectorTransitionStyleReason, value);
+    }
+
+    public void SetInspectorA10PairwiseContext(
+        string contextLabel,
+        double overallScore,
+        double harmonicScore,
+        double beatScore,
+        double dropScore,
+        string reasonTags,
+        string? transitionStyleLabel = null,
+        string? transitionStyleReason = null)
+    {
+        InspectorA10PairContextLabel = contextLabel;
+        InspectorA10OverallScore = overallScore;
+        InspectorA10HarmonicScore = harmonicScore;
+        InspectorA10BeatScore = beatScore;
+        InspectorA10DropScore = dropScore;
+        InspectorA10ReasonTags = reasonTags;
+        InspectorTransitionStyleLabel = transitionStyleLabel ?? string.Empty;
+        InspectorTransitionStyleReason = transitionStyleReason ?? string.Empty;
+        HasInspectorA10PairwiseContext = true;
+    }
+
+    public void ClearInspectorA10PairwiseContext()
+    {
+        InspectorA10PairContextLabel = string.Empty;
+        InspectorA10OverallScore = 0;
+        InspectorA10HarmonicScore = 0;
+        InspectorA10BeatScore = 0;
+        InspectorA10DropScore = 0;
+        InspectorA10ReasonTags = string.Empty;
+        InspectorTransitionStyleLabel = string.Empty;
+        InspectorTransitionStyleReason = string.Empty;
+        HasInspectorA10PairwiseContext = false;
+    }
 
     public string AnalysisModelVersion =>
         _technicalEntity?.LastUpdated is { } dt
@@ -1008,6 +1118,8 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
                      Model.MoodTag = updatedTrack.MoodTag;
                      Model.MoodConfidence = updatedTrack.MoodConfidence;
                      Model.InstrumentalProbability = updatedTrack.InstrumentalProbability;
+                     Model.Arousal = updatedTrack.Arousal;
+                     Model.IsDjTool = updatedTrack.IsDjTool;
                      
                      // Update Analysis info if available
                      Model.Popularity = updatedTrack.Popularity;
@@ -1069,6 +1181,9 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
              OnPropertyChanged(nameof(Energy));
              OnPropertyChanged(nameof(Danceability));
              OnPropertyChanged(nameof(Valence));
+             OnPropertyChanged(nameof(ValenceNorm));
+             OnPropertyChanged(nameof(ArousalNorm));
+             OnPropertyChanged(nameof(IsDjTool));
              OnPropertyChanged(nameof(MoodTag));
              OnPropertyChanged(nameof(HasMood));
              OnPropertyChanged(nameof(MoodConfidence));

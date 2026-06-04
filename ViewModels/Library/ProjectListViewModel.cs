@@ -78,6 +78,28 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    private LibraryPlaylistCardViewModel? _selectedProjectCard;
+    public LibraryPlaylistCardViewModel? SelectedProjectCard
+    {
+        get => _selectedProjectCard;
+        set
+        {
+            if (_selectedProjectCard == value)
+            {
+                return;
+            }
+
+            _selectedProjectCard = value;
+            OnPropertyChanged();
+
+            var selectedFromCard = value?.Model;
+            if (!ReferenceEquals(_selectedProject, selectedFromCard))
+            {
+                SelectedProject = selectedFromCard;
+            }
+        }
+    }
+
     // Selected project
     private PlaylistJob? _selectedProject;
     public PlaylistJob? SelectedProject
@@ -92,6 +114,15 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(HasSelectedProject));
                 OnPropertyChanged(nameof(CanDeleteProject));
+
+                var cardForSelection = value is null
+                    ? null
+                    : FilteredProjectCards.FirstOrDefault(card => ReferenceEquals(card.Model, value));
+                if (!ReferenceEquals(_selectedProjectCard, cardForSelection))
+                {
+                    _selectedProjectCard = cardForSelection;
+                    OnPropertyChanged(nameof(SelectedProjectCard));
+                }
 
                 // Raise event for parent ViewModel to handle
                 ProjectSelected?.Invoke(this, value);
@@ -354,6 +385,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
             {
                 FilteredProjectCards.Add(new LibraryPlaylistCardViewModel(p, _artworkCacheService, _mosaicService));
             }
+            SyncSelectedProjectCard();
 
             for (int i = initialChunk; i < filtered.Count; i += chunkSize)
             {
@@ -364,9 +396,24 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                     {
                         FilteredProjectCards.Add(new LibraryPlaylistCardViewModel(p, _artworkCacheService, _mosaicService));
                     }
+
+                    SyncSelectedProjectCard();
                 }, DispatcherPriority.Background);
             }
         });
+    }
+
+    private void SyncSelectedProjectCard()
+    {
+        var card = SelectedProject is null
+            ? null
+            : FilteredProjectCards.FirstOrDefault(candidate => ReferenceEquals(candidate.Model, SelectedProject));
+
+        if (!ReferenceEquals(_selectedProjectCard, card))
+        {
+            _selectedProjectCard = card;
+            OnPropertyChanged(nameof(SelectedProjectCard));
+        }
     }
     // ... existing methods ...
 
@@ -401,9 +448,19 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task ExecuteAddPlaylistAsync()
     {
-        // TODO: Implement add playlist dialog
-        _logger.LogInformation("Add playlist command executed");
-        await Task.CompletedTask;
+        var name = await _dialogService.ShowPromptAsync("New Playlist", "Enter a name for the new playlist:");
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        try
+        {
+            var job = await _libraryService.CreateEmptyPlaylistAsync(name.Trim());
+            _logger.LogInformation("Created new playlist: {Title}", job.SourceTitle);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create playlist");
+            await _dialogService.ShowAlertAsync("Error", $"Could not create playlist: {ex.Message}");
+        }
     }
 
     private async Task ExecuteDeleteProjectAsync(PlaylistJob? job)
@@ -484,6 +541,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
             if (matchesFilter)
             {
                 FilteredProjects.Insert(0, job);
+                FilteredProjectCards.Insert(0, new LibraryPlaylistCardViewModel(job, _artworkCacheService, _mosaicService));
                 _logger.LogInformation("[UI TRACE] Added job {JobId} to FilteredProjects", job.Id);
             }
             else 
@@ -545,6 +603,12 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                 if (FilteredProjects.Contains(jobToRemove))
                 {
                     FilteredProjects.Remove(jobToRemove);
+                }
+
+                var cardToRemove = FilteredProjectCards.FirstOrDefault(c => c.Model.Id == projectId);
+                if (cardToRemove != null)
+                {
+                    FilteredProjectCards.Remove(cardToRemove);
                 }
 
                 // Auto-select next project if deleted one was selected

@@ -18,6 +18,18 @@ using System.Globalization;
 
 namespace SLSKDONET.ViewModels.Workstation;
 
+public enum WorkstationTrackEligibilityIssue
+{
+    None,
+    NoTrack,
+    NotDownloaded,
+    MissingFile,
+    MissingHash,
+    MissingWaveform,
+    MissingCues,
+    MissingAnalysis,
+}
+
 /// <summary>
 /// Thin wrap of <see cref="DeckSlotViewModel"/> that adds workstation-specific
 /// state: deck label, loaded track metadata, stems, and stem preset shortcuts.
@@ -548,42 +560,87 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     public static bool IsTrackReadyForWorkstation(PlaylistTrack? track) =>
         string.IsNullOrWhiteSpace(GetTrackLoadReadinessMessage(track));
 
-    public static string GetTrackLoadReadinessMessage(PlaylistTrack? track)
+    public static WorkstationTrackEligibilityIssue GetTrackEligibilityIssue(PlaylistTrack? track)
     {
         if (track == null)
         {
-            return "No track was selected for workstation loading.";
+            return WorkstationTrackEligibilityIssue.NoTrack;
         }
 
         if (track.Status != TrackStatus.Downloaded)
         {
-            return "Only downloaded local tracks can be loaded into the workstation.";
+            return WorkstationTrackEligibilityIssue.NotDownloaded;
         }
 
         if (string.IsNullOrWhiteSpace(track.ResolvedFilePath) || !File.Exists(track.ResolvedFilePath))
         {
-            return "Track file not found. Re-download or rescan it before loading into the workstation.";
+            return WorkstationTrackEligibilityIssue.MissingFile;
+        }
+
+        if (string.IsNullOrWhiteSpace(track.TrackUniqueHash))
+        {
+            return WorkstationTrackEligibilityIssue.MissingHash;
+        }
+
+        if (!HasWaveformPrepData(track))
+        {
+            return WorkstationTrackEligibilityIssue.MissingWaveform;
+        }
+
+        if (!HasCuePrepData(track))
+        {
+            return WorkstationTrackEligibilityIssue.MissingCues;
         }
 
         if (!HasWorkstationPrepData(track))
         {
-            return "Track analysis is incomplete. Analyze the track before loading it into the workstation.";
+            return WorkstationTrackEligibilityIssue.MissingAnalysis;
         }
 
-        return string.Empty;
+        return WorkstationTrackEligibilityIssue.None;
+    }
+
+    public static string GetTrackLoadReadinessMessage(PlaylistTrack? track)
+    {
+        switch (GetTrackEligibilityIssue(track))
+        {
+            case WorkstationTrackEligibilityIssue.NoTrack:
+                return "No track was selected for workstation loading.";
+            case WorkstationTrackEligibilityIssue.NotDownloaded:
+                return "Track is not local yet. Download it first, then load it into the workstation.";
+            case WorkstationTrackEligibilityIssue.MissingFile:
+                return "Track file not found. Re-download or rescan it before loading into the workstation.";
+            case WorkstationTrackEligibilityIssue.MissingHash:
+                return "Track is missing a stable library hash. Rebuild library metadata before workstation loading.";
+            case WorkstationTrackEligibilityIssue.MissingWaveform:
+                return "Waveform analysis is missing. Analyze the track to generate waveform data before workstation loading.";
+            case WorkstationTrackEligibilityIssue.MissingCues:
+                return "Cue analysis is incomplete. Generate cue points before workstation loading.";
+            case WorkstationTrackEligibilityIssue.MissingAnalysis:
+                return "Track analysis is incomplete. Analyze the track before loading it into the workstation.";
+            default:
+                return string.Empty;
+        }
     }
 
     private static bool HasWorkstationPrepData(PlaylistTrack track)
     {
+        return !string.IsNullOrWhiteSpace(track.TrackUniqueHash)
+            && HasWaveformPrepData(track)
+            && HasCuePrepData(track);
+    }
+
+    private static bool HasWaveformPrepData(PlaylistTrack track)
+    {
         return (track.WaveformData?.Length ?? 0) > 0
             || (track.LowData?.Length ?? 0) > 0
             || (track.MidData?.Length ?? 0) > 0
-            || (track.HighData?.Length ?? 0) > 0
-            || track.BPM.HasValue
-            || !string.IsNullOrWhiteSpace(track.Key)
-            || !string.IsNullOrWhiteSpace(track.CuePointsJson)
-            || track.Energy.HasValue
-            || track.ManualEnergy.HasValue;
+            || (track.HighData?.Length ?? 0) > 0;
+    }
+
+    private static bool HasCuePrepData(PlaylistTrack track)
+    {
+        return !string.IsNullOrWhiteSpace(track.CuePointsJson);
     }
 
     private void RaiseWaveformBandPropertiesChanged()

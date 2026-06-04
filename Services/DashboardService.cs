@@ -28,6 +28,8 @@ namespace SLSKDONET.Services;
 /// </summary>
 public class DashboardService
 {
+    public const int DefaultPendingUpdatesRefreshThreshold = 20;
+
     private readonly ILogger<DashboardService> _logger;
     private readonly DatabaseService _databaseService;
     private readonly AppConfig _config;
@@ -119,6 +121,8 @@ public class DashboardService
                 .ToList();
                 
             health.TopGenresJson = System.Text.Json.JsonSerializer.Serialize(genreCounts);
+            // Reset drift marker after a full canonical recalculation pass.
+            health.PendingUpdates = 0;
 
             if (context.Entry(health).State == Microsoft.EntityFrameworkCore.EntityState.Detached)
             {
@@ -132,6 +136,44 @@ public class DashboardService
         {
             _logger.LogError(ex, "Failed to recalculate library health");
         }
+    }
+
+    public async Task<bool> NeedsLibraryHealthRefreshAsync(
+        TimeSpan? maxAge = null,
+        int pendingUpdatesThreshold = DefaultPendingUpdatesRefreshThreshold)
+    {
+        var health = await GetLibraryHealthAsync();
+        return ShouldRecalculateLibraryHealth(
+            DateTime.Now,
+            health?.LastScanDate,
+            health?.PendingUpdates ?? 0,
+            maxAge ?? TimeSpan.FromMinutes(5),
+            pendingUpdatesThreshold);
+    }
+
+    public static bool ShouldRecalculateLibraryHealth(
+        DateTime now,
+        DateTime? lastScanDate,
+        int pendingUpdates,
+        TimeSpan maxAge,
+        int pendingUpdatesThreshold = DefaultPendingUpdatesRefreshThreshold)
+    {
+        if (lastScanDate is null || lastScanDate <= DateTime.MinValue)
+        {
+            return true;
+        }
+
+        if (pendingUpdates >= Math.Max(1, pendingUpdatesThreshold))
+        {
+            return true;
+        }
+
+        if (maxAge <= TimeSpan.Zero)
+        {
+            return true;
+        }
+
+        return now - lastScanDate.Value >= maxAge;
     }
 
     public (long TotalBytes, long FreeBytes) GetStorageInsight()
@@ -296,6 +338,8 @@ public class DashboardService
             SubGenreConfidence = entity.SubGenreConfidence,
             PrimaryGenre = entity.PrimaryGenre,
             InstrumentalProbability = entity.InstrumentalProbability,
+            Arousal = entity.Arousal,
+            IsDjTool = entity.IsDjTool,
             PreferredFormats = entity.PreferredFormats,
             MinBitrateOverride = entity.MinBitrateOverride,
             DropTimestamp = entity.DropTimestamp,

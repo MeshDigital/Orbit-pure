@@ -12,9 +12,9 @@
             <Setter Property="BorderBrush" Value="#3A3A3A"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="5"/>
-            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="Padding" Value="{StaticResource WsPadSecondary}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontSize" Value="{StaticResource WsFontMd}"/>
         </Style>
         <Style Selector="ToggleButton.mixer-toggle:checked">
             <Setter Property="Foreground" Value="#00D7FF"/>
@@ -27,13 +27,21 @@
             <Setter Property="BorderBrush" Value="#3A3A3A"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="5"/>
-            <Setter Property="Padding" Value="10,4"/>
-            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Padding" Value="{StaticResource WsPadSecondary}"/>
+            <Setter Property="FontSize" Value="{StaticResource WsFontMd}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
         <Style Selector="Button.tap-btn:pressed">
             <Setter Property="Background" Value="#1A3A4A"/>
             <Setter Property="BorderBrush" Value="#00D7FF"/>
+        </Style>
+        <Style Selector="UserControl.ws-density-compact ToggleButton.mixer-toggle">
+            <Setter Property="Padding" Value="{StaticResource WsPadSecondaryCompact}"/>
+            <Setter Property="FontSize" Value="{StaticResource WsFontSm}"/>
+        </Style>
+        <Style Selector="UserControl.ws-density-compact Button.tap-btn">
+            <Setter Property="Padding" Value="{StaticResource WsPadSecondaryCompact}"/>
+            <Setter Property="FontSize" Value="{StaticResource WsFontSm}"/>
         </Style>
     </UserControl.Styles>
 

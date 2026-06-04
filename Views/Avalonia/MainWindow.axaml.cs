@@ -104,6 +104,12 @@ namespace SLSKDONET.Views.Avalonia
                 vm.IsMobileMode  = width < 600;
                 vm.IsTabletMode  = width >= 600 && width < 1024;
 
+                var responsiveDisplayMode = MainViewModel.ResolveSidebarDisplayMode(width);
+                if (this.FindControl<SplitView>("ShellSplitView") is { } shellSplitView && shellSplitView.DisplayMode != responsiveDisplayMode)
+                {
+                    shellSplitView.DisplayMode = responsiveDisplayMode;
+                }
+
                 // Auto-close Timeline/Overlays panels below tablet threshold
                 if (width < 1024)
                 {

@@ -5,7 +5,38 @@
              x:Class="SLSKDONET.Views.Avalonia.FlowBuilderView"
              Background="#141414">
 
-    <Grid RowDefinitions="Auto,Auto,*">
+    <UserControl.Styles>
+        <Style Selector="Border.fb-chip">
+            <Setter Property="Background" Value="#20262D"/>
+            <Setter Property="BorderBrush" Value="#2F3E4C"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="999"/>
+            <Setter Property="Padding" Value="8,3"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+        </Style>
+
+        <Style Selector="Button.fb-primary">
+            <Setter Property="Background" Value="#1D4E42"/>
+            <Setter Property="BorderBrush" Value="#2D8E7A"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#DDFCF5"/>
+            <Setter Property="CornerRadius" Value="7"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <Style Selector="Button.fb-ghost">
+            <Setter Property="Background" Value="#171C22"/>
+            <Setter Property="BorderBrush" Value="#2A333D"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#9BD7CA"/>
+            <Setter Property="CornerRadius" Value="7"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,Auto,*">
 
         <!-- ── Header bar ───────────────────────────────────────────────── -->
         <Border Grid.Row="0"
@@ -13,15 +44,31 @@
                 BorderBrush="#3E3E3E"
                 BorderThickness="0,0,0,1"
                 Padding="20,12">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto">
 
                 <!-- Title block -->
                 <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
-                    <TextBlock Text="🎛 FLOW BUILDER"
+                    <TextBlock Text="FLOW BUILDER"
                                FontSize="16" FontWeight="Bold"
                                Foreground="#4EC9B0"/>
                     <TextBlock Text="Build your DJ set — track order, transitions, energy flow"
                                FontSize="11" Foreground="#666"/>
+                    <WrapPanel Margin="0,4,0,0">
+                        <Border Classes="fb-chip">
+                            <TextBlock Foreground="#7FCBB9" FontSize="10">
+                                <TextBlock.Text>
+                                    <MultiBinding StringFormat="{}{0} tracks staged">
+                                        <Binding Path="Tracks.Count"/>
+                                    </MultiBinding>
+                                </TextBlock.Text>
+                            </TextBlock>
+                        </Border>
+                        <Border Classes="fb-chip" IsVisible="{Binding IsLoading}">
+                            <TextBlock Text="Optimizing transitions..."
+                                       Foreground="#9CB7D9"
+                                       FontSize="10"/>
+                        </Border>
+                    </WrapPanel>
                 </StackPanel>
 
                 <!-- Playlist combo -->
@@ -36,6 +83,7 @@
                 <!-- Load -->
                 <Button Grid.Column="2"
                         Content="▶ Load"
+                    Classes="fb-primary"
                         Command="{Binding LoadSelectedPlaylistCommand}"
                         IsEnabled="{Binding IsNotLoading}"
                         Margin="4,0"
@@ -44,6 +92,7 @@
                 <!-- Suggest Next -->
                 <Button Grid.Column="3"
                         Content="✦ Suggest Next"
+                    Classes="fb-ghost"
                         Command="{Binding SuggestNextCommand}"
                         IsEnabled="{Binding IsNotLoading}"
                         Margin="4,0"
@@ -51,6 +100,15 @@
 
                 <!-- Refresh list -->
                 <Button Grid.Column="4"
+                    Content="◎ Suggest Flow"
+                    Classes="fb-ghost"
+                    Command="{Binding SuggestFlowCommand}"
+                    IsEnabled="{Binding HasTracks}"
+                    Margin="4,0"
+                    VerticalAlignment="Center"/>
+
+                <!-- Refresh list -->
+                <Button Grid.Column="5"
                         Content="↻"
                         Command="{Binding LoadPlaylistsCommand}"
                         ToolTip.Tip="Refresh playlist list"
@@ -59,7 +117,7 @@
                         Width="32"/>
 
                 <!-- Clear -->
-                <Button Grid.Column="5"
+                <Button Grid.Column="6"
                         Content="✕ Clear"
                         Command="{Binding ClearCommand}"
                         IsEnabled="{Binding HasTracks}"
@@ -80,30 +138,109 @@
                              Margin="0,0,12,0"/>
                 <TextBlock Grid.Column="1"
                            Text="{Binding StatusText}"
-                           FontSize="11" Foreground="#888"
+                           FontSize="11" Foreground="#9AA8B7"
                            VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="2"
-                           FontSize="11" Foreground="#555"
-                           VerticalAlignment="Center">
-                    <TextBlock.Text>
-                        <MultiBinding StringFormat="{}{0} tracks in set">
-                            <Binding Path="Tracks.Count"/>
-                        </MultiBinding>
-                    </TextBlock.Text>
-                </TextBlock>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock FontSize="11" Foreground="#6E7A86" VerticalAlignment="Center">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0} tracks in set">
+                                <Binding Path="Tracks.Count"/>
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+                    <Border Classes="fb-chip" IsVisible="{Binding HasTracks}">
+                        <TextBlock Text="Drag cards to shape transitions" FontSize="10" Foreground="#8AA0B8"/>
+                    </Border>
+                    <TextBlock Text="Style filter"
+                               FontSize="10"
+                               Foreground="#8AA0B8"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding HasTracks}"/>
+                    <ComboBox ItemsSource="{Binding TransitionStyleFilters}"
+                              SelectedItem="{Binding SelectedTransitionStyleFilter}"
+                              MinWidth="140"
+                              MaxWidth="170"
+                              IsVisible="{Binding HasTracks}"/>
+                    <Border Classes="fb-chip" IsVisible="{Binding HasTracks}">
+                        <TextBlock Text="{Binding TransitionFilterSummary}" FontSize="10" Foreground="#9CB7D9"/>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ── Suggested flow banner ─────────────────────────────────────── -->
+        <Border Grid.Row="2"
+            Margin="20,10,20,0"
+            Padding="14,10"
+            Background="#162027"
+            BorderBrush="#27515D"
+            BorderThickness="1"
+            CornerRadius="8"
+            IsVisible="{Binding HasSuggestedFlow}">
+            <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto">
+            <StackPanel Grid.Column="0" Spacing="4">
+                <TextBlock Text="A10 Suggested Flow"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="#9BD7CA"/>
+                  <TextBlock Text="{Binding SuggestedFlowStyleSummary}"
+                      FontSize="11"
+                      FontWeight="SemiBold"
+                      Foreground="#F3D37A"
+                      TextWrapping="Wrap"
+                      IsVisible="{Binding SuggestedFlowStyleSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                <TextBlock Text="{Binding SuggestedFlowPreview}"
+                       FontSize="11"
+                       Foreground="#D7E6E2"
+                       TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding SuggestedFlowReasonSummary}"
+                       FontSize="10"
+                       Foreground="#8AA0B8"
+                       TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <Border Grid.Column="1"
+                Margin="12,0,8,0"
+                Classes="fb-chip"
+                VerticalAlignment="Center">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="{Binding SuggestedFlowScoreDisplay}"
+                           FontSize="10"
+                           Foreground="#9BD7CA"/>
+                    <Button Content="Preview Impact"
+                            Classes="fb-ghost"
+                            Command="{Binding ViewSuggestedFlowImpactCommand}"
+                            IsVisible="{Binding HasSuggestedFlowImpactPreview}"/>
+                </StackPanel>
+            </Border>
+
+            <StackPanel Grid.Column="2"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    VerticalAlignment="Center">
+                <Button Content="Apply"
+                    Classes="fb-primary"
+                    Command="{Binding ApplySuggestedFlowCommand}"/>
+                <Button Content="Dismiss"
+                    Classes="fb-ghost"
+                    Command="{Binding DismissSuggestedFlowCommand}"/>
+            </StackPanel>
             </Grid>
         </Border>
 
         <!-- ── Timeline area ─────────────────────────────────────────────── -->
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="3">
 
             <!-- Empty state placeholder -->
             <StackPanel IsVisible="{Binding HasNoTracks}"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
-                        Spacing="14">
-                <TextBlock Text="🎵"
-                           FontSize="52"
+                    Spacing="12"
+                    MaxWidth="560">
+                <TextBlock Text="SET CANVAS"
+                       FontSize="13"
+                       FontWeight="Bold"
+                       Foreground="#5A6E83"
                            HorizontalAlignment="Center"/>
                 <TextBlock Text="Your set is empty"
                            FontSize="20" FontWeight="SemiBold"
@@ -115,6 +252,24 @@
                            TextWrapping="Wrap"
                            MaxWidth="420"
                            TextAlignment="Center"/>
+                    <WrapPanel HorizontalAlignment="Center" ItemHeight="32" Margin="0,4,0,0">
+                        <Button Content="Load Playlist"
+                            Classes="fb-primary"
+                            Command="{Binding LoadSelectedPlaylistCommand}"
+                            IsEnabled="{Binding IsNotLoading}"/>
+                        <Button Content="Suggest Next"
+                            Classes="fb-ghost"
+                            Margin="8,0,0,0"
+                            Command="{Binding SuggestNextCommand}"
+                            IsEnabled="{Binding IsNotLoading}"/>
+                    </WrapPanel>
+                    <TextBlock Text="Tip: pick a playlist first to get full AI ordering and bridge scores."
+                           FontSize="10"
+                           Foreground="#6A7785"
+                           HorizontalAlignment="Center"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap"
+                           MaxWidth="500"/>
             </StackPanel>
 
             <!-- Horizontal timeline -->
@@ -222,6 +377,14 @@
                                                     Width="28" Height="22"
                                                     FontSize="10"
                                                     Padding="0"/>
+                                                <Button Content="🔗"
+                                                    Command="{Binding FindBridgeToNextCommand}"
+                                                    ToolTip.Tip="Find bridge track to the next item"
+                                                    Width="28" Height="22"
+                                                    FontSize="10"
+                                                    Padding="0"
+                                                    IsVisible="{Binding HasBridge}"
+                                                    Foreground="#FFB800"/>
                                             <Button Content="✕"
                                                     Command="{Binding RemoveCommand}"
                                                     ToolTip.Tip="Remove from set"
@@ -235,10 +398,15 @@
                                 </Border>
 
                                 <!-- ── Transition bridge ───────────────── -->
-                                <Border Grid.Column="1"
+                                <Button Grid.Column="1"
                                         IsVisible="{Binding HasBridge}"
                                         VerticalAlignment="Top"
                                         Margin="0,22,0,0"
+                                        Background="Transparent"
+                                        BorderBrush="Transparent"
+                                        BorderThickness="0"
+                                        Padding="0"
+                                        Command="{Binding SelectTransitionInspectorCommand}"
                                         ToolTip.Tip="{Binding Bridge.Tooltip}">
                                     <StackPanel Spacing="4">
 
@@ -259,8 +427,16 @@
                                                    Foreground="{Binding Bridge.ScoreBrush}"
                                                    HorizontalAlignment="Center"/>
 
+                                        <TextBlock Text="{Binding Bridge.BreakdownDisplay}"
+                                                   FontSize="8"
+                                                   Foreground="#8AA0B8"
+                                                   HorizontalAlignment="Center"
+                                                   TextAlignment="Center"
+                                                   TextWrapping="Wrap"
+                                                   MaxWidth="56"/>
+
                                     </StackPanel>
-                                </Border>
+                                </Button>
 
                             </Grid>
                         </DataTemplate>

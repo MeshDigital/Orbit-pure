@@ -56,6 +56,9 @@ public sealed class SectionVectorService
 
     // ── Public query API ───────────────────────────────────────────────────
 
+    private static bool IsValidTrackHash(string? trackHash)
+        => !string.IsNullOrWhiteSpace(trackHash);
+
     /// <summary>
     /// Returns all section vectors for <paramref name="trackHash"/>, ordered by
     /// <see cref="TrackPhraseEntity.OrderIndex"/>.
@@ -65,6 +68,9 @@ public sealed class SectionVectorService
         string trackHash,
         CancellationToken ct = default)
     {
+        if (!IsValidTrackHash(trackHash))
+            return Array.Empty<SectionFeatureVector>();
+
         if (_cache.TryGetValue(trackHash, out var cached))
             return cached;
 
@@ -74,11 +80,16 @@ public sealed class SectionVectorService
     }
 
     /// <summary>
-    /// Returns the cached section list synchronously after a <see cref="PreloadAsync"/> call.
+    /// Returns cached section list synchronously after a <see cref="PreloadAsync"/> call.
     /// Returns an empty list if the hash was not yet loaded.
     /// </summary>
     public IReadOnlyList<SectionFeatureVector> GetCached(string trackHash)
-        => _cache.TryGetValue(trackHash, out var v) ? v : Array.Empty<SectionFeatureVector>();
+    {
+        if (!IsValidTrackHash(trackHash))
+            return Array.Empty<SectionFeatureVector>();
+
+        return _cache.TryGetValue(trackHash, out var v) ? v : Array.Empty<SectionFeatureVector>();
+    }
 
     /// <summary>
     /// Returns the best Intro section for this track (highest confidence).
@@ -160,6 +171,9 @@ public sealed class SectionVectorService
         string toHash,
         CancellationToken ct = default)
     {
+        if (!IsValidTrackHash(fromHash) || !IsValidTrackHash(toHash))
+            return 0.0;
+
         var outro = await GetOutroSectionAsync(fromHash, ct);
         var intro = await GetIntroSectionAsync(toHash, ct);
         if (outro is null || intro is null) return 0.0;
@@ -174,6 +188,9 @@ public sealed class SectionVectorService
     /// </summary>
     public double TransitionCostCached(string fromHash, string toHash)
     {
+        if (!IsValidTrackHash(fromHash) || !IsValidTrackHash(toHash))
+            return 0.0;
+
         var fromSections = GetCached(fromHash);
         var toSections   = GetCached(toHash);
 
@@ -190,6 +207,9 @@ public sealed class SectionVectorService
 
     public double TransitionScoreCached(string fromHash, string toHash)
     {
+        if (!IsValidTrackHash(fromHash) || !IsValidTrackHash(toHash))
+            return 0.5;
+
         var fromSections = GetCached(fromHash);
         var toSections = GetCached(toHash);
 
@@ -208,6 +228,9 @@ public sealed class SectionVectorService
 
     public double DropSimilarityCached(string fromHash, string toHash)
     {
+        if (!IsValidTrackHash(fromHash) || !IsValidTrackHash(toHash))
+            return 0.0;
+
         var fromDrop = GetCached(fromHash)
             .Where(s => s.SectionType == PhraseType.Drop)
             .OrderByDescending(s => s.Confidence)
@@ -223,6 +246,91 @@ public sealed class SectionVectorService
         return Math.Clamp(1.0 - (fromDrop.DistanceTo(toDrop) / 2.0), 0.0, 1.0);
     }
 
+    /// <summary>
+    /// Finds bridge candidates that smoothly connect Track A's outro to Track B's intro.
+    ///
+    /// For each candidate X: computes bridge quality as:
+    ///   (TransitionScore(A.outro → X.intro) + TransitionScore(X.outro → B.intro)) / 2
+    ///
+    /// Returns candidates ranked by bridge quality (best first), with transition scores.
+    /// 
+    /// Used for "Find Bridge Between" playlist enhancement feature.
+    /// </summary>
+    public async Task<IReadOnlyList<(string TrackHash, double BridgeScore, double AtoXScore, double XtoBScore)>>
+        FindBridgeCandidatesAsync(
+            string fromHash,
+            string toHash,
+            IEnumerable<string> candidateHashes,
+            CancellationToken ct = default)
+    {
+        if (!IsValidTrackHash(fromHash) || !IsValidTrackHash(toHash))
+            return Array.Empty<(string TrackHash, double BridgeScore, double AtoXScore, double XtoBScore)>();
+
+        if (candidateHashes is null)
+            return Array.Empty<(string TrackHash, double BridgeScore, double AtoXScore, double XtoBScore)>();
+
+        var candidates = candidateHashes.Distinct().ToList();
+        if (candidates.Count == 0)
+            return Array.Empty<(string TrackHash, double BridgeScore, double AtoXScore, double XtoBScore)>();
+
+        // Load sections for from/to tracks and all candidates
+        var allHashes = new HashSet<string> { fromHash, toHash };
+        allHashes.UnionWith(candidates);
+        await PreloadAsync(allHashes, ct);
+
+        // Get key sections from endpoints
+        var fromSections = GetCached(fromHash);
+        var toSections = GetCached(toHash);
+
+        var aOutro = fromSections
+            .Where(s => s.SectionType == PhraseType.Outro)
+            .OrderByDescending(s => s.Confidence)
+            .FirstOrDefault();
+
+        var bIntro = toSections
+            .Where(s => s.SectionType == PhraseType.Intro)
+            .OrderByDescending(s => s.Confidence)
+            .FirstOrDefault();
+
+        // If either endpoint has no sections, can't bridge
+        if (aOutro is null || bIntro is null)
+            return Array.Empty<(string TrackHash, double BridgeScore, double AtoXScore, double XtoBScore)>();
+
+        var results = new List<(string TrackHash, double BridgeScore, double AtoXScore, double XtoBScore)>();
+
+        foreach (var candidateHash in candidates)
+        {
+            if (ct.IsCancellationRequested)
+                break;
+
+            var xSections = GetCached(candidateHash);
+            var xIntro = xSections
+                .Where(s => s.SectionType == PhraseType.Intro)
+                .OrderByDescending(s => s.Confidence)
+                .FirstOrDefault();
+            var xOutro = xSections
+                .Where(s => s.SectionType == PhraseType.Outro)
+                .OrderByDescending(s => s.Confidence)
+                .FirstOrDefault();
+
+            // Skip candidates without both intro and outro
+            if (xIntro is null || xOutro is null)
+                continue;
+
+            // Compute transition qualities
+            double aToXScore = aOutro.TransitionScore(xIntro);
+            double xToBScore = xOutro.TransitionScore(bIntro);
+            double bridgeScore = (aToXScore + xToBScore) / 2.0;
+
+            results.Add((candidateHash, bridgeScore, aToXScore, xToBScore));
+        }
+
+        // Sort by bridge quality (best first)
+        return results
+            .OrderByDescending(r => r.BridgeScore)
+            .ToList();
+    }
+
     // ── Bulk preload ───────────────────────────────────────────────────────
 
     /// <summary>
@@ -235,7 +343,10 @@ public sealed class SectionVectorService
         IEnumerable<string> trackHashes,
         CancellationToken ct = default)
     {
-        foreach (var hash in trackHashes.Where(h => !_cache.ContainsKey(h)))
+        if (trackHashes is null)
+            return;
+
+        foreach (var hash in trackHashes.Where(IsValidTrackHash).Where(h => !_cache.ContainsKey(h)))
         {
             if (ct.IsCancellationRequested) break;
             await GetSectionsAsync(hash, ct);
@@ -245,7 +356,14 @@ public sealed class SectionVectorService
     // ── Cache management ───────────────────────────────────────────────────
 
     /// <summary>Evicts one track so it will be reloaded from DB on next query.</summary>
-    public void Invalidate(string trackHash) => _cache.TryRemove(trackHash, out _);
+    public void Invalidate(string? trackHash)
+    {
+        if (!IsValidTrackHash(trackHash))
+            return;
+
+        var hash = trackHash!;
+        _cache.TryRemove(hash, out _);
+    }
 
     /// <summary>Clears the entire cache (e.g. after a bulk re-analysis run).</summary>
     public void InvalidateAll() => _cache.Clear();

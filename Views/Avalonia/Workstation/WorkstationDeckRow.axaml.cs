@@ -11,11 +11,15 @@ namespace SLSKDONET.Views.Avalonia.Workstation;
 
 public partial class WorkstationDeckRow : UserControl
 {
+    private const string DensityCompactClass = "ws-density-compact";
+    private const string DensityNormalClass = "ws-density-normal";
+
     private Border? _dropZone;
 
     public WorkstationDeckRow()
     {
         InitializeComponent();
+        ApplyDensityMode();
         _dropZone = this.FindControl<Border>("DeckDropZone");
         if (_dropZone != null)
         {
@@ -24,6 +28,21 @@ public partial class WorkstationDeckRow : UserControl
             _dropZone.AddHandler(DragDrop.DragLeaveEvent, OnDeckDragLeave);
             _dropZone.AddHandler(DragDrop.DropEvent, OnDeckDrop);
         }
+    }
+
+    private void ApplyDensityMode()
+    {
+        var renderScaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+        var compact = renderScaling >= 1.35;
+
+        Classes.Set(DensityCompactClass, compact);
+        Classes.Set(DensityNormalClass, !compact);
+    }
+
+    protected override void OnAttachedToVisualTree(global::Avalonia.VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        ApplyDensityMode();
     }
 
     private void InitializeComponent()

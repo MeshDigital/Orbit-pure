@@ -17,6 +17,7 @@ using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
 using SLSKDONET.Services.InputParsers;
+using SLSKDONET.Services.AutoDownload;
 using SLSKDONET.Utils;
 using SLSKDONET.Services.Models;
 using SLSKDONET.Data.Essentia;
@@ -48,10 +49,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     
     // NEW Services
     private readonly DownloadDiscoveryService _discoveryService;
+    private readonly AutoSearchService _autoSearchService;
     private readonly PathProviderService _pathProvider;
     private readonly IFileWriteService _fileWriteService; // Phase 1A
     private readonly CrashRecoveryJournal _crashJournal;
     private readonly PeerReliabilityService _peerReliability;
+    private readonly PrefetchVerifier _prefetchVerifier;
     private readonly INetworkHealthService _networkHealth;
 
 
@@ -148,8 +151,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         ILibraryService libraryService,
         IEventBus eventBus,
         DownloadDiscoveryService discoveryService,
+        AutoSearchService autoSearchService,
         PathProviderService pathProvider,
         IFileWriteService fileWriteService,
+        PrefetchVerifier prefetchVerifier,
         CrashRecoveryJournal crashJournal,
         PeerReliabilityService peerReliability,
         INetworkHealthService networkHealth) // Phase 1: Engine Overhaul
@@ -164,10 +169,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         _libraryService = libraryService;
         _eventBus = eventBus;
         _discoveryService = discoveryService;
+        _autoSearchService = autoSearchService;
         _pathProvider = pathProvider;
         _fileWriteService = fileWriteService;
         _crashJournal = crashJournal; 
         _peerReliability = peerReliability;
+        _prefetchVerifier = prefetchVerifier;
         _networkHealth = networkHealth;
 
 
@@ -1208,6 +1215,28 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         // Phase 6 Fix: Real-time population of "All Tracks" (LibraryEntry)
         if (newState == PlaylistTrackState.Completed && !string.IsNullOrEmpty(ctx.Model.ResolvedFilePath))
         {
+            var queuedHash = string.IsNullOrWhiteSpace(ctx.Model.TrackUniqueHash)
+                ? ctx.GlobalId
+                : ctx.Model.TrackUniqueHash;
+
+            await LogIngestionLifecycleAsync(
+                ctx.Model.PlaylistId,
+                "ingestion_queued",
+                new
+                {
+                    trackHash = queuedHash,
+                    playlistTrackId = ctx.Model.Id,
+                    filePath = ctx.Model.ResolvedFilePath,
+                    queuedAtUtc = DateTime.UtcNow,
+                    source = "DownloadManager.UpdateStateAsync"
+                });
+
+            _eventBus.Publish(new FileIngestionQueuedEvent(
+                queuedHash,
+                ctx.Model.Id,
+                ctx.Model.ResolvedFilePath,
+                DateTime.UtcNow));
+
             await _libraryService.AddTrackToLibraryIndexAsync(ctx.Model, ctx.Model.ResolvedFilePath);
 
             // Phase 6: Reciprocal Sharing Growth
@@ -2319,8 +2348,33 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 }
                 else
                 {
-                    // Fallback to normal execution if not pre-searched
-                    discoveryResult = await _discoveryService.FindBestMatchAsync(ctx.Model, trackCt, ctx.BlacklistedUsers, ctx.CorrelationId);
+                    discoveryResult = await ResolveDiscoveryWithStrictGateAsync(
+                        _config.EnableAutoDownloadStrictMode,
+                        _config.AutoDownloadAllowFuzzyFallback,
+                        () => _autoSearchService.FindBestMatchAsync(ctx.Model, trackCt),
+                        () => _discoveryService.FindBestMatchAsync(ctx.Model, trackCt, ctx.BlacklistedUsers, ctx.CorrelationId),
+                        strictDiagnostics =>
+                        {
+                            if (_config.AutoDownloadDiagnosticsEnabled)
+                            {
+                                _logger.LogInformation(
+                                    "Strict-mode AutoDownload selected {Artist} - {Title} via {MatchType} in {ElapsedMs}ms",
+                                    ctx.Model.Artist,
+                                    ctx.Model.Title,
+                                    strictDiagnostics.MatchType ?? "unknown",
+                                    (DateTime.UtcNow - strictDiagnostics.StartedAtUtc).TotalMilliseconds);
+                            }
+                        },
+                        (strictDiagnostics, fallbackAllowed) =>
+                        {
+                            _logger.LogInformation(
+                                "Strict-mode miss for track {TrackId} ({Artist} - {Title}); fallback {FallbackPolicy}. query='{NormalizedQuery}'",
+                                ctx.Model.Id,
+                                ctx.Model.Artist,
+                                ctx.Model.Title,
+                                fallbackAllowed ? "allowed" : "blocked",
+                                strictDiagnostics.NormalizedQuery ?? string.Empty);
+                        });
                     bestMatch = discoveryResult.BestMatch;
                 }
                 ctx.HedgeAttempted = false;
@@ -2661,6 +2715,36 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         /// </summary>
         TimeSpan? Delay,
         string OperatorMessage);
+
+    internal static async Task<DownloadDiscoveryService.DiscoveryResult> ResolveDiscoveryWithStrictGateAsync(
+        bool strictModeEnabled,
+        bool allowFuzzyFallback,
+        Func<Task<(Track? BestMatch, AutoSearchDiagnostics Diagnostics)>> strictSearch,
+        Func<Task<DownloadDiscoveryService.DiscoveryResult>> legacyDiscovery,
+        Action<AutoSearchDiagnostics>? onStrictMatch = null,
+        Action<AutoSearchDiagnostics, bool>? onStrictMiss = null)
+    {
+        if (!strictModeEnabled)
+        {
+            return await legacyDiscovery();
+        }
+
+        var strictResult = await strictSearch();
+        if (strictResult.BestMatch != null)
+        {
+            onStrictMatch?.Invoke(strictResult.Diagnostics);
+            return new DownloadDiscoveryService.DiscoveryResult(strictResult.BestMatch, null, null);
+        }
+
+        onStrictMiss?.Invoke(strictResult.Diagnostics, allowFuzzyFallback);
+
+        if (!allowFuzzyFallback)
+        {
+            return new DownloadDiscoveryService.DiscoveryResult(null, null, null);
+        }
+
+        return await legacyDiscovery();
+    }
 
     internal static TransferFailureDisposition ClassifyTransferFailure(Exception ex)
     {
@@ -3138,53 +3222,52 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     false,
                     ctx.CorrelationId));
 
-                // Phase 1A: POST-DOWNLOAD VERIFICATION
-                // Verify the downloaded file is valid before adding to library
+                // Strict mode uses the dedicated verifier; legacy mode keeps the lightweight helper checks.
                 try
                 {
                     _logger.LogDebug("Verifying downloaded file: {Path}", finalPath);
-                    
-                    // STEP 1: Verify audio format (ensures file can be opened and has valid properties)
-                    var isValidAudio = await SLSKDONET.Services.IO.FileVerificationHelper.VerifyAudioFormatAsync(finalPath);
-                    if (!isValidAudio)
+
+                    if (_config.EnableAutoDownloadStrictMode)
                     {
-                        _logger.LogWarning("Downloaded file failed audio format verification: {Path}", finalPath);
-                        
-                        // Delete corrupt file
-                        File.Delete(finalPath);
-                        
-                        // Mark as failed with specific error
-                        await UpdateStateAsync(ctx, PlaylistTrackState.Failed, 
-                            DownloadFailureReason.FileVerificationFailed);
-                        return;
+                        var verification = await _prefetchVerifier.VerifyDownloadAsync(ctx.Model, bestMatch, finalPath, ct);
+                        if (verification != VerificationResult.Success && verification != VerificationResult.Disabled)
+                        {
+                            _logger.LogWarning("Strict verification failed for {Path}: {Result}", finalPath, verification);
+                            _prefetchVerifier.CleanupStagingFile(finalPath);
+                            await UpdateStateAsync(ctx, PlaylistTrackState.Failed, DownloadFailureReason.FileVerificationFailed);
+                            return;
+                        }
                     }
-                    
-                    // STEP 2: Verify minimum file size (prevents 0-byte or tiny corrupt files)
-                    var isValidSize = await SLSKDONET.Services.IO.FileVerificationHelper.VerifyFileSizeAsync(finalPath, 10 * 1024); // 10KB minimum
-                    if (!isValidSize)
+                    else
                     {
-                        _logger.LogWarning("Downloaded file too small (< 10KB): {Path}", finalPath);
-                        
-                        // Delete invalid file
-                        File.Delete(finalPath);
-                        
-                        // Mark as failed
-                        await UpdateStateAsync(ctx, PlaylistTrackState.Failed, 
-                            DownloadFailureReason.FileVerificationFailed);
-                        return;
+                        var isValidAudio = await SLSKDONET.Services.IO.FileVerificationHelper.VerifyAudioFormatAsync(finalPath);
+                        if (!isValidAudio)
+                        {
+                            _logger.LogWarning("Downloaded file failed audio format verification: {Path}", finalPath);
+                            File.Delete(finalPath);
+                            await UpdateStateAsync(ctx, PlaylistTrackState.Failed, DownloadFailureReason.FileVerificationFailed);
+                            return;
+                        }
+
+                        var isValidSize = await SLSKDONET.Services.IO.FileVerificationHelper.VerifyFileSizeAsync(finalPath, 10 * 1024);
+                        if (!isValidSize)
+                        {
+                            _logger.LogWarning("Downloaded file too small (< 10KB): {Path}", finalPath);
+                            File.Delete(finalPath);
+                            await UpdateStateAsync(ctx, PlaylistTrackState.Failed, DownloadFailureReason.FileVerificationFailed);
+                            return;
+                        }
                     }
-                    
-                    _logger.LogInformation("âœ… File verification passed: {Path}", finalPath);
+
+                    _logger.LogInformation("✅ File verification passed: {Path}", finalPath);
                 }
                 catch (Exception verifyEx)
                 {
                     _logger.LogError(verifyEx, "File verification error for {Path}", finalPath);
-                    
-                    // If verification crashes, treat as corrupt and clean up
+
                     try { File.Delete(finalPath); } catch { }
-                    
-                    await UpdateStateAsync(ctx, PlaylistTrackState.Failed, 
-                        DownloadFailureReason.FileVerificationFailed);
+
+                    await UpdateStateAsync(ctx, PlaylistTrackState.Failed, DownloadFailureReason.FileVerificationFailed);
                     return;
                 }
 
@@ -3308,6 +3391,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 ex.Message,
                 ctx.CorrelationId ?? "-");
             return false;
+        }
+    }
+
+    private async Task LogIngestionLifecycleAsync(Guid playlistId, string action, object details)
+    {
+        try
+        {
+            await _databaseService.LogActivityAsync(IngestionActivityLogFactory.Create(playlistId, action, details));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to log ingestion lifecycle action {Action}", action);
         }
     }
 

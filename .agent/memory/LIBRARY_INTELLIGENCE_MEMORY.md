@@ -1,0 +1,133 @@
+# Library Intelligence Memory
+
+- 2026-05-31: Driver initialized with 10-slice queue LI-001..010.
+- 2026-05-31: Queue extended to LI-014 for post-closure continuation sequencing.
+- 2026-05-31: Discoverability and recap pack created for intelligence lane.
+- 2026-05-31: First slice artifact LI-001 drafted.
+- 2026-05-31: Gate baseline passed (build + Library filter tests).
+- 2026-05-31: LI-001 complete. `EnsureDefaultFolderAsync` now has regression coverage for relative-path normalization alongside the existing trailing-separator and Windows case-insensitive dedupe checks.
+- 2026-05-31: LI-002 complete. `SectionVectorService` now rejects null/blank hashes safely and returns neutral defaults when section data is unavailable.
+- 2026-05-31: LI-002 validation passed via `SectionVectorServiceTests` (5/5), `dotnet build ORBIT-Pure.sln -v minimal`, and Library filter tests (74/74).
+- 2026-05-31: LI-003 complete. Matching/similarity scoring weights are now centralized in `ScoringConstants.Matching` and consumed by both `TrackSimilarityService` and `TrackMatchScorer`.
+- 2026-05-31: LI-003 validation passed via focused scoring tests (11/11), `dotnet build ORBIT-Pure.sln -v minimal`, and Library filter tests (74/74).
+- 2026-05-31: LI-004 complete. Library health drift is now marked via `PendingUpdates` on frequent track writes, while canonical aggregate recompute cadence is owned by `DashboardService` adaptive refresh logic.
+- 2026-05-31: LI-004 validation passed via cadence-focused tests + guard suites (75/75), `dotnet build ORBIT-Pure.sln -v minimal`, and Library filter tests (79/79).
+- 2026-05-31: LI-005 complete. Sparse metadata fallback contracts are now pinned for `SuggestNextCandidateViewModel` and `PlaylistUpgradeCandidateViewModel`, including null/sparse display safety and score-input clamping semantics.
+- 2026-05-31: LI-005 validation passed via sparse-metadata focused tests + guard suites (75/75), `dotnet build ORBIT-Pure.sln -v minimal`, and Library filter tests (79/79).
+- 2026-05-31: LI-006 complete. `EnsureDefaultFolderAsync` now consolidates duplicate normalized folder rows, re-enables existing disabled canonical rows, and retries transient DB lock/busy registration failures.
+- 2026-05-31: LI-006 validation passed via scanner+queue focused tests (10/10), `dotnet build ORBIT-Pure.sln -v minimal`, and Library filter tests (81/81).
+- 2026-05-31: LI-007 complete. `AnalysisQueueService` now suppresses duplicate in-flight requests by track hash, preserving coherent queue-state reporting during repeated request bursts.
+- 2026-05-31: LI-007 validation passed via scanner+queue focused tests (10/10), `dotnet build ORBIT-Pure.sln -v minimal`, and Library filter tests (81/81).
+- 2026-05-31: LI-008 complete. Discoverability/index/recap surfaces now explicitly capture LI-006 scanner dedupe/retry and LI-007 queue coherence contracts.
+- 2026-05-31: LI-008 validation passed via `dotnet build ORBIT-Pure.sln -v minimal` and Library filter tests (81/81).
+- 2026-05-31: LI-009 complete. `AutoSearchService` strict candidate filtering now honors per-track `PreferredFormats` and safely falls back from non-positive `MinBitrateOverride` values to configured strict bitrate defaults.
+- 2026-05-31: LI-009 validation passed via strict auto-download focused tests (30/30), `dotnet build ORBIT-Pure.sln -v minimal`, and Library filter tests (81/81).
+- 2026-05-31: LI-010 complete. Lane closure checkpoint published with pending risk register in `DOCS/recaps/LIBRARY_INTELLIGENCE_RISK_REGISTER.md`.
+- 2026-05-31: LI-011 complete. Lane queue extended through LI-014 for post-closure continuation.
+- 2026-05-31: LI-012 complete. Strict-mode override compatibility contract pinned by regression tests in `AutoSearchServiceTests`.
+- 2026-05-31: LI-013 complete. Discoverability/index/recap surfaces synchronized for LI-009 and LI-010 outputs.
+- 2026-05-31: LI-014 complete. Continuation checkpoint published and next execution pointer advanced to LI-015.
+- 2026-05-31: LI-015 complete. Strict auto-download format/bitrate resolution is now centralized under `AutoDownloadStrictFilterPolicy` to keep query and candidate filtering parity.
+- 2026-05-31: LI-016 complete. Strict duration filtering now normalizes seconds-scale `CanonicalDuration` values before tolerance gating.
+- 2026-05-31: LI-017 complete. Regression coverage now pins preferred-format fallback parity, zero-override bitrate-token parity, and seconds-scale duration normalization behavior.
+- 2026-05-31: LI-018 complete. Risk register reconciled to close strict filter-parity and duration-unit mismatch risks.
+- 2026-05-31: LI-019 complete. Discoverability/index/recap/memory surfaces synchronized for LI-015 through LI-018 outputs.
+- 2026-05-31: LI-020 complete. Continuation checkpoint published and next execution pointer advanced to LI-021.
+- 2026-05-31: LI-021 complete. `AutoSearchService` now applies sparse-metadata confidence adjustments and an enforced acceptance floor to prevent lowered thresholds from silently accepting low-signal matches.
+- 2026-05-31: LI-022 complete. `AutoSearchServiceTests` now pins sparse-floor rejection and non-sparse acceptance behavior under lowered minimum-score configuration.
+- 2026-05-31: LI-023 complete. Added `.vscode/tasks.json` compatibility tasks for strict auto-download + Library combined gate execution.
+- 2026-05-31: LI-024 complete. Validation baseline passed: strict-focused tests 35/35, compatibility gate 116/116, build gate pass, memory governance pass.
+- 2026-05-31: LI-025 complete. Risk register reconciled to close sparse-default masking and test-surface fragmentation risks.
+- 2026-05-31: LI-026 complete. Continuation checkpoint published and next execution pointer advanced to LI-027.
+- 2026-05-31: LI-027 complete. Scorer hardening continuation wave opened and residual risk intake mapped nullable/sparse scorer targets.
+- 2026-05-31: LI-028 complete. `MatchScorer` now null-safely resolves options-backed minimum file size in bitrate/size scoring.
+- 2026-05-31: LI-029 complete. `MatchScorerTests` now pin sparse-metadata conservative scoring and null-options bounded-score contracts.
+- 2026-05-31: LI-030 complete. LI compatibility gate now includes `MatchScorerTests` alongside strict auto-download and Library surfaces.
+- 2026-05-31: LI-031 complete. Discoverability/index/recap/risk/memory surfaces synchronized for LI-027 through LI-030 outputs.
+- 2026-05-31: LI-032 complete. Continuation checkpoint published and next execution pointer advanced to LI-033.
+- 2026-05-31: LI-033 complete. Scorer risk intake reopened for fallback-policy and format-normalization drift.
+- 2026-05-31: LI-034 complete. `MatchScorer` now normalizes candidate/allowed extensions and honors optional MP3 fallback scoring.
+- 2026-05-31: LI-035 complete. `MatchScorerTests` now pin MP3 fallback uplift and dotted/whitespace extension normalization contracts.
+- 2026-05-31: LI-036 complete. Validation baseline refreshed: strict+scorer 47/47, strict+Library+scorer 128/128, build PASS, memory governance PASS.
+- 2026-05-31: LI-037 complete. Discoverability/index/recap/risk/memory surfaces synchronized for LI-033 through LI-036 outputs.
+- 2026-05-31: LI-038 complete. Continuation checkpoint published and next execution pointer advanced to LI-039.
+- 2026-05-31: LI-039 complete. `AutoDownloadStrictFilterPolicy` now gates OnHold MP3-only behavior on `EnableMp3Fallback` for fallback-policy parity.
+- 2026-05-31: LI-040 complete. `MatchScorer` bitrate transcode guard now normalizes format values and extension fallback before FLAC low-bitrate checks.
+- 2026-05-31: LI-041 complete. Regression coverage now pins config-disabled OnHold fallback behavior and extension-derived FLAC transcode detection.
+- 2026-05-31: LI-042 complete. Validation baseline refreshed: strict+scorer 49/49, strict+Library+scorer 130/130, build PASS, memory governance PASS.
+- 2026-05-31: LI-043 complete. Discoverability/index/recap/risk/memory surfaces synchronized for LI-039 through LI-042 outputs.
+- 2026-05-31: LI-044 complete. Continuation checkpoint published and next execution pointer advanced to LI-045.
+- 2026-06-04: LI-051 complete. Strict/scorer parity hardened for malformed non-empty candidate format metadata by retrying allowlist checks with normalized filename extension fallback in both `SoulseekSearchHelper` and `MatchScorer`.
+- 2026-06-04: LI-051 validation baseline refreshed: strict+scorer 53/53 and strict+Library+scorer 134/134.
+- 2026-06-04: LI-052 complete. Strict/scorer parity hardened for MIME-style candidate format metadata by normalizing metadata values (e.g., `audio/x-flac; ...`) before allowlist checks in both `SoulseekSearchHelper` and `MatchScorer`.
+- 2026-06-04: LI-052 validation baseline refreshed: strict+scorer 55/55 and strict+Library+scorer 136/136.
+- 2026-06-04: LI-053 complete. Strict-policy continuation risk intake identified adapter-boundary format drift for MIME-style per-track preferred formats.
+- 2026-06-04: LI-054 complete. `AutoDownloadStrictFilterPolicy` now normalizes MIME-style values, metadata suffixes, and `x-` prefixes for strict allowed-format resolution.
+- 2026-06-04: LI-055 complete. `AutoSearchServiceTests` now pin normalized strict allowed-format propagation at the adapter-boundary search call.
+- 2026-06-04: LI-056 validation baseline refreshed: strict+scorer 56/56 and strict+Library+scorer 137/137 (build PASS, memory governance PASS).
+- 2026-06-04: LI-057 complete. Discoverability/recap/risk/memory surfaces synchronized for LI-053 through LI-056 outputs.
+- 2026-06-04: LI-058 complete. Continuation checkpoint published and next execution pointer advanced to LI-059.
+- 2026-06-04: LI-059 complete. Strict/scorer continuation risk intake identified MIME subtype alias canonicalization drift (`audio/mpeg` => `mpeg`) and metadata-fragment leakage risk in preferred-format parsing.
+- 2026-06-04: LI-060 complete. `AutoDownloadStrictFilterPolicy`, `SoulseekSearchHelper`, and `MatchScorer` now canonicalize MIME aliases (`mpeg`=>`mp3`, `wave`/`vnd.wave`=>`wav`, `mp4`=>`m4a`); strict policy now drops malformed metadata-fragment tokens.
+- 2026-06-04: LI-061 complete. Regression contracts added in `SoulseekSearchHelperTests`, `MatchScorerTests`, and `AutoSearchServiceTests` for MIME alias canonicalization and adapter-boundary preferred-format token hygiene.
+- 2026-06-04: LI-062 validation baseline refreshed: strict+scorer 60/60 and strict+Library+scorer 141/141 (build PASS, memory governance PASS).
+- 2026-06-04: LI-063 complete. Discoverability/recap/risk/memory surfaces synchronized for LI-059 through LI-062 outputs.
+- 2026-06-04: LI-064 complete. Continuation checkpoint published and next execution pointer advanced to LI-065.
+- 2026-06-04: LI-065 complete. Prefetch verification risk intake identified format-policy drift from raw config allowlist usage and extension-only checks.
+- 2026-06-04: LI-066 complete. `PrefetchVerifier` now resolves allowed formats via `AutoDownloadStrictFilterPolicy`, canonicalizes MIME aliases, and uses candidate-format fallback for extensionless staged files.
+- 2026-06-04: LI-067 complete. Added `PrefetchVerifierTests` to pin per-track MIME alias policy parity and extensionless staging fallback contracts.
+- 2026-06-04: LI-068 validation baseline refreshed: focused prefetch tests 2/2, strict+scorer 60/60, strict+Library+scorer 141/141 (build PASS, memory governance PASS).
+- 2026-06-04: LI-069 complete. Discoverability/recap/risk/memory surfaces synchronized for LI-065 through LI-068 outputs.
+- 2026-06-04: LI-070 complete. Continuation checkpoint published and next execution pointer advanced to LI-071.
+- 2026-06-04: LI-071 complete. Strict diagnostic risk intake identified extensionless MIME format-description drift and missing unknown-format fallback semantics.
+- 2026-06-04: LI-072 complete. `SoulseekSearchHelper.DescribeCandidate` now uses canonical extension-first formatting, candidate-format fallback, and explicit `unknown` fallback output.
+- 2026-06-04: LI-073 complete. Added helper regression contracts for MIME alias description labels and unknown-format fallback behavior.
+- 2026-06-04: LI-074 validation baseline refreshed: helper-focused tests 21/21, strict+scorer 62/62, strict+Library+scorer 143/143 (build PASS, memory governance PASS).
+- 2026-06-04: LI-075 complete. Discoverability/recap/risk/memory surfaces synchronized for LI-071 through LI-074 outputs.
+- 2026-06-04: LI-076 complete. Continuation checkpoint published and next execution pointer advanced to LI-077.
+- 2026-06-04: LI-077 complete. Scorer risk intake identified malformed caller-provided allowlist token drift and missing safe fallback semantics.
+- 2026-06-04: LI-078 complete. `MatchScorer` now filters malformed allowlist tokens and falls back to default lossless allowlist when normalized tokens are empty.
+- 2026-06-04: LI-079 complete. Added scorer regression contract for malformed allowlist fallback behavior.
+- 2026-06-04: LI-080 validation baseline refreshed: scorer-focused tests 17/17, strict+scorer 63/63, strict+Library+scorer 144/144 (build PASS, memory governance PASS).
+- 2026-06-04: LI-081 complete. Discoverability/recap/risk/memory surfaces synchronized for LI-077 through LI-080 outputs.
+- 2026-06-04: LI-082 complete. Continuation checkpoint published and next execution pointer advanced to LI-083.
+- 2026-06-04: Backlog runway extended by bulk-creating LI-083 through LI-120 queue placeholders; execution pointer remains LI-083.
+- 2026-06-04: LI-083 complete. Adapter-bound normalization risk intake identified helper streaming-path drift where raw `allowedFormats` bypassed strict/scorer canonicalization hygiene.
+- 2026-06-04: LI-084 complete. `SoulseekSearchHelper` now canonicalizes and malformed-token-filters adapter-bound allowed formats before streaming and ext-token emission.
+- 2026-06-04: LI-085 complete. Added helper regression contract `SearchCandidatesAsync_CanonicalizesAdapterBoundAllowedFormats`.
+- 2026-06-04: LI-086 validation baseline refreshed: targeted contract 1/1, helper-focused 22/22, strict+scorer 64/64, strict+Library+scorer 145/145 (build PASS, memory governance PASS).
+- 2026-06-04: LI-087 complete. Discoverability/recap/risk/memory surfaces synchronized for LI-083 through LI-086 outputs.
+- 2026-06-04: LI-088 complete. Continuation checkpoint published and next execution pointer advanced to LI-089.
+- 2026-06-04: LI-089 complete. Scorer risk intake identified trusted-source reliability drift from case/whitespace-sensitive repeated-source matching.
+- 2026-06-04: LI-090 complete. `MatchScorer.ScoreReliability` now uses trim-safe case-insensitive repeated-source matching.
+- 2026-06-04: LI-091 complete. Added scorer regression contract `TreatsRepeatedSourcesAsCaseInsensitiveAndTrimmed`.
+- 2026-06-04: LI-092 validation baseline refreshed: scorer-focused 18/18, strict+scorer 65/65, strict+Library+scorer 146/146 (build PASS, memory governance PASS).
+- 2026-06-04: LI-093 complete. Discoverability/recap/risk/memory surfaces synchronized for LI-089 through LI-092 outputs.
+- 2026-06-04: LI-094 complete. Continuation checkpoint published and next execution pointer advanced to LI-095.
+- 2026-06-04: LI-095 complete. Helper continuation risk intake identified malformed caller allowlist token drift that could fail closed in helper candidate filtering.
+- 2026-06-04: LI-096 complete. `SoulseekSearchHelper.FilterCandidates` now filters malformed allowlist tokens and falls back to default lossless allowlist semantics when configured tokens normalize to empty.
+- 2026-06-04: LI-097 complete. Added helper regression contract `FilterCandidates_FallsBackToDefaultAllowlistWhenConfiguredAllowlistIsMalformed` in `SoulseekSearchHelperTests`.
+- 2026-06-04: LI-098 validation baseline refreshed: helper-focused 23/23, strict+scorer 66/66, strict+Library+scorer 147/147 (build PASS, memory governance PASS).
+- 2026-06-04: LI-099 complete. Discoverability/recap/risk/memory surfaces synchronized for LI-095 through LI-098 outputs.
+- 2026-06-04: LI-100 complete. Continuation checkpoint published and next execution pointer advanced to LI-101.
+- 2026-06-04: LI-101 complete. Continuation risk intake identified comma-delimited MIME metadata normalization drift for extensionless candidates across strict/helper/scorer paths.
+- 2026-06-04: LI-102 complete. Strict policy, helper, and scorer normalization now trim format metadata at first semicolon/comma separator.
+- 2026-06-04: LI-103 complete. Added helper/scorer regression contracts for comma-delimited MIME alias canonicalization in extensionless candidate scenarios.
+- 2026-06-04: LI-104 validation baseline refreshed: helper-focused 24/24, scorer-focused 19/19, strict+scorer 68/68, strict+Library+scorer 149/149 (build PASS, memory governance PASS).
+- 2026-06-04: LI-105 complete. Discoverability/recap/risk/memory surfaces synchronized for LI-101 through LI-104 outputs.
+- 2026-06-04: LI-106 complete. Continuation checkpoint published and next execution pointer advanced to LI-107.
+- 2026-06-04: LI-107 complete. Continuation risk intake identified whitespace-delimited MIME metadata normalization drift for extensionless candidates and preferred-format resolution across strict/helper/scorer paths.
+- 2026-06-04: LI-108 complete. Strict policy, helper, and scorer normalization now trim format metadata at first whitespace separator in addition to semicolon/comma separators.
+- 2026-06-04: LI-109 complete. Added strict/helper/scorer regression contracts for whitespace-delimited MIME canonicalization at adapter-bound and extensionless candidate surfaces.
+- 2026-06-04: LI-110 validation baseline refreshed: helper-focused 25/25, scorer-focused 20/20, strict+scorer 71/71, strict+Library+scorer 152/152 (build PASS, memory governance PASS).
+- 2026-06-04: LI-111 complete. Discoverability/recap/risk/memory surfaces synchronized for LI-107 through LI-110 outputs.
+- 2026-06-04: LI-112 complete. Continuation checkpoint published and next execution pointer advanced to LI-113.
+- 2026-06-04: LI-113 complete. Continuation risk intake identified quoted MIME metadata normalization drift for adapter-bound preferred-format inputs and extensionless candidates across strict/helper/scorer paths.
+- 2026-06-04: LI-114 complete. Strict policy, helper, and scorer normalization now trim quote wrappers around MIME metadata during canonicalization.
+- 2026-06-04: LI-115 complete. Added quoted MIME canonicalization regression coverage in AutoSearchService, helper, and scorer suites.
+- 2026-06-04: LI-116 validation baseline refreshed: helper-focused 26/26, scorer-focused 20/20, strict+scorer 72/72, strict+Library+scorer 153/153 (build PASS, memory governance PASS).
+- 2026-06-04: LI-117 complete. Discoverability/recap/risk/memory surfaces synchronized for LI-113 through LI-116 outputs.
+- 2026-06-04: LI-118 complete. Continuation checkpoint published and next execution pointer advanced to LI-119.
+- 2026-06-04: LI-119 complete. Strict/helper/scorer normalization now trims wrapper-delimited MIME tokens (`[]`, `()`, `{}`, `<>`, quotes) and refreshed adapter-bound/helper/scorer regression coverage for wrapper-delimited inputs.
+- 2026-06-04: LI-119 validation baseline refreshed: helper-focused 26/26, scorer-focused 21/21, strict+scorer 73/73, strict+Library+scorer 154/154 (build PASS, memory governance PASS).
+- 2026-06-04: LI-120 complete. Governance surfaces synchronized and queue-120 closure checkpoint published.

@@ -38,7 +38,7 @@
         <KeyBinding Gesture="Ctrl+D" Command="{Binding NavigateProjectsCommand}"/>
         <KeyBinding Gesture="Ctrl+Shift+S" Command="{Binding NavigateSettingsCommand}"/>
         <KeyBinding Gesture="Ctrl+P" Command="{Binding TogglePlayerCommand}"/>
-        <KeyBinding Gesture="Ctrl+Shift+P" Command="{Binding NavigatePlayerCommand}"/>
+        <KeyBinding Gesture="Ctrl+Shift+P" Command="{Binding NavigateWorkstationCommand}"/>
         <KeyBinding Gesture="Ctrl+N" Command="{Binding ToggleNavigationCommand}"/>
         <KeyBinding Gesture="F10" Command="{Binding ToggleZenModeCommand}"/>
         <KeyBinding Gesture="F11" Command="{Binding ToggleTopBarCommand}"/>
@@ -368,12 +368,12 @@
                                     </StackPanel>
                                 </Button>
 
-                                <Button Classes="nav" Command="{Binding NavigatePlayerCommand}"
-                                        ToolTip.Tip="Player"
-                                        Classes.selected="{Binding IsPlayerOverlayActive}">
+                                <Button Classes="nav" Command="{Binding NavigateWorkstationCommand}"
+                                        ToolTip.Tip="Workstation"
+                                        Classes.selected="{Binding IsWorkstationOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
                                         <TextBlock Text="🎛️" FontSize="16"/>
-                                        <TextBlock Text="Player" FontSize="14"/>
+                                        <TextBlock Text="Workstation" FontSize="14"/>
                                     </StackPanel>
                                 </Button>
 
@@ -413,7 +413,8 @@
             </Border>
 
             <!-- Center Content Area with Global Contextual Sidebar -->
-            <SplitView Grid.Column="1"
+            <SplitView x:Name="ShellSplitView"
+                       Grid.Column="1"
                        IsPaneOpen="{Binding IsGlobalSidebarOpen}"
                        DisplayMode="Inline"
                        PanePlacement="Right"
@@ -431,8 +432,8 @@
                                         <Button Classes="tab"
                                                 Classes.selected="{Binding Sidebar.IsPlayerTab}"
                                                 Command="{Binding Sidebar.SwitchToPlayerCommand}"
-                                                ToolTip.Tip="Player">
-                                            <TextBlock Text="▶ Player" FontSize="12" FontWeight="SemiBold"/>
+                                                ToolTip.Tip="Now Playing">
+                                            <TextBlock Text="▶ Now Playing" FontSize="12" FontWeight="SemiBold"/>
                                         </Button>
                                         <Button Classes="tab"
                                                 Classes.selected="{Binding Sidebar.IsInspectorTab}"
@@ -478,12 +479,18 @@
                                     </ContentControl.Transitions>
                                     <ContentControl.DataTemplates>
                                         <DataTemplate DataType="vmCore:PlayerViewModel">
-                                            <!-- Player opened here shows a hint to use the Player tab -->
+                                            <!-- Now-playing context opened here shows a hint to use the Now Playing tab -->
                                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
                                                 <TextBlock Text="▶" FontSize="32" HorizontalAlignment="Center" Foreground="#555"/>
                                                 <TextBlock Text="Select a track to inspect" Foreground="#888" FontSize="13"
                                                            HorizontalAlignment="Center"/>
                                             </StackPanel>
+                                        </DataTemplate>
+                                        <DataTemplate DataType="vmCore:LibraryDoubleInspectorViewModel">
+                                            <controls:DoubleInspectorPanel/>
+                                        </DataTemplate>
+                                        <DataTemplate DataType="vmCore:PlaylistIntelligenceViewModel">
+                                            <controls:PlaylistIntelligencePanel/>
                                         </DataTemplate>
                                         <DataTemplate DataType="vmDownloads:UnifiedTrackViewModel">
                                             <controls:TrackInspector/>
@@ -493,6 +500,20 @@
                                         </DataTemplate>
                                         <DataTemplate DataType="vmCore:PlaylistTrackViewModel">
                                             <controls:LibraryTrackInspector/>
+                                        </DataTemplate>
+                                        <DataTemplate>
+                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" MaxWidth="280">
+                                                <TextBlock Text="Inspector fallback" FontSize="13" FontWeight="SemiBold" Foreground="#AAA" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="Inspector content is unavailable for this selection. Showing Now Playing is recommended until a matching template is added."
+                                                           FontSize="11"
+                                                           Foreground="#888"
+                                                           TextWrapping="Wrap"
+                                                           TextAlignment="Center"/>
+                                                <Button Content="Show Now Playing"
+                                                        HorizontalAlignment="Center"
+                                                        Command="{Binding $parent[Window].DataContext.Sidebar.SwitchToPlayerCommand}"
+                                                        Padding="12,6"/>
+                                            </StackPanel>
                                         </DataTemplate>
                                     </ContentControl.DataTemplates>
                                 </ContentControl>
@@ -645,8 +666,8 @@
                     <Button Background="Transparent" BorderThickness="0" Padding="8,4"
                             MinHeight="44" MinWidth="44"
                             Command="{Binding Sidebar.SwitchToPlayerCommand}"
-                            ToolTip.Tip="Player">
-                        <TextBlock Text="Player" FontSize="12" Foreground="#4EC9B0"/>
+                            ToolTip.Tip="Now Playing">
+                        <TextBlock Text="Now Playing" FontSize="12" Foreground="#4EC9B0"/>
                     </Button>
                     <Button Background="Transparent" BorderThickness="0" Padding="8,4"
                             MinHeight="44" MinWidth="44"
@@ -675,23 +696,77 @@
                 </StackPanel>
             </Border>
 
-            <!-- Sheet content: inspector or timeline depending on sidebar state -->
-            <ContentControl Grid.Row="1" Content="{Binding Sidebar.CurrentContent}">
-                <ContentControl.DataTemplates>
-                    <DataTemplate DataType="vmCore:PlayerViewModel">
-                        <views:PlayerControl/>
-                    </DataTemplate>
-                    <DataTemplate DataType="vmDownloads:UnifiedTrackViewModel">
-                        <controls:TrackInspector/>
-                    </DataTemplate>
-                    <DataTemplate DataType="vmCore:AnalyzedSearchResultViewModel">
-                        <controls:SearchInspector/>
-                    </DataTemplate>
-                    <DataTemplate DataType="vmCore:PlaylistTrackViewModel">
-                        <controls:LibraryTrackInspector/>
-                    </DataTemplate>
-                </ContentControl.DataTemplates>
-            </ContentControl>
+            <!-- Sheet content mirrors desktop tab behavior -->
+            <Grid Grid.Row="1">
+                <Border Opacity="{Binding Sidebar.IsPlayerTab, Converter={StaticResource BoolToOpacityConverter}, ConverterParameter='1;0'}"
+                        IsHitTestVisible="{Binding Sidebar.IsPlayerTab}">
+                    <Border.Transitions>
+                        <Transitions>
+                            <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+                        </Transitions>
+                    </Border.Transitions>
+                    <views:PlayerControl DataContext="{Binding Sidebar.PlayerVm}"/>
+                </Border>
+
+                <ContentControl
+                    Content="{Binding Sidebar.CurrentContent}"
+                    Opacity="{Binding Sidebar.IsInspectorTab, Converter={StaticResource BoolToOpacityConverter}, ConverterParameter='1;0'}"
+                    IsHitTestVisible="{Binding Sidebar.IsInspectorTab}">
+                    <ContentControl.Transitions>
+                        <Transitions>
+                            <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+                        </Transitions>
+                    </ContentControl.Transitions>
+                    <ContentControl.DataTemplates>
+                        <DataTemplate DataType="vmCore:PlayerViewModel">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                                <TextBlock Text="▶" FontSize="32" HorizontalAlignment="Center" Foreground="#555"/>
+                                <TextBlock Text="Select a track to inspect" Foreground="#888" FontSize="13"
+                                           HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </DataTemplate>
+                        <DataTemplate DataType="vmCore:LibraryDoubleInspectorViewModel">
+                            <controls:DoubleInspectorPanel/>
+                        </DataTemplate>
+                        <DataTemplate DataType="vmCore:PlaylistIntelligenceViewModel">
+                            <controls:PlaylistIntelligencePanel/>
+                        </DataTemplate>
+                        <DataTemplate DataType="vmDownloads:UnifiedTrackViewModel">
+                            <controls:TrackInspector/>
+                        </DataTemplate>
+                        <DataTemplate DataType="vmCore:AnalyzedSearchResultViewModel">
+                            <controls:SearchInspector/>
+                        </DataTemplate>
+                        <DataTemplate DataType="vmCore:PlaylistTrackViewModel">
+                            <controls:LibraryTrackInspector/>
+                        </DataTemplate>
+                        <DataTemplate>
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" MaxWidth="280">
+                                <TextBlock Text="Inspector fallback" FontSize="13" FontWeight="SemiBold" Foreground="#AAA" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Inspector content is unavailable for this selection. Showing Now Playing is recommended until a matching template is added."
+                                           FontSize="11"
+                                           Foreground="#888"
+                                           TextWrapping="Wrap"
+                                           TextAlignment="Center"/>
+                                <Button Content="Show Now Playing"
+                                        HorizontalAlignment="Center"
+                                        Command="{Binding $parent[Window].DataContext.Sidebar.SwitchToPlayerCommand}"
+                                        Padding="12,6"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ContentControl.DataTemplates>
+                </ContentControl>
+
+                <Border Opacity="{Binding Sidebar.IsSimilarityTab, Converter={StaticResource BoolToOpacityConverter}, ConverterParameter='1;0'}"
+                        IsHitTestVisible="{Binding Sidebar.IsSimilarityTab}">
+                    <Border.Transitions>
+                        <Transitions>
+                            <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+                        </Transitions>
+                    </Border.Transitions>
+                    <views:SimilarTracksPanel DataContext="{Binding Sidebar.SimilarTracksVm}"/>
+                </Border>
+            </Grid>
         </Grid>
 
         <!-- Login Overlay -->

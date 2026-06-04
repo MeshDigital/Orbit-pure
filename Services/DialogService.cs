@@ -7,6 +7,7 @@ using SLSKDONET.Views.Avalonia.Controls;
 using Avalonia.Threading;
 using SLSKDONET.ViewModels.Library;
 using SLSKDONET.Models;
+using SLSKDONET.ViewModels;
 
 namespace SLSKDONET.Services;
 
@@ -150,6 +151,23 @@ public class DialogService : IDialogService
             });
 
             return folder?.FirstOrDefault()?.Path.LocalPath;
+        });
+    }
+
+    public async Task ShowSuggestedFlowImpactAsync(SuggestedFlowImpactViewModel vm)
+    {
+        await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var dialog = new Views.Avalonia.Dialogs.SuggestedFlowImpactDialog
+            {
+                DataContext = vm
+            };
+
+            var owner = GetOwnerWindow();
+            if (owner != null)
+            {
+                await dialog.ShowDialog(owner);
+            }
         });
     }
 }

@@ -72,10 +72,10 @@ namespace SLSKDONET.Services
                     // Tiered Updates:
                     // 1. Real-time (Every tick - 500ms): Downloads, Active Operations, CPU
                     // 2. System (Every 10 ticks - 5s): Storage, Zombie Processes, Spotify Auth
-                    // 3. Library (Every 600 ticks - 5min): Full Library Health Audit
+                    // 3. Library (Every 30 ticks - 15s): Adaptive Health Audit (only recalculates when stale/drifting)
 
                     bool isSystemTick = _tickCounter % 10 == 0;
-                    bool isLibraryTick = _tickCounter % 600 == 0;
+                    bool isLibraryTick = _tickCounter % 30 == 0;
 
                     if (isSystemTick || _tickCounter == 1)
                     {
@@ -129,8 +129,13 @@ namespace SLSKDONET.Services
         {
             try
             {
-                _logger.LogInformation("Mission Control: Performing scheduled library health audit...");
-                await _dashboardService.RecalculateLibraryHealthAsync();
+                var shouldRefresh = await _dashboardService.NeedsLibraryHealthRefreshAsync(TimeSpan.FromMinutes(5));
+                if (shouldRefresh)
+                {
+                    _logger.LogInformation("Mission Control: Performing adaptive library health audit...");
+                    await _dashboardService.RecalculateLibraryHealthAsync();
+                }
+
                 _cachedLibraryHealth = await _dashboardService.GetLibraryHealthAsync();
             }
             catch (Exception ex)

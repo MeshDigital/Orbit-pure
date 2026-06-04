@@ -166,7 +166,7 @@ public class SearchResultMatcher
             breakdown.Add("Profile: Lossy fallback enabled (+0)");
         }
 
-        // 1. Duration Match (Max 40 pts)
+        // 1. Duration Match (Max 40 pts) — STRICT: reject if outside tolerance
         if (model.CanonicalDuration.HasValue && candidate.Length.HasValue)
         {
             var expectedSec = model.CanonicalDuration.Value / 1000;
@@ -175,6 +175,7 @@ public class SearchResultMatcher
 
             if (!IsDurationAcceptable(expectedSec, actualSec, options.DurationToleranceSeconds))
             {
+                // Hard rejection: duration mismatch disqualifies immediately
                 return new MatchResult(
                     0,
                     $"Duration: Outside tolerance (expected {expectedSec}s, actual {actualSec}s, tolerance ±{options.DurationToleranceSeconds}s)",
@@ -182,24 +183,14 @@ public class SearchResultMatcher
                     "Duration Rejected");
             }
 
-            if (diff <= 1)
-            {
-                score += 40;
-                breakdown.Add("Duration: Exact/Close (+40)");
-            }
-            else if (diff <= Math.Min(2, options.DurationToleranceSeconds))
-            {
-                score += 35;
-                breakdown.Add("Duration: Tight tolerance (+35)");
-            }
-            else
-            {
-                score += 20;
-                breakdown.Add("Duration: Within tolerance (+20)");
-            }
+            // No fuzzy duration scoring — full points for acceptable, zero otherwise
+            score += 40;
+            breakdown.Add($"Duration: Acceptable ({diff}s diff, +40)");
         }
         else if (model.CanonicalDuration.HasValue)
         {
+            // Duration missing on candidate — deduct points but don't hard-reject
+            score += 0;
             breakdown.Add("Duration: Missing on candidate (+0)");
         }
 
@@ -377,7 +368,7 @@ public class SearchResultMatcher
             }
         }
 
-        return Math.Clamp(contextScore, -16, 18);
+        return Math.Clamp(contextScore, -8, 6); // Reduced from -16/18 — context is tie-breaker only
     }
 
     private static bool ContainsAnchor(string haystack, string anchor)
@@ -618,7 +609,8 @@ public class SearchResultMatcher
         var normalizedFilename = NormalizeFuzzy(filenameOnly);
         var normalizedTitle = NormalizeFuzzy(expectedTitle);
 
-        // Check if filename contains title with word boundaries
+        // Strict: Filename must contain title with word boundaries (exact match only)
+        // NO fuzzy Levenshtein, NO partial matching
         return ContainsWithBoundary(normalizedFilename, normalizedTitle, ignoreCase: true);
     }
 
@@ -631,43 +623,24 @@ public class SearchResultMatcher
     {
         if (string.IsNullOrEmpty(expectedArtist)) return true;
 
-        // Normalize both strings
+        // Normalize both strings (exact boundary match only, no fuzzy fallback)
         var normalizedFilename = NormalizeFuzzy(filename);
         var normalizedArtist = NormalizeFuzzy(expectedArtist);
 
-        // 1. Standard Check: Filename contains Artist
+        // Single check: Filename must contain Artist with word boundaries
+        // NO multi-artist splitting, NO reverse containment, NO fuzzy Levenshtein
+        // This prevents wrong matches from being too lenient
         if (ContainsWithBoundary(normalizedFilename, normalizedArtist, ignoreCase: true))
             return true;
 
-        // 2. Normalized Artist Check (strips "The", "DJ", "MC", connectors, possessives)
+        // Only allow "The" stripping as a single fallback
+        // Example: "The Beatles" -> "Beatles" can match "beatles" in filename
         string strippedArtist = NormalizeArtist(expectedArtist);
         if (!string.IsNullOrEmpty(strippedArtist) && strippedArtist.Length > 2 
             && ContainsWithBoundary(normalizedFilename, strippedArtist, ignoreCase: true))
             return true;
 
-        // 3. Multi-Artist Handling (split by , & / feat and vs)
-        var splitArtists = Regex.Split(normalizedArtist, @"[,&/]|\b(feat|ft|vs\.?)\b")
-                                .Select(a => a?.Trim() ?? "")
-                                .Where(a => a.Length > 2)
-                                .ToList();
-
-        if (splitArtists.Count > 1)
-        {
-            foreach (var subArtist in splitArtists)
-            {
-                if (ContainsWithBoundary(normalizedFilename, subArtist, ignoreCase: true))
-                    return true;
-
-                // Also check sub-artist with prefix leniency
-                string strippedSub = NormalizeArtist(subArtist);
-                if (!string.IsNullOrEmpty(strippedSub) && strippedSub.Length > 2
-                    && ContainsWithBoundary(normalizedFilename, strippedSub, ignoreCase: true))
-                    return true;
-            }
-        }
-
-        // 4. Reverse Containment: Does the filename's artist-like segment contain OUR artist?
-        // Handles: Query="Tiësto" but file path has "Tiesto" (accent normalization already handles this)
+        // NO fuzzy Levenshtein, NO reverse matching, NO feature/collaboration fallback
         // or Query="Deadmau5" but file says "deadmaus" — caught by fuzzy below.
 
         // 5. Levenshtein Fuzzy Fallback: If the whole-string similarity is > 85%, accept it.

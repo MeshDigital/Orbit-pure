@@ -7,8 +7,10 @@ using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Models;
 using SLSKDONET.Models.Entertainment;
+using SLSKDONET.Models.Musical;
 using SLSKDONET.Services;
 using SLSKDONET.Services.Entertainment;
+using SLSKDONET.Services.Similarity;
 using SLSKDONET.Views;
 
 // using DraggingService; // TODO: Fix drag-drop library reference
@@ -51,6 +53,11 @@ namespace SLSKDONET.ViewModels
         private readonly System.Threading.Timer _saveQueueTimer;
         private bool _suppressSave;
         private System.Threading.CancellationTokenSource? _errorDismissCts;
+        private bool _playerNavigationInFlight;
+        private DateTime _lastPlayerNavigationRequestUtc = DateTime.MinValue;
+
+        private static readonly TimeSpan PlayerNavigationDebounceWindow = TimeSpan.FromMilliseconds(350);
+        private static readonly TimeSpan PlayerNavigationSettleDelay = TimeSpan.FromMilliseconds(150);
 
         
         private string _trackTitle = "No Track Playing";
@@ -430,8 +437,7 @@ namespace SLSKDONET.ViewModels
         public ICommand PreviousTrackCommand { get; }
         public ICommand AddToQueueCommand { get; }
         public ICommand RemoveFromQueueCommand { get; }
-        public ReactiveCommand<Unit, Unit> ConfirmDeleteCommand { get; }
-        
+
         // Visual Style Commands
         public ReactiveCommand<Unit, Unit> CycleVisualStyleCommand { get; }
         public ICommand ClearQueueCommand { get; }
@@ -663,8 +669,7 @@ namespace SLSKDONET.ViewModels
             PreviousTrackCommand = new RelayCommand(PlayPreviousTrack, () => HasPreviousTrack());
             AddToQueueCommand = new RelayCommand<PlaylistTrackViewModel>(AddToQueue);
             RemoveFromQueueCommand = new RelayCommand<PlaylistTrackViewModel>(RemoveFromQueue);
-            ConfirmDeleteCommand = ReactiveCommand.CreateFromTask(ConfirmDeleteAsync);
-            
+
             CycleVisualStyleCommand = ReactiveCommand.Create(() => 
             {
                 var values = Enum.GetValues<VisualizerStyle>();
@@ -690,10 +695,7 @@ namespace SLSKDONET.ViewModels
             GoBackCommand = new RelayCommand(() => _eventBus.Publish(new NavigateToPageEvent("Library")));
             OpenPlayerViewCommand = new RelayCommand(() =>
             {
-                IsExpandedPlayerOpen = false;
-                IsQueueOpen = false;
-                _rightPanelService.IsPanelOpen = false;
-                _navigationService.NavigateTo("Player");
+                _ = OpenPlayerViewAsync();
             });
             OpenCurrentTrackInspectorCommand = new RelayCommand(OpenCurrentTrackInspector);
             OpenCurrentTrackWorkstationCommand = new RelayCommand(OpenCurrentTrackWorkstation);
@@ -783,11 +785,6 @@ namespace SLSKDONET.ViewModels
 
 
 
-        private async System.Threading.Tasks.Task ConfirmDeleteAsync()
-        {
-            await System.Threading.Tasks.Task.CompletedTask;
-        }
-
         private void OnQueueCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
         {
              if (!_suppressSave)
@@ -871,9 +868,123 @@ namespace SLSKDONET.ViewModels
                 return;
             }
 
+            var selected = CurrentTrack;
+            var selectedQueueIndex = CurrentQueueIndex;
+            selected.ClearInspectorA10PairwiseContext();
+
             IsExpandedPlayerOpen = false;
             IsQueueOpen = false;
-            _rightPanelService.OpenPanel(CurrentTrack, "TRACK INSPECTOR", "🔬");
+            _rightPanelService.OpenPanel(selected, "TRACK INSPECTOR", "🔬");
+            _ = TryAttachInspectorPairwiseContextFromQueueAsync(selected, selectedQueueIndex);
+        }
+
+        private async Task OpenPlayerViewAsync()
+        {
+            if (_playerNavigationInFlight)
+                return;
+
+            var now = DateTime.UtcNow;
+            if (now - _lastPlayerNavigationRequestUtc < PlayerNavigationDebounceWindow)
+                return;
+
+            _playerNavigationInFlight = true;
+            _lastPlayerNavigationRequestUtc = now;
+
+            try
+            {
+                IsExpandedPlayerOpen = false;
+                IsQueueOpen = false;
+                _rightPanelService.IsPanelOpen = false;
+                _navigationService.NavigateTo("Player");
+
+                await Task.Delay(PlayerNavigationSettleDelay).ConfigureAwait(false);
+
+                var currentPageName = _navigationService.CurrentPage?.GetType().Name;
+                if (!string.Equals(currentPageName, "NowPlayingPage", StringComparison.Ordinal))
+                {
+                    _navigationService.NavigateTo("Home");
+                }
+            }
+            finally
+            {
+                _playerNavigationInFlight = false;
+            }
+        }
+
+        private async System.Threading.Tasks.Task TryAttachInspectorPairwiseContextFromQueueAsync(PlaylistTrackViewModel selected, int selectedQueueIndex)
+        {
+            try
+            {
+                var ordered = Queue.ToList();
+                if (ordered.Count == 0)
+                    return;
+
+                var selectedIndex = selectedQueueIndex;
+                if (selectedIndex < 0 || selectedIndex >= ordered.Count || !ReferenceEquals(ordered[selectedIndex], selected))
+                    selectedIndex = ordered.IndexOf(selected);
+
+                if (selectedIndex < 0)
+                    return;
+
+                PlaylistTrackViewModel? neighbor = null;
+                string relationLabel = string.Empty;
+
+                if (selectedIndex + 1 < ordered.Count)
+                {
+                    neighbor = ordered[selectedIndex + 1];
+                    relationLabel = "Next in queue";
+                }
+                else if (selectedIndex > 0)
+                {
+                    neighbor = ordered[selectedIndex - 1];
+                    relationLabel = "Previous in queue";
+                }
+
+                if (neighbor is null)
+                    return;
+
+                if (string.IsNullOrWhiteSpace(selected.GlobalId) || string.IsNullOrWhiteSpace(neighbor.GlobalId))
+                    return;
+
+                if (global::Avalonia.Application.Current is not SLSKDONET.App app || app.Services is null)
+                    return;
+
+                var similarity = app.Services.GetService(typeof(TrackSimilarityService)) as TrackSimilarityService;
+                if (similarity is null)
+                    return;
+
+                var score = await similarity.ScoreAsync(
+                    selected.GlobalId,
+                    neighbor.GlobalId,
+                    TrackSimilarityProfile.BlendSafe).ConfigureAwait(false);
+
+                if (score is null)
+                    return;
+
+                var queueStillMatches = selectedIndex >= 0
+                    && selectedIndex < Queue.Count
+                    && ReferenceEquals(Queue[selectedIndex], selected)
+                    && ReferenceEquals(CurrentTrack, selected)
+                    && CurrentQueueIndex == selectedIndex;
+                if (!queueStillMatches)
+                    return;
+
+                var contextLabel = $"{relationLabel}: {neighbor.ArtistName} - {neighbor.TrackTitle}";
+                var reasonTags = string.Join(" • ", score.ReasonTags.Take(2));
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                    selected.SetInspectorA10PairwiseContext(
+                        contextLabel,
+                        score.FinalSimilarity,
+                        score.VectorScores.Harmonic,
+                        score.VectorScores.Rhythm,
+                        score.SegmentScores.Drop,
+                        reasonTags));
+            }
+            catch
+            {
+                // Fail quietly to keep inspector opening resilient.
+            }
         }
 
         private void OpenCurrentTrackWorkstation()

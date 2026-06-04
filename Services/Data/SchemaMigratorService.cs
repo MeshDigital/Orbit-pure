@@ -1810,6 +1810,12 @@ public class SchemaMigratorService
                     command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""Arousal"" REAL NULL;";
                     await command.ExecuteNonQueryAsync();
                 }
+                if (!ColumnExists("PlaylistTracks", "IsDjTool"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding IsDjTool to PlaylistTracks...");
+                    command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""IsDjTool"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
             }
             if (TableExists("LibraryEntries"))
             {
@@ -1823,6 +1829,12 @@ public class SchemaMigratorService
                 {
                     _logger.LogInformation("Patching Schema: Adding Arousal to LibraryEntries...");
                     command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""Arousal"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("LibraryEntries", "IsDjTool"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding IsDjTool to LibraryEntries...");
+                    command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""IsDjTool"" INTEGER NOT NULL DEFAULT 0;";
                     await command.ExecuteNonQueryAsync();
                 }
             }

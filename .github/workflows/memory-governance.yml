@@ -1,0 +1,29 @@
+name: Memory Governance
+
+on:
+  pull_request:
+    paths:
+      - 'DOCS/memory/**'
+      - 'Tools/validate-memory-governance.ps1'
+      - '.vscode/tasks.json'
+      - '.github/workflows/memory-governance.yml'
+  push:
+    branches:
+      - master
+    paths:
+      - 'DOCS/memory/**'
+      - 'Tools/validate-memory-governance.ps1'
+      - '.vscode/tasks.json'
+      - '.github/workflows/memory-governance.yml'
+
+jobs:
+  validate-memory-governance:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate memory governance
+        shell: pwsh
+        run: ./Tools/validate-memory-governance.ps1

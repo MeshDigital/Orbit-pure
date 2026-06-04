@@ -5,6 +5,7 @@ using System.Reactive;
 using Avalonia.Media;
 using ReactiveUI;
 using SLSKDONET.Models;
+using SLSKDONET.Models.Musical;
 
 namespace SLSKDONET.ViewModels;
 
@@ -13,12 +14,18 @@ namespace SLSKDONET.ViewModels;
 /// </summary>
 public sealed class FlowBridgeInfo
 {
-    /// <summary>e.g. "+3.0 BPM" or "−2.5 BPM"</summary>
+    /// <summary>e.g. "+3.0 BPM" or "-2.5 BPM"</summary>
     public string BpmDeltaDisplay { get; init; } = string.Empty;
-    /// <summary>Colour-coded bar brush: green (compatible) → yellow → red (clash).</summary>
+    /// <summary>Colour-coded bar brush: green (compatible) -> yellow -> red (clash).</summary>
     public IBrush ScoreBrush { get; init; } = Brushes.Gray;
-    /// <summary>Compatibility label, e.g. "5A → 6A  ✓ Compatible"</summary>
+    public string QualityLabel { get; init; } = string.Empty;
+    /// <summary>Compatibility label, e.g. "5A -> 6A  Compatible"</summary>
     public string KeyLabel { get; init; } = string.Empty;
+    public string BreakdownDisplay { get; init; } = string.Empty;
+    public string ReasonSummary { get; init; } = string.Empty;
+    public TransitionStyle? TransitionStyle { get; init; }
+    public string TransitionStyleLabel { get; init; } = string.Empty;
+    public string TransitionStyleReason { get; init; } = string.Empty;
     public string Tooltip  { get; init; } = string.Empty;
 }
 
@@ -28,7 +35,7 @@ public sealed class FlowBridgeInfo
 /// </summary>
 public sealed class FlowTrackCardViewModel : ReactiveObject
 {
-    // ── Identity ──────────────────────────────────────────────────────────────
+    // -- Identity --------------------------------------------------------------
 
     public string Artist          { get; }
     public string Title           { get; }
@@ -39,10 +46,11 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
     /// <summary>The file path, used to load this track onto a deck.</summary>
     public string FilePath        { get; }
 
-    /// <summary>Unique track hash — used for DB lookups (analysis, cues).</summary>
+    /// <summary>Unique track hash - used for DB lookups (analysis, cues).</summary>
     public string TrackHash       { get; }
+    public PlaylistTrack Model    { get; }
 
-    // ── Energy sparkline ──────────────────────────────────────────────────────
+    // -- Energy sparkline ------------------------------------------------------
 
     /// <summary>
     /// Normalised energy points (0..1) for the SparklineControl.
@@ -51,10 +59,21 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
     /// </summary>
     public IReadOnlyList<double> EnergyCurvePoints { get; }
 
-    // ── Transition bridge ─────────────────────────────────────────────────────
+    // -- Transition bridge -----------------------------------------------------
 
-    /// <summary>True when there is a next track and the bridge data has been computed.</summary>
-    public bool HasBridge => Bridge != null;
+    /// <summary>True when there is a next track, bridge data exists, and the current style filter keeps it visible.</summary>
+    public bool HasBridge => Bridge != null && IsBridgeVisibleByFilter;
+
+    private bool _isBridgeVisibleByFilter = true;
+    public bool IsBridgeVisibleByFilter
+    {
+        get => _isBridgeVisibleByFilter;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _isBridgeVisibleByFilter, value);
+            this.RaisePropertyChanged(nameof(HasBridge));
+        }
+    }
 
     private FlowBridgeInfo? _bridge;
     public FlowBridgeInfo? Bridge
@@ -64,23 +83,33 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         {
             this.RaiseAndSetIfChanged(ref _bridge, value);
             this.RaisePropertyChanged(nameof(HasBridge));
+            this.RaisePropertyChanged(nameof(PrimaryTransitionReason));
+            this.RaisePropertyChanged(nameof(HasPrimaryTransitionReason));
         }
     }
 
-    // ── Commands ──────────────────────────────────────────────────────────────
+    public string PrimaryTransitionReason => Bridge?.ReasonSummary ?? string.Empty;
+    public bool HasPrimaryTransitionReason => !string.IsNullOrWhiteSpace(PrimaryTransitionReason);
+
+    // -- Commands --------------------------------------------------------------
 
     public ReactiveCommand<Unit, Unit> MoveLeftCommand  { get; }
     public ReactiveCommand<Unit, Unit> MoveRightCommand { get; }
     public ReactiveCommand<Unit, Unit> RemoveCommand    { get; }
+    public ReactiveCommand<Unit, Unit> FindBridgeToNextCommand { get; }
+    public ReactiveCommand<Unit, Unit> SelectTransitionInspectorCommand { get; }
 
-    // ── Constructor ───────────────────────────────────────────────────────────
+    // -- Constructor -----------------------------------------------------------
 
     public FlowTrackCardViewModel(
         PlaylistTrack track,
         Action onMoveLeft,
         Action onMoveRight,
-        Action onRemove)
+        Action onRemove,
+        Action<string>? onFindBridgeToNext = null,
+        Action<string>? onSelectTransitionInspector = null)
     {
+        Model           = track;
         Artist          = track.Artist  ?? "Unknown Artist";
         Title           = track.Title   ?? "Unknown Title";
         FilePath        = track.ResolvedFilePath ?? string.Empty;
@@ -88,21 +117,23 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
 
         BpmDisplay      = track.BPM.HasValue
             ? track.BPM.Value.ToString("F1")
-            : "—";
+            : "-";
         // Key may be in Camelot notation (e.g. "8A") or musical (e.g. "Am")
-        KeyDisplay      = string.IsNullOrEmpty(track.Key) ? "—" : track.Key;
+        KeyDisplay      = string.IsNullOrEmpty(track.Key) ? "-" : track.Key;
         DurationDisplay = track.CanonicalDuration.HasValue
             ? FormatDuration(track.CanonicalDuration.Value)
-            : "—";
+            : "-";
 
         EnergyCurvePoints = BuildEnergyCurve(track);
 
         MoveLeftCommand  = ReactiveCommand.Create(onMoveLeft);
         MoveRightCommand = ReactiveCommand.Create(onMoveRight);
         RemoveCommand    = ReactiveCommand.Create(onRemove);
+        FindBridgeToNextCommand = ReactiveCommand.Create(() => onFindBridgeToNext?.Invoke(TrackHash));
+        SelectTransitionInspectorCommand = ReactiveCommand.Create(() => onSelectTransitionInspector?.Invoke(TrackHash));
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // -- Helpers ---------------------------------------------------------------
 
     private static IReadOnlyList<double> BuildEnergyCurve(PlaylistTrack track)
     {
@@ -123,7 +154,6 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
             return pts;
         }
 
-        // Fall back to flat line.
         const double flat = 0.5;
         return new[] { flat, flat, flat, flat, flat, flat, flat, flat };
     }
@@ -136,20 +166,25 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
             : $"{ts.Minutes}:{ts.Seconds:D2}";
     }
 
-    // ── Bridge scoring ────────────────────────────────────────────────────────
+    // -- Bridge scoring --------------------------------------------------------
 
     /// <summary>
     /// Computes and sets the transition bridge to the <paramref name="next"/> card.
-    /// Uses harmonic distance, tempo drift, and local outro→intro energy alignment.
+    /// Uses harmonic distance, tempo drift, and local outro->intro energy alignment.
     /// </summary>
-    public void SetBridgeTo(FlowTrackCardViewModel? next, double? sectionBlendScore = null, double? doubleDropScore = null)
+    public void SetBridgeTo(
+        FlowTrackCardViewModel? next,
+        double? sectionBlendScore = null,
+        double? doubleDropScore = null,
+        PlaylistRecommendation? recommendation = null,
+        TransitionStyleResult? transitionStyle = null)
     {
         if (next == null) { Bridge = null; return; }
 
         float myBpm   = float.TryParse(BpmDisplay, out var b1) ? b1 : 0f;
         float nxtBpm  = float.TryParse(next.BpmDisplay, out var b2) ? b2 : 0f;
         float bpmDiff = myBpm > 0 && nxtBpm > 0 ? nxtBpm - myBpm : 0f;
-        string bpmDeltaDisplay = bpmDiff == 0f ? "—"
+        string bpmDeltaDisplay = bpmDiff == 0f ? "-"
             : bpmDiff > 0 ? $"+{bpmDiff:F1} BPM"
             : $"{bpmDiff:F1} BPM";
 
@@ -169,7 +204,7 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
 
         double sectionMatch = sectionBlendScore ?? energyMatch;
 
-        double transitionScore = Math.Clamp(
+        double transitionScore = recommendation?.Score ?? Math.Clamp(
             (harmonicScore * 0.35) +
             (tempoScore * 0.15) +
             (energyMatch * 0.20) +
@@ -194,20 +229,43 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
                 _       => "Risky transition",
             };
 
-        string keyLabel = $"{KeyDisplay} → {next.KeyDisplay} · {(transitionScore * 100):F0}%";
+        string reasonSummary = recommendation?.ReasonTags.FirstOrDefault() switch
+        {
+            { Length: > 26 } firstReason => firstReason[..26] + "...",
+            { Length: > 0 } firstReason => firstReason,
+            _ => compatLabel,
+        };
+
+        string breakdownDisplay = recommendation != null
+            ? $"S {(recommendation.SimilarityScore * 100):F0}% · H {(recommendation.HarmonicScore * 100):F0}% · E {(recommendation.EnergyFitScore * 100):F0}%"
+            : $"Section {(sectionMatch * 100):F0}% · Energy {(energyMatch * 100):F0}%";
+
+        string keyLabel = recommendation != null
+            ? $"{compatLabel} · {(transitionScore * 100):F0}%"
+            : $"{KeyDisplay} -> {next.KeyDisplay} · {(transitionScore * 100):F0}%";
         string tooltip =
             $"Flow: {(transitionScore * 100):F0}% ({compatLabel})\n" +
-            $"Key: {KeyDisplay} → {next.KeyDisplay}\n" +
-            $"BPM: {BpmDisplay} → {next.BpmDisplay} ({bpmDeltaDisplay})\n" +
-            $"Outro→Intro section match: {(sectionMatch * 100):F0}%\n" +
+            (transitionStyle != null ? $"Style: {transitionStyle.Label}\nReason: {transitionStyle.Reason}\n" : string.Empty) +
+            $"Key: {KeyDisplay} -> {next.KeyDisplay}\n" +
+            $"BPM: {BpmDisplay} -> {next.BpmDisplay} ({bpmDeltaDisplay})\n" +
+            $"Outro->Intro section match: {(sectionMatch * 100):F0}%\n" +
             $"Energy contour match: {(energyMatch * 100):F0}%" +
-            (doubleDropScore.HasValue ? $"\nDrop-to-drop compatibility: {(doubleDropScore.Value * 100):F0}%" : string.Empty);
+            (doubleDropScore.HasValue ? $"\nDrop-to-drop compatibility: {(doubleDropScore.Value * 100):F0}%" : string.Empty) +
+            (recommendation != null
+                ? $"\nA10 similarity: {(recommendation.SimilarityScore * 100):F0}%\nA10 harmonic: {(recommendation.HarmonicScore * 100):F0}%\nA10 transition: {(recommendation.TransitionScore * 100):F0}%\nA10 energy fit: {(recommendation.EnergyFitScore * 100):F0}%\nReasons: {string.Join(", ", recommendation.ReasonTags)}"
+                : string.Empty);
 
         Bridge = new FlowBridgeInfo
         {
             BpmDeltaDisplay = bpmDeltaDisplay,
             ScoreBrush = scoreBrush,
+            QualityLabel = compatLabel,
             KeyLabel = keyLabel,
+            BreakdownDisplay = breakdownDisplay,
+            ReasonSummary = reasonSummary,
+            TransitionStyle = transitionStyle?.Style,
+            TransitionStyleLabel = transitionStyle?.Label ?? string.Empty,
+            TransitionStyleReason = transitionStyle?.Reason ?? string.Empty,
             Tooltip = tooltip,
         };
     }
@@ -215,7 +273,7 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
     /// <summary>Camelot wheel distance (0 = perfect match, 6 = worst clash).</summary>
     private static double CamelotDistance(string? a, string? b)
     {
-        if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b) || a == "—" || b == "—")
+        if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b) || a == "-" || b == "-")
             return 3.0;
 
         if (!TryParseCamelot(a, out int na, out bool minA) ||

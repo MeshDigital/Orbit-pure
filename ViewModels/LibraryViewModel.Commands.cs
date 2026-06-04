@@ -12,16 +12,20 @@ using SLSKDONET.Services;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Views;
+using SLSKDONET.Events;
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
+using SLSKDONET.Services.Playlist;
+using SLSKDONET.Services.Library;
+using SLSKDONET.Services.Similarity;
+using SLSKDONET.Models.Musical;
 
 namespace SLSKDONET.ViewModels;
 
 public partial class LibraryViewModel
 {
-    // Commands that delegate to child ViewModels or handle coordination
-    // CS8618 Fix: Initialize with null! since they are set in InitializeCommands()
+    // Commands delegate to child view models or orchestration paths and are assigned in InitializeCommands().
     public ICommand ViewHistoryCommand { get; set; } = null!;
     public ICommand OpenSourcesCommand { get; set; } = null!;
     public ICommand ToggleEditModeCommand { get; set; } = null!;
@@ -29,7 +33,6 @@ public partial class LibraryViewModel
     public ICommand ToggleNavigationCommand { get; set; } = null!;
     public ICommand ExpandNavigationCommand { get; set; } = null!;
     public ICommand CollapseNavigationCommand { get; set; } = null!;
-    public ICommand ToggleViewModeCommand { get; set; } = null!;
     
     public ICommand PlayTrackCommand { get; set; } = null!;
     public ICommand RefreshLibraryCommand { get; set; } = null!;
@@ -50,6 +53,27 @@ public partial class LibraryViewModel
     public ICommand ResetViewCommand { get; set; } = null!;
 
     public ICommand SyncPhysicalLibraryCommand { get; set; } = null!;
+    public ICommand CreateSmartPlaylistCommand { get; set; } = null!;
+    public ICommand OpenFlowBuilderCommand { get; set; } = null!;
+    public ICommand ExportMonthlyDropCommand { get; set; } = null!;
+    public ICommand FindBridgeBetweenSelectedCommand { get; set; } = null!;
+    public ICommand SmartInsertBetweenSelectedCommand { get; set; } = null!;
+    public ICommand SmartInsertAfterTrackCommand { get; set; } = null!;
+    public ICommand PrepareSmartInsertAfterTrackCommand { get; set; } = null!;
+    public ICommand ApplyPreparedSmartInsertCommand { get; set; } = null!;
+    public ICommand PreviewSmartInsertContextCommand { get; set; } = null!;
+    public ICommand SetSmartInsertStrictPresetCommand { get; set; } = null!;
+    public ICommand SetSmartInsertNormalPresetCommand { get; set; } = null!;
+    public ICommand SetSmartInsertLoosePresetCommand { get; set; } = null!;
+    public ICommand SetLibraryIntelligenceTabCommand { get; set; } = null!;
+    public ICommand FavoriteSelectedPairAsDoubleCommand { get; set; } = null!;
+    public ICommand ActivateSavedDoubleCommand { get; set; } = null!;
+    public ICommand RemoveSavedDoubleCommand { get; set; } = null!;
+    public ICommand ViewAllSavedDoublesCommand { get; set; } = null!;
+    public ICommand SuggestNextCandidateCommand { get; set; } = null!;
+    public ICommand PlaylistUpgradeCandidateCommand { get; set; } = null!;
+    public ICommand OpenSelectedPairInWorkstationCommand { get; set; } = null!;
+    public ICommand AnalyzeSelectedPairCommand { get; set; } = null!;
 
     public ICommand SmartEscapeCommand { get; set; } = null!;
 
@@ -76,7 +100,6 @@ public partial class LibraryViewModel
         ToggleNavigationCommand = new RelayCommand(ExecuteToggleNavigation);
         ExpandNavigationCommand = new RelayCommand(ExecuteHoverExpandNavigation);
         CollapseNavigationCommand = new RelayCommand(ExecuteHoverCollapseNavigation);
-        ToggleViewModeCommand = new RelayCommand(() => UseCardView = !UseCardView);
         
         PlayTrackCommand = new AsyncRelayCommand<object>(ExecutePlayTrackAsync);
         RefreshLibraryCommand = new AsyncRelayCommand(ExecuteRefreshLibraryAsync);
@@ -95,6 +118,27 @@ public partial class LibraryViewModel
         DuplicateDetectionCommand = new AsyncRelayCommand(ExecuteDuplicateDetectionAsync);
         AutoOrganizeCommand = new AsyncRelayCommand(ExecuteAutoOrganizeAsync);
         SyncPhysicalLibraryCommand = new AsyncRelayCommand(ExecuteSyncPhysicalLibraryAsync);
+        CreateSmartPlaylistCommand = SmartPlaylists.CreateCrateCommand;
+        OpenFlowBuilderCommand = new RelayCommand(ExecuteOpenFlowBuilder);
+        ExportMonthlyDropCommand = new AsyncRelayCommand(ExecuteExportMonthlyDropAsync);
+        FindBridgeBetweenSelectedCommand = new RelayCommand(ExecuteFindBridgeBetweenSelected);
+        SmartInsertBetweenSelectedCommand = new AsyncRelayCommand(ExecuteSmartInsertBetweenSelectedAsync);
+        SmartInsertAfterTrackCommand = new AsyncRelayCommand<object>(ExecuteSmartInsertAfterTrackAsync);
+        PrepareSmartInsertAfterTrackCommand = new AsyncRelayCommand<object>(ExecutePrepareSmartInsertAfterTrackAsync);
+        ApplyPreparedSmartInsertCommand = Intelligence.ApplyPreparedSmartInsertCommand;
+        PreviewSmartInsertContextCommand = new RelayCommand<object>(ExecutePreviewSmartInsertContext);
+        SetSmartInsertStrictPresetCommand = Intelligence.SetSmartInsertStrictPresetCommand;
+        SetSmartInsertNormalPresetCommand = Intelligence.SetSmartInsertNormalPresetCommand;
+        SetSmartInsertLoosePresetCommand = Intelligence.SetSmartInsertLoosePresetCommand;
+        SetLibraryIntelligenceTabCommand = Intelligence.SetLibraryIntelligenceTabCommand;
+        FavoriteSelectedPairAsDoubleCommand = new AsyncRelayCommand(ExecuteFavoriteSelectedPairAsDoubleAsync);
+        ActivateSavedDoubleCommand = new RelayCommand<object>(ExecuteActivateSavedDouble);
+        RemoveSavedDoubleCommand = new AsyncRelayCommand<object>(ExecuteRemoveSavedDoubleAsync);
+        ViewAllSavedDoublesCommand = new RelayCommand(ExecuteViewAllSavedDoubles);
+        SuggestNextCandidateCommand = new RelayCommand<object>(ExecuteSuggestNextCandidate);
+        PlaylistUpgradeCandidateCommand = new RelayCommand<object>(ExecutePlaylistUpgradeCandidate);
+        OpenSelectedPairInWorkstationCommand = new RelayCommand(ExecuteOpenSelectedPairInWorkstation);
+        AnalyzeSelectedPairCommand = new RelayCommand(ExecuteAnalyzeSelectedPair);
         ToggleColumnCommand = new RelayCommand<ColumnDefinition>(ExecuteToggleColumn);
         ResetViewCommand = new RelayCommand(ExecuteResetView);
         SwitchWorkspaceCommand = new RelayCommand<ActiveWorkspace>(ExecuteSwitchWorkspace);
@@ -153,7 +197,79 @@ public partial class LibraryViewModel
         }
     }
 
-    public ICommand SetViewModeCommand { get; set; } = null!;
+    internal async Task PersistLibrarySmartInsertConfigAsync()
+    {
+        try
+        {
+            if (_appConfig is null || _configManager is null)
+                return;
+
+            _appConfig.LibrarySmartInsertMinConfidence = Math.Clamp(_appConfig.LibrarySmartInsertMinConfidence, 0.0, 1.0);
+            _appConfig.LibrarySmartInsertStructureSensitivity = Math.Clamp(_appConfig.LibrarySmartInsertStructureSensitivity, 0, 100);
+            await _configManager.SaveAsync(_appConfig);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist library smart insert settings");
+        }
+    }
+
+    private void ExecuteSetSmartInsertStrictPreset()
+        => ApplySmartInsertPreset(0.80, 85, "Strict");
+
+    private void ExecuteSetSmartInsertNormalPreset()
+        => ApplySmartInsertPreset(0.72, 55, "Normal");
+
+    private void ExecuteSetSmartInsertLoosePreset()
+        => ApplySmartInsertPreset(0.65, 30, "Loose");
+
+    private void ExecuteSetLibraryIntelligenceTab(object? parameter)
+    {
+        var tab = parameter?.ToString();
+        FocusLibraryIntelligenceTab(tab ?? "SmartInsert");
+    }
+
+    private void ExecutePreviewSmartInsertContext(object? parameter)
+    {
+        if (parameter is SmartInsertContextRequest contextRequest
+            && contextRequest.FromTrack.Model is PlaylistTrack fromModel
+            && contextRequest.ToTrack.Model is PlaylistTrack toModel)
+        {
+            Intelligence.SetSmartInsertPreparationHint(fromModel, toModel);
+            return;
+        }
+
+        Intelligence.ClearSmartInsertPreparationHint();
+    }
+
+    private void ApplySmartInsertPreset(double minConfidence, int structureSensitivity, string presetName)
+    {
+        Intelligence.ApplySmartInsertPreset(minConfidence, structureSensitivity);
+
+        _notificationService.Show(
+            "Smart Insert Preset",
+            $"{presetName} preset applied ({Intelligence.LibrarySmartInsertMinConfidence:F2}, {Intelligence.LibrarySmartInsertStructureSensitivity}%).",
+            NotificationType.Information);
+    }
+
+    private void ExecuteViewAllSavedDoubles()
+    {
+        SavedDoublesSidebarFocusRequestVersion++;
+    }
+
+    private void ExecuteSuggestNextCandidate(object? parameter)
+    {
+        // Slice 10 Commit 1 scaffold: row click is intentionally passive.
+    }
+
+    private void ExecutePlaylistUpgradeCandidate(object? parameter)
+    {
+        if (parameter is not PlaylistUpgradeCandidateViewModel candidate || candidate.Track is null)
+            return;
+
+        Tracks.UpdateSelection(new[] { candidate.Track });
+        FocusLibraryIntelligenceTab(IntelligenceTabUpgrade);
+    }
 
     private async Task ExecuteViewHistoryAsync()
     {
@@ -574,7 +690,8 @@ public partial class LibraryViewModel
                 // Add to UI collection for user review
                 foreach (var orphan in orphans)
                 {
-                    OrphanedTracks.Add(new OrphanedTrackViewModel(orphan, _libraryService, _dialogService, OrphanedTracks));
+                    var fileInteraction = _serviceProvider.GetService(typeof(Services.IFileInteractionService)) as Services.IFileInteractionService;
+                    OrphanedTracks.Add(new OrphanedTrackViewModel(orphan, _libraryService, _dialogService, fileInteraction!, OrphanedTracks));
                 }
                 _notificationService.Show("Library Synced", $"Found {orphans.Count} orphaned entries. Review and remove manually.", NotificationType.Warning);
                 IsOrphanedTracksVisible = true;
@@ -633,6 +750,691 @@ public partial class LibraryViewModel
             IsLoading = false;
         }
     }
+
+    private void ExecuteOpenFlowBuilder()
+    {
+        try
+        {
+            var selectedModels = Tracks.SelectedTracks
+                .Select(t => t.Model)
+                .Where(m => m != null)
+                .Select(m => m!)
+                .ToList();
+
+            if (selectedModels.Count > 0)
+            {
+                _eventBus.Publish(new AddToTimelineRequestEvent(selectedModels));
+                _notificationService.Show(
+                    "Flow Builder",
+                    $"Sent {selectedModels.Count} selected track(s) to the flow timeline.",
+                    NotificationType.Success);
+                return;
+            }
+
+            _navigationService.NavigateTo("Workstation");
+            _notificationService.Show(
+                "Flow Builder",
+                "Opened Workstation Flow view.",
+                NotificationType.Information);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to open flow builder");
+            _notificationService.Show("Flow Builder Failed", ex.Message, NotificationType.Error);
+        }
+    }
+
+    private async Task ExecuteExportMonthlyDropAsync()
+    {
+        try
+        {
+            if (Tracks.SelectedTracks.Count == 0)
+            {
+                _notificationService.Show(
+                    "Monthly Drop Export",
+                    "Select tracks first, then export your monthly drop.",
+                    NotificationType.Information);
+                return;
+            }
+
+            await ExecuteBatchExportRekordboxAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Monthly drop export failed");
+            _notificationService.Show("Monthly Drop Export Failed", ex.Message, NotificationType.Error);
+        }
+    }
+
+    private void ExecuteFindBridgeBetweenSelected()
+    {
+        try
+        {
+            var selected = Tracks.SelectedTracks
+                .Where(t => t.Model != null && !string.IsNullOrWhiteSpace(t.Model.TrackUniqueHash))
+                .Take(2)
+                .ToList();
+
+            if (selected.Count < 2)
+            {
+                _notificationService.Show(
+                    "Bridge Finder",
+                    "Select exactly two tracks in Library first.",
+                    NotificationType.Information);
+                return;
+            }
+
+            var from = selected[0];
+            var to = selected[1];
+
+            ReactiveUI.MessageBus.Current.SendMessage(
+                new FindBridgeBetweenTracksEvent(
+                    from.Model.TrackUniqueHash,
+                    to.Model.TrackUniqueHash,
+                    $"{from.ArtistName} - {from.TrackTitle}",
+                    $"{to.ArtistName} - {to.TrackTitle}"));
+
+            _notificationService.Show(
+                "Bridge Finder",
+                $"Searching bridge tracks between \"{from.TrackTitle}\" and \"{to.TrackTitle}\" in Similar Tracks panel.",
+                NotificationType.Information);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to trigger bridge finder from selection");
+            _notificationService.Show("Bridge Finder Failed", ex.Message, NotificationType.Error);
+        }
+    }
+
+    private async Task ExecuteSmartInsertBetweenSelectedAsync()
+    {
+        try
+        {
+            if (_playlistIntelligenceService is null)
+            {
+                _notificationService.Show(
+                    "Smart Insert",
+                    "Playlist intelligence service is unavailable.",
+                    NotificationType.Error);
+                return;
+            }
+
+            var project = SelectedProject;
+            if (project is null || project.Id == Guid.Empty)
+            {
+                _notificationService.Show(
+                    "Smart Insert",
+                    "Select a specific playlist first.",
+                    NotificationType.Information);
+                return;
+            }
+
+            var selected = Tracks.SelectedTracks
+                .Where(t => t.Model != null && !string.IsNullOrWhiteSpace(t.Model.TrackUniqueHash))
+                .OrderBy(t => t.SortOrder)
+                .Take(2)
+                .ToList();
+
+            if (selected.Count < 2)
+            {
+                _notificationService.Show(
+                    "Smart Insert",
+                    "Select two playlist tracks to insert a best-fit bridge between them.",
+                    NotificationType.Information);
+                return;
+            }
+
+            var from = selected[0].Model;
+            var to = selected[1].Model;
+            if (from == null || to == null)
+            {
+                return;
+            }
+
+            FocusLibraryIntelligenceTab("SmartInsert");
+            Intelligence.SetSmartInsertPairContext(from, to);
+
+            if (string.Equals(from.TrackUniqueHash, to.TrackUniqueHash, StringComparison.OrdinalIgnoreCase))
+            {
+                _notificationService.Show(
+                    "Smart Insert",
+                    "Select two different tracks.",
+                    NotificationType.Information);
+                return;
+            }
+
+            IsLoading = true;
+
+            var insertResult = await ExecuteSmartInsertBetweenCoreAsync(project, from, to);
+            if (!insertResult.Success)
+            {
+                _notificationService.Show("Smart Insert", insertResult.Message, insertResult.Type);
+                return;
+            }
+
+            _notificationService.Show(
+                "Smart Insert",
+                insertResult.Message,
+                NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Smart insert between selected tracks failed");
+            _notificationService.Show("Smart Insert Failed", ex.Message, NotificationType.Error);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task ExecuteSmartInsertAfterTrackAsync(object? parameter)
+    {
+        try
+        {
+            if (parameter is not PlaylistTrackViewModel anchorVm || anchorVm.Model is null)
+            {
+                _notificationService.Show(
+                    "Smart Insert",
+                    "Choose a track row first.",
+                    NotificationType.Information);
+                return;
+            }
+
+            var project = SelectedProject;
+            if (project is null || project.Id == Guid.Empty)
+            {
+                _notificationService.Show(
+                    "Smart Insert",
+                    "Select a specific playlist first.",
+                    NotificationType.Information);
+                return;
+            }
+
+            var orderedProjectTracks = (await _libraryService.LoadPlaylistTracksAsync(project.Id))
+                .OrderBy(t => t.SortOrder)
+                .ThenBy(t => t.TrackNumber)
+                .ThenBy(t => t.AddedAt)
+                .ToList();
+
+            var fromIndex = orderedProjectTracks.FindIndex(t => t.Id == anchorVm.Model.Id);
+            if (fromIndex < 0)
+            {
+                _notificationService.Show(
+                    "Smart Insert",
+                    "That track is not in the active playlist ordering.",
+                    NotificationType.Warning);
+                return;
+            }
+
+            if (fromIndex >= orderedProjectTracks.Count - 1)
+            {
+                _notificationService.Show(
+                    "Smart Insert",
+                    "No next track exists after this row.",
+                    NotificationType.Information);
+                return;
+            }
+
+            var from = orderedProjectTracks[fromIndex];
+            var to = orderedProjectTracks[fromIndex + 1];
+
+            FocusLibraryIntelligenceTab("SmartInsert");
+            Intelligence.SetSmartInsertPairContext(from, to);
+
+            IsLoading = true;
+
+            var insertResult = await ExecuteSmartInsertBetweenCoreAsync(project, from, to);
+            if (!insertResult.Success)
+            {
+                _notificationService.Show("Smart Insert", insertResult.Message, insertResult.Type);
+                return;
+            }
+
+            _notificationService.Show(
+                "Smart Insert",
+                $"{insertResult.Message} (after \"{from.Title}\").",
+                NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Smart insert after track failed");
+            _notificationService.Show("Smart Insert Failed", ex.Message, NotificationType.Error);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task ExecuteFavoriteSelectedPairAsDoubleAsync()
+    {
+        var first = DoubleInspector.TrackA;
+        var second = DoubleInspector.TrackB;
+        if (first is null || second is null)
+        {
+            _notificationService.Show("Double Inspector", "Select two tracks first.", NotificationType.Information);
+            return;
+        }
+
+        first.IsLiked = true;
+        second.IsLiked = true;
+
+        if (_savedDoublesService is null)
+        {
+            _notificationService.Show(
+                "Double Inspector",
+                "Saved doubles persistence is unavailable in this session.",
+                NotificationType.Warning);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(first.GlobalId) || string.IsNullOrWhiteSpace(second.GlobalId))
+        {
+            _notificationService.Show(
+                "Double Inspector",
+                "Selected tracks need stable IDs before saving.",
+                NotificationType.Information);
+            return;
+        }
+
+        var (trackA, trackB) = SavedDoublesService.Normalize(first.GlobalId, second.GlobalId);
+        double? score = DoubleInspector.HasPairContext ? DoubleInspector.TransitionScore : null;
+        var saved = new SavedDouble(trackA, trackB, DateTime.UtcNow, score, null);
+        await _savedDoublesService.AddOrUpdateAsync(saved);
+        await RefreshSavedDoublesAsync();
+
+        _notificationService.Show(
+            "Double Inspector",
+            "Saved as favorite pair in Library.",
+            NotificationType.Success);
+    }
+
+    private void ExecuteActivateSavedDouble(object? parameter)
+    {
+        if (parameter is not Library.SavedDoubleViewModel saved)
+            return;
+
+        SelectTrackPair(saved.TrackA, saved.TrackB);
+    }
+
+    private async Task ExecuteRemoveSavedDoubleAsync(object? parameter)
+    {
+        if (_savedDoublesService is null || parameter is not Library.SavedDoubleViewModel saved)
+            return;
+
+        await _savedDoublesService.RemoveAsync(saved.Model);
+        await RefreshSavedDoublesAsync();
+    }
+
+    private void SelectTrackPair(PlaylistTrackViewModel first, PlaylistTrackViewModel second)
+    {
+        foreach (var selected in Tracks.SelectedTracks.ToList())
+            selected.IsSelected = false;
+
+        first.IsSelected = true;
+        second.IsSelected = true;
+        Tracks.UpdateSelection(new[] { first, second });
+    }
+
+    private void ExecuteOpenSelectedPairInWorkstation()
+    {
+        var selectedModels = Tracks.SelectedTracks
+            .Take(2)
+            .Where(track => track.Model != null)
+            .Select(track => track.Model)
+            .ToList();
+
+        if (selectedModels.Count < 2)
+        {
+            _notificationService.Show("Double Inspector", "Select two tracks first.", NotificationType.Information);
+            return;
+        }
+
+        _eventBus.Publish(new AddToTimelineRequestEvent(selectedModels));
+        _notificationService.Show(
+            "Double Inspector",
+            "Sent selected pair to Workstation timeline.",
+            NotificationType.Success);
+    }
+
+    private void ExecuteAnalyzeSelectedPair()
+    {
+        var selected = Tracks.SelectedTracks.Take(2).ToList();
+        if (selected.Count < 2)
+        {
+            _notificationService.Show("Double Inspector", "Select two tracks first.", NotificationType.Information);
+            return;
+        }
+
+        var queued = 0;
+        foreach (var track in selected)
+        {
+            if (track.AnalyzeTrackCommand.CanExecute(null))
+            {
+                track.AnalyzeTrackCommand.Execute(null);
+                queued++;
+            }
+        }
+
+        if (queued == 0)
+        {
+            _notificationService.Show(
+                "Double Inspector",
+                "Both tracks need to be downloaded before analysis can start.",
+                NotificationType.Information);
+            return;
+        }
+
+        _notificationService.Show(
+            "Double Inspector",
+            queued == 1 ? "Queued analysis for one track." : "Queued analysis for both tracks.",
+            NotificationType.Success);
+    }
+
+    private async Task ExecutePrepareSmartInsertAfterTrackAsync(object? parameter)
+    {
+        try
+        {
+            if (parameter is SmartInsertContextRequest contextRequest
+                && contextRequest.FromTrack.Model is PlaylistTrack fromModel
+                && contextRequest.ToTrack.Model is PlaylistTrack toModel)
+            {
+                FocusLibraryIntelligenceTab("SmartInsert");
+                Intelligence.SetSmartInsertPairContext(fromModel, toModel);
+
+                _notificationService.Show(
+                    "Smart Insert",
+                    $"Context ready between \"{fromModel.Title}\" and \"{toModel.Title}\".",
+                    NotificationType.Information);
+                return;
+            }
+
+            if (parameter is not PlaylistTrackViewModel anchorVm || anchorVm.Model is null)
+            {
+                _notificationService.Show(
+                    "Smart Insert",
+                    "Choose a track row first.",
+                    NotificationType.Information);
+                return;
+            }
+
+            var project = SelectedProject;
+            if (project is null || project.Id == Guid.Empty)
+            {
+                _notificationService.Show(
+                    "Smart Insert",
+                    "Select a specific playlist first.",
+                    NotificationType.Information);
+                return;
+            }
+
+            var orderedProjectTracks = (await _libraryService.LoadPlaylistTracksAsync(project.Id))
+                .OrderBy(t => t.SortOrder)
+                .ThenBy(t => t.TrackNumber)
+                .ThenBy(t => t.AddedAt)
+                .ToList();
+
+            var fromIndex = orderedProjectTracks.FindIndex(t => t.Id == anchorVm.Model.Id);
+            if (fromIndex < 0)
+            {
+                _notificationService.Show(
+                    "Smart Insert",
+                    "That track is not in the active playlist ordering.",
+                    NotificationType.Warning);
+                return;
+            }
+
+            if (fromIndex >= orderedProjectTracks.Count - 1)
+            {
+                _notificationService.Show(
+                    "Smart Insert",
+                    "No next track exists after this row.",
+                    NotificationType.Information);
+                return;
+            }
+
+            var from = orderedProjectTracks[fromIndex];
+            var to = orderedProjectTracks[fromIndex + 1];
+
+            FocusLibraryIntelligenceTab("SmartInsert");
+            Intelligence.SetSmartInsertPairContext(from, to);
+
+            _notificationService.Show(
+                "Smart Insert",
+                $"Context ready between \"{from.Title}\" and \"{to.Title}\".",
+                NotificationType.Information);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Preparing smart insert context from row failed");
+            _notificationService.Show("Smart Insert", "Failed to prepare insert context.", NotificationType.Error);
+        }
+    }
+
+    private async Task ExecuteApplyPreparedSmartInsertAsync()
+    {
+        try
+        {
+            if (_playlistIntelligenceService is null)
+            {
+                _notificationService.Show(
+                    "Smart Insert",
+                    "Playlist intelligence service is unavailable.",
+                    NotificationType.Error);
+                return;
+            }
+
+            var project = SelectedProject;
+            if (project is null || project.Id == Guid.Empty)
+            {
+                _notificationService.Show(
+                    "Smart Insert",
+                    "Select a specific playlist first.",
+                    NotificationType.Information);
+                return;
+            }
+
+            if (!Intelligence.TryGetPendingSmartInsertContext(out var pendingFromTrack, out var pendingToTrack)
+                || pendingFromTrack is null
+                || pendingToTrack is null)
+            {
+                _notificationService.Show(
+                    "Smart Insert",
+                    "Prepare a Smart Insert context first.",
+                    NotificationType.Information);
+                return;
+            }
+
+            IsLoading = true;
+            var insertResult = await ExecuteSmartInsertBetweenCoreAsync(project, pendingFromTrack, pendingToTrack);
+            if (!insertResult.Success)
+            {
+                _notificationService.Show("Smart Insert", insertResult.Message, insertResult.Type);
+                return;
+            }
+
+            _notificationService.Show(
+                "Smart Insert",
+                $"{insertResult.Message} (explicit apply).",
+                NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Explicit Smart Insert apply failed");
+            _notificationService.Show("Smart Insert Failed", ex.Message, NotificationType.Error);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    internal Task ApplyPreparedSmartInsertFromIntelligenceAsync()
+        => ExecuteApplyPreparedSmartInsertAsync();
+
+    private async Task<SmartInsertResult> ExecuteSmartInsertBetweenCoreAsync(PlaylistJob project, PlaylistTrack from, PlaylistTrack to)
+    {
+        var orderedProjectTracks = (await _libraryService.LoadPlaylistTracksAsync(project.Id))
+            .OrderBy(t => t.SortOrder)
+            .ThenBy(t => t.TrackNumber)
+            .ThenBy(t => t.AddedAt)
+            .ToList();
+
+        var fromIndex = orderedProjectTracks.FindIndex(t => string.Equals(t.TrackUniqueHash, from.TrackUniqueHash, StringComparison.OrdinalIgnoreCase));
+        var toIndex = orderedProjectTracks.FindIndex(t => string.Equals(t.TrackUniqueHash, to.TrackUniqueHash, StringComparison.OrdinalIgnoreCase));
+        if (fromIndex < 0 || toIndex < 0)
+        {
+            return new SmartInsertResult(false, "Selected tracks were not found in current playlist order.", NotificationType.Warning);
+        }
+
+        var existingHashes = new HashSet<string>(
+            orderedProjectTracks.Select(t => t.TrackUniqueHash),
+            StringComparer.OrdinalIgnoreCase);
+
+        var candidateHashes = (await _libraryService.LoadDownloadedTracksAsync())
+            .Select(e => e.UniqueHash)
+            .Where(h => !string.IsNullOrWhiteSpace(h) && !existingHashes.Contains(h))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(1200)
+            .ToList();
+
+        if (candidateHashes.Count == 0)
+        {
+            return new SmartInsertResult(false, "No external candidate tracks are available to insert.", NotificationType.Information);
+        }
+
+        var recommendations = await _playlistIntelligenceService!.InsertBetweenAsync(
+            from.TrackUniqueHash,
+            to.TrackUniqueHash,
+            candidateHashes,
+            TrackSimilarityProfile.BlendSafe,
+            topK: 3,
+            ct: default,
+            minConfidenceThreshold: Math.Clamp(_appConfig.LibrarySmartInsertMinConfidence, 0.0, 1.0),
+            structureSensitivity: Math.Clamp(_appConfig.LibrarySmartInsertStructureSensitivity / 100.0, 0.0, 1.0));
+
+        var rankedRecommendations = recommendations
+            .Select(recommendation => new
+            {
+                Recommendation = recommendation,
+                BaseScore = recommendation.Score,
+                Bonus = GetSavedDoubleBonus(from.TrackUniqueHash, to.TrackUniqueHash, recommendation.TrackHash)
+            })
+            .OrderByDescending(item => item.BaseScore + item.Bonus)
+            .ToList();
+
+        var bestRanked = rankedRecommendations.FirstOrDefault();
+        var best = bestRanked?.Recommendation;
+        if (best is null || string.IsNullOrWhiteSpace(best.TrackHash))
+        {
+            return new SmartInsertResult(false, "No suitable bridge track found for the selected pair.", NotificationType.Information);
+        }
+
+        var entry = await _libraryService.FindLibraryEntryAsync(best.TrackHash);
+        if (entry is null)
+        {
+            return new SmartInsertResult(false, "A recommendation was found, but metadata is unavailable.", NotificationType.Warning);
+        }
+
+        var bridgeTrack = new PlaylistTrack
+        {
+            PlaylistId = project.Id,
+            TrackUniqueHash = entry.UniqueHash,
+            Artist = entry.Artist,
+            Title = entry.Title,
+            Album = entry.Album,
+            ResolvedFilePath = entry.FilePath,
+            Format = entry.Format,
+            Status = TrackStatus.Downloaded,
+            BPM = entry.BPM,
+            MusicalKey = entry.MusicalKey,
+            AddedAt = DateTime.UtcNow,
+            SortOrder = to.SortOrder,
+            TrackNumber = to.TrackNumber
+        };
+
+        await _libraryService.AddTracksToProjectAsync(new[] { bridgeTrack }, project.Id);
+
+        var refreshed = await _libraryService.LoadPlaylistTracksAsync(project.Id);
+        var insertedTrack = refreshed
+            .Where(t => string.Equals(t.TrackUniqueHash, bridgeTrack.TrackUniqueHash, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(t => t.AddedAt)
+            .FirstOrDefault();
+
+        if (insertedTrack is not null)
+        {
+            var ordered = refreshed
+                .OrderBy(t => t.SortOrder)
+                .ThenBy(t => t.TrackNumber)
+                .ThenBy(t => t.AddedAt)
+                .ToList();
+
+            ordered.RemoveAll(t => t.Id == insertedTrack.Id);
+
+            var idxA = ordered.FindIndex(t => string.Equals(t.TrackUniqueHash, from.TrackUniqueHash, StringComparison.OrdinalIgnoreCase));
+            var idxB = ordered.FindIndex(t => string.Equals(t.TrackUniqueHash, to.TrackUniqueHash, StringComparison.OrdinalIgnoreCase));
+            var upper = Math.Max(idxA, idxB);
+            var insertAt = Math.Clamp(upper >= 0 ? upper : ordered.Count, 0, ordered.Count);
+
+            ordered.Insert(insertAt, insertedTrack);
+
+            for (var i = 0; i < ordered.Count; i++)
+            {
+                ordered[i].SortOrder = i + 1;
+                ordered[i].TrackNumber = i + 1;
+            }
+
+            await _libraryService.SaveTrackOrderAsync(project.Id, ordered);
+        }
+
+        await Tracks.LoadProjectTracksAsync(project);
+        Tracks.RefreshFilteredTracks();
+
+        var savedDoublePriorSuffix = bestRanked is { Bonus: > 0.0 }
+            ? " This choice aligns with one of your saved doubles."
+            : string.Empty;
+
+        return new SmartInsertResult(
+            true,
+            $"Inserted {entry.Artist} - {entry.Title} between tracks (fit {(best.Score * 100):F0}%, threshold {_appConfig.LibrarySmartInsertMinConfidence:F2}, structure {_appConfig.LibrarySmartInsertStructureSensitivity}%).{savedDoublePriorSuffix}",
+            NotificationType.Success);
+    }
+
+    private double GetSavedDoubleBonus(string fromTrackId, string toTrackId, string? candidateTrackId)
+    {
+        if (string.IsNullOrWhiteSpace(fromTrackId) ||
+            string.IsNullOrWhiteSpace(toTrackId) ||
+            string.IsNullOrWhiteSpace(candidateTrackId))
+        {
+            return 0.0;
+        }
+
+        var bonus = 0.0;
+
+        if (IsSavedDoublePair(fromTrackId, candidateTrackId))
+            bonus += SavedDoublePriorBonus;
+
+        if (IsSavedDoublePair(candidateTrackId, toTrackId))
+            bonus += SavedDoublePriorBonus;
+
+        return bonus;
+    }
+
+    private bool IsSavedDoublePair(string leftTrackId, string rightTrackId)
+    {
+        if (string.IsNullOrWhiteSpace(leftTrackId) || string.IsNullOrWhiteSpace(rightTrackId))
+            return false;
+
+        var (normalizedA, normalizedB) = SavedDoublesService.Normalize(leftTrackId, rightTrackId);
+
+        return SavedDoubles.Any(saved =>
+            string.Equals(saved.Model.TrackAId, normalizedA, StringComparison.Ordinal) &&
+            string.Equals(saved.Model.TrackBId, normalizedB, StringComparison.Ordinal));
+    }
+
+    private sealed record SmartInsertResult(bool Success, string Message, NotificationType Type);
+
     private async Task ExecuteExportPlaylistAsync(object? param)
     {
         if (param is not PlaylistJob project) return;

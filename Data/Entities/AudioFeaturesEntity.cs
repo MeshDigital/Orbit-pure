@@ -25,9 +25,9 @@ public class AudioFeaturesEntity
 
     public AudioFeaturesEntity()
     {
-        // Sprint 5C Hardening: Set default neutral values for the 1-9 scale
-        Arousal = 5.0f;
-        Valence = 5.0f;
+        // Arousal and Valence stored as 0-1 (normalised from Russell 1-9 scale)
+        Arousal = 0.5f;
+        Valence = 0.5f;
         Energy = 0.5f;
         Danceability = 0.5f;
         InstrumentalProbability = 0.5f;

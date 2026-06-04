@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using SLSKDONET.Models;
 
 namespace SLSKDONET.Configuration;
@@ -43,17 +45,17 @@ public class AppConfig
     public int SearchHardResultCap { get; set; } = 10000; // Absolute per-search circuit breaker for accepted candidates
     public int SearchHardFileCap { get; set; } = 50000; // Absolute per-search circuit breaker for inbound files (0 disables)
     public int MaxPeerQueueLength { get; set; } = 50; // Ignore peers with very long queue lengths
-    public int MinSearchDurationSeconds { get; set; } = 16; // Brain buffer floor: must be >= (SearchTimeout/1000 + 4) so queued searches get their full network window
+    public int MinSearchDurationSeconds { get; set; } = 5; // Brain buffer floor: 5s gives network time to collect results but doesn't make downloads glacially slow
     public int MinLosslessSearchDurationSeconds { get; set; } = 20; // Ensure FLAC/lossless-only discovery streams long enough before declaring no-result
-    public bool EnableSpeculativeEarlyAccept { get; set; } = false; // When false, keep streaming until lane completion/timeout before final selection
+    public bool EnableSpeculativeEarlyAccept { get; set; } = false; // When false, keep streaming until lane completion/timeout (recommended for reliability)
     public bool EnableGoldenEarlyExit { get; set; } = false; // When false, golden hits are tracked but do not cancel the lane immediately
     public bool EnableFastLaneEarlyExit { get; set; } = false; // When false, fast-lane candidates are ranked with all candidates
     public bool EnableQuickStrikeEarlyExit { get; set; } = false; // When false, very high scores no longer short-circuit tier processing
     public bool EnableAccumulatorPerfectMatchShortCircuit { get; set; } = false; // When false, accumulator keeps collecting until window close/cancel
-    public bool EnableHedgedSearch { get; set; } = true;
+    public bool EnableHedgedSearch { get; set; } = false; // Disabled — causes delays and complexity
     public int HedgedSearchDelaySeconds { get; set; } = 8; // Delay MP3 hedge so FLAC lanes get first chance to settle
     public bool EnableMp3Fallback { get; set; } = true; // Allow MP3 download when lossless is unavailable; set false for strict lossless-only
-    public bool EnableHedgedDownloadFailover { get; set; } = true;
+    public bool EnableHedgedDownloadFailover { get; set; } = false; // Disabled — use single best match only
     public bool IsSoulseekSupporter { get; set; } = false;
     public int SupporterSearchLaneMultiplier { get; set; } = 2;
     public string? DownloadDirectory { get; set; }
@@ -105,7 +107,7 @@ public class AppConfig
     public SearchPolicy SearchPolicy { get; set; } = SearchPolicy.QualityFirst(); // [NEW] The "Biggers App" Search Policy
 
     public bool EnableFuzzyNormalization { get; set; } = true; // Strip special chars, normalize feat.
-    public bool EnableRelaxationStrategy { get; set; } = true; // Progressive threshold widening
+    public bool EnableRelaxationStrategy { get; set; } = false; // Disabled by default — causes delays and fuzzy fallback
     public bool EnableVbrFraudDetection { get; set; } = true; // Upscale protection
     public int RelaxationTimeoutSeconds { get; set; } = 8; // Quality-first default: wait longer before relaxing strict lossless criteria
     public bool IsAutoEnrichEnabled { get; set; } = true; // Phase 8: Auto-Enrich on completion
@@ -128,6 +130,26 @@ public class AppConfig
     public bool DashboardIsNavigationCollapsed { get; set; } = false; // Whether the left navigation is collapsed
     public bool DashboardIsRightPanelOpen { get; set; } = true; // Whether the right panel is visible
 
+    // Workstation overlay persistence
+    public string WorkstationOverlaySizeMode { get; set; } = "Auto"; // Auto | Compact | Comfort | Full | Manual
+    public double WorkstationOverlayManualWidth { get; set; } = 0;
+    public double WorkstationOverlayManualHeight { get; set; } = 0;
+    public bool WorkstationOverlayIsOpen { get; set; } = false;
+    public int WorkstationDrawerTabIndex { get; set; } = 0;
+    public string? WorkstationActivePlaylistId { get; set; }
+    public string WorkstationDensityMode { get; set; } = "Auto"; // Auto | Compact | Normal | Touch
+
+    // Flow Builder persistence
+    public string? FlowBuilderSelectedPlaylistId { get; set; }
+    public bool FlowBuilderRestoreContentOnStartup { get; set; } = true;
+    public bool EnableFlowBuilderSuggestedFlowPreview { get; set; } = true;
+    public bool EnableFlowBuilderSuggestedFlowTelemetry { get; set; } = true;
+    public int FlowBuilderSuggestedFlowPreviewRolloutPercent { get; set; } = 10;
+
+    // Frequent Sources (privacy-first, local-only, opt-in)
+    public bool EnableFrequentSources { get; set; } = false;
+    public string FrequentSourcesStagingPath { get; set; } = string.Empty;
+
     // Five-column desktop layout – Epic 12 (#110)
     public double TimelinePanelWidth { get; set; } = 300;
     public bool IsTimelinePanelOpen { get; set; } = false;
@@ -147,6 +169,7 @@ public class AppConfig
     public bool LibraryNavigationCollapsed { get; set; } = false; // Default expanded until user manually collapses
     public bool LibraryNavigationAutoHideEnabled { get; set; } = false; // Disabled by default: explicit user control only
     public int LibraryNavigationAutoHideActivationToggleCount { get; set; } = 3; // Require repeated manual collapses before hover behavior arms
+    public bool UseNewPlaylistSurface { get; set; } = false; // Gate 1 rollout flag for ItemsRepeater library surface
 
     // Phase 8: Upgrade Scout (Self-Healing Library)
     public bool UpgradeScoutEnabled { get; set; } = false; // Background upgrading
@@ -169,6 +192,28 @@ public class AppConfig
     public int MaxAdaptiveSearchLanes { get; set; } = 8;
     public int MinThroughputFloorKbps { get; set; } = 20;
     public int StallTimeoutSeconds { get; set; } = 10;
+
+    // Automatic Downloads Strict Mode (Investigation & Hardening)
+    // Opt-in, local-only hardening layer for exact-first, filtered-fallback automatic downloads
+    public bool EnableAutoDownloadStrictMode { get; set; } = false; // Disabled by default
+    public int AutoDownloadInitialWaitMs { get; set; } = 4000; // Fast window: wait for fast peers (default 3-5s)
+    public int AutoDownloadExtendedWaitMs { get; set; } = 20000; // Extended window: fallback search (default 20-30s)
+    public List<string>? AutoDownloadAllowedExtensions { get; set; } = new() { "flac", "wav", "aiff", "aif", "ape", "alac" }; // Conservative defaults
+    public long AutoDownloadMinFileSizeBytes { get; set; } = 1024 * 500; // 500 KB minimum (anti-stub)
+    public int AutoDownloadMinBitrateKbps { get; set; } = 320; // Conservative for fallback tier
+    public int AutoDownloadMinMatchScore { get; set; } = 75; // Minimum score required to accept a candidate
+    public bool AutoDownloadExactFirstOnly { get; set; } = false; // When true, reject all fuzzy/template matches
+    public bool AutoDownloadAllowFuzzyFallback { get; set; } = false; // When false, strict misses do not fall back to legacy fuzzy discovery
+    public int AutoDownloadDurationToleranceSeconds { get; set; } = 3; // Duration proximity tolerance for strict candidate filtering/scoring
+    public int AutoDownloadMaxCandidatesToScore { get; set; } = 50; // Cap scoring to top 50 for determinism
+    public string? AutoDownloadExcludedPhrases { get; set; } = "remix,cover,live,acoustic"; // Comma-separated phrases to exclude
+    public bool AutoDownloadDiagnosticsEnabled { get; set; } = false; // Local-only diagnostic logging to PlaylistActivityLogEntity
+
+    // Library smart insert (segment-aware playlist intelligence)
+    // Confidence threshold: 0.80 strict, 0.72 normal, 0.65 loose/experimental
+    public double LibrarySmartInsertMinConfidence { get; set; } = 0.72;
+    // Structure sensitivity slider (0..100): higher values prioritize intro/drop/breakdown/outro continuity
+    public int LibrarySmartInsertStructureSensitivity { get; set; } = 55;
 
     public override string ToString()
     {
@@ -193,4 +238,24 @@ public class AppConfig
     /// No data is ever sent externally. Default off (opt-in).
     /// </summary>
     public bool EnableKeyboardTelemetry { get; set; } = false;
+
+    public bool IsFlowBuilderPreviewEnabledForThisInstall(string installKey)
+    {
+        if (!EnableFlowBuilderSuggestedFlowPreview)
+            return false;
+
+        if (FlowBuilderSuggestedFlowPreviewRolloutPercent <= 0)
+            return false;
+
+        if (FlowBuilderSuggestedFlowPreviewRolloutPercent >= 100)
+            return true;
+
+        if (string.IsNullOrWhiteSpace(installKey))
+            return false;
+
+        using var sha256 = SHA256.Create();
+        var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(installKey.Trim()));
+        var bucket = hashBytes[0] % 100;
+        return bucket < FlowBuilderSuggestedFlowPreviewRolloutPercent;
+    }
 }

@@ -237,6 +237,8 @@ public class PlaylistTrackEntity
     public double? Energy { get; set; }
     public double? Danceability { get; set; }
     public double? Valence { get; set; }
+    public double? Arousal { get; set; }
+    public bool IsDjTool { get; set; }
     
     // Dual-Truth Metadata
     public double? SpotifyBPM { get; set; }
@@ -405,8 +407,10 @@ public class LibraryEntryEntity
     public float? SubGenreConfidence { get; set; }
 
     public double? InstrumentalProbability { get; set; } // Phase 18.2
-    public string? SpectralHash { get; set; } // Added for Export
-    public string? QualityDetails { get; set; } // Added for Export
+    public double? Arousal { get; set; }
+    public bool IsDjTool { get; set; }
+    public string? SpectralHash { get; set; }
+    public string? QualityDetails { get; set; }
     
     // Phase 21: Smart Enrichment Retry System
     public int EnrichmentAttempts { get; set; } = 0;

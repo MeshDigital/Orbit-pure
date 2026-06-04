@@ -56,6 +56,7 @@ public class LibraryFolderScannerService
     private readonly ILogger<LibraryFolderScannerService> _logger;
     private readonly DatabaseService _databaseService;
     private readonly LibraryService _libraryService;
+    private const int EnsureDefaultFolderMaxAttempts = 3;
     
     private static readonly string[] SupportedExtensions = new[] { ".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg" };
 
@@ -522,31 +523,104 @@ public class LibraryFolderScannerService
     public async Task EnsureDefaultFolderAsync(string path)
     {
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path)) return;
+        var normalizedPath = NormalizePath(path);
+        var pathComparer = GetPathComparer();
 
-        using var context = new AppDbContext();
-        
-        // Check if already exists (case-insensitive for Windows)
-        var normalizedPath = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-        var normalizedLower = normalizedPath.ToLowerInvariant();
-
-        var exists = await context.LibraryFolders
-            .AnyAsync(f => f.FolderPath.ToLower() == normalizedLower);
-            
-        if (!exists)
+        for (var attempt = 1; attempt <= EnsureDefaultFolderMaxAttempts; attempt++)
         {
-            // Double check with more complex logic if needed, but for now simple add
-            _logger.LogInformation("Registering new default library folder: {Path}", path);
-            
-            context.LibraryFolders.Add(new LibraryFolderEntity 
-            { 
-                FolderPath = normalizedPath,
-                IsEnabled = true,
-                AddedAt = DateTime.UtcNow
-            });
-            
-            await context.SaveChangesAsync();
+            try
+            {
+                using var context = new AppDbContext();
+                var existingRows = await context.LibraryFolders
+                    .Where(f => !string.IsNullOrWhiteSpace(f.FolderPath))
+                    .ToListAsync();
+
+                var matches = existingRows
+                    .Where(row => pathComparer.Equals(NormalizePath(row.FolderPath), normalizedPath))
+                    .OrderBy(row => row.AddedAt)
+                    .ToList();
+
+                if (matches.Count > 0)
+                {
+                    var primary = matches[0];
+                    var shouldSave = false;
+
+                    if (!pathComparer.Equals(NormalizePath(primary.FolderPath), normalizedPath))
+                    {
+                        primary.FolderPath = normalizedPath;
+                        shouldSave = true;
+                    }
+
+                    if (!primary.IsEnabled)
+                    {
+                        primary.IsEnabled = true;
+                        shouldSave = true;
+                    }
+
+                    if (matches.Count > 1)
+                    {
+                        context.LibraryFolders.RemoveRange(matches.Skip(1));
+                        shouldSave = true;
+                    }
+
+                    if (shouldSave)
+                    {
+                        _logger.LogInformation("Consolidating duplicate library folder rows for {Path}", normalizedPath);
+                        await context.SaveChangesAsync();
+                    }
+
+                    return;
+                }
+
+                _logger.LogInformation("Registering new default library folder: {Path}", normalizedPath);
+
+                context.LibraryFolders.Add(new LibraryFolderEntity
+                {
+                    FolderPath = normalizedPath,
+                    IsEnabled = true,
+                    AddedAt = DateTime.UtcNow
+                });
+
+                await context.SaveChangesAsync();
+                return;
+            }
+            catch (Exception ex) when (IsTransientFolderRegistrationException(ex) && attempt < EnsureDefaultFolderMaxAttempts)
+            {
+                var delayMs = 75 * attempt;
+                _logger.LogWarning(ex,
+                    "Transient folder registration failure for {Path} on attempt {Attempt}/{MaxAttempts}; retrying after {DelayMs}ms",
+                    normalizedPath,
+                    attempt,
+                    EnsureDefaultFolderMaxAttempts,
+                    delayMs);
+                await Task.Delay(delayMs);
+            }
         }
+    }
+
+    private static bool IsTransientFolderRegistrationException(Exception ex)
+    {
+        if (ex is DbUpdateException || ex is TimeoutException || ex is IOException)
+        {
+            return true;
+        }
+
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            var message = current.Message;
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                continue;
+            }
+
+            if (message.Contains("database is locked", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("database is busy", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static StringComparer GetPathComparer()

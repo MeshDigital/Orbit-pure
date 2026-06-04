@@ -134,6 +134,14 @@ public class HighLevelData
     [JsonPropertyName("mood_electronic")]
     public ModelPrediction? MoodElectronic { get; set; }
 
+    /// <summary>Continuous emotion regression: arousal (1-9) + valence (1-9).</summary>
+    [JsonPropertyName("emomusic")]
+    public EmoMusicData? EmoMusic { get; set; }
+
+    /// <summary>Tonality vs. atonal classifier for DJ-tool detection.</summary>
+    [JsonPropertyName("tonal_atonal")]
+    public ModelPrediction? TonalAtonal { get; set; }
+
     [JsonExtensionData]
     public Dictionary<string, System.Text.Json.JsonElement>? ExtensionData { get; set; }
 }
@@ -199,4 +207,29 @@ public class ModelClasses
 
     [JsonPropertyName("not_electronic")]
     public float NotElectronic { get; set; }
+
+    [JsonPropertyName("tonal")]
+    public float Tonal { get; set; }
+
+    [JsonPropertyName("atonal")]
+    public float Atonal { get; set; }
+}
+
+/// <summary>
+/// Output of the <c>emomusic-msd-musicnn-2.pb</c> regression model.
+/// Both values are on the Russell circumplex scale (1–9).
+/// </summary>
+public class EmoMusicData
+{
+    [JsonPropertyName("all")]
+    public EmoMusicClasses? All { get; set; }
+}
+
+public class EmoMusicClasses
+{
+    [JsonPropertyName("valence")]
+    public float Valence { get; set; }
+
+    [JsonPropertyName("arousal")]
+    public float Arousal { get; set; }
 }

@@ -34,6 +34,8 @@ highlevel:
         - "Tools/Essentia/models/genre_electronic-musicnn-msd-2.pb"   # DnB/House/Techno/Trance/Ambient
         - "Tools/Essentia/models/tonal_atonal-musicnn-msd-2.pb"       # DJ Tool Detection (v2)
         - "Tools/Essentia/models/emomusic-msd-musicnn-2.pb"           # Continuous emotion (alt to arousal_valence)
+        - "Tools/Essentia/models/mtg_jamendo_genre-discogs-effnet-1.pb" # MTG-Jamendo 87-class genre (DnB, Techno, Dubstep…)
+        - "Tools/Essentia/models/genre_discogs400-discogs-effnet-1.pb"  # Discogs 400-class genre (Electronic subgenres)
         
         # NOTE: arousal_valence-muse-musicnn-msd-1.pb is NOT available locally
         # Using emomusic as fallback for emotion detection

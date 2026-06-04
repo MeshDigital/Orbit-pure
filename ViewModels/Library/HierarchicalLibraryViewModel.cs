@@ -18,7 +18,7 @@ using SLSKDONET.Views; // For RelayCommand and AsyncRelayCommand
 
 namespace SLSKDONET.ViewModels.Library;
 
-public class HierarchicalLibraryViewModel
+public class HierarchicalLibraryViewModel : IDisposable
 {
     private readonly ObservableCollection<ILibraryNode> _albums = new();
     private readonly AppConfig _config;
@@ -29,19 +29,27 @@ public class HierarchicalLibraryViewModel
     public ITreeDataGridRowSelectionModel<ILibraryNode>? Selection => Source.RowSelection;
 
     private readonly ArtworkCacheService? _artworkCacheService;
+    private IEventBus? _eventBus;
+    private bool _disposed;
 
-    public HierarchicalLibraryViewModel(AppConfig config, DownloadManager? downloadManager = null, ArtworkCacheService? artworkCacheService = null)
+    public HierarchicalLibraryViewModel(AppConfig config, DownloadManager? downloadManager = null, ArtworkCacheService? artworkCacheService = null, IEventBus? eventBus = null)
     {
         _config = config;
         _downloadManager = downloadManager;
         _artworkCacheService = artworkCacheService;
+        _eventBus = eventBus;
         Source = new HierarchicalTreeDataGridSource<ILibraryNode>(_albums);
         Source.RowSelection!.SingleSelect = false;
 
         InitializeColumns();
 
         // Persist reordering when it happens (with debounce)
-        Source.Columns.CollectionChanged += (s, e) => ScheduleSave();
+        Source.Columns.CollectionChanged += OnColumnsCollectionChanged;
+    }
+
+    private void OnColumnsCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        ScheduleSave();
     }
 
     private void ScheduleSave()
@@ -249,7 +257,7 @@ public class HierarchicalLibraryViewModel
             else
             {
                 var firstTrack = g.First();
-                var albumNode = new AlbumNode(g.Key.AlbumTitle, g.Key.Artist, _downloadManager, _artworkCacheService)
+                var albumNode = new AlbumNode(g.Key.AlbumTitle, g.Key.Artist, _downloadManager, _artworkCacheService, _eventBus)
                 {
                     AlbumArtPath = firstTrack.AlbumArtPath
                 };
@@ -266,5 +274,20 @@ public class HierarchicalLibraryViewModel
         {
             Source.Expand(new IndexPath(i));
         }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        Source.Columns.CollectionChanged -= OnColumnsCollectionChanged;
+        _saveDebounceCts?.Cancel();
+        _saveDebounceCts?.Dispose();
+        _saveDebounceCts = null;
+        _eventBus = null;
     }
 }

@@ -65,6 +65,27 @@ public class MissionOperation : INotifyPropertyChanged
         set => SetField(ref _track, value); 
     }
     
+    private string _name = string.Empty;
+    public string Name
+    {
+        get => string.IsNullOrEmpty(_name) ? _title : _name;
+        set => SetField(ref _name, value);
+    }
+
+    private string _icon = string.Empty;
+    public string Icon
+    {
+        get => _icon;
+        set => SetField(ref _icon, value);
+    }
+
+    private bool _isRunning;
+    public bool IsRunning
+    {
+        get => _isRunning;
+        set => SetField(ref _isRunning, value);
+    }
+
     private bool _canCancel;
     public bool CanCancel 
     { 

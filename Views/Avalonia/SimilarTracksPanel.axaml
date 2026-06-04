@@ -54,10 +54,13 @@
         <!-- Header -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8" Spacing="8">
             <TextBlock Text="Similar Tracks" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"
-                       IsVisible="{Binding !IsBridgeMode}"/>
+                       IsVisible="{Binding IsSimilarMode}"/>
             <TextBlock Text="Bridge Mode" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"
                        Foreground="#4EC9B0"
                        IsVisible="{Binding IsBridgeMode}"/>
+            <TextBlock Text="🔗 Find Bridge Between" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"
+                       Foreground="#FFB800"
+                       IsVisible="{Binding IsBridgeBetweenMode}"/>
             <Border IsVisible="{Binding IsBusy}"
                     CornerRadius="10" Background="#3A3A3A"
                     Padding="8,3" VerticalAlignment="Center">
@@ -74,6 +77,21 @@
                     CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
                     IsVisible="{Binding IsBridgeMode}">
                 <TextBlock Text="← Similar List" FontSize="11"/>
+            </Button>
+            <Button Command="{Binding ReturnToBridgeListCommand}"
+                    Background="#2D2D2D" Foreground="#DDD"
+                    BorderBrush="#4A4A4A" BorderThickness="1"
+                    CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
+                    IsVisible="{Binding IsBridgeBetweenMode}">
+                <TextBlock Text="← Back" FontSize="11"/>
+            </Button>
+            <Button Command="{Binding ToggleBridgeInsertModeCommand}"
+                    Background="#2D2D2D" Foreground="#E2E8F0"
+                    BorderBrush="#4A4A4A" BorderThickness="1"
+                    CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
+                    IsVisible="{Binding IsAnyBridgeMode}"
+                    ToolTip.Tip="{Binding BridgeInsertModeToolTip}">
+                <TextBlock Text="{Binding BridgeInsertModeLabel}" FontSize="11"/>
             </Button>
             <!-- Add All button (shown when there are results) -->
             <Button Command="{Binding AddAllCommand}"
@@ -103,7 +121,7 @@
 
         <!-- Results list (standard similarity mode) -->
         <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled"
-                      IsVisible="{Binding !IsBridgeMode}">
+                      IsVisible="{Binding IsSimilarMode}">
             <ItemsControl ItemsSource="{Binding Results}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:SimilarTrackRowViewModel">
@@ -144,6 +162,35 @@
                                                    Foreground="#FF9800"
                                                    IsVisible="{Binding DropLabel,
                                                        Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                    </StackPanel>
+
+                                    <!-- A10 snapshot row: keep percentages + reasons in one compact inspector line -->
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock Text="A10"
+                                                   Classes="miniScore"
+                                                   Foreground="#9BD7CA"
+                                                   FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding OverallScore, StringFormat={}{0:P0}}"
+                                                   Classes="miniScore"
+                                                   Foreground="#9BD7CA"/>
+                                        <TextBlock Text="H"
+                                                   Classes="miniScore"
+                                                   Foreground="#9F7AEA"/>
+                                        <TextBlock Text="{Binding HarmonyScore, StringFormat={}{0:P0}}"
+                                                   Classes="miniScore"
+                                                   Foreground="#9F7AEA"/>
+                                        <TextBlock Text="S"
+                                                   Classes="miniScore"
+                                                   Foreground="#63B3ED"/>
+                                        <TextBlock Text="{Binding BeatScore, StringFormat={}{0:P0}}"
+                                                   Classes="miniScore"
+                                                   Foreground="#63B3ED"/>
+                                        <TextBlock Text="E"
+                                                   Classes="miniScore"
+                                                   Foreground="#FC8181"/>
+                                        <TextBlock Text="{Binding DropSonicScore, StringFormat={}{0:P0}}"
+                                                   Classes="miniScore"
+                                                   Foreground="#FC8181"/>
                                     </StackPanel>
                                 </StackPanel>
 
@@ -200,7 +247,7 @@
         </ScrollViewer>
 
         <!-- Bridge Mode header -->
-        <Border Grid.Row="3" IsVisible="{Binding IsBridgeMode}"
+        <Border Grid.Row="3" IsVisible="{Binding IsAnyBridgeMode}"
                 Background="#141E16" CornerRadius="6" Padding="10,6" Margin="0,4,0,4">
             <StackPanel Orientation="Horizontal" Spacing="8">
                 <TextBlock Text="🌉" FontSize="14" VerticalAlignment="Center"/>
@@ -213,7 +260,7 @@
 
         <!-- Bridge suggestions list -->
         <ScrollViewer Grid.Row="4" HorizontalScrollBarVisibility="Disabled"
-                      IsVisible="{Binding IsBridgeMode}">
+                      IsVisible="{Binding IsAnyBridgeMode}">
             <ItemsControl ItemsSource="{Binding BridgeSuggestions}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:SimilarTrackRowViewModel">
@@ -225,6 +272,75 @@
                                                Classes="value" TextTrimming="CharacterEllipsis"/>
                                     <TextBlock Text="{Binding Artist, FallbackValue=''}"
                                                Classes="label" TextTrimming="CharacterEllipsis"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="6"
+                                                IsVisible="{Binding HarmonyLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                        <TextBlock Text="{Binding TransitionStyleLabel}"
+                                               Classes="miniScore"
+                                               Foreground="#F3D37A"
+                                               FontWeight="SemiBold"
+                                               IsVisible="{Binding TransitionStyleLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                        <TextBlock Text="·"
+                                               Classes="miniScore"
+                                               IsVisible="{Binding TransitionStyleLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                        <TextBlock Text="{Binding HarmonyLabel}"
+                                                   Classes="miniScore" Foreground="#9F7AEA"/>
+                                        <TextBlock Text="·" Classes="miniScore"/>
+                                        <TextBlock Text="{Binding BeatLabel}"
+                                                   Classes="miniScore" Foreground="#63B3ED"/>
+                                        <TextBlock Text="{Binding DropLabel}"
+                                                   Classes="miniScore"
+                                                   Foreground="#FFB800"
+                                                   IsVisible="{Binding DropLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding TransitionStyleReason}"
+                                               Classes="miniScore"
+                                               Foreground="#8AA0B8"
+                                               TextWrapping="Wrap"
+                                               MaxWidth="230"
+                                               IsVisible="{Binding TransitionStyleReason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                                    <!-- A10 snapshot row for bridge candidates -->
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock Text="A10"
+                                                   Classes="miniScore"
+                                                   Foreground="#9BD7CA"
+                                                   FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding OverallScore, StringFormat={}{0:P0}}"
+                                                   Classes="miniScore"
+                                                   Foreground="#9BD7CA"/>
+                                        <TextBlock Text="H"
+                                                   Classes="miniScore"
+                                                   Foreground="#9F7AEA"/>
+                                        <TextBlock Text="{Binding HarmonyScore, StringFormat={}{0:P0}}"
+                                                   Classes="miniScore"
+                                                   Foreground="#9F7AEA"/>
+                                        <TextBlock Text="S"
+                                                   Classes="miniScore"
+                                                   Foreground="#63B3ED"/>
+                                        <TextBlock Text="{Binding BeatScore, StringFormat={}{0:P0}}"
+                                                   Classes="miniScore"
+                                                   Foreground="#63B3ED"/>
+                                        <TextBlock Text="E"
+                                                   Classes="miniScore"
+                                                   Foreground="#FC8181"/>
+                                        <TextBlock Text="{Binding DropSonicScore, StringFormat={}{0:P0}}"
+                                                   Classes="miniScore"
+                                                   Foreground="#FC8181"/>
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="8"
+                                                IsVisible="{Binding IsBridgeBetweenCandidate}">
+                                        <TextBlock Text="A→X" Classes="miniScore" Foreground="#63B3ED"/>
+                                        <TextBlock Text="{Binding BridgeFromScore, StringFormat={}{0:P0}}"
+                                                   Classes="miniScore" Foreground="#63B3ED"/>
+                                        <TextBlock Text="X→B" Classes="miniScore" Foreground="#68D391"/>
+                                        <TextBlock Text="{Binding BridgeToScore, StringFormat={}{0:P0}}"
+                                                   Classes="miniScore" Foreground="#68D391"/>
+                                    </StackPanel>
+                                    <TextBlock Text="Click again to confirm insert"
+                                               Classes="miniScore"
+                                               Foreground="#FFB800"
+                                               IsVisible="{Binding IsInsertConfirmArmed}"/>
                                 </StackPanel>
 
                                 <Border Grid.Column="1" CornerRadius="4"
@@ -245,9 +361,9 @@
                                         Background="Transparent" Foreground="#68D391"
                                         BorderThickness="0" Padding="6,4" Margin="4,0,0,0"
                                         VerticalAlignment="Center"
-                                        ToolTip.Tip="Add bridging track to project/playlist"
+                                        ToolTip.Tip="{Binding AddActionToolTip}"
                                         Opacity="0.6" Classes="addBtn">
-                                    <TextBlock Text="+" FontSize="16" FontWeight="Bold"/>
+                                    <TextBlock Text="{Binding AddActionLabel}" FontSize="11" FontWeight="SemiBold"/>
                                 </Button>
                             </Grid>
                         </Border>

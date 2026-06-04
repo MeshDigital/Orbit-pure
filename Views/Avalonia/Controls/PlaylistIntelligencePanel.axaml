@@ -1,0 +1,507 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
+             xmlns:vmCore="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:vmLib="clr-namespace:SLSKDONET.ViewModels.Library"
+             mc:Ignorable="d"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.PlaylistIntelligencePanel"
+             x:DataType="vmCore:PlaylistIntelligenceViewModel">
+    <Grid RowDefinitions="Auto,Auto,Auto,*">
+        <Border Grid.Row="0" Background="#20242A" BorderBrush="#2E343D" BorderThickness="0,0,0,1" Padding="12,10">
+            <StackPanel Spacing="2">
+                <TextBlock Text="Playlist Intelligence"
+                           FontSize="13"
+                           FontWeight="SemiBold"
+                           Foreground="#D8E5F2"/>
+                <TextBlock Text="{Binding LibraryIntelligencePlaylistTitle}"
+                           FontSize="10"
+                           Foreground="#8FA7C0"
+                           TextWrapping="Wrap"/>
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="1" Background="#1D222A" BorderBrush="#2E343D" BorderThickness="0,0,0,1" Padding="12,8">
+            <StackPanel Spacing="4">
+                <TextBlock Text="Insert Context" FontSize="10" FontWeight="SemiBold" Foreground="#8FA7C0"/>
+                <TextBlock Text="{Binding SmartInsertContextSummary}" FontSize="10" Foreground="#D8E5F2" TextWrapping="Wrap"/>
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="2" Background="#1A1F27" BorderBrush="#2E343D" BorderThickness="0,0,0,1" Padding="8,8">
+            <UniformGrid Columns="4">
+                <ToggleButton IsChecked="{Binding IsLibraryIntelligenceSmartInsertActive, Mode=OneWay}"
+                              Command="{Binding SetLibraryIntelligenceTabCommand}"
+                              CommandParameter="SmartInsert"
+                              FontSize="10"
+                              Padding="6,4"
+                              Margin="2,0"
+                              HorizontalContentAlignment="Center"
+                              Content="Smart Insert"/>
+                <ToggleButton IsChecked="{Binding IsLibraryIntelligenceSuggestNextActive, Mode=OneWay}"
+                              Command="{Binding SetLibraryIntelligenceTabCommand}"
+                              CommandParameter="SuggestNext"
+                              FontSize="10"
+                              Padding="6,4"
+                              Margin="2,0"
+                              HorizontalContentAlignment="Center"
+                              Content="Suggest Next"/>
+                <ToggleButton IsChecked="{Binding IsLibraryIntelligenceUpgradeActive, Mode=OneWay}"
+                              Command="{Binding SetLibraryIntelligenceTabCommand}"
+                              CommandParameter="Upgrade"
+                              FontSize="10"
+                              Padding="6,4"
+                              Margin="2,0"
+                              HorizontalContentAlignment="Center"
+                              Content="Upgrade"/>
+                <ToggleButton IsChecked="{Binding IsLibraryIntelligenceAutomixActive, Mode=OneWay}"
+                              Command="{Binding SetLibraryIntelligenceTabCommand}"
+                              CommandParameter="Automix"
+                              FontSize="10"
+                              Padding="6,4"
+                              Margin="2,0"
+                              HorizontalContentAlignment="Center"
+                              Content="Automix"/>
+            </UniformGrid>
+        </Border>
+
+        <ScrollViewer Grid.Row="3" Padding="12,10">
+            <Grid>
+                <StackPanel IsVisible="{Binding IsLibraryIntelligenceSmartInsertActive}" Spacing="8">
+                    <TextBlock Text="Smart Insert"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#D8E5F2"/>
+                    <TextBlock Text="Create bridge recommendations between two playlist tracks with confidence and structure-aware filtering."
+                               FontSize="10"
+                               Foreground="#8FA7C0"
+                               TextWrapping="Wrap"/>
+                    <Border Background="#20242A" BorderBrush="#2E343D" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Smart Insert Settings" FontSize="10" FontWeight="SemiBold" Foreground="#8FA7C0"/>
+
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Grid ColumnDefinitions="Auto,Auto,Auto">
+                                    <Grid Grid.Column="0" RowDefinitions="Auto,Auto">
+                                        <Button Grid.Row="0"
+                                                Content="Strict"
+                                                Command="{Binding SetSmartInsertStrictPresetCommand}"
+                                                Padding="8,3"
+                                                FontSize="10"
+                                                MinWidth="52"/>
+                                        <TextBlock Grid.Row="1"
+                                                   Text="● Active"
+                                                   FontSize="9"
+                                                   Foreground="#93C7B8"
+                                                   HorizontalAlignment="Center"
+                                                   IsVisible="{Binding IsSmartInsertStrictPresetActive}"/>
+                                    </Grid>
+
+                                    <Grid Grid.Column="1" RowDefinitions="Auto,Auto" Margin="6,0,0,0">
+                                        <Button Grid.Row="0"
+                                                Content="Normal"
+                                                Command="{Binding SetSmartInsertNormalPresetCommand}"
+                                                Padding="8,3"
+                                                FontSize="10"
+                                                MinWidth="52"/>
+                                        <TextBlock Grid.Row="1"
+                                                   Text="● Active"
+                                                   FontSize="9"
+                                                   Foreground="#93C7B8"
+                                                   HorizontalAlignment="Center"
+                                                   IsVisible="{Binding IsSmartInsertNormalPresetActive}"/>
+                                    </Grid>
+
+                                    <Grid Grid.Column="2" RowDefinitions="Auto,Auto" Margin="6,0,0,0">
+                                        <Button Grid.Row="0"
+                                                Content="Loose"
+                                                Command="{Binding SetSmartInsertLoosePresetCommand}"
+                                                Padding="8,3"
+                                                FontSize="10"
+                                                MinWidth="52"/>
+                                        <TextBlock Grid.Row="1"
+                                                   Text="● Active"
+                                                   FontSize="9"
+                                                   Foreground="#93C7B8"
+                                                   HorizontalAlignment="Center"
+                                                   IsVisible="{Binding IsSmartInsertLoosePresetActive}"/>
+                                    </Grid>
+                                </Grid>
+                            </StackPanel>
+
+                            <StackPanel Spacing="3">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="Confidence Threshold" FontSize="10" Foreground="#D8E5F2"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding LibrarySmartInsertThresholdPreset, StringFormat='{}({0})'}"
+                                               FontSize="10"
+                                               FontWeight="SemiBold"
+                                               Foreground="#93C7B8"/>
+                                </Grid>
+                                <Slider Minimum="0.65"
+                                        Maximum="0.90"
+                                        TickFrequency="0.01"
+                                        SmallChange="0.01"
+                                        LargeChange="0.02"
+                                        Value="{Binding LibrarySmartInsertMinConfidence, Mode=TwoWay}"/>
+                                <TextBlock Text="{Binding LibrarySmartInsertMinConfidence, StringFormat='{}Only suggestions scored ≥ {0:F2} are allowed'}"
+                                           FontSize="9"
+                                           Foreground="#8AA4B8"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+
+                            <Border Background="#27313A" Height="1"/>
+
+                            <StackPanel Spacing="3">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="Structure Sensitivity" FontSize="10" Foreground="#D8E5F2"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding LibrarySmartInsertStructureSensitivity, StringFormat='{}{0}%'}"
+                                               FontSize="10"
+                                               FontWeight="SemiBold"
+                                               Foreground="#93C7B8"/>
+                                </Grid>
+                                <Slider Minimum="0"
+                                        Maximum="100"
+                                        TickFrequency="5"
+                                        SmallChange="1"
+                                        LargeChange="5"
+                                        Value="{Binding LibrarySmartInsertStructureSensitivity, Mode=TwoWay}"/>
+                                <TextBlock Text="Higher values prioritize intro/drop/breakdown/outro continuity over loose matches."
+                                           FontSize="9"
+                                           Foreground="#8AA4B8"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <Border Background="#20242A" BorderBrush="#2E343D" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="From" FontSize="9" Foreground="#8FA7C0"/>
+                            <TextBlock Text="{Binding SmartInsertFromLabel}" FontSize="10" Foreground="#D8E5F2" TextWrapping="Wrap"/>
+                            <TextBlock Text="To" FontSize="9" Foreground="#8FA7C0" Margin="0,4,0,0"/>
+                            <TextBlock Text="{Binding SmartInsertToLabel}" FontSize="10" Foreground="#D8E5F2" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
+                    <Border IsVisible="{Binding IsSmartInsertPreparationHintVisible}"
+                            Background="#1A2530"
+                            BorderBrush="#2E4C63"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            Padding="8,4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Ellipse Width="6" Height="6" Fill="#4EC9B0" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding SmartInsertPreparationHint}"
+                                       FontSize="9"
+                                       Foreground="#9ED9C8"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Apply Smart Insert"
+                                Command="{Binding ApplyPreparedSmartInsertCommand}"
+                                IsEnabled="{Binding HasPendingSmartInsertContext}"
+                                Background="#2D4A60"
+                                BorderBrush="#456E8D"
+                                BorderThickness="1"
+                                Foreground="#D8E5F2"
+                                Padding="10,4"
+                                CornerRadius="6"
+                                Cursor="Hand"/>
+                        <TextBlock Text="Prepare from row hover/context first, then apply explicitly."
+                                   VerticalAlignment="Center"
+                                   FontSize="9"
+                                   Foreground="#7A8C9F"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel IsVisible="{Binding IsLibraryIntelligenceSuggestNextActive}" Spacing="8">
+                    <TextBlock Text="Suggest Next"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#D8E5F2"/>
+                    <TextBlock Text="Rank best next-track options from library candidates using harmonic, tempo, and energy continuity."
+                               FontSize="10"
+                               Foreground="#8FA7C0"
+                               TextWrapping="Wrap"/>
+                    <Border Background="#20242A" BorderBrush="#2E343D" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="{Binding SuggestNextInfoText}"
+                                       FontSize="9"
+                                       Foreground="#8FA7C0"
+                                       TextWrapping="Wrap"/>
+
+                            <TextBlock IsVisible="{Binding IsSuggestNextLoading}"
+                                       Text="Scanning transition candidates..."
+                                       FontSize="9"
+                                       Foreground="#9ED9C8"/>
+
+                            <TextBlock IsVisible="{Binding !HasSuggestNextCandidates}"
+                                       Text="No candidates yet."
+                                       FontSize="9"
+                                       Foreground="#7A8C9F"/>
+
+                            <ItemsControl IsVisible="{Binding HasSuggestNextCandidates}"
+                                          ItemsSource="{Binding SuggestNextCandidates}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Spacing="4"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="vmLib:SuggestNextCandidateViewModel">
+                                        <Border Background="#1A2027" BorderBrush="#2B333D" BorderThickness="1" CornerRadius="6" Padding="7,5">
+                                                <Button Command="{Binding $parent[UserControl].DataContext.SuggestNextCandidateCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Background="Transparent"
+                                                    BorderThickness="0"
+                                                    HorizontalContentAlignment="Stretch"
+                                                    Padding="0"
+                                                    Cursor="Hand">
+                                                <StackPanel Spacing="3">
+                                                    <Grid ColumnDefinitions="*,Auto">
+                                                        <TextBlock Grid.Column="0"
+                                                                   Text="{Binding TrackTitle}"
+                                                                   FontSize="10"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="#D8E5F2"
+                                                                   TextTrimming="CharacterEllipsis"/>
+                                                        <Border Grid.Column="1"
+                                                                IsVisible="{Binding IsSavedDoubleSuggested}"
+                                                                Background="#1E2C24"
+                                                                BorderBrush="#3A5A4A"
+                                                                BorderThickness="1"
+                                                                CornerRadius="8"
+                                                                Padding="6,1"
+                                                                Margin="6,0,0,0">
+                                                            <StackPanel Orientation="Horizontal" Spacing="3">
+                                                                <Ellipse Width="5" Height="5" Fill="#8BBCA7" VerticalAlignment="Center"/>
+                                                                <TextBlock Text="Saved double" FontSize="8" Foreground="#9ED9C8"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </Grid>
+
+                                                    <TextBlock Text="{Binding ArtistName}"
+                                                               FontSize="9"
+                                                               Foreground="#8FA7C0"
+                                                               TextTrimming="CharacterEllipsis"/>
+
+                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <Border Background="#30353D" CornerRadius="4" Padding="5,1">
+                                                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                                                <TextBlock Text="BASE" FontSize="8" Foreground="#9AA7B6"/>
+                                                                <TextBlock Text="{Binding BaseScoreDisplay}" FontSize="8" Foreground="#D8E5F2"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <Border Background="#233141" CornerRadius="4" Padding="5,1">
+                                                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                                                <TextBlock Text="KEY" FontSize="8" Foreground="#7D93A8"/>
+                                                                <TextBlock Text="{Binding CamelotDisplay}" FontSize="8" Foreground="#B7CCE0"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <Border Background="#233141" CornerRadius="4" Padding="5,1">
+                                                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                                                <TextBlock Text="BPM" FontSize="8" Foreground="#7D93A8"/>
+                                                                <TextBlock Text="{Binding BpmDisplay}" FontSize="8" Foreground="#B7CCE0"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <Border Background="#2A3A2E" CornerRadius="4" Padding="5,1">
+                                                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                                                <TextBlock Text="ENERGY" FontSize="8" Foreground="#7FA58A"/>
+                                                                <TextBlock Text="{Binding EnergyRating}" FontSize="8" Foreground="#B9E2C2"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </StackPanel>
+
+                                                    <TextBlock IsVisible="{Binding HasSuggestionReason}"
+                                                               Text="{Binding SuggestionReason}"
+                                                               FontSize="8"
+                                                               Foreground="#9ED9C8"
+                                                               TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel IsVisible="{Binding IsLibraryIntelligenceUpgradeActive}" Spacing="8">
+                    <TextBlock Text="Playlist Upgrade"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#D8E5F2"/>
+                    <TextBlock Text="Detect weak transitions and propose reorder, replacement, or bridge candidates for stronger flow."
+                               FontSize="10"
+                               Foreground="#8FA7C0"
+                               TextWrapping="Wrap"/>
+                    <Border Background="#20242A" BorderBrush="#2E343D" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="{Binding PlaylistUpgradeInfoText}"
+                                       FontSize="9"
+                                       Foreground="#8FA7C0"
+                                       TextWrapping="Wrap"/>
+
+                            <TextBlock IsVisible="{Binding IsPlaylistUpgradeLoading}"
+                                       Text="Scanning upgrade opportunities..."
+                                       FontSize="9"
+                                       Foreground="#9ED9C8"/>
+
+                            <TextBlock IsVisible="{Binding !HasPlaylistUpgradeCandidates}"
+                                       Text="No upgrade candidates yet."
+                                       FontSize="9"
+                                       Foreground="#7A8C9F"/>
+
+                            <ItemsControl IsVisible="{Binding HasPlaylistUpgradeCandidates}"
+                                          ItemsSource="{Binding PlaylistUpgradeCandidates}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Spacing="4"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="vmLib:PlaylistUpgradeCandidateViewModel">
+                                        <Border Background="#1A2027" BorderBrush="#2B333D" BorderThickness="1" CornerRadius="6" Padding="7,5">
+                                                <Button Command="{Binding $parent[UserControl].DataContext.PlaylistUpgradeCandidateCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Background="Transparent"
+                                                    BorderThickness="0"
+                                                    HorizontalContentAlignment="Stretch"
+                                                    Padding="0"
+                                                    Cursor="Hand">
+                                                <StackPanel Spacing="3">
+                                                    <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto">
+                                                        <TextBlock Grid.Column="0"
+                                                                   Text="{Binding ReplacementTrackTitle}"
+                                                                   FontSize="10"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="#D8E5F2"
+                                                                   TextTrimming="CharacterEllipsis"/>
+                                                        <Border Grid.Column="1"
+                                                                Background="#2A3140"
+                                                                BorderBrush="#536079"
+                                                                BorderThickness="1"
+                                                                CornerRadius="8"
+                                                                Padding="6,1"
+                                                                Margin="6,0,0,0">
+                                                            <TextBlock Text="{Binding ScoreLabel}"
+                                                                       FontSize="8"
+                                                                       Foreground="#C6D6F0"/>
+                                                        </Border>
+                                                        <Border Grid.Column="2"
+                                                                IsVisible="{Binding HasPriorBonus}"
+                                                                Background="#1E2A35"
+                                                                BorderBrush="#415A78"
+                                                                BorderThickness="1"
+                                                                CornerRadius="8"
+                                                                Padding="6,1"
+                                                                Margin="6,0,0,0">
+                                                            <TextBlock Text="{Binding PriorBonusLabel}"
+                                                                       FontSize="8"
+                                                                       Foreground="#AECBEB"/>
+                                                        </Border>
+                                                        <Border Grid.Column="3"
+                                                                IsVisible="{Binding IsSavedDoubleAligned}"
+                                                                Background="#1E2C24"
+                                                                BorderBrush="#3A5A4A"
+                                                                BorderThickness="1"
+                                                                CornerRadius="8"
+                                                                Padding="6,1"
+                                                                Margin="6,0,0,0">
+                                                            <TextBlock Text="Saved double"
+                                                                       FontSize="8"
+                                                                       Foreground="#9ED9C8"/>
+                                                        </Border>
+                                                        <Border Grid.Column="4"
+                                                                IsVisible="{Binding IsBridgeCandidate}"
+                                                                Background="#243043"
+                                                                BorderBrush="#4F6788"
+                                                                BorderThickness="1"
+                                                                CornerRadius="8"
+                                                                Padding="6,1"
+                                                                Margin="6,0,0,0">
+                                                            <TextBlock Text="Bridge"
+                                                                       FontSize="8"
+                                                                       Foreground="#AECBEB"/>
+                                                        </Border>
+                                                        <Border Grid.Column="5"
+                                                                IsVisible="{Binding IsReplacementCandidate}"
+                                                                Background="#3A2A1F"
+                                                                BorderBrush="#7A573F"
+                                                                BorderThickness="1"
+                                                                CornerRadius="8"
+                                                                Padding="6,1"
+                                                                Margin="6,0,0,0">
+                                                            <TextBlock Text="Replacement"
+                                                                       FontSize="8"
+                                                                       Foreground="#E1C3A8"/>
+                                                        </Border>
+                                                    </Grid>
+
+                                                    <TextBlock Text="{Binding ReplacementTrackArtist}"
+                                                               FontSize="9"
+                                                               Foreground="#8FA7C0"
+                                                               TextTrimming="CharacterEllipsis"/>
+
+                                                    <TextBlock Text="{Binding ScoreBreakdownLabel}"
+                                                               FontSize="8"
+                                                               Foreground="#7D93A8"/>
+
+                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <Border Background="#233141" CornerRadius="4" Padding="5,1">
+                                                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                                                <TextBlock Text="KEY" FontSize="8" Foreground="#7D93A8"/>
+                                                                <TextBlock Text="{Binding ReplacementKey}" FontSize="8" Foreground="#B7CCE0"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <Border Background="#233141" CornerRadius="4" Padding="5,1">
+                                                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                                                <TextBlock Text="BPM" FontSize="8" Foreground="#7D93A8"/>
+                                                                <TextBlock Text="{Binding ReplacementBpm}" FontSize="8" Foreground="#B7CCE0"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <Border Background="#2A3A2E" CornerRadius="4" Padding="5,1">
+                                                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                                                <TextBlock Text="ENERGY" FontSize="8" Foreground="#7FA58A"/>
+                                                                <TextBlock Text="{Binding ReplacementEnergy}" FontSize="8" Foreground="#B9E2C2"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </StackPanel>
+
+                                                    <TextBlock Text="{Binding UpgradeReason}"
+                                                               FontSize="8"
+                                                               Foreground="#8FA7C0"
+                                                               TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel IsVisible="{Binding IsLibraryIntelligenceAutomixActive}" Spacing="8">
+                    <TextBlock Text="Automix"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#D8E5F2"/>
+                    <TextBlock Text="Build a harmonic journey with configurable energy and tempo arcs before applying playlist changes."
+                               FontSize="10"
+                               Foreground="#8FA7C0"
+                               TextWrapping="Wrap"/>
+                    <Border Background="#20242A" BorderBrush="#2E343D" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                        <TextBlock Text="Placeholder: profile presets, dry-run preview, and apply controls."
+                                   FontSize="10"
+                                   Foreground="#D8E5F2"
+                                   TextWrapping="Wrap"/>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

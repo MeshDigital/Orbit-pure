@@ -137,6 +137,36 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>Opt-in toggle for local Frequent Sources tracking and prefetch staging.</summary>
+    public bool EnableFrequentSources
+    {
+        get => _config.EnableFrequentSources;
+        set
+        {
+            if (_config.EnableFrequentSources != value)
+            {
+                _config.EnableFrequentSources = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    /// <summary>Local staging folder for opt-in prefetching before fingerprinting.</summary>
+    public string FrequentSourcesStagingPath
+    {
+        get => _config.FrequentSourcesStagingPath ?? string.Empty;
+        set
+        {
+            if (_config.FrequentSourcesStagingPath != value)
+            {
+                _config.FrequentSourcesStagingPath = value ?? string.Empty;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
 
     public string FileNameFormat
     {
@@ -341,6 +371,221 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         : SearchProfileStrict
             ? "STRICT overwrite: FLAC/WAV/AIFF/AIF + 320kbps floor"
             : "NON-STRICT overwrite: expanded formats + 192kbps floor";
+
+    public bool EnableAutoDownloadStrictMode
+    {
+        get => _config.EnableAutoDownloadStrictMode;
+        set
+        {
+            if (_config.EnableAutoDownloadStrictMode != value)
+            {
+                _config.EnableAutoDownloadStrictMode = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public int AutoDownloadInitialWaitMs
+    {
+        get => _config.AutoDownloadInitialWaitMs;
+        set
+        {
+            var normalized = Math.Clamp(value, 1000, 10000);
+            if (_config.AutoDownloadInitialWaitMs != normalized)
+            {
+                _config.AutoDownloadInitialWaitMs = normalized;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public int AutoDownloadExtendedWaitMs
+    {
+        get => _config.AutoDownloadExtendedWaitMs;
+        set
+        {
+            var normalized = Math.Clamp(value, 5000, 60000);
+            if (_config.AutoDownloadExtendedWaitMs != normalized)
+            {
+                _config.AutoDownloadExtendedWaitMs = normalized;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public string AutoDownloadAllowedExtensions
+    {
+        get => string.Join(",", _config.AutoDownloadAllowedExtensions ?? new List<string>());
+        set
+        {
+            var parsed = SplitCsvList(value);
+            if (!(_config.AutoDownloadAllowedExtensions ?? new List<string>()).SequenceEqual(parsed, StringComparer.OrdinalIgnoreCase))
+            {
+                _config.AutoDownloadAllowedExtensions = parsed;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public int AutoDownloadMinFileSizeBytes
+    {
+        get => (int)Math.Clamp(_config.AutoDownloadMinFileSizeBytes, 256 * 1024, 5 * 1024 * 1024);
+        set
+        {
+            var normalized = Math.Clamp(value, 256 * 1024, 5 * 1024 * 1024);
+            if (_config.AutoDownloadMinFileSizeBytes != normalized)
+            {
+                _config.AutoDownloadMinFileSizeBytes = normalized;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public int AutoDownloadMinBitrateKbps
+    {
+        get => _config.AutoDownloadMinBitrateKbps;
+        set
+        {
+            var normalized = Math.Clamp(value, 128, 320);
+            if (_config.AutoDownloadMinBitrateKbps != normalized)
+            {
+                _config.AutoDownloadMinBitrateKbps = normalized;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public int AutoDownloadMinMatchScore
+    {
+        get => Math.Clamp(_config.AutoDownloadMinMatchScore, 0, 100);
+        set
+        {
+            var normalized = Math.Clamp(value, 0, 100);
+            if (_config.AutoDownloadMinMatchScore != normalized)
+            {
+                _config.AutoDownloadMinMatchScore = normalized;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool AutoDownloadExactFirstOnly
+    {
+        get => _config.AutoDownloadExactFirstOnly;
+        set
+        {
+            if (_config.AutoDownloadExactFirstOnly != value)
+            {
+                _config.AutoDownloadExactFirstOnly = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool AutoDownloadAllowFuzzyFallback
+    {
+        get => _config.AutoDownloadAllowFuzzyFallback;
+        set
+        {
+            if (_config.AutoDownloadAllowFuzzyFallback != value)
+            {
+                _config.AutoDownloadAllowFuzzyFallback = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public int AutoDownloadDurationToleranceSeconds
+    {
+        get => Math.Clamp(_config.AutoDownloadDurationToleranceSeconds, 0, 30);
+        set
+        {
+            var normalized = Math.Clamp(value, 0, 30);
+            if (_config.AutoDownloadDurationToleranceSeconds != normalized)
+            {
+                _config.AutoDownloadDurationToleranceSeconds = normalized;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public int AutoDownloadMaxCandidatesToScore
+    {
+        get => _config.AutoDownloadMaxCandidatesToScore;
+        set
+        {
+            var normalized = Math.Clamp(value, 10, 200);
+            if (_config.AutoDownloadMaxCandidatesToScore != normalized)
+            {
+                _config.AutoDownloadMaxCandidatesToScore = normalized;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public string AutoDownloadExcludedPhrases
+    {
+        get => _config.AutoDownloadExcludedPhrases ?? string.Empty;
+        set
+        {
+            var normalized = string.Join(",", SplitCsvList(value));
+            if (!string.Equals(_config.AutoDownloadExcludedPhrases ?? string.Empty, normalized, StringComparison.Ordinal))
+            {
+                _config.AutoDownloadExcludedPhrases = normalized;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool AutoDownloadDiagnosticsEnabled
+    {
+        get => _config.AutoDownloadDiagnosticsEnabled;
+        set
+        {
+            if (_config.AutoDownloadDiagnosticsEnabled != value)
+            {
+                _config.AutoDownloadDiagnosticsEnabled = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public int MinSearchDurationSeconds
+    {
+        get => _config.MinSearchDurationSeconds;
+        set
+        {
+            var normalized = Math.Clamp(value, 1, 60);
+            if (_config.MinSearchDurationSeconds != normalized)
+            {
+                _config.MinSearchDurationSeconds = normalized;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    private static List<string> SplitCsvList(string? value)
+    {
+        return (value ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item.Trim())
+            .ToList();
+    }
 
     private void ApplySearchProfile(string mode)
     {
@@ -891,6 +1136,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand SaveSettingsCommand { get; }
     public ICommand BrowseDownloadPathCommand { get; }
     public ICommand BrowseSharedFolderCommand { get; }
+    public ICommand BrowseFrequentSourcesStagingPathCommand { get; }
     public ICommand ConnectSpotifyCommand { get; }
     public ICommand DisconnectSpotifyCommand { get; }
     public ICommand TestSpotifyConnectionCommand { get; }
@@ -1113,6 +1359,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         SaveSettingsCommand = new RelayCommand(SaveSettings);
         BrowseDownloadPathCommand = new AsyncRelayCommand(BrowseDownloadPathAsync);
         BrowseSharedFolderCommand = new AsyncRelayCommand(BrowseSharedFolderAsync);
+        BrowseFrequentSourcesStagingPathCommand = new AsyncRelayCommand(BrowseFrequentSourcesStagingPathAsync);
 
         ConnectSpotifyCommand = new AsyncRelayCommand(ConnectSpotifyAsync, () => IsSpotifyDisconnected);
         DisconnectSpotifyCommand = new AsyncRelayCommand(DisconnectSpotifyAsync, () => IsSpotifyConnected);
@@ -1495,6 +1742,15 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         if (!string.IsNullOrEmpty(path))
         {
             SharedFolderPath = path; // Setter triggers SaveSettings
+        }
+    }
+
+    private async Task BrowseFrequentSourcesStagingPathAsync()
+    {
+        var path = await _fileInteractionService.OpenFolderDialogAsync("Select Frequent Sources Staging Folder");
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            FrequentSourcesStagingPath = path; // Setter triggers SaveSettings
         }
     }
 

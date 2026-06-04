@@ -41,4 +41,20 @@ public class DownloadCenterViewModelTests
 
         Assert.False(DownloadCenterViewModel.ShouldAutoDismissGlobalStatus(evt));
     }
+
+    [Fact]
+    public void BuildIngestionDisplayName_UsesFileNameWhenPathProvided()
+    {
+        var value = DownloadCenterViewModel.BuildIngestionDisplayName(@"C:\\music\\artist\\track.flac", "hash123");
+
+        Assert.Equal("track.flac", value);
+    }
+
+    [Fact]
+    public void BuildIngestionDisplayName_FallsBackToHash()
+    {
+        var value = DownloadCenterViewModel.BuildIngestionDisplayName(null, "hash123");
+
+        Assert.Equal("hash123", value);
+    }
 }

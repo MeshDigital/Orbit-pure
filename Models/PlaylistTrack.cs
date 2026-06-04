@@ -137,6 +137,8 @@ public class PlaylistTrack
     public double? Energy { get; set; }
     public double? Danceability { get; set; }
     public double? Valence { get; set; }
+    public double? Arousal { get; set; }
+    public bool IsDjTool { get; set; }
     public string? MoodTag { get; set; }
     public float? MoodConfidence { get; set; }
     public double? InstrumentalProbability { get; set; } // Phase 18.2

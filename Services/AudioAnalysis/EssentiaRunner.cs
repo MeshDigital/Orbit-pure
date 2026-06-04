@@ -107,6 +107,12 @@ public sealed class EssentiaRunner
         var sb = new StringBuilder();
         sb.Append($"\"{inputWav}\" ");
         sb.Append($"\"{outputJson}\"");
+
+        // Pass the profile so every configured TF model (mood, tonal_atonal, emomusic, etc.) runs
+        string profilePath = Path.Combine(AppContext.BaseDirectory, "Tools", "Essentia", "profile.yaml");
+        if (File.Exists(profilePath))
+            sb.Append($" \"{profilePath}\"");
+
         return sb.ToString();
     }
 
@@ -176,7 +182,14 @@ public sealed class EssentiaRunner
             if (File.Exists(bundled)) return bundled;
         }
 
-        // 2. Bundled in Tools/essentia/ sub-directory
+        // 2. Bundled in Tools/ sub-directory (flat — binary copied by .csproj glob)
+        foreach (string name in names)
+        {
+            string tools = Path.Combine(AppContext.BaseDirectory, "Tools", name);
+            if (File.Exists(tools)) return tools;
+        }
+
+        // 3. Bundled in Tools/essentia/ sub-directory (legacy layout)
         foreach (string name in names)
         {
             string tools = Path.Combine(AppContext.BaseDirectory, "Tools", "essentia", name);

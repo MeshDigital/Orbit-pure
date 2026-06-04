@@ -12,6 +12,9 @@ public class WorkstationSession
     /// <summary>The mode the workstation was in (maps to <see cref="WorkstationMode"/>).</summary>
     public int ActiveModeIndex { get; set; } = 0;
 
+    /// <summary>Last active playlist in the workstation drawer.</summary>
+    public Guid? ActivePlaylistId { get; set; }
+
     public double TimelineOffsetSeconds { get; set; } = 0;
     public double TimelineWindowSeconds { get; set; } = 60;
 
