@@ -108,6 +108,9 @@
                                 <Button Command="{Binding UpgradeBronzeCommand}" Classes="ActionBtnSmall" Padding="8,4" BorderBrush="#FF6B6B">
                                     <TextBlock Text="{Binding CurrentSnapshot.LibraryHealth.BronzeCount, StringFormat='{}{0} 🥉'}" FontSize="10" Foreground="#FF6B6B" FontWeight="Bold"/>
                                 </Button>
+                                <Button Command="{Binding NavigateToAnalysisCommand}" Classes="ActionBtnSmall" Padding="8,4" BorderBrush="#FFCF8A" IsVisible="{Binding HasIncompleteAnalysisTracks}">
+                                    <TextBlock Text="{Binding IncompleteAnalysisCount, StringFormat='{}{0} 🧪'}" FontSize="10" Foreground="#FFCF8A" FontWeight="Bold"/>
+                                </Button>
                             </StackPanel>
                         </Grid>
                     </Border>

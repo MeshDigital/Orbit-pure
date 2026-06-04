@@ -255,6 +255,53 @@ public class DashboardService
         }
     }
 
+    public async Task<int> GetIncompleteAnalysisTrackCountAsync()
+    {
+        try
+        {
+            using var context = new AppDbContext();
+
+            var tracks = await context.PlaylistTracks
+                .AsNoTracking()
+                .Include(t => t.TechnicalDetails)
+                .Where(t => t.Status == TrackStatus.Downloaded)
+                .ToListAsync();
+
+            return tracks.Count(track =>
+            {
+                if (string.IsNullOrWhiteSpace(track.TrackUniqueHash))
+                {
+                    return false;
+                }
+
+                if (string.IsNullOrWhiteSpace(track.ResolvedFilePath) || !File.Exists(track.ResolvedFilePath))
+                {
+                    return false;
+                }
+
+                var hasBpm = (track.BPM ?? 0) > 0;
+                var hasKey = !string.IsNullOrWhiteSpace(track.MusicalKey);
+
+                var cueJson = string.IsNullOrWhiteSpace(track.TechnicalDetails?.CuePointsJson)
+                    ? track.CuePointsJson
+                    : track.TechnicalDetails!.CuePointsJson;
+                var hasCues = !string.IsNullOrWhiteSpace(cueJson);
+
+                var hasWaveform = (track.TechnicalDetails?.WaveformData?.Length ?? 0) > 0
+                    || (track.TechnicalDetails?.LowData?.Length ?? 0) > 0
+                    || (track.TechnicalDetails?.MidData?.Length ?? 0) > 0
+                    || (track.TechnicalDetails?.HighData?.Length ?? 0) > 0;
+
+                return !(hasBpm && hasKey && hasCues && hasWaveform);
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to compute incomplete analysis track count");
+            return 0;
+        }
+    }
+
     private PlaylistJob MapToModel(PlaylistJobEntity entity)
     {
         return new PlaylistJob

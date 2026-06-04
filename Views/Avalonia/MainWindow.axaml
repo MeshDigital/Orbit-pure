@@ -490,7 +490,18 @@
                                             <controls:DoubleInspectorPanel/>
                                         </DataTemplate>
                                         <DataTemplate DataType="vmCore:PlaylistIntelligenceViewModel">
-                                            <controls:PlaylistIntelligencePanel/>
+                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" MaxWidth="280">
+                                                <TextBlock Text="Playlist Intelligence"
+                                                           FontSize="13"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="#AAA"
+                                                           HorizontalAlignment="Center"/>
+                                                <TextBlock Text="Inspector panel is temporarily running in safe mode."
+                                                           FontSize="11"
+                                                           Foreground="#888"
+                                                           TextWrapping="Wrap"
+                                                           TextAlignment="Center"/>
+                                            </StackPanel>
                                         </DataTemplate>
                                         <DataTemplate DataType="vmDownloads:UnifiedTrackViewModel">
                                             <controls:TrackInspector/>
@@ -500,20 +511,6 @@
                                         </DataTemplate>
                                         <DataTemplate DataType="vmCore:PlaylistTrackViewModel">
                                             <controls:LibraryTrackInspector/>
-                                        </DataTemplate>
-                                        <DataTemplate>
-                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" MaxWidth="280">
-                                                <TextBlock Text="Inspector fallback" FontSize="13" FontWeight="SemiBold" Foreground="#AAA" HorizontalAlignment="Center"/>
-                                                <TextBlock Text="Inspector content is unavailable for this selection. Showing Now Playing is recommended until a matching template is added."
-                                                           FontSize="11"
-                                                           Foreground="#888"
-                                                           TextWrapping="Wrap"
-                                                           TextAlignment="Center"/>
-                                                <Button Content="Show Now Playing"
-                                                        HorizontalAlignment="Center"
-                                                        Command="{Binding $parent[Window].DataContext.Sidebar.SwitchToPlayerCommand}"
-                                                        Padding="12,6"/>
-                                            </StackPanel>
                                         </DataTemplate>
                                     </ContentControl.DataTemplates>
                                 </ContentControl>
@@ -729,7 +726,18 @@
                             <controls:DoubleInspectorPanel/>
                         </DataTemplate>
                         <DataTemplate DataType="vmCore:PlaylistIntelligenceViewModel">
-                            <controls:PlaylistIntelligencePanel/>
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" MaxWidth="280">
+                                <TextBlock Text="Playlist Intelligence"
+                                           FontSize="13"
+                                           FontWeight="SemiBold"
+                                           Foreground="#AAA"
+                                           HorizontalAlignment="Center"/>
+                                <TextBlock Text="Inspector panel is temporarily running in safe mode."
+                                           FontSize="11"
+                                           Foreground="#888"
+                                           TextWrapping="Wrap"
+                                           TextAlignment="Center"/>
+                            </StackPanel>
                         </DataTemplate>
                         <DataTemplate DataType="vmDownloads:UnifiedTrackViewModel">
                             <controls:TrackInspector/>
@@ -739,20 +747,6 @@
                         </DataTemplate>
                         <DataTemplate DataType="vmCore:PlaylistTrackViewModel">
                             <controls:LibraryTrackInspector/>
-                        </DataTemplate>
-                        <DataTemplate>
-                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" MaxWidth="280">
-                                <TextBlock Text="Inspector fallback" FontSize="13" FontWeight="SemiBold" Foreground="#AAA" HorizontalAlignment="Center"/>
-                                <TextBlock Text="Inspector content is unavailable for this selection. Showing Now Playing is recommended until a matching template is added."
-                                           FontSize="11"
-                                           Foreground="#888"
-                                           TextWrapping="Wrap"
-                                           TextAlignment="Center"/>
-                                <Button Content="Show Now Playing"
-                                        HorizontalAlignment="Center"
-                                        Command="{Binding $parent[Window].DataContext.Sidebar.SwitchToPlayerCommand}"
-                                        Padding="12,6"/>
-                            </StackPanel>
                         </DataTemplate>
                     </ContentControl.DataTemplates>
                 </ContentControl>

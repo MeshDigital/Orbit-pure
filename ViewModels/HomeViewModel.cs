@@ -86,6 +86,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     // Commands
     public ICommand RefreshDashboardCommand { get; }
     public ICommand NavigateToSearchCommand { get; }
+    public ICommand NavigateToAnalysisCommand { get; }
     public ICommand QuickSearchCommand { get; }
     public ICommand ClearDeadLettersCommand { get; }
     public ICommand NavigateLibraryCommand { get; }
@@ -130,6 +131,25 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     }
 
     public bool IsSpotifyConnected => _spotifyAuth.IsAuthenticated;
+
+    private int _incompleteAnalysisCount;
+    public int IncompleteAnalysisCount
+    {
+        get => _incompleteAnalysisCount;
+        private set
+        {
+            if (SetProperty(ref _incompleteAnalysisCount, value))
+            {
+                OnPropertyChanged(nameof(HasIncompleteAnalysisTracks));
+                OnPropertyChanged(nameof(IncompleteAnalysisSummary));
+            }
+        }
+    }
+
+    public bool HasIncompleteAnalysisTracks => IncompleteAnalysisCount > 0;
+    public string IncompleteAnalysisSummary => HasIncompleteAnalysisTracks
+        ? $"{IncompleteAnalysisCount} tracks need reanalysis"
+        : "Analysis coverage is healthy";
     
     public ObservableCollection<MissionOperation> ActiveMissions { get; } = new();
 
@@ -198,6 +218,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         // Commands
         RefreshDashboardCommand = new AsyncRelayCommand(RefreshDashboardAsync);
         NavigateToSearchCommand = new RelayCommand(() => _navigationService.NavigateTo("Search"));
+        NavigateToAnalysisCommand = new RelayCommand(() => _navigationService.NavigateTo("Analysis"));
         NavigateLibraryCommand = new RelayCommand(() => _navigationService.NavigateTo("Library"));
         ViewPlaylistCommand = new RelayCommand<PlaylistCardViewModel>(ExecuteViewPlaylist);
         QuickSearchCommand = new AsyncRelayCommand<SpotifyTrackViewModel>(ExecuteQuickSearchAsync);
@@ -304,6 +325,8 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
                     // Active recovery is good, so keep score high
                 }
             }
+
+            IncompleteAnalysisCount = await _dashboardService.GetIncompleteAnalysisTrackCountAsync();
         }
         finally
         {
@@ -496,6 +519,15 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
                 Name = "Repair Dead Letters",
                 StatusText = $"{LibraryHealth.IssuesCount} items need recovery",
                 Type = Models.OperationType.System
+            });
+
+        if (IncompleteAnalysisCount > 0)
+            ActiveMissions.Add(new MissionOperation
+            {
+                Icon = "🧪",
+                Name = "Reanalyze Incomplete Tracks",
+                StatusText = $"{IncompleteAnalysisCount} tracks missing analysis fields",
+                Type = Models.OperationType.Analysis
             });
 
         if (ActiveMissions.Count == 0)
