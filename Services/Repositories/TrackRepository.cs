@@ -183,6 +183,7 @@ public class TrackRepository : ITrackRepository
     {
         using var context = new AppDbContext();
         var query = context.PlaylistTracks
+            .Include(t => t.TechnicalDetails)
             .Include(t => t.AudioFeatures)
             .AsNoTracking()
             .AsQueryable();

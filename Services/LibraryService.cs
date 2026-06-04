@@ -1126,6 +1126,9 @@ public class LibraryService : ILibraryService
             // Musical Intelligence
             MusicalKey = entity.MusicalKey,
             BPM = entity.BPM,
+            CuePointsJson = !string.IsNullOrWhiteSpace(entity.TechnicalDetails?.CuePointsJson)
+                ? entity.TechnicalDetails!.CuePointsJson
+                : entity.CuePointsJson,
             Energy = entity.Energy,
             Danceability = entity.Danceability,
             Valence = entity.Valence,

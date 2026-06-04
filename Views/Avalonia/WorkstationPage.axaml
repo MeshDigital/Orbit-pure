@@ -975,12 +975,13 @@
         <Border Grid.Row="3" Background="{DynamicResource BrushBg1}" BorderBrush="{DynamicResource BrushBorder1}" BorderThickness="0,1,0,0">
             <Grid RowDefinitions="Auto,Auto,*">
                 <Border Grid.Row="0" Classes="flow-drawer-header" Background="{DynamicResource RegionBrush}" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1" Padding="{StaticResource WsPadDrawerHeader}">
-                    <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto">
+                    <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto">
                         <TextBlock Grid.Column="0" Text="FLOW DRAWER" FontSize="{StaticResource WsFontMd}" FontWeight="Bold" Foreground="{DynamicResource BrushText1}" VerticalAlignment="Center"/>
                         <Button Grid.Column="1" Classes="drawer-header-action" Margin="10,0,0,0" Background="{DynamicResource BrushAccentSubtle}" BorderBrush="{DynamicResource BrushAccent}" BorderThickness="1" Foreground="{DynamicResource BrushAccent}" Click="OnOpenTrackListOverlayClick" ToolTip.Tip="Open a large overlay track list for focused browsing">Expand Track List</Button>
                         <Button Grid.Column="3" Classes="drawer-header-action" Margin="0,0,6,0" Background="#1B3A1B" BorderBrush="#3A7A3A" BorderThickness="1" Foreground="#7FD47F" Command="{Binding AnalyzePlaylistCuesCommand}" IsEnabled="{Binding !IsAnalyzing}" ToolTip.Tip="Auto-detect drops, builds, phrase markers for all tracks in this playlist that have no cues yet">⚡ Analyze Playlist</Button>
                         <Button Grid.Column="4" x:Name="AnalyzeSelectedBtn" Classes="drawer-header-action" Margin="0,0,6,0" Background="#1B2A3A" BorderBrush="#3A6A9A" BorderThickness="1" Foreground="#7FB8D4" IsEnabled="{Binding !IsAnalyzing}" Click="OnAnalyzeSelectedClick" ToolTip.Tip="Auto-detect cues only for the selected rows (skips tracks that already have cues)">⚡ Selected</Button>
-                        <ComboBox Grid.Column="5" x:Name="PlaylistSelector" Width="260" ItemsSource="{Binding Playlists}" SelectedItem="{Binding ActivePlaylist}" VerticalAlignment="Center">
+                        <Button Grid.Column="5" Classes="drawer-header-action" Margin="0,0,6,0" Background="#3A2A1B" BorderBrush="#9A6A3A" BorderThickness="1" Foreground="#FFCF8A" Command="{Binding ReanalyzeAllIncompleteCommand}" IsEnabled="{Binding HasIncompleteAnalysisTracks}" ToolTip.Tip="Queue all hidden incomplete tracks for full reanalysis">↺ Reanalyze Incomplete</Button>
+                        <ComboBox Grid.Column="6" x:Name="PlaylistSelector" Width="260" ItemsSource="{Binding Playlists}" SelectedItem="{Binding ActivePlaylist}" VerticalAlignment="Center">
                             <ComboBox.ItemTemplate>
                                 <DataTemplate>
                                     <TextBlock Text="{Binding SourceTitle}" FontSize="12"/>
@@ -1005,6 +1006,7 @@
                             <TextBlock Text="{Binding AnalysisStatusText}" FontSize="10" Foreground="{StaticResource WsTextSecondaryReadable}" IsVisible="{Binding AnalysisStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                             <TextBlock Text="{Binding WorkstationEligibilitySummary}" FontSize="10" Foreground="{StaticResource WsTextPrimaryReadable}" TextWrapping="Wrap"/>
                             <TextBlock Text="{Binding HiddenEligibilityBreakdown}" FontSize="10" Foreground="{StaticResource WsTextSecondaryReadable}" TextWrapping="Wrap" IsVisible="{Binding HiddenEligibilityBreakdown, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                            <TextBlock Text="{Binding IncompleteAnalysisSummary}" FontSize="10" Foreground="#FFCF8A" TextWrapping="Wrap" IsVisible="{Binding HasIncompleteAnalysisTracks}"/>
                             <TextBlock Text="{Binding FlowCtaStateSummary}" FontSize="10" Foreground="{StaticResource WsTextMutedReadable}" TextWrapping="Wrap"/>
                         <WrapPanel Orientation="Horizontal" ItemHeight="28" Margin="{StaticResource WsMarginDrawerCtas}" IsVisible="{Binding ShouldShowSelectPlaylistCta}">
                             <Button Classes="secondary" Click="OnFocusPlaylistCtaClick" ToolTip.Tip="{Binding SelectPlaylistCtaHint}">Select Playlist</Button>

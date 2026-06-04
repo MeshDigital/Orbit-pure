@@ -857,11 +857,21 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         private set => this.RaiseAndSetIfChanged(ref _hiddenEligibilityBreakdown, value);
     }
 
+    private List<PlaylistTrack> _lastHiddenTracks = new();
+    public int IncompleteAnalysisTrackCount => _lastHiddenTracks.Count(IsReanalysisCandidate);
+    public bool HasIncompleteAnalysisTracks => IncompleteAnalysisTrackCount > 0;
+    public string IncompleteAnalysisSummary => IncompleteAnalysisTrackCount == 0
+        ? "No incomplete analysis tracks detected in this playlist."
+        : $"{IncompleteAnalysisTrackCount} track(s) are incomplete and can be queued for reanalysis.";
+
     /// <summary>Analyze all tracks in the active playlist that have no cues yet.</summary>
     public ReactiveCommand<Unit, Unit> AnalyzePlaylistCuesCommand  { get; }
 
     /// <summary>Analyze only the passed tracks (DataGrid selection) that have no cues yet.</summary>
     public ReactiveCommand<IList<PlaylistTrack>, Unit> AnalyzeSelectedCuesCommand { get; }
+
+    /// <summary>Queue all hidden tracks with incomplete analysis data for full reanalysis.</summary>
+    public ReactiveCommand<Unit, Unit> ReanalyzeAllIncompleteCommand { get; }
 
     private CancellationTokenSource? _analysisCts;
 
@@ -1088,6 +1098,10 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 
         AnalyzeSelectedCuesCommand = ReactiveCommand.CreateFromTask<IList<PlaylistTrack>>(
             tracks => RunCueAnalysisAsync(tracks?.ToList() ?? new List<PlaylistTrack>()), canAnalyze);
+
+        ReanalyzeAllIncompleteCommand = ReactiveCommand.CreateFromTask(
+            QueueIncompleteTracksForReanalysisAsync,
+            canAnalyze);
 
         SetModeCommand = ReactiveCommand.Create<WorkstationMode>(mode =>
         {
@@ -3348,10 +3362,14 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
+            _lastHiddenTracks = hiddenTracks;
             PlaylistTracks.Clear();
             foreach (var t in readyTracks) PlaylistTracks.Add(t);
             this.RaisePropertyChanged(nameof(ActivePlaylistFlowSummary));
             HiddenEligibilityBreakdown = hiddenBreakdown;
+            this.RaisePropertyChanged(nameof(IncompleteAnalysisTrackCount));
+            this.RaisePropertyChanged(nameof(HasIncompleteAnalysisTracks));
+            this.RaisePropertyChanged(nameof(IncompleteAnalysisSummary));
 
             AnalysisStatusText = readyTracks.Count == 0
                 ? "No ready tracks in this playlist. Next: open Track List, download missing tracks, then run Analyze Playlist."
@@ -3436,6 +3454,53 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         return segments.Count == 0
             ? string.Empty
             : $"Hidden breakdown: {string.Join(" • ", segments)}.";
+    }
+
+    private static bool IsReanalysisCandidate(PlaylistTrack track)
+    {
+        return WorkstationDeckViewModel.GetTrackEligibilityIssue(track) switch
+        {
+            WorkstationTrackEligibilityIssue.MissingWaveform => true,
+            WorkstationTrackEligibilityIssue.MissingCues => true,
+            WorkstationTrackEligibilityIssue.MissingAnalysis => true,
+            _ => false,
+        };
+    }
+
+    private async Task QueueIncompleteTracksForReanalysisAsync()
+    {
+        if (ActivePlaylist == null)
+        {
+            AnalysisStatusText = "Select a playlist before queuing incomplete tracks for reanalysis.";
+            return;
+        }
+
+        var sourceHiddenTracks = _lastHiddenTracks;
+        if (sourceHiddenTracks.Count == 0)
+        {
+            var allTracks = await _library.GetPagedPlaylistTracksAsync(ActivePlaylist.Id, skip: 0, take: 1000);
+            sourceHiddenTracks = allTracks
+                .Where(track => !WorkstationDeckViewModel.IsTrackReadyForWorkstation(track))
+                .ToList();
+            _lastHiddenTracks = sourceHiddenTracks;
+            this.RaisePropertyChanged(nameof(IncompleteAnalysisTrackCount));
+            this.RaisePropertyChanged(nameof(HasIncompleteAnalysisTracks));
+            this.RaisePropertyChanged(nameof(IncompleteAnalysisSummary));
+        }
+
+        var candidates = sourceHiddenTracks
+            .Where(IsReanalysisCandidate)
+            .Where(track => !string.IsNullOrWhiteSpace(track.TrackUniqueHash))
+            .ToList();
+
+        foreach (var track in candidates)
+        {
+            _eventBus.Publish(new TrackAnalysisRequestedEvent(track.TrackUniqueHash));
+        }
+
+        AnalysisStatusText = candidates.Count == 0
+            ? "No incomplete tracks are currently eligible for reanalysis queueing."
+            : $"Queued {candidates.Count} incomplete track(s) for full reanalysis.";
     }
 
     private async Task HandleFlowLaunchRequestAsync(AddToTimelineRequestEvent request)

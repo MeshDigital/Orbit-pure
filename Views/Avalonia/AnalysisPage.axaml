@@ -259,6 +259,50 @@
                                 ToolTip.Tip="Add all unanalyzed visible tracks to the analysis queue"/>
                     </Grid>
 
+                    <Border Padding="10"
+                            Background="{DynamicResource BrushBg2}"
+                            BorderBrush="{DynamicResource BrushWarning}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            IsVisible="{Binding HasIncompleteAnalysisTracks}">
+                        <StackPanel Spacing="8">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0"
+                                           Text="{Binding IncompleteAnalysisSummary}"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource BrushWarning}"
+                                           TextWrapping="Wrap"
+                                           VerticalAlignment="Center"/>
+                                <Button Grid.Column="1"
+                                        Classes="secondary"
+                                        Content="↺ Reanalyze All Incomplete"
+                                        Command="{Binding ReanalyzeAllIncompleteCommand}"
+                                        ToolTip.Tip="Clear stale analysis payloads and queue all incomplete tracks for reanalysis"/>
+                            </Grid>
+
+                            <ItemsControl ItemsSource="{Binding IncompleteAnalysisTracks}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,2">
+                                            <TextBlock Grid.Column="0"
+                                                       Foreground="{DynamicResource BrushText1}"
+                                                       FontSize="10"
+                                                       TextWrapping="Wrap">
+                                                <Run Text="{Binding Artist}"/>
+                                                <Run Text=" — "/>
+                                                <Run Text="{Binding Title}"/>
+                                            </TextBlock>
+                                            <TextBlock Grid.Column="1"
+                                                       Foreground="{DynamicResource BrushText2}"
+                                                       FontSize="10"
+                                                       Text="{Binding IncompleteAnalysisSummary}"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
                     <!-- Search bar -->
                     <TextBox Text="{Binding SearchText, Mode=TwoWay}"
                              Watermark="Search by title or artist…"

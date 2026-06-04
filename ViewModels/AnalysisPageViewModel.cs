@@ -82,6 +82,9 @@ public class AnalysisTrackItem : ReactiveObject
             this.RaisePropertyChanged(nameof(StatusLabel));
             this.RaisePropertyChanged(nameof(IsProcessing));
             this.RaisePropertyChanged(nameof(IsCompleted));
+            this.RaisePropertyChanged(nameof(HasIncompleteAnalysis));
+            this.RaisePropertyChanged(nameof(HasSufficientAnalysis));
+            this.RaisePropertyChanged(nameof(IncompleteAnalysisSummary));
         }
     }
 
@@ -99,6 +102,9 @@ public class AnalysisTrackItem : ReactiveObject
             this.RaisePropertyChanged(nameof(KeyConfidence));
             this.RaisePropertyChanged(nameof(PrimaryGenre));
             this.RaisePropertyChanged(nameof(CueCount));
+            this.RaisePropertyChanged(nameof(HasIncompleteAnalysis));
+            this.RaisePropertyChanged(nameof(HasSufficientAnalysis));
+            this.RaisePropertyChanged(nameof(IncompleteAnalysisSummary));
         }
     }
 
@@ -218,6 +224,9 @@ public class AnalysisTrackItem : ReactiveObject
     }
 
     public bool HasAnalysis => AnalysisData is not null;
+    public bool HasIncompleteAnalysis => GetIncompleteAnalysisReasons().Count > 0;
+    public bool HasSufficientAnalysis => !HasIncompleteAnalysis;
+    public string IncompleteAnalysisSummary => BuildIncompleteAnalysisSummary(GetIncompleteAnalysisReasons());
     public bool IsProcessing => AnalysisStatus == AnalysisRunStatus.Processing;
     public bool IsCompleted => AnalysisStatus == AnalysisRunStatus.Completed;
     public bool HasConfidenceData => AnalysisData is not null;
@@ -291,9 +300,16 @@ public class AnalysisTrackItem : ReactiveObject
         FilePath = filePath;
         _analysisData = analysisData;
         _cueCount = cueCount > 0 ? cueCount : (analysisData is not null ? EstimateCueCount(trackId) : 0);
-        _waveformLow = lowBand is { Length: > 0 } ? lowBand : BuildWaveformBand(trackId, 64, 7);
-        _waveformMid = midBand is { Length: > 0 } ? midBand : BuildWaveformBand(trackId, 64, 17);
-        _waveformHigh = highBand is { Length: > 0 } ? highBand : BuildWaveformBand(trackId, 64, 29);
+        var canUseSyntheticWaveform = string.IsNullOrWhiteSpace(filePath);
+        _waveformLow = lowBand is { Length: > 0 }
+            ? lowBand
+            : (canUseSyntheticWaveform ? BuildWaveformBand(trackId, 64, 7) : Array.Empty<byte>());
+        _waveformMid = midBand is { Length: > 0 }
+            ? midBand
+            : (canUseSyntheticWaveform ? BuildWaveformBand(trackId, 64, 17) : Array.Empty<byte>());
+        _waveformHigh = highBand is { Length: > 0 }
+            ? highBand
+            : (canUseSyntheticWaveform ? BuildWaveformBand(trackId, 64, 29) : Array.Empty<byte>());
         _stemsReady = analysisData?.Stems?.AreGenerated ?? false;
         _lastAnalyzedAt = lastAnalyzedAt ?? (analysisData is not null ? DateTime.UtcNow.AddMinutes(-EstimateCueCount(trackId) * 7) : null);
         _modelVersion = modelVersion ?? (analysisData is not null ? "essentia-2.1-b6" : null);
@@ -359,6 +375,52 @@ public class AnalysisTrackItem : ReactiveObject
         _modelVersion = source._modelVersion;
 
         this.RaisePropertyChanged(string.Empty);
+    }
+
+    private IReadOnlyList<string> GetIncompleteAnalysisReasons()
+    {
+        var reasons = new List<string>();
+
+        if (AnalysisStatus == AnalysisRunStatus.Failed)
+        {
+            reasons.Add("analysis failed");
+        }
+
+        if (AnalysisData is null)
+        {
+            reasons.Add("analysis missing");
+        }
+
+        var effectiveBpm = AnalysisData?.Mechanics.Bpm ?? Bpm ?? 0;
+        if (effectiveBpm <= 0)
+        {
+            reasons.Add("BPM missing");
+        }
+
+        var effectiveKey = string.IsNullOrWhiteSpace(MusicalKey)
+            ? AnalysisData?.Mechanics.KeyScale
+            : MusicalKey;
+        if (string.IsNullOrWhiteSpace(effectiveKey))
+        {
+            reasons.Add("key missing");
+        }
+
+        if (CueCount <= 0)
+        {
+            reasons.Add("cues missing");
+        }
+
+        if (!HasWaveform)
+        {
+            reasons.Add("waveform missing");
+        }
+
+        return reasons;
+    }
+
+    private static string BuildIncompleteAnalysisSummary(IReadOnlyList<string> reasons)
+    {
+        return reasons.Count == 0 ? "Complete" : string.Join(" • ", reasons);
     }
 
     private WaveformAnalysisData BuildWaveformAnalysisData()
@@ -737,6 +799,13 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public int AnalyzedTrackCount => LibraryTracks.Count(t => t.HasAnalysis);
     public int PendingTrackCount => LibraryTracks.Count(t => !t.HasAnalysis);
     public int QueueTrackCount => AnalysisQueue.Count;
+    public int IncompleteAnalysisTrackCount => LibraryTracks.Count(t => t.HasIncompleteAnalysis);
+    public bool HasIncompleteAnalysisTracks => IncompleteAnalysisTrackCount > 0;
+    public IReadOnlyList<AnalysisTrackItem> IncompleteAnalysisTracks => LibraryTracks
+        .Where(t => t.HasIncompleteAnalysis)
+        .OrderBy(t => t.Artist)
+        .ThenBy(t => t.Title)
+        .ToList();
     public int PlaylistTrackCount => PlaylistTracks.Count;
     public int StemsReadyCount => LibraryTracks.Count(t => t.StemsReady);
     public bool HasQueueMetrics => QueueTrackCount > 0 || _completedAnalysisRuns > 0 || IsProcessing;
@@ -759,6 +828,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         ? "—"
         : _analysisSessionStopwatch.Elapsed.ToString(_analysisSessionStopwatch.Elapsed.TotalHours >= 1 ? @"hh\:mm\:ss" : @"mm\:ss");
     public string QueueMetricsSummary => $"{QueueTrackCount} queued • {AnalyzedTrackCount} analyzed • {PendingTrackCount} remaining";
+    public string IncompleteAnalysisSummary => IncompleteAnalysisTrackCount == 0
+        ? "All tracks have sufficient analysis coverage."
+        : $"{IncompleteAnalysisTrackCount} track(s) have incomplete or insufficient analysis data.";
     public string LibraryCountDifferentiationSummary =>
         $"Wanted downloads: {DesiredDownloadCount} • Ingestion backlog: {IngestionBacklogCount} • Physical on-disk indexed: {OnDiskIndexedTrackCount} • Stale indexed rows: {StaleIndexedCount}";
     public string CompletionRateDisplay => TotalTrackCount == 0 ? "0%" : $"{(AnalyzedTrackCount * 100.0 / TotalTrackCount):F0}%";
@@ -783,6 +855,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
     /// <summary>Re-queues a completed track and clears cached output.</summary>
     public ReactiveCommand<AnalysisTrackItem, Unit> ReanalyzeCommand { get; }
+
+    /// <summary>Queues all tracks that currently have incomplete analysis data.</summary>
+    public ReactiveCommand<Unit, Unit> ReanalyzeAllIncompleteCommand { get; }
 
     /// <summary>Copies the full analysis JSON for a track to the clipboard.</summary>
     public ReactiveCommand<AnalysisTrackItem, Unit> CopyAnalysisJsonCommand { get; }
@@ -853,6 +928,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         StartAnalysisCommand = ReactiveCommand.CreateFromTask(StartAnalysisAsync, canStart);
         RunPerformanceProbeCommand = ReactiveCommand.Create(RunPerformanceProbe);
         ReanalyzeCommand = ReactiveCommand.Create<AnalysisTrackItem>(Reanalyze);
+        ReanalyzeAllIncompleteCommand = ReactiveCommand.Create(ReanalyzeAllIncomplete);
         CopyAnalysisJsonCommand = ReactiveCommand.CreateFromTask<AnalysisTrackItem>(CopyAnalysisJsonAsync);
         CopyPerformanceSnapshotCommand = ReactiveCommand.CreateFromTask(CopyPerformanceSnapshotAsync);
         ClearPerformanceProbeHistoryCommand = ReactiveCommand.Create(ClearPerformanceProbeHistory);
@@ -955,12 +1031,34 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     /// <summary>Clears existing output and stages a track for a fresh analysis pass.</summary>
     public void Reanalyze(AnalysisTrackItem track)
     {
-        track.AnalysisData = null;
-        track.AnalysisError = null;
-        track.StemError = null;
-        track.LastAnalyzedAt = null;
-        track.ModelVersion = null;
+        ResetTrackAnalysisState(track);
         AddToQueue(track);
+    }
+
+    public void ReanalyzeAllIncomplete()
+    {
+        var timer = Stopwatch.StartNew();
+
+        var incompleteTracks = LibraryTracks
+            .Where(t => t.HasIncompleteAnalysis)
+            .ToList();
+
+        foreach (var track in incompleteTracks)
+        {
+            ResetTrackAnalysisState(track);
+            AddToQueueCore(track, refreshState: false);
+        }
+
+        timer.Stop();
+        _lastQueueMutationMilliseconds = timer.Elapsed.TotalMilliseconds;
+        this.RaisePropertyChanged(nameof(InteractionPerformanceDisplay));
+        this.RaisePropertyChanged(nameof(PerformanceDiagnosticsSummary));
+
+        AutomixStatusMessage = incompleteTracks.Count == 0
+            ? "No incomplete tracks found for reanalysis."
+            : $"Queued {incompleteTracks.Count} incomplete track(s) for reanalysis.";
+
+        RefreshComputedState();
     }
 
     private async Task CopyAnalysisJsonAsync(AnalysisTrackItem? track)
@@ -1338,6 +1436,15 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         }
     }
 
+    private static void ResetTrackAnalysisState(AnalysisTrackItem track)
+    {
+        track.AnalysisData = null;
+        track.AnalysisError = null;
+        track.StemError = null;
+        track.LastAnalyzedAt = null;
+        track.ModelVersion = null;
+    }
+
     private async Task LoadLibraryAsync()
     {
         try
@@ -1661,7 +1768,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                 or nameof(AnalysisTrackItem.AnalysisStatus)
                 or nameof(AnalysisTrackItem.IsInQueue)
                 or nameof(AnalysisTrackItem.IsInPlaylist)
-                or nameof(AnalysisTrackItem.StemsReady))
+                or nameof(AnalysisTrackItem.StemsReady)
+                or nameof(AnalysisTrackItem.AnalysisError)
+                or nameof(AnalysisTrackItem.StemError))
             {
                 RefreshComputedState();
             }
@@ -1681,6 +1790,10 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(AnalyzedTrackCount));
         this.RaisePropertyChanged(nameof(PendingTrackCount));
         this.RaisePropertyChanged(nameof(QueueTrackCount));
+        this.RaisePropertyChanged(nameof(IncompleteAnalysisTrackCount));
+        this.RaisePropertyChanged(nameof(HasIncompleteAnalysisTracks));
+        this.RaisePropertyChanged(nameof(IncompleteAnalysisTracks));
+        this.RaisePropertyChanged(nameof(IncompleteAnalysisSummary));
         this.RaisePropertyChanged(nameof(PlaylistTrackCount));
         this.RaisePropertyChanged(nameof(StemsReadyCount));
         this.RaisePropertyChanged(nameof(HasQueueMetrics));
