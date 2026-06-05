@@ -677,6 +677,8 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Stopwatch _analysisSessionStopwatch = new();
     private readonly Dictionary<string, DateTime> _trackAnalysisStartedAtUtc = new(StringComparer.Ordinal);
+    private readonly System.Reactive.Subjects.Subject<System.Reactive.Unit> _refreshRequestSubject = new();
+    private readonly System.Reactive.Subjects.Subject<string?> _filterRequestSubject = new();
 
     private AnalysisProcessingState _processingState = AnalysisProcessingState.Idle;
     private string? _currentProcessingTrackId;
@@ -806,10 +808,8 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         .OrderBy(t => t.Artist)
         .ThenBy(t => t.Title)
         .ToList();
-    public int PlaylistTrackCount => PlaylistTracks.Count;
     public int StemsReadyCount => LibraryTracks.Count(t => t.StemsReady);
     public bool HasQueueMetrics => QueueTrackCount > 0 || _completedAnalysisRuns > 0 || IsProcessing;
-    public bool CanCreateAutomix => PlaylistTrackCount >= 2;
     public bool IsDeveloperMode => Debugger.IsAttached || string.Equals(Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase);
     public string AvgAnalysisTimeDisplay => _completedAnalysisRuns == 0 ? "—" : $"{_totalAnalysisSeconds / _completedAnalysisRuns:F1}s";
     public string ThroughputDisplay => _completedAnalysisRuns == 0 ? "—" : $"{_completedAnalysisRuns / Math.Max(_analysisSessionStopwatch.Elapsed.TotalMinutes, 1.0 / 60.0):F1}/min";
@@ -834,9 +834,6 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public string LibraryCountDifferentiationSummary =>
         $"Wanted downloads: {DesiredDownloadCount} • Ingestion backlog: {IngestionBacklogCount} • Physical on-disk indexed: {OnDiskIndexedTrackCount} • Stale indexed rows: {StaleIndexedCount}";
     public string CompletionRateDisplay => TotalTrackCount == 0 ? "0%" : $"{(AnalyzedTrackCount * 100.0 / TotalTrackCount):F0}%";
-    public string AutomixSelectionSummary => PlaylistTrackCount == 0
-        ? "No tracks staged for automix yet."
-        : $"{PlaylistTrackCount} track(s) staged for mix-building.";
 
     // ── Commands ─────────────────────────────────────────────────────────────
 
@@ -864,30 +861,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> CopyPerformanceSnapshotCommand { get; }
     public ReactiveCommand<Unit, Unit> ClearPerformanceProbeHistoryCommand { get; }
 
-    /// <summary>Generates an automix playlist from tracks that have completed analysis.</summary>
-    public ReactiveCommand<Unit, Unit> CreateAutomixCommand { get; }
-
-    /// <summary>Adds a track to the automix playlist (or removes it if already present).</summary>
-    public ReactiveCommand<AnalysisTrackItem, Unit> TogglePlaylistCommand { get; }
-    public ReactiveCommand<Unit, Unit> StageAllAnalyzedForAutomixCommand { get; }
-    public ReactiveCommand<Unit, Unit> ClearAutomixStagingCommand { get; }
-
     public ReactiveCommand<AnalysisPaneMode, Unit> SetPaneModeCommand { get; }
 
-    // ── Automix state ────────────────────────────────────────────────────────────
-
-    private AutomixConstraints _automixConstraints = new();
     private string? _automixStatusMessage;
-
-    /// <summary>Constraints used when building the next automix playlist.</summary>
-    public AutomixConstraints AutomixConstraints
-    {
-        get => _automixConstraints;
-        set => this.RaiseAndSetIfChanged(ref _automixConstraints, value);
-    }
-
-    /// <summary>Tracks selected for the current automix playlist.</summary>
-    public ObservableCollection<AnalysisTrackItem> PlaylistTracks { get; } = new();
 
     /// <summary>Success / error message from the last automix generation attempt.</summary>
     public string? AutomixStatusMessage
@@ -916,33 +892,39 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         else
             _ = LoadLibraryAsync();
 
-        ApplyFilter();
-        RefreshComputedState();
+        // Throttled UI refresh logic
+        _refreshRequestSubject
+            .Throttle(TimeSpan.FromMilliseconds(100), RxApp.MainThreadScheduler)
+            .Subscribe(_ => RefreshComputedStateInternal())
+            .DisposeWith(_disposables);
+
+        _filterRequestSubject
+            .Throttle(TimeSpan.FromMilliseconds(150), RxApp.MainThreadScheduler)
+            .Subscribe(query => ApplyFilterDirect(query))
+            .DisposeWith(_disposables);
+
+        ApplyFilterDirect();
+        RefreshComputedStateInternal();
 
         // ── Wire up commands ──────────────────────────────────────────────────
         AddToQueueCommand = ReactiveCommand.Create<AnalysisTrackItem>(AddToQueue);
         RemoveFromQueueCommand = ReactiveCommand.Create<AnalysisTrackItem>(RemoveFromQueue);
-        QueueAllUnanalyzedCommand = ReactiveCommand.Create(QueueAllUnanalyzed);
+        QueueAllUnanalyzedCommand = ReactiveCommand.CreateFromTask(QueueAllUnanalyzedAsync);
 
         var canStart = this.WhenAnyValue(x => x.CanStartAnalysis);
         StartAnalysisCommand = ReactiveCommand.CreateFromTask(StartAnalysisAsync, canStart);
         RunPerformanceProbeCommand = ReactiveCommand.Create(RunPerformanceProbe);
         ReanalyzeCommand = ReactiveCommand.Create<AnalysisTrackItem>(Reanalyze);
-        ReanalyzeAllIncompleteCommand = ReactiveCommand.Create(ReanalyzeAllIncomplete);
+        ReanalyzeAllIncompleteCommand = ReactiveCommand.CreateFromTask(ReanalyzeAllIncompleteAsync);
         CopyAnalysisJsonCommand = ReactiveCommand.CreateFromTask<AnalysisTrackItem>(CopyAnalysisJsonAsync);
         CopyPerformanceSnapshotCommand = ReactiveCommand.CreateFromTask(CopyPerformanceSnapshotAsync);
         ClearPerformanceProbeHistoryCommand = ReactiveCommand.Create(ClearPerformanceProbeHistory);
 
-        CreateAutomixCommand = ReactiveCommand.CreateFromTask(CreateAutomixPlaylistAsync);
-        TogglePlaylistCommand = ReactiveCommand.Create<AnalysisTrackItem>(TogglePlaylist);
-        StageAllAnalyzedForAutomixCommand = ReactiveCommand.Create(StageAllAnalyzedForAutomix);
-        ClearAutomixStagingCommand = ReactiveCommand.Create(ClearAutomixStaging);
         SetPaneModeCommand = ReactiveCommand.Create<AnalysisPaneMode>(SetPaneMode);
 
         // Keep all computed dashboard metrics in sync as the collections change.
         LibraryTracks.CollectionChanged += (_, _) => RefreshComputedState();
         AnalysisQueue.CollectionChanged += (_, _) => RefreshComputedState();
-        PlaylistTracks.CollectionChanged += (_, _) => RefreshComputedState();
         PerformanceProbeRuns.CollectionChanged += (_, _) => this.RaisePropertyChanged(nameof(HasPerformanceProbeRuns));
 
         // React to per-track progress events
@@ -1035,7 +1017,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         AddToQueue(track);
     }
 
-    public void ReanalyzeAllIncomplete()
+    public async Task ReanalyzeAllIncompleteAsync()
     {
         var timer = Stopwatch.StartNew();
 
@@ -1043,10 +1025,16 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             .Where(t => t.HasIncompleteAnalysis)
             .ToList();
 
+        int batchCount = 0;
         foreach (var track in incompleteTracks)
         {
             ResetTrackAnalysisState(track);
             AddToQueueCore(track, refreshState: false);
+            batchCount++;
+            if (batchCount % 10 == 0)
+            {
+                await Task.Yield();
+            }
         }
 
         timer.Stop();
@@ -1095,15 +1083,24 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     {
         PerformanceProbeRuns.Clear();
         PerformanceProbeSummary = "Probe history cleared.";
-        AutomixStatusMessage = "Cleared developer performance probe history.";
     }
 
     /// <summary>Adds all visible unanalyzed tracks that are not yet in the queue.</summary>
-    public void QueueAllUnanalyzed()
+    public async Task QueueAllUnanalyzedAsync()
     {
         var timer = Stopwatch.StartNew();
-        foreach (var track in FilteredLibraryTracks.Where(t => !t.HasAnalysis && !t.IsInQueue))
+        var unanalyzedTracks = FilteredLibraryTracks.Where(t => !t.HasAnalysis && !t.IsInQueue).ToList();
+
+        int batchCount = 0;
+        foreach (var track in unanalyzedTracks)
+        {
             AddToQueueCore(track, refreshState: false);
+            batchCount++;
+            if (batchCount % 10 == 0)
+            {
+                await Task.Yield();
+            }
+        }
 
         timer.Stop();
         _lastQueueMutationMilliseconds = timer.Elapsed.TotalMilliseconds;
@@ -1113,13 +1110,13 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     }
 
     /// <summary>
-    /// Starts queued analysis by publishing one request event per pending track.
+    /// Starts sequential analysis of all queued tracks.
     /// Progress/completion is driven by queue-service events.
     /// </summary>
-    public Task StartAnalysisAsync()
+    public async Task StartAnalysisAsync()
     {
         if (!CanStartAnalysis)
-            return Task.CompletedTask;
+            return;
 
         ProcessingState = AnalysisProcessingState.Processing;
         if (!_analysisSessionStopwatch.IsRunning || _analysisSessionStopwatch.Elapsed == TimeSpan.Zero)
@@ -1140,7 +1137,6 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         }
 
         RefreshComputedState();
-        return Task.CompletedTask;
     }
 
     private void OnAnalysisProgress(AnalysisProgressEvent evt)
@@ -1303,6 +1299,10 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         if (string.IsNullOrWhiteSpace(evt.TrackGlobalId))
             return;
 
+        // Exit early if already queued or processing to avoid loopbacks.
+        if (AnalysisQueue.Any(t => t.TrackId == evt.TrackGlobalId))
+            return;
+
         var track = LibraryTracks.FirstOrDefault(t => t.TrackId == evt.TrackGlobalId)
             ?? AnalysisQueue.FirstOrDefault(t => t.TrackId == evt.TrackGlobalId);
 
@@ -1346,6 +1346,11 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     }
 
     private void ApplyFilter(string? queryOverride = null)
+    {
+        _filterRequestSubject.OnNext(queryOverride ?? SearchText);
+    }
+
+    private void ApplyFilterDirect(string? queryOverride = null)
     {
         var timer = Stopwatch.StartNew();
         FilteredLibraryTracks.Clear();
@@ -1779,6 +1784,11 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
     private void RefreshComputedState()
     {
+        _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
+    }
+
+    private void RefreshComputedStateInternal()
+    {
         this.RaisePropertyChanged(nameof(CanStartAnalysis));
         this.RaisePropertyChanged(nameof(IsQueueEmpty));
         this.RaisePropertyChanged(nameof(TotalTrackCount));
@@ -1794,7 +1804,6 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(HasIncompleteAnalysisTracks));
         this.RaisePropertyChanged(nameof(IncompleteAnalysisTracks));
         this.RaisePropertyChanged(nameof(IncompleteAnalysisSummary));
-        this.RaisePropertyChanged(nameof(PlaylistTrackCount));
         this.RaisePropertyChanged(nameof(StemsReadyCount));
         this.RaisePropertyChanged(nameof(HasQueueMetrics));
         this.RaisePropertyChanged(nameof(AvgAnalysisTimeDisplay));
@@ -1803,8 +1812,6 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(QueueMetricsSummary));
         this.RaisePropertyChanged(nameof(LibraryCountDifferentiationSummary));
         this.RaisePropertyChanged(nameof(CompletionRateDisplay));
-        this.RaisePropertyChanged(nameof(CanCreateAutomix));
-        this.RaisePropertyChanged(nameof(AutomixSelectionSummary));
         this.RaisePropertyChanged(nameof(FilterPerformanceDisplay));
         this.RaisePropertyChanged(nameof(InteractionPerformanceDisplay));
         this.RaisePropertyChanged(nameof(PerformanceDiagnosticsSummary));
@@ -1908,285 +1915,6 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         _cts.Cancel();
         _disposables.Dispose();
         _cts.Dispose();
-    }
-
-    // ── Automix flow (#43) ────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Toggles membership of <paramref name="track"/> in the automix playlist.
-    /// The track must have completed analysis to be eligible.
-    /// </summary>
-    public void TogglePlaylist(AnalysisTrackItem track)
-    {
-        if (track.IsInPlaylist)
-        {
-            PlaylistTracks.Remove(track);
-            track.IsInPlaylist = false;
-        }
-        else if (track.HasAnalysis)
-        {
-            PlaylistTracks.Add(track);
-            track.IsInPlaylist = true;
-        }
-    }
-
-    public void StageAllAnalyzedForAutomix()
-    {
-        PlaylistTracks.Clear();
-        foreach (var track in LibraryTracks.Where(t => t.HasAnalysis).OrderBy(t => t.Artist).ThenBy(t => t.Title))
-        {
-            if (!PlaylistTracks.Contains(track))
-            {
-                PlaylistTracks.Add(track);
-            }
-
-            track.IsInPlaylist = true;
-        }
-
-        AutomixStatusMessage = PlaylistTracks.Count == 0
-            ? "No analyzed tracks available for staging yet."
-            : $"Staged {PlaylistTracks.Count} analyzed track(s) for automix.";
-        RefreshComputedState();
-    }
-
-    public void ClearAutomixStaging()
-    {
-        foreach (var track in PlaylistTracks)
-        {
-            track.IsInPlaylist = false;
-        }
-
-        PlaylistTracks.Clear();
-        AutomixStatusMessage = "Automix staging cleared.";
-        RefreshComputedState();
-    }
-
-    /// <summary>
-    /// Builds an ordered automix sequence from <see cref="PlaylistTracks"/> using
-    /// <see cref="AutomixConstraints"/>.  Sorts by BPM within the allowed range,
-    /// then applies a key-compatibility filter.
-    /// </summary>
-    public void CreateAutomixPlaylist()
-    {
-        CreateAutomixPlaylistAsync().GetAwaiter().GetResult();
-    }
-
-    public async Task CreateAutomixPlaylistAsync()
-    {
-        if (PlaylistTracks.Count < 2)
-        {
-            AutomixStatusMessage = "Add at least 2 analyzed tracks to the playlist first.";
-            return;
-        }
-
-        var c = AutomixConstraints;
-
-        var eligible = PlaylistTracks
-            .Where(IsEligibleForAutomix)
-            .ToList();
-
-        if (eligible.Count < 2)
-        {
-            AutomixStatusMessage = $"Not enough tracks in the BPM range {c.MinBpm}–{c.MaxBpm}.";
-            return;
-        }
-
-        var maxTracks = Math.Max(2, c.MaxTracks);
-        var ordered = await TryBuildOptimizedOrderAsync(eligible, c, maxTracks).ConfigureAwait(true)
-            ?? BuildFallbackOrder(eligible, maxTracks);
-
-        PlaylistTracks.Clear();
-        foreach (var t in ordered) PlaylistTracks.Add(t);
-
-        if (ordered.Count < 2)
-        {
-            AutomixStatusMessage = "Not enough tracks available to build automix ordering.";
-            return;
-        }
-
-        var minBpm = ordered.First().AnalysisData?.Mechanics.Bpm ?? ordered.First().Bpm ?? 0;
-        var maxBpm = ordered.Last().AnalysisData?.Mechanics.Bpm ?? ordered.Last().Bpm ?? 0;
-        AutomixStatusMessage = $"Automix ready: {ordered.Count} tracks, {minBpm:F0}–{maxBpm:F0} BPM.";
-    }
-
-    private bool IsEligibleForAutomix(AnalysisTrackItem track)
-    {
-        var bpm = track.AnalysisData?.Mechanics.Bpm ?? track.Bpm ?? 0;
-        return bpm >= AutomixConstraints.MinBpm && bpm <= AutomixConstraints.MaxBpm;
-    }
-
-    private async Task<List<AnalysisTrackItem>?> TryBuildOptimizedOrderAsync(
-        IReadOnlyList<AnalysisTrackItem> eligibleTracks,
-        AutomixConstraints constraints,
-        int maxTracks)
-    {
-        if (_playlistOptimizer is null)
-            return null;
-
-        var optimizerTrackHashes = MapTracksToOptimizerHashes(eligibleTracks);
-        if (optimizerTrackHashes.Count < 2)
-            return null;
-
-        var optimizerOptions = BuildOptimizerOptions(constraints);
-
-        try
-        {
-            var result = await _playlistOptimizer
-                .OptimizeAsync(optimizerTrackHashes, optimizerOptions, _cts.Token)
-                .ConfigureAwait(true);
-
-            if (result.OrderedHashes.Count == 0)
-                return null;
-
-            var orderedByHash = RebuildTrackOrderFromHashes(eligibleTracks, result.OrderedHashes);
-            return orderedByHash.Count >= 2
-                ? orderedByHash.Take(maxTracks).ToList()
-                : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static List<string> MapTracksToOptimizerHashes(IReadOnlyList<AnalysisTrackItem> tracks)
-    {
-        return tracks
-            .Select(t => t.TrackId)
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-    }
-
-    private static List<AnalysisTrackItem> RebuildTrackOrderFromHashes(
-        IReadOnlyList<AnalysisTrackItem> sourceTracks,
-        IReadOnlyList<string> orderedHashes)
-    {
-        var byHash = sourceTracks
-            .Where(t => !string.IsNullOrWhiteSpace(t.TrackId))
-            .GroupBy(t => t.TrackId, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
-
-        var ordered = new List<AnalysisTrackItem>(orderedHashes.Count);
-        foreach (var hash in orderedHashes)
-        {
-            if (byHash.TryGetValue(hash, out var track))
-            {
-                ordered.Add(track);
-            }
-        }
-
-        return ordered;
-    }
-
-    private static List<AnalysisTrackItem> BuildFallbackOrder(IReadOnlyList<AnalysisTrackItem> tracks, int maxTracks)
-    {
-        return tracks
-            .OrderBy(t => t.AnalysisData?.Mechanics.Bpm ?? t.Bpm ?? 0)
-            .Take(maxTracks)
-            .ToList();
-    }
-
-    private static PlaylistOptimizerOptions BuildOptimizerOptions(AutomixConstraints constraints)
-    {
-        var curve = constraints.EnergyCurve switch
-        {
-            "Rising" => EnergyCurvePattern.Rising,
-            "Wave" => EnergyCurvePattern.Wave,
-            "Peak" => EnergyCurvePattern.Peak,
-            _ => EnergyCurvePattern.None,
-        };
-
-        return new PlaylistOptimizerOptions
-        {
-            HarmonicWeight = constraints.HarmonicWeight,
-            TempoWeight = constraints.TempoWeight,
-            EnergyWeight = constraints.EnergyWeight,
-            MaxBpmJump = Math.Max(1, constraints.MaxBpm - constraints.MinBpm),
-            EnergyCurve = curve,
-        };
-    }
-}
-
-/// <summary>
-/// Configurable constraints for the automix playlist generation flow (issue #43).
-/// </summary>
-public class AutomixConstraints : ReactiveObject
-{
-    private double _minBpm  = 100;
-    private double _maxBpm  = 160;
-    private int    _maxTracks = 20;
-    private bool   _matchKey = true;
-    private int    _maxEnergyJump = 3;
-    private string _energyCurve = "Wave";
-    private double _harmonicWeight = 3.0;
-    private double _tempoWeight    = 1.0;
-    private double _energyWeight   = 0.5;
-
-    /// <summary>Minimum BPM allowed in the generated playlist.</summary>
-    public double MinBpm
-    {
-        get => _minBpm;
-        set => this.RaiseAndSetIfChanged(ref _minBpm, value);
-    }
-
-    /// <summary>Maximum BPM allowed in the generated playlist.</summary>
-    public double MaxBpm
-    {
-        get => _maxBpm;
-        set => this.RaiseAndSetIfChanged(ref _maxBpm, value);
-    }
-
-    /// <summary>Maximum number of tracks to include in the generated playlist.</summary>
-    public int MaxTracks
-    {
-        get => _maxTracks;
-        set => this.RaiseAndSetIfChanged(ref _maxTracks, value);
-    }
-
-    /// <summary>When true, only include harmonically compatible key transitions.</summary>
-    public bool MatchKey
-    {
-        get => _matchKey;
-        set => this.RaiseAndSetIfChanged(ref _matchKey, value);
-    }
-
-    /// <summary>
-    /// Maximum energy jump (1–10 scale) allowed between consecutive tracks.
-    /// Pairs exceeding this value receive a large penalty in the optimizer.
-    /// </summary>
-    public int MaxEnergyJump
-    {
-        get => _maxEnergyJump;
-        set => this.RaiseAndSetIfChanged(ref _maxEnergyJump, Math.Clamp(value, 1, 9));
-    }
-
-    /// <summary>"None" | "Rising" | "Wave" | "Peak" — post-pass energy shaping.</summary>
-    public string EnergyCurve
-    {
-        get => _energyCurve;
-        set => this.RaiseAndSetIfChanged(ref _energyCurve, value);
-    }
-
-    /// <summary>Multiplier for Camelot key distance in the optimizer edge cost.</summary>
-    public double HarmonicWeight
-    {
-        get => _harmonicWeight;
-        set => this.RaiseAndSetIfChanged(ref _harmonicWeight, Math.Clamp(value, 0.1, 10.0));
-    }
-
-    /// <summary>Multiplier for BPM difference in the optimizer edge cost.</summary>
-    public double TempoWeight
-    {
-        get => _tempoWeight;
-        set => this.RaiseAndSetIfChanged(ref _tempoWeight, Math.Clamp(value, 0.1, 10.0));
-    }
-
-    /// <summary>Multiplier for energy score difference in the optimizer edge cost.</summary>
-    public double EnergyWeight
-    {
-        get => _energyWeight;
-        set => this.RaiseAndSetIfChanged(ref _energyWeight, Math.Clamp(value, 0.0, 10.0));
     }
 }
 

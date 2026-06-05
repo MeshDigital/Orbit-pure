@@ -4,6 +4,7 @@ using System.Reactive;
 using ReactiveUI;
 using SLSKDONET.Configuration;
 using SLSKDONET.Services.Playlist;
+using SLSKDONET.ViewModels.Library;
 
 namespace SLSKDONET.ViewModels;
 

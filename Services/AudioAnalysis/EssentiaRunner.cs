@@ -140,6 +140,7 @@ public sealed class EssentiaRunner
         };
 
         using var process = new Process { StartInfo = psi };
+        process.EnableRaisingEvents = true;
         var stderrBuilder = new StringBuilder();
 
         process.ErrorDataReceived += (_, e) =>
@@ -148,6 +149,14 @@ public sealed class EssentiaRunner
         };
 
         process.Start();
+        try
+        {
+            process.PriorityClass = ProcessPriorityClass.BelowNormal;
+        }
+        catch
+        {
+            // Ignore platform-specific or permission errors setting priority class
+        }
         process.BeginErrorReadLine();
         // Drain stdout to avoid deadlocks when the binary writes to it
         _ = process.StandardOutput.ReadToEndAsync(ct);

@@ -115,7 +115,24 @@ public partial class App : Application
                             Serilog.Log.Information("Closing crash recovery journal...");
                             await crashJournal.DisposeAsync();
                         }
-                        
+
+                        // Stop IHostedService background workers
+                        try
+                        {
+                            if (Services != null)
+                            {
+                                var hostedServices = Services.GetServices<IHostedService>();
+                                foreach (var hostedService in hostedServices)
+                                {
+                                    Serilog.Log.Information("Stopping hosted service: {Service}", hostedService.GetType().Name);
+                                    await hostedService.StopAsync(CancellationToken.None);
+                                }
+                            }
+                        }
+                        catch (Exception hostedEx)
+                        {
+                            Serilog.Log.Warning(hostedEx, "Failed to cleanly stop hosted background services");
+                        }
 
                     }
                     catch (Exception ex)
@@ -242,7 +259,20 @@ public partial class App : Application
                         // subscribes to TrackStateChangedEvent immediately after the engine starts).
                         _ = Services.GetRequiredService<PostDownloadSpectralScanService>();
 
-
+                        // Start IHostedService background workers (like BackgroundJobWorker)
+                        try
+                        {
+                            var hostedServices = Services.GetServices<IHostedService>();
+                            foreach (var hostedService in hostedServices)
+                            {
+                                _ = hostedService.StartAsync(CancellationToken.None);
+                            }
+                            Serilog.Log.Information("✅ Started hosted background services");
+                        }
+                        catch (Exception hostedEx)
+                        {
+                            Serilog.Log.Error(hostedEx, "Failed to start hosted background services");
+                        }
 
                         // Phase 2A: Initialize Crash Recovery Journal
                         try
@@ -765,6 +795,20 @@ public partial class App : Application
         catch (Exception ex)
         {
             Serilog.Log.Warning(ex, "[Maintenance] Database vacuum failed");
+        }
+
+        // Task 3: Schedule batch sync of embeddings
+        try
+        {
+            var embeddingService = Services?.GetService<SLSKDONET.Services.Embeddings.IEmbeddingExtractionService>();
+            if (embeddingService != null)
+            {
+                embeddingService.ScheduleBatchSync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "[Maintenance] Failed to schedule embedding batch sync: {Message}", ex.Message);
         }
         
         Serilog.Log.Information("[Maintenance] Daily maintenance completed");

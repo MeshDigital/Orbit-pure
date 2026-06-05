@@ -89,6 +89,7 @@ public class NativeDependencyHealthService
             };
 
             using var process = new Process { StartInfo = startInfo };
+            process.EnableRaisingEvents = true;
             process.Start();
             
             // Read first line for version
@@ -143,6 +144,7 @@ public class NativeDependencyHealthService
             };
 
             using var process = new Process { StartInfo = startInfo };
+            process.EnableRaisingEvents = true;
             process.Start();
             
             // We just need to ensure it runs

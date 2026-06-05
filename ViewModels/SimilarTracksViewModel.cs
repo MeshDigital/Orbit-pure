@@ -506,6 +506,7 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
                 Results.Clear();
                 BridgeSuggestions.Clear();
                 IsBridgeMode = false;
+                IsBridgeBetweenMode = false;
                 StatusMessage = "Select a downloaded track to view similar and bridge suggestions.";
             });
             return;
@@ -515,6 +516,7 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
         {
             IsBusy = true;
             IsBridgeMode = false;
+            IsBridgeBetweenMode = false;
             StatusMessage = null;
             Results.Clear();
             BridgeSuggestions.Clear();
@@ -569,6 +571,12 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
 
     public void PrimeFromInspectorContext(object? viewModel)
     {
+        // Immediately clear results and reset modes to prevent stale data display during debounce
+        Results.Clear();
+        BridgeSuggestions.Clear();
+        IsBridgeMode = false;
+        IsBridgeBetweenMode = false;
+
         switch (viewModel)
         {
             case PlaylistTrackViewModel playlistTrack:

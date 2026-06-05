@@ -35,6 +35,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     private readonly INavigationService _navigationService;
     private readonly ImportHistoryViewModel _importHistoryViewModel;
     private readonly ILibraryService _libraryService;
+    internal ILibraryService LibraryService => _libraryService;
     private ILifecycleProjectionService _lifecycleProjectionService;
     private readonly IEventBus _eventBus;
     private readonly IDialogService _dialogService;
@@ -43,7 +44,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     // Core Dependencies
     private readonly SpotifyEnrichmentService _spotifyEnrichmentService;
     private readonly LibraryCacheService _libraryCacheService;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceProvider? _serviceProvider;
     private readonly DatabaseService _databaseService;
     private readonly SmartCrateService _smartCrateService;
     private readonly DownloadManager _downloadManager;
@@ -539,7 +540,8 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         SmartPlaylists = smartPlaylists;
         DoubleInspector = new LibraryDoubleInspectorViewModel(this, _logger, _trackSimilarityService, _transitionStyleClassifier);
         TrackInspector = new LibraryTrackInspectorViewModel(this, _logger, _similarityIndex);
-        Intelligence = new PlaylistIntelligenceViewModel(this, _trackSimilarityService);
+        var optimizer = _serviceProvider?.GetService(typeof(Services.Playlist.PlaylistOptimizer)) as Services.Playlist.PlaylistOptimizer;
+        Intelligence = new PlaylistIntelligenceViewModel(this, _trackSimilarityService, optimizer);
 
         // Bridge TrackList and Operations for ContextMenu functionality
         Tracks.Operations = operations;

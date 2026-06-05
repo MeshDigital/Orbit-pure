@@ -32,7 +32,6 @@ public class AutoDownloadExample
     private readonly AutoSearchService _searchService;
     private readonly SoulseekSearchHelper _searchHelper;
     private readonly PrefetchVerifier _verifier;
-    private readonly MatchScorer _scorer;
     private readonly AppConfig _config;
 
     public AutoDownloadExample(

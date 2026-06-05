@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using NAudio.Wave;
+using NWaves.Transforms;
 using SLSKDONET.Data.Entities;
 
 namespace SLSKDONET.Services.AudioAnalysis;
@@ -99,6 +100,10 @@ public sealed class WaveformExtractionService
         var mono      = new float[fftSize];
         var spectrum  = new float[fftSize / 2];
 
+        var fft = new RealFft(fftSize);
+        var re  = new float[fftSize];
+        var im  = new float[fftSize];
+
         // Frequency bin boundaries
         float binHz = (float)sampleRate / fftSize;
         int lowEnd  = FreqBin(250f,  binHz, spectrum.Length);
@@ -121,8 +126,14 @@ public sealed class WaveformExtractionService
                 mono[i] = sum / channels;
             }
 
-            // Simple magnitude spectrum via DFT (Goertzel-style for speed on small windows)
-            ComputeSpectrum(mono, monoLen, spectrum);
+            // Zero-pad if this is a partial last block
+            if (monoLen < fftSize)
+            {
+                Array.Clear(mono, monoLen, fftSize - monoLen);
+            }
+
+            // Simple magnitude spectrum via highly optimized NWaves RealFft
+            ComputeSpectrum(fft, mono, re, im, spectrum, fftSize);
 
             low[bucket]  = RmsToByte(BandRms(spectrum, 0,      lowEnd));
             mid[bucket]  = RmsToByte(BandRms(spectrum, lowEnd, midEnd));
@@ -132,20 +143,13 @@ public sealed class WaveformExtractionService
         return (low, mid, high);
     }
 
-    private static void ComputeSpectrum(float[] mono, int len, float[] spectrum)
+    private static void ComputeSpectrum(RealFft fft, float[] mono, float[] re, float[] im, float[] spectrum, int n)
     {
-        int n = Math.Min(len, spectrum.Length * 2);
-        // Half-spectrum DFT magnitude; adequate for RMS-per-band visualisation
+        fft.Direct(mono, re, im);
+        // Half-spectrum FFT magnitude; adequate for RMS-per-band visualisation
         for (int k = 0; k < spectrum.Length; k++)
         {
-            double re = 0, im = 0;
-            double theta = -2.0 * Math.PI * k / n;
-            for (int t = 0; t < n; t++)
-            {
-                re += mono[t] * Math.Cos(theta * t);
-                im += mono[t] * Math.Sin(theta * t);
-            }
-            spectrum[k] = (float)Math.Sqrt(re * re + im * im) / n;
+            spectrum[k] = (float)Math.Sqrt(re[k] * re[k] + im[k] * im[k]) / n;
         }
     }
 

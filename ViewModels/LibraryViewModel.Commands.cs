@@ -690,7 +690,7 @@ public partial class LibraryViewModel
                 // Add to UI collection for user review
                 foreach (var orphan in orphans)
                 {
-                    var fileInteraction = _serviceProvider.GetService(typeof(Services.IFileInteractionService)) as Services.IFileInteractionService;
+                    var fileInteraction = _serviceProvider?.GetService(typeof(Services.IFileInteractionService)) as Services.IFileInteractionService;
                     OrphanedTracks.Add(new OrphanedTrackViewModel(orphan, _libraryService, _dialogService, fileInteraction!, OrphanedTracks));
                 }
                 _notificationService.Show("Library Synced", $"Found {orphans.Count} orphaned entries. Review and remove manually.", NotificationType.Warning);
