@@ -901,6 +901,7 @@ public class TrackRepository : ITrackRepository
             .Take(take)
             .Select(e => new 
             {
+                e.Id,
                 e.UniqueHash,
                 e.Artist,
                 e.Title,
@@ -952,7 +953,7 @@ public class TrackRepository : ITrackRepository
         // Re-mapping from the anonymous type to the entity
         return entries.Select(e => new PlaylistTrackEntity
         {
-            Id = Guid.NewGuid(),
+            Id = e.Id,
             PlaylistId = Guid.Empty,
             Artist = e.Artist,
             Title = e.Title,

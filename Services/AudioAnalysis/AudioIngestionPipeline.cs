@@ -44,7 +44,7 @@ public sealed class AudioIngestionPipeline
         TrackAudioSource source,
         CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(_ffmpegPath))
+        if (!File.Exists(_ffmpegPath) && !ExistsOnPath(_ffmpegPath))
             throw new InvalidOperationException(
                 $"FFmpeg not found at '{_ffmpegPath}'. Install FFmpeg and ensure it is on PATH.");
 
@@ -123,6 +123,7 @@ public sealed class AudioIngestionPipeline
         };
 
         using var process = new Process { StartInfo = psi };
+        process.EnableRaisingEvents = true;
         var stderrBuilder = new StringBuilder();
 
         process.ErrorDataReceived += (_, e) =>
@@ -131,6 +132,14 @@ public sealed class AudioIngestionPipeline
         };
 
         process.Start();
+        try
+        {
+            process.PriorityClass = ProcessPriorityClass.BelowNormal;
+        }
+        catch
+        {
+            // Ignore platform-specific or permission errors setting priority class
+        }
         process.BeginErrorReadLine();
 
         try
@@ -160,6 +169,32 @@ public sealed class AudioIngestionPipeline
 
         // 3. Fall back to system PATH (let the OS find it)
         return OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg";
+    }
+
+    private static bool ExistsOnPath(string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName)) return false;
+        if (fileName.Contains(Path.DirectorySeparatorChar) || fileName.Contains(Path.AltDirectorySeparatorChar))
+        {
+            return File.Exists(fileName);
+        }
+
+        var pathEnv = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrEmpty(pathEnv)) return false;
+
+        foreach (var path in pathEnv.Split(Path.PathSeparator))
+        {
+            try
+            {
+                var fullPath = Path.Combine(path.Trim(), fileName);
+                if (File.Exists(fullPath)) return true;
+            }
+            catch
+            {
+                // Ignore invalid characters in path variable entries
+            }
+        }
+        return false;
     }
 
     private static void TryDelete(string path)

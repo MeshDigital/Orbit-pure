@@ -169,8 +169,10 @@ public sealed class MixdownService
             CreateNoWindow         = true
         };
 
-        using var proc = Process.Start(psi)
-            ?? throw new InvalidOperationException("Failed to start ffmpeg. Ensure it is on PATH.");
+        using var proc = new Process { StartInfo = psi };
+        proc.EnableRaisingEvents = true;
+        if (!proc.Start())
+            throw new InvalidOperationException("Failed to start ffmpeg. Ensure it is on PATH.");
 
         // Read stderr asynchronously (ffmpeg logs to stderr)
         _ = Task.Run(() =>

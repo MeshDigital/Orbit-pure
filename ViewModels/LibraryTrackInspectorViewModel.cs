@@ -50,6 +50,9 @@ public sealed class LibraryTrackInspectorViewModel
         {
             await Dispatcher.UIThread.InvokeAsync(ClearEnhancements);
 
+            // Ensure the analysis/technical data is fully loaded from database
+            await selected.LoadAnalysisDataAsync();
+
             if (!selected.HasAnalysisData || string.IsNullOrWhiteSpace(selected.GlobalId))
                 return;
 

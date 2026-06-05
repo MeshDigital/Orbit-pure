@@ -1569,6 +1569,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             process.OutputDataReceived += (s, e) => { if (e.Data != null) outputBuilder.AppendLine(e.Data); };
             process.ErrorDataReceived += (s, e) => { if (e.Data != null) outputBuilder.AppendLine(e.Data); };
             
+            process.EnableRaisingEvents = true;
             process.Start();
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();

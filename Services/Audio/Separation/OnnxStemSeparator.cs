@@ -87,6 +87,8 @@ public class OnnxStemSeparator : IStemSeparator
 
         // 3. Inference – prefer DirectML (GPU) and fall back to CPU automatically.
         using var sessionOptions = new SessionOptions();
+        sessionOptions.IntraOpNumThreads = 1;
+        sessionOptions.InterOpNumThreads = 1;
         try
         {
             sessionOptions.AppendExecutionProvider_DML(deviceId: 0);

@@ -185,7 +185,7 @@ public class PlaylistTrackEntity
     public string Album { get; set; } = string.Empty;
     public string TrackUniqueHash { get; set; } = string.Empty;
     public TrackStatus Status { get; set; } = TrackStatus.Missing;
-    public string ResolvedFilePath { get; set; } = string.Empty;
+    public string? ResolvedFilePath { get; set; }
     public int TrackNumber { get; set; }
     public int Bitrate { get; set; } = 0;
     public string? Format { get; set; }

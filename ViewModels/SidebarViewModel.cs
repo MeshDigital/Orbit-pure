@@ -1,6 +1,7 @@
 using System;
 using System.Reactive;
 using System.Reactive.Disposables;
+using System.Reactive.Linq;
 using ReactiveUI;
 using SLSKDONET.Services;
 
@@ -89,6 +90,12 @@ namespace SLSKDONET.ViewModels
                 .DisposeWith(_disposables);
             this.WhenAnyValue(x => x._rightPanelService.ModeIcon)
                 .Subscribe(_ => this.RaisePropertyChanged(nameof(ModeIcon)))
+                .DisposeWith(_disposables);
+
+            // Open right sidebar when bridge between event is triggered (from Flow Builder/intelligence)
+            ReactiveUI.MessageBus.Current.Listen<SLSKDONET.Events.FindBridgeBetweenTracksEvent>()
+                .ObserveOn(RxApp.MainThreadScheduler)
+                .Subscribe(_ => _rightPanelService.OpenPanel(SimilarTracksVm, "SIMILAR TRACKS", "🔗"))
                 .DisposeWith(_disposables);
 
             SwitchToPlayerCommand     = ReactiveCommand.Create(() =>

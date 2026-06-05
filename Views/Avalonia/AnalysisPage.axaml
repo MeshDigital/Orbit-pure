@@ -415,7 +415,7 @@
                        IsVisible="{Binding ShowQueuePane}">
 
                 <!-- Pane header + Start button -->
-                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" Margin="0,0,0,6">
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto,Auto" Margin="0,0,0,6">
                     <StackPanel Grid.Column="0" Spacing="2">
                         <TextBlock Text="🧪  Analysis Queue"
                                    FontSize="14" FontWeight="SemiBold"
@@ -456,28 +456,21 @@
                             ToolTip.Tip="Start processing all queued tracks"
                             Margin="0,0,8,0"/>
 
-                    <Button Grid.Column="2"
-                            Classes="secondary"
-                            Content="✨ Build Automix"
-                            IsEnabled="{Binding CanCreateAutomix}"
-                            Command="{Binding CreateAutomixCommand}"
-                            ToolTip.Tip="Build a staged BPM-ordered automix from analyzed tracks"/>
-
-                        <Button Grid.Column="3"
+                        <Button Grid.Column="2"
                             Classes="ghost"
                             Content="Run Probe"
                             Command="{Binding RunPerformanceProbeCommand}"
                             IsVisible="{Binding IsDeveloperMode}"
                             ToolTip.Tip="Run developer filter-latency probe"/>
 
-                            <Button Grid.Column="4"
+                            <Button Grid.Column="3"
                                 Classes="ghost"
                                 Content="Copy Snapshot"
                                 Command="{Binding CopyPerformanceSnapshotCommand}"
                                 IsVisible="{Binding IsDeveloperMode}"
                                 ToolTip.Tip="Copy diagnostics snapshot to clipboard"/>
 
-                            <Button Grid.Column="5"
+                            <Button Grid.Column="4"
                                 Classes="ghost"
                                 Content="Clear History"
                                 Command="{Binding ClearPerformanceProbeHistoryCommand}"
@@ -502,101 +495,7 @@
                     </StackPanel>
                 </Border>
 
-                <Border DockPanel.Dock="Top"
-                        Background="{DynamicResource BrushBg2}"
-                        BorderBrush="{DynamicResource BrushBorder2}"
-                        BorderThickness="1"
-                        CornerRadius="6"
-                        Padding="12,9"
-                        Margin="0,0,0,8">
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="🎛  Automix staging"
-                                   FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource BrushText0}"/>
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <Button Content="Stage analyzed"
-                            Classes="secondary"
-                            Command="{Binding StageAllAnalyzedForAutomixCommand}"
-                            ToolTip.Tip="Stage all analyzed tracks for automix generation"/>
-                        <Button Content="Clear staging"
-                            Classes="ghost"
-                            Command="{Binding ClearAutomixStagingCommand}"
-                            ToolTip.Tip="Remove all staged tracks"/>
-                    </StackPanel>
-                        <TextBlock Text="{Binding AutomixSelectionSummary}"
-                                   FontSize="11" Foreground="{DynamicResource BrushText1}"/>
-                        <TextBlock Text="{Binding AutomixStatusMessage}"
-                                   FontSize="11" Foreground="{DynamicResource BrushAccent}"
-                                   IsVisible="{Binding AutomixStatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                    </StackPanel>
-                </Border>
 
-                        <Border DockPanel.Dock="Top"
-                            Background="{DynamicResource BrushBg2}"
-                            BorderBrush="{DynamicResource BrushBorder2}"
-                            BorderThickness="1"
-                            CornerRadius="6"
-                            Padding="12,10"
-                            Margin="0,0,0,8">
-                            <StackPanel Spacing="6">
-                            <TextBlock Text="Automix constraints"
-                                   FontSize="11"
-                                   FontWeight="SemiBold"
-                                   Foreground="{DynamicResource BrushText0}"/>
-                            <Grid ColumnDefinitions="70,*,44" RowDefinitions="Auto,Auto,Auto">
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Min BPM" FontSize="10" Foreground="{DynamicResource BrushText1}" VerticalAlignment="Center"/>
-                                <Slider Grid.Row="0" Grid.Column="1"
-                                    Minimum="70" Maximum="190"
-                                        Value="{Binding AutomixConstraints.MinBpm, Mode=TwoWay}"
-                                        Margin="0,2,0,2"/>
-                                <TextBlock Grid.Row="0" Grid.Column="2"
-                                       Text="{Binding AutomixConstraints.MinBpm, StringFormat='{}{0:F0}'}"
-                                       FontSize="10" Foreground="{DynamicResource BrushText1}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Max BPM" FontSize="10" Foreground="{DynamicResource BrushText1}" VerticalAlignment="Center"/>
-                                <Slider Grid.Row="1" Grid.Column="1"
-                                    Minimum="80" Maximum="210"
-                                        Value="{Binding AutomixConstraints.MaxBpm, Mode=TwoWay}"
-                                        Margin="0,2,0,2"/>
-                                <TextBlock Grid.Row="1" Grid.Column="2"
-                                       Text="{Binding AutomixConstraints.MaxBpm, StringFormat='{}{0:F0}'}"
-                                       FontSize="10" Foreground="{DynamicResource BrushText1}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Max tracks" FontSize="10" Foreground="{DynamicResource BrushText1}" VerticalAlignment="Center"/>
-                                <Slider Grid.Row="2" Grid.Column="1"
-                                    Minimum="5" Maximum="60"
-                                        Value="{Binding AutomixConstraints.MaxTracks, Mode=TwoWay}"
-                                        Margin="0,2,0,2"/>
-                                <TextBlock Grid.Row="2" Grid.Column="2"
-                                       Text="{Binding AutomixConstraints.MaxTracks}"
-                                       FontSize="10" Foreground="{DynamicResource BrushText1}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                            </Grid>
-
-                            <Grid ColumnDefinitions="Auto,Auto,Auto,*">
-                                <CheckBox Grid.Column="0"
-                                      Content="Match key"
-                                      IsChecked="{Binding AutomixConstraints.MatchKey, Mode=TwoWay}"
-                                          Foreground="{DynamicResource BrushText1}"
-                                          Margin="0,0,12,0"/>
-                                <TextBlock Grid.Column="1"
-                                       Text="Energy jump"
-                                       FontSize="10"
-                                       Foreground="{DynamicResource BrushText1}"
-                                           VerticalAlignment="Center"
-                                           Margin="0,0,12,0"/>
-                                <Slider Grid.Column="2"
-                                    Width="120"
-                                    Minimum="1"
-                                    Maximum="9"
-                                        Value="{Binding AutomixConstraints.MaxEnergyJump, Mode=TwoWay}"
-                                        Margin="0,0,12,0"/>
-                                <TextBlock Grid.Column="3"
-                                       Text="{Binding AutomixConstraints.MaxEnergyJump, StringFormat='Max jump {0}'}"
-                                       FontSize="10"
-                                       Foreground="{DynamicResource BrushText1}"
-                                       VerticalAlignment="Center"/>
-                            </Grid>
-                            </StackPanel>
-                        </Border>
 
                 <!-- Queue items -->
                 <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto">

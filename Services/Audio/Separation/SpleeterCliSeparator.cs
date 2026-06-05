@@ -65,6 +65,14 @@ public class SpleeterCliSeparator : IStemSeparator
         {
              throw new Exception("Failed to start Spleeter process.");
         }
+        try
+        {
+            process.PriorityClass = ProcessPriorityClass.BelowNormal;
+        }
+        catch
+        {
+            // Ignore platform-specific or permission errors setting priority class
+        }
         
         // Log output for debugging
         _ = ReadStreamAsync(process.StandardOutput, "[Spleeter OUT]");

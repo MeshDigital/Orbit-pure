@@ -66,8 +66,9 @@ namespace SLSKDONET.Services
                     CreateNoWindow = true
                 };
 
-                using var process = Process.Start(psi);
-                if (process == null) return false;
+                using var process = new Process { StartInfo = psi };
+                process.EnableRaisingEvents = true;
+                if (!process.Start()) return false;
                 
                 // Set a timeout to avoid hanging if something is weird
                 var cts = new System.Threading.CancellationTokenSource(2000);

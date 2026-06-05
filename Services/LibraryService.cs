@@ -971,7 +971,44 @@ public class LibraryService : ILibraryService
         try
         {
             var entity = await _databaseService.GetTrackTechnicalDetailsAsync(playlistTrackId).ConfigureAwait(false);
-            return entity;
+            if (entity != null) return entity;
+
+            // Fallback for Library Tracks (whose details live directly on LibraryEntryEntity)
+            using var context = new AppDbContext();
+            var libraryEntry = await context.LibraryEntries
+                .AsNoTracking()
+                .Include(le => le.AudioFeatures)
+                .FirstOrDefaultAsync(le => le.Id == playlistTrackId)
+                .ConfigureAwait(false);
+
+            if (libraryEntry != null)
+            {
+                var libraryWaveform = ResolveWaveformBands(
+                    libraryEntry.WaveformData,
+                    libraryEntry.RmsData,
+                    libraryEntry.LowData,
+                    libraryEntry.MidData,
+                    libraryEntry.HighData,
+                    libraryEntry.AudioFeatures?.WaveformBlob);
+
+                return new TrackTechnicalEntity
+                {
+                    PlaylistTrackId = playlistTrackId,
+                    WaveformData = libraryWaveform.PeakData,
+                    RmsData = libraryWaveform.RmsData,
+                    LowData = libraryWaveform.LowData,
+                    MidData = libraryWaveform.MidData,
+                    HighData = libraryWaveform.HighData,
+                    CuePointsJson = !string.IsNullOrWhiteSpace(libraryEntry.CuePointsJson)
+                        ? libraryEntry.CuePointsJson
+                        : libraryEntry.AudioFeatures?.CuePointsJson,
+                    IsPrepared = libraryEntry.IsPrepared,
+                    PrimaryGenre = libraryEntry.PrimaryGenre,
+                    LastUpdated = libraryEntry.LastUsedAt
+                };
+            }
+
+            return null;
         }
         catch (Exception ex)
         {

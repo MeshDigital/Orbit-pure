@@ -13,6 +13,7 @@ using SLSKDONET.ViewModels.Library;
 using SLSKDONET.Services.Similarity;
 using SLSKDONET.Models.Musical;
 using SLSKDONET.Services.Library;
+using SLSKDONET.Services.Playlist;
 
 namespace SLSKDONET.ViewModels;
 
@@ -41,15 +42,29 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
     private readonly ICommand _setSmartInsertLoosePresetCommand;
     private readonly ICommand _applyPreparedSmartInsertCommand;
 
+    private readonly PlaylistOptimizer? _playlistOptimizer;
+    private AutomixConstraints _automixConstraints = new();
+    private string? _automixStatusMessage;
+    private readonly ICommand _stageAllAnalyzedForAutomixCommand;
+    private readonly ICommand _clearAutomixStagingCommand;
+    private readonly ICommand _createAutomixCommand;
+    private readonly ICommand _applyAutomixCommand;
+
+    public ObservableCollection<PlaylistTrackViewModel> StagedAutomixTracks { get; } = new();
+
     private const string IntelligenceTabSmartInsert = "SmartInsert";
     private const string IntelligenceTabSuggestNext = "SuggestNext";
     private const string IntelligenceTabUpgrade = "Upgrade";
     private const string IntelligenceTabAutomix = "Automix";
 
-    public PlaylistIntelligenceViewModel(LibraryViewModel library, TrackSimilarityService? trackSimilarityService = null)
+    public PlaylistIntelligenceViewModel(
+        LibraryViewModel library,
+        TrackSimilarityService? trackSimilarityService = null,
+        PlaylistOptimizer? playlistOptimizer = null)
     {
         _library = library;
         _trackSimilarityService = trackSimilarityService;
+        _playlistOptimizer = playlistOptimizer;
         var settings = _library.GetSmartInsertSettingsSnapshot();
         _librarySmartInsertMinConfidence = settings.MinConfidence;
         _librarySmartInsertStructureSensitivity = settings.StructureSensitivity;
@@ -58,6 +73,18 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
         _setSmartInsertNormalPresetCommand = new RelayCommand(() => ApplySmartInsertPreset(0.72, 55));
         _setSmartInsertLoosePresetCommand = new RelayCommand(() => ApplySmartInsertPreset(0.65, 30));
         _applyPreparedSmartInsertCommand = new AsyncRelayCommand(_library.ApplyPreparedSmartInsertFromIntelligenceAsync);
+
+        _stageAllAnalyzedForAutomixCommand = new AsyncRelayCommand(StageAllAnalyzedForAutomixAsync);
+        _clearAutomixStagingCommand = new RelayCommand(ClearAutomixStaging);
+        _createAutomixCommand = new AsyncRelayCommand(CreateAutomixPlaylistAsync);
+        _applyAutomixCommand = new AsyncRelayCommand(ApplyAutomixAsync);
+
+        StagedAutomixTracks.CollectionChanged += (_, _) =>
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanCreateAutomix)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AutomixSelectionSummary)));
+        };
+
         _library.PropertyChanged += OnLibraryPropertyChanged;
     }
 
@@ -668,5 +695,197 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLibraryIntelligenceSuggestNextActive)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLibraryIntelligenceUpgradeActive)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLibraryIntelligenceAutomixActive)));
+    }
+
+    public AutomixConstraints AutomixConstraints
+    {
+        get => _automixConstraints;
+        set
+        {
+            if (_automixConstraints != value)
+            {
+                _automixConstraints = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AutomixConstraints)));
+            }
+        }
+    }
+
+    public string? AutomixStatusMessage
+    {
+        get => _automixStatusMessage;
+        private set
+        {
+            if (_automixStatusMessage != value)
+            {
+                _automixStatusMessage = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AutomixStatusMessage)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AutomixStatusMessageVisible)));
+            }
+        }
+    }
+
+    public bool AutomixStatusMessageVisible => !string.IsNullOrEmpty(AutomixStatusMessage);
+
+    public string AutomixSelectionSummary => StagedAutomixTracks.Count == 0
+        ? "No tracks staged for automix yet."
+        : $"{StagedAutomixTracks.Count} track(s) staged for mix-building.";
+
+    public bool CanCreateAutomix => StagedAutomixTracks.Count >= 2;
+
+    public ICommand StageAllAnalyzedForAutomixCommand => _stageAllAnalyzedForAutomixCommand;
+    public ICommand ClearAutomixStagingCommand => _clearAutomixStagingCommand;
+    public ICommand CreateAutomixCommand => _createAutomixCommand;
+    public ICommand ApplyAutomixCommand => _applyAutomixCommand;
+
+    public async Task StageAllAnalyzedForAutomixAsync()
+    {
+        StagedAutomixTracks.Clear();
+        var sourceTracks = _library.Tracks.CurrentProjectTracks.Any()
+            ? _library.Tracks.CurrentProjectTracks.ToList()
+            : _library.Tracks.FilteredTracks.ToList();
+
+        var analyzed = sourceTracks.Where(t => t.HasBpm || t.HasAnalysisData).ToList();
+
+        int batchCount = 0;
+        foreach (var track in analyzed)
+        {
+            StagedAutomixTracks.Add(track);
+            batchCount++;
+            if (batchCount % 10 == 0)
+            {
+                await Task.Yield();
+            }
+        }
+
+        AutomixStatusMessage = StagedAutomixTracks.Count == 0
+            ? "No analyzed tracks available for staging yet."
+            : $"Staged {StagedAutomixTracks.Count} analyzed track(s) for automix.";
+    }
+
+    public void ClearAutomixStaging()
+    {
+        StagedAutomixTracks.Clear();
+        AutomixStatusMessage = "Automix staging cleared.";
+    }
+
+    public async Task CreateAutomixPlaylistAsync()
+    {
+        if (StagedAutomixTracks.Count < 2)
+        {
+            AutomixStatusMessage = "Add at least 2 analyzed tracks to the staging first.";
+            return;
+        }
+
+        var c = AutomixConstraints;
+        var eligible = StagedAutomixTracks
+            .Where(t => t.BPM >= c.MinBpm && t.BPM <= c.MaxBpm)
+            .ToList();
+
+        if (eligible.Count < 2)
+        {
+            AutomixStatusMessage = $"Not enough tracks in the BPM range {c.MinBpm:F0}–{c.MaxBpm:F0}.";
+            return;
+        }
+
+        if (_playlistOptimizer is null)
+        {
+            AutomixStatusMessage = "Playlist optimizer service is unavailable.";
+            return;
+        }
+
+        var hashes = eligible.Select(t => t.GlobalId).Where(h => !string.IsNullOrEmpty(h)).ToList();
+        var opts = new PlaylistOptimizerOptions
+        {
+            HarmonicWeight = c.HarmonicWeight,
+            TempoWeight = c.TempoWeight,
+            EnergyWeight = c.EnergyWeight,
+            MaxBpmJump = Math.Max(1, (int)(c.MaxBpm - c.MinBpm)),
+            EnergyCurve = c.EnergyCurve switch
+            {
+                "Rising" => EnergyCurvePattern.Rising,
+                "Wave" => EnergyCurvePattern.Wave,
+                "Peak" => EnergyCurvePattern.Peak,
+                _ => EnergyCurvePattern.None,
+            }
+        };
+
+        try
+        {
+            var result = await _playlistOptimizer.OptimizeAsync(hashes, opts);
+            if (result.OrderedHashes.Count < 2)
+            {
+                AutomixStatusMessage = "Optimization failed to produce an ordering.";
+                return;
+            }
+
+            var lookup = eligible.ToDictionary(t => t.GlobalId);
+            var ordered = new List<PlaylistTrackViewModel>();
+            foreach (var hash in result.OrderedHashes)
+            {
+                if (lookup.TryGetValue(hash, out var track))
+                {
+                    ordered.Add(track);
+                }
+            }
+
+            StagedAutomixTracks.Clear();
+            foreach (var t in ordered)
+            {
+                StagedAutomixTracks.Add(t);
+            }
+
+            // Update SortOrder property in the preview views
+            for (int i = 0; i < StagedAutomixTracks.Count; i++)
+            {
+                StagedAutomixTracks[i].SortOrder = i + 1;
+            }
+
+            var minBpm = ordered.First().BPM;
+            var maxBpm = ordered.Last().BPM;
+            AutomixStatusMessage = $"Automix ready: {ordered.Count} tracks, {minBpm:F0}–{maxBpm:F0} BPM. Click 'Apply' to save order.";
+        }
+        catch (Exception ex)
+        {
+            AutomixStatusMessage = $"Optimization failed: {ex.Message}";
+        }
+    }
+
+    public async Task ApplyAutomixAsync()
+    {
+        var project = _library.SelectedProject;
+        if (project is null || project.Id == Guid.Empty)
+        {
+            AutomixStatusMessage = "Please select a specific playlist first to apply.";
+            return;
+        }
+
+        if (StagedAutomixTracks.Count < 2)
+        {
+            AutomixStatusMessage = "Build an automix ordering first.";
+            return;
+        }
+
+        try
+        {
+            var orderedTracks = StagedAutomixTracks.Select((t, index) =>
+            {
+                var trackModel = t.Model;
+                trackModel.SortOrder = index + 1;
+                trackModel.TrackNumber = index + 1;
+                return trackModel;
+            }).ToList();
+
+            await _library.LibraryService.SaveTrackOrderAsync(project.Id, orderedTracks);
+
+            // Refresh UI in Library track list
+            await _library.Tracks.LoadProjectTracksAsync(project);
+            _library.Tracks.RefreshFilteredTracks();
+
+            AutomixStatusMessage = $"Successfully applied automix order to playlist '{project.SourceTitle}'!";
+        }
+        catch (Exception ex)
+        {
+            AutomixStatusMessage = $"Failed to save track order: {ex.Message}";
+        }
     }
 }

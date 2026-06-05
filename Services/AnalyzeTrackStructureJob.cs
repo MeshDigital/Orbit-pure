@@ -134,6 +134,16 @@ public sealed class AnalyzeTrackStructureJob
             features.StructuralVersion += 1;
             await _databaseService.UpdateAudioFeaturesAsync(features);
 
+            // Step 6.5: Sync the track embedding for Similarity search
+            try
+            {
+                await _embeddingExtractionService.SyncEmbeddingAsync(trackUniqueHash, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[AnalyzeTrackStructureJob] Failed to sync embedding for {Hash}", trackUniqueHash);
+            }
+
             // Step 7: Publish completion event
             PublishCompleted(trackUniqueHash, success: true);
 

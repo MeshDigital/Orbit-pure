@@ -485,7 +485,7 @@
                     </Border>
                 </StackPanel>
 
-                <StackPanel IsVisible="{Binding IsLibraryIntelligenceAutomixActive}" Spacing="8">
+                <StackPanel IsVisible="{Binding IsLibraryIntelligenceAutomixActive}" Spacing="10">
                     <TextBlock Text="Automix"
                                FontSize="12"
                                FontWeight="SemiBold"
@@ -494,12 +494,99 @@
                                FontSize="10"
                                Foreground="#8FA7C0"
                                TextWrapping="Wrap"/>
+                               
+                    <!-- Automix staging controls -->
                     <Border Background="#20242A" BorderBrush="#2E343D" BorderThickness="1" CornerRadius="8" Padding="10,8">
-                        <TextBlock Text="Placeholder: profile presets, dry-run preview, and apply controls."
-                                   FontSize="10"
-                                   Foreground="#D8E5F2"
-                                   TextWrapping="Wrap"/>
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="🎛️ Automix Staging" FontSize="11" FontWeight="SemiBold" Foreground="#8FA7C0"/>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Button Content="Stage analyzed"
+                                        Command="{Binding StageAllAnalyzedForAutomixCommand}"
+                                        FontSize="10" Padding="8,4" CornerRadius="4"/>
+                                <Button Content="Clear staging"
+                                        Command="{Binding ClearAutomixStagingCommand}"
+                                        FontSize="10" Padding="8,4" CornerRadius="4"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding AutomixSelectionSummary}" FontSize="9" Foreground="#8FA7C0"/>
+                            <TextBlock Text="{Binding AutomixStatusMessage}" FontSize="9" Foreground="#FFD700" TextWrapping="Wrap" IsVisible="{Binding AutomixStatusMessageVisible}"/>
+                        </StackPanel>
                     </Border>
+
+                    <!-- Automix constraints section -->
+                    <Border Background="#20242A" BorderBrush="#2E343D" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Automix constraints" FontSize="11" FontWeight="SemiBold" Foreground="#8FA7C0"/>
+                            <Grid ColumnDefinitions="70,*,36" RowDefinitions="Auto,Auto,Auto">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Min BPM" FontSize="10" Foreground="#8FA7C0" VerticalAlignment="Center"/>
+                                <Slider Grid.Row="0" Grid.Column="1" Minimum="70" Maximum="190" Value="{Binding AutomixConstraints.MinBpm, Mode=TwoWay}" Margin="0,2"/>
+                                <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding AutomixConstraints.MinBpm, StringFormat='{}{0:F0}'}" FontSize="10" Foreground="#8FA7C0" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Max BPM" FontSize="10" Foreground="#8FA7C0" VerticalAlignment="Center"/>
+                                <Slider Grid.Row="1" Grid.Column="1" Minimum="80" Maximum="210" Value="{Binding AutomixConstraints.MaxBpm, Mode=TwoWay}" Margin="0,2"/>
+                                <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding AutomixConstraints.MaxBpm, StringFormat='{}{0:F0}'}" FontSize="10" Foreground="#8FA7C0" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Max tracks" FontSize="10" Foreground="#8FA7C0" VerticalAlignment="Center"/>
+                                <Slider Grid.Row="2" Grid.Column="1" Minimum="5" Maximum="60" Value="{Binding AutomixConstraints.MaxTracks, Mode=TwoWay}" Margin="0,2"/>
+                                <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding AutomixConstraints.MaxTracks}" FontSize="10" Foreground="#8FA7C0" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <Grid ColumnDefinitions="Auto,Auto,Auto,*" Margin="0,4,0,0">
+                                <CheckBox Grid.Column="0" Content="Match key" IsChecked="{Binding AutomixConstraints.MatchKey, Mode=TwoWay}" Foreground="#8FA7C0" Margin="0,0,8,0" FontSize="10"/>
+                                <TextBlock Grid.Column="1" Text="Energy jump" FontSize="10" Foreground="#8FA7C0" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <Slider Grid.Column="2" Width="80" Minimum="1" Maximum="9" Value="{Binding AutomixConstraints.MaxEnergyJump, Mode=TwoWay}"/>
+                                <TextBlock Grid.Column="3" Text="{Binding AutomixConstraints.MaxEnergyJump, StringFormat='Jump {0}'}" FontSize="10" Foreground="#8FA7C0" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Build & Apply actions -->
+                    <StackPanel Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="✨ Build Automix"
+                                    Command="{Binding CreateAutomixCommand}"
+                                    IsEnabled="{Binding CanCreateAutomix}"
+                                    Background="#2D4A60" BorderBrush="#456E8D" BorderThickness="1" Foreground="#D8E5F2"
+                                    Padding="12,6" CornerRadius="6" Cursor="Hand" FontWeight="SemiBold"/>
+                            <Button Content="💾 Apply Automix"
+                                    Command="{Binding ApplyAutomixCommand}"
+                                    IsEnabled="{Binding CanCreateAutomix}"
+                                    Background="#203525" BorderBrush="#2F5535" BorderThickness="1" Foreground="#D8E5F2"
+                                    Padding="12,6" CornerRadius="6" Cursor="Hand" FontWeight="SemiBold"/>
+                        </StackPanel>
+
+                        <!-- Preview list of staged tracks -->
+                        <TextBlock Text="Preview Play Order" FontSize="11" FontWeight="SemiBold" Foreground="#8FA7C0" IsVisible="{Binding CanCreateAutomix}"/>
+                        <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding StagedAutomixTracks}" IsVisible="{Binding CanCreateAutomix}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Spacing="4"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#1A2027" BorderBrush="#2B333D" BorderThickness="1" CornerRadius="6" Padding="6,4">
+                                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                                <TextBlock Grid.Column="0" Text="{Binding SortOrder}" FontSize="10" Foreground="#8FA7C0" FontWeight="Bold" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding TrackTitle}" FontSize="10" FontWeight="SemiBold" Foreground="#D8E5F2" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{Binding ArtistName}" FontSize="9" Foreground="#8FA7C0" TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                    <Border Background="#233141" CornerRadius="3" Padding="4,1">
+                                                        <TextBlock Text="{Binding CamelotDisplay}" FontSize="8" Foreground="#B7CCE0"/>
+                                                    </Border>
+                                                    <Border Background="#233141" CornerRadius="3" Padding="4,1">
+                                                        <TextBlock Text="{Binding BpmDisplay}" FontSize="8" Foreground="#B7CCE0"/>
+                                                    </Border>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
         </ScrollViewer>

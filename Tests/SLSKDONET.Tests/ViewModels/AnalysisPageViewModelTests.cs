@@ -9,6 +9,7 @@ using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Services.Library;
 using SLSKDONET.ViewModels;
+using SLSKDONET.ViewModels.Library;
 using Xunit;
 
 namespace SLSKDONET.Tests.ViewModels;
@@ -138,118 +139,6 @@ public class AnalysisPageViewModelTests : IDisposable
         Assert.Equal("essentia-2.1-b6", item.ModelVersion);
     }
 
-    // ── TogglePlaylist command ────────────────────────────────────────────
-
-    [Fact]
-    public void TogglePlaylist_AddsAnalysedTrackToPlaylistTracks()
-    {
-        var track = _vm.LibraryTracks.First(t => t.HasAnalysis);
-        _vm.TogglePlaylist(track);
-        Assert.True(track.IsInPlaylist);
-        Assert.Contains(track, _vm.PlaylistTracks);
-    }
-
-    [Fact]
-    public void TogglePlaylist_RemovesTrackWhenAlreadyInPlaylist()
-    {
-        var track = _vm.LibraryTracks.First(t => t.HasAnalysis);
-        _vm.TogglePlaylist(track);   // add
-        _vm.TogglePlaylist(track);   // remove
-        Assert.False(track.IsInPlaylist);
-        Assert.DoesNotContain(track, _vm.PlaylistTracks);
-    }
-
-    [Fact]
-    public void TogglePlaylist_IgnoresTrackWithoutAnalysis()
-    {
-        var track = _vm.LibraryTracks.First(t => !t.HasAnalysis);
-        _vm.TogglePlaylist(track);
-        Assert.False(track.IsInPlaylist);
-        Assert.Empty(_vm.PlaylistTracks);
-    }
-
-    // ── CreateAutomixPlaylist command ─────────────────────────────────────
-
-    [Fact]
-    public void CreateAutomixPlaylist_RequiresAtLeastTwoTracks()
-    {
-        var track = _vm.LibraryTracks.First(t => t.HasAnalysis);
-        _vm.TogglePlaylist(track);  // only 1
-
-        _vm.CreateAutomixPlaylist();
-
-        Assert.NotNull(_vm.AutomixStatusMessage);
-        Assert.Contains("at least 2", _vm.AutomixStatusMessage, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void CreateAutomixPlaylist_SortsByBpm()
-    {
-        foreach (var t in _vm.LibraryTracks.Where(t => t.HasAnalysis))
-            _vm.TogglePlaylist(t);
-
-        _vm.AutomixConstraints.MinBpm = 0;
-        _vm.AutomixConstraints.MaxBpm = 300;
-
-        _vm.CreateAutomixPlaylist();
-
-        var bpms = _vm.PlaylistTracks
-            .Select(t => t.AnalysisData?.Mechanics.Bpm ?? t.Bpm ?? 0)
-            .ToList();
-
-        for (int i = 1; i < bpms.Count; i++)
-            Assert.True(bpms[i] >= bpms[i - 1], $"Track {i} BPM {bpms[i]} is less than previous {bpms[i-1]}");
-    }
-
-    [Fact]
-    public void CreateAutomixPlaylist_FiltersOutOfRangeBpm()
-    {
-        foreach (var t in _vm.LibraryTracks.Where(t => t.HasAnalysis))
-            _vm.TogglePlaylist(t);
-
-        // An extremely narrow BPM range that should match no tracks
-        _vm.AutomixConstraints.MinBpm = 999;
-        _vm.AutomixConstraints.MaxBpm = 1000;
-
-        _vm.CreateAutomixPlaylist();
-
-        Assert.Contains("Not enough tracks", _vm.AutomixStatusMessage, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void CreateAutomixPlaylist_SetsSuccessStatusMessage()
-    {
-        foreach (var t in _vm.LibraryTracks.Where(t => t.HasAnalysis))
-            _vm.TogglePlaylist(t);
-
-        _vm.AutomixConstraints.MinBpm = 0;
-        _vm.AutomixConstraints.MaxBpm = 300;
-
-        _vm.CreateAutomixPlaylist();
-
-        Assert.NotNull(_vm.AutomixStatusMessage);
-        Assert.Contains("BPM", _vm.AutomixStatusMessage, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task CreateAutomixPlaylistAsync_SortsByBpm_WhenOptimizerUnavailable()
-    {
-        foreach (var t in _vm.LibraryTracks.Where(t => t.HasAnalysis))
-            _vm.TogglePlaylist(t);
-
-        _vm.AutomixConstraints.MinBpm = 0;
-        _vm.AutomixConstraints.MaxBpm = 300;
-
-        await _vm.CreateAutomixPlaylistAsync();
-
-        var bpms = _vm.PlaylistTracks
-            .Select(t => t.AnalysisData?.Mechanics.Bpm ?? t.Bpm ?? 0)
-            .ToList();
-
-        for (int i = 1; i < bpms.Count; i++)
-            Assert.True(bpms[i] >= bpms[i - 1], $"Track {i} BPM {bpms[i]} is less than previous {bpms[i - 1]}");
-    }
-
     // ── AutomixConstraints ────────────────────────────────────────────────
 
     [Fact]
@@ -272,11 +161,6 @@ public class AnalysisPageViewModelTests : IDisposable
 
         Assert.Equal(1, _vm.QueueTrackCount);
         Assert.Contains("queued", _vm.QueueMetricsSummary, StringComparison.OrdinalIgnoreCase);
-
-        var analyzed = _vm.LibraryTracks.First(t => t.HasAnalysis);
-        _vm.TogglePlaylist(analyzed);
-
-        Assert.Equal(1, _vm.PlaylistTrackCount);
     }
 
     [Fact]

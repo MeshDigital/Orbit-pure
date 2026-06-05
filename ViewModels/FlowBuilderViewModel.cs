@@ -569,7 +569,7 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
 
             string? startHash = Tracks.LastOrDefault()?.TrackHash;
             string? nextHash;
-            PlaylistRecommendation recommendation = null;
+            PlaylistRecommendation? recommendation = null;
 
             if (!string.IsNullOrWhiteSpace(startHash))
             {
