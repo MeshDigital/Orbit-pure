@@ -495,8 +495,6 @@
                     </StackPanel>
                 </Border>
 
-
-
                 <!-- Queue items -->
                 <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto">
                     <Panel>
@@ -582,7 +580,7 @@
                                             <!-- ── Completed track: enriched card ── -->
                                             <StackPanel IsVisible="{Binding IsCompleted}" Spacing="6">
                                                 <!-- Always-visible summary strip -->
-                                                <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" Margin="0,0,0,2">
+                                                <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto" Margin="0,0,0,2">
                                                     <Border Grid.Column="0" Classes="chip"
                                                             Background="{DynamicResource BrushBg2}"
                                                             IsVisible="{Binding CueCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}">
@@ -604,16 +602,7 @@
                                                         <TextBlock Text="{Binding GenreSummary}" FontSize="10" Foreground="{DynamicResource BrushText1}" TextTrimming="CharacterEllipsis" MaxWidth="320"/>
                                                     </StackPanel>
 
-                                                    <Button Grid.Column="4"
-                                                            Classes="secondary"
-                                                            Content="{Binding PlaylistActionLabel}"
-                                                            FontSize="10" Padding="6,3"
-                                                            Command="{Binding $parent[UserControl].DataContext.TogglePlaylistCommand}"
-                                                            CommandParameter="{Binding}"
-                                                            ToolTip.Tip="Stage or remove this track for automix"
-                                                            Margin="4,0,0,0"/>
-
-                                                    <Button Grid.Column="5"
+                                                        <Button Grid.Column="4"
                                                             Background="{DynamicResource BrushBg2}"
                                                             BorderBrush="{DynamicResource BrushError}"
                                                             BorderThickness="1"
@@ -626,7 +615,7 @@
                                                             ToolTip.Tip="Clear results and re-run analysis"
                                                             Margin="4,0,0,0"/>
 
-                                                    <Button Grid.Column="6"
+                                                        <Button Grid.Column="5"
                                                             Classes="secondary"
                                                             Content="{}{} JSON"
                                                             FontSize="10" Padding="6,3"

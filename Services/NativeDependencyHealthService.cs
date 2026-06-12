@@ -75,12 +75,13 @@ public class NativeDependencyHealthService
 
     protected virtual async Task<DependencyStatus> CheckFfmpegAsync()
     {
+        string resolvedPath = AudioAnalysis.AudioIngestionPipeline.ResolveFfmpegPath();
         try
         {
             // Try running 'ffmpeg -version'
             var startInfo = new ProcessStartInfo
             {
-                FileName = FFMPEG_EXECUTABLE,
+                FileName = resolvedPath,
                 Arguments = "-version",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -102,16 +103,16 @@ public class NativeDependencyHealthService
                 var match = Regex.Match(output, @"ffmpeg version (\S+)"); // Capture version string
                 string version = match.Success ? match.Groups[1].Value : "Unknown";
                 
-                return new DependencyStatus("FFmpeg", true, version, "System PATH");
+                return new DependencyStatus("FFmpeg", true, version, resolvedPath);
             }
             else
             {
-                return new DependencyStatus("FFmpeg", false, "N/A", "System PATH", $"Exit Code: {process.ExitCode}");
+                return new DependencyStatus("FFmpeg", false, "N/A", resolvedPath, $"Exit Code: {process.ExitCode}");
             }
         }
         catch (Exception ex)
         {
-            return new DependencyStatus("FFmpeg", false, "N/A", "System PATH", ex.Message);
+            return new DependencyStatus("FFmpeg", false, "N/A", resolvedPath, ex.Message);
         }
     }
 

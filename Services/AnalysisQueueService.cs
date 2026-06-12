@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reactive.Linq;
@@ -39,8 +40,13 @@ public class AnalysisQueueService : IDisposable
     private readonly AnalyzeTrackStructureJob? _analyzeTrackStructureJob;
     private readonly IDisposable _requestSubscription;
     private readonly SemaphoreSlim _parallelismGate;
+    private readonly SemaphoreSlim _dispatchSignal = new(0);
+    private readonly CancellationTokenSource _dispatchCts = new();
+    private readonly Task _dispatchLoopTask;
     private readonly ConcurrentDictionary<string, byte> _activeTrackHashes = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _scheduledTrackHashes = new(StringComparer.Ordinal);
+    private readonly ConcurrentQueue<TrackAnalysisRequestedEvent> _highPriorityQueue = new();
+    private readonly ConcurrentQueue<TrackAnalysisRequestedEvent> _normalPriorityQueue = new();
 
     private bool _isStealthMode;
     private int _queuedCount;
@@ -76,6 +82,8 @@ public class AnalysisQueueService : IDisposable
         _requestSubscription = _eventBus
             .GetEvent<TrackAnalysisRequestedEvent>()
             .Subscribe(OnAnalysisRequested);
+
+        _dispatchLoopTask = Task.Run(() => RunDispatchLoopAsync(_dispatchCts.Token));
 
         _logger.LogInformation(
             "AnalysisQueue initialised: MaxWorkers={W} (requested={R})",
@@ -114,25 +122,92 @@ public class AnalysisQueueService : IDisposable
             evt.TrackGlobalId, evt.Tier);
 
         Interlocked.Increment(ref _queuedCount);
+        EnqueueRequest(evt);
         PublishStatus(_isStealthMode ? "Stealth (Low CPU)" : "Standard");
+    }
 
-        // Fire-and-forget the async dispatch so the subscription callback returns quickly.
-        // Exceptions are caught and logged so failures are observable (Glass Box guarantee).
-        _ = DispatchAnalysisJobAsync(evt).ContinueWith(
-            t => _logger.LogError(t.Exception, "Unhandled error dispatching analysis job for {TrackGlobalId}", evt.TrackGlobalId),
-            System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
+    private void EnqueueRequest(TrackAnalysisRequestedEvent evt)
+    {
+        if (evt.IsHighPriority)
+        {
+            _highPriorityQueue.Enqueue(evt);
+        }
+        else
+        {
+            _normalPriorityQueue.Enqueue(evt);
+        }
+
+        _dispatchSignal.Release();
+    }
+
+    private async Task RunDispatchLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await _dispatchSignal.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+                if (!TryDequeueNext(out var evt) || evt is null)
+                {
+                    continue;
+                }
+
+                await _parallelismGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await DispatchAnalysisJobAsync(evt).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Unhandled error dispatching analysis job for {TrackGlobalId}", evt.TrackGlobalId);
+                    }
+                    finally
+                    {
+                        _parallelismGate.Release();
+                    }
+                }, CancellationToken.None);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Dispatch loop failed");
+            }
+        }
+    }
+
+    private bool TryDequeueNext(out TrackAnalysisRequestedEvent? evt)
+    {
+        if (_highPriorityQueue.TryDequeue(out var high))
+        {
+            evt = high;
+            return true;
+        }
+
+        if (_normalPriorityQueue.TryDequeue(out var normal))
+        {
+            evt = normal;
+            return true;
+        }
+
+        evt = null;
+        return false;
     }
 
     /// <summary>
     /// Dispatches an analysis job, inserting a stealth-mode throttle delay when enabled
     /// so CPU-intensive work does not starve the UI scheduler.
-    /// The parallelism gate (<see cref="_parallelismGate"/>) ensures at most
-    /// <see cref="MaxWorkers"/> jobs run concurrently.
+    /// The queue dispatcher ensures high-priority requests are processed first.
     /// </summary>
     private async Task DispatchAnalysisJobAsync(TrackAnalysisRequestedEvent evt)
     {
         var completedOrFailed = false;
-        await _parallelismGate.WaitAsync().ConfigureAwait(false);
         try
         {
             if (_isStealthMode)
@@ -184,6 +259,7 @@ public class AnalysisQueueService : IDisposable
 
             _activeTrackHashes.TryAdd(evt.TrackGlobalId, 0);
             _currentTrackHash = evt.TrackGlobalId;
+            await UpdateTrackAnalysisStatusAsync(evt.TrackGlobalId, AnalysisStatus.Processing, null).ConfigureAwait(false);
             _eventBus.Publish(new TrackAnalysisStartedEvent(evt.TrackGlobalId, Path.GetFileName(filePath)));
             PublishProgress(evt.TrackGlobalId, "Analyzing audio", 20);
 
@@ -196,6 +272,7 @@ public class AnalysisQueueService : IDisposable
                 var message = $"Audio analysis returned no result for {Path.GetFileName(filePath)}";
                 _logger.LogWarning("{Message}", message);
                 PublishProgress(evt.TrackGlobalId, "Analysis returned no result", 100);
+                await UpdateTrackAnalysisStatusAsync(evt.TrackGlobalId, AnalysisStatus.Failed, message).ConfigureAwait(false);
                 _eventBus.Publish(new TrackAnalysisFailedEvent(evt.TrackGlobalId, message));
                 _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, false, message));
                 completedOrFailed = true;
@@ -204,6 +281,8 @@ public class AnalysisQueueService : IDisposable
 
             PublishProgress(evt.TrackGlobalId, "Computing structure", 75);
             await _analyzeTrackStructureJob.ExecuteAsync(evt.TrackGlobalId).ConfigureAwait(false);
+            await UpdateTrackAnalysisStatusAsync(evt.TrackGlobalId, AnalysisStatus.Completed, null).ConfigureAwait(false);
+            _eventBus.Publish(new TrackAnalysisUpdatedEvent(evt.TrackGlobalId, DateTime.UtcNow, analysis.Id));
 
             Interlocked.Increment(ref _processedCount);
             PublishProgress(evt.TrackGlobalId, "Completed", 100);
@@ -215,6 +294,7 @@ public class AnalysisQueueService : IDisposable
         {
             _logger.LogError(ex, "Analysis job failed for {TrackGlobalId}", evt.TrackGlobalId);
             PublishProgress(evt.TrackGlobalId, "Analysis failed", 100);
+            await UpdateTrackAnalysisStatusAsync(evt.TrackGlobalId, AnalysisStatus.Failed, ex.Message).ConfigureAwait(false);
             _eventBus.Publish(new TrackAnalysisFailedEvent(evt.TrackGlobalId, ex.Message));
             _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, false, ex.Message));
             completedOrFailed = true;
@@ -235,8 +315,44 @@ public class AnalysisQueueService : IDisposable
             _currentTrackHash = _activeTrackHashes.Keys.FirstOrDefault()
                 ?? _scheduledTrackHashes.Keys.FirstOrDefault();
             PublishStatus(_isStealthMode ? "Stealth (Low CPU)" : "Standard");
-            _parallelismGate.Release();
         }
+    }
+
+    private async Task UpdateTrackAnalysisStatusAsync(string trackGlobalId, AnalysisStatus status, string? error)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        await using var tx = await db.Database.BeginTransactionAsync().ConfigureAwait(false);
+
+        var playlistRows = await db.PlaylistTracks
+            .Where(t => t.TrackUniqueHash == trackGlobalId)
+            .ToListAsync()
+            .ConfigureAwait(false);
+        foreach (var row in playlistRows)
+        {
+            row.AnalysisStatus = status;
+            row.QualityDetails = string.IsNullOrWhiteSpace(error) ? null : error;
+            if (status == AnalysisStatus.Completed)
+            {
+                row.IsEnriched = true;
+            }
+        }
+
+        var libraryRows = await db.LibraryEntries
+            .Where(t => t.UniqueHash == trackGlobalId)
+            .ToListAsync()
+            .ConfigureAwait(false);
+        foreach (var row in libraryRows)
+        {
+            row.AnalysisStatus = status;
+            row.QualityDetails = string.IsNullOrWhiteSpace(error) ? null : error;
+            if (status == AnalysisStatus.Completed)
+            {
+                row.IsEnriched = true;
+            }
+        }
+
+        await db.SaveChangesAsync().ConfigureAwait(false);
+        await tx.CommitAsync().ConfigureAwait(false);
     }
 
     private void PublishProgress(string trackGlobalId, string step, int percent)
@@ -261,6 +377,17 @@ public class AnalysisQueueService : IDisposable
     public void Dispose()
     {
         _requestSubscription.Dispose();
+        _dispatchCts.Cancel();
+        try
+        {
+            _dispatchLoopTask.GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected during shutdown.
+        }
+        _dispatchCts.Dispose();
+        _dispatchSignal.Dispose();
         _parallelismGate.Dispose();
     }
 }
