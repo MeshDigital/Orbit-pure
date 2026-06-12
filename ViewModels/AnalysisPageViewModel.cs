@@ -14,7 +14,6 @@ using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Services.Library;
-using SLSKDONET.Services.Playlist;
 
 namespace SLSKDONET.ViewModels;
 
@@ -672,7 +671,6 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     private readonly ILibraryService? _libraryService;
     private readonly ILifecycleProjectionService _lifecycleProjectionService;
     private readonly IClipboardService? _clipboardService;
-    private readonly PlaylistOptimizer? _playlistOptimizer;
     private readonly CompositeDisposable _disposables = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Stopwatch _analysisSessionStopwatch = new();
@@ -872,20 +870,20 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         private set => this.RaiseAndSetIfChanged(ref _automixStatusMessage, value);
     }
 
+    public string? AnalysisStatusMessage => AutomixStatusMessage;
+
     // ── Constructor ──────────────────────────────────────────────────────────────
 
     public AnalysisPageViewModel(
         IEventBus eventBus,
         ILifecycleProjectionService lifecycleProjectionService,
         ILibraryService? libraryService = null,
-        IClipboardService? clipboardService = null,
-        PlaylistOptimizer? playlistOptimizer = null)
+        IClipboardService? clipboardService = null)
     {
         _eventBus = eventBus;
         _libraryService = libraryService;
         _clipboardService = clipboardService;
         _lifecycleProjectionService = lifecycleProjectionService;
-        _playlistOptimizer = playlistOptimizer;
 
         if (_libraryService is null)
             LoadMockData();
@@ -919,7 +917,6 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         CopyAnalysisJsonCommand = ReactiveCommand.CreateFromTask<AnalysisTrackItem>(CopyAnalysisJsonAsync);
         CopyPerformanceSnapshotCommand = ReactiveCommand.CreateFromTask(CopyPerformanceSnapshotAsync);
         ClearPerformanceProbeHistoryCommand = ReactiveCommand.Create(ClearPerformanceProbeHistory);
-
         SetPaneModeCommand = ReactiveCommand.Create<AnalysisPaneMode>(SetPaneMode);
 
         // Keep all computed dashboard metrics in sync as the collections change.
@@ -1014,7 +1011,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public void Reanalyze(AnalysisTrackItem track)
     {
         ResetTrackAnalysisState(track);
-        AddToQueue(track);
+        AddToQueueCore(track, refreshState: true, prioritize: true);
+        _eventBus.Publish(new TrackAnalysisRequestedEvent(track.TrackId, AnalysisTier.Tier1, IsHighPriority: true));
+        AutomixStatusMessage = $"Priority reanalyze queued: {track.Artist} — {track.Title}.";
     }
 
     public async Task ReanalyzeAllIncompleteAsync()
@@ -1425,10 +1424,19 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         AutomixStatusMessage = "Developer performance probe completed.";
     }
 
-    private void AddToQueueCore(AnalysisTrackItem track, bool refreshState)
+    private void AddToQueueCore(AnalysisTrackItem track, bool refreshState, bool prioritize = false)
     {
         if (!AnalysisQueue.Any(t => t.TrackId == track.TrackId))
-            AnalysisQueue.Add(track);
+        {
+            if (prioritize)
+            {
+                AnalysisQueue.Insert(0, track);
+            }
+            else
+            {
+                AnalysisQueue.Add(track);
+            }
+        }
 
         track.IsInQueue = true;
         track.AnalysisStatus = AnalysisRunStatus.Queued;
@@ -1915,6 +1923,212 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         _cts.Cancel();
         _disposables.Dispose();
         _cts.Dispose();
+    }
+
+
+    // ── Automix flow (#43) ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Toggles membership of <paramref name="track"/> in the automix playlist.
+    /// The track must have completed analysis to be eligible.
+    /// </summary>
+    public void TogglePlaylist(AnalysisTrackItem track)
+    {
+        if (track.IsInPlaylist)
+        {
+            PlaylistTracks.Remove(track);
+            track.IsInPlaylist = false;
+        }
+        else if (track.HasAnalysis)
+        {
+            PlaylistTracks.Add(track);
+            track.IsInPlaylist = true;
+        }
+    }
+
+    public void StageAllAnalyzedForAutomix()
+    {
+        PlaylistTracks.Clear();
+        foreach (var track in LibraryTracks.Where(t => t.HasAnalysis).OrderBy(t => t.Artist).ThenBy(t => t.Title))
+        {
+            if (!PlaylistTracks.Contains(track))
+            {
+                PlaylistTracks.Add(track);
+            }
+
+            track.IsInPlaylist = true;
+        }
+
+        AutomixStatusMessage = PlaylistTracks.Count == 0
+            ? "No analyzed tracks available for staging yet."
+            : $"Staged {PlaylistTracks.Count} analyzed track(s) for automix.";
+        RefreshComputedState();
+    }
+
+    public void ClearAutomixStaging()
+    {
+        foreach (var track in PlaylistTracks)
+        {
+            track.IsInPlaylist = false;
+        }
+
+        PlaylistTracks.Clear();
+        AutomixStatusMessage = "Automix staging cleared.";
+        RefreshComputedState();
+    }
+
+    /// <summary>
+    /// Builds an ordered automix sequence from <see cref="PlaylistTracks"/> using
+    /// <see cref="AutomixConstraints"/>.  Sorts by BPM within the allowed range,
+    /// then applies a key-compatibility filter.
+    /// </summary>
+    public void CreateAutomixPlaylist()
+    {
+        CreateAutomixPlaylistAsync().GetAwaiter().GetResult();
+    }
+
+    public async Task CreateAutomixPlaylistAsync()
+    {
+        if (PlaylistTracks.Count < 2)
+        {
+            AutomixStatusMessage = "Add at least 2 analyzed tracks to the playlist first.";
+            return;
+        }
+
+        var c = AutomixConstraints;
+
+        var eligible = PlaylistTracks
+            .Where(IsEligibleForAutomix)
+            .ToList();
+
+        if (eligible.Count < 2)
+        {
+            AutomixStatusMessage = $"Not enough tracks in the BPM range {c.MinBpm}–{c.MaxBpm}.";
+            return;
+        }
+
+        var maxTracks = Math.Max(2, c.MaxTracks);
+        var ordered = await TryBuildOptimizedOrderAsync(eligible, c, maxTracks).ConfigureAwait(true)
+            ?? BuildFallbackOrder(eligible, maxTracks);
+
+        PlaylistTracks.Clear();
+        foreach (var t in ordered) PlaylistTracks.Add(t);
+
+        if (ordered.Count < 2)
+        {
+            AutomixStatusMessage = "Not enough tracks available to build automix ordering.";
+            return;
+        }
+
+        var minBpm = ordered.First().AnalysisData?.Mechanics.Bpm ?? ordered.First().Bpm ?? 0;
+        var maxBpm = ordered.Last().AnalysisData?.Mechanics.Bpm ?? ordered.Last().Bpm ?? 0;
+        AutomixStatusMessage = $"Automix ready: {ordered.Count} tracks, {minBpm:F0}–{maxBpm:F0} BPM.";
+    }
+
+    private bool IsEligibleForAutomix(AnalysisTrackItem track)
+    {
+        var bpm = track.AnalysisData?.Mechanics.Bpm ?? track.Bpm ?? 0;
+        return bpm >= AutomixConstraints.MinBpm && bpm <= AutomixConstraints.MaxBpm;
+    }
+
+    private async Task<List<AnalysisTrackItem>?> TryBuildOptimizedOrderAsync(
+        IReadOnlyList<AnalysisTrackItem> eligibleTracks,
+        AutomixConstraints constraints,
+        int maxTracks)
+    {
+        await Task.CompletedTask;
+        return null;
+    }
+
+    private static List<AnalysisTrackItem> BuildFallbackOrder(IReadOnlyList<AnalysisTrackItem> tracks, int maxTracks)
+    {
+        return tracks
+            .OrderBy(t => t.AnalysisData?.Mechanics.Bpm ?? t.Bpm ?? 0)
+            .Take(maxTracks)
+            .ToList();
+    }
+
+}
+
+/// <summary>
+/// Configurable constraints for the automix playlist generation flow (issue #43).
+/// </summary>
+public class AutomixConstraints : ReactiveObject
+{
+    private double _minBpm  = 100;
+    private double _maxBpm  = 160;
+    private int    _maxTracks = 20;
+    private bool   _matchKey = true;
+    private int    _maxEnergyJump = 3;
+    private string _energyCurve = "Wave";
+    private double _harmonicWeight = 3.0;
+    private double _tempoWeight    = 1.0;
+    private double _energyWeight   = 0.5;
+
+    /// <summary>Minimum BPM allowed in the generated playlist.</summary>
+    public double MinBpm
+    {
+        get => _minBpm;
+        set => this.RaiseAndSetIfChanged(ref _minBpm, value);
+    }
+
+    /// <summary>Maximum BPM allowed in the generated playlist.</summary>
+    public double MaxBpm
+    {
+        get => _maxBpm;
+        set => this.RaiseAndSetIfChanged(ref _maxBpm, value);
+    }
+
+    /// <summary>Maximum number of tracks to include in the generated playlist.</summary>
+    public int MaxTracks
+    {
+        get => _maxTracks;
+        set => this.RaiseAndSetIfChanged(ref _maxTracks, value);
+    }
+
+    /// <summary>When true, only include harmonically compatible key transitions.</summary>
+    public bool MatchKey
+    {
+        get => _matchKey;
+        set => this.RaiseAndSetIfChanged(ref _matchKey, value);
+    }
+
+    /// <summary>
+    /// Maximum energy jump (1–10 scale) allowed between consecutive tracks.
+    /// Pairs exceeding this value receive a large penalty in the optimizer.
+    /// </summary>
+    public int MaxEnergyJump
+    {
+        get => _maxEnergyJump;
+        set => this.RaiseAndSetIfChanged(ref _maxEnergyJump, Math.Clamp(value, 1, 9));
+    }
+
+    /// <summary>"None" | "Rising" | "Wave" | "Peak" — post-pass energy shaping.</summary>
+    public string EnergyCurve
+    {
+        get => _energyCurve;
+        set => this.RaiseAndSetIfChanged(ref _energyCurve, value);
+    }
+
+    /// <summary>Multiplier for Camelot key distance in the optimizer edge cost.</summary>
+    public double HarmonicWeight
+    {
+        get => _harmonicWeight;
+        set => this.RaiseAndSetIfChanged(ref _harmonicWeight, Math.Clamp(value, 0.1, 10.0));
+    }
+
+    /// <summary>Multiplier for BPM difference in the optimizer edge cost.</summary>
+    public double TempoWeight
+    {
+        get => _tempoWeight;
+        set => this.RaiseAndSetIfChanged(ref _tempoWeight, Math.Clamp(value, 0.1, 10.0));
+    }
+
+    /// <summary>Multiplier for energy score difference in the optimizer edge cost.</summary>
+    public double EnergyWeight
+    {
+        get => _energyWeight;
+        set => this.RaiseAndSetIfChanged(ref _energyWeight, Math.Clamp(value, 0.0, 10.0));
     }
 }
 

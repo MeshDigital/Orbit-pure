@@ -196,7 +196,7 @@ public sealed class VideoRenderer
         if (!string.IsNullOrWhiteSpace(customPath))
             return customPath;
 
-        return RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "ffmpeg.exe" : "ffmpeg";
+        return SLSKDONET.Services.AudioAnalysis.AudioIngestionPipeline.ResolveFfmpegPath();
     }
 
     private static void CopyBitmapToBuffer(SKBitmap bmp, byte[] buffer)

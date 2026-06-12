@@ -157,7 +157,7 @@ public sealed class AudioIngestionPipeline
         return (process.ExitCode, stderrBuilder.ToString());
     }
 
-    private static string ResolveFfmpegPath()
+    public static string ResolveFfmpegPath()
     {
         // 1. Bundled alongside the executable
         string bundled = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe");
@@ -167,8 +167,31 @@ public sealed class AudioIngestionPipeline
         string toolsPath = Path.Combine(AppContext.BaseDirectory, "Tools", "ffmpeg", "ffmpeg.exe");
         if (File.Exists(toolsPath)) return toolsPath;
 
-        // 3. Fall back to system PATH (let the OS find it)
-        return OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg";
+        // 3. Search system PATH
+        string query = OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg";
+        var pathEnv = Environment.GetEnvironmentVariable("PATH");
+        if (pathEnv != null)
+        {
+            var paths = pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var path in paths)
+            {
+                try
+                {
+                    string fullPath = Path.Combine(path.Trim(), query);
+                    if (File.Exists(fullPath))
+                    {
+                        return fullPath;
+                    }
+                }
+                catch
+                {
+                    // Ignore invalid paths in PATH
+                }
+            }
+        }
+
+        // 4. Fall back to system PATH (let the OS find it)
+        return query;
     }
 
     private static bool ExistsOnPath(string fileName)

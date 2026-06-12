@@ -161,7 +161,8 @@ public sealed class MixdownService
             _                 => string.Empty
         };
 
-        var psi = new ProcessStartInfo("ffmpeg")
+        string ffmpegPath = AudioAnalysis.AudioIngestionPipeline.ResolveFfmpegPath();
+        var psi = new ProcessStartInfo(ffmpegPath)
         {
             Arguments              = $"-y -i \"{inputWav}\" {formatArgs} \"{outputPath}\"",
             RedirectStandardError  = true,
@@ -172,7 +173,7 @@ public sealed class MixdownService
         using var proc = new Process { StartInfo = psi };
         proc.EnableRaisingEvents = true;
         if (!proc.Start())
-            throw new InvalidOperationException("Failed to start ffmpeg. Ensure it is on PATH.");
+            throw new InvalidOperationException($"Failed to start ffmpeg at '{ffmpegPath}'. Ensure it is installed and on PATH.");
 
         // Read stderr asynchronously (ffmpeg logs to stderr)
         _ = Task.Run(() =>
