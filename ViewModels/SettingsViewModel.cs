@@ -66,6 +66,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private readonly ISoulseekCredentialService _credentialService;
     private readonly IConnectionLifecycleService _lifecycle;
     private readonly IDbContextFactory<AppDbContext>? _dbFactory;
+    private readonly ILibraryService? _libraryService;
 
     // Hardcoded public client ID provided by user/project
     // Ideally this would be in a secured config, but for this desktop app scenario it's acceptable as a default.
@@ -1147,6 +1148,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand CheckFfmpegCommand { get; } // Phase 8: Dependency validation
     public ICommand ResetDatabaseCommand { get; }
     public ICommand ScanLibraryCommand { get; } // [NEW] Manual Scan
+    public ICommand ReconcileLibraryCommand { get; }
     public ICommand RefreshRemovalCandidatesCommand { get; }
     public ICommand AddLibraryFolderCommand { get; }
     public ICommand RemoveLibraryFolderCommand { get; }
@@ -1175,6 +1177,20 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     {
         get => _scanStatus;
         set => SetProperty(ref _scanStatus, value);
+    }
+
+    private bool _isReconciling;
+    public bool IsReconciling
+    {
+        get => _isReconciling;
+        set => SetProperty(ref _isReconciling, value);
+    }
+
+    private string _reconcileStatus = string.Empty;
+    public string ReconcileStatus
+    {
+        get => _reconcileStatus;
+        set => SetProperty(ref _reconcileStatus, value);
     }
     
     // Phase 8: FFmpeg Dependency State
@@ -1334,7 +1350,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         ISoulseekCredentialService credentialService,
         IConnectionLifecycleService lifecycle,
         KeyboardMappingsViewModel keyboardMappings,
-        IDbContextFactory<AppDbContext>? dbFactory = null)
+        IDbContextFactory<AppDbContext>? dbFactory = null,
+        ILibraryService? libraryService = null)
     {
         _logger = logger;
         _config = config;
@@ -1349,6 +1366,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _credentialService = credentialService;
         _dbFactory = dbFactory;
         _lifecycle = lifecycle;
+        _libraryService = libraryService;
         KeyboardMappings = keyboardMappings;
 
         // Ensure default Client ID is set if empty
@@ -1373,6 +1391,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         RestartSpotifyAuthCommand = new AsyncRelayCommand(RestartSpotifyAuthAsync, () => IsSpotifyConnecting);
         ResetDatabaseCommand = new AsyncRelayCommand(ResetDatabaseAsync);
         ScanLibraryCommand = new AsyncRelayCommand(ScanLibraryAsync, () => !IsScanning);
+        ReconcileLibraryCommand = new AsyncRelayCommand(ReconcileLibraryAsync, () => !IsReconciling);
         RefreshRemovalCandidatesCommand = new AsyncRelayCommand(LoadRemovalCandidatesAsync);
         AddLibraryFolderCommand = new AsyncRelayCommand(AddLibraryFolderAsync);
         RemoveLibraryFolderCommand = new AsyncRelayCommand(RemoveLibraryFolderAsync, () => SelectedLibraryFolder != null);
@@ -1850,6 +1869,33 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         {
             IsScanning = false;
             (ScanLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    private async Task ReconcileLibraryAsync()
+    {
+        if (IsReconciling || _libraryService == null) return;
+        try
+        {
+            IsReconciling = true;
+            ReconcileStatus = "Checking...";
+            (ReconcileLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+
+            var (reset, checked_) = await _libraryService.ReconcileLibraryAsync();
+
+            ReconcileStatus = reset == 0
+                ? $"All {checked_} files verified present."
+                : $"Reset {reset} missing file(s) to re-download queue (checked {checked_}).";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Library reconciliation failed");
+            ReconcileStatus = "Reconciliation failed — see logs.";
+        }
+        finally
+        {
+            IsReconciling = false;
+            (ReconcileLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
 

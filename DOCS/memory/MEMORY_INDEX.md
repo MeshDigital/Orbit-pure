@@ -2,7 +2,7 @@
 
 Status: Source of Truth for DOCS/memory plan states
 
-Last reviewed: 2026-06-16
+Last reviewed: 2026-06-16 (updated)
 Scope: Canonical status board for planning and memory docs in DOCS/memory.
 
 ## Status Legend
@@ -32,6 +32,7 @@ Scope: Canonical status board for planning and memory docs in DOCS/memory.
 | [workstation_overhaul_completed_work.md](workstation_overhaul_completed_work.md) | Completed | Workstation completion walkthrough. |
 | [workstation_redesign_overhaul.md](workstation_redesign_overhaul.md) | Historical | Original redesign blueprint; implementation delivered. |
 | [ui_overhaul_piped_marble_completion.md](ui_overhaul_piped_marble_completion.md) | Completed | Full UI overhaul Tier 1–4 completion: mode decomposition, downloads side panel, search filter bar, settings help panel, Camelot wheel, energy/phrase/badge surfaces, tri-band waveform, drag-to-reorder, Rekordbox export, .orbsession bundle. |
+| [network_resilience_and_library_reconciliation.md](network_resilience_and_library_reconciliation.md) | Completed | Soulseek ban detection (GlobalMessageReceived → SearchBanDetectedEvent → 30-min search lockout) and library reconciliation engine (ReconcilePhysicalFilesAsync + Reconcile Library button in Settings). |
 
 ## Execution Guidance
 - Default implementation focus: avoid reopening Completed/Historical plans unless validating regressions.

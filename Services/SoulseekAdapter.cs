@@ -80,7 +80,8 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
         "StateChanged",
         "DiagnosticGenerated",
         "KickedFromServer",
-        "ExcludedSearchPhrasesReceived"
+        "ExcludedSearchPhrasesReceived",
+        "GlobalMessageReceived"
     };
 
     public SoulseekAdapter(ILogger<SoulseekAdapter> logger, AppConfig config, Network.ProtocolHardeningService hardeningService, IEventBus eventBus, INetworkHealthService healthService, FrequentSourceService? frequentSourceService = null)
@@ -565,6 +566,29 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     _healthService.RecordConnectionKick("KickedFromServer event");
                     _eventBus.Publish(new SoulseekConnectionStatusEvent("kicked", _config.Username ?? "Unknown", "kicked from server"));
                 });
+            };
+
+            // Ban detection: server sends "You have been banned" as a GlobalMessage.
+            // When detected, publish SearchBanDetectedEvent so search queues can pause for 30 minutes.
+            client.GlobalMessageReceived += (sender, message) =>
+            {
+                if (!ReferenceEquals(sender, _client)) return;
+                if (string.IsNullOrWhiteSpace(message)) return;
+
+                var lower = message.ToLowerInvariant();
+                if (lower.Contains("banned") || lower.Contains("ban"))
+                {
+                    var lockoutUntil = DateTime.UtcNow.AddMinutes(30);
+                    _logger.LogWarning(
+                        "🚨 [BAN DETECTED] Soulseek server issued ban. Pausing all searches until {Until:HH:mm:ss} UTC. Message: {Message}",
+                        lockoutUntil, message);
+                    _healthService.RecordConnectionKick("server-ban:" + message);
+                    _eventBus.Publish(new SearchBanDetectedEvent(message, lockoutUntil));
+                }
+                else
+                {
+                    _logger.LogInformation("[Soulseek GlobalMessage] {Message}", message);
+                }
             };
 
             // Phase 5/10: Adhere to new global exclusions from Soulseek Server

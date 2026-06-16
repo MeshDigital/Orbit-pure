@@ -1194,6 +1194,37 @@ public class DatabaseService
     }
 
     /// <summary>
+    /// Scans all PlaylistTrack rows believed to be downloaded and cross-references the physical file.
+    /// Any row whose file no longer exists on disk is reset to Missing so auto-download can re-acquire it.
+    /// Returns counts: (reset, checked).
+    /// </summary>
+    public async Task<(int Reset, int Checked)> ReconcilePhysicalFilesAsync()
+    {
+        using var context = new AppDbContext();
+
+        var assumedPresent = await context.PlaylistTracks
+            .Where(t => t.Status == TrackStatus.Downloaded && t.ResolvedFilePath != null)
+            .ToListAsync();
+
+        int reset = 0;
+        foreach (var track in assumedPresent)
+        {
+            if (!System.IO.File.Exists(track.ResolvedFilePath))
+            {
+                track.Status = TrackStatus.Missing;
+                track.AvailabilityState = TrackAvailabilityState.Ghost;
+                track.ResolvedFilePath = null;
+                reset++;
+            }
+        }
+
+        if (reset > 0)
+            await context.SaveChangesAsync();
+
+        return (reset, assumedPresent.Count);
+    }
+
+    /// <summary>
     /// Phase 3C.5: Project-scoped pending track fetch for lazy queue refilling.
     /// Only returns Missing tracks belonging to the specified project.
     /// </summary>

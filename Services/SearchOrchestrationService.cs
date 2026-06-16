@@ -42,6 +42,11 @@ public class SearchOrchestrationService
     private readonly AppConfig _config;
     
     private readonly ILibraryService _libraryService;
+    private readonly IEventBus _eventBus;
+
+    // Set when server sends a ban global message; checked before each search.
+    private DateTime _searchBanUntilUtc = DateTime.MinValue;
+    private IDisposable? _banSub;
 
     public SearchOrchestrationService(
         ILogger<SearchOrchestrationService> logger,
@@ -51,7 +56,8 @@ public class SearchOrchestrationService
         ISafetyFilterService safetyFilter,
         AppConfig config,
         Network.ProtocolHardeningService hardeningService,
-        ILibraryService libraryService)
+        ILibraryService libraryService,
+        IEventBus eventBus)
     {
         _logger = logger;
         _soulseek = soulseek;
@@ -61,9 +67,17 @@ public class SearchOrchestrationService
         _hardeningService = hardeningService;
         _config = config;
         _libraryService = libraryService;
-        
+        _eventBus = eventBus;
+
+        _banSub = _eventBus.GetEvent<SearchBanDetectedEvent>().Subscribe(e =>
+        {
+            _searchBanUntilUtc = e.LockoutUntilUtc;
+            _logger.LogWarning(
+                "[SearchOrchestration] Search lockout active until {Until:HH:mm:ss} UTC due to server ban.",
+                e.LockoutUntilUtc);
+        });
     }
-    
+
     public bool IsConnected => _soulseek.IsLoggedIn;
     public bool IsLoggedIn => _soulseek.IsLoggedIn;
     private int _activeSearchCount = 0;
@@ -140,6 +154,15 @@ public class SearchOrchestrationService
         bool progressiveYield,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        var banRemaining = _searchBanUntilUtc - DateTime.UtcNow;
+        if (banRemaining > TimeSpan.Zero)
+        {
+            _logger.LogWarning(
+                "[SearchOrchestration] Search blocked for '{Query}' — server ban active for {Remaining:F0}s more.",
+                query, banRemaining.TotalSeconds);
+            yield break;
+        }
+
         var activeNow = Math.Max(1, Volatile.Read(ref _activeSearchCount) + 1);
         var executionProfile = SearchLoadSheddingPolicy.Compute(_config, activeNow);
 
