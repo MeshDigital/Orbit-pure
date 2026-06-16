@@ -36,9 +36,13 @@ public sealed class WalModeInterceptor : DbConnectionInterceptor
         cmd.CommandText =
             "PRAGMA journal_mode=WAL;" +
             "PRAGMA synchronous=NORMAL;" +
-            "PRAGMA busy_timeout=10000;" +  // 10 seconds busy timeout
-            "PRAGMA cache_size=-10000;" +   // 10 MB page cache
-            "PRAGMA wal_autocheckpoint=1000;";
+            "PRAGMA busy_timeout=10000;" +
+            "PRAGMA cache_size=-10000;" +
+            "PRAGMA wal_autocheckpoint=1000;" +
+            // AudioFeatures rows are created after analysis, not at download time, so
+            // PlaylistTrack rows would always violate the FK before analysis runs.
+            // Integrity for this relationship is enforced at the application layer.
+            "PRAGMA foreign_keys=OFF;";
         cmd.ExecuteNonQuery();
     }
 }
