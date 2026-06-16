@@ -1063,9 +1063,27 @@
                     <!-- Manual Scan -->
                     <StackPanel Spacing="10">
                         <TextBlock Text="Library Scan" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextBrush}"/>
-                        <TextBlock Text="Manually scan the configured download folder for new files." 
+                        <TextBlock Text="Scan all configured library folders for new files and verify existing files are still present."
                                    Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap"/>
-                        
+
+                        <!-- Full Library Sync (scan + reconcile) -->
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button Command="{Binding FullLibrarySyncCommand}"
+                                    IsEnabled="{Binding !IsFullSyncing}"
+                                    HorizontalAlignment="Left"
+                                    Padding="16,8" Background="#2A1F00"
+                                    BorderBrush="#7A5A00" BorderThickness="1" CornerRadius="6">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <PathIcon Data="{StaticResource arrow_counterclockwise_regular}" Width="16" Height="16" Foreground="#FFD740"/>
+                                    <TextBlock Text="{Binding IsFullSyncing, Converter={StaticResource BoolToTextConverter}, ConverterParameter='Syncing...|Full Library Sync'}" VerticalAlignment="Center" Foreground="#FFF3B0"/>
+                                </StackPanel>
+                            </Button>
+                            <TextBlock Text="{Binding FullSyncStatus}" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
+                        </StackPanel>
+
+                        <TextBlock Text="Or run individually:" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,0"/>
+
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <Button Command="{Binding ScanLibraryCommand}"
                                     IsEnabled="{Binding !IsScanning}"
