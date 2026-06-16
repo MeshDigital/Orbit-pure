@@ -60,6 +60,16 @@ public class CuePointEntity
     /// When this cue point was created.
     /// </summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// True when this cue is a loop (in+out point pair).
+    /// </summary>
+    public bool IsLoop { get; set; }
+
+    /// <summary>
+    /// Loop out point in seconds. Only meaningful when IsLoop is true.
+    /// </summary>
+    public double LoopEndSeconds { get; set; }
 }
 
 /// <summary>

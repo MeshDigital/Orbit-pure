@@ -578,14 +578,13 @@ namespace SLSKDONET.Views.Avalonia.Controls
                   // and maybe a relative seek for rolling.
              }
              
-             var progress = (float)(point.X / Bounds.Width);
-             progress = Math.Clamp(progress, 0f, 1f);
-             
+             var progress = Math.Clamp(point.X / Bounds.Width, 0.0, 1.0);
+
              if (SeekCommand != null && SeekCommand.CanExecute(progress))
              {
                  SeekCommand.Execute(progress);
              }
-             Progress = progress; // Immediate UI feedback
+             Progress = (float)progress; // Immediate UI feedback
         }
 
         protected override void OnPointerReleased(global::Avalonia.Input.PointerReleasedEventArgs e)
@@ -1160,19 +1159,44 @@ namespace SLSKDONET.Views.Avalonia.Controls
             var data = WaveformData;
             if (cues == null || data == null || data.DurationSeconds <= 0) return;
 
+            var typeface = new Typeface(FontFamily.Default, FontStyle.Normal, FontWeight.Bold);
+
             foreach (var cue in cues)
             {
                 double x = GetCueX(cue, data);
-                if (x < 0 || x > width) continue;
+                if (x > width) continue;
 
                 var color = Color.Parse(cue.Color ?? "#FFFFFF");
-                context.DrawLine(new Pen(new SolidColorBrush(color, 0.8), 2), new Point(x, 0), new Point(x, height));
-                
-                // FormattedText is still a bit expensive but only for cues
-                var typeface = new Typeface(FontFamily.Default, FontStyle.Normal, FontWeight.Bold);
-                var formattedText = new FormattedText(cue.Name ?? cue.Role.ToString(), System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 10, new SolidColorBrush(color));
-                context.DrawRectangle(new SolidColorBrush(Colors.Black, 0.6), null, new Rect(x + 4, 2, formattedText.Width + 4, formattedText.Height));
-                context.DrawText(formattedText, new Point(x + 6, 2));
+
+                if (cue.IsLoop && cue.LoopEndSeconds > cue.Timestamp)
+                {
+                    // Draw loop region as a semi-transparent band between in and out points
+                    double xEnd = cue.LoopEndSeconds / data.DurationSeconds * width;
+                    if (x < 0) x = 0;
+                    if (xEnd > width) xEnd = width;
+                    double bandWidth = xEnd - x;
+                    if (bandWidth > 0)
+                    {
+                        context.DrawRectangle(new SolidColorBrush(color, 0.18), null, new Rect(x, 0, bandWidth, height));
+                        // In-point line (bright)
+                        context.DrawLine(new Pen(new SolidColorBrush(color, 1.0), 2), new Point(x, 0), new Point(x, height));
+                        // Out-point line (dimmer)
+                        context.DrawLine(new Pen(new SolidColorBrush(color, 0.7), 2), new Point(xEnd, 0), new Point(xEnd, height));
+                        // Label
+                        var ft = new FormattedText(cue.Name ?? "Loop", System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 10, new SolidColorBrush(color));
+                        context.DrawRectangle(new SolidColorBrush(Colors.Black, 0.6), null, new Rect(x + 4, 2, ft.Width + 4, ft.Height));
+                        context.DrawText(ft, new Point(x + 6, 2));
+                    }
+                }
+                else
+                {
+                    if (x < 0) continue;
+                    // Regular cue point: vertical line + label
+                    context.DrawLine(new Pen(new SolidColorBrush(color, 0.8), 2), new Point(x, 0), new Point(x, height));
+                    var ft = new FormattedText(cue.Name ?? cue.Role.ToString(), System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 10, new SolidColorBrush(color));
+                    context.DrawRectangle(new SolidColorBrush(Colors.Black, 0.6), null, new Rect(x + 4, 2, ft.Width + 4, ft.Height));
+                    context.DrawText(ft, new Point(x + 6, 2));
+                }
             }
         }
     }
