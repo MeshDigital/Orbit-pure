@@ -2512,6 +2512,21 @@ public class SchemaMigratorService
                 }
             }
 
+            // 17. CuePoints loop support
+            if (TableExists("CuePoints"))
+            {
+                if (!ColumnExists("CuePoints", "IsLoop"))
+                {
+                    command.CommandText = @"ALTER TABLE ""CuePoints"" ADD COLUMN ""IsLoop"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("CuePoints", "LoopEndSeconds"))
+                {
+                    command.CommandText = @"ALTER TABLE ""CuePoints"" ADD COLUMN ""LoopEndSeconds"" REAL NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

@@ -72,4 +72,14 @@ public class OrbitCue
     /// Optional slot index for hardware mapping (Hot Cue 1-8).
     /// </summary>
     public int SlotIndex { get; set; }
+
+    /// <summary>
+    /// When true, this cue represents a loop. LoopEndSeconds marks the loop out point.
+    /// </summary>
+    public bool IsLoop { get; set; }
+
+    /// <summary>
+    /// Loop end position in seconds. Only meaningful when IsLoop is true.
+    /// </summary>
+    public double LoopEndSeconds { get; set; }
 }
