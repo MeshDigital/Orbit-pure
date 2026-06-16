@@ -37,6 +37,7 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
     private readonly LibraryFolderScannerService _libraryFolderScannerService;
     private readonly IFileInteractionService _fileInteractionService;
     private readonly IEventBus _eventBus;
+    private readonly IDbContextFactory<Data.AppDbContext> _dbFactory;
 
     // Library Folders
     public ObservableCollection<LibraryFolderViewModel> LibraryFolders { get; } = new();
@@ -56,12 +57,14 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
         ILogger<LibrarySourcesViewModel> logger,
         LibraryFolderScannerService libraryFolderScannerService,
         IFileInteractionService fileInteractionService,
-        IEventBus eventBus)
+        IEventBus eventBus,
+        IDbContextFactory<Data.AppDbContext> dbFactory)
     {
         _logger = logger;
         _libraryFolderScannerService = libraryFolderScannerService;
         _fileInteractionService = fileInteractionService;
         _eventBus = eventBus;
+        _dbFactory = dbFactory;
 
         AddLibraryFolderCommand = new AsyncRelayCommand(AddLibraryFolderAsync);
         RemoveLibraryFolderCommand = new RelayCommand<LibraryFolderViewModel?>(RemoveLibraryFolder);
@@ -78,7 +81,7 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
     {
         try
         {
-            using var context = new AppDbContext();
+            await using var context = _dbFactory.CreateDbContext();
             var folders = await context.LibraryFolders.ToListAsync();
 
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -103,7 +106,7 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
             var folderPath = await _fileInteractionService.OpenFolderDialogAsync("Select Library Folder");
             if (string.IsNullOrEmpty(folderPath)) return;
 
-            using var context = new AppDbContext();
+            await using var context = _dbFactory.CreateDbContext();
 
             // Check if folder already exists
             var exists = await context.LibraryFolders.AnyAsync(f => f.FolderPath == folderPath);
@@ -145,7 +148,7 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
 
         try
         {
-            using var context = new AppDbContext();
+            await using var context = _dbFactory.CreateDbContext();
             var folder = await context.LibraryFolders.FindAsync(folderVm.Id);
             if (folder != null)
             {

@@ -23,18 +23,26 @@
     </UserControl.Resources>
 
     <UserControl.Styles>
-        <Style Selector="DataGridColumnHeader">
+        <Style Selector="Border.track-row">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#555"/>
-            <Setter Property="FontSize" Value="10"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="BorderBrush" Value="#2A2A2E"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.15"/>
+                </Transitions>
+            </Setter>
         </Style>
-        <Style Selector="DataGridRow:pointerover /template/ Border#RowBorder">
-            <Setter Property="Background" Value="#2A2A2E"/>
+        <Style Selector="Border.track-row:pointerover">
+            <Setter Property="Background" Value="#252528"/>
         </Style>
-        <Style Selector="DataGridRow:selected /template/ Border#RowBorder">
-            <Setter Property="Background" Value="#3300BFFF"/>
+        <Style Selector="Border.track-row.selected">
+            <Setter Property="Background" Value="#1A00BFFF"/>
+        </Style>
+        <Style Selector="Border.track-row.focused">
+            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
         </Style>
         <Style Selector="Button.insert-affordance">
             <Setter Property="Opacity" Value="0"/>
@@ -45,13 +53,13 @@
                 </Transitions>
             </Setter>
         </Style>
-        <Style Selector="DataGridRow:pointerover Button.insert-affordance">
+        <Style Selector="Border.track-row:pointerover Button.insert-affordance">
             <Setter Property="Opacity" Value="1"/>
             <Setter Property="IsHitTestVisible" Value="True"/>
         </Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*">
 
         <!-- Search Bar -->
         <Border Grid.Row="0" Background="#252526" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="16,12">
@@ -190,23 +198,39 @@
                         ToolTip.Tip="Close filter strip">✕</Button>
             </StackPanel>
         </Border>
+        <!-- Column Header -->
+        <controls:VirtualGridHeader Grid.Row="4">
+            <controls:VirtualGridHeader.HeaderContent>
+                <Grid ColumnDefinitions="60,44,124,180,*,90,100,120,80">
+                    <!-- Column 0: Artwork/Status (Empty) -->
+                    <!-- Column 1: Q -->
+                    <TextBlock Grid.Column="1" Text="Q" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                    <!-- Column 2: INSERT -->
+                    <TextBlock Grid.Column="2" Text="INSERT" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="2,0,0,0"/>
+                    <!-- Column 3: Artist -->
+                    <TextBlock Grid.Column="3" Text="ARTIST" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"/>
+                    <!-- Column 4: Title -->
+                    <TextBlock Grid.Column="4" Text="TITLE" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"/>
+                    <!-- Column 5: Energy -->
+                    <TextBlock Grid.Column="5" Text="ENERGY" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0"/>
+                    <!-- Column 6: Format -->
+                    <TextBlock Grid.Column="6" Text="FORMAT" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"
+                               IsVisible="{Binding IsFormatColumnVisible}"/>
+                    <!-- Column 7: Forensics -->
+                    <TextBlock Grid.Column="7" Text="FORENSICS" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"
+                               IsVisible="{Binding IsForensicsColumnVisible}"/>
+                    <!-- Column 8: Duration -->
+                    <TextBlock Grid.Column="8" Text="DURATION" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0"
+                               IsVisible="{Binding IsDurationColumnVisible}"/>
+                </Grid>
+            </controls:VirtualGridHeader.HeaderContent>
+        </controls:VirtualGridHeader>
 
-        <!-- Track List -->
-        <DataGrid Grid.Row="4" Name="TrackGrid" 
-                  ItemsSource="{Binding FilteredTracks}"
-                  CanUserSortColumns="True"
-                  IsReadOnly="True"
-                  Background="Transparent"
-                  BorderThickness="0"
-                  HeadersVisibility="Column"
-                  Margin="0"
-                  RowHeight="48"
-                  Padding="16,0"
-                  SelectionMode="Extended"
-                  GridLinesVisibility="None"
-                  AutoGenerateColumns="False">
-
-            <DataGrid.ContextMenu>
+        <controls:VirtualGrid Grid.Row="5" Name="TrackGrid" 
+                              ItemsSource="{Binding FilteredTracks}"
+                              SelectionMode="Multiple"
+                              SelectionChanged="OnTrackGridSelectionChanged">
+            <controls:VirtualGrid.ContextMenu>
                 <ContextMenu>
                     <MenuItem Header="Play Track" Command="{Binding Operations.PlayTrackCommand}">
                         <MenuItem.Icon><TextBlock Text="▶️" FontSize="12"/></MenuItem.Icon>
@@ -225,6 +249,10 @@
                          <MenuItem.Icon><TextBlock Text="🔄" FontSize="12"/></MenuItem.Icon>
                     </MenuItem>
                     <Separator/>
+                    <MenuItem Header="Terminal: View Search Audit" Command="{Binding Operations.OpenAuditLogCommand}">
+                         <MenuItem.Icon><TextBlock Text="📝" FontSize="12"/></MenuItem.Icon>
+                    </MenuItem>
+                    <Separator/>
                     <MenuItem Header="Open Folder" Command="{Binding Operations.OpenFolderCommand}">
                          <MenuItem.Icon><TextBlock Text="📂" FontSize="12"/></MenuItem.Icon>
                     </MenuItem>
@@ -237,14 +265,16 @@
                          <MenuItem.Icon><TextBlock Text="🗑️" FontSize="12" Foreground="#FF5252"/></MenuItem.Icon>
                     </MenuItem>
                 </ContextMenu>
-            </DataGrid.ContextMenu>
+            </controls:VirtualGrid.ContextMenu>
 
-            <DataGrid.Columns>
-                <!-- Column 0: Artwork/Status -->
-                <DataGridTemplateColumn Header="" Width="60">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                            <Panel Margin="12,0,0,0">
+            <controls:VirtualGrid.ItemTemplate>
+                <DataTemplate DataType="vm:PlaylistTrackViewModel">
+                    <Border Classes="track-row"
+                            Height="48"
+                            Focusable="True">
+                        <Grid ColumnDefinitions="60,44,124,180,*,90,100,120,80">
+                            <!-- Column 0: Artwork/Status -->
+                            <Panel Grid.Column="0" Margin="12,0,0,0">
                                 <Border Width="32" Height="32" CornerRadius="4" Background="#2A2A2E" ClipToBounds="True">
                                     <Panel>
                                         <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNotNull}}"/>
@@ -257,14 +287,10 @@
                                     </Panel>
                                 </Border>
                             </Panel>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
 
-                <DataGridTemplateColumn Header="Q" Width="44">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                            <Button Command="{Binding $parent[UserControl].DataContext.Operations.AddToQueueCommand}"
+                            <!-- Column 1: Q Button -->
+                            <Button Grid.Column="1"
+                                    Command="{Binding $parent[UserControl].DataContext.Operations.AddToQueueCommand}"
                                     CommandParameter="{Binding}"
                                     Width="22"
                                     Height="22"
@@ -278,14 +304,10 @@
                                     ToolTip.Tip="Queue track (or selected tracks)">
                                 <TextBlock Text="＋" FontSize="11" Foreground="#6F8192" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Button>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
 
-                <DataGridTemplateColumn Header="INSERT" Width="124">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                            <Button Command="{Binding $parent[views:LibraryPage].DataContext.PrepareSmartInsertAfterTrackCommand}"
+                            <!-- Column 2: INSERT Button -->
+                            <Button Grid.Column="2"
+                                    Command="{Binding $parent[views:LibraryPage].DataContext.PrepareSmartInsertAfterTrackCommand}"
                                     CommandParameter="{Binding}"
                                     Classes="insert-affordance"
                                     Padding="8,4"
@@ -302,33 +324,15 @@
                                     <TextBlock Text="Add here" FontSize="10" Foreground="#9ED9C8"/>
                                 </StackPanel>
                             </Button>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
 
-                <!-- Artist Column -->
-                <DataGridTemplateColumn Header="ARTIST" Width="180" CanUserSort="True" SortMemberPath="Artist">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                            <TextBlock Text="{Binding Artist}" VerticalAlignment="Center" Margin="12,0" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
+                            <!-- Column 3: Artist -->
+                            <TextBlock Grid.Column="3" Text="{Binding Artist}" VerticalAlignment="Center" Margin="12,0" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextTrimming="CharacterEllipsis"/>
 
-                <!-- Title Column -->
-                <DataGridTemplateColumn Header="TITLE" Width="*" CanUserSort="True" SortMemberPath="Title">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                            <TextBlock Text="{Binding Title}" VerticalAlignment="Center" Margin="12,0" Foreground="White" FontWeight="SemiBold" FontSize="12"/>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
+                            <!-- Column 4: Title -->
+                            <TextBlock Grid.Column="4" Text="{Binding Title}" VerticalAlignment="Center" Margin="12,0" Foreground="White" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis"/>
 
-                <!-- X-Ray Sparkline Column -->
-                <DataGridTemplateColumn Header="ENERGY" Width="90">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                            <controls:SparklineControl
+                            <!-- Column 5: Energy Sparkline -->
+                            <controls:SparklineControl Grid.Column="5"
                                 Points="{Binding EnergyCurvePoints}"
                                 LineBrush="#4EC9B0"
                                 FillBrush="#224EC9B0"
@@ -338,32 +342,24 @@
                                 VerticalAlignment="Center"
                                 IsVisible="{Binding HasAnalysisData}"
                                 ToolTip.Tip="Energy contour — analysed audio"/>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-                <DataGridTemplateColumn Header="FORMAT" Width="100" IsVisible="{Binding #TrackGrid.DataContext.IsFormatColumnVisible}">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                            <Border Background="#1A1F2C" BorderBrush="#3300BFFF" BorderThickness="1" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0">
+
+                            <!-- Column 6: Format -->
+                            <Border Grid.Column="6" Background="#1A1F2C" BorderBrush="#3300BFFF" BorderThickness="1" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"
+                                    IsVisible="{Binding $parent[UserControl].DataContext.IsFormatColumnVisible}">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <TextBlock Text="{Binding Format}" FontSize="9" FontWeight="Bold" Foreground="#00BFFF" Opacity="0.8"/>
                                     <TextBlock Text="{Binding Bitrate, StringFormat='{}{0}k'}" FontSize="9" Foreground="#00BFFF"/>
                                 </StackPanel>
                             </Border>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
 
-                <!-- Forensic Verdict Column -->
-                <DataGridTemplateColumn Header="FORENSICS" Width="120" IsVisible="{Binding #TrackGrid.DataContext.IsForensicsColumnVisible}">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                            <Border Background="{Binding IntegrityColor}"
+                            <!-- Column 7: Forensics -->
+                            <Border Grid.Column="7" Background="{Binding IntegrityColor}"
                                     CornerRadius="10"
                                     Padding="8,3"
                                     HorizontalAlignment="Left"
                                     VerticalAlignment="Center"
                                     Margin="12,0"
+                                    IsVisible="{Binding $parent[UserControl].DataContext.IsForensicsColumnVisible}"
                                     ToolTip.Tip="{Binding ForensicHudText}">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <TextBlock Text="{Binding IntegrityBadge}" FontSize="10"/>
@@ -373,19 +369,35 @@
                                                Foreground="Black"/>
                                 </StackPanel>
                             </Border>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
 
-                <!-- Duration Column -->
-                <DataGridTemplateColumn Header="DURATION" Width="80" IsVisible="{Binding #TrackGrid.DataContext.IsDurationColumnVisible}">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                            <TextBlock Text="{Binding DurationDisplay}" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0" Opacity="0.5"/>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-            </DataGrid.Columns>
-        </DataGrid>
+                            <!-- Column 8: Duration -->
+                            <TextBlock Grid.Column="8" Text="{Binding DurationDisplay}" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0" Opacity="0.5"
+                                       IsVisible="{Binding $parent[UserControl].DataContext.IsDurationColumnVisible}"/>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </controls:VirtualGrid.ItemTemplate>
+        </controls:VirtualGrid>
+
+        <!-- Empty state — shown when the selected playlist has no tracks -->
+        <StackPanel Grid.Row="5"
+                    IsVisible="{Binding IsLibraryEmpty}"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="12">
+            <TextBlock Text="📚" FontSize="40" HorizontalAlignment="Center" Opacity="0.25"/>
+            <TextBlock Text="No tracks here yet"
+                       FontSize="15"
+                       FontWeight="SemiBold"
+                       Foreground="#555"
+                       HorizontalAlignment="Center"/>
+            <TextBlock Text="Search and download tracks, or import a folder from Settings → Library Sources."
+                       FontSize="12"
+                       Foreground="#444"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"
+                       MaxWidth="280"
+                       TextWrapping="Wrap"/>
+        </StackPanel>
     </Grid>
 </UserControl>

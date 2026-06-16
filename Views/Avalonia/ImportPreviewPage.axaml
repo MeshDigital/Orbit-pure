@@ -2,10 +2,33 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="700"
              x:Class="SLSKDONET.Views.Avalonia.ImportPreviewPage"
              Background="#1E1E1E" Foreground="White">
-    
+
+    <UserControl.Styles>
+        <Style Selector="TextBox.clean-grid-edit">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="CaretBrush" Value="White"/>
+            <Setter Property="Margin" Value="0"/>
+        </Style>
+        <Style Selector="TextBox.clean-grid-edit:pointerover">
+            <Setter Property="Background" Value="#15FFFFFF"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#44FFFFFF"/>
+        </Style>
+        <Style Selector="TextBox.clean-grid-edit:focus">
+            <Setter Property="Background" Value="#2A2A2E"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#0078D4"/>
+        </Style>
+    </UserControl.Styles>
+
     <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
         
         <!-- Header -->
@@ -151,178 +174,67 @@
         </Border>
 
         <!-- Track List -->
-        <DataGrid Grid.Row="4"
-                  ItemsSource="{Binding ImportedTracks}"
-                  AutoGenerateColumns="False"
-                  Background="Transparent"
-                  BorderThickness="0"
-                  GridLinesVisibility="Horizontal"
-                  RowBackground="Transparent"
-                  Foreground="#DDD"
-                  HeadersVisibility="Column"
-                  CanUserReorderColumns="False"
-                  CanUserResizeColumns="True"
-                  CanUserSortColumns="False"
-                  IsReadOnly="False">
-            
-            <DataGrid.Styles>
-                <Style Selector="DataGridRow:pointerover">
-                    <Setter Property="Background" Value="#1AFFFFFF"/>
-                </Style>
-                <Style Selector="DataGridRow:selected">
-                    <Setter Property="Background" Value="#2A0078D4"/>
-                </Style>
-            </DataGrid.Styles>
+        <Grid Grid.Row="4" RowDefinitions="Auto,*">
+            <!-- Column Header -->
+            <controls:VirtualGridHeader Grid.Row="0" Margin="16,0,16,4">
+                <controls:VirtualGridHeader.HeaderContent>
+                    <Grid ColumnDefinitions="50,3*,2*,3*,2*,80,100">
+                        <TextBlock Grid.Column="0" Text="✓" FontSize="10" FontWeight="Bold" Foreground="#888" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="RAW INPUT" FontSize="10" FontWeight="Bold" Foreground="#888" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="4,0"/>
+                        <TextBlock Grid.Column="2" Text="ARTIST" FontSize="10" FontWeight="Bold" Foreground="#888" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="4,0"/>
+                        <TextBlock Grid.Column="3" Text="TITLE" FontSize="10" FontWeight="Bold" Foreground="#888" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="4,0"/>
+                        <TextBlock Grid.Column="4" Text="ALBUM" FontSize="10" FontWeight="Bold" Foreground="#888" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="4,0"/>
+                        <TextBlock Grid.Column="5" Text="LENGTH" FontSize="10" FontWeight="Bold" Foreground="#888" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="4,0"/>
+                        <TextBlock Grid.Column="6" Text="STATUS" FontSize="10" FontWeight="Bold" Foreground="#888" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Grid>
+                </controls:VirtualGridHeader.HeaderContent>
+            </controls:VirtualGridHeader>
 
-            <DataGrid.Columns>
-                <!-- Selection Checkbox -->
-                <DataGridTemplateColumn Header="✓" Width="50">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                      HorizontalAlignment="Center"/>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-
-                <!-- Raw Input (Before Cleaning) -->
-                <DataGridTemplateColumn Header="Raw Input" Width="3*">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding RawInputDisplay}"
-                                       Margin="4,0"
-                                       Foreground="#A9A9A9"
-                                       VerticalAlignment="Center"
-                                       TextWrapping="NoWrap"
-                                       TextTrimming="CharacterEllipsis"/>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-                
-                <!-- Artist -->
-                <DataGridTemplateColumn Header="Artist" Width="2*">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <Grid ColumnDefinitions="*,Auto" Margin="4,0">
-                                <TextBlock Grid.Column="0"
-                                           Text="{Binding Artist}"
-                                           VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis"/>
-                                <!-- ⚠️ Cleaned badge — visible when >30% of original artist was removed -->
-                                <Border Grid.Column="1"
-                                        Background="#33FF8C00"
-                                        CornerRadius="4"
-                                        Padding="5,2"
-                                        Margin="6,0,0,0"
-                                        VerticalAlignment="Center"
-                                        IsVisible="{Binding IsCleaned}"
-                                        ToolTip.Tip="{Binding CleanTooltip}">
-                                    <TextBlock Text="⚠ Cleaned"
-                                               FontSize="9"
-                                               Foreground="#FF8C00"
-                                               FontWeight="SemiBold"/>
+            <!-- Results Grid -->
+            <controls:VirtualGrid Grid.Row="1" ItemsSource="{Binding ImportedTracks}" SelectionMode="Multiple">
+                <controls:VirtualGrid.ItemTemplate>
+                    <DataTemplate>
+                        <Border Classes="track-row" Height="40" Background="Transparent" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1" Padding="16,0">
+                            <Grid ColumnDefinitions="50,3*,2*,3*,2*,80,100">
+                                <!-- Column 0: Selection Checkbox -->
+                                <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                
+                                <!-- Column 1: Raw Input -->
+                                <TextBlock Grid.Column="1" Text="{Binding RawInputDisplay}" Foreground="#888" FontSize="11" Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                
+                                <!-- Column 2: Artist -->
+                                <Grid Grid.Column="2" ColumnDefinitions="*,Auto" Margin="4,0" VerticalAlignment="Center">
+                                    <TextBox Grid.Column="0" Text="{Binding Artist, Mode=TwoWay}" Classes="clean-grid-edit" FontSize="11"/>
+                                    <!-- Cleaned badge -->
+                                    <Border Grid.Column="1" Background="#33FF8C00" CornerRadius="4" Padding="4,2" Margin="6,0,0,0" VerticalAlignment="Center" IsVisible="{Binding IsCleaned}" ToolTip.Tip="{Binding CleanTooltip}">
+                                        <TextBlock Text="⚠" FontSize="9" Foreground="#FF8C00" FontWeight="SemiBold"/>
+                                    </Border>
+                                </Grid>
+                                
+                                <!-- Column 3: Title -->
+                                <Grid Grid.Column="3" ColumnDefinitions="*,Auto" Margin="4,0" VerticalAlignment="Center">
+                                    <TextBox Grid.Column="0" Text="{Binding Title, Mode=TwoWay}" Classes="clean-grid-edit" FontSize="11"/>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" Margin="6,0,2,0" VerticalAlignment="Center" IsVisible="{Binding HasAnyChange}">
+                                        <Button Command="{Binding RestoreOriginalCommand}" ToolTip.Tip="Restore original artist &amp; title" Background="Transparent" Foreground="#FF8C00" BorderThickness="0" Padding="4,2" FontSize="12" VerticalAlignment="Center" Cursor="Hand">↩</Button>
+                                    </StackPanel>
+                                </Grid>
+                                
+                                <!-- Column 4: Album -->
+                                <TextBlock Grid.Column="4" Text="{Binding Model.Album}" FontSize="11" Margin="4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" IsVisible="{Binding $parent[Window].Bounds.Width, Converter={StaticResource WidthToVisibilityConverter}, ConverterParameter=800}"/>
+                                
+                                <!-- Column 5: Length -->
+                                <TextBlock Grid.Column="5" Text="{Binding Model.Length, StringFormat='{}{0:mm\\:ss}'}" FontSize="11" Margin="4,0" VerticalAlignment="Center" IsVisible="{Binding $parent[Window].Bounds.Width, Converter={StaticResource WidthToVisibilityConverter}, ConverterParameter=600}"/>
+                                
+                                <!-- Column 6: Status -->
+                                <Border Grid.Column="6" CornerRadius="4" Padding="6,3" HorizontalAlignment="Center" VerticalAlignment="Center" Background="{Binding Model.IsInLibrary, Converter={StaticResource BoolToLibraryStatusColorConverter}}" IsVisible="{Binding $parent[Window].Bounds.Width, Converter={StaticResource WidthToVisibilityConverter}, ConverterParameter=500}">
+                                    <TextBlock Text="{Binding Model.IsInLibrary, Converter={StaticResource BoolToLibraryStatusTextConverter}}" FontSize="10" Foreground="White" FontWeight="SemiBold"/>
                                 </Border>
                             </Grid>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                    <DataGridTemplateColumn.CellEditingTemplate>
-                        <DataTemplate>
-                            <TextBox Text="{Binding Artist, Mode=TwoWay}"
-                                     Background="#2A2A2A"
-                                     Foreground="White"
-                                     BorderBrush="#0078D4"
-                                     Padding="4,2"
-                                     VerticalAlignment="Center"/>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellEditingTemplate>
-                </DataGridTemplateColumn>
-                
-                <!-- Title -->
-                <DataGridTemplateColumn Header="Title" Width="3*">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <Grid ColumnDefinitions="*,Auto" Margin="4,0">
-                                <TextBlock Grid.Column="0"
-                                           Text="{Binding Title}"
-                                           VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis"/>
-                                <!-- ↩ Restore + diff tooltip — visible when any field was cleaned -->
-                                <StackPanel Grid.Column="1"
-                                            Orientation="Horizontal"
-                                            Spacing="4"
-                                            Margin="6,0,2,0"
-                                            VerticalAlignment="Center"
-                                            IsVisible="{Binding HasAnyChange}">
-                                    <Border Background="#33FF8C00"
-                                            CornerRadius="4"
-                                            Padding="5,2"
-                                            VerticalAlignment="Center"
-                                            ToolTip.Tip="{Binding CleanTooltip}"
-                                            IsVisible="{Binding IsCleaned}">
-                                        <TextBlock Text="⚠ Cleaned"
-                                                   FontSize="9"
-                                                   Foreground="#FF8C00"
-                                                   FontWeight="SemiBold"/>
-                                    </Border>
-                                    <Button Command="{Binding RestoreOriginalCommand}"
-                                            ToolTip.Tip="Restore original artist &amp; title"
-                                            Background="Transparent"
-                                            Foreground="#FF8C00"
-                                            BorderThickness="0"
-                                            Padding="4,2"
-                                            FontSize="14"
-                                            VerticalAlignment="Center"
-                                            Cursor="Hand">
-                                        ↩
-                                    </Button>
-                                </StackPanel>
-                            </Grid>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                    <DataGridTemplateColumn.CellEditingTemplate>
-                        <DataTemplate>
-                            <TextBox Text="{Binding Title, Mode=TwoWay}"
-                                     Background="#2A2A2A"
-                                     Foreground="White"
-                                     BorderBrush="#0078D4"
-                                     Padding="4,2"
-                                     VerticalAlignment="Center"/>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellEditingTemplate>
-                </DataGridTemplateColumn>
-                
-                <!-- Album (hide on tablet/mobile) -->
-                <DataGridTextColumn Header="Album" 
-                                    Binding="{Binding Model.Album}" 
-                                    Width="2*"
-                                    IsVisible="{Binding $parent[Window].Bounds.Width, Converter={StaticResource WidthToVisibilityConverter}, ConverterParameter=800}"/>
-                
-                <!-- Length (hide on mobile) -->
-                <DataGridTextColumn Header="Length" 
-                                    Binding="{Binding Model.Length, StringFormat='{}{0:mm\\:ss}'}" 
-                                    Width="80"
-                                    IsVisible="{Binding $parent[Window].Bounds.Width, Converter={StaticResource WidthToVisibilityConverter}, ConverterParameter=600}"/>
-                
-                <!-- In Library Status (hide on very small screens) -->
-                <DataGridTemplateColumn Header="Status" 
-                                        Width="100"
-                                        IsVisible="{Binding $parent[Window].Bounds.Width, Converter={StaticResource WidthToVisibilityConverter}, ConverterParameter=500}">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <Border CornerRadius="4" 
-                                    Padding="6,3" 
-                                    HorizontalAlignment="Center"
-                                    Background="{Binding Model.IsInLibrary, Converter={StaticResource BoolToLibraryStatusColorConverter}}">
-                                <TextBlock Text="{Binding Model.IsInLibrary, Converter={StaticResource BoolToLibraryStatusTextConverter}}" 
-                                           FontSize="10" 
-                                           Foreground="White"
-                                           FontWeight="SemiBold"/>
-                            </Border>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-            </DataGrid.Columns>
-        </DataGrid>
+                        </Border>
+                    </DataTemplate>
+                </controls:VirtualGrid.ItemTemplate>
+            </controls:VirtualGrid>
+        </Grid>
 
         <!-- Footer Actions -->
         <Border Grid.Row="5" 

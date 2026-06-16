@@ -28,9 +28,7 @@ public enum DownloadRowStatus
 /// </summary>
 public sealed class DownloadRowViewModel : ReactiveObject
 {
-    private bool _isDetailsExpanded;
-
-    public DownloadRowViewModel(UnifiedTrackViewModel track)
+    public DownloadRowViewModel(UnifiedTrackViewModel track, Action<DownloadRowViewModel>? onSelect = null)
     {
         Track = track ?? throw new ArgumentNullException(nameof(track));
 
@@ -57,7 +55,7 @@ public sealed class DownloadRowViewModel : ReactiveObject
             : track.Model.ResolvedFilePath;
 
         PrimaryAction = ResolvePrimaryAction(track, Status);
-        ShowDetailsCommand = ReactiveCommand.Create(() => IsDetailsExpanded = !IsDetailsExpanded);
+        SelectCommand = ReactiveCommand.Create(() => onSelect?.Invoke(this));
     }
 
     public UnifiedTrackViewModel Track { get; }
@@ -76,13 +74,7 @@ public sealed class DownloadRowViewModel : ReactiveObject
     public string DiagnosticsSummary { get; }
     public string FilePathSummary { get; }
     public ICommand PrimaryAction { get; }
-    public ICommand ShowDetailsCommand { get; }
-
-    public bool IsDetailsExpanded
-    {
-        get => _isDetailsExpanded;
-        private set => this.RaiseAndSetIfChanged(ref _isDetailsExpanded, value);
-    }
+    public ICommand SelectCommand { get; }
 
     private static string BuildTitle(UnifiedTrackViewModel track)
     {

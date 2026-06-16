@@ -128,7 +128,7 @@ public sealed class AnalysisResultDiskCache : IDisposable
         if (File.Exists(path))
         {
             try   { File.Delete(path); }
-            catch { /* best-effort */ }
+            catch (IOException ex) { _logger.LogDebug(ex, "Best-effort cache file cleanup failed for {Path}", path); }
         }
     }
 

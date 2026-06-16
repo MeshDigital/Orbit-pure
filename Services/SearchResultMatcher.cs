@@ -478,8 +478,8 @@ public class SearchResultMatcher
             {
                 return bpm;
             }
-        } 
-        catch { }
+        }
+        catch (ArgumentException ex) { _logger.LogDebug(ex, "BPM regex parse failed for filename {Filename}", filename); }
         return null;
     }
 

@@ -167,7 +167,7 @@ public class TrackRepository : ITrackRepository
         return await context.PlaylistTracks.ToListAsync();
     }
 
-    public async Task<int> GetPlaylistTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null)
+    public async Task<int> GetPlaylistTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
     {
         using var context = new AppDbContext();
         var query = context.PlaylistTracks.AsQueryable();
@@ -175,11 +175,11 @@ public class TrackRepository : ITrackRepository
         {
             query = query.Where(t => t.PlaylistId == playlistId);
         }
-        query = ApplyFilters(query, filter, downloadedOnly, hashFilter);
+        query = ApplyFilters(query, filter, downloadedOnly, hashFilter, camelotKeyFilter);
         return await query.CountAsync();
     }
 
-    public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null)
+    public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
     {
         using var context = new AppDbContext();
         var query = context.PlaylistTracks
@@ -187,14 +187,14 @@ public class TrackRepository : ITrackRepository
             .Include(t => t.AudioFeatures)
             .AsNoTracking()
             .AsQueryable();
-            
+
         if (playlistId != Guid.Empty)
         {
             query = query.Where(t => t.PlaylistId == playlistId);
         }
-            
-        query = ApplyFilters(query, filter, downloadedOnly, hashFilter);
-        
+
+        query = ApplyFilters(query, filter, downloadedOnly, hashFilter, camelotKeyFilter);
+
         return await query
             .OrderBy(t => t.SortOrder)
             .Skip(skip)
@@ -202,7 +202,7 @@ public class TrackRepository : ITrackRepository
             .ToListAsync();
     }
 
-    private IQueryable<PlaylistTrackEntity> ApplyFilters(IQueryable<PlaylistTrackEntity> query, string? filter, bool? downloadedOnly, IEnumerable<string>? hashFilter = null)
+    private IQueryable<PlaylistTrackEntity> ApplyFilters(IQueryable<PlaylistTrackEntity> query, string? filter, bool? downloadedOnly, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
     {
         if (hashFilter != null)
         {
@@ -211,9 +211,14 @@ public class TrackRepository : ITrackRepository
         if (!string.IsNullOrEmpty(filter))
         {
             var lowerFilter = filter.ToLower();
-            query = query.Where(t => t.Artist.ToLower().Contains(lowerFilter) || 
+            query = query.Where(t => t.Artist.ToLower().Contains(lowerFilter) ||
                                      t.Title.ToLower().Contains(lowerFilter) ||
                                      (t.MusicalKey != null && t.MusicalKey.ToLower().Contains(lowerFilter)));
+        }
+        if (!string.IsNullOrEmpty(camelotKeyFilter))
+        {
+            var keyUpper = camelotKeyFilter.ToUpper();
+            query = query.Where(t => t.MusicalKey != null && t.MusicalKey.ToUpper() == keyUpper);
         }
         if (downloadedOnly.HasValue)
         {
@@ -815,51 +820,39 @@ public class TrackRepository : ITrackRepository
         }
     }
 
-    public async Task<int> GetTotalLibraryTrackCountAsync(string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null)
+    public async Task<int> GetTotalLibraryTrackCountAsync(string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
     {
         using var context = new AppDbContext();
         var hashSet = hashFilter?.Where(h => !string.IsNullOrWhiteSpace(h)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        
+
+        IQueryable<LibraryEntryEntity> baseQuery;
         if (!string.IsNullOrEmpty(filter))
         {
             var formattedSearch = filter.Trim() + "*";
-            var count = await context.Database.ExecuteSqlRawAsync(
-                "SELECT COUNT(*) FROM LibraryEntries WHERE rowid IN (SELECT rowid FROM LibraryEntriesFts WHERE LibraryEntriesFts MATCH {0})", formattedSearch);
-            
-            // ExecuteSqlRawAsync returns the number of rows affected, not the count.
-            // We need to use a Different approach for Scalar results or just use the query.
-            
-            var query = context.LibraryEntries.FromSqlRaw(
+            baseQuery = context.LibraryEntries.FromSqlRaw(
                 "SELECT * FROM LibraryEntries WHERE rowid IN (SELECT rowid FROM LibraryEntriesFts WHERE LibraryEntriesFts MATCH {0})", formattedSearch);
-            
-            if (downloadedOnly == true)
-            {
-                query = query.Where(t => t.FilePath != null && t.FilePath != "");
-            }
-
-            if (hashSet is { Count: > 0 })
-            {
-                query = query.Where(t => hashSet.Contains(t.UniqueHash));
-            }
-            
-            return await query.CountAsync();
         }
-
-        var baseQuery = context.LibraryEntries.AsQueryable();
-        if (downloadedOnly == true)
+        else
         {
-            baseQuery = baseQuery.Where(t => t.FilePath != null && t.FilePath != "");
+            baseQuery = context.LibraryEntries.AsQueryable();
         }
+
+        if (downloadedOnly == true)
+            baseQuery = baseQuery.Where(t => t.FilePath != null && t.FilePath != "");
 
         if (hashSet is { Count: > 0 })
-        {
             baseQuery = baseQuery.Where(t => hashSet.Contains(t.UniqueHash));
+
+        if (!string.IsNullOrEmpty(camelotKeyFilter))
+        {
+            var keyUpper = camelotKeyFilter.ToUpper();
+            baseQuery = baseQuery.Where(t => t.MusicalKey != null && t.MusicalKey.ToUpper() == keyUpper);
         }
 
         return await baseQuery.CountAsync();
     }
 
-    public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null)
+    public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
     {
         using var context = new AppDbContext();
         var hashSet = hashFilter?.Where(h => !string.IsNullOrWhiteSpace(h)).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -892,6 +885,12 @@ public class TrackRepository : ITrackRepository
         if (hashSet is { Count: > 0 })
         {
             query = query.Where(t => hashSet.Contains(t.UniqueHash));
+        }
+
+        if (!string.IsNullOrEmpty(camelotKeyFilter))
+        {
+            var keyUpper = camelotKeyFilter.ToUpper();
+            query = query.Where(t => t.MusicalKey != null && t.MusicalKey.ToUpper() == keyUpper);
         }
 
         // 4. Order & Page (Optimized: Select only what's needed for the list view, avoiding heavy blobs)

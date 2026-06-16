@@ -21,33 +21,36 @@ public class AppConfig
     public int SearchAccumulatorWindowSeconds { get; set; } = 30; // Cap broad-search accumulation to a bounded stale-time window
     public int MaxConcurrentSearches { get; set; } = 5; // Throttling to prevent bans
     public int MaxDiscoveryLanes { get; set; } = 5; // Concurrent discovery jobs for seeker pipeline
-    public int MaxSearchVariations { get; set; } = 2; // Cap cascade fan-out to avoid flooding
+    public int MaxSearchVariations { get; set; } = 3; // Cap cascade fan-out to avoid flooding (3 = Strict/Standard/Desperate)
     public int StrictSearchSufficientResultCount { get; set; } = 5; // Strict-first: skip relaxed variations when enough strict hits were found
     public bool EnableStrictHighConfidenceShortCircuit { get; set; } = false; // When false, strict high-confidence hits do not skip relaxed variations
     public bool EnableStrictSufficientResultShortCircuit { get; set; } = false; // When false, do not stop after strict variation simply because enough hits were found
     public bool EnableFastClearanceEarlyExit { get; set; } = false; // When false, fast-clearance ranks across all active variations instead of yielding first winner
     public int SearchThrottleDelayMs { get; set; } = 200; // Protocol pacing to prevent flood protection
     public bool EnableSearchLoadShedding { get; set; } = true;
-    public int ElevatedSearchPressureActiveSearches { get; set; } = 3;
-    public int CriticalSearchPressureActiveSearches { get; set; } = 5;
-    public int ElevatedSearchResponseLimitPercent { get; set; } = 75;
-    public int CriticalSearchResponseLimitPercent { get; set; } = 50;
-    public int ElevatedSearchFileLimitPercent { get; set; } = 75;
-    public int CriticalSearchFileLimitPercent { get; set; } = 50;
+    // Elevated: fires when enough parallel searches are running that we risk Soulseek throttling.
+    // With MaxDiscoveryLanes=5 and typical multi-track batches, keep this above the lane count.
+    public int ElevatedSearchPressureActiveSearches { get; set; } = 6;   // was 3 — too low, triggered on any modest batch
+    public int CriticalSearchPressureActiveSearches { get; set; } = 10;  // was 5 — caused variationCap=1 lockout with only 5 searches
+    public int ElevatedSearchResponseLimitPercent { get; set; } = 85;    // was 75
+    public int CriticalSearchResponseLimitPercent { get; set; } = 65;    // was 50
+    public int ElevatedSearchFileLimitPercent { get; set; } = 85;        // was 75
+    public int CriticalSearchFileLimitPercent { get; set; } = 65;        // was 50
     public int ElevatedSearchExtraDelayMs { get; set; } = 75;
     public int CriticalSearchExtraDelayMs { get; set; } = 200;
     public int SearchTokenBucketCapacity { get; set; } = 1;
     public int SearchTokenBucketRefillMs { get; set; } = 3500;
     public int ElevatedSearchTokenBucketRefillMs { get; set; } = 4000;
     public int CriticalSearchTokenBucketRefillMs { get; set; } = 5000;
-    public int SearchResponseLimit { get; set; } = 100; // Workstation 2026: cap response batches for fast winner selection
-    public int SearchFileLimit { get; set; } = 100; // Workstation 2026: cap files per search for memory/CPU efficiency
+    public int SearchResponseLimit { get; set; } = 200; // was 100 — at Critical (65%) this gives ~130, enough for meaningful ranking
+    public int SearchFileLimit { get; set; } = 200; // was 100
     public int SearchHardResultCap { get; set; } = 10000; // Absolute per-search circuit breaker for accepted candidates
     public int SearchHardFileCap { get; set; } = 50000; // Absolute per-search circuit breaker for inbound files (0 disables)
     public int MaxPeerQueueLength { get; set; } = 50; // Ignore peers with very long queue lengths
     public int MinSearchDurationSeconds { get; set; } = 5; // Brain buffer floor: 5s gives network time to collect results but doesn't make downloads glacially slow
     public int MinLosslessSearchDurationSeconds { get; set; } = 20; // Ensure FLAC/lossless-only discovery streams long enough before declaring no-result
     public bool EnableSpeculativeEarlyAccept { get; set; } = false; // When false, keep streaming until lane completion/timeout (recommended for reliability)
+    public bool EnableAutoAcquireOnImport { get; set; } = false; // Auto-acquire imported Spotify Ghost tracks
     public bool EnableGoldenEarlyExit { get; set; } = false; // When false, golden hits are tracked but do not cancel the lane immediately
     public bool EnableFastLaneEarlyExit { get; set; } = false; // When false, fast-lane candidates are ranked with all candidates
     public bool EnableQuickStrikeEarlyExit { get; set; } = false; // When false, very high scores no longer short-circuit tier processing
@@ -103,6 +106,7 @@ public class AppConfig
     public int MaxDownloadRetries { get; set; } = 2;
     public int PeerConnectFailFastSeconds { get; set; } = 10;
     public int TransferStallTimeoutSeconds { get; set; } = 60;
+    public int MaxQueueWaitTimeMinutes { get; set; } = 60; // Max time to wait in a remote queue before timing out (minutes)
     // Brain 2.0 & Quality Guard
     public SearchPolicy SearchPolicy { get; set; } = SearchPolicy.QualityFirst(); // [NEW] The "Biggers App" Search Policy
 
@@ -191,7 +195,10 @@ public class AppConfig
     public int MinAdaptiveSearchLanes { get; set; } = 3;
     public int MaxAdaptiveSearchLanes { get; set; } = 8;
     public int MinThroughputFloorKbps { get; set; } = 20;
-    public int StallTimeoutSeconds { get; set; } = 10;
+    // StallTimeoutSeconds: how long the heartbeat waits before declaring a DOWNLOADING (not Queued) transfer stalled.
+    // 10s was far too aggressive — Soulseek peers often take 15-30s from accepting a slot to first byte.
+    // 45s gives enough runway for the peer to start the stream while still catching genuine dead transfers.
+    public int StallTimeoutSeconds { get; set; } = 45; // was 10
 
     // Automatic Downloads Strict Mode (Investigation & Hardening)
     // Opt-in, local-only hardening layer for exact-first, filtered-fallback automatic downloads

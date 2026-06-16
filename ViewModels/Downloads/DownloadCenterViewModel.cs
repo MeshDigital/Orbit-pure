@@ -11,6 +11,7 @@ using Avalonia.Threading;
 using DynamicData;
 using DynamicData.Binding;
 using ReactiveUI;
+using Microsoft.EntityFrameworkCore;
 using SLSKDONET.Data;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
@@ -50,6 +51,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     private readonly IEventBus _eventBus;
     private readonly AppConfig _config;
     private readonly DatabaseService _databaseService;
+    private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly CompositeDisposable _subscriptions = new();
     private DispatcherTimer? _uiBatchTimer;
     private DispatcherTimer? _statusBannerTimer;
@@ -306,6 +308,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     public ICommand ToggleLogsCommand { get; }
     public ICommand ClearSecurityQualityLogsCommand { get; }
     public ICommand DismissGlobalStatusCommand { get; }
+    public ICommand ClearHubSelectionCommand { get; }
     
     // Alias for HomeViewModel compatibility
     public string GlobalSpeedDisplay => GlobalSpeed;
@@ -323,6 +326,14 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     {
         get => _hasSelection;
         set => this.RaiseAndSetIfChanged(ref _hasSelection, value);
+    }
+
+    // Hub row selection — drives the Downloads Hub side panel
+    private DownloadRowViewModel? _selectedHubRow;
+    public DownloadRowViewModel? SelectedHubRow
+    {
+        get => _selectedHubRow;
+        set => this.RaiseAndSetIfChanged(ref _selectedHubRow, value);
     }
 
     // Phase 12.8: Track Inspector / Slide-out Panel
@@ -545,7 +556,8 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         AppConfig config,
         ArtworkCacheService artworkCache,
         ILibraryService libraryService,
-        DatabaseService databaseService)
+        DatabaseService databaseService,
+        IDbContextFactory<AppDbContext> dbFactory)
     {
         _downloadManager = downloadManager;
         _eventBus = eventBus;
@@ -553,11 +565,13 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         _libraryService = libraryService;
         _databaseService = databaseService;
         _config = config;
+        _dbFactory = dbFactory;
         _isAutoEnrichEnabled = _config.IsAutoEnrichEnabled;
         
         ToggleLogsCommand = ReactiveCommand.Create(() => ShowEngineLogs = !ShowEngineLogs);
         ClearSecurityQualityLogsCommand = ReactiveCommand.Create(() => { });
         DismissGlobalStatusCommand = ReactiveCommand.Create(() => ClearGlobalStatus());
+        ClearHubSelectionCommand = ReactiveCommand.Create(() => SelectedHubRow = null);
 
         // Phase 6: Security & Quality diagnostics feed (Shield / Gate visibility)
         _eventBus.GetEvent<SecurityAuditEvent>()
@@ -583,35 +597,38 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         ToggleEnginePauseCommand = ReactiveCommand.CreateFromTask(async () => await _downloadManager.TogglePauseEngineAsync(),
             this.WhenAnyValue(x => x.IsEngineRunning));
 
-        // Sync manager state
-        _downloadManager.PropertyChanged += (s, e) => 
-        {
-             Avalonia.Threading.Dispatcher.UIThread.Post(() => 
-             {
-                 if (e.PropertyName == nameof(DownloadManager.IsRunning) || e.PropertyName == nameof(DownloadManager.IsPaused))
-                 {
-                     this.RaisePropertyChanged(nameof(IsEngineRunning));
-                     this.RaisePropertyChanged(nameof(IsEnginePaused));
-                     this.RaisePropertyChanged(nameof(EngineStatusText));
-                     this.RaisePropertyChanged(nameof(EngineStatusColor));
-                     this.RaisePropertyChanged(nameof(EngineStatusIcon));
-                 }
-                 else if (e.PropertyName == nameof(DownloadManager.ActiveWorkerSlots))
-                 {
-                     this.RaisePropertyChanged(nameof(ActiveWorkerSlots));
-                     this.RaisePropertyChanged(nameof(WorkerSlotsDisplay));
-                 }
-                 else if (e.PropertyName == nameof(DownloadManager.SoulseekConnected))
-                 {
-                     this.RaisePropertyChanged(nameof(IsSoulseekConnected));
-                 }
-                 else if (e.PropertyName == nameof(DownloadManager.IsBackingOff) || e.PropertyName == nameof(DownloadManager.CurrentBackoffSeconds))
-                 {
-                     this.RaisePropertyChanged(nameof(IsBackingOff));
-                     this.RaisePropertyChanged(nameof(BackoffSeconds));
-                 }
-             });
-        };
+        // Sync manager state — use Observable so the subscription is tracked and disposed with the VM
+        Observable.FromEventPattern<PropertyChangedEventHandler, PropertyChangedEventArgs>(
+                h => _downloadManager.PropertyChanged += h,
+                h => _downloadManager.PropertyChanged -= h)
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(pattern =>
+            {
+                var e = pattern.EventArgs;
+                if (e.PropertyName == nameof(DownloadManager.IsRunning) || e.PropertyName == nameof(DownloadManager.IsPaused))
+                {
+                    this.RaisePropertyChanged(nameof(IsEngineRunning));
+                    this.RaisePropertyChanged(nameof(IsEnginePaused));
+                    this.RaisePropertyChanged(nameof(EngineStatusText));
+                    this.RaisePropertyChanged(nameof(EngineStatusColor));
+                    this.RaisePropertyChanged(nameof(EngineStatusIcon));
+                }
+                else if (e.PropertyName == nameof(DownloadManager.ActiveWorkerSlots))
+                {
+                    this.RaisePropertyChanged(nameof(ActiveWorkerSlots));
+                    this.RaisePropertyChanged(nameof(WorkerSlotsDisplay));
+                }
+                else if (e.PropertyName == nameof(DownloadManager.SoulseekConnected))
+                {
+                    this.RaisePropertyChanged(nameof(IsSoulseekConnected));
+                }
+                else if (e.PropertyName == nameof(DownloadManager.IsBackingOff) || e.PropertyName == nameof(DownloadManager.CurrentBackoffSeconds))
+                {
+                    this.RaisePropertyChanged(nameof(IsBackingOff));
+                    this.RaisePropertyChanged(nameof(BackoffSeconds));
+                }
+            })
+            .DisposeWith(_subscriptions);
         
         ClearCompletedCommand = ReactiveCommand.CreateFromTask(async () =>
         {
@@ -648,13 +665,19 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         RetryAllFailedCommand = ReactiveCommand.CreateFromTask(async () => 
         {
             var failedItems = FailedDownloads.ToList();
-            foreach (var item in failedItems)
+            for (var i = 0; i < failedItems.Count; i++)
             {
-                // Fix: Call manager directly to ensure execution and avoid ReactiveCommand subscription issues
-                await _downloadManager.HardRetryTrack(item.GlobalId);
+                // Stagger retries to avoid a search storm that pushes active search count
+                // past the Critical threshold (5+) and locks variationCap to 1.
+                // 500ms between each retry → at MaxConcurrentSearches=5, we naturally
+                // spread load without hammering the Soulseek search network all at once.
+                if (i > 0)
+                    await Task.Delay(500);
+
+                await _downloadManager.HardRetryTrack(failedItems[i].GlobalId);
             }
-            await Task.CompletedTask;
         }, this.WhenAnyValue(x => x.FailedCount, count => count > 0));
+
         
         // Phase 12.3: Bulk Command Implementation
         VipStartSelectedCommand = ReactiveCommand.CreateFromTask(async () => 
@@ -769,7 +792,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
         sharedSource
             .Filter(x => !x.IsClearedFromDownloadCenter)
-            .Transform(x => new DownloadRowViewModel(x))
+            .Transform(x => new DownloadRowViewModel(x, row => SelectedHubRow = row))
             .SortAndBind(out _hubRows, hubRowComparer)
             .Subscribe()
             .DisposeWith(_subscriptions);
@@ -1346,8 +1369,8 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             var track = e.TrackModel;
             
             // Phase 2.5: Create Smart View Model
-            var viewModel = new UnifiedTrackViewModel(track, _downloadManager, _eventBus, _artworkCache, _libraryService, _databaseService, _config);
-            
+            var viewModel = new UnifiedTrackViewModel(track, _downloadManager, _eventBus, _artworkCache, _libraryService, _databaseService, _config, _dbFactory);
+
             // Phase 12.3: Monitor Selection
             viewModel.WhenAnyValue(x => x.IsSelected)
                 .Subscribe(selected =>
@@ -1384,8 +1407,8 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             foreach (var (track, initialState) in e.Tracks)
             {
                 // Phase 2.5: Create Smart View Model
-                var viewModel = new UnifiedTrackViewModel(track, _downloadManager, _eventBus, _artworkCache, _libraryService, _databaseService, _config);
-                
+                var viewModel = new UnifiedTrackViewModel(track, _downloadManager, _eventBus, _artworkCache, _libraryService, _databaseService, _config, _dbFactory);
+
                 // Phase 12.3: Monitor Selection
                 viewModel.WhenAnyValue(x => x.IsSelected)
                     .Subscribe(selected =>

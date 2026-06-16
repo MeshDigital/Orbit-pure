@@ -101,6 +101,21 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         "Risky Clash",
     ];
 
+    public IReadOnlyList<EnergyCurveOption> EnergyCurveOptions { get; } =
+    [
+        new("None",   EnergyCurvePattern.None,   "Pure harmonic/BPM flow — no energy shaping"),
+        new("Rising", EnergyCurvePattern.Rising,  "Build from low to high energy"),
+        new("Wave",   EnergyCurvePattern.Wave,    "Low → peak in middle → low again"),
+        new("Peak",   EnergyCurvePattern.Peak,    "Steady → spike at 2/3 → steady"),
+    ];
+
+    private EnergyCurveOption _selectedEnergyCurveOption;
+    public EnergyCurveOption SelectedEnergyCurveOption
+    {
+        get => _selectedEnergyCurveOption;
+        set => this.RaiseAndSetIfChanged(ref _selectedEnergyCurveOption, value);
+    }
+
     private string _selectedTransitionStyleFilter = "All styles";
     public string SelectedTransitionStyleFilter
     {
@@ -248,6 +263,7 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         _dialogService = dialogService;
         _telemetryService = telemetryService;
         _sectionVectors = sectionVectors;
+        _selectedEnergyCurveOption = EnergyCurveOptions[0];
 
         LoadPlaylistsCommand = ReactiveCommand.CreateFromTask(LoadPlaylistsAsync);
         LoadSelectedPlaylistCommand = ReactiveCommand.CreateFromTask(
@@ -638,6 +654,7 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
 
             var proposal = await _playlistIntelligence.ReorderAsync(
                 currentHashes,
+                energyCurve: SelectedEnergyCurveOption.Pattern,
                 anchorTrackHash: currentHashes.FirstOrDefault());
 
             if (proposal.OrderedTrackHashes.Count == 0)
@@ -836,6 +853,18 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
 
         Tracks.RemoveAt(idx);
         Tracks.Insert(newIdx, card);
+        InvalidateFlowCaches(clearSuggestedFlow: true);
+        _ = RefreshBridgesAsync();
+    }
+
+    public void MoveCardToIndex(FlowTrackCardViewModel card, int targetIndex)
+    {
+        int fromIdx = Tracks.IndexOf(card);
+        if (fromIdx < 0) return;
+        int toIdx = Math.Clamp(targetIndex, 0, Tracks.Count - 1);
+        if (fromIdx == toIdx) return;
+        Tracks.RemoveAt(fromIdx);
+        Tracks.Insert(toIdx, card);
         InvalidateFlowCaches(clearSuggestedFlow: true);
         _ = RefreshBridgesAsync();
     }
@@ -1279,4 +1308,9 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         => string.Join("|", orderedHashes);
 
     public void Dispose() => _disposables.Dispose();
+}
+
+public sealed record EnergyCurveOption(string Label, EnergyCurvePattern Pattern, string Description)
+{
+    public override string ToString() => Label;
 }

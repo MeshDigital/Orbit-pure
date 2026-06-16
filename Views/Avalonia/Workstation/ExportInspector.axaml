@@ -1,0 +1,38 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Workstation"
+             x:Class="SLSKDONET.Views.Avalonia.Workstation.ExportInspector"
+             x:DataType="vm:WorkstationViewModel">
+    <StackPanel Spacing="8">
+        <TextBlock Text="Export" FontSize="{StaticResource WsFontLg}" FontWeight="SemiBold" Foreground="#E5EEF8"/>
+        <TextBlock Text="Configure mixdown output without leaving the cockpit. Use Export Mixdown for the full dialog flow." FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextWrapping="Wrap"/>
+        <StackPanel Spacing="4">
+            <TextBlock Text="Format" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}"/>
+            <ComboBox ItemsSource="{Binding ExportPanel.AvailableFormats}" SelectedItem="{Binding ExportPanel.SelectedFormat, Mode=TwoWay}"/>
+        </StackPanel>
+        <StackPanel Spacing="4">
+            <TextBlock Text="Output Path" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}"/>
+            <TextBox Text="{Binding ExportPanel.OutputPath, Mode=TwoWay}" Watermark="Choose output path"/>
+        </StackPanel>
+        <CheckBox IsChecked="{Binding ExportPanel.Normalize, Mode=TwoWay}">Normalize</CheckBox>
+        <CheckBox IsChecked="{Binding ExportPanel.Dither, Mode=TwoWay}">Dither</CheckBox>
+        <TextBlock Text="Loaded Tracks" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}"/>
+        <ItemsControl ItemsSource="{Binding ExportPanel.Decks}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ExportDeckEntry">
+                    <Border Classes="ws-chip" Margin="0,0,0,4">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="{Binding Label}" FontSize="{StaticResource WsFontSm}" Foreground="#DDE9F5" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding Volume, StringFormat='Volume {0:F2}'}" FontSize="{StaticResource WsFontXs}" Foreground="{StaticResource WsTextSecondaryReadable}"/>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Button Background="#0078D4" Foreground="White" BorderBrush="#0078D4" BorderThickness="1" CornerRadius="6" Padding="14,7" Command="{Binding ExportMixCommand}">Export Mixdown...</Button>
+        <Separator Background="#253040" Height="1" Margin="0,4"/>
+        <TextBlock Text="Session Bundle" FontSize="{StaticResource WsFontSm}" FontWeight="SemiBold" Foreground="{StaticResource WsTextSecondaryReadable}"/>
+        <TextBlock Text="Export a .orbsession bundle that packages the current playlist, deck positions, and cue points so a collaborator can open the same session." FontSize="{StaticResource WsFontXs}" Foreground="{StaticResource WsTextSecondaryReadable}" TextWrapping="Wrap"/>
+        <Button Background="#1A2840" Foreground="#7BBCDD" BorderBrush="#2A4868" BorderThickness="1" CornerRadius="6" Padding="14,7" Command="{Binding ExportOrbSessionCommand}">Export .orbsession...</Button>
+    </StackPanel>
+</UserControl>

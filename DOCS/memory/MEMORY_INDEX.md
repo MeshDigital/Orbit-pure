@@ -2,7 +2,7 @@
 
 Status: Source of Truth for DOCS/memory plan states
 
-Last reviewed: 2026-05-28
+Last reviewed: 2026-06-16
 Scope: Canonical status board for planning and memory docs in DOCS/memory.
 
 ## Status Legend
@@ -23,12 +23,15 @@ Scope: Canonical status board for planning and memory docs in DOCS/memory.
 | [download_filtering_strict_mode_hardening.md](download_filtering_strict_mode_hardening.md) | Historical | Superseded rationale; keep for design context. |
 | [frequent_sources_profile.md](frequent_sources_profile.md) | Active | Privacy-first local feature lane is now in implementation (settings UX, transfer hook activation, call-site hardening, and expanded regression coverage). |
 | [implementation_plan.md](implementation_plan.md) | Historical | Coordination index; workstation and strict-download streams already closed. |
+| [download_orchestrator_hit_rate_improvements.md](download_orchestrator_hit_rate_improvements.md) | Completed | Four-fix hit rate pass: FLAC bitrate floor 700→400 kbps, retry delay 20→3 min, Aggressive-tier diacritic stripping, MP3 fallback uses Aggressive not Smart. Also covers Soulseek noise suppression and fire-and-forget safety fixes. |
+| [library_2026_overhaul_completion.md](library_2026_overhaul_completion.md) | Completed | Completed state machine, UI styling, deck guards, and tests for the Hybrid Track State Model. |
 | [library_sidebar_unification_plan.md](library_sidebar_unification_plan.md) | Active | Reopened by explicit request; implementation started with PlaylistIntelligence panel extraction and guard tests. |
 | [library_waveform_automix_plan.md](library_waveform_automix_plan.md) | Historical | Execution blueprint retained for rationale and deltas. |
 | [workstation_cockpit.md](workstation_cockpit.md) | Source of Truth | Ongoing cockpit architecture/reference log. |
 | [workstation_flow_intelligence_A10.md](workstation_flow_intelligence_A10.md) | Active Sidequest | Parallel additive stream; optional unless requested. |
 | [workstation_overhaul_completed_work.md](workstation_overhaul_completed_work.md) | Completed | Workstation completion walkthrough. |
 | [workstation_redesign_overhaul.md](workstation_redesign_overhaul.md) | Historical | Original redesign blueprint; implementation delivered. |
+| [ui_overhaul_piped_marble_completion.md](ui_overhaul_piped_marble_completion.md) | Completed | Full UI overhaul Tier 1–4 completion: mode decomposition, downloads side panel, search filter bar, settings help panel, Camelot wheel, energy/phrase/badge surfaces, tri-band waveform, drag-to-reorder, Rekordbox export, .orbsession bundle. |
 
 ## Execution Guidance
 - Default implementation focus: avoid reopening Completed/Historical plans unless validating regressions.

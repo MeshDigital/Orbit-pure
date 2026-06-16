@@ -1,0 +1,235 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Workstation"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             x:Class="SLSKDONET.Views.Avalonia.Workstation.WaveformInspector"
+             x:DataType="vm:WorkstationViewModel">
+    <StackPanel Spacing="10">
+        <!-- 1. Track Info Header -->
+        <StackPanel Spacing="3">
+            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <Border Background="#2D2D2D" CornerRadius="4" Padding="6,2" IsVisible="{Binding FocusedDeck, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <TextBlock Text="{Binding FocusedDeck.DeckLabel}" FontSize="11" FontWeight="Bold" Foreground="#F5F5F5"/>
+                </Border>
+                <TextBlock Text="FOCUSED TRACK" FontSize="{StaticResource WsFontSm}" FontWeight="SemiBold" Foreground="#8EC8FF"/>
+            </StackPanel>
+            <TextBlock Text="{Binding FocusedDeck.TrackTitle, TargetNullValue='No Track Loaded'}" FontSize="14" FontWeight="Bold" Foreground="#E5E5E5" TextWrapping="Wrap"/>
+            <TextBlock Text="{Binding FocusedDeck.TrackArtist, TargetNullValue='—'}" FontSize="11" Foreground="#A0A0A0" TextWrapping="Wrap"/>
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
+                <Border Classes="ws-chip" Background="#18222C" BorderBrush="#2F3D4A" BorderThickness="1" CornerRadius="4" Padding="6,2">
+                    <TextBlock Text="{Binding FocusedDeck.DisplayBpm, StringFormat='{}{0:F1} BPM', TargetNullValue='— BPM'}" FontSize="10" Foreground="#7FC7FF"/>
+                </Border>
+                <Border Classes="ws-chip" Background="#18222C" BorderBrush="#2F3D4A" BorderThickness="1" CornerRadius="4" Padding="6,2">
+                    <TextBlock Text="{Binding FocusedDeck.TrackKey, TargetNullValue='— Key'}" FontSize="10" Foreground="#95D36A"/>
+                </Border>
+            </StackPanel>
+
+            <!-- Intelligence badges: Mood · Energy · Instrumental · BPM Drift -->
+            <WrapPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,4,0,0"
+                       IsVisible="{Binding FocusedDeck.IsLoaded}">
+                <Border IsVisible="{Binding FocusedDeck.HasMoodTag}"
+                        Background="#1A1A2E" BorderBrush="#7B68EE" BorderThickness="1"
+                        CornerRadius="999" Padding="8,2" Margin="0,0,4,4">
+                    <TextBlock Text="{Binding FocusedDeck.MoodTagText}" FontSize="9" FontWeight="Bold" Foreground="#9D8EFF"/>
+                </Border>
+                <Border IsVisible="{Binding FocusedDeck.HasEnergyBadge}"
+                        Background="#1A1A1A" BorderBrush="{Binding FocusedDeck.EnergyBadgeColor}" BorderThickness="1"
+                        CornerRadius="999" Padding="8,2" Margin="0,0,4,4">
+                    <TextBlock Text="{Binding FocusedDeck.EnergyBadgeText}" FontSize="9" FontWeight="Bold"
+                               Foreground="{Binding FocusedDeck.EnergyBadgeColor}"/>
+                </Border>
+                <Border IsVisible="{Binding FocusedDeck.ShowInstrumentalBadge}"
+                        Background="#1A2A1A" BorderBrush="#4CAF50" BorderThickness="1"
+                        CornerRadius="999" Padding="8,2" Margin="0,0,4,4">
+                    <TextBlock Text="INST" FontSize="9" FontWeight="Bold" Foreground="#4CAF50"/>
+                </Border>
+                <Border IsVisible="{Binding FocusedDeck.HasBpmDriftWarning}"
+                        Background="#2A1A00" BorderBrush="#FF8C00" BorderThickness="1"
+                        CornerRadius="999" Padding="8,2" Margin="0,0,4,4">
+                    <TextBlock Text="BPM DRIFT" FontSize="9" FontWeight="Bold" Foreground="#FF8C00"/>
+                </Border>
+            </WrapPanel>
+
+            <!-- Camelot Wheel — shows compatible keys for the focused track -->
+            <controls:CamelotWheelControl
+                SelectedKey="{Binding FocusedDeck.TrackKey}"
+                Height="120"
+                HorizontalAlignment="Center"
+                IsVisible="{Binding FocusedDeck.IsLoaded}"
+                ToolTip.Tip="Camelot harmonic wheel — highlighted key is the loaded track"/>
+        </StackPanel>
+
+        <Separator Background="#252526" Height="1"/>
+
+        <!-- 2. CDJ Transport and Looping -->
+        <StackPanel Spacing="6" IsEnabled="{Binding FocusedDeck.IsLoaded}">
+            <TextBlock Text="PLAYBACK &amp; LOOPING" FontSize="9" FontWeight="Black" Foreground="#666"/>
+            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto">
+                <Button Grid.Row="0" Grid.Column="0" Classes="phrase-chip" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        Command="{Binding FocusedDeck.Deck.PlayPauseCommand}" ToolTip.Tip="Play / Pause this deck">PLAY / PAUSE</Button>
+                <Button Grid.Row="0" Grid.Column="1" Classes="phrase-chip" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        Command="{Binding FocusedDeck.Deck.CueCommand}" ToolTip.Tip="Return to cue point">CUE</Button>
+                <Button Grid.Row="1" Grid.Column="0" Classes="phrase-chip" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        Command="{Binding FocusedDeck.Deck.SetLoopCommand}" ToolTip.Tip="Arm loop at playhead">ARM LOOP</Button>
+                <Button Grid.Row="1" Grid.Column="1" Classes="phrase-chip" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        Command="{Binding FocusedDeck.Deck.ExitLoopCommand}" ToolTip.Tip="Exit active loop">EXIT LOOP</Button>
+            </Grid>
+
+            <Grid ColumnDefinitions="*,*,*,*" Margin="0,4,0,0">
+                <Button Grid.Column="0" Classes="icon" Command="{Binding Loop1Command}" ToolTip.Tip="1-beat loop">1</Button>
+                <Button Grid.Column="1" Classes="icon" Margin="4,0,0,0" Command="{Binding Loop2Command}" ToolTip.Tip="2-beat loop">2</Button>
+                <Button Grid.Column="2" Classes="icon" Margin="4,0,0,0" Command="{Binding Loop4Command}" ToolTip.Tip="4-beat loop">4</Button>
+                <Button Grid.Column="3" Classes="icon" Margin="4,0,0,0" Command="{Binding Loop8Command}" ToolTip.Tip="8-beat loop">8</Button>
+            </Grid>
+
+            <Grid ColumnDefinitions="*,*,*" Margin="0,4,0,0">
+                <Button Classes="phrase-chip" Command="{Binding FocusedDeck.Deck.HalfLoopCommand}" ToolTip.Tip="Halve loop size">1/2</Button>
+                <Button Grid.Column="1" Classes="phrase-chip" Command="{Binding FocusedDeck.Deck.DoubleLoopCommand}" ToolTip.Tip="Double loop size">2×</Button>
+                <Button Grid.Column="2" Classes="phrase-chip" Command="{Binding ExitLoopFocusedCommand}" ToolTip.Tip="Exit focused loop">EXIT</Button>
+            </Grid>
+
+            <Grid ColumnDefinitions="*,*" Margin="0,4,0,0">
+                <Button Classes="phrase-chip" Command="{Binding FocusedDeck.Deck.MoveLoopCommand}" CommandParameter="-1" ToolTip.Tip="Move loop earlier">◀ MOVE</Button>
+                <Button Grid.Column="1" Classes="phrase-chip" Command="{Binding FocusedDeck.Deck.MoveLoopCommand}" CommandParameter="1" ToolTip.Tip="Move loop later">MOVE ▶</Button>
+            </Grid>
+        </StackPanel>
+
+        <Separator Background="#252526" Height="1"/>
+
+        <!-- 3. CDJ Hot Cues (2x4 Grid) -->
+        <StackPanel Spacing="6" IsEnabled="{Binding FocusedDeck.IsLoaded}">
+            <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                <TextBlock Grid.Column="0" Text="HOT CUES" FontSize="9" FontWeight="Black" Foreground="#666" VerticalAlignment="Center"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                    <Button Classes="phrase-chip" Height="22" Padding="6,0" Command="{Binding FocusedDeck.AddCueAtPlayheadCommand}" ToolTip.Tip="Drop cue marker at playhead">MARK</Button>
+                    <Button Classes="phrase-chip" Height="22" Padding="6,0" Command="{Binding FocusedDeck.ResetCuePrepCommand}" ToolTip.Tip="Restore analyzed cues">AUTO</Button>
+                </StackPanel>
+            </Grid>
+
+            <UniformGrid Rows="2" Columns="4" Margin="0,4,0,0">
+                <Button Classes="hotcue hotcue-1" Command="{Binding FocusedDeck.HotCue1Command}" Content="{Binding FocusedDeck.HotCue1Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue1Tooltip}"/>
+                <Button Classes="hotcue hotcue-2" Command="{Binding FocusedDeck.HotCue2Command}" Content="{Binding FocusedDeck.HotCue2Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue2Tooltip}"/>
+                <Button Classes="hotcue hotcue-3" Command="{Binding FocusedDeck.HotCue3Command}" Content="{Binding FocusedDeck.HotCue3Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue3Tooltip}"/>
+                <Button Classes="hotcue hotcue-4" Command="{Binding FocusedDeck.HotCue4Command}" Content="{Binding FocusedDeck.HotCue4Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue4Tooltip}"/>
+                <Button Classes="hotcue hotcue-5" Command="{Binding FocusedDeck.HotCue5Command}" Content="{Binding FocusedDeck.HotCue5Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue5Tooltip}"/>
+                <Button Classes="hotcue hotcue-6" Command="{Binding FocusedDeck.HotCue6Command}" Content="{Binding FocusedDeck.HotCue6Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue6Tooltip}"/>
+                <Button Classes="hotcue hotcue-7" Command="{Binding FocusedDeck.HotCue7Command}" Content="{Binding FocusedDeck.HotCue7Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue7Tooltip}"/>
+                <Button Classes="hotcue hotcue-8" Command="{Binding FocusedDeck.HotCue8Command}" Content="{Binding FocusedDeck.HotCue8Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue8Tooltip}"/>
+            </UniformGrid>
+            <TextBlock Text="{Binding FocusedDeck.HotCueSummary, TargetNullValue='No cues prepped'}" FontSize="10" Foreground="#7CB8FF" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+
+        <Separator Background="#252526" Height="1"/>
+
+        <!-- 4. Stems Mixer Rack -->
+        <StackPanel Spacing="6" IsEnabled="{Binding FocusedDeck.IsLoaded}">
+            <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                <TextBlock Grid.Column="0" Text="STEM MIXER" FontSize="9" FontWeight="Black" Foreground="#666" VerticalAlignment="Center"/>
+                <Button Grid.Column="1" Classes="phrase-chip" Height="22" Padding="6,0" Command="{Binding FocusedDeck.SeparateStemsCommand}" ToolTip.Tip="Run stem separation">SEPARATE</Button>
+            </Grid>
+
+            <Grid ColumnDefinitions="*,*,*,*" Margin="0,2,0,0">
+                <ToggleButton Classes="stem-toggle stem-v" Height="24" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                              IsChecked="{Binding FocusedDeck.Stems.Vocals.IsMuted, Mode=TwoWay}" ToolTip.Tip="Mute Vocals">VOCAL</ToggleButton>
+                <ToggleButton Classes="stem-toggle stem-d" Height="24" Margin="4,0,0,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                              IsChecked="{Binding FocusedDeck.Stems.Drums.IsMuted, Mode=TwoWay}" ToolTip.Tip="Mute Drums">DRUM</ToggleButton>
+                <ToggleButton Classes="stem-toggle stem-b" Height="24" Margin="4,0,0,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                              IsChecked="{Binding FocusedDeck.Stems.Bass.IsMuted, Mode=TwoWay}" ToolTip.Tip="Mute Bass">BASS</ToggleButton>
+                <ToggleButton Classes="stem-toggle stem-o" Height="24" Margin="4,0,0,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                              IsChecked="{Binding FocusedDeck.Stems.Other.IsMuted, Mode=TwoWay}" ToolTip.Tip="Mute Melody/Other">OTHER</ToggleButton>
+            </Grid>
+
+            <Grid ColumnDefinitions="*,*,*" Margin="0,4,0,0">
+                <Button Classes="phrase-chip" Command="{Binding FocusedDeck.ToggleInstrumentalCommand}" ToolTip.Tip="Instrumental Preset">INST</Button>
+                <Button Grid.Column="1" Classes="phrase-chip" Command="{Binding FocusedDeck.ToggleDrumsOnlyCommand}" ToolTip.Tip="Drums Only Preset">DRUMS</Button>
+                <Button Grid.Column="2" Classes="phrase-chip" Command="{Binding FocusedDeck.ToggleVocalOffCommand}" ToolTip.Tip="Vocal Off Preset">VOCAL OFF</Button>
+            </Grid>
+            <TextBlock Text="{Binding FocusedDeck.StemControlSummary}" FontSize="9" Foreground="#B8E986" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+
+        <Separator Background="#252526" Height="1"/>
+
+        <!-- 5. Phrasing Sections -->
+        <StackPanel Spacing="6" IsEnabled="{Binding FocusedDeck.IsLoaded}">
+            <TextBlock Text="TRACK SECTIONS" FontSize="9" FontWeight="Black" Foreground="#666"/>
+            <Grid ColumnDefinitions="*,*,*,*,*" Margin="0,2,0,0">
+                <Button Classes="phrase-chip" Command="{Binding FocusedDeck.ViewWaveformCommand}" ToolTip.Tip="Zoom to full/detail">VIEW</Button>
+                <Button Grid.Column="1" Classes="phrase-chip" Command="{Binding FocusedDeck.JumpToIntroCommand}" ToolTip.Tip="Jump to Intro">INTRO</Button>
+                <Button Grid.Column="2" Classes="phrase-chip" Command="{Binding FocusedDeck.JumpToBuildCommand}" ToolTip.Tip="Jump to Build">BUILD</Button>
+                <Button Grid.Column="3" Classes="phrase-chip" Command="{Binding FocusedDeck.JumpToDropCommand}" ToolTip.Tip="Jump to Drop">DROP</Button>
+                <Button Grid.Column="4" Classes="phrase-chip" Command="{Binding FocusedDeck.JumpToOutroCommand}" ToolTip.Tip="Jump to Outro">OUTRO</Button>
+            </Grid>
+            <TextBlock Text="{Binding FocusedDeck.SectionJumpSummary}" FontSize="9" Foreground="#8EC8FF" TextTrimming="CharacterEllipsis"/>
+
+            <!-- Energy curve strip with phrase markers -->
+            <controls:EnergyCurveBar
+                Points="{Binding FocusedDeck.EnergyCurveBarPoints}"
+                Segments="{Binding FocusedDeck.PhraseSegments}"
+                Height="28"
+                Margin="0,4,0,0"
+                IsVisible="{Binding FocusedDeck.IsLoaded}"
+                ToolTip.Tip="Energy curve — vertical dividers mark phrase transitions"/>
+        </StackPanel>
+
+        <!-- 6 + 7 behind progressive disclosure Expander -->
+        <Expander Header="More Controls" IsExpanded="False" Margin="0,6,0,0" IsEnabled="{Binding FocusedDeck.IsLoaded}">
+            <StackPanel Spacing="8" Margin="0,6,0,0">
+
+                <!-- 6. Gain, Pitch, Key and Lock -->
+                <StackPanel Spacing="8" IsEnabled="{Binding FocusedDeck.IsLoaded}">
+                    <TextBlock Text="VOLUME &amp; TEMPO FORENSICS" FontSize="9" FontWeight="Black" Foreground="#666"/>
+
+                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                        <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2">
+                            <TextBlock Text="GAIN" FontSize="9" FontWeight="SemiBold" Foreground="#A0A0A0"/>
+                            <Slider Minimum="-12" Maximum="12" Value="{Binding FocusedDeck.TrackGainDb, Mode=TwoWay}" Height="20"/>
+                        </StackPanel>
+                        <StackPanel Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <TextBlock Text="VU" FontSize="9" Foreground="#A0A0A0" HorizontalAlignment="Center" Margin="0,0,0,2"/>
+                            <ProgressBar Minimum="0" Maximum="1" Value="{Binding FocusedDeck.VuLevel}" Orientation="Horizontal" Width="40" Height="8" Foreground="#4CAF50" Background="#2A2A2A"/>
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="1" Grid.Column="0" Spacing="2">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0" Text="PITCH / TEMPO" FontSize="9" FontWeight="SemiBold" Foreground="#A0A0A0"/>
+                                <TextBlock Grid.Column="1" Text="{Binding FocusedDeck.Deck.TempoPercent, StringFormat='{}{0:+0.0;-0.0;+0.0}%'}" FontSize="9" Foreground="#FFD700" FontWeight="Bold"/>
+                            </Grid>
+                            <Slider Minimum="-8" Maximum="8" Value="{Binding FocusedDeck.Deck.TempoPercent, Mode=TwoWay}" Height="20"/>
+                        </StackPanel>
+                        <ToggleButton Grid.Row="1" Grid.Column="1" VerticalAlignment="Bottom" IsChecked="{Binding FocusedDeck.Deck.KeyLock, Mode=TwoWay}"
+                                      FontSize="8" Width="40" Height="20" Padding="2,1" CornerRadius="4"
+                                      Background="#252525" BorderBrush="#444" ToolTip.Tip="Key Lock (hold original key when speeding up/down)">LOCK</ToggleButton>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock Text="KEY SHIFT:" FontSize="9" Foreground="#6E8297" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding FocusedDeck.CurrentKeyShiftText}" FontSize="10" FontWeight="Bold" Foreground="#D8B4FE" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                            <Button Width="20" Height="18" Padding="0" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" FontSize="10" Command="{Binding FocusedDeck.DecreaseKeyShiftCommand}" ToolTip.Tip="Shift key down">-</Button>
+                            <Button Width="20" Height="18" Padding="0" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" FontSize="10" Command="{Binding FocusedDeck.ResetKeyShiftCommand}" ToolTip.Tip="Reset key shift">0</Button>
+                            <Button Width="20" Height="18" Padding="0" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" FontSize="10" Command="{Binding FocusedDeck.IncreaseKeyShiftCommand}" ToolTip.Tip="Shift key up">+</Button>
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                        <Button Grid.Column="0" Classes="secondary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Command="{Binding SyncBpmCommand}" ToolTip.Tip="Align tempo across active timeline tracks">Sync Tempo</Button>
+                        <ToggleButton Grid.Column="1" IsChecked="{Binding FocusedDeck.IsLocked, Mode=TwoWay}" ToolTip.Tip="Lock track timeline movement">🔒</ToggleButton>
+                    </Grid>
+                </StackPanel>
+
+                <Separator Background="#252526" Height="1"/>
+
+                <!-- 7. Mix Intelligence & Coaching -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="MIX INTELLIGENCE &amp; COACHING" FontSize="9" FontWeight="Black" Foreground="#666"/>
+                    <TextBlock Text="{Binding FocusedDeck.MixReadinessText, TargetNullValue='No Mix readiness'}" FontSize="10" Foreground="#8EC8FF" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding FocusedDeck.PerformanceStatusSummary, TargetNullValue='Performance status unavailable'}" FontSize="10" Foreground="#FFD58A" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding FocusedDeck.HarmonicSuggestionText, TargetNullValue='Harmonic guidance unavailable'}" FontSize="10" Foreground="#D8B4FE" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding FocusedDeck.TransitionStatusText, TargetNullValue='Transition guidance unavailable'}" FontSize="10" Foreground="#B8E986" TextWrapping="Wrap"/>
+                </StackPanel>
+            </StackPanel>
+        </Expander>
+    </StackPanel>
+</UserControl>

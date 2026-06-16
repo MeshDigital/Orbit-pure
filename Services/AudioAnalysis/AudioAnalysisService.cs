@@ -252,7 +252,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             if (tempWav is not null)
             {
                 try { File.Delete(tempWav); }
-                catch { /* best-effort cleanup */ }
+                catch (IOException ex) { _logger.LogDebug(ex, "Best-effort temp WAV cleanup failed for {Path}", tempWav); }
             }
         }
     }

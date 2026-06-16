@@ -123,6 +123,8 @@ public class SpotifyLikedSongsImportProvider : IImportProvider, IStreamingImport
             Artist = track.Artists.FirstOrDefault()?.Name ?? "Unknown Artist",
             Album = track.Album.Name,
             SpotifyTrackId = track.Id,
+            SpotifyPlaylistId = "liked",
+            SpotifyUri = track.Uri,
             ReleaseDate = !string.IsNullOrEmpty(track.Album.ReleaseDate) ? DateTime.TryParse(track.Album.ReleaseDate, out var d) ? d : null : null,
             CanonicalDuration = track.DurationMs,
             Popularity = track.Popularity,

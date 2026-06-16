@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
 using System.Diagnostics;
 using System.Reactive;
@@ -81,6 +82,8 @@ public class AnalysisTrackItem : ReactiveObject
             this.RaisePropertyChanged(nameof(StatusLabel));
             this.RaisePropertyChanged(nameof(IsProcessing));
             this.RaisePropertyChanged(nameof(IsCompleted));
+            this.RaisePropertyChanged(nameof(IsFailed));
+            this.RaisePropertyChanged(nameof(IsQueued));
             this.RaisePropertyChanged(nameof(HasIncompleteAnalysis));
             this.RaisePropertyChanged(nameof(HasSufficientAnalysis));
             this.RaisePropertyChanged(nameof(IncompleteAnalysisSummary));
@@ -228,6 +231,8 @@ public class AnalysisTrackItem : ReactiveObject
     public string IncompleteAnalysisSummary => BuildIncompleteAnalysisSummary(GetIncompleteAnalysisReasons());
     public bool IsProcessing => AnalysisStatus == AnalysisRunStatus.Processing;
     public bool IsCompleted => AnalysisStatus == AnalysisRunStatus.Completed;
+    public bool IsFailed => AnalysisStatus == AnalysisRunStatus.Failed;
+    public bool IsQueued => AnalysisStatus == AnalysisRunStatus.Queued;
     public bool HasConfidenceData => AnalysisData is not null;
     public double BpmConfidence => AnalysisData?.Mechanics.TonalProbability ?? 0;
     public double KeyConfidence => AnalysisData is null ? 0 : Math.Clamp((AnalysisData.Mechanics.TonalProbability * 0.85) + 0.1, 0, 1);
@@ -708,6 +713,8 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     /// <summary>Tracks staged for analysis by the user.</summary>
     public ObservableCollection<AnalysisTrackItem> AnalysisQueue { get; } = new();
     public ObservableCollection<PerformanceProbeRun> PerformanceProbeRuns { get; } = new();
+    public ObservableCollection<AnalysisTrackItem> PlaylistTracks { get; } = new();
+    public AutomixConstraints AutomixConstraints { get; } = new();
 
     // ── State ────────────────────────────────────────────────────────────────────
 
@@ -1775,19 +1782,24 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
     private void HookTrack(AnalysisTrackItem track)
     {
-        track.PropertyChanged += (_, args) =>
-        {
-            if (args.PropertyName is nameof(AnalysisTrackItem.AnalysisData)
-                or nameof(AnalysisTrackItem.AnalysisStatus)
-                or nameof(AnalysisTrackItem.IsInQueue)
-                or nameof(AnalysisTrackItem.IsInPlaylist)
-                or nameof(AnalysisTrackItem.StemsReady)
-                or nameof(AnalysisTrackItem.AnalysisError)
-                or nameof(AnalysisTrackItem.StemError))
+        Observable.FromEventPattern<PropertyChangedEventHandler, PropertyChangedEventArgs>(
+                h => track.PropertyChanged += h,
+                h => track.PropertyChanged -= h)
+            .Subscribe(pattern =>
             {
-                RefreshComputedState();
-            }
-        };
+                var args = pattern.EventArgs;
+                if (args.PropertyName is nameof(AnalysisTrackItem.AnalysisData)
+                    or nameof(AnalysisTrackItem.AnalysisStatus)
+                    or nameof(AnalysisTrackItem.IsInQueue)
+                    or nameof(AnalysisTrackItem.IsInPlaylist)
+                    or nameof(AnalysisTrackItem.StemsReady)
+                    or nameof(AnalysisTrackItem.AnalysisError)
+                    or nameof(AnalysisTrackItem.StemError))
+                {
+                    RefreshComputedState();
+                }
+            })
+            .DisposeWith(_disposables);
     }
 
     private void RefreshComputedState()

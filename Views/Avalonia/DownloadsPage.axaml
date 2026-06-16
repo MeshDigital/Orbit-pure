@@ -175,14 +175,15 @@
                         <MenuItem Header="Retry Download" Command="{Binding RetryCommand}" IsVisible="{Binding IsFailed}"><MenuItem.Icon><PathIcon Data="{StaticResource arrow_counterclockwise_regular}" Width="16" Height="16"/></MenuItem.Icon></MenuItem>
                         <MenuItem Header="Force Download (Ignore Quality Guards)" Command="{Binding ForceDownloadIgnoreGuardsCommand}" IsVisible="{Binding IsFailed}" Foreground="#00BFFF"><MenuItem.Icon><PathIcon Data="{StaticResource rocket_regular}" Width="16" Height="16" Foreground="#00BFFF"/></MenuItem.Icon></MenuItem>
                         <MenuItem Header="Remove from History" Command="{Binding CleanCommand}"><MenuItem.Icon><PathIcon Data="{StaticResource delete_regular}" Width="16" Height="16"/></MenuItem.Icon></MenuItem>
+                        <Separator/>
+                        <MenuItem Header="Terminal: View Search Audit" Command="{Binding OpenAuditLogCommand}"><MenuItem.Icon><TextBlock Text="📝" FontSize="12"/></MenuItem.Icon></MenuItem>
                     </ContextMenu>
                 </Border.ContextMenu>
 
                 <StackPanel Spacing="0">
-                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="12,10,12,4">
-                        <Border IsVisible="{Binding IsCompleted}" Background="#11261B" BorderBrush="#30C97A" BorderThickness="1" CornerRadius="999" Padding="8,2">
-                            <TextBlock Text="READY" Foreground="#8EF0B8" FontSize="9" FontWeight="Bold"/>
-                        </Border>
+                    <!-- Status strip: only shown for in-flight or failed tracks; completed rows use the ✓ in the action hub -->
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="12,8,12,2"
+                                IsVisible="{Binding !IsCompleted}">
                         <Border IsVisible="{Binding IsActive}" Background="#10242A" BorderBrush="#00BCD4" BorderThickness="1" CornerRadius="999" Padding="8,2">
                             <TextBlock Text="LIVE" Foreground="#8FE8F3" FontSize="9" FontWeight="Bold"/>
                         </Border>
@@ -192,9 +193,30 @@
                         <Border IsVisible="{Binding IsFailed}" Background="#2A1717" BorderBrush="#FF6B6B" BorderThickness="1" CornerRadius="999" Padding="8,2">
                             <TextBlock Text="ATTENTION" Foreground="#FFB1B1" FontSize="9" FontWeight="Bold"/>
                         </Border>
-                        <TextBlock Text="{Binding DetailedStatusText}" Foreground="#7E8A95" FontSize="10" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding DetailedStatusText}"
+                                   Foreground="#7E8A95" FontSize="10" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis"
+                                   IsVisible="{Binding DetailedStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                     </StackPanel>
                     <c:StandardTrackRow Classes="card" MinimalBadges="True"/>
+
+                    <!-- Spectral forensics quick-action (shown only for completed tracks with spectral verdict) -->
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="12,0,12,6"
+                                IsVisible="{Binding HasSpectralVerdict}">
+                        <Border Background="#0D1A22"
+                                BorderBrush="{Binding SpectralVerdictColor}"
+                                BorderThickness="1" CornerRadius="4" Padding="8,3">
+                            <TextBlock Text="{Binding SpectralVerdictBadgeText}"
+                                       FontSize="9" FontWeight="Bold"
+                                       Foreground="{Binding SpectralVerdictColor}"/>
+                        </Border>
+                        <Button Content="🔬 Forensics"
+                                Command="{Binding ShowSpectralReportCommand}"
+                                Background="#101C28" BorderBrush="#1E3D5C" BorderThickness="1"
+                                Foreground="#7BBCDD" CornerRadius="4" Padding="8,3"
+                                FontSize="10" FontWeight="SemiBold"
+                                ToolTip.Tip="View full spectral forensics report"/>
+                    </StackPanel>
 
                     <!-- Unified log strip: single collapsible section, visible only when there is log data -->
                     <Expander IsExpanded="{Binding IsConsoleOpen, Mode=TwoWay}"
@@ -325,6 +347,8 @@
                         <MenuItem Header="Remove from History" Command="{Binding CleanCommand}"><MenuItem.Icon><PathIcon Data="{StaticResource delete_regular}" Width="16" Height="16"/></MenuItem.Icon></MenuItem>
                         <Separator/>
                         <MenuItem Header="Copy Failure Log" Command="{Binding CopyLogCommand}"><MenuItem.Icon><PathIcon Data="{StaticResource copy_regular}" Width="16" Height="16"/></MenuItem.Icon></MenuItem>
+                        <Separator/>
+                        <MenuItem Header="Terminal: View Search Audit" Command="{Binding OpenAuditLogCommand}"><MenuItem.Icon><TextBlock Text="📝" FontSize="12"/></MenuItem.Icon></MenuItem>
                     </ContextMenu>
                 </Border.ContextMenu>
                 
@@ -556,50 +580,48 @@
         <!-- Download Center v2 Hub Row Template -->
         <DataTemplate x:Key="HubDownloadRowTemplate" DataType="vm:DownloadRowViewModel">
             <Border Classes="hubRow">
-                <StackPanel Spacing="10">
-                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-                        <Border Grid.Column="0" Background="#1E2328" Width="26" Height="26" CornerRadius="13" VerticalAlignment="Center">
-                            <TextBlock Text="↓" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#A9BBC8" FontSize="12"/>
-                        </Border>
-
-                        <StackPanel Grid.Column="1" Spacing="4" Margin="12,0,0,0">
-                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Foreground="White" TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Text="{Binding StatusText}" Foreground="#8DA0AE" FontSize="11" TextTrimming="CharacterEllipsis"/>
-                            <ProgressBar IsVisible="{Binding IsProgressVisible}" Value="{Binding Progress}" Minimum="0" Maximum="1" Height="4"/>
-                        </StackPanel>
-
-                        <Button Grid.Column="2"
-                            Classes="hubPrimary"
-                                Command="{Binding PrimaryAction}"
-                                Content="{Binding PrimaryActionLabel}"
-                                Margin="12,0,0,0"
-                                VerticalAlignment="Center"/>
-
-                        <Menu Grid.Column="3" VerticalAlignment="Center" Margin="12,0,0,0">
-                            <MenuItem Header="⋯" Foreground="#C4D0D8">
-                                <MenuItem Header="Pause" Command="{Binding Track.PauseCommand}"/>
-                                <MenuItem Header="Resume" Command="{Binding Track.ResumeCommand}"/>
-                                <MenuItem Header="Force Start" Command="{Binding Track.ForceStartCommand}"/>
-                                <MenuItem Header="Retry" Command="{Binding Track.RetryCommand}"/>
-                                <MenuItem Header="Reveal" Command="{Binding Track.RevealFileCommand}"/>
-                                <MenuItem Header="Cancel" Command="{Binding Track.CancelCommand}"/>
-                            </MenuItem>
-                        </Menu>
-                    </Grid>
-
-                    <Border Classes="hubBadge" BorderBrush="{Binding StatusAccent}" BorderThickness="1">
-                        <TextBlock Text="{Binding StatusBadgeText}" Foreground="{Binding StatusAccent}" FontSize="9" FontWeight="Bold"/>
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+                    <Border Grid.Column="0" Background="#1E2328" Width="26" Height="26" CornerRadius="13" VerticalAlignment="Center">
+                        <TextBlock Text="↓" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#A9BBC8" FontSize="12"/>
                     </Border>
 
-                    <Expander Classes="hubDetails" Header="Details" IsExpanded="{Binding IsDetailsExpanded}">
-                        <StackPanel Spacing="4" Margin="0,6,0,0">
-                            <TextBlock Text="{Binding PeerSummary, StringFormat='Peer: {0}'}" Foreground="#9FB0BB" FontSize="11"/>
-                            <TextBlock Text="{Binding RetrySummary, StringFormat='Retries: {0}'}" Foreground="#9FB0BB" FontSize="11"/>
-                            <TextBlock Text="{Binding DiagnosticsSummary, StringFormat='Diagnostics: {0}'}" Foreground="#9FB0BB" FontSize="11" TextWrapping="Wrap"/>
-                            <TextBlock Text="{Binding FilePathSummary, StringFormat='Path: {0}'}" Foreground="#7B8C97" FontSize="10" TextWrapping="Wrap"/>
+                    <StackPanel Grid.Column="1" Spacing="3" Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Foreground="White" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Background="#10161B" BorderBrush="{Binding StatusAccent}" BorderThickness="1" CornerRadius="3" Padding="6,1">
+                                <TextBlock Text="{Binding StatusBadgeText}" Foreground="{Binding StatusAccent}" FontSize="9" FontWeight="Bold"/>
+                            </Border>
+                            <TextBlock Text="{Binding StatusText}" Foreground="#8DA0AE" FontSize="11" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                         </StackPanel>
-                    </Expander>
-                </StackPanel>
+                        <ProgressBar IsVisible="{Binding IsProgressVisible}" Value="{Binding Progress}" Minimum="0" Maximum="1" Height="3" Margin="0,1,0,0"/>
+                    </StackPanel>
+
+                    <Button Grid.Column="2"
+                            Classes="hubPrimary"
+                            Command="{Binding PrimaryAction}"
+                            Content="{Binding PrimaryActionLabel}"
+                            Margin="12,0,0,0"
+                            VerticalAlignment="Center"/>
+
+                    <Menu Grid.Column="3" VerticalAlignment="Center" Margin="8,0,0,0">
+                        <MenuItem Header="⋯" Foreground="#C4D0D8">
+                            <MenuItem Header="Pause" Command="{Binding Track.PauseCommand}"/>
+                            <MenuItem Header="Resume" Command="{Binding Track.ResumeCommand}"/>
+                            <MenuItem Header="Force Start" Command="{Binding Track.ForceStartCommand}"/>
+                            <MenuItem Header="Retry" Command="{Binding Track.RetryCommand}"/>
+                            <MenuItem Header="Reveal" Command="{Binding Track.RevealFileCommand}"/>
+                            <MenuItem Header="Cancel" Command="{Binding Track.CancelCommand}"/>
+                        </MenuItem>
+                    </Menu>
+
+                    <Button Grid.Column="4"
+                            Command="{Binding SelectCommand}"
+                            Background="Transparent" BorderThickness="0"
+                            Padding="8,0" VerticalAlignment="Center"
+                            ToolTip.Tip="Show peer details">
+                        <TextBlock Text="›" FontSize="18" Foreground="#3A5C70"/>
+                    </Button>
+                </Grid>
             </Border>
         </DataTemplate>
 
@@ -770,10 +792,13 @@
                                  <PathIcon Data="{StaticResource dismiss_regular}" Width="14" Height="14"/>
                              </Button>
 
-                             <ToggleButton IsChecked="{Binding ShowEngineLogs}" 
+                             <ToggleButton IsChecked="{Binding ShowEngineLogs}"
                                            Background="#2D2D2D" BorderBrush="#444" BorderThickness="1" Padding="10,6" CornerRadius="6">
                                  <PathIcon Data="{StaticResource document_text_regular}" Width="14" Height="14" Foreground="#888"/>
                              </ToggleButton>
+                             <ToggleButton x:Name="BatchPresetsToggle" Content="Presets ▾" Padding="10,6" CornerRadius="6" FontSize="10"
+                                           Background="#2D2D2D" BorderBrush="#444" BorderThickness="1" Foreground="#888"
+                                           ToolTip.Tip="Show batch download presets and quality profile chips"/>
                         </StackPanel>
 
                         <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
@@ -787,9 +812,10 @@
                             </ToggleButton>
 
 
-                            <TextBlock Text="PROFILE" FontSize="9" Foreground="#555" VerticalAlignment="Center" Margin="12,0,0,0"/>
-                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
-
+                            <TextBlock Text="PROFILE" FontSize="9" Foreground="#555" VerticalAlignment="Center" Margin="12,0,0,0"
+                                       IsVisible="{Binding #BatchPresetsToggle.IsChecked}"/>
+                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right"
+                                        IsVisible="{Binding #BatchPresetsToggle.IsChecked}">
                                 <ToggleButton Classes="profileChip nonStrict" IsChecked="{Binding DownloadProfileNonStrict, Mode=TwoWay}" ToolTip.Tip="Non-Strict: FLAC + MP3">
                                     <TextBlock Text="Non-Strict" FontSize="10" FontWeight="SemiBold"/>
                                 </ToggleButton>
@@ -804,7 +830,8 @@
                         <TextBlock Text="{Binding DownloadProfileModeText}" FontSize="10" Foreground="#768592" HorizontalAlignment="Right"/>
 
                         <!-- #140: Batch Profile — one-click concurrency + quality preset -->
-                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" Margin="0,6,0,0">
+                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" Margin="0,6,0,0"
+                                    IsVisible="{Binding #BatchPresetsToggle.IsChecked}">
                             <TextBlock Text="BATCH" FontSize="9" Foreground="#555" VerticalAlignment="Center" Margin="0,0,4,0"/>
                             <ToggleButton Classes="profileChip nonStrict"
                                           IsChecked="{Binding SelectedBatchProfile, Converter={StaticResource EnumToCheckedConverter}, ConverterParameter=DJSetPrep}"
@@ -940,51 +967,155 @@
                         </Grid>
                     </Border>
 
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                        <StackPanel Spacing="16" Margin="16,16,16,24">
-                            <Border Classes="hubSectionCard" IsVisible="{Binding HubActiveRows.Count}">
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="Active Downloads" FontSize="12" FontWeight="Bold" Foreground="#99C7DB"/>
-                                    <ItemsRepeater ItemsSource="{Binding HubActiveRows}">
-                                        <ItemsRepeater.Layout>
-                                            <StackLayout Spacing="0"/>
-                                        </ItemsRepeater.Layout>
-                                        <ItemsRepeater.ItemTemplate>
-                                            <StaticResource ResourceKey="HubDownloadRowTemplate"/>
-                                        </ItemsRepeater.ItemTemplate>
-                                    </ItemsRepeater>
-                                </StackPanel>
-                            </Border>
+                    <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
+                        <!-- Download list -->
+                        <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Spacing="16" Margin="16,16,16,24">
 
-                            <Border Classes="hubSectionCard" IsVisible="{Binding HubAttentionRows.Count}">
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="Failed / Attention Needed" FontSize="12" FontWeight="Bold" Foreground="#E0A3A3"/>
-                                    <ItemsRepeater ItemsSource="{Binding HubAttentionRows}">
-                                        <ItemsRepeater.Layout>
-                                            <StackLayout Spacing="0"/>
-                                        </ItemsRepeater.Layout>
-                                        <ItemsRepeater.ItemTemplate>
-                                            <StaticResource ResourceKey="HubDownloadRowTemplate"/>
-                                        </ItemsRepeater.ItemTemplate>
-                                    </ItemsRepeater>
-                                </StackPanel>
-                            </Border>
+                                <!-- QUEUE BY PLAYLIST — shows every playlist group that has pending/stalled/searching tracks -->
+                                <Border Classes="hubSectionCard" IsVisible="{Binding ActiveGroups.Count}">
+                                    <StackPanel Spacing="10">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
+                                                <TextBlock Text="QUEUE BY PLAYLIST" FontSize="11" FontWeight="Black" Foreground="#FFB300" LetterSpacing="1" VerticalAlignment="Center"/>
+                                                <Border Background="#2C2200" BorderBrush="#664400" BorderThickness="1" CornerRadius="999" Padding="8,2" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding ActiveGroups.Count, StringFormat='{}{0} playlist(s)'}" Foreground="#FFB300" FontSize="10" FontWeight="Bold"/>
+                                                </Border>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1" Text="{Binding QueuedCount, StringFormat='{}{0} tracks waiting'}" FontSize="10" Foreground="#666" VerticalAlignment="Center"/>
+                                        </Grid>
+                                        <ItemsRepeater ItemsSource="{Binding ActiveGroups}">
+                                            <ItemsRepeater.Layout>
+                                                <StackLayout Spacing="4"/>
+                                            </ItemsRepeater.Layout>
+                                            <ItemsRepeater.ItemTemplate>
+                                                <StaticResource ResourceKey="DownloadGroupTemplate"/>
+                                            </ItemsRepeater.ItemTemplate>
+                                        </ItemsRepeater>
+                                    </StackPanel>
+                                </Border>
 
-                            <Border Classes="hubSectionCard">
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="Completed" FontSize="12" FontWeight="Bold" Foreground="#9ED4B0"/>
-                                    <ItemsRepeater ItemsSource="{Binding HubCompletedRecentRows}">
-                                        <ItemsRepeater.Layout>
-                                            <StackLayout Spacing="0"/>
-                                        </ItemsRepeater.Layout>
-                                        <ItemsRepeater.ItemTemplate>
-                                            <StaticResource ResourceKey="HubDownloadRowTemplate"/>
-                                        </ItemsRepeater.ItemTemplate>
-                                    </ItemsRepeater>
+                                <Border Classes="hubSectionCard" IsVisible="{Binding HubActiveRows.Count}">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="Active Downloads" FontSize="12" FontWeight="Bold" Foreground="#99C7DB"/>
+                                        <ItemsRepeater ItemsSource="{Binding HubActiveRows}">
+                                            <ItemsRepeater.Layout>
+                                                <StackLayout Spacing="0"/>
+                                            </ItemsRepeater.Layout>
+                                            <ItemsRepeater.ItemTemplate>
+                                                <StaticResource ResourceKey="HubDownloadRowTemplate"/>
+                                            </ItemsRepeater.ItemTemplate>
+                                        </ItemsRepeater>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Classes="hubSectionCard" IsVisible="{Binding HubAttentionRows.Count}">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="Failed / Attention Needed" FontSize="12" FontWeight="Bold" Foreground="#E0A3A3"/>
+                                        <ItemsRepeater ItemsSource="{Binding HubAttentionRows}">
+                                            <ItemsRepeater.Layout>
+                                                <StackLayout Spacing="0"/>
+                                            </ItemsRepeater.Layout>
+                                            <ItemsRepeater.ItemTemplate>
+                                                <StaticResource ResourceKey="HubDownloadRowTemplate"/>
+                                            </ItemsRepeater.ItemTemplate>
+                                        </ItemsRepeater>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Classes="hubSectionCard" IsVisible="{Binding HubCompletedRecentRows.Count}">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="Completed" FontSize="12" FontWeight="Bold" Foreground="#9ED4B0"/>
+                                        <ItemsRepeater ItemsSource="{Binding HubCompletedRecentRows}">
+                                            <ItemsRepeater.Layout>
+                                                <StackLayout Spacing="0"/>
+                                            </ItemsRepeater.Layout>
+                                            <ItemsRepeater.ItemTemplate>
+                                                <StaticResource ResourceKey="HubDownloadRowTemplate"/>
+                                            </ItemsRepeater.ItemTemplate>
+                                        </ItemsRepeater>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Empty state: shown when no downloads have been queued yet -->
+                                <StackPanel IsVisible="{Binding !HubRows.Count}"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Spacing="12"
+                                            Margin="0,48,0,0">
+                                    <TextBlock Text="📥" FontSize="40" HorizontalAlignment="Center" Opacity="0.25"/>
+                                    <TextBlock Text="No downloads yet" FontSize="15" FontWeight="SemiBold"
+                                               Foreground="#555" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="Search for tracks and click Download — they'll appear here."
+                                               FontSize="12" Foreground="#444" HorizontalAlignment="Center"
+                                               TextAlignment="Center" MaxWidth="280" TextWrapping="Wrap"/>
                                 </StackPanel>
-                            </Border>
-                        </StackPanel>
-                    </ScrollViewer>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <!-- Peer detail side panel — shown when a hub row is selected -->
+                        <Border Grid.Column="1"
+                                Width="280"
+                                Background="#111720"
+                                BorderBrush="#1E2C38"
+                                BorderThickness="1,0,0,0"
+                                IsVisible="{Binding SelectedHubRow, Converter={x:Static ObjectConverters.IsNotNull}}">
+                            <Grid RowDefinitions="Auto,*,Auto" DataContext="{Binding SelectedHubRow}">
+                                <!-- Panel header -->
+                                <Border Grid.Row="0" Background="#141B24" Padding="14,10" BorderBrush="#1E2C38" BorderThickness="0,0,0,1">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Grid.Column="0" Spacing="2">
+                                            <TextBlock Text="PEER DETAILS" FontSize="9" FontWeight="Black"
+                                                       Foreground="#3A6080" LetterSpacing="1.2"/>
+                                            <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"
+                                                       Foreground="#D8E8F0" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1"
+                                                Command="{Binding $parent[UserControl].DataContext.ClearHubSelectionCommand}"
+                                                Background="Transparent" BorderThickness="0"
+                                                Padding="4" VerticalAlignment="Top"
+                                                ToolTip.Tip="Close panel">
+                                            <TextBlock Text="✕" FontSize="11" Foreground="#3A5C70"/>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Detail rows -->
+                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="10" Margin="14,12">
+                                        <StackPanel Spacing="3">
+                                            <TextBlock Text="PEER" FontSize="9" FontWeight="Black" Foreground="#3A5C70" LetterSpacing="0.8"/>
+                                            <TextBlock Text="{Binding PeerSummary}" Foreground="#B0C8D8" FontSize="11" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <StackPanel Spacing="3">
+                                            <TextBlock Text="ATTEMPTS" FontSize="9" FontWeight="Black" Foreground="#3A5C70" LetterSpacing="0.8"/>
+                                            <TextBlock Text="{Binding RetrySummary}" Foreground="#B0C8D8" FontSize="11"/>
+                                        </StackPanel>
+                                        <StackPanel Spacing="3">
+                                            <TextBlock Text="DIAGNOSTICS" FontSize="9" FontWeight="Black" Foreground="#3A5C70" LetterSpacing="0.8"/>
+                                            <TextBlock Text="{Binding DiagnosticsSummary}" Foreground="#B0C8D8" FontSize="11" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <StackPanel Spacing="3">
+                                            <TextBlock Text="FILE PATH" FontSize="9" FontWeight="Black" Foreground="#3A5C70" LetterSpacing="0.8"/>
+                                            <TextBlock Text="{Binding FilePathSummary}" Foreground="#7B8C97" FontSize="10" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </ScrollViewer>
+
+                                <!-- Action strip -->
+                                <Border Grid.Row="2" Padding="12,10" BorderBrush="#1E2C38" BorderThickness="0,1,0,0">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Button Content="Retry" Command="{Binding Track.RetryCommand}"
+                                                Background="#1A2A1A" BorderBrush="#2E7049" BorderThickness="1"
+                                                Foreground="#4CAF50" CornerRadius="4" Padding="10,5" FontSize="11"/>
+                                        <Button Content="Reveal" Command="{Binding Track.RevealFileCommand}"
+                                                Background="#1A2230" BorderBrush="#2A4060" BorderThickness="1"
+                                                Foreground="#6AACDD" CornerRadius="4" Padding="10,5" FontSize="11"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Border>
+                    </Grid>
                 </Grid>
             </TabItem>
 
@@ -1326,16 +1457,16 @@
 
                                 <!-- SECTION 2: THE QUEUE (Groups & Bulk) -->
                                 <Expander IsVisible="{Binding ActiveGroups.Count}"
-                                          IsExpanded="False"
+                                          IsExpanded="True"
                                           Background="#161617"
-                                          BorderBrush="#2B2B2E"
+                                          BorderBrush="#664400"
                                           BorderThickness="1"
                                           CornerRadius="8">
                                     <Expander.Header>
                                         <StackPanel Orientation="Horizontal" Spacing="12" Margin="8,4">
-                                            <TextBlock Text="ON DECK" FontSize="10" FontWeight="Black" Foreground="#8A8A8A" LetterSpacing="1"/>
-                                            <Border Background="#333" Width="40" Height="1" VerticalAlignment="Center"/>
-                                            <TextBlock Text="queued and stalled groups" FontSize="9" Foreground="#666" VerticalAlignment="Center" FontStyle="Italic"/>
+                                            <TextBlock Text="ON DECK" FontSize="10" FontWeight="Black" Foreground="#FFB300" LetterSpacing="1"/>
+                                            <Border Background="#664400" Width="40" Height="1" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding ActiveGroups.Count, StringFormat='{}{0} playlist(s) queued'}" FontSize="9" Foreground="#FFB300" VerticalAlignment="Center" Opacity="0.7"/>
                                         </StackPanel>
                                     </Expander.Header>
 

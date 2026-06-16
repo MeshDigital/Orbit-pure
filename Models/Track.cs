@@ -2,11 +2,43 @@ using System.IO;
 
 namespace SLSKDONET.Models;
 
+public enum TrackAvailabilityState
+{
+    Ghost = 0,
+    QueuedForDownload = 1,
+    Downloading = 2,
+    LocalUnanalyzed = 3,
+    Ready = 4
+}
+
 /// <summary>
 /// Represents a music track found on Soulseek.
 /// </summary>
 public class Track
 {
+    private TrackAvailabilityState _availabilityState = TrackAvailabilityState.Ghost;
+    
+    public TrackAvailabilityState AvailabilityState
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(FilePath) || !System.IO.File.Exists(FilePath))
+            {
+                if (_availabilityState == TrackAvailabilityState.QueuedForDownload ||
+                    _availabilityState == TrackAvailabilityState.Downloading)
+                {
+                    return _availabilityState;
+                }
+                return TrackAvailabilityState.Ghost;
+            }
+            return _availabilityState == TrackAvailabilityState.Ghost ? TrackAvailabilityState.LocalUnanalyzed : _availabilityState;
+        }
+        set => _availabilityState = value;
+    }
+
+    public string? SpotifyPlaylistId { get; set; }
+    public string? SpotifyUri { get; set; }
+
     public string? Filename { get; set; }
     public string? Directory { get; set; } // Added for Album Grouping
     public string? Artist { get; set; }

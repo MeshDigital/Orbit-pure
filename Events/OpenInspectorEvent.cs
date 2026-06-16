@@ -29,6 +29,7 @@ public class OpenInspectorEvent
         {
             "Library.TrackSelection.Double" => ("DOUBLE INSPECTOR", "🔗"),
             "Library.TrackSelection.Single" => ("TRACK INSPECTOR", "🔍"),
+            "Library.TrackSelection.AuditLog" => ("SEARCH AUDIT LOG", "📝"),
             "Library.TrackSelection.EmptyIntelligence" => ("INTELLIGENCE", "🧠"),
             "Library.ProjectSelection.EmptyIntelligence" => ("INTELLIGENCE", "🧠"),
             "Search.Selection.Single" => ("TRACK INSPECTOR", "🔍"),

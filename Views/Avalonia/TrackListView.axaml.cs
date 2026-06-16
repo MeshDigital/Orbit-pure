@@ -2,6 +2,7 @@ using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using SLSKDONET.ViewModels.Library;
+using SLSKDONET.Views.Avalonia.Controls;
 
 namespace SLSKDONET.Views.Avalonia;
 
@@ -11,7 +12,7 @@ public partial class TrackListView : UserControl
     {
         InitializeComponent();
 
-        var grid = this.FindControl<DataGrid>("TrackGrid");
+        var grid = this.FindControl<VirtualGrid>("TrackGrid");
         if (grid != null)
             grid.SelectionChanged += OnTrackGridSelectionChanged;
     }
@@ -26,7 +27,7 @@ public partial class TrackListView : UserControl
         if (DataContext is not TrackListViewModel vm)
             return;
 
-        if (sender is not DataGrid grid)
+        if (sender is not VirtualGrid grid)
             return;
 
         var selected = grid.SelectedItems

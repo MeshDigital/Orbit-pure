@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using SLSKDONET.Views.Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.VisualTree;
@@ -525,7 +526,7 @@ public partial class WorkstationPage : UserControl
     {
         if (DataContext is not WorkstationViewModel vm) return;
 
-        var grid = this.FindControl<DataGrid>("FlowTrackGrid");
+        var grid = this.FindControl<VirtualGrid>("FlowTrackGrid");
         if (grid == null) return;
 
         var selected = grid.SelectedItems
@@ -596,8 +597,8 @@ public partial class WorkstationPage : UserControl
             return;
         }
 
-        var row = sourceVisual.FindAncestorOfType<DataGridRow>();
-        if (row?.DataContext is not PlaylistTrack track)
+        var row = sourceVisual.FindAncestorOfType<Border>();
+        if (row == null || !row.Classes.Contains("track-row") || row.DataContext is not PlaylistTrack track)
         {
             return;
         }

@@ -65,6 +65,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private readonly ISoulseekAdapter _soulseek;
     private readonly ISoulseekCredentialService _credentialService;
     private readonly IConnectionLifecycleService _lifecycle;
+    private readonly IDbContextFactory<AppDbContext>? _dbFactory;
 
     // Hardcoded public client ID provided by user/project
     // Ideally this would be in a secured config, but for this desktop app scenario it's acceptable as a default.
@@ -1332,7 +1333,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         ISoulseekAdapter soulseek,
         ISoulseekCredentialService credentialService,
         IConnectionLifecycleService lifecycle,
-        KeyboardMappingsViewModel keyboardMappings)
+        KeyboardMappingsViewModel keyboardMappings,
+        IDbContextFactory<AppDbContext>? dbFactory = null)
     {
         _logger = logger;
         _config = config;
@@ -1345,6 +1347,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _eventBus = eventBus;
         _soulseek = soulseek;
         _credentialService = credentialService;
+        _dbFactory = dbFactory;
         _lifecycle = lifecycle;
         KeyboardMappings = keyboardMappings;
 
@@ -1854,7 +1857,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     {
         try
         {
-            using var context = new AppDbContext();
+            await using var context = _dbFactory != null ? _dbFactory.CreateDbContext() : new AppDbContext();
             var logs = await context.LibraryActionLogs
                 .AsNoTracking()
                 .Where(l => l.ActionType == LibraryActionType.Consolidate)
@@ -2091,6 +2094,22 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         DiagnosticsSnapshotStatus = "";
     }
 
+    // ── Settings help panel ──────────────────────────────────────────────────
+
+    private string _focusedHelpTitle = "Settings";
+    public string FocusedHelpTitle
+    {
+        get => _focusedHelpTitle;
+        set => SetProperty(ref _focusedHelpTitle, value);
+    }
+
+    private string _focusedHelpText = "Hover over or click a field to see context-sensitive guidance here.";
+    public string FocusedHelpText
+    {
+        get => _focusedHelpText;
+        set => SetProperty(ref _focusedHelpText, value);
+    }
+
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
@@ -2194,7 +2213,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     {
         try
         {
-            using var context = new AppDbContext();
+            await using var context = _dbFactory != null ? _dbFactory.CreateDbContext() : new AppDbContext();
             var folders = await context.LibraryFolders.OrderBy(f => f.FolderPath).ToListAsync();
 
             await Dispatcher.UIThread.InvokeAsync(() =>
@@ -2219,8 +2238,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             var path = await _fileInteractionService.OpenFolderDialogAsync("Select Music Library Folder");
             if (string.IsNullOrEmpty(path)) return;
 
-            using var context = new AppDbContext();
-            
+            await using var context = _dbFactory != null ? _dbFactory.CreateDbContext() : new AppDbContext();
+
             // Check duplicates
             if (await context.LibraryFolders.AnyAsync(f => f.FolderPath == path))
             {
@@ -2254,7 +2273,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
         try
         {
-            using var context = new AppDbContext();
+            await using var context = _dbFactory != null ? _dbFactory.CreateDbContext() : new AppDbContext();
             var folder = await context.LibraryFolders.FindAsync(SelectedLibraryFolder.Id);
             
             if (folder != null)

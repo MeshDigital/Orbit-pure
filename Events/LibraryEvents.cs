@@ -26,3 +26,9 @@ public class SearchRequestedEvent
         Query = query;
     }
 }
+
+public class SetCamelotKeyFilterEvent
+{
+    public string? Key { get; }
+    public SetCamelotKeyFilterEvent(string? key) => Key = key;
+}

@@ -9,6 +9,7 @@ using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Views; // For RelayCommand
 using SLSKDONET.Data; // For IntegrityLevel
+using SLSKDONET.Events;
 
 namespace SLSKDONET.ViewModels;
 
@@ -296,6 +297,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
             Model.MoodTag = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasMood));
+            OnPropertyChanged(nameof(HasVibeData));
         }
     }
     
@@ -432,6 +434,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     public bool HasBpm => BPM > 0;
     public bool HasKey => !string.IsNullOrEmpty(MusicalKey) && MusicalKey != "—";
     public bool HasGenre => !string.IsNullOrEmpty(DetectedSubGenre) || !string.IsNullOrEmpty(Genres) || !string.IsNullOrEmpty(PrimaryGenre);
+    public bool HasVibeData => HasGenre || HasMood;
 
     public string StatusText => State switch
     {
@@ -509,6 +512,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     };
     public IReadOnlyList<double> EnergyCurvePoints => BuildEnergyCurvePoints();
     public IReadOnlyList<PhraseSegment> PhraseSegments => BuildPhraseSegments();
+    public bool HasPhraseSegments => (Model.CanonicalDuration ?? 0) > 0;
 
     // Inspector panel: last analysis timestamp + model version tooltip
     public string LastAnalyzedDisplay =>
@@ -924,6 +928,8 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     // Reference to the underlying model if needed for persistence later
     public PlaylistTrack Model { get; private set; }
 
+    public bool IsGhost => Model.AvailabilityState == SLSKDONET.Models.TrackAvailabilityState.Ghost;
+
     // Cancellation token source for this specific track's operation
     public System.Threading.CancellationTokenSource? CancellationTokenSource { get; set; }
 
@@ -995,6 +1001,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     public ICommand OpenWorkstationCommand { get; }
     public ICommand AddToProjectCommand { get; }
     public ICommand ToggleLikeCommand { get; }
+    public ICommand FilterByKeyCommand { get; }
 
     private readonly IEventBus? _eventBus;
     private readonly ILibraryService? _libraryService;
@@ -1046,6 +1053,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         ForceStartCommand = new RelayCommand(ForceStart, () => CanForceStart);
         BumpToTopCommand = new RelayCommand(BumpToTop, () => CanBumpToTop);
         ToggleLikeCommand = new RelayCommand(() => IsLiked = !IsLiked);
+        FilterByKeyCommand = new RelayCommand<string>(key => _eventBus?.Publish(new SetCamelotKeyFilterEvent(key)));
         
         // REMOVED: 8000+ redundant event listeners eliminated.
         // Centralized dispatch moved to VirtualizedTrackCollection.
@@ -1186,6 +1194,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
              OnPropertyChanged(nameof(IsDjTool));
              OnPropertyChanged(nameof(MoodTag));
              OnPropertyChanged(nameof(HasMood));
+             OnPropertyChanged(nameof(HasVibeData));
              OnPropertyChanged(nameof(MoodConfidence));
              OnPropertyChanged(nameof(SonicProfile));
              OnPropertyChanged(nameof(Genres));
@@ -1704,6 +1713,22 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    public void NotifyMetadataChanged()
+    {
+        OnPropertyChanged(nameof(Artist));
+        OnPropertyChanged(nameof(Title));
+        OnPropertyChanged(nameof(Album));
+        OnPropertyChanged(nameof(ArtistName));
+        OnPropertyChanged(nameof(TrackTitle));
+        OnPropertyChanged(nameof(AlbumName));
+        OnPropertyChanged(nameof(Genres));
+        OnPropertyChanged(nameof(GenresDisplay));
+        OnPropertyChanged(nameof(PrimaryGenre));
+        OnPropertyChanged(nameof(ReleaseDate));
+        OnPropertyChanged(nameof(ReleaseYear));
+        OnPropertyChanged(nameof(YearDisplay));
     }
 
     protected bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)

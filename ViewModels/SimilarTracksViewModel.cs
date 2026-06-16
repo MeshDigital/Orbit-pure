@@ -38,7 +38,9 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject, IDisposable
     private float  _overallScore;
     private float  _harmonyScore;
     private float  _beatScore;
+    private float  _soundScore;
     private float  _dropSonicScore;
+    private float  _outroIntroScore;
     private float  _doubleDropScore;
     private string _harmonyLabel   = string.Empty;
     private string _beatLabel      = string.Empty;
@@ -55,6 +57,7 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject, IDisposable
     private string _transitionStyleReason = string.Empty;
     private bool   _addToProjectOnBridgeInsert = true;
     private readonly IEventBus? _eventBus;
+    private readonly IDbContextFactory<AppDbContext>? _dbFactory;
     private PlaylistTrack? _projectTrack;
 
     public string Title  { get => _title;  private set => this.RaiseAndSetIfChanged(ref _title,  value); }
@@ -69,7 +72,9 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject, IDisposable
     public float OverallScore    { get => _overallScore;    set => this.RaiseAndSetIfChanged(ref _overallScore,    value); }
     public float HarmonyScore    { get => _harmonyScore;    set => this.RaiseAndSetIfChanged(ref _harmonyScore,    value); }
     public float BeatScore       { get => _beatScore;       set => this.RaiseAndSetIfChanged(ref _beatScore,       value); }
+    public float SoundScore      { get => _soundScore;      set => this.RaiseAndSetIfChanged(ref _soundScore,      value); }
     public float DropSonicScore  { get => _dropSonicScore;  set => this.RaiseAndSetIfChanged(ref _dropSonicScore,  value); }
+    public float OutroIntroScore { get => _outroIntroScore; set => this.RaiseAndSetIfChanged(ref _outroIntroScore, value); }
     public float DoubleDropScore { get => _doubleDropScore; set => this.RaiseAndSetIfChanged(ref _doubleDropScore, value); }
     public string HarmonyLabel   { get => _harmonyLabel;    set => this.RaiseAndSetIfChanged(ref _harmonyLabel,    value); }
     public string BeatLabel      { get => _beatLabel;       set => this.RaiseAndSetIfChanged(ref _beatLabel,       value); }
@@ -122,11 +127,13 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject, IDisposable
         DatabaseService db,
         ILogger logger,
         IEventBus? eventBus = null,
-        TrackMatchScore? matchScore = null)
+        TrackMatchScore? matchScore = null,
+        IDbContextFactory<AppDbContext>? dbFactory = null)
     {
         TrackHash = result.TrackHash;
         _score    = result.Score;
         _eventBus = eventBus;
+        _dbFactory = dbFactory;
 
         AddToPlaylistCommand = new RelayCommand(() =>
         {
@@ -163,7 +170,9 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject, IDisposable
         {
             try
             {
-                using var context = new AppDbContext();
+                await using var context = _dbFactory != null
+                    ? _dbFactory.CreateDbContext()
+                    : new AppDbContext();
 
                 var libraryEntry = await context.LibraryEntries
                     .AsNoTracking()
@@ -230,7 +239,9 @@ public sealed class SimilarTrackRowViewModel : ReactiveObject, IDisposable
         OverallScore          = s.OverallScore;
         HarmonyScore          = s.HarmonyScore;
         BeatScore             = s.BeatScore;
+        SoundScore            = s.SoundScore;
         DropSonicScore        = s.DropSonicScore;
+        OutroIntroScore       = s.OutroIntroScore;
         DoubleDropScore       = s.DoubleDropScore;
         HarmonyLabel          = s.HarmonyLabel;
         BeatLabel             = s.BeatLabel;
@@ -309,6 +320,7 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
     private readonly TrackSimilarityService? _trackSimilarityService;
     private readonly TransitionStyleClassifier? _transitionStyleClassifier;
     private readonly ILogger               _logger;
+    private readonly IDbContextFactory<AppDbContext>? _dbFactory;
     private readonly CompositeDisposable   _disposables = new();
 
     // ── Seed ──────────────────────────────────────────────────────────────
@@ -438,13 +450,15 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
         SectionVectorService? sectionVectors = null,
         PlaylistIntelligenceService? playlistIntelligence = null,
         TrackSimilarityService? trackSimilarityService = null,
-        TransitionStyleClassifier? transitionStyleClassifier = null)
+        TransitionStyleClassifier? transitionStyleClassifier = null,
+        IDbContextFactory<AppDbContext>? dbFactory = null)
     {
         _index          = index;
         _db             = db;
         _logger         = logger;
         _eventBus       = eventBus;
         _sectionVectors = sectionVectors;
+        _dbFactory      = dbFactory;
         _playlistIntelligence = playlistIntelligence;
         _trackSimilarityService = trackSimilarityService;
         _transitionStyleClassifier = transitionStyleClassifier;
@@ -535,7 +549,7 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
                 foreach (var hit in hits)
                 {
                     matchScores.TryGetValue(hit.TrackHash, out var ms);
-                    Results.Add(new SimilarTrackRowViewModel(hit, _db, _logger, _eventBus, ms));
+                    Results.Add(new SimilarTrackRowViewModel(hit, _db, _logger, _eventBus, ms, _dbFactory));
                 }
 
                 StatusMessage = hits.Count == 0
@@ -701,7 +715,7 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
         {
             // Get all library tracks as candidates
             IReadOnlyList<string> candidateHashes;
-            using (var db = new AppDbContext())
+            await using (var db = _dbFactory != null ? _dbFactory.CreateDbContext() : new AppDbContext())
             {
                 // Only consider tracks that are analyzed and present in local library with a file path.
                 candidateHashes = await (
@@ -756,7 +770,7 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
                     {
                         var result = new SimilarTrack(recommendation.TrackHash, recommendation.Score);
 
-                        var row = new SimilarTrackRowViewModel(result, _db, _logger, _eventBus)
+                        var row = new SimilarTrackRowViewModel(result, _db, _logger, _eventBus, dbFactory: _dbFactory)
                         {
                             IsBridgeBetweenCandidate = true,
                             BridgeFromScore = (float)recommendation.SimilarityScore,
@@ -784,7 +798,7 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
                     {
                         var result = new SimilarTrack(trackHash, bridgeScore);
 
-                        var row = new SimilarTrackRowViewModel(result, _db, _logger, _eventBus)
+                        var row = new SimilarTrackRowViewModel(result, _db, _logger, _eventBus, dbFactory: _dbFactory)
                         {
                             IsBridgeBetweenCandidate = true,
                             BridgeFromScore = (float)aToXScore,
@@ -856,7 +870,7 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
             allHashes.AddRange(hits.Select(h => h.TrackHash));
 
             Dictionary<string, Data.Entities.AudioFeaturesEntity> featureMap;
-            using (var db = new AppDbContext())
+            await using (var db = _dbFactory != null ? _dbFactory.CreateDbContext() : new AppDbContext())
             {
                 var rows = await db.AudioFeatures
                     .Where(f => allHashes.Contains(f.TrackUniqueHash))

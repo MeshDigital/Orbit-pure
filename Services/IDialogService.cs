@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using SLSKDONET.Models;
 using SLSKDONET.ViewModels;
+using SLSKDONET.ViewModels.Downloads;
 
 namespace SLSKDONET.Services;
 
@@ -38,10 +39,22 @@ public interface IDialogService
     Task<PlaylistJob?> ShowProjectPickerAsync(System.Collections.Generic.IEnumerable<PlaylistJob> projects);
 
     /// <summary>
+    /// Shows a playlist picker dialog that supports creating new playlists.
+    /// </summary>
+    Task<ViewModels.Library.PlaylistPickerResult?> ShowPlaylistPickerDialogAsync(System.Collections.Generic.IEnumerable<PlaylistJob> playlists);
+
+    /// <summary>
+    /// Shows a batch tag editor dialog.
+    /// </summary>
+    Task<ViewModels.Library.BatchTagEditResult?> ShowBatchTagEditDialogAsync();
+
+    /// <summary>
     /// Shows a folder selection dialog.
     /// </summary>
     /// <returns>Selected folder path or null if cancelled.</returns>
     Task<string?> OpenFolderDialogAsync(string title);
 
     Task ShowSuggestedFlowImpactAsync(SuggestedFlowImpactViewModel vm);
+
+    Task ShowSpectralForensicsAsync(UnifiedTrackViewModel vm);
 }

@@ -164,33 +164,18 @@
                                                        Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                                     </StackPanel>
 
-                                    <!-- A10 snapshot row: keep percentages + reasons in one compact inspector line -->
+                                    <!-- Score breakdown: Sound · Harmony · Beat · Drop · Outro→Intro -->
                                     <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <TextBlock Text="A10"
-                                                   Classes="miniScore"
-                                                   Foreground="#9BD7CA"
-                                                   FontWeight="SemiBold"/>
-                                        <TextBlock Text="{Binding OverallScore, StringFormat={}{0:P0}}"
-                                                   Classes="miniScore"
-                                                   Foreground="#9BD7CA"/>
-                                        <TextBlock Text="H"
-                                                   Classes="miniScore"
-                                                   Foreground="#9F7AEA"/>
-                                        <TextBlock Text="{Binding HarmonyScore, StringFormat={}{0:P0}}"
-                                                   Classes="miniScore"
-                                                   Foreground="#9F7AEA"/>
-                                        <TextBlock Text="S"
-                                                   Classes="miniScore"
-                                                   Foreground="#63B3ED"/>
-                                        <TextBlock Text="{Binding BeatScore, StringFormat={}{0:P0}}"
-                                                   Classes="miniScore"
-                                                   Foreground="#63B3ED"/>
-                                        <TextBlock Text="E"
-                                                   Classes="miniScore"
-                                                   Foreground="#FC8181"/>
-                                        <TextBlock Text="{Binding DropSonicScore, StringFormat={}{0:P0}}"
-                                                   Classes="miniScore"
-                                                   Foreground="#FC8181"/>
+                                        <TextBlock Text="S" Classes="miniScore" Foreground="#9BD7CA" ToolTip.Tip="Sound — neural texture similarity"/>
+                                        <TextBlock Text="{Binding SoundScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#9BD7CA"/>
+                                        <TextBlock Text="H" Classes="miniScore" Foreground="#9F7AEA" ToolTip.Tip="Harmony — Camelot key compatibility"/>
+                                        <TextBlock Text="{Binding HarmonyScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#9F7AEA"/>
+                                        <TextBlock Text="B" Classes="miniScore" Foreground="#63B3ED" ToolTip.Tip="Beat — BPM ratio match"/>
+                                        <TextBlock Text="{Binding BeatScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#63B3ED"/>
+                                        <TextBlock Text="E" Classes="miniScore" Foreground="#FC8181" ToolTip.Tip="Energy — drop/peak section match"/>
+                                        <TextBlock Text="{Binding DropSonicScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#FC8181"/>
+                                        <TextBlock Text="O" Classes="miniScore" Foreground="#F6AD55" ToolTip.Tip="Outro→Intro transition flow score"/>
+                                        <TextBlock Text="{Binding OutroIntroScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#F6AD55"/>
                                     </StackPanel>
                                 </StackPanel>
 
@@ -299,33 +284,18 @@
                                                MaxWidth="230"
                                                IsVisible="{Binding TransitionStyleReason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
 
-                                    <!-- A10 snapshot row for bridge candidates -->
+                                    <!-- Score breakdown: Sound · Harmony · Beat · Drop · Outro→Intro -->
                                     <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <TextBlock Text="A10"
-                                                   Classes="miniScore"
-                                                   Foreground="#9BD7CA"
-                                                   FontWeight="SemiBold"/>
-                                        <TextBlock Text="{Binding OverallScore, StringFormat={}{0:P0}}"
-                                                   Classes="miniScore"
-                                                   Foreground="#9BD7CA"/>
-                                        <TextBlock Text="H"
-                                                   Classes="miniScore"
-                                                   Foreground="#9F7AEA"/>
-                                        <TextBlock Text="{Binding HarmonyScore, StringFormat={}{0:P0}}"
-                                                   Classes="miniScore"
-                                                   Foreground="#9F7AEA"/>
-                                        <TextBlock Text="S"
-                                                   Classes="miniScore"
-                                                   Foreground="#63B3ED"/>
-                                        <TextBlock Text="{Binding BeatScore, StringFormat={}{0:P0}}"
-                                                   Classes="miniScore"
-                                                   Foreground="#63B3ED"/>
-                                        <TextBlock Text="E"
-                                                   Classes="miniScore"
-                                                   Foreground="#FC8181"/>
-                                        <TextBlock Text="{Binding DropSonicScore, StringFormat={}{0:P0}}"
-                                                   Classes="miniScore"
-                                                   Foreground="#FC8181"/>
+                                        <TextBlock Text="S" Classes="miniScore" Foreground="#9BD7CA" ToolTip.Tip="Sound — neural texture similarity"/>
+                                        <TextBlock Text="{Binding SoundScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#9BD7CA"/>
+                                        <TextBlock Text="H" Classes="miniScore" Foreground="#9F7AEA" ToolTip.Tip="Harmony — Camelot key compatibility"/>
+                                        <TextBlock Text="{Binding HarmonyScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#9F7AEA"/>
+                                        <TextBlock Text="B" Classes="miniScore" Foreground="#63B3ED" ToolTip.Tip="Beat — BPM ratio match"/>
+                                        <TextBlock Text="{Binding BeatScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#63B3ED"/>
+                                        <TextBlock Text="E" Classes="miniScore" Foreground="#FC8181" ToolTip.Tip="Energy — drop/peak section match"/>
+                                        <TextBlock Text="{Binding DropSonicScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#FC8181"/>
+                                        <TextBlock Text="O" Classes="miniScore" Foreground="#F6AD55" ToolTip.Tip="Outro→Intro transition flow score"/>
+                                        <TextBlock Text="{Binding OutroIntroScore, StringFormat={}{0:P0}}" Classes="miniScore" Foreground="#F6AD55"/>
                                     </StackPanel>
 
                                     <StackPanel Orientation="Horizontal" Spacing="8"

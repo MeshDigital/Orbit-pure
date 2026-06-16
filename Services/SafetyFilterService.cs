@@ -12,8 +12,8 @@ public interface ISafetyFilterService
 {
     bool IsSafe(Track candidate, string query, int? targetDurationSeconds = null);
     bool IsUpscaled(PlaylistTrack track);
-    SafetyCheckResult EvaluateCandidate(Track candidate, string query, int? targetDuration = null);
-    void EvaluateSafety(Track track, string query);
+    SafetyCheckResult EvaluateCandidate(Track candidate, string query, int? targetDuration = null, bool allowLossy = false);
+    void EvaluateSafety(Track track, string query, bool allowLossy = false);
 }
 
 /// <summary>
@@ -51,9 +51,9 @@ public class SafetyFilterService : ISafetyFilterService
     /// Evaluates track safety and flags suspicious files (Fake FLACs, Bad Users) without hiding them.
     /// Sets track.IsFlagged and track.FlagReason.
     /// </summary>
-    public void EvaluateSafety(Track track, string query)
+    public void EvaluateSafety(Track track, string query, bool allowLossy = false)
     {
-        var result = EvaluateCandidate(track, query, null);
+        var result = EvaluateCandidate(track, query, null, allowLossy);
         
         if (!result.IsSafe)
         {
@@ -71,7 +71,7 @@ public class SafetyFilterService : ISafetyFilterService
     /// Evaluates a candidate track and returns a detailed safety result.
     /// Used by both the UI (via EvaluateSafety) and the Automated Seeker (for Audit Logging).
     /// </summary>
-    public SafetyCheckResult EvaluateCandidate(Track candidate, string query, int? targetDuration = null)
+    public SafetyCheckResult EvaluateCandidate(Track candidate, string query, int? targetDuration = null, bool allowLossy = false)
     {
         // 1. Check Extension Blacklist
         var ext = Path.GetExtension(candidate.Filename ?? string.Empty).ToLowerInvariant();
@@ -81,14 +81,14 @@ public class SafetyFilterService : ISafetyFilterService
         }
 
         // 1B. Purist First Barrier: hard extension allow/deny
-        if (_lossyBlacklist.Contains(ext))
+        if (!allowLossy && _lossyBlacklist.Contains(ext))
         {
             return new SafetyCheckResult(false, "Lossy Extension Rejected", $"Extension '{ext}' is blacklisted for lossless hunting.");
         }
 
-        if (!_losslessWhitelist.Contains(ext))
+        if (!_losslessWhitelist.Contains(ext) && (!allowLossy || !_lossyBlacklist.Contains(ext)))
         {
-            return new SafetyCheckResult(false, "Unsupported Extension", $"Extension '{ext}' is outside the strict lossless whitelist.");
+            return new SafetyCheckResult(false, "Unsupported Extension", $"Extension '{ext}' is outside the allowed audio whitelist.");
         }
 
         // 2. The Accountant: Bitrate vs Size Math (Delegated to Forensic Core)
@@ -115,17 +115,32 @@ public class SafetyFilterService : ISafetyFilterService
             }
         }
 
-           // 4. Bitrate & sample-rate evidence gate for lossless intake
-           if (candidate.Bitrate <= 700)
-           {
-               return new SafetyCheckResult(false, "Bitrate Too Low", $"Bitrate {candidate.Bitrate}kbps is below strict >700kbps threshold.");
-           }
+        // 4. Bitrate & sample-rate evidence gate for lossless intake
+        if (!allowLossy)
+        {
+            // If bitrate is reported (> 0), require > 400kbps for lossless.
+            // Real 16-bit/44.1kHz FLACs of acoustic/folk/quiet music commonly fall between 400-700kbps;
+            // the old 700kbps floor was rejecting these legitimate files. 400kbps still catches
+            // MP3-to-FLAC transcodes (which report ~320kbps) and other low-bitrate fakes.
+            if (candidate.Bitrate > 0 && candidate.Bitrate <= 400)
+            {
+                return new SafetyCheckResult(false, "Bitrate Too Low", $"Bitrate {candidate.Bitrate}kbps is below 400kbps lossless floor (likely MP3 transcode).");
+            }
 
-           // Require 44.1kHz / 48kHz or higher for strict pass
-           if (!candidate.SampleRate.HasValue || candidate.SampleRate.Value < 44100)
-           {
-              return new SafetyCheckResult(false, "Sample Rate Too Low", $"Sample rate {(candidate.SampleRate?.ToString() ?? "unknown")}Hz is below 44.1kHz threshold.");
-           }
+            // Require 44.1kHz / 48kHz or higher for strict pass (if reported)
+            if (candidate.SampleRate.HasValue && candidate.SampleRate.Value < 44100)
+            {
+                return new SafetyCheckResult(false, "Sample Rate Too Low", $"Sample rate {candidate.SampleRate.Value}Hz is below 44.1kHz threshold.");
+            }
+        }
+        else
+        {
+            // MP3 Fallback Standard Enforcer: Enforce bitrate >= 256kbps for StemSeparation viability (if reported)
+            if (candidate.Bitrate > 0 && candidate.Bitrate < 256)
+            {
+                return new SafetyCheckResult(false, "Bitrate Too Low (Lossy Fallback)", $"Bitrate {candidate.Bitrate}kbps is below required standard 256kbps fallback threshold.");
+            }
+        }
         
         // 5. Manual Blacklist (Keywords/Users)
         if (IsBlacklisted(candidate))

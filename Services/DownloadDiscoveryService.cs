@@ -33,6 +33,7 @@ public class DownloadDiscoveryService
     private readonly Network.ProtocolHardeningService _hardeningService;
     private readonly PeerReliabilityService _peerReliability;
     private readonly INetworkHealthService _healthService;
+    private readonly SLSKDONET.Services.Diagnostics.ITrackAuditLogger _auditLogger;
 
     public DownloadDiscoveryService(
         ILogger<DownloadDiscoveryService> logger,
@@ -44,7 +45,8 @@ public class DownloadDiscoveryService
         Import.AutoCleanerService autoCleaner,
         Network.ProtocolHardeningService hardeningService,
         PeerReliabilityService peerReliability,
-        INetworkHealthService healthService)
+        INetworkHealthService healthService,
+        SLSKDONET.Services.Diagnostics.ITrackAuditLogger auditLogger)
     {
         _logger = logger;
         _searchOrchestrator = searchOrchestrator;
@@ -56,6 +58,7 @@ public class DownloadDiscoveryService
         _hardeningService = hardeningService;
         _peerReliability = peerReliability;
         _healthService = healthService;
+        _auditLogger = auditLogger;
 
         var minLane = Math.Clamp(_config.MinAdaptiveSearchLanes, 1, 8);
         var maxLane = Math.Clamp(_config.MaxAdaptiveSearchLanes, minLane, 8);
@@ -106,6 +109,8 @@ public class DownloadDiscoveryService
         {
             track.TrackUniqueHash = track.Id.ToString("N");
         }
+        var trackHash = track.TrackUniqueHash;
+        _auditLogger.Log(trackHash, $"[Search] Initiating discovery flow for track: {track.Artist} - {track.Title} | Correlation ID: {operationCorrelationId}");
 
         // Global discovery timeout: if all tiers combined take > 90s, abort cleanly.
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -182,6 +187,7 @@ public class DownloadDiscoveryService
                     var hedgedWinner = SelectPreferredResult(flacResult, hedgeResult);
                     if (hedgedWinner.BestMatch != null)
                     {
+                        _auditLogger.Log(trackHash, $"[Search] SUCCESS (Hedged): Found best match. Peer: {hedgedWinner.BestMatch.Username} | Score: {hedgedWinner.BestMatch.CurrentRank:F1}/100 | Format: {hedgedWinner.BestMatch.Format} | Bitrate: {hedgedWinner.BestMatch.Bitrate}kbps | File: {hedgedWinner.BestMatch.Filename}");
                         return hedgedWinner;
                     }
 
@@ -192,7 +198,11 @@ public class DownloadDiscoveryService
                 _logger.LogInformation("Discovery Tier {Tier} (Lossless) for: {Query}", tierNames[i], hardenedQuery);
                 var result = await PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, log, operationCorrelationId, globalSeenCandidates, forceMp3: false);
 
-                if (result.BestMatch != null) return result;
+                if (result.BestMatch != null)
+                {
+                    _auditLogger.Log(trackHash, $"[Search] SUCCESS: Found best match in tier {tierNames[i]}. Peer: {result.BestMatch.Username} | Score: {result.BestMatch.CurrentRank:F1}/100 | Format: {result.BestMatch.Format} | Bitrate: {result.BestMatch.Bitrate}kbps | File: {result.BestMatch.Filename}");
+                    return result;
+                }
                 if (timedCt.IsCancellationRequested) break;
                 
                 // PERFORMANCE Optimization: If FIRST tier (Dirty) finds absolutely ZERO results, 
@@ -208,8 +218,9 @@ public class DownloadDiscoveryService
                 _logger.LogInformation("🥈 Lossless discovery yielded no matches. Triggering integrated MP3 Fallback Pass for: {Title}", track.Title);
                 _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, "🥈 Lossless tiers failed. Trying MP3 fallback...", false, operationCorrelationId));
 
-                // Harden the fallback query through the Shield before sending it to the network.
-                var fallbackRawQuery = tiers.Smart;
+                // Use the Aggressive tier for the MP3 fallback so it tries a different query vector
+                // than the Smart MP3 hedge that already ran alongside the Dirty FLAC search.
+                var fallbackRawQuery = tiers.Aggressive;
                 var hardenedFallbackQuery = _hardeningService.NormalizeSearchQuery(fallbackRawQuery);
                 if (hardenedFallbackQuery == null)
                 {
@@ -222,6 +233,7 @@ public class DownloadDiscoveryService
                     if (fallbackResult.BestMatch != null)
                     {
                         _logger.LogInformation("✅ MP3 Fallback SUCCESS for {Title}.", track.Title);
+                        _auditLogger.Log(trackHash, $"[Search] SUCCESS (Fallback): Found best match in MP3 fallback. Peer: {fallbackResult.BestMatch.Username} | Score: {fallbackResult.BestMatch.CurrentRank:F1}/100 | Format: {fallbackResult.BestMatch.Format} | Bitrate: {fallbackResult.BestMatch.Bitrate}kbps | File: {fallbackResult.BestMatch.Filename}");
                         return fallbackResult;
                     }
                 }
@@ -243,6 +255,7 @@ public class DownloadDiscoveryService
             log.TimedOut = true;
         }
 
+        _auditLogger.Log(trackHash, $"[Search] FAILURE: No suitable candidate found after searching all available tiers." + (log.TimedOut ? " (Search timed out)" : ""), isError: true);
         return new DiscoveryResult(null, log);
         }
         finally
@@ -445,6 +458,7 @@ public class DownloadDiscoveryService
             // However, since results are ranked on-the-fly, if we trust the ranking, we might find good chunks.
             // But 'OverallScore' is relative? No, it's absolute calculation in ResultSorter now.
             
+            var trackHash = track.TrackUniqueHash; // Alias used throughout for audit logger calls
             var allTracks = new List<Track>();
             var searchStartTime = DateTime.UtcNow;
             Track? bestSilverMatch = null;
@@ -540,6 +554,7 @@ public class DownloadDiscoveryService
                     {
                         _logger.LogInformation("🏁 GOLDEN CRITERIA hit ({Score}/100): {File} [{Bitrate}kbps {Format}] - ending tier early.",
                             score, searchTrack.Filename, searchTrack.Bitrate, searchTrack.Format);
+                        _auditLogger.LogSearchCandidate(trackHash, searchTrack.Username, searchTrack.Bitrate, searchTrack.Format, "ACCEPTED", $"Golden match early exit (Score: {score:F1}/100) | File: {searchTrack.Filename}");
 
                         PublishStatus($"🏁 Golden match: {searchTrack.Username} ({searchTrack.Bitrate}kbps FLAC).");
 
@@ -567,6 +582,7 @@ public class DownloadDiscoveryService
                             searchTrack.Bitrate,
                             searchTrack.Format,
                             queueLength);
+                        _auditLogger.LogSearchCandidate(trackHash, searchTrack.Username, searchTrack.Bitrate, searchTrack.Format, "ACCEPTED", $"Fast lane idle-peer winner (Score: {score:F1}/100, Queue: {queueLength}) | File: {searchTrack.Filename}");
 
                         PublishStatus($"⚡ Fast lane winner: {searchTrack.Username} ({searchTrack.Bitrate}kbps, queue {queueLength}).");
 
@@ -581,6 +597,7 @@ public class DownloadDiscoveryService
                     {
                         _logger.LogInformation("🚀 QUICK STRIKE: Found high-confidence match ({Score}/100) early! Skipping rest of search. File: {File}",
                             score, searchTrack.Filename);
+                        _auditLogger.LogSearchCandidate(trackHash, searchTrack.Username, searchTrack.Bitrate, searchTrack.Format, "ACCEPTED", $"Quick strike early exit (Score: {score:F1}/100) | File: {searchTrack.Filename}");
 
                         PublishStatus($"🚀 Found high-confidence match from {searchTrack.Username} ({score:F0}/100)");
 
@@ -609,6 +626,7 @@ public class DownloadDiscoveryService
                     }
 
                     allTracks.Add(searchTrack);
+                    _auditLogger.LogSearchCandidate(trackHash, searchTrack.Username, searchTrack.Bitrate, searchTrack.Format, "EVALUATED", $"Score: {score:F1}/100, Queue: {queueLength} | File: {searchTrack.Filename} | Reason: {searchTrack.MatchReason}");
                 }
 
                 return null;
@@ -621,6 +639,7 @@ public class DownloadDiscoveryService
                 preferredFormats,
                 minBitrate,
                 maxBitrate == 0 ? "∞" : maxBitrate.ToString());
+            _auditLogger.Log(trackHash, $"[Search] Starting search tier '{tierName}' | Mode: {(forceMp3 ? "MP3" : "FLAC")} | Query: '{query}' | Formats: {preferredFormats} | Bitrate: {minBitrate}-{maxBitrate}");
 
             if (useFastLane)
             {
@@ -653,6 +672,7 @@ public class DownloadDiscoveryService
                 {
                     log.RejectedByBlacklist++;
                     PublishStatus($"Skipping peer {searchTrack.Username} (Blacklisted)", true);
+                    _auditLogger.LogSearchCandidate(trackHash, searchTrack.Username, searchTrack.Bitrate, searchTrack.Format, "REJECTED", $"User is blacklisted. Filename: {searchTrack.Filename}");
                     // Phase 6: Security audit trail
                     _eventBus.Publish(new SecurityAuditEvent(
                         Category: SecurityAuditCategory.Blacklist,
@@ -668,13 +688,14 @@ public class DownloadDiscoveryService
                 var globalCandidateKey = BuildGlobalCandidateKey(searchTrack);
                 if (!globalSeenCandidates.TryAdd(globalCandidateKey, 0))
                 {
+                    _auditLogger.LogSearchCandidate(trackHash, searchTrack.Username, searchTrack.Bitrate, searchTrack.Format, "IGNORED", $"Duplicate candidate. Filename: {searchTrack.Filename}");
                     continue;
                 }
 
                 // Phase 14: Forensic Gatekeeping (The Bouncer)
                 // Audit Trail: Log why we rejected this candidate
                 var targetDurationSeconds = track.CanonicalDuration.HasValue ? track.CanonicalDuration.Value / 1000 : (int?)null;
-                var safety = _safetyFilter.EvaluateCandidate(searchTrack, query, targetDurationSeconds);
+                var safety = _safetyFilter.EvaluateCandidate(searchTrack, query, targetDurationSeconds, allowLossy: forceMp3);
                 
                 // Track entity usually has Length in seconds. PlaylistTrack has CanonicalDuration (ms) or Duration (ms). 
                 // Let's check what PlaylistTrack has. It has 'Duration' (Timespan?) or 'CanonicalDuration'.
@@ -687,6 +708,7 @@ public class DownloadDiscoveryService
                     log.RejectedByForensics++;
                     // Log the rejection to the persistent audit trail
                     PublishStatus($"Rejected {searchTrack.Username}: {safety.Reason}", true);
+                    _auditLogger.LogSearchCandidate(trackHash, searchTrack.Username, searchTrack.Bitrate, searchTrack.Format, "REJECTED", $"{safety.Reason} ({safety.TechnicalDetails}) | Filename: {searchTrack.Filename}");
                     // Phase 6: Security audit trail
                     _eventBus.Publish(new SecurityAuditEvent(
                         Category: SecurityAuditCategory.Gate,
@@ -702,6 +724,7 @@ public class DownloadDiscoveryService
                     log.RejectedByForensics++;
                     var suspiciousReason = "Suspicious FLAC transcode detected (Low bitrate).";
                     PublishStatus($"Skipped {searchTrack.Username}: {suspiciousReason}", true);
+                    _auditLogger.LogSearchCandidate(trackHash, searchTrack.Username, searchTrack.Bitrate, searchTrack.Format, "REJECTED", $"{suspiciousReason} | Bitrate: {searchTrack.Bitrate}kbps | Filename: {searchTrack.Filename}");
                     // Phase 6: Security audit trail
                     _eventBus.Publish(new SecurityAuditEvent(
                         Category: SecurityAuditCategory.ForensicLab,

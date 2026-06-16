@@ -46,6 +46,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand AddToQueueCommand { get; }
     public System.Windows.Input.ICommand AddSelectedToQueueCommand { get; }
     public System.Windows.Input.ICommand AnalyseTrackCommand { get; }
+    public System.Windows.Input.ICommand OpenAuditLogCommand { get; }
 
     // Phase 10.5: Dependency Warning Property
     public bool AreDependenciesHealthy => _dependencyHealthService.IsHealthy;
@@ -99,6 +100,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         AddToQueueCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteAddToQueue);
         AddSelectedToQueueCommand = new RelayCommand(ExecuteAddSelectedToQueue);
         AnalyseTrackCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteAnalyseTrack);
+        OpenAuditLogCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteOpenAuditLog);
         
     }
 
@@ -437,6 +439,22 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+
+    private void ExecuteOpenAuditLog(PlaylistTrackViewModel? track)
+    {
+        track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
+        if (track == null) return;
+
+        var trackHash = string.IsNullOrWhiteSpace(track.Model?.TrackUniqueHash)
+            ? track.Model?.Id.ToString("N")
+            : track.Model?.TrackUniqueHash;
+
+        if (string.IsNullOrEmpty(trackHash)) return;
+
+        ReactiveUI.MessageBus.Current.SendMessage(SLSKDONET.Events.OpenInspectorEvent.Create(
+            new SLSKDONET.ViewModels.Diagnostics.BlackBoxTerminalViewModel(trackHash), 
+            "Library.TrackSelection.AuditLog"));
+    }
 
     public void Dispose()
     {

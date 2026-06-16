@@ -78,6 +78,7 @@
 
         <!-- Enum value to ToggleButton IsChecked converter (used by batch profile chips) -->
         <conv_root:EnumToCheckedConverter x:Key="EnumToCheckedConverter"/>
+        <converters:ForensicLevelToColorConverter x:Key="ForensicLevelToColorConverter"/>
 
 
         <!-- Icons -->

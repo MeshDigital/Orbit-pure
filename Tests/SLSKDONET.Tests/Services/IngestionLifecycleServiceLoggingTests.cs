@@ -193,7 +193,8 @@ public class IngestionLifecycleServiceLoggingTests
             prefetchVerifier,
             crashJournal,
             peerReliability,
-            networkHealth.Object);
+            networkHealth.Object,
+            new Mock<SLSKDONET.Services.Diagnostics.ITrackAuditLogger>().Object);
     }
 
     private static T CreateUninitialized<T>() where T : class

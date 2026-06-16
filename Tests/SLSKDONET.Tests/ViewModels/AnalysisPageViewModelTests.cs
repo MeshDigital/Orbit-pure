@@ -8,6 +8,7 @@ using SLSKDONET.Services;
 using SLSKDONET.Services.Library;
 using SLSKDONET.ViewModels;
 using SLSKDONET.ViewModels.Library;
+using SLSKDONET.Data.Entities;
 using Xunit;
 
 namespace SLSKDONET.Tests.ViewModels;

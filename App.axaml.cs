@@ -155,21 +155,6 @@ public partial class App : Application
 
             try
             {
-                // Phase 2.4: Load ranking strategy from config
-                // TEMPORARILY DISABLED: Causing NullReferenceException on startup
-                // TODO: Fix this after app launches
-                /*
-                var config = Services.GetRequiredService<ConfigManager>().GetCurrent();
-                ISortingStrategy strategy = (config.RankingPreset ?? "Balanced") switch
-                {
-                    "Quality First" => new QualityFirstStrategy(),
-                    "DJ Mode" => new DJModeStrategy(),
-                    _ => new BalancedStrategy()
-                };
-                ResultSorter.SetStrategy(strategy);
-                Serilog.Log.Information("Loaded ranking strategy: {Strategy}", config.RankingPreset ?? "Balanced");
-                */
-                
                 // Phase 10: Biggers App Refactoring - Config Migration
                 // Detect legacy weights and migrate to SearchPolicy
                 try {
@@ -520,16 +505,13 @@ public partial class App : Application
         services.AddSingleton<PathProviderService>();
         
         // Library Folder Scanner
-        services.AddSingleton<LibraryFolderScannerService>();
-
-        // Download manager
-        
-        // Phase 4.6 Hotfix: Search String Normalization
         services.AddSingleton<SLSKDONET.Services.Network.ProtocolHardeningService>();
         services.AddSingleton<SearchNormalizationService>();
         services.AddSingleton<ISafetyFilterService, SafetyFilterService>();
         services.AddSingleton<SearchResultMatcher>();
         services.AddSingleton<AutoSearchService>();
+        services.AddSingleton<SLSKDONET.Services.Diagnostics.ITrackAuditLogger, SLSKDONET.Services.Diagnostics.TrackAuditLogger>();
+
         services.AddSingleton<MatchScorer>();
         services.AddSingleton<SoulseekSearchHelper>();
         services.AddSingleton<PrefetchVerifier>();
@@ -628,14 +610,13 @@ public partial class App : Application
         services.AddTransient<Views.Avalonia.ImportPreviewPage>();
         services.AddTransient<Views.Avalonia.AnalysisPage>();
         services.AddSingleton<ViewModels.AnalysisPageViewModel>();
-        services.AddTransient<Views.Avalonia.DecksPage>();
-        services.AddTransient<Views.Avalonia.TimelinePage>();
         services.AddTransient<Views.Avalonia.StemsPage>();
         services.AddTransient<Views.Avalonia.WorkstationPage>();
         services.AddSingleton<Services.ICuePointService, Services.CuePointService>();
         services.AddSingleton<Services.Audio.StemPreferenceService>();
         services.AddSingleton<Services.Audio.MixdownService>();
         services.AddSingleton<Services.WorkstationSessionService>();
+        services.AddSingleton<Services.OrbSessionBundleService>();
         services.AddSingleton<Services.IUndoService, Services.UndoService>();
 
         // ── Auto-cue / phrase detection pipeline ──────────────────────────
@@ -725,8 +706,15 @@ public partial class App : Application
                 sp.GetRequiredService<Services.Jobs.BackgroundJobQueue>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Jobs.BackgroundJobWorker>>()));
 
-
-        
+        services.AddHostedService<Services.AutoDownload.GhostAcquisitionOrchestrator>(sp =>
+            new Services.AutoDownload.GhostAcquisitionOrchestrator(
+                sp.GetRequiredService<IDbContextFactory<AppDbContext>>(),
+                sp.GetRequiredService<AutoSearchService>(),
+                sp.GetRequiredService<SearchResultMatcher>(),
+                sp.GetRequiredService<DownloadManager>(),
+                sp.GetRequiredService<ILibraryService>(),
+                sp.GetRequiredService<IEventBus>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.AutoDownload.GhostAcquisitionOrchestrator>>()));
     }
 
     /// <summary>
@@ -911,6 +899,17 @@ public partial class App : Application
 
             if (ode.Message.Contains("MessageConnection", StringComparison.OrdinalIgnoreCase))
                 return true;
+
+            // Socket disposed inside Soulseek TCP listener during reconnect/dispose cycle.
+            // Source is System.Net.Sockets but the stack trace reveals Soulseek internals.
+            var odeStack = ode.StackTrace ?? string.Empty;
+            if (odeStack.Contains("Soulseek.Network.Tcp.Listener", StringComparison.OrdinalIgnoreCase) ||
+                odeStack.Contains("ListenContinuouslyAsync", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // "Connection" object from Soulseek.NET disposed mid-transfer
+            if (ode.ObjectName?.Equals("Connection", StringComparison.OrdinalIgnoreCase) == true)
+                return true;
         }
 
         if (ex is IOException ioEx)
@@ -948,8 +947,16 @@ public partial class App : Application
             stackTraceText.Contains("Soulseek.Network.MessageConnection.ReadContinuouslyAsync", StringComparison.OrdinalIgnoreCase))
             return true;
 
+        // Any exception type declared in the Soulseek namespace (e.g. TransferReportedFailedException)
+        if (ex.GetType().Namespace?.StartsWith("Soulseek", StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
         // Any exception originating from Soulseek.NET library itself
         if (ex.Source?.Contains("Soulseek", StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        // "Download reported as failed by remote client" — peer aborted transfer, expected during P2P churn
+        if (ex.Message.Contains("reported as failed by remote client", StringComparison.OrdinalIgnoreCase))
             return true;
 
         return false;

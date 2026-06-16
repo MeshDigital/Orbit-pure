@@ -8,6 +8,7 @@
          xmlns:models="clr-namespace:SLSKDONET.Models"
          xmlns:vmCore="clr-namespace:SLSKDONET.ViewModels"
          xmlns:vmDownloads="clr-namespace:SLSKDONET.ViewModels.Downloads"
+         xmlns:vmDiag="clr-namespace:SLSKDONET.ViewModels.Diagnostics"
         mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="900"
         x:Class="SLSKDONET.Views.Avalonia.MainWindow"
         x:DataType="vm:MainViewModel"
@@ -114,143 +115,69 @@
                 BorderThickness="0,0,0,1"
                 IsVisible="{Binding IsTopCommandBarVisible}">
             <Grid ColumnDefinitions="Auto,*,Auto">
-                <!-- Left: Navigation & Connection -->
-                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Spacing="16">
-                    <Button Command="{Binding ToggleNavigationCommand}" 
-                            Background="Transparent" 
-                            BorderThickness="0" 
+                <!-- Left: Nav toggle + compact connection LEDs -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Spacing="12">
+                    <Button Command="{Binding ToggleNavigationCommand}"
+                            Background="Transparent"
+                            BorderThickness="0"
                             Padding="8,4"
                             ToolTip.Tip="Toggle Navigation">
                         <TextBlock Text="☰" FontSize="18" Foreground="#CCC"/>
                     </Button>
-                    
-                    <Border Background="#252526" CornerRadius="4" Padding="8,4">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Command="{Binding ConnectionViewModel.ShowLoginCommand}"
-                                    Background="Transparent"
-                                    BorderThickness="0"
-                                    Padding="0"
-                                    ToolTip.Tip="Click to manage Soulseek connection">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <Ellipse Width="8" Height="8" Fill="{Binding ConnectionViewModel.IsConnected, Converter={StaticResource BoolToColorConverter}}"/>
-                                    <TextBlock Text="Soulseek" FontSize="11" Foreground="#999" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <Rectangle Width="1" Height="12" Fill="#444" Margin="4,0"/>
-                            <Ellipse Width="8" Height="8" Fill="{Binding ConnectionViewModel.IsSpotifyConnected, Converter={StaticResource BoolToColorConverter}}"
-                                     ToolTip.Tip="Spotify Connection Status"/>
-                            <TextBlock Text="Spotify" FontSize="11" Foreground="#999" VerticalAlignment="Center"/>
-                            <Rectangle Width="1" Height="12" Fill="#444" Margin="4,0"/>
-                            <!-- Phase 6: Share Health LED (click to open Sharing/Folders settings) -->
-                            <Button Command="{Binding StatusBar.OpenShareSettingsCommand}"
-                                    Background="Transparent"
-                                    BorderThickness="0"
-                                    Padding="0"
-                                    ToolTip.Tip="{Binding StatusBar.ShareHealthTooltip}">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <Ellipse Width="8" Height="8"
-                                             Fill="{Binding StatusBar.ShareHealthColor}"/>
-                                    <TextBlock Text="Share" FontSize="11" Foreground="#999" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                        </StackPanel>
-                    </Border>
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <Button Command="{Binding ConnectionViewModel.ShowLoginCommand}"
+                                Background="Transparent" BorderThickness="0" Padding="2"
+                                ToolTip.Tip="Soulseek — click to manage connection">
+                            <Ellipse Width="8" Height="8" Fill="{Binding ConnectionViewModel.IsConnected, Converter={StaticResource BoolToColorConverter}}"/>
+                        </Button>
+                        <Ellipse Width="8" Height="8"
+                                 Fill="{Binding ConnectionViewModel.IsSpotifyConnected, Converter={StaticResource BoolToColorConverter}}"
+                                 ToolTip.Tip="Spotify connection"
+                                 VerticalAlignment="Center"/>
+                        <Button Command="{Binding StatusBar.OpenShareSettingsCommand}"
+                                Background="Transparent" BorderThickness="0" Padding="2"
+                                ToolTip.Tip="{Binding StatusBar.ShareHealthTooltip}">
+                            <Ellipse Width="8" Height="8" Fill="{Binding StatusBar.ShareHealthColor}"/>
+                        </Button>
+                    </StackPanel>
                 </StackPanel>
 
-                <!-- Center: Smart Status text & Global Activity -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
-                    <!-- Global Activity Spinner -->
-                    <TextBlock Text="⏳" 
-                               FontSize="14" 
+                <!-- Center: Status -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                    <TextBlock Text="⏳"
+                               FontSize="14"
                                Foreground="#4EC9B0"
                                IsVisible="{Binding IsGlobalActivityActive}"/>
-                               
-                    <TextBlock Text="{Binding StatusText}" 
-                               FontSize="12" 
-                               Foreground="#DDD" 
+                    <TextBlock Text="{Binding StatusText}"
+                               FontSize="12"
+                               Foreground="#DDD"
                                FontWeight="SemiBold"
                                VerticalAlignment="Center"/>
-
-                    <TextBlock Text="{Binding ApplicationVersion, StringFormat='v{0}'}" 
-                               Foreground="#555"
-                               FontSize="10"
-                               VerticalAlignment="Center"
-                               Margin="4,0,0,0"/>
                 </StackPanel>
 
-                <!-- Right: Activity Monitor & System Controls -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Spacing="16">
-                    <!-- Activity Monitor Group -->
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                        <!-- Downloads -->
-                        <StackPanel Orientation="Horizontal" Spacing="6" ToolTip.Tip="Downloads: In Progress / Completed / Failed">
-                            <TextBlock Text="📥" FontSize="12" VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding TodoCount}" Foreground="#4EC9B0" FontWeight="Bold" FontSize="12" VerticalAlignment="Center"/>
-                            <TextBlock Text="✓" FontSize="10" Foreground="#AAA" Margin="4,0,0,0" VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding SuccessfulCount}" Foreground="#AAA" FontSize="11" VerticalAlignment="Center"/>
-                            
-                            <StackPanel Orientation="Horizontal" IsVisible="{Binding FailedCount}" Margin="4,0,0,0">
-                                <TextBlock Text="⚠️" FontSize="10" VerticalAlignment="Center"/>
-                                <TextBlock Text="{Binding FailedCount}" Foreground="#F44336" FontSize="11" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </StackPanel>
-
-                        <Rectangle Width="1" Height="16" Fill="#333"/>
-
-                        <!-- Analysis -->
-                        <StackPanel Orientation="Horizontal" Spacing="6" ToolTip.Tip="Analysis Queue: Pending / Done">
-                            <TextBlock Text="🧠" FontSize="12" VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding AnalysisQueueCount}" Foreground="#C586C0" FontWeight="Bold" FontSize="12" VerticalAlignment="Center"/>
-                            <TextBlock Text="done" FontSize="10" Foreground="#666" VerticalAlignment="Bottom" Margin="2,0,0,1"/>
+                <!-- Right: Activity counts + Settings -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="4" ToolTip.Tip="Downloads: In Progress / Failed">
+                        <TextBlock Text="📥" FontSize="12" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding TodoCount}" Foreground="#4EC9B0" FontWeight="Bold" FontSize="12" VerticalAlignment="Center"/>
+                        <StackPanel Orientation="Horizontal" IsVisible="{Binding FailedCount}" Margin="2,0,0,0">
+                            <TextBlock Text="⚠" FontSize="10" Foreground="#F44336" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding FailedCount}" Foreground="#F44336" FontSize="11" VerticalAlignment="Center"/>
                         </StackPanel>
                     </StackPanel>
-
-                    <Border Width="1" Height="20" Background="#404040"/>
-
-                    <!-- System Controls -->
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <!-- Condensed Zoom -->
-                        <Button Command="{Binding ZoomOutCommand}" Background="Transparent" BorderThickness="0" Padding="4" ToolTip.Tip="Zoom Out">
-                            <TextBlock Text="🔍-" FontSize="12" Foreground="#888"/>
-                        </Button>
-                        <TextBlock Text="{Binding UIScalePercentage}" Foreground="#666" FontSize="10" VerticalAlignment="Center" MinWidth="30" TextAlignment="Center"/>
-                        <Button Command="{Binding ZoomInCommand}" Background="Transparent" BorderThickness="0" Padding="4" ToolTip.Tip="Zoom In">
-                            <TextBlock Text="🔍+" FontSize="12" Foreground="#888"/>
-                        </Button>
-
-                        <Rectangle Width="1" Height="16" Fill="#333" Margin="4,0"/>
-
-                        <Button Command="{Binding Sidebar.SwitchToPlayerCommand}"
-                                Background="#221DB954"
-                                BorderBrush="#1DB954"
-                                BorderThickness="1"
-                                CornerRadius="10"
-                                Padding="10,4"
-                                ToolTip.Tip="Open media sidebar">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="♫" FontSize="12" Foreground="#DFFFE8"/>
-                                <TextBlock Text="MEDIA" FontSize="10" FontWeight="Bold" Foreground="#DFFFE8"/>
-                            </StackPanel>
-                        </Button>
-
-                        <Button Command="{Binding ToggleTimelinePanelCommand}"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                Padding="6,4"
-                                MinWidth="44" MinHeight="44"
-                                ToolTip.Tip="Toggle Timeline panel">
-                            <TextBlock Text="⏱" FontSize="14"
-                                       Foreground="{Binding IsTimelinePanelOpen, Converter={StaticResource ActiveColorConverter}}"/>
-                        </Button>
-                        
-                        <Button Command="{Binding NavigateSettingsCommand}"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                Padding="6,4"
-                                ToolTip.Tip="Settings">
-                            <TextBlock Text="⚙️" FontSize="14" Foreground="#A0A0A0"/>
-                        </Button>
+                    <Rectangle Width="1" Height="16" Fill="#333"/>
+                    <StackPanel Orientation="Horizontal" Spacing="4" ToolTip.Tip="Analysis queue">
+                        <TextBlock Text="🧠" FontSize="12" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding AnalysisQueueCount}" Foreground="#C586C0" FontWeight="Bold" FontSize="12" VerticalAlignment="Center"/>
                     </StackPanel>
+                    <Rectangle Width="1" Height="16" Fill="#333"/>
+                    <Button Command="{Binding NavigateSettingsCommand}"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Padding="6,4"
+                            ToolTip.Tip="Settings">
+                        <TextBlock Text="⚙️" FontSize="14" Foreground="#A0A0A0"/>
+                    </Button>
                 </StackPanel>
             </Grid>
         </Border>
@@ -424,108 +351,73 @@
                     <Border Background="#252526" BorderBrush="#3E3E3E" BorderThickness="1,0,0,0">
                         <Grid RowDefinitions="Auto,*">
 
-                            <!-- Tab bar header -->
-                            <Border Grid.Row="0" Background="#1E1E1E" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
+                            <!-- Context panel header -->
+                            <Border Grid.Row="0" Background="#1E1E1E" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="12,8">
                                 <Grid ColumnDefinitions="*,Auto">
-                                    <!-- 3 tab buttons -->
-                                    <StackPanel Orientation="Horizontal" Spacing="2" Margin="8,6">
-                                        <Button Classes="tab"
-                                                Classes.selected="{Binding Sidebar.IsPlayerTab}"
-                                                Command="{Binding Sidebar.SwitchToPlayerCommand}"
-                                                ToolTip.Tip="Now Playing">
-                                            <TextBlock Text="▶ Now Playing" FontSize="12" FontWeight="SemiBold"/>
-                                        </Button>
-                                        <Button Classes="tab"
-                                                Classes.selected="{Binding Sidebar.IsInspectorTab}"
-                                                Command="{Binding Sidebar.SwitchToInspectorCommand}"
-                                                ToolTip.Tip="Track Inspector">
-                                            <TextBlock Text="🔬 Inspector" FontSize="12" FontWeight="SemiBold"/>
-                                        </Button>
-                                        <Button Classes="tab"
-                                                Classes.selected="{Binding Sidebar.IsSimilarityTab}"
-                                                Command="{Binding Sidebar.SwitchToSimilarityCommand}"
-                                                ToolTip.Tip="Similar Tracks">
-                                            <TextBlock Text="🔗 Similar" FontSize="12" FontWeight="SemiBold"/>
-                                        </Button>
-                                    </StackPanel>
-                                    <!-- Close button -->
-                                     <Button Grid.Column="1" Classes="tool" Command="{Binding Sidebar.CloseCommand}"
-                                            Content="✖" Foreground="#888" Margin="8,0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="CONTEXT" FontSize="10" FontWeight="Bold" Foreground="#555" LetterSpacing="1.5" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1" Classes="tool" Command="{Binding Sidebar.CloseCommand}"
+                                            Content="✖" Foreground="#888" VerticalAlignment="Center"/>
                                 </Grid>
                             </Border>
 
-                            <!-- Tab content panels -->
-                            <Grid Grid.Row="1">
-                                <!-- Player tab — wrapper keeps MainViewModel DataContext so compiled Opacity binding works -->
-                                <Border Opacity="{Binding Sidebar.IsPlayerTab, Converter={StaticResource BoolToOpacityConverter}, ConverterParameter='1;0'}"
-                                        IsHitTestVisible="{Binding Sidebar.IsPlayerTab}">
-                                    <Border.Transitions>
-                                        <Transitions>
-                                            <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
-                                        </Transitions>
-                                    </Border.Transitions>
+                            <!-- Scrollable context panel — Player → Inspector → Similar Tracks -->
+                            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel Spacing="0">
+                                    <!-- Player -->
                                     <views:PlayerControl DataContext="{Binding Sidebar.PlayerVm}"/>
-                                </Border>
 
-                                <!-- Inspector tab — always in tree, fades in/out -->
-                                <ContentControl
-                                    Content="{Binding Sidebar.CurrentContent}"
-                                    Opacity="{Binding Sidebar.IsInspectorTab, Converter={StaticResource BoolToOpacityConverter}, ConverterParameter='1;0'}"
-                                    IsHitTestVisible="{Binding Sidebar.IsInspectorTab}">
-                                    <ContentControl.Transitions>
-                                        <Transitions>
-                                            <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
-                                        </Transitions>
-                                    </ContentControl.Transitions>
-                                    <ContentControl.DataTemplates>
-                                        <DataTemplate DataType="vmCore:PlayerViewModel">
-                                            <!-- Now-playing context opened here shows a hint to use the Now Playing tab -->
-                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
-                                                <TextBlock Text="▶" FontSize="32" HorizontalAlignment="Center" Foreground="#555"/>
-                                                <TextBlock Text="Select a track to inspect" Foreground="#888" FontSize="13"
-                                                           HorizontalAlignment="Center"/>
-                                            </StackPanel>
-                                        </DataTemplate>
-                                        <DataTemplate DataType="vmCore:LibraryDoubleInspectorViewModel">
-                                            <controls:DoubleInspectorPanel/>
-                                        </DataTemplate>
-                                        <DataTemplate DataType="vmCore:PlaylistIntelligenceViewModel">
-                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" MaxWidth="280">
-                                                <TextBlock Text="Playlist Intelligence"
-                                                           FontSize="13"
-                                                           FontWeight="SemiBold"
-                                                           Foreground="#AAA"
-                                                           HorizontalAlignment="Center"/>
-                                                <TextBlock Text="Inspector panel is temporarily running in safe mode."
-                                                           FontSize="11"
-                                                           Foreground="#888"
-                                                           TextWrapping="Wrap"
-                                                           TextAlignment="Center"/>
-                                            </StackPanel>
-                                        </DataTemplate>
-                                        <DataTemplate DataType="vmDownloads:UnifiedTrackViewModel">
-                                            <controls:TrackInspector/>
-                                        </DataTemplate>
-                                        <DataTemplate DataType="vmCore:AnalyzedSearchResultViewModel">
-                                            <controls:SearchInspector/>
-                                        </DataTemplate>
-                                        <DataTemplate DataType="vmCore:PlaylistTrackViewModel">
-                                            <controls:LibraryTrackInspector/>
-                                        </DataTemplate>
-                                    </ContentControl.DataTemplates>
-                                </ContentControl>
+                                    <Border Height="1" Background="#2D2D2D"/>
 
-                                <!-- Similarity tab — wrapper keeps MainViewModel DataContext so compiled Opacity binding works -->
-                                <Border Opacity="{Binding Sidebar.IsSimilarityTab, Converter={StaticResource BoolToOpacityConverter}, ConverterParameter='1;0'}"
-                                        IsHitTestVisible="{Binding Sidebar.IsSimilarityTab}">
-                                    <Border.Transitions>
-                                        <Transitions>
-                                            <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
-                                        </Transitions>
-                                    </Border.Transitions>
-                                    <views:SimilarTracksPanel DataContext="{Binding Sidebar.SimilarTracksVm}"/>
-                                </Border>
-                            </Grid>
+                                    <!-- Inspector -->
+                                    <ContentControl Content="{Binding Sidebar.CurrentContent}">
+                                        <ContentControl.DataTemplates>
+                                            <DataTemplate DataType="vmCore:PlayerViewModel">
+                                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" Margin="0,32">
+                                                    <TextBlock Text="▶" FontSize="32" HorizontalAlignment="Center" Foreground="#555"/>
+                                                    <TextBlock Text="Select a track to inspect" Foreground="#888" FontSize="13"
+                                                               HorizontalAlignment="Center"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                            <DataTemplate DataType="vmCore:LibraryDoubleInspectorViewModel">
+                                                <controls:DoubleInspectorPanel/>
+                                            </DataTemplate>
+                                            <DataTemplate DataType="vmCore:PlaylistIntelligenceViewModel">
+                                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" MaxWidth="280" Margin="0,32">
+                                                    <TextBlock Text="Playlist Intelligence"
+                                                               FontSize="13"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="#AAA"
+                                                               HorizontalAlignment="Center"/>
+                                                    <TextBlock Text="Inspector panel is temporarily running in safe mode."
+                                                               FontSize="11"
+                                                               Foreground="#888"
+                                                               TextWrapping="Wrap"
+                                                               TextAlignment="Center"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                            <DataTemplate DataType="vmDownloads:UnifiedTrackViewModel">
+                                                <controls:TrackInspector/>
+                                            </DataTemplate>
+                                            <DataTemplate DataType="vmCore:AnalyzedSearchResultViewModel">
+                                                <controls:SearchInspector/>
+                                            </DataTemplate>
+                                            <DataTemplate DataType="vmCore:PlaylistTrackViewModel">
+                                                <controls:LibraryTrackInspector/>
+                                            </DataTemplate>
+                                            <DataTemplate DataType="vmDiag:BlackBoxTerminalViewModel">
+                                                <controls:BlackBoxTerminal/>
+                                            </DataTemplate>
+                                        </ContentControl.DataTemplates>
+                                    </ContentControl>
+
+                                    <Border Height="1" Background="#2D2D2D"/>
+
+                                    <!-- Similar Tracks (collapsible) -->
+                                    <Expander Header="🔗 Similar Tracks" IsExpanded="True">
+                                        <views:SimilarTracksPanel DataContext="{Binding Sidebar.SimilarTracksVm}"/>
+                                    </Expander>
+                                </StackPanel>
+                            </ScrollViewer>
 
                         </Grid>
                     </Border>
@@ -747,6 +639,9 @@
                         </DataTemplate>
                         <DataTemplate DataType="vmCore:PlaylistTrackViewModel">
                             <controls:LibraryTrackInspector/>
+                        </DataTemplate>
+                        <DataTemplate DataType="vmDiag:BlackBoxTerminalViewModel">
+                            <controls:BlackBoxTerminal/>
                         </DataTemplate>
                     </ContentControl.DataTemplates>
                 </ContentControl>

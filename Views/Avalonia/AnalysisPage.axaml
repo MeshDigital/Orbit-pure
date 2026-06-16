@@ -546,8 +546,7 @@
                                                     <TextBlock Text="⏸"
                                                                FontSize="14"
                                                                VerticalAlignment="Center"
-                                                               IsVisible="{Binding AnalysisStatus,
-                                                                   Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                                                               IsVisible="{Binding IsQueued}"/>
 
                                                     <!-- Completed checkmark -->
                                                     <TextBlock Text="✓"
@@ -555,6 +554,14 @@
                                                                Foreground="{DynamicResource BrushAccent}"
                                                                VerticalAlignment="Center"
                                                                IsVisible="{Binding IsCompleted}"/>
+
+                                                    <!-- Failed indicator -->
+                                                    <TextBlock Text="⚠️"
+                                                               FontSize="14"
+                                                               Foreground="{DynamicResource BrushError}"
+                                                               VerticalAlignment="Center"
+                                                               IsVisible="{Binding IsFailed}"
+                                                               ToolTip.Tip="{Binding AnalysisError}"/>
 
                                                     <Button Classes="removeBtn"
                                                             Content="✕"
@@ -626,17 +633,28 @@
                                                             Margin="4,0,0,0"/>
                                                 </Grid>
 
-                                                <Border Background="{DynamicResource BrushBg2}"
-                                                        BorderBrush="{DynamicResource BrushError}"
-                                                        BorderThickness="1"
-                                                        CornerRadius="6"
-                                                        Padding="8,6"
-                                                        IsVisible="{Binding HasAnalysisError}">
-                                                    <TextBlock Text="{Binding AnalysisError}"
-                                                               FontSize="10"
-                                                               Foreground="{DynamicResource BrushError}"
-                                                               TextWrapping="Wrap"/>
-                                                </Border>
+                                                <!-- Collapse details under Expander to prevent UI clutter -->
+                                                <Expander Header="Analysis Failure Details"
+                                                          IsExpanded="False"
+                                                          Foreground="{DynamicResource BrushError}"
+                                                          IsVisible="{Binding HasAnalysisError}"
+                                                          Margin="0,4,0,0">
+                                                    <Border Background="{DynamicResource BrushBg2}"
+                                                            BorderBrush="{DynamicResource BrushError}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="6"
+                                                            Padding="8,6">
+                                                        <StackPanel Spacing="6">
+                                                            <TextBlock Text="Pipeline Error:" FontWeight="Bold" FontSize="10" Foreground="{DynamicResource BrushError}"/>
+                                                            <TextBlock Text="{Binding AnalysisError}" FontSize="10" Foreground="White" TextWrapping="Wrap"/>
+                                                            
+                                                            <StackPanel Spacing="4" IsVisible="{Binding HasStemError}">
+                                                                <TextBlock Text="Stem Separator Error:" FontWeight="Bold" FontSize="10" Foreground="{DynamicResource BrushError}"/>
+                                                                <TextBlock Text="{Binding StemError}" FontSize="10" Foreground="White" TextWrapping="Wrap"/>
+                                                            </StackPanel>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </Expander>
 
                                                 <Expander Header="Insight details" IsExpanded="False" Foreground="{DynamicResource BrushText1}">
                                                     <StackPanel Spacing="6" Margin="0,6,0,0">
@@ -768,6 +786,46 @@
                                                     <Run Text="{Binding LastAnalyzedDisplay}" Foreground="{DynamicResource BrushText2}"/>
                                                 </TextBlock>
 
+                                            </StackPanel>
+
+                                            <!-- ── Failed track: error details card ── -->
+                                            <StackPanel IsVisible="{Binding IsFailed}" Spacing="6">
+                                                <Expander Header="Analysis Failure Details"
+                                                          IsExpanded="True"
+                                                          Foreground="{DynamicResource BrushError}"
+                                                          Margin="0,2,0,0">
+                                                    <Border Background="{DynamicResource BrushBg2}"
+                                                            BorderBrush="{DynamicResource BrushError}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="6"
+                                                            Padding="8,6">
+                                                        <StackPanel Spacing="6">
+                                                            <TextBlock Text="Pipeline Error:" FontWeight="Bold" FontSize="10" Foreground="{DynamicResource BrushError}"/>
+                                                            <TextBlock Text="{Binding AnalysisError}" FontSize="10" Foreground="White" TextWrapping="Wrap"/>
+                                                            
+                                                            <StackPanel Spacing="4" IsVisible="{Binding HasStemError}">
+                                                                <TextBlock Text="Stem Separator Error:" FontWeight="Bold" FontSize="10" Foreground="{DynamicResource BrushError}"/>
+                                                                <TextBlock Text="{Binding StemError}" FontSize="10" Foreground="White" TextWrapping="Wrap"/>
+                                                            </StackPanel>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </Expander>
+                                                
+                                                <!-- Action row to allow retrying analysis manually -->
+                                                <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,2">
+                                                    <TextBlock Text="Please fix files or choose Re-analyze" FontSize="10" Foreground="{DynamicResource BrushText2}" VerticalAlignment="Center"/>
+                                                    <Button Grid.Column="1"
+                                                            Background="{DynamicResource BrushBg2}"
+                                                            BorderBrush="{DynamicResource BrushError}"
+                                                            BorderThickness="1"
+                                                            Foreground="{DynamicResource BrushError}"
+                                                            CornerRadius="6"
+                                                            Content="↺ Re-analyze"
+                                                            FontSize="10" Padding="6,3"
+                                                            Command="{Binding $parent[UserControl].DataContext.ReanalyzeCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip.Tip="Clear errors and retry analysis"/>
+                                                </Grid>
                                             </StackPanel>
 
                                         </StackPanel>

@@ -388,8 +388,6 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("Analysis", typeof(Avalonia.AnalysisPage));
         _navigationService.RegisterPage("NowPlaying", typeof(Avalonia.NowPlayingPage));
         _navigationService.RegisterPage("Workstation", typeof(Avalonia.WorkstationPage));
-        _navigationService.RegisterPage("Decks", typeof(Avalonia.DecksPage));
-        _navigationService.RegisterPage("Timeline", typeof(Avalonia.TimelinePage));
         _navigationService.RegisterPage("Stems", typeof(Avalonia.StemsPage));
         
         // Subscribe to navigation events
@@ -802,8 +800,6 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         if (typeof(Avalonia.NowPlayingPage).IsAssignableFrom(pageType)) return PageType.NowPlaying;
         if (typeof(Avalonia.SettingsPage).IsAssignableFrom(pageType)) return PageType.Settings;
         if (typeof(Avalonia.WorkstationPage).IsAssignableFrom(pageType)) return PageType.Workstation;
-        if (pageType.Name.Contains("DecksPage", StringComparison.Ordinal)) return PageType.Decks;
-        if (pageType.Name.Contains("TimelinePage", StringComparison.Ordinal)) return PageType.Timeline;
         if (pageType.Name.Contains("StemsPage", StringComparison.Ordinal)) return PageType.Stems;
 
         return fallback;
@@ -1162,15 +1158,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.NavigateTo("Workstation");
     }
 
-    private void NavigateToDecks()
-    {
-        _navigationService.NavigateTo("Decks");
-    }
+    private void NavigateToDecks() => NavigateToWorkstation();
 
-    private void NavigateToTimeline()
-    {
-        _navigationService.NavigateTo("Timeline");
-    }
+    private void NavigateToTimeline() => NavigateToWorkstation();
 
     private void NavigateToStems()
     {

@@ -46,7 +46,8 @@
         </Style>
     </UserControl.Styles>
     
-    <ScrollViewer>
+    <Grid ColumnDefinitions="*,240">
+        <ScrollViewer Grid.Column="0">
         <StackPanel Margin="24" Spacing="24" MaxWidth="800">
             
             <!-- Header -->
@@ -56,8 +57,83 @@
                            FontSize="13" Foreground="#A0A0A0"/>
             </StackPanel>
 
+            <!-- Soulseek Connection (first-run: credentials live here) -->
+            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#0078D4" BorderThickness="1"
+                    Tag="Soulseek Connection||Enter your Soulseek username and password here. These credentials are used to connect to the Soulseek P2P network for searching and downloading music. Your password is stored locally and never sent anywhere except the Soulseek server.">
+                <StackPanel Spacing="16">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="🌐" FontSize="20" VerticalAlignment="Center"/>
+                                <TextBlock Text="Soulseek Connection" FontSize="16" FontWeight="SemiBold" Foreground="#0078D4"/>
+                            </StackPanel>
+                            <TextBlock Text="Manage your connection to the Soulseek peer-to-peer network for music sharing and downloads."
+                                       Foreground="#666" FontSize="12" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <Separator Background="#1A2F3A" Height="1"/>
+
+                    <!-- Username -->
+                    <Grid ColumnDefinitions="140,*">
+                        <TextBlock Grid.Column="0" Text="Username:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <TextBox Grid.Column="1"
+                                 Text="{Binding SoulseekUsername, Mode=TwoWay}"
+                                 Watermark="Your Soulseek username"
+                                 Background="#1E1E1E"/>
+                    </Grid>
+
+                    <!-- Connection Options -->
+                    <StackPanel Spacing="8">
+                        <CheckBox Content="Auto-connect on startup"
+                                  IsChecked="{Binding SoulseekAutoConnectEnabled, Mode=TwoWay}"
+                                  Foreground="#AAA"/>
+                        <CheckBox Content="Remember password"
+                                  IsChecked="{Binding SoulseekRememberPassword, Mode=TwoWay}"
+                                  Foreground="#AAA"/>
+                    </StackPanel>
+
+                    <!-- Connection Buttons -->
+                    <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Left">
+                        <Button Command="{Binding SoulseekConnectCommand}"
+                                Background="#0078D4"
+                                Foreground="White"
+                                Padding="16,8"
+                                IsEnabled="{Binding SoulseekIsDisconnected}">
+                            <TextBlock Text="Connect" FontSize="12" FontWeight="SemiBold"/>
+                        </Button>
+
+                        <Button Command="{Binding SoulseekDisconnectCommand}"
+                                Background="#2D2D2D"
+                                Foreground="#FF5555"
+                                BorderBrush="#FF5555"
+                                BorderThickness="1"
+                                Padding="16,8"
+                                IsEnabled="{Binding SoulseekIsConnected}">
+                            <TextBlock Text="Disconnect" FontSize="12" FontWeight="SemiBold"/>
+                        </Button>
+
+                        <Button Command="{Binding SoulseekReconnectCommand}"
+                                Background="#FFA500"
+                                Foreground="White"
+                                Padding="16,8"
+                                IsEnabled="{Binding SoulseekIsConnected}">
+                            <TextBlock Text="Reconnect" FontSize="12" FontWeight="SemiBold"/>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- Connection status feedback -->
+                    <TextBlock Text="{Binding SoulseekConnectionStatusText}"
+                               Foreground="#FFB347"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               IsVisible="{Binding SoulseekConnectionStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                </StackPanel>
+            </Border>
+
             <!-- Download Settings -->
-            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
+                    Tag="Download Settings||Configure where Orbit saves downloaded files, how many simultaneous downloads to allow, and which file formats to accept. The download folder is created automatically if it does not exist.">
                 <StackPanel Spacing="16">
                     <TextBlock Text="Download Settings" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
                     
@@ -306,7 +382,8 @@
             </Border>
 
             <!-- Library Sharing -->
-            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#1DB954" BorderThickness="1">
+            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#1DB954" BorderThickness="1"
+                    Tag="Library Sharing||When enabled, Orbit will share your local music library with other Soulseek users. You can choose which folders to share and set upload speed limits to avoid saturating your connection.">
                 <StackPanel Spacing="16">
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Grid.Column="0" Spacing="4">
@@ -419,7 +496,8 @@
             </Border>
 
             <!-- Library Folders -->
-            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
+                    Tag="Library Folders||Add the folders where your music files live. Orbit will scan these directories recursively to build your library. Changes take effect after the next library rescan.">
                 <StackPanel Spacing="16">
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Grid.Column="0" Spacing="4">
@@ -463,7 +541,8 @@
             </Border>
 
             <!-- Library Navigation Behavior -->
-            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
+                    Tag="Library Navigation||Controls how Orbit behaves when you select a track in the library. You can choose whether clicking a track adds it to the workstation deck, opens the inspector, or does nothing until you explicitly drag it.">
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="4">
                         <TextBlock Text="Library Navigation" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
@@ -500,7 +579,8 @@
             </Border>
 
             <!-- Search Filter Defaults -->
-            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
+                    Tag="Default Search Filters||Set the default quality thresholds used when Orbit evaluates search results. Stricter settings mean fewer results but higher confidence that files are genuine high-quality audio.">
                 <StackPanel Spacing="16">
                     <TextBlock Text="Default Search Filters" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
 
@@ -584,7 +664,8 @@
             </Border>
 
             <!-- Brain 2.0 & Quality Guard -->
-            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
+                    Tag="Smart Features &amp; Integrity||These controls govern Orbit's adaptive search intelligence and fake-lossless detection. Spectral scanning detects transcoded files disguised as lossless. Auto-retry requeues failed downloads from a different peer.">
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="4">
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -647,58 +728,57 @@
                                    Margin="12,0,0,0"/>
                     </Grid>
 
-                    <Separator Background="#333" Height="1"/>
+                    <Expander Header="Advanced" IsExpanded="False" Padding="0" Margin="0,4,0,0">
+                        <StackPanel Spacing="12" Margin="0,12,0,0">
+                            <!-- Automation & Retries -->
+                            <TextBlock Text="Automation &amp; Retries" FontWeight="SemiBold" Foreground="#DDD"/>
 
-                    <!-- Automation & Retries -->
-                    <StackPanel Spacing="12">
-                        <TextBlock Text="Automation &amp; Retries" FontWeight="SemiBold" Foreground="#DDD"/>
-                        
-                        <!-- Auto Retry Toggle -->
-                        <Grid ColumnDefinitions="*,Auto">
-                            <StackPanel Grid.Column="0" Spacing="2">
-                                <TextBlock Text="Auto-Retry Failed Downloads" FontWeight="SemiBold" Foreground="#DDD"/>
-                                <TextBlock Text="Automatically requeue failed tracks or searches with exponential backoff." 
-                                           Foreground="#666" FontSize="11" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoRetryFailedDownloads}" OnContent="On" OffContent="Off"/>
-                        </Grid>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Text="Auto-Retry Failed Downloads" FontWeight="SemiBold" Foreground="#DDD"/>
+                                    <TextBlock Text="Automatically requeue failed tracks or searches with exponential backoff."
+                                               Foreground="#666" FontSize="11" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoRetryFailedDownloads}" OnContent="On" OffContent="Off"/>
+                            </Grid>
 
-                        <!-- Max Retries Numeric -->
-                        <Grid ColumnDefinitions="180,120,*" IsEnabled="{Binding AutoRetryFailedDownloads}">
-                            <TextBlock Grid.Column="0" Text="Max Retry Attempts:" VerticalAlignment="Center" Foreground="#DDD"/>
-                            <NumericUpDown Grid.Column="1" 
-                                           Value="{Binding MaxDownloadRetries}"
-                                           Minimum="1"
-                                           Maximum="20"
-                                           Increment="1"
-                                           Background="#1E1E1E"
-                                           Foreground="White"/>
-                            <TextBlock Grid.Column="2" 
-                                       Text="attempts" 
-                                       VerticalAlignment="Center" 
-                                       Foreground="#666"
-                                       FontSize="11"
-                                       Margin="12,0,0,0"/>
-                        </Grid>
-                    </StackPanel>
+                            <Grid ColumnDefinitions="180,120,*" IsEnabled="{Binding AutoRetryFailedDownloads}">
+                                <TextBlock Grid.Column="0" Text="Max Retry Attempts:" VerticalAlignment="Center" Foreground="#DDD"/>
+                                <NumericUpDown Grid.Column="1"
+                                               Value="{Binding MaxDownloadRetries}"
+                                               Minimum="1"
+                                               Maximum="20"
+                                               Increment="1"
+                                               Background="#1E1E1E"
+                                               Foreground="White"/>
+                                <TextBlock Grid.Column="2"
+                                           Text="attempts"
+                                           VerticalAlignment="Center"
+                                           Foreground="#666"
+                                           FontSize="11"
+                                           Margin="12,0,0,0"/>
+                            </Grid>
 
-                    <Separator Background="#333" Height="1"/>
+                            <Separator Background="#333" Height="1"/>
 
-                    <!-- Spotify Track Identification &amp; Album Art Toggle -->
-                    <Grid ColumnDefinitions="*,Auto">
-                        <StackPanel Grid.Column="0" Spacing="2">
-                            <TextBlock Text="Spotify Track &amp; Album Art" FontWeight="SemiBold" Foreground="#DDD"/>
-                            <TextBlock Text="Fetch track metadata (Title, Artist, Album Art, Duration, ISRC) from Spotify. Uses Search API - works even in Developer Mode." 
-                                       Foreground="#666" FontSize="11" TextWrapping="Wrap"/>
+                            <!-- Spotify Track Identification & Album Art Toggle -->
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Text="Spotify Track &amp; Album Art" FontWeight="SemiBold" Foreground="#DDD"/>
+                                    <TextBlock Text="Fetch track metadata (Title, Artist, Album Art, Duration, ISRC) from Spotify. Uses Search API - works even in Developer Mode."
+                                               Foreground="#666" FontSize="11" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1" IsChecked="{Binding SpotifyUseApi}" OnContent="On" OffContent="Off"/>
+                            </Grid>
                         </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding SpotifyUseApi}" OnContent="On" OffContent="Off"/>
-                    </Grid>
+                    </Expander>
 
                 </StackPanel>
             </Border>
 
             <!-- NEW REFACORTED SPOTIFY INTEGRATION -->
-            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
+                    Tag="Spotify Integration||Connect your Spotify account to import Liked Songs and playlists. Orbit uses the Spotify API to match tracks so it knows what to search for. Your Spotify credentials are only used to read your library — no data is modified.">
                 <StackPanel Spacing="16">
                     <Grid ColumnDefinitions="*,Auto">
                          <StackPanel Grid.Column="0" Spacing="4">
@@ -812,8 +892,9 @@
                 </StackPanel>
             </Border>
 
-            <!-- Phase 8: Self-Healing Library (Upgrade Scout) -->
-            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+            <!-- Phase 8: Self-Healing Library (Upgrade Scout) — Advanced -->
+            <Expander Header="Library Self-Healing (Upgrade Scout)" IsExpanded="False" Padding="0" Margin="0">
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1" Margin="0,4,0,0">
                 <StackPanel Spacing="16">
                     <TextBlock Text="Library Self-Healing (Upgrade Scout)" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
                     
@@ -864,9 +945,11 @@
                     </Grid>
                 </StackPanel>
             </Border>
+            </Expander>
 
-            <!-- Phase 8: Dependencies (FFmpeg Validation) -->
-            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+            <!-- Phase 8: Dependencies (FFmpeg Validation) — Advanced -->
+            <Expander Header="Dependencies" IsExpanded="False" Padding="0" Margin="0">
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1" Margin="0,4,0,0">
                 <StackPanel Spacing="16">
                     <TextBlock Text="Dependencies" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
                     
@@ -943,7 +1026,7 @@
                     </Border>
                 </StackPanel>
             </Border>
-
+            </Expander>
 
             <!-- Database & Maintenance -->
             <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
@@ -1153,8 +1236,9 @@
                 </StackPanel>
             </Border>
 
-            <!-- Diagnostics & Telemetry -->
-            <Border Background="#0D1B2A" CornerRadius="8" Padding="20" BorderBrush="#00D4FF" BorderThickness="1">
+            <!-- Diagnostics & Telemetry (Advanced) -->
+            <Expander Header="🔬 Diagnostics &amp; Telemetry" IsExpanded="False" Padding="0" Margin="0">
+            <Border Background="#0D1B2A" CornerRadius="8" Padding="20" BorderBrush="#00D4FF" BorderThickness="1" Margin="0,8,0,0">
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="4">
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -1295,6 +1379,7 @@
                     </Grid>
                 </StackPanel>
             </Border>
+            </Expander>
 
             <!-- Strategy Command Center -->
             <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
@@ -1364,79 +1449,6 @@
                 </StackPanel>
             </Border>
 
-            <!-- Soulseek Connection -->
-            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#0078D4" BorderThickness="1">
-                <StackPanel Spacing="16">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <StackPanel Grid.Column="0" Spacing="4">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <TextBlock Text="🌐" FontSize="20" VerticalAlignment="Center"/>
-                                <TextBlock Text="Soulseek Connection" FontSize="16" FontWeight="SemiBold" Foreground="#0078D4"/>
-                            </StackPanel>
-                            <TextBlock Text="Manage your connection to the Soulseek peer-to-peer network for music sharing and downloads."
-                                       Foreground="#666" FontSize="12" TextWrapping="Wrap"/>
-                        </StackPanel>
-                    </Grid>
-
-                    <Separator Background="#1A2F3A" Height="1"/>
-
-                    <!-- Username -->
-                    <Grid ColumnDefinitions="140,*">
-                        <TextBlock Grid.Column="0" Text="Username:" VerticalAlignment="Center" Foreground="#DDD"/>
-                        <TextBox Grid.Column="1"
-                                 Text="{Binding SoulseekUsername, Mode=TwoWay}"
-                                 Watermark="Your Soulseek username"
-                                 Background="#1E1E1E"/>
-                    </Grid>
-
-                    <!-- Connection Options -->
-                    <StackPanel Spacing="8">
-                        <CheckBox Content="Auto-connect on startup"
-                                  IsChecked="{Binding SoulseekAutoConnectEnabled, Mode=TwoWay}"
-                                  Foreground="#AAA"/>
-                        <CheckBox Content="Remember password"
-                                  IsChecked="{Binding SoulseekRememberPassword, Mode=TwoWay}"
-                                  Foreground="#AAA"/>
-                    </StackPanel>
-
-                    <!-- Connection Buttons -->
-                    <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Left">
-                        <Button Command="{Binding SoulseekConnectCommand}"
-                                Background="#0078D4"
-                                Foreground="White"
-                                Padding="16,8"
-                                IsEnabled="{Binding SoulseekIsDisconnected}">
-                            <TextBlock Text="Connect" FontSize="12" FontWeight="SemiBold"/>
-                        </Button>
-
-                        <Button Command="{Binding SoulseekDisconnectCommand}"
-                                Background="#2D2D2D"
-                                Foreground="#FF5555"
-                                BorderBrush="#FF5555"
-                                BorderThickness="1"
-                                Padding="16,8"
-                                IsEnabled="{Binding SoulseekIsConnected}">
-                            <TextBlock Text="Disconnect" FontSize="12" FontWeight="SemiBold"/>
-                        </Button>
-
-                        <Button Command="{Binding SoulseekReconnectCommand}"
-                                Background="#FFA500"
-                                Foreground="White"
-                                Padding="16,8"
-                                IsEnabled="{Binding SoulseekIsConnected}">
-                            <TextBlock Text="Reconnect" FontSize="12" FontWeight="SemiBold"/>
-                        </Button>
-                    </StackPanel>
-
-                    <!-- Connection status feedback -->
-                    <TextBlock Text="{Binding SoulseekConnectionStatusText}"
-                               Foreground="#FFB347"
-                               FontSize="12"
-                               TextWrapping="Wrap"
-                               IsVisible="{Binding SoulseekConnectionStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                </StackPanel>
-            </Border>
-
             <!-- ═══════════════════════════════════════════════════════════════
                  KEYBOARD MAPPINGS SECTION (Epic #119)
             ═══════════════════════════════════════════════════════════════ -->
@@ -1466,5 +1478,18 @@
                 </StackPanel>
             </Button>
         </StackPanel>
-    </ScrollViewer>
+        </ScrollViewer>
+
+        <!-- Settings help panel -->
+        <Border Grid.Column="1" Background="#0E1520" BorderBrush="#1A2A3A" BorderThickness="1,0,0,0" Padding="16,20">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="SETTINGS GUIDE" FontSize="9" FontWeight="Black" Foreground="#3A5C70" LetterSpacing="1.2"/>
+                    <TextBlock Text="{Binding FocusedHelpTitle}" FontSize="13" FontWeight="SemiBold" Foreground="#D8E8F0" TextWrapping="Wrap"/>
+                    <Separator Background="#1A2A3A" Height="1"/>
+                    <TextBlock Text="{Binding FocusedHelpText}" FontSize="11" Foreground="#7A9AB0" TextWrapping="Wrap" LineHeight="18"/>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+    </Grid>
 </UserControl>

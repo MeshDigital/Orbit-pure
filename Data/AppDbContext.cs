@@ -161,6 +161,21 @@ public class AppDbContext : DbContext
             .Property(e => e.Status)
             .HasConversion<string>();
 
+        modelBuilder
+            .Entity<TrackEntity>()
+            .Property(e => e.AvailabilityState)
+            .HasConversion<string>();
+
+        modelBuilder
+            .Entity<PlaylistTrackEntity>()
+            .Property(e => e.AvailabilityState)
+            .HasConversion<string>();
+
+        modelBuilder
+            .Entity<LibraryEntryEntity>()
+            .Property(e => e.AvailabilityState)
+            .HasConversion<string>();
+
         // Phase 1C: Implement Global Query Filter for Soft Deletes
         modelBuilder.Entity<PlaylistJobEntity>().HasQueryFilter(j => !j.IsDeleted);
         // Playlist Activity Logs

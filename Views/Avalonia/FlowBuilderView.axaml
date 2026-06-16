@@ -44,7 +44,7 @@
                 BorderBrush="#3E3E3E"
                 BorderThickness="0,0,0,1"
                 Padding="20,12">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto">
 
                 <!-- Title block -->
                 <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
@@ -98,8 +98,19 @@
                         Margin="4,0"
                         VerticalAlignment="Center"/>
 
-                <!-- Refresh list -->
-                <Button Grid.Column="4"
+                <!-- Energy curve selector — drives Suggest Flow ordering shape -->
+                <StackPanel Grid.Column="4" Orientation="Vertical" VerticalAlignment="Center" Margin="4,0" Spacing="2">
+                    <TextBlock Text="ARC SHAPE" FontSize="9" FontWeight="Black"
+                               Foreground="#3A5C70" LetterSpacing="0.8"/>
+                    <ComboBox ItemsSource="{Binding EnergyCurveOptions}"
+                              SelectedItem="{Binding SelectedEnergyCurveOption}"
+                              MinWidth="110"
+                              FontSize="12"
+                              ToolTip.Tip="{Binding SelectedEnergyCurveOption.Description}"/>
+                </StackPanel>
+
+                <!-- Suggest Flow -->
+                <Button Grid.Column="5"
                     Content="◎ Suggest Flow"
                     Classes="fb-ghost"
                     Command="{Binding SuggestFlowCommand}"
@@ -108,7 +119,7 @@
                     VerticalAlignment="Center"/>
 
                 <!-- Refresh list -->
-                <Button Grid.Column="5"
+                <Button Grid.Column="6"
                         Content="↻"
                         Command="{Binding LoadPlaylistsCommand}"
                         ToolTip.Tip="Refresh playlist list"
@@ -117,7 +128,7 @@
                         Width="32"/>
 
                 <!-- Clear -->
-                <Button Grid.Column="6"
+                <Button Grid.Column="7"
                         Content="✕ Clear"
                         Command="{Binding ClearCommand}"
                         IsEnabled="{Binding HasTracks}"
@@ -276,8 +287,49 @@
             <ScrollViewer IsVisible="{Binding HasTracks}"
                           HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Disabled"
-                          Padding="20,28,20,20">
+                          Padding="20,12,20,20">
 
+                <StackPanel Spacing="0">
+
+                <!-- ── Set Arc: energy shape of the full set ─────────────── -->
+                <StackPanel Spacing="2" Margin="0,0,0,4">
+                    <TextBlock Text="SET ARC" FontSize="9" FontWeight="Black"
+                               Foreground="#3A4E5C" LetterSpacing="1.5" Margin="2,0,0,0"/>
+                    <Border Height="36" Background="#0A0A0A" CornerRadius="4" ClipToBounds="True">
+                        <ItemsControl ItemsSource="{Binding Tracks}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="0"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:FlowTrackCardViewModel">
+                                    <Grid ColumnDefinitions="196,56" Height="36">
+                                        <controls:SparklineControl
+                                            Grid.Column="0"
+                                            Points="{Binding EnergyCurvePoints}"
+                                            LineBrush="#4EC9B0"
+                                            FillBrush="#1A4EC9B0"
+                                            LineThickness="1.5"/>
+                                        <!-- Bridge score colour fills the gap between tracks -->
+                                        <Border Grid.Column="1"
+                                                Background="{Binding Bridge.ScoreBrush}"
+                                                Opacity="0.25"
+                                                IsVisible="{Binding HasBridge}"/>
+                                        <Border Grid.Column="1"
+                                                Height="2"
+                                                VerticalAlignment="Bottom"
+                                                Background="{Binding Bridge.ScoreBrush}"
+                                                IsVisible="{Binding HasBridge}"
+                                                Margin="6,0"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
+                </StackPanel>
+
+                <!-- ── Track cards ───────────────────────────────────────── -->
                 <ItemsControl ItemsSource="{Binding Tracks}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
@@ -297,17 +349,38 @@
                                         BorderBrush="#3C3C3C"
                                         BorderThickness="1"
                                         CornerRadius="7"
-                                        Margin="2,0,2,4">
-                                    <Grid RowDefinitions="4,Auto,36,Auto,Auto">
+                                        Margin="2,0,2,4"
+                                        DragDrop.AllowDrop="True"
+                                        DragDrop.DragOver="OnCardDragOver"
+                                        DragDrop.Drop="OnCardDrop">
+                                    <Grid RowDefinitions="4,Auto,Auto,36,Auto,Auto">
 
-                                        <!-- Key colour band -->
+                                        <!-- Key colour band (Camelot-matched) -->
                                         <Border Grid.Row="0"
-                                                Background="#4EC9B0"
-                                                CornerRadius="7,7,0,0"
-                                                Opacity="0.55"/>
+                                                Background="{Binding KeyColorBrush}"
+                                                CornerRadius="7,7,0,0"/>
+
+                                        <!-- Artwork thumbnail (drag handle) -->
+                                        <Border Grid.Row="1" Height="48" ClipToBounds="True" Margin="0"
+                                                Cursor="SizeAll"
+                                                PointerPressed="OnCardArtworkPressed">
+                                            <Panel>
+                                                <Border Background="#181818"
+                                                        IsVisible="{Binding AlbumArtUrl, Converter={x:Static ObjectConverters.IsNull}}">
+                                                    <PathIcon Data="{DynamicResource disc_regular}"
+                                                              Width="20" Height="20"
+                                                              Foreground="#333"
+                                                              HorizontalAlignment="Center"
+                                                              VerticalAlignment="Center"/>
+                                                </Border>
+                                                <Image Source="{Binding AlbumArtUrl}"
+                                                       Stretch="UniformToFill"
+                                                       IsVisible="{Binding AlbumArtUrl, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                                            </Panel>
+                                        </Border>
 
                                         <!-- Artist + Title -->
-                                        <StackPanel Grid.Row="1" Margin="10,8,10,4" Spacing="2">
+                                        <StackPanel Grid.Row="2" Margin="10,6,10,4" Spacing="2">
                                             <TextBlock Text="{Binding Artist}"
                                                        FontSize="10" Foreground="#888"
                                                        TextTrimming="CharacterEllipsis"/>
@@ -318,7 +391,7 @@
                                         </StackPanel>
 
                                         <!-- Energy sparkline -->
-                                        <Border Grid.Row="2" Margin="10,0">
+                                        <Border Grid.Row="3" Margin="10,0" Height="36">
                                             <controls:SparklineControl
                                                 Points="{Binding EnergyCurvePoints}"
                                                 LineBrush="#4EC9B0"
@@ -327,7 +400,7 @@
                                         </Border>
 
                                         <!-- BPM / Key / Time info row -->
-                                        <Grid Grid.Row="3"
+                                        <Grid Grid.Row="4"
                                               ColumnDefinitions="*,*,*"
                                               Margin="8,4,8,6">
                                             <StackPanel Grid.Column="0" Spacing="1" HorizontalAlignment="Center">
@@ -342,7 +415,7 @@
                                             <StackPanel Grid.Column="1" Spacing="1" HorizontalAlignment="Center">
                                                 <TextBlock Text="{Binding KeyDisplay}"
                                                            FontSize="13" FontWeight="Bold"
-                                                           Foreground="#4EC9B0"
+                                                           Foreground="{Binding KeyColorBrush}"
                                                            HorizontalAlignment="Center"/>
                                                 <TextBlock Text="KEY"
                                                            FontSize="9" Foreground="#555"
@@ -360,7 +433,7 @@
                                         </Grid>
 
                                         <!-- Reorder / remove buttons -->
-                                        <StackPanel Grid.Row="4"
+                                        <StackPanel Grid.Row="5"
                                                     Orientation="Horizontal"
                                                     HorizontalAlignment="Center"
                                                     Spacing="6"
@@ -443,6 +516,7 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+                </StackPanel>
             </ScrollViewer>
         </Grid>
     </Grid>

@@ -51,6 +51,10 @@ public class LibraryEntry
     public int? DurationSeconds { get; set; }
     public string Format { get; set; } = string.Empty;
 
+    public TrackAvailabilityState AvailabilityState { get; set; } = TrackAvailabilityState.Ready;
+    public string? SpotifyPlaylistId { get; set; }
+    public string? SpotifyUri { get; set; }
+
     /// <summary>
     /// Timestamp when this entry was added to the library.
     /// </summary>

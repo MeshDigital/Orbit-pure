@@ -66,6 +66,9 @@ public class LibraryPlaylistCardViewModel : ReactiveObject
 
     public string SecondaryBadgeText => $"{DownloadedCount}/{TrackCount} downloaded";
 
+    public bool HasFailures => _playlist.FailedCount > 0;
+    public int FailedCount => _playlist.FailedCount;
+
     /// <summary>
     /// Health Ring: Ratio of verified lossless tracks (0.0 to 1.0)
     /// Calculated as (Verified + Gold) / TotalTracks
@@ -224,6 +227,8 @@ public class LibraryPlaylistCardViewModel : ReactiveObject
         this.RaisePropertyChanged(nameof(PrimaryRingColor));
         this.RaisePropertyChanged(nameof(HealthStatusText));
         this.RaisePropertyChanged(nameof(ForensicFlyoutText));
+        this.RaisePropertyChanged(nameof(HasFailures));
+        this.RaisePropertyChanged(nameof(FailedCount));
 
         // Only reload cover art when the properties that affect it actually change,
         // to avoid redundant mosaic generation when other model fields update.

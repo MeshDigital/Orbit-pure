@@ -177,13 +177,26 @@
             <Setter Property="Opacity" Value="1"/>
         </Style>
 
+        <!-- Ghost state styling -->
+        <Style Selector="Border.root.ghost">
+            <Setter Property="Opacity" Value="0.45"/>
+        </Style>
+        <Style Selector="Border.root.ghost:pointerover">
+            <Setter Property="Opacity" Value="0.75"/>
+        </Style>
+        <!-- Always reveal action hub for Ghost tracks so the user sees the Acquire button -->
+        <Style Selector="Border.root.ghost StackPanel.ActionHub">
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+
     </UserControl.Styles>
 
     <Border Classes="root"
             Classes.active="{Binding IsDownloading}"
             Classes.stalled="{Binding IsStalled}"
             Classes.completed="{Binding IsCompleted}"
-            Classes.failed="{Binding IsFailed}">
+            Classes.failed="{Binding IsFailed}"
+            Classes.ghost="{Binding IsGhost}">
         <StackPanel>
             <!-- Phase 5B: Removed waveform underlay - was visually noisy in list context -->
             
@@ -210,6 +223,11 @@
                 <Panel>
                     <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill" RenderOptions.BitmapInterpolationMode="MediumQuality" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNotNull}}"/>
                     <PathIcon Data="{StaticResource music_regular}" Foreground="{DynamicResource TextDisabledBrush}" Width="20" Height="20" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNull}}"/>
+                    
+                    <!-- Spotify Icon for Ghost tracks -->
+                    <Border IsVisible="{Binding IsGhost}" Width="16" Height="16" Background="#1DB954" CornerRadius="8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="2">
+                        <PathIcon Data="{StaticResource icons_spotify}" Width="10" Height="10" Foreground="Black" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
                     
                     <!-- Progress Overlay -->
                     <Arc Width="36" Height="36" StartAngle="-90" SweepAngle="{Binding Progress, Converter={StaticResource PercentageToAngleConverter}}" Stroke="{DynamicResource AccentBrush}" StrokeThickness="2" IsVisible="{Binding IsActive}" Opacity="0.8"/>
@@ -441,6 +459,58 @@
                                VerticalAlignment="Center"/>
                 </Border>
 
+                <!-- Energy Score Badge -->
+                <Border IsVisible="{Binding HasEnergyBadge}"
+                        Background="{DynamicResource GlassThinBrush}"
+                        BorderBrush="{Binding EnergyBadgeColor}"
+                        BorderThickness="1"
+                        CornerRadius="10" Padding="8,1"
+                        ToolTip.Tip="Energy Score (1–10)">
+                    <TextBlock Text="{Binding EnergyBadgeText}"
+                               FontSize="9" FontWeight="Bold"
+                               Foreground="{Binding EnergyBadgeColor}"
+                               VerticalAlignment="Center"/>
+                </Border>
+
+                <!-- Instrumental Badge -->
+                <Border IsVisible="{Binding ShowInstrumentalBadge}"
+                        Background="{DynamicResource GlassThinBrush}"
+                        BorderBrush="#7BA7BC"
+                        BorderThickness="1"
+                        CornerRadius="10" Padding="8,1"
+                        ToolTip.Tip="Confirmed Instrumental">
+                    <TextBlock Text="INST"
+                               FontSize="9" FontWeight="Bold"
+                               Foreground="#7BA7BC"
+                               VerticalAlignment="Center"/>
+                </Border>
+
+                <!-- Mood Tag Badge -->
+                <Border IsVisible="{Binding HasMoodTag}"
+                        Background="{DynamicResource GlassThinBrush}"
+                        BorderBrush="#9B6FD6"
+                        BorderThickness="1"
+                        CornerRadius="10" Padding="8,1"
+                        ToolTip.Tip="Detected mood / vibe">
+                    <TextBlock Text="{Binding MoodTagText}"
+                               FontSize="9" FontWeight="Bold"
+                               Foreground="#9B6FD6"
+                               VerticalAlignment="Center"/>
+                </Border>
+
+                <!-- BPM Drift Warning Badge -->
+                <Border IsVisible="{Binding HasBpmDriftWarning}"
+                        Background="{DynamicResource GlassThinBrush}"
+                        BorderBrush="#E07040"
+                        BorderThickness="1"
+                        CornerRadius="10" Padding="8,1"
+                        ToolTip.Tip="Variable/drifting BPM — may cause beat sync issues">
+                    <TextBlock Text="~BPM"
+                               FontSize="9" FontWeight="Bold"
+                               Foreground="#E07040"
+                               VerticalAlignment="Center"/>
+                </Border>
+
                 <!-- Warning Badges (Shield, Risk, etc) -->
                 <Border IsVisible="{Binding IsHighRisk}" Background="{DynamicResource BrushError}" CornerRadius="4" Padding="6,2" ToolTip.Tip="{Binding FlagReason}">
                     <TextBlock Text="HIGH RISK" FontSize="9" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}"/>
@@ -459,6 +529,11 @@
 
             <!-- Column 6: Action Hub (Unified Session Ledger) -->
             <StackPanel Grid.Column="6" Classes="ActionHub" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center" Margin="0,0,8,0">
+                <!-- Group 4: Ghost Track Acquisition -->
+                <Button Classes="ActionBtn" Command="{Binding AcquireTrackCommand}" IsVisible="{Binding IsGhost}" ToolTip.Tip="Acquire Track (Download from Soulseek)">
+                    <PathIcon Data="{StaticResource cloud_download_regular}" Width="16" Height="16" Foreground="{DynamicResource AccentBrush}"/>
+                </Button>
+
                 <!-- Session Ledger: terminal state indicators -->
                 <TextBlock Text="✓" FontSize="13" FontWeight="Black" Foreground="{DynamicResource BrushSuccess}" IsVisible="{Binding IsCompleted}" Margin="0,0,4,0"/>
                 <TextBlock Text="✕" FontSize="13" FontWeight="Black" Foreground="{DynamicResource BrushError}" IsVisible="{Binding IsFailed}" Margin="0,0,4,0"/>
@@ -466,6 +541,9 @@
                 <!-- Group 1: Terminal/Success -->
                 <Button Classes="ActionBtn" Command="{Binding PlayCommand}" IsVisible="{Binding IsCompleted}" ToolTip.Tip="Play"><PathIcon Data="{StaticResource play_circle_regular}" Width="18" Height="18" Foreground="{StaticResource AccentBrush}"/></Button>
                 <Button Classes="ActionBtn" Command="{Binding RevealFileCommand}" IsVisible="{Binding IsCompleted}" ToolTip.Tip="Show in Explorer"><PathIcon Data="{StaticResource folder_open_regular}" Width="16" Height="16"/></Button>
+                <Button Classes="ActionBtn" Command="{Binding FindSimilarCommand}" IsVisible="{Binding IsCompleted}" ToolTip.Tip="Find Similar Tracks (Harmonic + Sound Match)">
+                    <PathIcon Data="{StaticResource sparkles_regular}" Width="16" Height="16" Foreground="#9B6FD6"/>
+                </Button>
                 
                 <!-- Group 2: Recovery (Core Feature) -->
                 <Button Classes="ActionBtn" Command="{Binding ViewAllSearchResultsCommand}" IsVisible="{Binding IsFailed}" ToolTip.Tip="Deep Search (Manual Overwrite)" Background="{DynamicResource AccentGlowBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1">

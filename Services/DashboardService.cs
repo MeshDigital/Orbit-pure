@@ -12,6 +12,15 @@ using System.Threading.Tasks;
 
 namespace SLSKDONET.Services;
 
+public record LibraryIntelligenceStats(
+    int TotalCount,
+    int AnalyzedCount,
+    int FlacCount,
+    int Mp3HqCount,
+    int LowQualityCount,
+    Dictionary<string, int> KeyCounts,
+    int[] EnergyBuckets);
+
 /// <summary>
 /// Aggregates library health metrics for the dashboard/mission control.
 /// 
@@ -318,6 +327,51 @@ public class DashboardService
             SourceUrl = entity.SourceUrl,
             PlaylistTracks = new List<PlaylistTrack>() // Empty list for dashboard display
         };
+    }
+
+    public async Task<LibraryIntelligenceStats> GetLibraryIntelligenceStatsAsync()
+    {
+        try
+        {
+            using var context = new AppDbContext();
+
+            var totalCount = await context.LibraryEntries.CountAsync();
+            var analyzedCount = await context.AudioFeatures.CountAsync(f => f.Bpm > 0);
+
+            var flacCount = await context.LibraryEntries.CountAsync(e =>
+                e.Format != null && (e.Format.ToUpper() == "FLAC" || e.Format.ToUpper() == "WAV" || e.Format.ToUpper() == "AIFF"));
+            var mp3HqCount = await context.LibraryEntries.CountAsync(e =>
+                e.Bitrate >= 300 && e.Format != null && e.Format.ToUpper() != "FLAC" && e.Format.ToUpper() != "WAV" && e.Format.ToUpper() != "AIFF");
+            var lowQualityCount = Math.Max(0, totalCount - flacCount - mp3HqCount);
+
+            var keyCounts = await context.AudioFeatures
+                .Where(f => f.CamelotKey != null && f.CamelotKey != string.Empty)
+                .GroupBy(f => f.CamelotKey)
+                .Select(g => new { Key = g.Key, Count = g.Count() })
+                .ToListAsync();
+
+            var energyValues = await context.AudioFeatures
+                .Where(f => f.Bpm > 0 && f.Energy > 0)
+                .Select(f => (double)f.Energy)
+                .ToListAsync();
+
+            var buckets = new int[5];
+            foreach (var e in energyValues)
+            {
+                int b = Math.Min(4, (int)(e * 5));
+                buckets[b]++;
+            }
+
+            return new LibraryIntelligenceStats(
+                totalCount, analyzedCount, flacCount, mp3HqCount, lowQualityCount,
+                keyCounts.ToDictionary(k => k.Key, k => k.Count),
+                buckets);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load library intelligence stats");
+            return new LibraryIntelligenceStats(0, 0, 0, 0, 0, new Dictionary<string, int>(), new int[5]);
+        }
     }
 
     private static PlaylistTrack MapToModel(PlaylistTrackEntity entity)
