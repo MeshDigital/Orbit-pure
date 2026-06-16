@@ -1867,4 +1867,27 @@ public class LibraryService : ILibraryService
             _logger.LogError(ex, "Failed to initialize default playlists");
         }
     }
+
+    public async Task<(int Reset, int Checked)> ReconcileLibraryAsync()
+    {
+        _logger.LogInformation("Library reconciliation started — cross-referencing PlaylistTrack DB rows against physical files.");
+
+        var (reset, checked_) = await _databaseService.ReconcilePhysicalFilesAsync();
+
+        if (reset > 0)
+        {
+            // Invalidate the global cache so the next load reflects the corrected states.
+            _cache.InvalidateGlobalLibrary();
+
+            _logger.LogWarning(
+                "Library reconciliation: reset {Reset} missing files to Missing state (checked {Checked} total).",
+                reset, checked_);
+        }
+        else
+        {
+            _logger.LogInformation("Library reconciliation complete — all {Checked} files verified present.", checked_);
+        }
+
+        return (reset, checked_);
+    }
 }

@@ -1067,7 +1067,7 @@
                                    Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap"/>
                         
                         <StackPanel Orientation="Horizontal" Spacing="10">
-                            <Button Command="{Binding ScanLibraryCommand}" 
+                            <Button Command="{Binding ScanLibraryCommand}"
                                     IsEnabled="{Binding !IsScanning}"
                                     Classes="AccentBtn" HorizontalAlignment="Left"
                                     Padding="16,8" Background="#0078D4">
@@ -1076,8 +1076,23 @@
                                     <TextBlock Text="{Binding IsScanning, Converter={StaticResource BoolToTextConverter}, ConverterParameter='Scanning...|Scan Library'}" VerticalAlignment="Center" Foreground="White"/>
                                 </StackPanel>
                             </Button>
-                            
-                            <TextBlock Text="{Binding ScanStatus}" VerticalAlignment="Center" 
+
+                            <TextBlock Text="{Binding ScanStatus}" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button Command="{Binding ReconcileLibraryCommand}"
+                                    IsEnabled="{Binding !IsReconciling}"
+                                    HorizontalAlignment="Left"
+                                    Padding="16,8" Background="#1A3A2A"
+                                    BorderBrush="#2A5A3A" BorderThickness="1" CornerRadius="6">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <PathIcon Data="{StaticResource checkmark_regular}" Width="16" Height="16" Foreground="#4CAF50"/>
+                                    <TextBlock Text="{Binding IsReconciling, Converter={StaticResource BoolToTextConverter}, ConverterParameter='Checking...|Reconcile Library'}" VerticalAlignment="Center" Foreground="#C8E6C9"/>
+                                </StackPanel>
+                            </Button>
+                            <TextBlock Text="{Binding ReconcileStatus}" VerticalAlignment="Center"
                                        Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
                         </StackPanel>
 

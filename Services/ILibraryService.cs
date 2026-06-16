@@ -263,4 +263,11 @@ public interface ILibraryService
     /// Phase 2: Structural - Persists detected structural segments.
     /// </summary>
     Task SavePhrasesAsync(List<TrackPhraseEntity> phrases);
+
+    /// <summary>
+    /// Walks every PlaylistTrack row marked as Downloaded and checks whether the file still exists on disk.
+    /// Missing files are reset to TrackStatus.Missing so the auto-download queue can re-acquire them.
+    /// Returns (reset count, total checked).
+    /// </summary>
+    Task<(int Reset, int Checked)> ReconcileLibraryAsync();
 }
