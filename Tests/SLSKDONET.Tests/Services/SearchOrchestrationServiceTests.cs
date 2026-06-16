@@ -64,7 +64,8 @@ public class SearchOrchestrationServiceTests
             safety.Object,
             config,
             hardening,
-            library.Object);
+            library.Object,
+            eventBus);
 
         await foreach (var _ in sut.SearchAsync(
             query: "Artist - Track (Original Mix)",
@@ -152,7 +153,8 @@ public class SearchOrchestrationServiceTests
             safety.Object,
             config,
             hardening,
-            library.Object);
+            library.Object,
+            eventBus);
 
         var results = new List<Track>();
         await foreach (var track in sut.SearchAsync(
@@ -243,7 +245,8 @@ public class SearchOrchestrationServiceTests
             safety.Object,
             config,
             hardening,
-            library.Object);
+            library.Object,
+            eventBus);
 
         await foreach (var _ in sut.SearchAsync(
             query: "Artist - Track (Original Mix)",
@@ -321,7 +324,8 @@ public class SearchOrchestrationServiceTests
             safety.Object,
             config,
             hardening,
-            library.Object);
+            library.Object,
+            eventBus);
 
         await foreach (var _ in sut.SearchAsync(
             query: "Artist - Track (Original Mix)",
@@ -408,7 +412,8 @@ public class SearchOrchestrationServiceTests
             safety.Object,
             config,
             hardening,
-            library.Object);
+            library.Object,
+            eventBus);
 
         var results = new List<Track>();
         await foreach (var track in sut.SearchAsync(
@@ -497,7 +502,8 @@ public class SearchOrchestrationServiceTests
             safety.Object,
             config,
             hardening,
-            library.Object);
+            library.Object,
+            eventBus);
 
         await foreach (var _ in sut.SearchAsync(
             query: "Artist - Track (Original Mix)",
@@ -588,7 +594,8 @@ public class SearchOrchestrationServiceTests
             safety.Object,
             config,
             hardening,
-            library.Object);
+            library.Object,
+            eventBus);
 
         var target = new PlaylistTrack
         {
@@ -697,7 +704,8 @@ public class SearchOrchestrationServiceTests
             safety.Object,
             config,
             hardening,
-            library.Object);
+            library.Object,
+            eventBus);
 
         var results = new List<Track>();
         await foreach (var track in sut.SearchAsync(
@@ -760,7 +768,8 @@ public class SearchOrchestrationServiceTests
             safety.Object,
             config,
             hardening,
-            library.Object);
+            library.Object,
+            eventBus);
 
         async Task ConsumeAsync()
         {
