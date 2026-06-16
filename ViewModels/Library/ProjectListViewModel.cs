@@ -28,6 +28,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     private readonly INotificationService _notificationService;
     private readonly ArtworkCacheService? _artworkCacheService;
     private readonly PlaylistMosaicService? _mosaicService;
+    private readonly IEventBus _eventBus;
 
     // Master List: All import jobs/projects
     private ObservableCollection<PlaylistJob> _allProjects = new();
@@ -168,6 +169,8 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand LoadAllTracksCommand { get; }
     public System.Windows.Input.ICommand ImportLikedSongsCommand { get; }
     public System.Windows.Input.ICommand SyncProjectCommand { get; }
+    public System.Windows.Input.ICommand GenerateCuesCommand { get; }
+    public System.Windows.Input.ICommand ExportProjectCommand { get; }
 
     // Services
     private readonly ImportOrchestrator _importOrchestrator;
@@ -215,6 +218,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         _notificationService = notificationService;
         _artworkCacheService = artworkCacheService;
         _mosaicService = mosaicService;
+        _eventBus = eventBus;
 
         // Initialize commands
         OpenProjectCommand = new RelayCommand<PlaylistJob>(project => SelectedProject = project);
@@ -224,6 +228,8 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         LoadAllTracksCommand = new RelayCommand(() => SelectedProject = _allTracksJob);
         ImportLikedSongsCommand = new AsyncRelayCommand(ExecuteImportLikedSongsAsync, () => IsSpotifyAuthenticated);
         SyncProjectCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteSyncProjectAsync);
+        GenerateCuesCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteGenerateCuesAsync);
+        ExportProjectCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteExportProjectAsync);
 
         // Subscribe to auth changes
         _authChangedHandler = (s, authenticated) => 
@@ -507,6 +513,49 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
             _logger.LogError(ex, "Failed to sync project");
             _notificationService.Show("Sync Error", $"Failed to sync: {ex.Message}", Views.NotificationType.Error);
         }
+    }
+
+    private async Task ExecuteGenerateCuesAsync(PlaylistJob? job)
+    {
+        if (job == null) return;
+        try
+        {
+            var tracks = await _libraryService.LoadPlaylistTracksAsync(job.Id);
+            var eligible = tracks
+                .Where(t => !string.IsNullOrEmpty(t.ResolvedFilePath) && System.IO.File.Exists(t.ResolvedFilePath))
+                .ToList();
+
+            if (eligible.Count == 0)
+            {
+                _notificationService.Show("Generate Cues",
+                    "No downloaded tracks found in this playlist. Download tracks first.",
+                    Views.NotificationType.Warning);
+                return;
+            }
+
+            foreach (var track in eligible)
+                _eventBus.Publish(new Models.TrackAnalysisRequestedEvent(track.TrackUniqueHash));
+
+            _notificationService.Show("Generate Cues",
+                $"Queued {eligible.Count} track(s) in '{job.SourceTitle}' for cue generation.",
+                Views.NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GenerateCues failed for playlist {Id}", job.Id);
+            _notificationService.Show("Generate Cues Failed", ex.Message, Views.NotificationType.Error);
+        }
+    }
+
+    private async Task ExecuteExportProjectAsync(PlaylistJob? job)
+    {
+        if (job == null) return;
+        // Select the project so the main Export command in LibraryViewModel operates on it
+        SelectedProject = job;
+        await Task.CompletedTask;
+        _notificationService.Show("Export",
+            $"Select '{job.SourceTitle}' is now active — use Library → Export to Rekordbox.",
+            Views.NotificationType.Information);
     }
 
     private async void OnPlaylistAdded(object? sender, PlaylistJob job)

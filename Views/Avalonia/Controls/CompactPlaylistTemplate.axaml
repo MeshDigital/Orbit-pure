@@ -28,8 +28,8 @@
         
         <Grid.ContextMenu>
             <ContextMenu>
-                <MenuItem Header="Export to Rekordbox" 
-                           Command="{Binding $parent[views:LibraryPage].DataContext.Projects.ExportProjectCommand}"
+                <MenuItem Header="Export to Rekordbox"
+                           Command="{Binding $parent[views:LibraryPage].DataContext.ExportPlaylistCommand}"
                            CommandParameter="{Binding Model}">
                     <MenuItem.Icon>
                         <TextBlock Text="📀"/>
