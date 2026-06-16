@@ -677,9 +677,17 @@ public class DatabaseService
                 var existing = await context.AudioFeatures.FirstOrDefaultAsync(f => f.TrackUniqueHash == features.TrackUniqueHash);
                 if (existing != null)
                 {
-                    context.AudioFeatures.Remove(existing);
+                    // Copy property values to existing to preserve DB identity and avoid cascading delete side effects on dependents
+                    features.Id = existing.Id;
+                    context.Entry(existing).CurrentValues.SetValues(features);
                 }
-                context.AudioFeatures.Add(features);
+                else
+                {
+                    context.AudioFeatures.Add(features);
+                }
+
+                // Sync denormalized fields
+                await SyncDenormalizedFeaturesAsync(context, features).ConfigureAwait(false);
 
                 if (_transactionContext == null) await context.SaveChangesAsync();
             }
@@ -1151,7 +1159,8 @@ public class DatabaseService
         return await context.PlaylistTracks
             .AsNoTracking()
             .Where(t => validJobIds.Contains(t.PlaylistId)
-                     && (t.Status == TrackStatus.Pending || t.Status == TrackStatus.OnHold))
+                     && (t.Status == TrackStatus.Pending || t.Status == TrackStatus.OnHold)
+                     && !t.IsClearedFromDownloadCenter)
             .OrderByDescending(t => t.AddedAt)
             .ToListAsync();
     }
@@ -1168,7 +1177,8 @@ public class DatabaseService
         return await context.PlaylistTracks
             .AsNoTracking()
             .Where(t => validJobIds.Contains(t.PlaylistId)
-                     && (t.Status == TrackStatus.Downloaded || t.Status == TrackStatus.Failed))
+                     && (t.Status == TrackStatus.Downloaded || t.Status == TrackStatus.Failed)
+                     && !t.IsClearedFromDownloadCenter)
             .OrderByDescending(t => t.CompletedAt ?? t.AddedAt)
             .Take(limit)
             .ToListAsync();
@@ -1401,7 +1411,7 @@ public class DatabaseService
 
         var trackEntities = await context.PlaylistTracks
             .AsNoTracking()
-            .Where(t => trackIds.Contains(t.Id) && t.Status == TrackStatus.Missing)
+            .Where(t => trackIds.Contains(t.Id) && t.Status == TrackStatus.Missing && !t.IsClearedFromDownloadCenter)
             .ToListAsync();
 
         var trackById = trackEntities.ToDictionary(t => t.Id);
@@ -1909,6 +1919,10 @@ public class DatabaseService
         if (existing != null)
         {
             context.Entry(existing).CurrentValues.SetValues(features);
+
+            // Sync denormalized fields
+            await SyncDenormalizedFeaturesAsync(context, features).ConfigureAwait(false);
+
             await context.SaveChangesAsync();
         }
     }
@@ -2050,6 +2064,74 @@ public class DatabaseService
             .OrderByDescending(x => x.RecordedAt)
             .ToListAsync()
             .ConfigureAwait(false);
+    }
+
+    private async Task SyncDenormalizedFeaturesAsync(AppDbContext context, AudioFeaturesEntity features)
+    {
+        var trackGlobalId = features.TrackUniqueHash;
+
+        var playlistRows = await context.PlaylistTracks
+            .Where(t => t.TrackUniqueHash == trackGlobalId)
+            .ToListAsync()
+            .ConfigureAwait(false);
+        foreach (var row in playlistRows)
+        {
+            row.BPM = features.Bpm;
+            row.MusicalKey = features.Key;
+            row.Energy = features.Energy;
+            row.Danceability = features.Danceability;
+            row.Valence = features.Valence;
+            row.Arousal = features.Arousal;
+            row.IsDjTool = features.IsDjTool;
+            row.Loudness = features.LoudnessLUFS;
+            row.CuePointsJson = features.CuePointsJson;
+            row.MoodTag = features.MoodTag;
+            row.DetectedSubGenre = features.DetectedSubGenre;
+            row.SubGenreConfidence = features.SubGenreConfidence;
+            row.InstrumentalProbability = features.InstrumentalProbability;
+            row.DropTimestamp = features.DropTimeSeconds;
+        }
+
+        var libraryRows = await context.LibraryEntries
+            .Where(t => t.UniqueHash == trackGlobalId)
+            .ToListAsync()
+            .ConfigureAwait(false);
+        foreach (var row in libraryRows)
+        {
+            row.BPM = features.Bpm;
+            row.MusicalKey = features.Key;
+            row.Energy = features.Energy;
+            row.Danceability = features.Danceability;
+            row.Valence = features.Valence;
+            row.Arousal = features.Arousal;
+            row.IsDjTool = features.IsDjTool;
+            row.Loudness = features.LoudnessLUFS;
+            row.CuePointsJson = features.CuePointsJson;
+            row.MoodTag = features.MoodTag;
+            row.DetectedSubGenre = features.DetectedSubGenre;
+            row.SubGenreConfidence = features.SubGenreConfidence;
+            row.InstrumentalProbability = features.InstrumentalProbability;
+            row.DropTimestamp = features.DropTimeSeconds;
+        }
+
+        var masterTracks = await context.Tracks
+            .Where(t => t.GlobalId == trackGlobalId)
+            .ToListAsync()
+            .ConfigureAwait(false);
+        foreach (var row in masterTracks)
+        {
+            row.BPM = features.Bpm;
+            row.MusicalKey = features.Key;
+            row.Energy = features.Energy;
+            row.Danceability = features.Danceability;
+            row.Valence = features.Valence;
+            row.CuePointsJson = features.CuePointsJson;
+            row.MoodTag = features.MoodTag;
+            row.DetectedSubGenre = features.DetectedSubGenre;
+            row.SubGenreConfidence = features.SubGenreConfidence;
+            row.InstrumentalProbability = features.InstrumentalProbability;
+            row.DropTimestamp = features.DropTimeSeconds;
+        }
     }
 }
 

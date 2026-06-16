@@ -55,9 +55,12 @@ public class DownloadGroupViewModelTests
         var source = new SourceCache<UnifiedTrackViewModel, string>(track => track.GlobalId);
         ReadOnlyObservableCollection<DownloadGroupViewModel>? groups = null;
 
+        var downloadManager = (DownloadManager)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(DownloadManager));
+        var libraryService = Mock.Of<ILibraryService>();
+
         using var changes = source.Connect()
             .Group(track => track.Model.SourcePlaylistId ?? track.Model.PlaylistId)
-            .Transform(group => new DownloadGroupViewModel(group))
+            .Transform(group => new DownloadGroupViewModel(group, downloadManager, libraryService))
             .Bind(out groups)
             .Subscribe();
 

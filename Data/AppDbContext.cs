@@ -66,7 +66,7 @@ public class AppDbContext : DbContext
                 options.CommandTimeout(30); // 30 second timeout for long operations
             })
             // Issue #45: apply WAL mode + PRAGMAs before any EF Core operation runs
-            .AddInterceptors(new SqliteWalInterceptor())
+            .AddInterceptors(new SLSKDONET.Database.Interceptors.WalModeInterceptor())
             .ConfigureWarnings(warnings =>
             {
                 // Suppress this warning since we use runtime schema patching via SchemaMigratorService
@@ -229,7 +229,8 @@ public class AppDbContext : DbContext
             .WithMany()
             .HasForeignKey(pt => pt.TrackUniqueHash)
             .HasPrincipalKey(af => af.TrackUniqueHash)
-            .IsRequired(false);
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.NoAction);
 
         // 4. SetList -> SetTrack (1:Many)
         modelBuilder.Entity<Entities.SetListEntity>()

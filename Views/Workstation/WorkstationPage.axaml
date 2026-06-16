@@ -1,0 +1,93 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:SLSKDONET.ViewModels"
+             x:Class="SLSKDONET.Views.Avalonia.WorkstationPage"
+             x:DataType="vm:CurationWorkstationViewModel">
+
+	<Grid RowDefinitions="*, Auto" Background="#111114">
+		
+		<!-- Viewport Canvas Rendering Section -->
+		<Border Grid.Row="0" Margin="10" Background="#16161A" CornerRadius="6" BorderBrush="#222226" BorderThickness="1">
+			<Grid RowDefinitions="*, 60">
+				<!-- Waveform Interactivity Canvas Deck -->
+				<Canvas Name="WaveformTimelineCanvas" 
+				        Grid.Row="0" 
+				        Background="Transparent"
+				        PointerPressed="OnWaveformPointerPressed"
+				        PointerMoved="OnWaveformPointerMoved"
+				        PointerReleased="OnWaveformPointerReleased"/>
+				
+				<!-- Overview Stripe -->
+				<ContentControl Grid.Row="1" Content="{Binding MinimalOverviewDeck}"/>
+			</Grid>
+		</Border>
+
+		<!-- Submenu Control Deck Context Space -->
+		<Border Grid.Row="1" Height="280" Background="#141417" BorderBrush="#222226" BorderThickness="0,1,0,0">
+			<Grid ColumnDefinitions="240, *">
+				
+				<!-- Sidebar Context Options Matrix -->
+				<StackPanel Grid.Column="0" Background="#111114" Spacing="2" Margin="5">
+					<Button Classes="MenuTab" Content="Track Info" Command="{Binding NavTrackInfoCommand}"/>
+					<Button Classes="MenuTab" Content="Forensic Signals" Command="{Binding NavForensicsCommand}"/>
+					<Button Classes="MenuTab Active" Content="Cues &amp; Loops Manager"/>
+					<Button Classes="MenuTab" Content="Rekordbox Exporter" Command="{Binding ExportXmlCommand}"/>
+				</StackPanel>
+
+				<!-- Workspace Action Sandbox Splitter -->
+				<Grid Grid.Column="1" ColumnDefinitions="*, *, 220" Margin="15">
+					
+					<!-- Section A: Cue Points Manifest List -->
+					<HeaderedContentControl Grid.Column="0" Header="CUE POINTS MANIFEST" Margin="0,0,10,0">
+						<ListBox ItemsSource="{Binding CalculatedCues}" SelectedItem="{Binding SelectedCue}">
+							<ListBox.ItemTemplate>
+								<DataTemplate>
+									<Grid ColumnDefinitions="Auto, *, Auto">
+										<Ellipse Grid.Column="0" Width="10" Height="10" Fill="{Binding StrategyHexColor}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+										<TextBlock Grid.Column="1" Text="{Binding IntentLabel}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+										<TextBlock Grid.Column="2" Text="{Binding DisplayTimestamp}" Foreground="#88888C" VerticalAlignment="Center"/>
+									</Grid>
+								</DataTemplate>
+							</ListBox.ItemTemplate>
+						</ListBox>
+					</HeaderedContentControl>
+
+					<!-- Section B: Active Loops Control Panel -->
+					<HeaderedContentControl Grid.Column="1" Header="ACTIVE LOOP REGISTRY" Margin="0,0,10,0">
+						<Grid RowDefinitions="*, Auto">
+							<ListBox Grid.Row="0" ItemsSource="{Binding LoopRegistry}" SelectedItem="{Binding SelectedLoop}">
+								<ListBox.ItemTemplate>
+									<DataTemplate>
+										<Grid ColumnDefinitions="*, Auto">
+											<StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
+												<TextBlock Text="{Binding LoopLengthString}" FontWeight="Bold"/>
+												<TextBlock Text="{Binding BoundaryRangeString}" Foreground="#66666A"/>
+											</StackPanel>
+											<ToggleSwitch Grid.Column="1" IsChecked="{Binding IsActiveLoop}"/>
+										</Grid>
+									</DataTemplate>
+								</ListBox.ItemTemplate>
+							</ListBox>
+							<Button Grid.Row="1" Content="Capture Loop Block from Playhead" HorizontalAlignment="Stretch" Classes="SecondaryAction"/>
+						</Grid>
+					</HeaderedContentControl>
+
+					<!-- Section C: Engine Weights Configuration Modifier Deck -->
+					<HeaderedContentControl Grid.Column="2" Header="RE-ENGINE ENGINE WEIGHTS">
+						<StackPanel Spacing="10" Margin="0,5,0,0">
+							<StackPanel>
+								<TextBlock Text="Transient Precision Filter" Classes="LabelText"/>
+								<Slider Minimum="0" Maximum="100" Value="{Binding TransientEngineWeight}"/>
+							</StackPanel>
+							<StackPanel>
+								<TextBlock Text="Energy Curve Threshold" Classes="LabelText"/>
+								<Slider Minimum="0" Maximum="100" Value="{Binding EnergyCurveWeight}"/>
+							</StackPanel>
+							<Button Content="Recalculate Cues" Command="{Binding TriggerAnalysisCommand}" HorizontalAlignment="Stretch" Classes="PrimaryAction"/>
+						</StackPanel>
+					</HeaderedContentControl>
+				</Grid>
+			</Grid>
+		</Border>
+	</Grid>
+</UserControl>

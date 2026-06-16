@@ -793,9 +793,29 @@
                              </Button>
 
                              <ToggleButton IsChecked="{Binding ShowEngineLogs}"
-                                           Background="#2D2D2D" BorderBrush="#444" BorderThickness="1" Padding="10,6" CornerRadius="6">
-                                 <PathIcon Data="{StaticResource document_text_regular}" Width="14" Height="14" Foreground="#888"/>
+                                           Background="#2D2D2D" BorderBrush="#444" BorderThickness="1" Padding="10,6" CornerRadius="6"
+                                           ToolTip.Tip="Toggle Live Engine Feed logs">
+                                 <StackPanel Orientation="Horizontal" Spacing="6">
+                                     <PathIcon Data="{StaticResource document_text_regular}" Width="14" Height="14" Foreground="#888"/>
+                                     <TextBlock Text="{Binding EngineLogCount, StringFormat='{}Logs ({0})'}" FontSize="10" Foreground="#888" VerticalAlignment="Center"/>
+                                 </StackPanel>
                              </ToggleButton>
+
+                             <Button Command="{Binding CancelAllActiveCommand}"
+                                     Background="#2D2D2D" BorderBrush="#FF8C00" BorderThickness="1" Foreground="#FF8C00"
+                                     Padding="10,6" CornerRadius="6" ToolTip.Tip="Surgically cancel active downloads without clearing history">
+                                 <TextBlock Text="🛑 CANCEL ACTIVE" FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
+                             </Button>
+
+                             <Button Command="{Binding ResetDownloadCenterCommand}" 
+                                     Background="#2D1515" BorderBrush="#FF5252" BorderThickness="1" Foreground="#FF5252" 
+                                     Padding="10,6" CornerRadius="6" ToolTip.Tip="Nuclear: Cancel all active and clear DC history">
+                                 <StackPanel Orientation="Horizontal" Spacing="4">
+                                     <TextBlock Text="🔄" FontSize="11" VerticalAlignment="Center"/>
+                                     <TextBlock Text="RESET DC" FontWeight="Bold" FontSize="10" VerticalAlignment="Center"/>
+                                 </StackPanel>
+                             </Button>
+
                              <ToggleButton x:Name="BatchPresetsToggle" Content="Presets ▾" Padding="10,6" CornerRadius="6" FontSize="10"
                                            Background="#2D2D2D" BorderBrush="#444" BorderThickness="1" Foreground="#888"
                                            ToolTip.Tip="Show batch download presets and quality profile chips"/>

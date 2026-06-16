@@ -7,6 +7,7 @@ using DynamicData;
 using DynamicData.Binding;
 using ReactiveUI;
 using SLSKDONET.Models;
+using SLSKDONET.Services;
 
 namespace SLSKDONET.ViewModels.Downloads;
 
@@ -17,6 +18,8 @@ namespace SLSKDONET.ViewModels.Downloads;
 public class DownloadGroupViewModel : ReactiveObject, IDisposable
 {
     private readonly IDisposable _cleanUp;
+    private readonly DownloadManager _downloadManager;
+    private readonly ILibraryService _libraryService;
     private bool _isExpanded = false;
     private double _totalProgress;
     private double _totalSpeed;
@@ -77,9 +80,11 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
     public IReactiveCommand CancelCommand { get; }
     public IReactiveCommand ToggleExpandedCommand { get; }
 
-    public DownloadGroupViewModel(IGroup<UnifiedTrackViewModel, string, Guid> group)
+    public DownloadGroupViewModel(IGroup<UnifiedTrackViewModel, string, Guid> group, DownloadManager downloadManager, ILibraryService libraryService)
     {
         GroupKey = group.Key;
+        _downloadManager = downloadManager;
+        _libraryService = libraryService;
         
         // Connect to the group cache
         var tracksLoader = group.Cache.Connect()
@@ -178,12 +183,29 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
             }
         });
 
-        CancelCommand = ReactiveCommand.Create(() => 
+        CancelCommand = ReactiveCommand.CreateFromTask(async () => 
         {
             var items = Tracks.ToList();
-            foreach (var t in items.Where(x => x.IsActive))
+            foreach (var t in items)
             {
-                ExecuteIfAllowed(t.CancelCommand);
+                // Status Reset Safety Check: If mid-download/searching, reset to Failed
+                if (t.State == PlaylistTrackState.Downloading || 
+                    t.State == PlaylistTrackState.Searching || 
+                    t.State == PlaylistTrackState.Queued || 
+                    t.State == PlaylistTrackState.Pending)
+                {
+                    t.Model.Status = TrackStatus.Failed;
+                }
+                
+                // Cancel
+                _downloadManager.CancelTrack(t.GlobalId);
+                
+                // Soft clear
+                t.IsClearedFromDownloadCenter = true;
+                t.Model.IsClearedFromDownloadCenter = true;
+                
+                // Persist soft clear
+                await _libraryService.UpdatePlaylistTrackAsync(t.Model);
             }
         });
 

@@ -52,7 +52,11 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     private readonly AppConfig _config;
     private readonly DatabaseService _databaseService;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly IDialogService _dialogService;
     private readonly CompositeDisposable _subscriptions = new();
+    private readonly object _logsLock = new();
+    public ObservableCollection<EngineLogEntry> EngineLogs { get; } = new();
+    public int EngineLogCount => EngineLogs.Count;
     private DispatcherTimer? _uiBatchTimer;
     private DispatcherTimer? _statusBannerTimer;
     private bool _hasPendingUiRefresh;
@@ -546,6 +550,8 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     public ICommand StartEngineCommand { get; }
     public ICommand StopEngineCommand { get; }
     public ICommand ToggleEnginePauseCommand { get; }
+    public ICommand ResetDownloadCenterCommand { get; }
+    public ICommand CancelAllActiveCommand { get; }
     
     private readonly ArtworkCacheService _artworkCache;
     private readonly ILibraryService _libraryService;
@@ -557,7 +563,8 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         ArtworkCacheService artworkCache,
         ILibraryService libraryService,
         DatabaseService databaseService,
-        IDbContextFactory<AppDbContext> dbFactory)
+        IDbContextFactory<AppDbContext> dbFactory,
+        IDialogService dialogService)
     {
         _downloadManager = downloadManager;
         _eventBus = eventBus;
@@ -566,12 +573,16 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         _databaseService = databaseService;
         _config = config;
         _dbFactory = dbFactory;
+        _dialogService = dialogService;
         _isAutoEnrichEnabled = _config.IsAutoEnrichEnabled;
         
         ToggleLogsCommand = ReactiveCommand.Create(() => ShowEngineLogs = !ShowEngineLogs);
         ClearSecurityQualityLogsCommand = ReactiveCommand.Create(() => { });
         DismissGlobalStatusCommand = ReactiveCommand.Create(() => ClearGlobalStatus());
         ClearHubSelectionCommand = ReactiveCommand.Create(() => SelectedHubRow = null);
+        
+        ResetDownloadCenterCommand = ReactiveCommand.CreateFromTask(ExecuteResetDownloadCenterAsync);
+        CancelAllActiveCommand = ReactiveCommand.CreateFromTask(ExecuteCancelAllActiveAsync);
 
         // Phase 6: Security & Quality diagnostics feed (Shield / Gate visibility)
         _eventBus.GetEvent<SecurityAuditEvent>()
@@ -699,7 +710,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             var selectedArgs = SelectedItems.ToList();
             foreach (var item in selectedArgs)
             {
-                if (item.IsActive || item.IsWaiting)
+                if (!item.IsCompleted && !item.IsFailed)
                 {
                     _downloadManager.CancelTrack(item.GlobalId);
                 }
@@ -878,7 +889,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         sharedSource
             .Filter(x => x.IsWaiting || x.IsStalled || x.State == PlaylistTrackState.Searching) // Include searching for transparency + visibility
             .Group(x => x.Model.SourcePlaylistId ?? x.Model.PlaylistId)
-            .Transform((IGroup<UnifiedTrackViewModel, string, Guid> group) => new DownloadGroupViewModel(group))
+            .Transform((IGroup<UnifiedTrackViewModel, string, Guid> group) => new DownloadGroupViewModel(group, _downloadManager, _libraryService))
             .DisposeMany() 
             .SortAndBind(out _activeGroups, SortExpressionComparer<DownloadGroupViewModel>.Descending(x => x.LastActivity))
             .Subscribe()
@@ -938,7 +949,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         sharedSource
             .Filter(sessionFilter)
             .Group(x => x.Model.SourcePlaylistId ?? x.Model.PlaylistId)
-            .Transform((IGroup<UnifiedTrackViewModel, string, Guid> group) => new DownloadGroupViewModel(group))
+            .Transform((IGroup<UnifiedTrackViewModel, string, Guid> group) => new DownloadGroupViewModel(group, _downloadManager, _libraryService))
             .DisposeMany()
             .SortAndBind(out _sessionGroups, SortExpressionComparer<DownloadGroupViewModel>.Descending(x => x.LastActivity))
             .Subscribe()
@@ -955,7 +966,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         sharedSource
             .Filter(x => (x.IsWaiting || x.IsStalled) && x.Model.Priority == 0)
             .Group(x => x.Model.SourcePlaylistId ?? x.Model.PlaylistId)
-            .Transform((IGroup<UnifiedTrackViewModel, string, Guid> group) => new DownloadGroupViewModel(group))
+            .Transform((IGroup<UnifiedTrackViewModel, string, Guid> group) => new DownloadGroupViewModel(group, _downloadManager, _libraryService))
             .DisposeMany()
             .SortAndBind(out _expressGroups, SortExpressionComparer<DownloadGroupViewModel>.Descending(x => x.LastActivity))
             .Subscribe()
@@ -965,7 +976,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         sharedSource
             .Filter(x => (x.IsWaiting || x.IsStalled) && x.Model.Priority >= 1)
             .Group(x => x.Model.SourcePlaylistId ?? x.Model.PlaylistId)
-            .Transform((IGroup<UnifiedTrackViewModel, string, Guid> group) => new DownloadGroupViewModel(group))
+            .Transform((IGroup<UnifiedTrackViewModel, string, Guid> group) => new DownloadGroupViewModel(group, _downloadManager, _libraryService))
             .DisposeMany()
             .SortAndBind(out _standardGroups, SortExpressionComparer<DownloadGroupViewModel>.Descending(x => x.LastActivity))
             .Subscribe()
@@ -1054,6 +1065,11 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         // Subscribe to creation events ONLY (State/Progress handled by Smart Component)
         _eventBus.GetEvent<TrackAddedEvent>()
             .Subscribe(OnTrackAdded)
+            .DisposeWith(_subscriptions);
+
+        // Live Log Engine Subscription
+        _eventBus.GetEvent<TrackStateChangedEvent>()
+            .Subscribe(OnTrackStateChanged)
             .DisposeWith(_subscriptions);
         
         // Issue #4: Subscribe to batch track additions from imports
@@ -1481,6 +1497,130 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     private async Task PauseAll()
     {
         await _downloadManager.PauseAllAsync();
+    }
+
+    private void OnTrackStateChanged(TrackStateChangedEvent e)
+    {
+        string artist = "Unknown Artist";
+        string title = "Unknown Title";
+        
+        var trackVm = _downloadsSource.Items.FirstOrDefault(x => x.GlobalId == e.TrackGlobalId);
+        if (trackVm != null)
+        {
+            artist = trackVm.ArtistName;
+            title = trackVm.TrackTitle;
+        }
+        
+        string level = "INFO";
+        string stage = "ENGINE";
+        string message = "";
+        
+        switch (e.State)
+        {
+            case PlaylistTrackState.Searching:
+                level = "INFO";
+                stage = "SEARCH";
+                message = $"Started searching for '{artist} - {title}'";
+                break;
+            case PlaylistTrackState.Downloading:
+                level = "INFO";
+                stage = "DOWNLOAD";
+                message = $"Downloading '{artist} - {title}'" + (!string.IsNullOrEmpty(e.PeerName) ? $" from peer '{e.PeerName}'" : "");
+                break;
+            case PlaylistTrackState.Completed:
+                level = "SUCCESS";
+                stage = "ENGINE";
+                message = $"Successfully downloaded '{artist} - {title}'";
+                break;
+            case PlaylistTrackState.Failed:
+                level = "ERROR";
+                stage = "ENGINE";
+                message = $"Failed to download '{artist} - {title}'" + (!string.IsNullOrEmpty(e.Error) ? $": {e.Error}" : "");
+                break;
+            case PlaylistTrackState.Cancelled:
+                level = "WARN";
+                stage = "ENGINE";
+                message = $"Cancelled download for '{artist} - {title}'";
+                break;
+            default:
+                return;
+        }
+        
+        Dispatcher.UIThread.Post(() =>
+        {
+            lock (_logsLock)
+            {
+                if (EngineLogs.LastOrDefault()?.Message == message) return;
+                
+                EngineLogs.Add(new EngineLogEntry
+                {
+                    Timestamp = DateTime.Now,
+                    Level = level,
+                    Stage = stage,
+                    Message = message
+                });
+                
+                while (EngineLogs.Count > 1000)
+                {
+                    EngineLogs.RemoveAt(0);
+                }
+                
+                this.RaisePropertyChanged(nameof(EngineLogCount));
+            }
+        });
+    }
+
+    private async Task ExecuteCancelAllActiveAsync()
+    {
+        var activeTracks = _downloadsSource.Items
+            .Where(x => x.State == PlaylistTrackState.Searching || x.State == PlaylistTrackState.Downloading)
+            .ToList();
+            
+        foreach (var track in activeTracks)
+        {
+            _downloadManager.CancelTrack(track.GlobalId);
+        }
+        await Task.CompletedTask;
+    }
+
+    private async Task ExecuteResetDownloadCenterAsync()
+    {
+        bool confirm = await _dialogService.ConfirmAsync(
+            "Reset Download Center", 
+            "Are you sure you want to cancel all active downloads and clear all jobs/history from the Download Center? The library itself will remain untouched.", 
+            "Yes", "No");
+            
+        if (!confirm) return;
+
+        var activeTracks = _downloadsSource.Items
+            .Where(x => x.State == PlaylistTrackState.Searching || x.State == PlaylistTrackState.Downloading || x.State == PlaylistTrackState.Pending || x.State == PlaylistTrackState.Queued)
+            .ToList();
+
+        foreach (var track in activeTracks)
+        {
+            _downloadManager.CancelTrack(track.GlobalId);
+        }
+
+        await Task.Delay(250);
+
+        var allTracks = _downloadsSource.Items.ToList();
+        foreach (var track in allTracks)
+        {
+            track.IsClearedFromDownloadCenter = true;
+            track.Model.IsClearedFromDownloadCenter = true;
+            await _libraryService.UpdatePlaylistTrackAsync(track.Model);
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            lock (_logsLock)
+            {
+                EngineLogs.Clear();
+                this.RaisePropertyChanged(nameof(EngineLogCount));
+            }
+        });
+
+        ShowGlobalStatus("Download Center has been fully reset.", isError: false, autoHide: true, context: "reset-center");
     }
     
     public void Dispose()

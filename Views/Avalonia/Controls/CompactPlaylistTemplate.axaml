@@ -44,18 +44,18 @@
                     </MenuItem.Icon>
                 </MenuItem>
                 <Separator/>
-                <MenuItem Header="Download Album (All Tracks)" 
+                <MenuItem Header="Download Playlist" 
                            Command="{Binding $parent[views:LibraryPage].DataContext.DownloadAlbumCommand}"
                            CommandParameter="{Binding Model}">
                     <MenuItem.Icon>
                         <TextBlock Text="⬇️"/>
                     </MenuItem.Icon>
                 </MenuItem>
-                <MenuItem Header="Download Missing" 
-                           Command="{Binding $parent[views:LibraryPage].DataContext.DownloadMissingCommand}"
+                <MenuItem Header="Force Re-download" 
+                           Command="{Binding $parent[views:LibraryPage].DataContext.ForceRedownloadCommand}"
                            CommandParameter="{Binding Model}">
                     <MenuItem.Icon>
-                        <TextBlock Text="🔍"/>
+                        <TextBlock Text="🔥"/>
                     </MenuItem.Icon>
                 </MenuItem>
             </ContextMenu>
@@ -121,7 +121,7 @@
                     CommandParameter="{Binding Model}">
                  <TextBlock Text="▶️" FontSize="12"/>
             </Button>
-            <Button Classes="icon-btn" ToolTip.Tip="Download Album" Padding="4" Background="Transparent" BorderThickness="0"
+            <Button Classes="icon-btn" ToolTip.Tip="Download Playlist" Padding="4" Background="Transparent" BorderThickness="0"
                     Command="{Binding $parent[views:LibraryPage].DataContext.DownloadAlbumCommand}"
                     CommandParameter="{Binding Model}">
                  <TextBlock Text="⬇️" FontSize="12"/>

@@ -627,7 +627,9 @@ public partial class App : Application
             sp.GetRequiredService<Services.PhraseAlignmentService>());
         services.AddSingleton<Services.AnalyzeTrackStructureJob>();
 
-        services.AddSingleton<ViewModels.Workstation.WorkstationViewModel>();
+        services.AddSingleton<SLSKDONET.ViewModels.CurationWorkstationViewModel>();
+        services.AddSingleton<SLSKDONET.Engine.Analysis.AnalysisPipeline>();
+        services.AddSingleton<SLSKDONET.Engine.Cueing.CueGenerationService>();
         services.AddSingleton<Services.AnalysisQueueService>();
 
         // ── Task 1.5: Beatgrid Detection ──────────────────────────────────

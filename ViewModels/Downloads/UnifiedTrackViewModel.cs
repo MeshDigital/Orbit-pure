@@ -355,7 +355,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
         CancelCommand = ReactiveCommand.Create(() => 
             _downloadManager.CancelTrack(GlobalId),
-            this.WhenAnyValue(x => x.IsActive));
+            this.WhenAnyValue(x => x.IsCompleted, x => x.IsFailed, (c, f) => !c && !f));
 
         RemoveFromQueueCommand = ReactiveCommand.Create(() =>
         {
