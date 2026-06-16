@@ -1347,6 +1347,137 @@ public class SchemaMigratorService
                     command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""MoodTag"" TEXT NULL;";
                     await command.ExecuteNonQueryAsync();
                 }
+                if (!ColumnExists("Tracks", "AnalysisStatus"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding AnalysisStatus to Tracks...");
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""AnalysisStatus"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "Arousal"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""Arousal"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "InstrumentalProbability"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""InstrumentalProbability"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "IsDjTool"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""IsDjTool"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "VocalType"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""VocalType"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "VocalIntensity"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""VocalIntensity"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "VocalStartSeconds"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""VocalStartSeconds"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "VocalEndSeconds"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""VocalEndSeconds"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "EnrichmentAttempts"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""EnrichmentAttempts"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "LastEnrichmentAttempt"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""LastEnrichmentAttempt"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "CommentsPayload"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""CommentsPayload"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralForensicsData"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralForensicsData"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "IsLocalFile"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""IsLocalFile"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "LocalFilePath"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""LocalFilePath"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "Status"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""Status"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SortOrder"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SortOrder"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "IsUserPaused"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""IsUserPaused"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "IsClearedFromDownloadCenter"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""IsClearedFromDownloadCenter"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralSampleRateHz"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralSampleRateHz"" INTEGER NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralBitDepth"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralBitDepth"" INTEGER NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralRolloffSteepness"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralRolloffSteepness"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralMidBandEnergy"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralMidBandEnergy"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralHighBandEnergy"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralHighBandEnergy"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralRmsDbfs"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralRmsDbfs"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralCrestFactorDb"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralCrestFactorDb"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Tracks", "SpectralNoiseFloorDbfs"))
+                {
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""SpectralNoiseFloorDbfs"" REAL NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
             }
 
             // 2. PlaylistTracks Columns
