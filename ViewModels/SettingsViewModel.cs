@@ -1149,6 +1149,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ResetDatabaseCommand { get; }
     public ICommand ScanLibraryCommand { get; } // [NEW] Manual Scan
     public ICommand ReconcileLibraryCommand { get; }
+    public ICommand FullLibrarySyncCommand { get; }
     public ICommand RefreshRemovalCandidatesCommand { get; }
     public ICommand AddLibraryFolderCommand { get; }
     public ICommand RemoveLibraryFolderCommand { get; }
@@ -1191,6 +1192,20 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     {
         get => _reconcileStatus;
         set => SetProperty(ref _reconcileStatus, value);
+    }
+
+    private bool _isFullSyncing;
+    public bool IsFullSyncing
+    {
+        get => _isFullSyncing;
+        set => SetProperty(ref _isFullSyncing, value);
+    }
+
+    private string _fullSyncStatus = string.Empty;
+    public string FullSyncStatus
+    {
+        get => _fullSyncStatus;
+        set => SetProperty(ref _fullSyncStatus, value);
     }
     
     // Phase 8: FFmpeg Dependency State
@@ -1390,8 +1405,9 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         CheckFfmpegCommand = new AsyncRelayCommand(CheckFfmpegAsync); // Phase 8
         RestartSpotifyAuthCommand = new AsyncRelayCommand(RestartSpotifyAuthAsync, () => IsSpotifyConnecting);
         ResetDatabaseCommand = new AsyncRelayCommand(ResetDatabaseAsync);
-        ScanLibraryCommand = new AsyncRelayCommand(ScanLibraryAsync, () => !IsScanning);
-        ReconcileLibraryCommand = new AsyncRelayCommand(ReconcileLibraryAsync, () => !IsReconciling);
+        ScanLibraryCommand = new AsyncRelayCommand(ScanLibraryAsync, () => !IsScanning && !IsFullSyncing);
+        ReconcileLibraryCommand = new AsyncRelayCommand(ReconcileLibraryAsync, () => !IsReconciling && !IsFullSyncing);
+        FullLibrarySyncCommand = new AsyncRelayCommand(FullLibrarySyncAsync, () => !IsFullSyncing && !IsScanning && !IsReconciling);
         RefreshRemovalCandidatesCommand = new AsyncRelayCommand(LoadRemovalCandidatesAsync);
         AddLibraryFolderCommand = new AsyncRelayCommand(AddLibraryFolderAsync);
         RemoveLibraryFolderCommand = new AsyncRelayCommand(RemoveLibraryFolderAsync, () => SelectedLibraryFolder != null);
@@ -1869,6 +1885,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         {
             IsScanning = false;
             (ScanLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            (FullLibrarySyncCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
 
@@ -1895,6 +1912,58 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         finally
         {
             IsReconciling = false;
+            (ReconcileLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            (FullLibrarySyncCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    private async Task FullLibrarySyncAsync()
+    {
+        if (IsFullSyncing || IsScanning || IsReconciling || _libraryService == null) return;
+        try
+        {
+            IsFullSyncing = true;
+            FullSyncStatus = "Step 1/2: Scanning all folders...";
+            (FullLibrarySyncCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            (ScanLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            (ReconcileLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+
+            if (!string.IsNullOrEmpty(_config.DownloadDirectory))
+                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.DownloadDirectory);
+
+            var progress = new Progress<ScanProgress>(p =>
+            {
+                var folderLabel = string.IsNullOrWhiteSpace(p.CurrentFolder)
+                    ? string.Empty
+                    : $" ({System.IO.Path.GetFileName(p.CurrentFolder)})";
+                FullSyncStatus = $"Scanning{folderLabel}: {p.FilesDiscovered} found, {p.FilesImported} imported...";
+            });
+
+            var results = await _libraryFolderScannerService.ScanAllFoldersAsync(progress);
+            int totalImported = results.Values.Sum(r => r.FilesImported);
+            int totalUpgraded = results.Values.Sum(r => r.FilesAutoUpgraded);
+
+            FullSyncStatus = "Step 2/2: Reconciling file paths...";
+            var (reset, checked_) = await _libraryService.ReconcileLibraryAsync();
+
+            await LoadRemovalCandidatesAsync();
+
+            FullSyncStatus = reset == 0
+                ? $"Done. Imported {totalImported} | Upgraded {totalUpgraded} | All {checked_} files verified."
+                : $"Done. Imported {totalImported} | Upgraded {totalUpgraded} | Reset {reset} missing file(s).";
+
+            _logger.LogInformation("Full library sync complete. Imported: {Imported}, Upgraded: {Upgraded}, Reset: {Reset}", totalImported, totalUpgraded, reset);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Full library sync failed");
+            FullSyncStatus = "Full sync failed — see logs.";
+        }
+        finally
+        {
+            IsFullSyncing = false;
+            (FullLibrarySyncCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            (ScanLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
             (ReconcileLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }

@@ -2,7 +2,7 @@
 
 > Status: Completed
 >
-> Last reviewed: 2026-06-16
+> Last reviewed: 2026-06-16 (updated: Full Library Sync added)
 >
 > See also: [download_orchestrator_hit_rate_improvements.md](download_orchestrator_hit_rate_improvements.md), [ui_overhaul_piped_marble_completion.md](ui_overhaul_piped_marble_completion.md)
 
@@ -92,3 +92,45 @@ When a file was deleted by the user via Explorer (or moved to another drive), `L
 ### Design note — no automatic requeue on detection
 
 The reconciliation is deliberately manual (button-triggered) rather than automatic on `FileMissingDetectedEvent`. Automatically resetting to `Missing` and re-queuing every detected absence would be too aggressive: network drives, external HDDs, and cloud-synced folders all cause transient `File.Exists` failures that resolve on reconnect. A manual reconcile is the right UX for an intentional "I deleted some files, fix the queue" operation.
+
+### Multi-folder coverage clarification
+
+- **Scan** (`ScanAllFoldersAsync`) queries `context.LibraryFolders.Where(f => f.IsEnabled)` — correctly iterates all enabled configured folders. Direction: disk → DB (discovery).
+- **Reconcile** (`ReconcilePhysicalFilesAsync`) queries all `PlaylistTrackEntity.Downloaded` rows by absolute `ResolvedFilePath` — path-aware, implicitly covers files from any folder since paths are absolute. Direction: DB → disk (validation).
+- Neither operation had a coverage gap for multiple library folders. They serve complementary roles and together form a complete sync cycle.
+
+---
+
+## Stream C — Full Library Sync
+
+### Problem
+
+Scan and Reconcile served different directions (disk→DB and DB→disk). To fully sync a library across multiple configured folders, both needed to be run. There was no single-click operation combining them, so users had to know to press both buttons in order.
+
+### What was added
+
+**`ViewModels/SettingsViewModel.cs`**:
+- `FullLibrarySyncCommand` (`AsyncRelayCommand`) — CanExecute guards on `!IsFullSyncing && !IsScanning && !IsReconciling`
+- `IsFullSyncing` (bool) and `FullSyncStatus` (string) properties
+- `FullLibrarySyncAsync()` private method:
+  1. Calls `_libraryFolderScannerService.EnsureDefaultFolderAsync` then `ScanAllFoldersAsync` with progress callback updating `FullSyncStatus`
+  2. Calls `_libraryService.ReconcileLibraryAsync()` immediately after scan
+  3. Calls `LoadRemovalCandidatesAsync()` to refresh the removal candidates list
+  4. Reports combined result: imported count + upgraded count + reset count
+- `ScanLibraryCommand` and `ReconcileLibraryCommand` CanExecute also guards on `!IsFullSyncing` so individual buttons are disabled while a full sync is running
+- All three commands' `RaiseCanExecuteChanged` are cross-notified in each operation's finally block
+
+**`Views/Avalonia/SettingsPage.axaml`**:
+- "Full Library Sync" button added above the individual Scan/Reconcile buttons in the Library Scan section
+- Gold styling (`#2A1F00` background, `#7A5A00` border, `#FFD740` icon, `#FFF3B0` label) to distinguish it as the master action
+- Uses `arrow_counterclockwise_regular` icon
+- "Or run individually:" label separates it from the two individual buttons below
+- `FullSyncStatus` text shown inline beside the button
+
+### Full sync flow
+
+1. User clicks "Full Library Sync" in Settings
+2. Step 1/2: Scanner walks all enabled `LibraryFolderEntity` rows, discovers new files, updates `LibraryEntry` and links to `PlaylistTrackEntity`
+3. Step 2/2: Reconciler checks all `Downloaded` `PlaylistTrackEntity` rows, resets any whose `ResolvedFilePath` no longer exists to `Status=Missing`
+4. Removal candidates list refreshes
+5. Status line reports: `Done. Imported N | Upgraded N | All N files verified.` or `Done. Imported N | Upgraded N | Reset N missing file(s).`
