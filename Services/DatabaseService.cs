@@ -1203,17 +1203,17 @@ public class DatabaseService
         using var context = new AppDbContext();
 
         var assumedPresent = await context.PlaylistTracks
-            .Where(t => t.Status == TrackStatus.Downloaded && t.ResolvedFilePath != null)
+            .Where(t => t.Status == TrackStatus.Downloaded && t.ResolvedFilePath != null && t.ResolvedFilePath != "")
             .ToListAsync();
 
         int reset = 0;
         foreach (var track in assumedPresent)
         {
-            if (!System.IO.File.Exists(track.ResolvedFilePath))
+            if (!System.IO.File.Exists(track.ResolvedFilePath!))
             {
                 track.Status = TrackStatus.Missing;
                 track.AvailabilityState = TrackAvailabilityState.Ghost;
-                track.ResolvedFilePath = null;
+                track.ResolvedFilePath = string.Empty; // DB schema is NOT NULL; empty signals "no file"
                 reset++;
             }
         }
