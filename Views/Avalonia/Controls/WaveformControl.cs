@@ -672,26 +672,19 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 return;
             }
 
-            // Sprint 4: Frame throttling (~30 FPS max)
-            var now = DateTime.UtcNow;
-            var elapsed = (now - _lastRenderTime).TotalMilliseconds;
-            if (elapsed < FrameThrottleMs && !_isDirty)
-            {
-                // Throttled frame: skip the expensive bitmap rebuild but still draw
-                // cached bitmaps so the waveform doesn't disappear between frames.
-                if (_baseBitmap != null)
-                    context.DrawImage(_baseBitmap, new Rect(0, 0, Bounds.Width, Bounds.Height));
-                return;
-            }
-            _lastRenderTime = now;
-
-            // Sprint 4: Bitmap reuse with size tolerance
+            // Throttle only the expensive bitmap rebuild (~30 FPS max).
+            // Every frame still draws cues, phrases, playhead, and the active overlay.
             bool needsNewBitmap = _isDirty || _baseBitmap == null || _activeBitmap == null ||
                                   Math.Abs(_lastRenderSize.Width - Bounds.Width) > SizeTolerance ||
                                   Math.Abs(_lastRenderSize.Height - Bounds.Height) > SizeTolerance;
 
-            if (needsNewBitmap)
+            var now = DateTime.UtcNow;
+            var elapsed = (now - _lastRenderTime).TotalMilliseconds;
+            bool shouldRebuild = needsNewBitmap && (elapsed >= FrameThrottleMs || _isDirty || _baseBitmap == null);
+
+            if (shouldRebuild)
             {
+                _lastRenderTime = now;
                 UpdateBitmapCache(Bounds.Size);
                 _isDirty = false;
                 _lastRenderSize = Bounds.Size;
@@ -904,9 +897,9 @@ namespace SLSKDONET.Views.Avalonia.Controls
             var midColor = Color.FromRgb(0, 255, 120);    // Neon Green
             var highColor = Color.FromRgb(0, 200, 255);   // Cyan / Blue
 
-            for (int i = 0; i < Math.Min(samples, low.Length); i += stride)
+            int safeLen = Math.Min(samples, Math.Min(peak.Length, Math.Min(low.Length, Math.Min(midB.Length, high.Length))));
+            for (int i = 0; i < safeLen; i += stride)
             {
-                if (i >= peak.Length) break;
                 
                 double h = (peak[i] / 255.0) * mid;
                 if (h < 0.5) continue;
