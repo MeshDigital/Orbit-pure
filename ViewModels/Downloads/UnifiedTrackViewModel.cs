@@ -12,6 +12,8 @@ using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Events;
 using SLSKDONET.Views;
+using Microsoft.EntityFrameworkCore;
+using SLSKDONET.Data;
 
 namespace SLSKDONET.ViewModels.Downloads;
 
@@ -37,6 +39,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     private readonly ILibraryService _libraryService;
     private readonly DatabaseService _databaseService;
     private readonly AppConfig _config;
+    private readonly IDbContextFactory<AppDbContext>? _dbFactory;
     private readonly CompositeDisposable _disposables = new();
     private readonly SerialDisposable _searchClockSubscription = new();
     private bool _isSearchClockRunning;
@@ -260,13 +263,14 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public IEnumerable<OrbitCue> OrbitCues => _cues;
 
     public UnifiedTrackViewModel(
-        PlaylistTrack model, 
-        DownloadManager downloadManager, 
+        PlaylistTrack model,
+        DownloadManager downloadManager,
         IEventBus eventBus,
         ArtworkCacheService artworkCache,
         ILibraryService libraryService,
         DatabaseService databaseService,
-        AppConfig config)
+        AppConfig config,
+        IDbContextFactory<AppDbContext>? dbFactory = null)
     {
         Model = model ?? throw new ArgumentNullException(nameof(model));
         _downloadManager = downloadManager ?? throw new ArgumentNullException(nameof(downloadManager));
@@ -275,6 +279,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         _libraryService = libraryService ?? throw new ArgumentNullException(nameof(libraryService));
         _databaseService = databaseService ?? throw new ArgumentNullException(nameof(databaseService));
         _config = config ?? throw new ArgumentNullException(nameof(config));
+        _dbFactory = dbFactory;
         _searchClockSubscription.DisposeWith(_disposables);
 
         if (string.IsNullOrWhiteSpace(Model.TrackUniqueHash))
@@ -322,6 +327,23 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             CrossProjectReference = null;
             _eventBus.Publish(new AddToProjectRequestEvent(new[] { Model }));
         }, this.WhenAnyValue(x => x.IsCompleted, x => x.HasCrossProjectReference, (c, s) => c || s));
+
+        OpenAuditLogCommand = ReactiveCommand.Create(() =>
+        {
+            ReactiveUI.MessageBus.Current.SendMessage(SLSKDONET.Events.OpenInspectorEvent.Create(
+                new SLSKDONET.ViewModels.Diagnostics.BlackBoxTerminalViewModel(GlobalId),
+                "Library.TrackSelection.AuditLog"));
+        });
+
+        ShowSpectralReportCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            if (App.Current is App app && app.Services != null)
+            {
+                var dialog = app.Services.GetService(typeof(IDialogService)) as IDialogService;
+                if (dialog != null)
+                    await dialog.ShowSpectralForensicsAsync(this);
+            }
+        }, this.WhenAnyValue(x => x.HasSpectralVerdict));
 
         PauseCommand = ReactiveCommand.CreateFromTask(async () => 
             await _downloadManager.PauseTrackAsync(GlobalId),
@@ -461,13 +483,57 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 candidate.Format);
         });
 
+        AcquireTrackCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            Model.AvailabilityState = TrackAvailabilityState.QueuedForDownload;
+            Model.Status = TrackStatus.Missing;
+            Model.SearchRetryCount = 0;
+            Model.NotFoundRestartCount = 0;
+            
+            try
+            {
+                await using var dbContext = _dbFactory != null
+                    ? _dbFactory.CreateDbContext()
+                    : new AppDbContext();
+                var dbTrack = await dbContext.PlaylistTracks.FirstOrDefaultAsync(t => t.Id == Model.Id);
+                if (dbTrack != null)
+                {
+                    dbTrack.AvailabilityState = TrackAvailabilityState.QueuedForDownload;
+                    dbTrack.Status = TrackStatus.Missing;
+                    dbTrack.SearchRetryCount = 0;
+                    dbTrack.NotFoundRestartCount = 0;
+                    await dbContext.SaveChangesAsync();
+                }
+                
+                var masterTrack = await dbContext.Tracks.FirstOrDefaultAsync(t => t.GlobalId == Model.TrackUniqueHash);
+                if (masterTrack != null)
+                {
+                    masterTrack.AvailabilityState = TrackAvailabilityState.QueuedForDownload;
+                    masterTrack.SearchRetryCount = 0;
+                    masterTrack.NotFoundRestartCount = 0;
+                    await dbContext.SaveChangesAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to persist manual acquire state: {ex.Message}");
+            }
+
+            _downloadManager.QueueTracks(new List<PlaylistTrack> { Model });
+            
+            this.RaisePropertyChanged(nameof(AvailabilityState));
+            this.RaisePropertyChanged(nameof(IsGhost));
+            
+            await Task.CompletedTask;
+        });
+
         // Only run synergy check immediately if this track is already in a terminal failed state.
         // For Pending/Downloading tracks the check fires lazily via the State setter when
         // they first transition to Failed — avoiding a DB flood during bulk list hydration.
-        if (IsFailed) CheckSynergyAsync();
+        if (IsFailed) _ = CheckSynergyAsync();
     }
 
-    private async void CheckSynergyAsync()
+    private async Task CheckSynergyAsync()
     {
         // Guard: only one lookup per ViewModel lifetime, and only for non-completed tracks.
         if (_synergyLoaded || IsCompleted) return;
@@ -497,7 +563,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 }
             }
         }
-        catch { /* Synergy is non-critical; swallow errors silently */ }
+        catch (Exception) { /* Synergy is non-critical; swallow errors silently */ }
     }
     
     private void FindSimilar()
@@ -593,7 +659,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
                 // Lazy synergy check: fire once when track first reaches a failed/cancelled
                 // terminal state. This avoids the constructor-time DB flood during bulk hydration.
-                if (IsFailed && !_synergyLoaded) CheckSynergyAsync();
+                if (IsFailed && !_synergyLoaded) _ = CheckSynergyAsync();
             }
         }
     }
@@ -1204,6 +1270,30 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         null    => "#888888"
     };
 
+    // ── Energy Score Badge (Tier 2.2) ─────────────────────────────────────────
+    // ManualEnergy (1-10 int) takes precedence over Spotify Energy (0-1 float).
+    private int ComputedEnergyScore => Model.ManualEnergy ?? (int)Math.Round((Model.Energy ?? 0) * 10);
+    public bool HasEnergyBadge => IsCompleted && (Model.Energy.HasValue || Model.ManualEnergy.HasValue);
+    public string EnergyBadgeText => HasEnergyBadge ? $"E{ComputedEnergyScore}" : string.Empty;
+    public string EnergyBadgeColor => ComputedEnergyScore switch
+    {
+        >= 8 => "#1DB954",  // green — high energy
+        >= 5 => "#FFD700",  // amber — mid energy
+        _    => "#7BA7BC"   // steel blue — low energy
+    };
+
+    // ── Vocal Type Badge (Tier 2.4) ───────────────────────────────────────────
+    // Shows INST badge when track is confirmed instrumental (InstrumentalProbability ≥ 0.75).
+    public bool ShowInstrumentalBadge => IsCompleted && Model.InstrumentalProbability >= 0.75;
+
+    // ── Mood Tag Badge (Tier 2.4) ─────────────────────────────────────────────
+    public bool HasMoodTag => IsCompleted && !string.IsNullOrWhiteSpace(Model.MoodTag);
+    public string MoodTagText => Model.MoodTag ?? string.Empty;
+
+    // ── BPM Drift Warning Badge (Tier 2.4) ────────────────────────────────────
+    // BpmStability < 0.70 indicates a drifting or variable tempo — risky for live mixing
+    public bool HasBpmDriftWarning => IsCompleted && Model.BpmStability.HasValue && Model.BpmStability.Value < 0.70f;
+
     // Curation Hub Properties
     public double IntegrityScore => Model.QualityConfidence ?? 0.0;
     // Phase 0.6: Truth in UI
@@ -1417,6 +1507,12 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public ICommand ViewLogCommand { get; }
     public ICommand CopyLogCommand { get; }
     public ICommand ForceDownloadCandidateCommand { get; }
+    public ICommand AcquireTrackCommand { get; }
+    public ICommand OpenAuditLogCommand { get; }
+    public ICommand ShowSpectralReportCommand { get; }
+
+    public TrackAvailabilityState AvailabilityState => Model.AvailabilityState;
+    public bool IsGhost => AvailabilityState == TrackAvailabilityState.Ghost;
 
     // Internal State
     private long _totalBytes;
@@ -1518,6 +1614,9 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         State = e.State;
         FailureReason = e.Error;
         FailureEnum = e.FailureReason;
+
+        this.RaisePropertyChanged(nameof(AvailabilityState));
+        this.RaisePropertyChanged(nameof(IsGhost));
         
         // Force-100%: Bypass throttle and ensure progress bar completes
         if (e.State == PlaylistTrackState.Completed)

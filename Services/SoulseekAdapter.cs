@@ -1510,6 +1510,13 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
         var bitrate = bitrateAttr?.Value ?? 0;
         var lengthAttr = file.Attributes?.FirstOrDefault(a => a.Type == FileAttributeType.Length);
         var length = lengthAttr?.Value ?? 0;
+
+        // If bitrate is not reported by peer, infer it from File Size and Length
+        if (bitrate <= 0 && length > 0 && file.Size > 0)
+        {
+            // Inferred bitrate: (Size in bytes * 8 bits/byte) / (Length in seconds * 1000)
+            bitrate = (int)((file.Size * 8) / (length * 1000));
+        }
         
         var sampleRateAttr = file.Attributes?.FirstOrDefault(a => a.Type == FileAttributeType.SampleRate);
         var sampleRate = sampleRateAttr?.Value;
@@ -1681,7 +1688,19 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
             DateTime queueStartTime = DateTime.UtcNow; // Phase 3D: Detect zombie peers stuck in queue
             var connectFailFastSeconds = Math.Clamp(_config.PeerConnectFailFastSeconds, 5, 30);
             var stallTimeoutSeconds = Math.Clamp(_config.TransferStallTimeoutSeconds, 15, 180);
-            const int QUEUE_TIMEOUT_SECONDS = 300; // 5 minute queue timeout (peer must respond or be dropped)
+
+            // Queue Velocity: zombie detection based on position *stagnation*, not elapsed time.
+            // A popular peer with 500 people in queue is healthy; a dead peer whose position
+            // never moves is a zombie. We give the peer an initial grace period to report any
+            // position at all, then track whether the position actually improves over time.
+            int lastKnownQueuePosition = -1;                    // -1 = never reported
+            DateTime queuePositionLastChanged = DateTime.UtcNow; // Reset whenever position improves
+            // Initial grace: peer gets up to MaxQueueWaitMinutes * 60 seconds total, but must show
+            // *some* queue progress within QUEUE_STAGNATION_WINDOW_SECONDS.
+            // e.g. 15 min stagnation = zombie. A 500-deep queue should move every few minutes.
+            var maxQueueWaitSeconds = Math.Max(300, _config.MaxQueueWaitTimeMinutes * 60);
+            const int QUEUE_INITIAL_GRACE_SECONDS = 120;  // Allow 2 min before any position is required
+            const int QUEUE_STAGNATION_WINDOW_SECONDS = 900; // 15 min stagnation = zombie (position frozen)
 
             var downloadOptions = new TransferOptions(
                 stateChanged: (args) =>
@@ -1692,6 +1711,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
                         if (!isQueued)
                         {
                             queueStartTime = DateTime.UtcNow; // Phase 3D: Record when queue started
+                            queuePositionLastChanged = DateTime.UtcNow; // Velocity clock starts now
                         }
                         isQueued = true;
                         transferStartedOrQueued = true;
@@ -1774,12 +1794,41 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
                         throw new TimeoutException($"Transfer stalled for {stallTimeoutSeconds} seconds (0 bytes received).");
                     }
                     
-                    // Phase 3D: ZOMBIE DETECTION - Peer stuck in queue for too long
-                    // Even if queued, if peer doesn't start transfer after 5 minutes, drop it
-                    if (isQueued && (DateTime.UtcNow - queueStartTime).TotalSeconds > QUEUE_TIMEOUT_SECONDS)
+                    // Phase 3D: ZOMBIE DETECTION via Queue Velocity.
+                    // We do NOT use a static elapsed-time timeout because healthy popular peers
+                    // can legitimately have 500+ queued users (45min+ waits are normal on Soulseek).
+                    // Instead, we check whether the peer-reported queue POSITION has improved
+                    // within a reasonable stagnation window. No movement = dead peer.
+                    if (isQueued)
                     {
-                        downloadCts.Cancel();
-                        throw new TimeoutException($"Peer stuck in queue for {QUEUE_TIMEOUT_SECONDS} seconds (zombie peer detected). Dropping peer.");
+                        var totalQueueSeconds = (DateTime.UtcNow - queueStartTime).TotalSeconds;
+                        var stagnationSeconds = (DateTime.UtcNow - queuePositionLastChanged).TotalSeconds;
+                        
+                        // Absolute cap: never wait beyond MaxQueueWaitTimeMinutes config
+                        if (totalQueueSeconds > maxQueueWaitSeconds)
+                        {
+                            downloadCts.Cancel();
+                            throw new TimeoutException(
+                                $"Queue exceeded maximum configured wait of {_config.MaxQueueWaitTimeMinutes} minutes. Dropping peer.");
+                        }
+                        
+                        // After the initial grace period, require that position has moved at least once.
+                        // If position is still -1 (never reported), the peer is likely dead.
+                        if (totalQueueSeconds > QUEUE_INITIAL_GRACE_SECONDS && lastKnownQueuePosition == -1)
+                        {
+                            downloadCts.Cancel();
+                            throw new TimeoutException(
+                                $"Peer never reported a queue position after {QUEUE_INITIAL_GRACE_SECONDS}s grace. Dropping zombie peer.");
+                        }
+                        
+                        // Position stagnation check: if we have a known position and it hasn't
+                        // improved in QUEUE_STAGNATION_WINDOW_SECONDS, the peer is a zombie.
+                        if (lastKnownQueuePosition > 0 && stagnationSeconds > QUEUE_STAGNATION_WINDOW_SECONDS)
+                        {
+                            downloadCts.Cancel();
+                            throw new TimeoutException(
+                                $"Queue position stagnant at #{lastKnownQueuePosition} for {stagnationSeconds:0}s (zombie peer). Dropping peer.");
+                        }
                     }
                     
                     // If we are queued but not stuck, we wait for user cancellation

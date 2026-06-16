@@ -6,7 +6,9 @@ using System.Reactive.Linq;
 using System.Reactive.Disposables;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using Microsoft.EntityFrameworkCore;
 using ReactiveUI;
+using SLSKDONET.Data;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Services.Audio;
@@ -38,6 +40,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
 {
     private readonly CompositeDisposable _disposables = new();
     private readonly StemPreferenceService _stemPrefService;
+    private readonly IDbContextFactory<AppDbContext>? _dbFactory;
 
     /// <summary>
     /// Callback invoked whenever a track finishes loading into this deck.
@@ -191,6 +194,12 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
             ? Array.Empty<byte>()
             : WaveformData.HighData;
 
+    public IEnumerable<PhraseSegment> PhraseSegments => BuildPhraseSegments();
+
+    public IEnumerable<float>? EnergyCurveForWaveform => BuildEnergyCurve();
+
+    public IReadOnlyList<double>? EnergyCurveBarPoints => BuildEnergyCurveDouble();
+
     private double _waveformZoomLevel = 1.0;
     public double WaveformZoomLevel
     {
@@ -268,6 +277,52 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         private set => this.RaiseAndSetIfChanged(ref _trackHash, value);
     }
 
+    // ── Audio intelligence fields (populated from PlaylistTrack on load) ───────
+    private string? _moodTag;
+    private double? _energy;
+    private float? _instrumentalProbability;
+    private float? _bpmStability;
+
+    public bool HasMoodTag => IsLoaded && !string.IsNullOrWhiteSpace(_moodTag);
+    public string MoodTagText => _moodTag ?? string.Empty;
+
+    public bool HasEnergyBadge => IsLoaded && _energy.HasValue;
+    private int ComputedEnergyScore => (int)Math.Round((_energy ?? 0) * 10);
+    public string EnergyBadgeText => HasEnergyBadge ? $"E{ComputedEnergyScore}" : string.Empty;
+    public string EnergyBadgeColor => ComputedEnergyScore switch
+    {
+        >= 8 => "#E74C3C",
+        >= 5 => "#F39C12",
+        _    => "#27AE60",
+    };
+
+    public bool ShowInstrumentalBadge => IsLoaded && _instrumentalProbability >= 0.75f;
+    public bool HasBpmDriftWarning => IsLoaded && _bpmStability.HasValue && _bpmStability.Value < 0.70f;
+
+    private void ApplyTrackIntelligence(PlaylistTrack track)
+    {
+        _moodTag = track.MoodTag;
+        _energy  = track.Energy;
+        _instrumentalProbability = (float?)track.InstrumentalProbability;
+        _bpmStability = track.BpmStability;
+        this.RaisePropertyChanged(nameof(HasMoodTag));
+        this.RaisePropertyChanged(nameof(MoodTagText));
+        this.RaisePropertyChanged(nameof(HasEnergyBadge));
+        this.RaisePropertyChanged(nameof(EnergyBadgeText));
+        this.RaisePropertyChanged(nameof(EnergyBadgeColor));
+        this.RaisePropertyChanged(nameof(ShowInstrumentalBadge));
+        this.RaisePropertyChanged(nameof(HasBpmDriftWarning));
+    }
+
+    private void ClearTrackIntelligence()
+    {
+        _moodTag = null; _energy = null; _instrumentalProbability = null; _bpmStability = null;
+        this.RaisePropertyChanged(nameof(HasMoodTag));
+        this.RaisePropertyChanged(nameof(HasEnergyBadge));
+        this.RaisePropertyChanged(nameof(ShowInstrumentalBadge));
+        this.RaisePropertyChanged(nameof(HasBpmDriftWarning));
+    }
+
     // ── Commands ──────────────────────────────────────────────────────────────
 
     /// <summary>Load a file path into this deck (drops old track first).</summary>
@@ -319,7 +374,8 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
 
     public WorkstationDeckViewModel(string deckLabel, DeckSlotViewModel deck,
         CachedStemSeparator stemSeparator, ICuePointService cueService,
-        StemPreferenceService stemPrefService)
+        StemPreferenceService stemPrefService,
+        IDbContextFactory<AppDbContext>? dbFactory = null)
     {
         DeckLabel  = deckLabel;
         Deck          = deck;
@@ -327,6 +383,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         StemWaveforms = new StemWaveformViewModel();
         CueEditor     = new CueEditorViewModel(cueService);
         _stemPrefService = stemPrefService;
+        _dbFactory = dbFactory;
 
         LoadTrackCommand         = ReactiveCommand.CreateFromTask<string>(LoadTrackAsync);
         LoadPlaylistTrackCommand = ReactiveCommand.CreateFromTask<PlaylistTrack>(LoadPlaylistTrackAsync);
@@ -465,6 +522,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         {
             ApplySuggestedHotCues(CueEditor.Cues);
             RaiseHotCueDisplayPropertiesChanged();
+            this.RaisePropertyChanged(nameof(PhraseSegments));
             OnDeckStateChanged?.Invoke();
         };
 
@@ -501,6 +559,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         StemsVisible = false;
         WaveformData = new WaveformAnalysisData();
         TrackHash    = null;  // No hash available from raw path — use LoadPlaylistTrackCommand for hash
+        ClearTrackIntelligence();
         CueEditor.ClearCues();
         ApplySuggestedHotCues(Array.Empty<OrbitCue>());
         UpdateHarmonicGuidance(BuildHarmonicSuggestionText(TrackKey, null, Deck.SemitoneShift));
@@ -512,6 +571,53 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     private async Task LoadPlaylistTrackAsync(PlaylistTrack track)
     {
         TrackLoadError = null;
+
+        if (track != null && track.AvailabilityState == TrackAvailabilityState.Ghost)
+        {
+            if (App.Current is App app && app.Services != null)
+            {
+                var notificationService = app.Services.GetService(typeof(SLSKDONET.Views.INotificationService)) as SLSKDONET.Views.INotificationService;
+                notificationService?.Show("Track Not Local", $"'{track.Artist} - {track.Title}' is a cloud/ghost track. Queuing for download...", SLSKDONET.Views.NotificationType.Information);
+
+                track.AvailabilityState = TrackAvailabilityState.QueuedForDownload;
+                track.Status = TrackStatus.Missing;
+                track.SearchRetryCount = 0;
+                track.NotFoundRestartCount = 0;
+
+                try
+                {
+                    await using var dbContext = _dbFactory != null
+                        ? _dbFactory.CreateDbContext()
+                        : new AppDbContext();
+                    var dbTrack = await dbContext.PlaylistTracks.FirstOrDefaultAsync(t => t.Id == track.Id);
+                    if (dbTrack != null)
+                    {
+                        dbTrack.AvailabilityState = TrackAvailabilityState.QueuedForDownload;
+                        dbTrack.Status = TrackStatus.Missing;
+                        dbTrack.SearchRetryCount = 0;
+                        dbTrack.NotFoundRestartCount = 0;
+                    }
+                    var masterTrack = await dbContext.Tracks.FirstOrDefaultAsync(t => t.GlobalId == track.TrackUniqueHash);
+                    if (masterTrack != null)
+                    {
+                        masterTrack.AvailabilityState = TrackAvailabilityState.QueuedForDownload;
+                        masterTrack.SearchRetryCount = 0;
+                        masterTrack.NotFoundRestartCount = 0;
+                    }
+                    await dbContext.SaveChangesAsync();
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to persist database state: {ex.Message}");
+                }
+
+                var downloadManager = app.Services.GetService(typeof(SLSKDONET.Services.DownloadManager)) as SLSKDONET.Services.DownloadManager;
+                downloadManager?.QueueTracks(new List<PlaylistTrack> { track });
+            }
+
+            TrackLoadError = "Track not local. Queuing for download...";
+            return;
+        }
 
         var readinessMessage = GetTrackLoadReadinessMessage(track);
         if (!string.IsNullOrWhiteSpace(readinessMessage))
@@ -538,6 +644,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         StemsVisible = false;
         WaveformData = track.WaveformDataObj;
         TrackHash    = track.TrackUniqueHash;
+        ApplyTrackIntelligence(track);
 
         if (!string.IsNullOrEmpty(TrackHash))
         {
@@ -648,6 +755,8 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(LowBandForWaveform));
         this.RaisePropertyChanged(nameof(MidBandForWaveform));
         this.RaisePropertyChanged(nameof(HighBandForWaveform));
+        this.RaisePropertyChanged(nameof(EnergyCurveForWaveform));
+        this.RaisePropertyChanged(nameof(EnergyCurveBarPoints));
     }
 
     private void ToggleWaveformView()
@@ -1164,6 +1273,87 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
                 Stems.BassWavPath,
                 Stems.OtherWavPath);
         }
+    }
+
+    private IEnumerable<PhraseSegment> BuildPhraseSegments()
+    {
+        var duration = WaveformData?.DurationSeconds ?? 0.0;
+        var orderedCues = CueEditor.Cues.OrderBy(c => c.Timestamp).ToList();
+
+        if (orderedCues.Count == 0)
+        {
+            if (duration <= 0) return Array.Empty<PhraseSegment>();
+            var introEnd = Math.Max(8.0, duration * 0.15);
+            var outroStart = Math.Max(introEnd, duration * 0.82);
+            return new[]
+            {
+                new PhraseSegment { Label = "Intro", Start = 0f, Duration = (float)Math.Max(4.0, introEnd), Color = "#1E3A5F" },
+                new PhraseSegment { Label = "Main",  Start = (float)introEnd, Duration = (float)Math.Max(4.0, outroStart - introEnd), Color = "#6A0DAD" },
+                new PhraseSegment { Label = "Outro", Start = (float)outroStart, Duration = (float)Math.Max(4.0, duration - outroStart), Color = "#708090" }
+            };
+        }
+
+        var segments = new List<PhraseSegment>(orderedCues.Count);
+        for (var i = 0; i < orderedCues.Count; i++)
+        {
+            var current = orderedCues[i];
+            var nextTime = i < orderedCues.Count - 1
+                ? orderedCues[i + 1].Timestamp
+                : Math.Max(duration, current.Timestamp + 8.0);
+            segments.Add(new PhraseSegment
+            {
+                Label      = string.IsNullOrWhiteSpace(current.Name) ? $"Cue {i + 1}" : current.Name,
+                Start      = (float)Math.Max(0.0, current.Timestamp),
+                Duration   = (float)Math.Max(2.0, nextTime - current.Timestamp),
+                Confidence = (float)Math.Clamp(current.Confidence, 0.0, 1.0),
+                Color      = string.IsNullOrWhiteSpace(current.Color) ? "#708090" : current.Color
+            });
+        }
+        return segments;
+    }
+
+    private IEnumerable<float>? BuildEnergyCurve()
+    {
+        var data = WaveformData;
+        if (data == null) return null;
+        var low  = data.LowData;
+        var mid  = data.MidData;
+        var high = data.HighData;
+        var len  = Math.Max(low.Length, Math.Max(mid.Length, high.Length));
+        if (len == 0) return null;
+
+        var points = new float[len];
+        for (var i = 0; i < len; i++)
+        {
+            double sum = 0; int count = 0;
+            if (i < low.Length)  { sum += low[i]  / 255.0; count++; }
+            if (i < mid.Length)  { sum += mid[i]  / 255.0; count++; }
+            if (i < high.Length) { sum += high[i] / 255.0; count++; }
+            points[i] = count > 0 ? (float)(sum / count) : 0f;
+        }
+        return points;
+    }
+
+    private IReadOnlyList<double>? BuildEnergyCurveDouble()
+    {
+        var data = WaveformData;
+        if (data == null) return null;
+        var low  = data.LowData;
+        var mid  = data.MidData;
+        var high = data.HighData;
+        var len  = Math.Max(low.Length, Math.Max(mid.Length, high.Length));
+        if (len == 0) return null;
+
+        var points = new double[len];
+        for (var i = 0; i < len; i++)
+        {
+            double sum = 0; int count = 0;
+            if (i < low.Length)  { sum += low[i]  / 255.0; count++; }
+            if (i < mid.Length)  { sum += mid[i]  / 255.0; count++; }
+            if (i < high.Length) { sum += high[i] / 255.0; count++; }
+            points[i] = count > 0 ? sum / count : 0.0;
+        }
+        return points;
     }
 
     public void Dispose()

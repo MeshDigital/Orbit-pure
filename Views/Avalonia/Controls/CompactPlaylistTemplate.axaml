@@ -8,40 +8,52 @@
              x:Class="SLSKDONET.Views.Avalonia.Controls.CompactPlaylistTemplate"
              x:DataType="vm:LibraryPlaylistCardViewModel">
     
-    <Grid ColumnDefinitions="Auto, *, Auto" RowDefinitions="Auto,Auto" Margin="4" MinHeight="66">
+    <Grid ColumnDefinitions="Auto, *, Auto" Margin="4" Height="56">
         <Grid.Styles>
             <Style Selector="Grid:pointerover">
                 <Setter Property="Background" Value="{DynamicResource GlassThinBrush}"/>
             </Style>
+            <Style Selector="StackPanel.actions-panel">
+                <Setter Property="Opacity" Value="0"/>
+                <Setter Property="Transitions">
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.15"/>
+                    </Transitions>
+                </Setter>
+            </Style>
+            <Style Selector="Grid:pointerover StackPanel.actions-panel">
+                <Setter Property="Opacity" Value="1"/>
+            </Style>
         </Grid.Styles>
+        
         <Grid.ContextMenu>
             <ContextMenu>
                 <MenuItem Header="Export to Rekordbox" 
-                          Command="{Binding $parent[views:LibraryPage].DataContext.Projects.ExportProjectCommand}"
-                          CommandParameter="{Binding Model}">
+                           Command="{Binding $parent[views:LibraryPage].DataContext.Projects.ExportProjectCommand}"
+                           CommandParameter="{Binding Model}">
                     <MenuItem.Icon>
                         <TextBlock Text="📀"/>
                     </MenuItem.Icon>
                 </MenuItem>
                 <Separator/>
                 <MenuItem Header="Generate Auto-Cues" 
-                          Command="{Binding $parent[views:LibraryPage].DataContext.Projects.GenerateCuesCommand}"
-                          CommandParameter="{Binding Model}">
+                           Command="{Binding $parent[views:LibraryPage].DataContext.Projects.GenerateCuesCommand}"
+                           CommandParameter="{Binding Model}">
                     <MenuItem.Icon>
                         <TextBlock Text="🎯"/>
                     </MenuItem.Icon>
                 </MenuItem>
                 <Separator/>
                 <MenuItem Header="Download Album (All Tracks)" 
-                          Command="{Binding $parent[views:LibraryPage].DataContext.DownloadAlbumCommand}"
-                          CommandParameter="{Binding Model}">
+                           Command="{Binding $parent[views:LibraryPage].DataContext.DownloadAlbumCommand}"
+                           CommandParameter="{Binding Model}">
                     <MenuItem.Icon>
                         <TextBlock Text="⬇️"/>
                     </MenuItem.Icon>
                 </MenuItem>
                 <MenuItem Header="Download Missing" 
-                          Command="{Binding $parent[views:LibraryPage].DataContext.DownloadMissingCommand}"
-                          CommandParameter="{Binding Model}">
+                           Command="{Binding $parent[views:LibraryPage].DataContext.DownloadMissingCommand}"
+                           CommandParameter="{Binding Model}">
                     <MenuItem.Icon>
                         <TextBlock Text="🔍"/>
                     </MenuItem.Icon>
@@ -49,81 +61,70 @@
             </ContextMenu>
         </Grid.ContextMenu>
         
-        <!-- Art with Source Symbol Overlay -->
-        <Panel Grid.Column="0" Grid.RowSpan="2" Width="56" Height="56" Margin="2">
+        <!-- Column 0: Cover Art (Refined to 44x44 for compactness) -->
+        <Panel Grid.Column="0" Width="44" Height="44" Margin="2" VerticalAlignment="Center">
             <Border CornerRadius="4" ClipToBounds="True" Background="{DynamicResource TertiaryBackgroundBrush}"
                     BoxShadow="{DynamicResource ShadowSm}">
                 <Image Source="{Binding CoverBitmap}" Stretch="UniformToFill"/>
             </Border>
-            
         </Panel>
-
-        <!-- Text Info -->
-        <StackPanel Grid.Column="1" Grid.Row="0" VerticalAlignment="Top" Margin="12,2,0,0" Spacing="4">
-            <TextBlock Text="{Binding Name}" 
-                       FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"/>
-
-            <StackPanel Orientation="Horizontal" Spacing="6">
-                <Border Background="{DynamicResource GlassThinBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="6,1">
-                    <TextBlock Text="{Binding Model.SourceType}" FontSize="10" Foreground="{DynamicResource BrushInfo}"/>
-                </Border>
-                <TextBlock Text="{Binding Model.CreatedAt, StringFormat='Added {0:dd MMM}'}"
-                           FontSize="10"
-                           Foreground="{DynamicResource TextSecondaryBrush}"/>
-            </StackPanel>
-            
-            <!-- Stats Row -->
-            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,1,0,0">
-                <TextBlock Text="{Binding Model.TotalTracks, StringFormat='{}Tracks: {0}'}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" ToolTip.Tip="Total tracks"/>
-                <TextBlock Text="{Binding Model.SuccessfulCount, StringFormat='{}Done: {0}'}" FontSize="11" Foreground="{DynamicResource BrushSuccess}" ToolTip.Tip="Downloaded"/>
-                <TextBlock Text="{Binding Model.MissingCount, StringFormat='{}Pending: {0}'}" FontSize="11" Foreground="{DynamicResource BrushWarning}" ToolTip.Tip="Pending"/>
-                <TextBlock Text="{Binding Model.ActiveDownloadsCount, StringFormat='{}Live: {0}'}" FontSize="11" Foreground="{DynamicResource BrushInfo}" ToolTip.Tip="Downloading" IsVisible="{Binding Model.HasActiveDownloads}"/>
-            </StackPanel>
-        </StackPanel>
         
-        <!-- Progress Bar & Downloading Info (Premium Refinement) -->
-        <Panel Grid.Column="1" Grid.Row="1" Margin="12,4,8,4">
-            <!-- Thinner Progress Line -->
-            <ProgressBar Height="2" VerticalAlignment="Top" Minimum="0" Maximum="100" 
-                         Value="{Binding Model.ProgressPercentage}" Foreground="{StaticResource AccentBrush}" Background="{StaticResource GlassThinBrush}"
-                         IsVisible="True"/>
-
-            <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
-                <!-- Downloading Label in subtle glass -->
-                <Border Background="{StaticResource GlassBrush}" CornerRadius="4" Padding="6,2"
-                        IsVisible="{Binding Model.CurrentDownloadingTrack, Converter={x:Static ObjectConverters.IsNotNull}}">
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <TextBlock Text="↓" FontSize="10" Foreground="{StaticResource AccentBrush}"/>
-                        <TextBlock Text="{Binding Model.CurrentDownloadingTrack}" 
-                                   FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" MaxWidth="120" TextTrimming="CharacterEllipsis"/>
-                    </StackPanel>
-                </Border>
-                
-                <!-- Stats in subtle glass -->
-                <Border Background="{StaticResource GlassThinBrush}" CornerRadius="4" Padding="6,2">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="{Binding Model.SuccessfulCount, StringFormat='{}Done {0}'}" FontSize="9" Foreground="{DynamicResource BrushSuccess}"/>
-                        <TextBlock Text="{Binding Model.FailedCount, StringFormat='{}Failed {0}'}" FontSize="9" Foreground="{DynamicResource BrushError}"/>
-                    </StackPanel>
+        <!-- Column 1: Text & Status Info -->
+        <Grid Grid.Column="1" RowDefinitions="Auto,Auto" VerticalAlignment="Center" Margin="10,0,6,0">
+            <!-- Row 0: Name & Source -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <TextBlock Text="{Binding Name}" 
+                           FontWeight="SemiBold" 
+                           FontSize="12" 
+                           Foreground="White"
+                           MaxWidth="140"
+                           TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center"/>
+                <Border Background="#252528" CornerRadius="4" Padding="4,1" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Model.SourceType}" FontSize="8" Foreground="#8FA7C0" FontWeight="SemiBold"/>
                 </Border>
             </StackPanel>
-        </Panel>
 
-        <!-- Controls (Refined) -->
-        <StackPanel Grid.Column="2" Grid.Row="0" Grid.RowSpan="2" Orientation="Horizontal" VerticalAlignment="Center" Spacing="0" Margin="4,0,0,0">
-            <Button Classes="icon-btn" ToolTip.Tip="Play" Padding="6" Background="Transparent"
-                    Opacity="0.6"
+            <!-- Row 1: Subtitle/Stats/Sync Progress -->
+            <Panel Grid.Row="1" Margin="0,3,0,0">
+                <!-- Standard Stats (visible when not syncing) -->
+                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding !Model.HasActiveDownloads}">
+                    <TextBlock Text="{Binding TrackCountText}" FontSize="10" Foreground="#888"/>
+                    <TextBlock Text="•" FontSize="10" Foreground="#555"/>
+                    <TextBlock Text="{Binding DownloadedCount, StringFormat='{}{0} done'}" FontSize="10" Foreground="#29D391"/>
+                    
+                    <!-- Failures display (visible only when there are failures) -->
+                    <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasFailures}">
+                        <TextBlock Text="•" FontSize="10" Foreground="#555"/>
+                        <TextBlock Text="{Binding FailedCount, StringFormat='{}{0} failed'}" FontSize="10" Foreground="#E56767"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Syncing Progress (visible when syncing) -->
+                <StackPanel Spacing="3" IsVisible="{Binding Model.HasActiveDownloads}">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="🔄 Syncing..." FontSize="9" Foreground="#2DB5FF" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding Model.CurrentDownloadingTrack}" 
+                                   FontSize="9" Foreground="#888" MaxWidth="110" TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+                    <ProgressBar Height="2" Minimum="0" Maximum="100" 
+                                 Value="{Binding Model.ProgressPercentage}" 
+                                 Foreground="#2DB5FF" Background="#252528"/>
+                </StackPanel>
+            </Panel>
+        </Grid>
+
+        <!-- Column 2: Controls (Hover Revealed actions) -->
+        <StackPanel Grid.Column="2" Classes="actions-panel" Orientation="Horizontal" VerticalAlignment="Center" Spacing="2" Margin="0,0,4,0">
+            <Button Classes="icon-btn" ToolTip.Tip="Play" Padding="4" Background="Transparent" BorderThickness="0"
                     Command="{Binding $parent[views:LibraryPage].DataContext.PlayAlbumCommand}"
                     CommandParameter="{Binding Model}">
-                 <TextBlock Text="▶️" FontSize="14"/>
-                 <Button.Styles><Style Selector="Button:pointerover"><Setter Property="Opacity" Value="1"/></Style></Button.Styles>
+                 <TextBlock Text="▶️" FontSize="12"/>
             </Button>
-                <Button Classes="icon-btn" ToolTip.Tip="Download Album" Padding="6" Background="Transparent"
-                    Opacity="0.6"
+            <Button Classes="icon-btn" ToolTip.Tip="Download Album" Padding="4" Background="Transparent" BorderThickness="0"
                     Command="{Binding $parent[views:LibraryPage].DataContext.DownloadAlbumCommand}"
                     CommandParameter="{Binding Model}">
-                 <TextBlock Text="⬇️" FontSize="14"/>
-                 <Button.Styles><Style Selector="Button:pointerover"><Setter Property="Opacity" Value="1"/></Style></Button.Styles>
+                 <TextBlock Text="⬇️" FontSize="12"/>
             </Button>
         </StackPanel>
     </Grid>

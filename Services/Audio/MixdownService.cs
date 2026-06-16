@@ -139,7 +139,7 @@ public sealed class MixdownService
         if (needsTranscode)
         {
             await TranscodeWithFfmpegAsync(wavPath, outputPath, settings, progress, ct);
-            try { File.Delete(wavPath); } catch { /* best-effort temp cleanup */ }
+            try { File.Delete(wavPath); } catch (IOException) { /* best-effort temp cleanup */ }
         }
     }
 

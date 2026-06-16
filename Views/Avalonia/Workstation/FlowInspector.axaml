@@ -1,0 +1,31 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Workstation"
+             x:Class="SLSKDONET.Views.Avalonia.Workstation.FlowInspector"
+             x:DataType="vm:WorkstationViewModel">
+    <StackPanel Spacing="6">
+        <!-- Row 1: title -->
+        <TextBlock Text="{Binding FlowInspectorTransitionLabel}" FontSize="{StaticResource WsFontMd}" FontWeight="SemiBold" Foreground="#E5EEF8" TextWrapping="Wrap"/>
+        <!-- Row 2: score + preset chips -->
+        <WrapPanel Orientation="Horizontal" ItemHeight="22">
+            <Border Classes="ws-chip"><TextBlock Text="{Binding FlowInspectorCombinedScoreLabel}" FontSize="{StaticResource WsFontSm}" Foreground="#B8E986" TextWrapping="Wrap"/></Border>
+            <Border Classes="ws-chip"><TextBlock Text="{Binding FlowInspectorPresetLabel}" FontSize="{StaticResource WsFontSm}" Foreground="#8EC8FF" TextWrapping="Wrap"/></Border>
+        </WrapPanel>
+        <!-- Row 3: warning (only when present) -->
+        <TextBlock Text="{Binding FlowInspectorWarningLabel}" FontSize="{StaticResource WsFontSm}" Foreground="#F9A94B" TextWrapping="Wrap" IsVisible="{Binding FlowInspectorHasWarnings}"/>
+        <!-- Row 4: harmonic · energy compact -->
+        <TextBlock Text="{Binding FlowInspectorScoreRow}" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextWrapping="Wrap"/>
+        <!-- Row 5: phrase · beat · length · snap -->
+        <TextBlock Text="{Binding FlowInspectorAlignmentRow}" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextWrapping="Wrap"/>
+        <!-- Row 6: curve · bands -->
+        <TextBlock Text="{Binding FlowInspectorCurveDetailRow}" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextWrapping="Wrap"/>
+        <!-- Row 7: phrase region scaffold -->
+        <TextBlock Text="{Binding FlowInspectorPhraseRegionSpanLabel}" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextWrapping="Wrap"/>
+        <!-- Row 8: actions -->
+        <WrapPanel Orientation="Horizontal" ItemHeight="26">
+            <Button Classes="secondary" Command="{Binding ApplyFlowPresetCommand}" CommandParameter="{Binding FlowInspectorTopSuggestedPresetId}" ToolTip.Tip="Apply top suggested preset">Apply</Button>
+            <Button Classes="secondary" Margin="4,0,0,0" Command="{Binding ResetFlowPresetCommand}" ToolTip.Tip="Reset preset">Reset</Button>
+            <Button Classes="secondary" Margin="4,0,0,0" Command="{Binding CycleFlowPresetCommand}" ToolTip.Tip="Cycle suggestions">Cycle</Button>
+        </WrapPanel>
+    </StackPanel>
+</UserControl>

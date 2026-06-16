@@ -1,0 +1,18 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Workstation"
+             x:Class="SLSKDONET.Views.Avalonia.Workstation.StemsInspector"
+             x:DataType="vm:WorkstationViewModel">
+    <StackPanel Spacing="8">
+        <TextBlock Text="Stem Rack" FontSize="{StaticResource WsFontLg}" FontWeight="SemiBold" Foreground="#E5EEF8"/>
+        <TextBlock Text="{Binding FocusedDeck.TrackTitle, TargetNullValue='Load a track and run separation to activate stem controls'}" FontSize="{StaticResource WsFontMd}" FontWeight="SemiBold" Foreground="#DDE9F5" TextWrapping="Wrap"/>
+        <Border Classes="ws-chip"><TextBlock Text="{Binding FocusedDeck.SectionJumpSummary, TargetNullValue='Phrase-aware jumps appear after cue prep.'}" FontSize="{StaticResource WsFontSm}" Foreground="#8EC8FF" TextWrapping="Wrap"/></Border>
+        <WrapPanel Orientation="Horizontal" ItemHeight="28">
+            <Button Classes="secondary" Command="{Binding FocusedDeck.ToggleVocalsCommand}" IsEnabled="{Binding FocusedDeck.IsLoaded}">Vocals</Button>
+            <Button Classes="secondary" Margin="6,0,0,0" Command="{Binding FocusedDeck.ToggleDrumsCommand}" IsEnabled="{Binding FocusedDeck.IsLoaded}">Drums</Button>
+            <Button Classes="secondary" Margin="6,0,0,0" Command="{Binding FocusedDeck.ToggleBassCommand}" IsEnabled="{Binding FocusedDeck.IsLoaded}">Bass</Button>
+            <Button Classes="secondary" Margin="6,0,0,0" Command="{Binding FocusedDeck.ToggleOtherCommand}" IsEnabled="{Binding FocusedDeck.IsLoaded}">Other</Button>
+        </WrapPanel>
+        <Button Classes="secondary" Command="{Binding FocusedDeck.SeparateStemsCommand}" IsEnabled="{Binding FocusedDeck.IsLoaded}">Separate Stems</Button>
+    </StackPanel>
+</UserControl>

@@ -89,7 +89,7 @@ public sealed class DemucsOnnxSeparator : IStemSeparator
         // ── 2. ONNX inference (DirectML → CPU fallback) ───────────────────
         using var sessionOptions = new SessionOptions();
         try   { sessionOptions.AppendExecutionProvider_DML(deviceId: 0); }
-        catch { /* CPU fallback */ }
+        catch (Exception) { /* DirectML not available; ONNX will fall back to CPU */ }
 
         cancellationToken.ThrowIfCancellationRequested();
 

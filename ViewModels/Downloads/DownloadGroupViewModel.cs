@@ -17,7 +17,7 @@ namespace SLSKDONET.ViewModels.Downloads;
 public class DownloadGroupViewModel : ReactiveObject, IDisposable
 {
     private readonly IDisposable _cleanUp;
-    private bool _isExpanded = true;
+    private bool _isExpanded = false;
     private double _totalProgress;
     private double _totalSpeed;
     private string _statusText = "Initializing";

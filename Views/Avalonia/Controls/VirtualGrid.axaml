@@ -1,0 +1,42 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.VirtualGrid"
+             Focusable="True"
+             Background="Transparent">
+
+    <UserControl.Styles>
+        <!-- Style container element when selected/focused -->
+        <Style Selector="ItemsRepeater > TemplatedControl.selected">
+            <Setter Property="Background" Value="#1A3300BF"/>
+        </Style>
+        <Style Selector="ItemsRepeater > Border.selected">
+            <Setter Property="Background" Value="#1A3300BF"/>
+        </Style>
+        <Style Selector="ItemsRepeater > TemplatedControl.selected:pointerover">
+            <Setter Property="Background" Value="#2A3300BF"/>
+        </Style>
+        <Style Selector="ItemsRepeater > Border.selected:pointerover">
+            <Setter Property="Background" Value="#2A3300BF"/>
+        </Style>
+        <Style Selector="ItemsRepeater > TemplatedControl.focused">
+            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+        </Style>
+        <Style Selector="ItemsRepeater > Border.focused">
+            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+        </Style>
+    </UserControl.Styles>
+
+    <ScrollViewer Name="PartScrollViewer"
+                  VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+        <ItemsRepeater Name="PartItemsRepeater"
+                       Focusable="False">
+            <ItemsRepeater.Layout>
+                <StackLayout Spacing="0"/>
+            </ItemsRepeater.Layout>
+        </ItemsRepeater>
+    </ScrollViewer>
+</UserControl>

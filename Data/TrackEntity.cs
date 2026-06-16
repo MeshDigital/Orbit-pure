@@ -32,6 +32,9 @@ public class TrackEntity
     public string Artist { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string State { get; set; } = "Pending";
+    public TrackAvailabilityState AvailabilityState { get; set; } = TrackAvailabilityState.Ghost;
+    public string? SpotifyPlaylistId { get; set; }
+    public string? SpotifyUri { get; set; }
     public string Filename { get; set; } = string.Empty;
     public string SoulseekUsername { get; set; } = string.Empty;
     public long Size { get; set; }
@@ -186,6 +189,9 @@ public class PlaylistTrackEntity
     public string TrackUniqueHash { get; set; } = string.Empty;
     public TrackStatus Status { get; set; } = TrackStatus.Missing;
     public string? ResolvedFilePath { get; set; }
+    public TrackAvailabilityState AvailabilityState { get; set; } = TrackAvailabilityState.Ghost;
+    public string? SpotifyPlaylistId { get; set; }
+    public string? SpotifyUri { get; set; }
     public int TrackNumber { get; set; }
     public int Bitrate { get; set; } = 0;
     public string? Format { get; set; }
@@ -338,6 +344,9 @@ public class LibraryEntryEntity
     public string Album { get; set; } = string.Empty;
     public string FilePath { get; set; } = string.Empty;
     public string? OriginalFilePath { get; set; }
+    public TrackAvailabilityState AvailabilityState { get; set; } = TrackAvailabilityState.Ghost;
+    public string? SpotifyPlaylistId { get; set; }
+    public string? SpotifyUri { get; set; }
 
     // Audio metadata
     public int Bitrate { get; set; }

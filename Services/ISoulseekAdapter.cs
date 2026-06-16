@@ -61,10 +61,19 @@ public interface ISoulseekAdapter
 public enum TransferLifecyclePhase
 {
     RemoteQueued,
-    Transferring
+    Transferring,
+    /// <summary>
+    /// Fires when the peer reports a new queue position. Allows consumers to implement
+    /// Queue Velocity tracking (detect zombie peers whose position never improves).
+    /// </summary>
+    QueuePositionUpdate
 }
 
-public sealed record TransferLifecycleUpdate(TransferLifecyclePhase Phase, string? Detail = null);
+public sealed record TransferLifecycleUpdate(
+    TransferLifecyclePhase Phase,
+    string? Detail = null,
+    /// <summary>Peer-reported queue position. Only populated for QueuePositionUpdate events.</summary>
+    int? QueuePosition = null);
 
 public class DownloadProgressEventArgs : EventArgs
 {

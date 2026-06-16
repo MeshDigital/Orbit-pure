@@ -78,6 +78,12 @@ public class DownloadContext
     // Issue #9: State lifecycle tracking for stale queue sweeper
     public DateTime LastStateChangeTime { get; set; } = DateTime.UtcNow; // Tracks when current state was entered
 
+    // Queue Velocity Tracking (zombie peer detection)
+    // -1 = unknown (peer never reported a position)
+    public int CurrentQueuePosition { get; set; } = -1;
+    public DateTime? QueuePositionLastUpdated { get; set; }   // When peer last reported a position change
+    public DateTime? QueueEnteredAt { get; set; }             // When we first entered the queued state
+
     public DownloadContext(PlaylistTrack model)
     {
         Model = model;

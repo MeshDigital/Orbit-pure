@@ -13,6 +13,7 @@ using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Views;
 using SLSKDONET.Events;
+using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -40,6 +41,7 @@ public partial class LibraryViewModel
     public ICommand PlayAlbumCommand { get; set; } = null!;
     public ICommand DownloadAlbumCommand { get; set; } = null!;
     public ICommand DownloadMissingCommand { get; set; } = null!;
+    public ICommand AcquireMissingTracksCommand { get; set; } = null!;
     public ICommand RenameProjectCommand { get; set; } = null!;
     public ICommand DuplicateDetectionCommand { get; set; } = null!;
     public ICommand AutoOrganizeCommand { get; set; } = null!;
@@ -107,6 +109,7 @@ public partial class LibraryViewModel
         PlayAlbumCommand = new AsyncRelayCommand<object>(ExecutePlayAlbumAsync);
         DownloadAlbumCommand = new AsyncRelayCommand<object>(ExecuteDownloadAlbumAsync);
         DownloadMissingCommand = new AsyncRelayCommand<object>(ExecuteDownloadMissingAsync);
+        AcquireMissingTracksCommand = new AsyncRelayCommand<object>(ExecuteAcquireMissingTracksAsync);
         RenameProjectCommand = new AsyncRelayCommand<object>(ExecuteRenameProjectAsync);
         SyncProjectCommand = new AsyncRelayCommand<object>(ExecuteSyncProjectAsync);
         ExportPlaylistCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistAsync);
@@ -428,6 +431,62 @@ public partial class LibraryViewModel
             else
             {
                 _notificationService.Show("Download Missing", "All tracks are already downloaded or queued.", NotificationType.Information);
+            }
+        }
+    }
+
+    private async Task ExecuteAcquireMissingTracksAsync(object? param)
+    {
+        if (param is PlaylistJob project)
+        {
+            var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
+            var ghostTracks = tracks.Where(t => t.AvailabilityState == TrackAvailabilityState.Ghost).ToList();
+            if (ghostTracks.Any())
+            {
+                _notificationService.Show("Acquiring Missing Tracks", $"Starting acquisition for {ghostTracks.Count} tracks from {project.SourceTitle}...", NotificationType.Information);
+                
+                foreach (var t in ghostTracks)
+                {
+                    t.AvailabilityState = TrackAvailabilityState.QueuedForDownload;
+                    t.Status = TrackStatus.Missing;
+                    t.SearchRetryCount = 0;
+                    t.NotFoundRestartCount = 0;
+                }
+                
+                try
+                {
+                    await using var dbContext = _dbFactory.CreateDbContext();
+                    foreach (var track in ghostTracks)
+                    {
+                        var dbTrack = await dbContext.PlaylistTracks.FirstOrDefaultAsync(dt => dt.Id == track.Id);
+                        if (dbTrack != null)
+                        {
+                            dbTrack.AvailabilityState = TrackAvailabilityState.QueuedForDownload;
+                            dbTrack.Status = TrackStatus.Missing;
+                            dbTrack.SearchRetryCount = 0;
+                            dbTrack.NotFoundRestartCount = 0;
+                        }
+                        
+                        var masterTrack = await dbContext.Tracks.FirstOrDefaultAsync(mt => mt.GlobalId == track.TrackUniqueHash);
+                        if (masterTrack != null)
+                        {
+                            masterTrack.AvailabilityState = TrackAvailabilityState.QueuedForDownload;
+                            masterTrack.SearchRetryCount = 0;
+                            masterTrack.NotFoundRestartCount = 0;
+                        }
+                    }
+                    await dbContext.SaveChangesAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to persist database updates for manual bulk acquisition");
+                }
+                
+                _downloadManager.QueueTracks(ghostTracks);
+            }
+            else
+            {
+                _notificationService.Show("Acquire Missing Tracks", "No ghost tracks found in this playlist.", NotificationType.Information);
             }
         }
     }
@@ -1500,9 +1559,143 @@ public partial class LibraryViewModel
     {
         var selected = Tracks.SelectedTracks.ToList();
         if (selected.Count == 0) return;
-        _logger.LogInformation("Batch tag edit for {Count} tracks", selected.Count);
-        // Delegated to a future BatchTagEditDialog; placeholder logs intent.
-        await Task.CompletedTask;
+
+        var result = await _dialogService.ShowBatchTagEditDialogAsync();
+        if (result == null || !result.IsConfirmed) return;
+
+        _logger.LogInformation("Batch tag edit for {Count} tracks starting.", selected.Count);
+
+        DateTime? releaseDate = null;
+        if (!string.IsNullOrWhiteSpace(result.Year) && int.TryParse(result.Year, out var year))
+        {
+            releaseDate = new DateTime(year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        }
+
+        int tagUpdateSuccessCount = 0;
+        int dbUpdateSuccessCount = 0;
+
+        await Task.Run(async () =>
+        {
+            await using var context = _dbFactory.CreateDbContext();
+
+            foreach (var trackVm in selected)
+            {
+                var track = trackVm.Model;
+                bool fileUpdated = false;
+
+                // 1. Update physical file tags
+                if (track.Status == TrackStatus.Downloaded && !string.IsNullOrEmpty(track.ResolvedFilePath) && System.IO.File.Exists(track.ResolvedFilePath))
+                {
+                    try
+                    {
+                        using (var tagFile = TagLib.File.Create(track.ResolvedFilePath))
+                        {
+                            if (tagFile.Tag != null)
+                            {
+                                if (!string.IsNullOrWhiteSpace(result.Artist))
+                                {
+                                    tagFile.Tag.Artists = new[] { result.Artist };
+                                    tagFile.Tag.Performers = new[] { result.Artist };
+                                }
+                                if (!string.IsNullOrWhiteSpace(result.Album))
+                                {
+                                    tagFile.Tag.Album = result.Album;
+                                }
+                                if (!string.IsNullOrWhiteSpace(result.Genre))
+                                {
+                                    tagFile.Tag.Genres = new[] { result.Genre };
+                                }
+                                if (!string.IsNullOrWhiteSpace(result.Year) && uint.TryParse(result.Year, out var y))
+                                {
+                                    tagFile.Tag.Year = y;
+                                }
+                                tagFile.Save();
+                                fileUpdated = true;
+                                tagUpdateSuccessCount++;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to write tag to physical file: {Path}", track.ResolvedFilePath);
+                    }
+                }
+
+                // 2. Update Database Entity (PlaylistTrackEntity)
+                try
+                {
+                    var dbTrack = await context.PlaylistTracks.FirstOrDefaultAsync(t => t.Id == track.Id);
+                    if (dbTrack != null)
+                    {
+                        if (!string.IsNullOrWhiteSpace(result.Artist)) dbTrack.Artist = result.Artist;
+                        if (!string.IsNullOrWhiteSpace(result.Album)) dbTrack.Album = result.Album;
+                        if (!string.IsNullOrWhiteSpace(result.Genre))
+                        {
+                            dbTrack.PrimaryGenre = result.Genre;
+                            dbTrack.Genres = System.Text.Json.JsonSerializer.Serialize(new List<string> { result.Genre });
+                        }
+                        if (releaseDate.HasValue) dbTrack.ReleaseDate = releaseDate;
+
+                        context.PlaylistTracks.Update(dbTrack);
+                    }
+
+                    // 3. Update Library Entry if exists
+                    if (!string.IsNullOrEmpty(track.TrackUniqueHash))
+                    {
+                        var dbLibraryEntry = await context.LibraryEntries.FirstOrDefaultAsync(e => e.UniqueHash == track.TrackUniqueHash);
+                        if (dbLibraryEntry != null)
+                        {
+                            if (!string.IsNullOrWhiteSpace(result.Artist)) dbLibraryEntry.Artist = result.Artist;
+                            if (!string.IsNullOrWhiteSpace(result.Album)) dbLibraryEntry.Album = result.Album;
+                            if (!string.IsNullOrWhiteSpace(result.Genre))
+                            {
+                                dbLibraryEntry.PrimaryGenre = result.Genre;
+                                dbLibraryEntry.Genres = System.Text.Json.JsonSerializer.Serialize(new List<string> { result.Genre });
+                            }
+                            if (releaseDate.HasValue) dbLibraryEntry.ReleaseDate = releaseDate;
+
+                            context.LibraryEntries.Update(dbLibraryEntry);
+                        }
+                    }
+
+                    dbUpdateSuccessCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to update tags in database for track ID: {Id}", track.Id);
+                }
+
+                // 4. Update the ViewModels dynamically in the UI thread
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (!string.IsNullOrWhiteSpace(result.Artist))
+                    {
+                        trackVm.Artist = result.Artist;
+                    }
+                    if (!string.IsNullOrWhiteSpace(result.Album))
+                    {
+                        trackVm.Album = result.Album;
+                    }
+                    if (!string.IsNullOrWhiteSpace(result.Genre))
+                    {
+                        trackVm.Model.PrimaryGenre = result.Genre;
+                        trackVm.Model.Genres = System.Text.Json.JsonSerializer.Serialize(new List<string> { result.Genre });
+                    }
+                    if (releaseDate.HasValue)
+                    {
+                        trackVm.Model.ReleaseDate = releaseDate;
+                    }
+                    trackVm.NotifyMetadataChanged();
+                });
+            }
+
+            await context.SaveChangesAsync();
+        });
+
+        _notificationService.Show(
+            "Tags Updated",
+            $"Successfully edited metadata tags for {dbUpdateSuccessCount} track(s) in DB (and {tagUpdateSuccessCount} physical files).",
+            NotificationType.Success);
     }
 
     private async Task ExecuteBatchQueueAnalysisAsync()
@@ -1524,9 +1717,40 @@ public partial class LibraryViewModel
     {
         var selected = Tracks.SelectedTracks.ToList();
         if (selected.Count == 0) return;
-        _logger.LogInformation("Batch add-to-playlist for {Count} tracks", selected.Count);
-        // Delegated to a future PlaylistPickerDialog.
-        await Task.CompletedTask;
+
+        var result = await _dialogService.ShowPlaylistPickerDialogAsync(Projects.AllProjects);
+        if (result == null || !result.IsConfirmed) return;
+
+        PlaylistJob targetPlaylist = null!;
+
+        if (!string.IsNullOrWhiteSpace(result.NewPlaylistName))
+        {
+            _logger.LogInformation("Creating new playlist '{Name}' for batch add", result.NewPlaylistName);
+            targetPlaylist = await _libraryService.CreateEmptyPlaylistAsync(result.NewPlaylistName);
+        }
+        else if (result.SelectedPlaylist != null)
+        {
+            targetPlaylist = result.SelectedPlaylist;
+        }
+
+        if (targetPlaylist == null)
+        {
+            _notificationService.Show("Error", "No playlist selected or created.", NotificationType.Error);
+            return;
+        }
+
+        _logger.LogInformation("Adding {Count} tracks to playlist '{Title}'", selected.Count, targetPlaylist.SourceTitle);
+
+        var selectedModels = selected.Select(t => t.Model).ToList();
+        await _libraryService.AddTracksToProjectAsync(selectedModels, targetPlaylist.Id);
+
+        _notificationService.Show(
+            "Tracks Added",
+            $"Added {selected.Count} track(s) to playlist '{targetPlaylist.SourceTitle}'.",
+            NotificationType.Success);
+
+        // Clear selection to hide the FAB
+        Tracks.ClearSelection();
     }
 
     private async Task ExecuteBatchExportRekordboxAsync()

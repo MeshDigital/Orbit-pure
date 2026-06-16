@@ -184,7 +184,7 @@ public class SpotifyInputSource : IInputSource
 
         await foreach (var simpleTrack in client.Paginate(items))
         {
-            queries.Add(MapSimpleTrackToSearchQuery(simpleTrack, fullAlbum, total));
+            queries.Add(MapSimpleTrackToSearchQuery(simpleTrack, fullAlbum, total, albumId));
         }
         return queries;
     }
@@ -202,7 +202,7 @@ public class SpotifyInputSource : IInputSource
 			{
 				if (item.Track is FullTrack track)
 				{
-					queries.Add(MapToSearchQuery(track, playlist.Name ?? "Spotify Playlist", total));
+					queries.Add(MapToSearchQuery(track, playlist.Name ?? "Spotify Playlist", total, playlistId));
 				}
 			}
 
@@ -210,7 +210,7 @@ public class SpotifyInputSource : IInputSource
 		return queries;
 	}
 
-	private SearchQuery MapToSearchQuery(FullTrack track, string sourceTitle, int total)
+	private SearchQuery MapToSearchQuery(FullTrack track, string sourceTitle, int total, string? playlistId = null)
 	{
 		var artist = track.Artists?.FirstOrDefault()?.Name ?? "Unknown Artist";
 		var title = track.Name ?? "Unknown Track";
@@ -231,11 +231,13 @@ public class SpotifyInputSource : IInputSource
 			CanonicalDuration = track.DurationMs,
 			ReleaseDate = DateTime.TryParse(track.Album?.ReleaseDate, out var rd) ? rd : null,
             ISRC = track.ExternalIds != null && track.ExternalIds.ContainsKey("isrc") ? track.ExternalIds["isrc"] : null,
+            SpotifyPlaylistId = playlistId,
+            SpotifyUri = track.Uri,
             IsEnriched = false 
 		};
 	}
 
-    private SearchQuery MapSimpleTrackToSearchQuery(SimpleTrack track, FullAlbum album, int total)
+    private SearchQuery MapSimpleTrackToSearchQuery(SimpleTrack track, FullAlbum album, int total, string? playlistId = null)
     {
         var artist = track.Artists?.FirstOrDefault()?.Name ?? "Unknown Artist";
         var title = track.Name ?? "Unknown Track";
@@ -255,6 +257,8 @@ public class SpotifyInputSource : IInputSource
             Popularity = album.Popularity, // SimpleTrack lacks popularity, use Album's? Or fetch details? SimpleTrack usually lacks it.
             CanonicalDuration = track.DurationMs,
             ReleaseDate = DateTime.TryParse(album.ReleaseDate, out var rd) ? rd : null,
+            SpotifyPlaylistId = playlistId,
+            SpotifyUri = track.Uri,
             // SimpleTrack doesn't provide ExternalIds usually, so ISRC might be missing here without fetch
             IsEnriched = false
         };

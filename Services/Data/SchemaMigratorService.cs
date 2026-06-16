@@ -258,7 +258,7 @@ public class SchemaMigratorService
                 }
 
                 // Clean up marker
-                try { System.IO.File.Delete(markerPath); } catch { }
+                try { System.IO.File.Delete(markerPath); } catch (IOException ex) { _logger.LogDebug(ex, "Best-effort marker file cleanup failed for {Path}", markerPath); }
             }
         }
         catch (Exception ex)
@@ -830,6 +830,25 @@ public class SchemaMigratorService
                     await command.ExecuteNonQueryAsync();
                 }
 
+                if (!ColumnExists(table, "AvailabilityState"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding AvailabilityState to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"AvailabilityState\" TEXT NOT NULL DEFAULT 'Ready';";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists(table, "SpotifyPlaylistId"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding SpotifyPlaylistId to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"SpotifyPlaylistId\" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists(table, "SpotifyUri"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding SpotifyUri to {Table}...", table);
+                    command.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN \"SpotifyUri\" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
+
                 // Vocal Intelligence (Currently only in PlaylistTracks and LibraryEntries)
                 if (table != "Tracks")
                 {
@@ -878,7 +897,11 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
                 
                 // Trigger migration from JSON file if it exists
-                _ = Task.Run(() => MigrateStemPreferencesFromJsonAsync());
+                _ = Task.Run(async () =>
+                {
+                    try { await MigrateStemPreferencesFromJsonAsync(); }
+                    catch (Exception ex) { _logger.LogError(ex, "Background stem preferences JSON migration failed"); }
+                });
             }
 
             // Phase: Library Entry Enrichment Retry
@@ -1622,14 +1645,14 @@ public class SchemaMigratorService
                     command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""AiEmbeddingJson"" TEXT NULL;";
                     await command.ExecuteNonQueryAsync();
                     _logger.LogInformation("✅ AiEmbeddingJson column added to audio_features");
-                } catch { }
+                } catch (Microsoft.Data.Sqlite.SqliteException ex) { _logger.LogDebug(ex, "AiEmbeddingJson column already exists — skipping"); }
 
                 // CuePointsJson [Phase 17/Sprint 5 Fix]
                 try {
                     command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""CuePointsJson"" TEXT NULL;";
                     await command.ExecuteNonQueryAsync();
                     _logger.LogInformation("✅ CuePointsJson column added to audio_features");
-                } catch { }
+                } catch (Microsoft.Data.Sqlite.SqliteException ex) { _logger.LogDebug(ex, "CuePointsJson column already exists — skipping"); }
             }
             catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.Message.Contains("no such table"))
             {

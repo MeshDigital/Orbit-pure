@@ -8,6 +8,7 @@ using Avalonia.Threading;
 using SLSKDONET.ViewModels.Library;
 using SLSKDONET.Models;
 using SLSKDONET.ViewModels;
+using SLSKDONET.ViewModels.Downloads;
 
 namespace SLSKDONET.Services;
 
@@ -137,6 +138,36 @@ public class DialogService : IDialogService
         });
     }
 
+    public async Task<PlaylistPickerResult?> ShowPlaylistPickerDialogAsync(IEnumerable<PlaylistJob> playlists)
+    {
+        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var vm = new PlaylistPickerViewModel(playlists);
+            var dialog = new Views.Avalonia.Dialogs.PlaylistPickerDialog(vm);
+            var owner = GetOwnerWindow();
+            if (owner != null)
+            {
+                return await dialog.ShowDialog<PlaylistPickerResult?>(owner);
+            }
+            return null;
+        });
+    }
+
+    public async Task<BatchTagEditResult?> ShowBatchTagEditDialogAsync()
+    {
+        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var vm = new BatchTagEditViewModel();
+            var dialog = new Views.Avalonia.Dialogs.BatchTagEditDialog(vm);
+            var owner = GetOwnerWindow();
+            if (owner != null)
+            {
+                return await dialog.ShowDialog<BatchTagEditResult?>(owner);
+            }
+            return null;
+        });
+    }
+
     public async Task<string?> OpenFolderDialogAsync(string title)
     {
         return await Dispatcher.UIThread.InvokeAsync(async () =>
@@ -168,6 +199,21 @@ public class DialogService : IDialogService
             {
                 await dialog.ShowDialog(owner);
             }
+        });
+    }
+
+    public async Task ShowSpectralForensicsAsync(UnifiedTrackViewModel vm)
+    {
+        await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var dialog = new Views.Avalonia.Dialogs.SpectralForensicsDialog
+            {
+                DataContext = vm
+            };
+
+            var owner = GetOwnerWindow();
+            if (owner != null)
+                await dialog.ShowDialog(owner);
         });
     }
 }

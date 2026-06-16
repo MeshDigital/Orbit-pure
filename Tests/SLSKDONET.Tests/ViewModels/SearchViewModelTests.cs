@@ -158,7 +158,7 @@ public class SearchViewModelTests
                 => streamFactory(query, token));
 
         var safety = new Mock<ISafetyFilterService>();
-        safety.Setup(x => x.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>()));
+        safety.Setup(x => x.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>(), It.IsAny<bool>()));
 
         var library = new Mock<ILibraryService>();
 

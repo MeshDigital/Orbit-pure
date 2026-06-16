@@ -145,7 +145,12 @@ public class ImportOrchestrator
                      _streamCts?.Cancel();
                      _streamCts?.Dispose();
                      _streamCts = new CancellationTokenSource();
-                     _ = Task.Run(async () => await StreamPreviewAsync(streamProvider, input, _streamCts.Token));
+                     _ = Task.Run(async () =>
+                     {
+                         try { await StreamPreviewAsync(streamProvider, input, _streamCts.Token); }
+                         catch (OperationCanceledException) { }
+                         catch (Exception ex) { _logger.LogError(ex, "Background stream preview failed"); }
+                     });
                 }
                 catch (Exception navEx)
                 {

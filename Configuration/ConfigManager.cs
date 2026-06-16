@@ -80,6 +80,7 @@ public class ConfigManager
                 AutoRetryFailedDownloads = !bool.TryParse(config["Download:AutoRetryFailedDownloads"], out var arf) || arf, // Default true
                 MaxDownloadRetries = int.TryParse(config["Download:MaxDownloadRetries"], out var mdr) ? mdr : 2,
                 EnableMp3Fallback = !bool.TryParse(config["Download:EnableMp3Fallback"], out var emf) || emf, // Default true
+                MaxQueueWaitTimeMinutes = int.TryParse(config["Download:MaxQueueWaitTimeMinutes"], out var mqw) ? mqw : 60,
 
 
                 // [Spotify]
@@ -224,6 +225,7 @@ public class ConfigManager
         iniContent.AppendLine($"AutoRetryFailedDownloads = {config.AutoRetryFailedDownloads}");
         iniContent.AppendLine($"MaxDownloadRetries = {config.MaxDownloadRetries}");
         iniContent.AppendLine($"EnableMp3Fallback = {config.EnableMp3Fallback}");
+        iniContent.AppendLine($"MaxQueueWaitTimeMinutes = {config.MaxQueueWaitTimeMinutes}");
 
 
         iniContent.AppendLine();

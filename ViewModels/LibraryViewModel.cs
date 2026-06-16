@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Linq;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
@@ -57,6 +58,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     private readonly TrackSimilarityService? _trackSimilarityService;
     private readonly SimilarityIndex? _similarityIndex;
     private readonly TransitionStyleClassifier? _transitionStyleClassifier;
+    private readonly IDbContextFactory<AppDbContext> _dbFactory;
     
     public Library.ProjectListViewModel Projects { get; }
     public Library.TrackListViewModel Tracks { get; }
@@ -500,12 +502,14 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         Configuration.AppConfig appConfig,
         ConfigManager configManager,
         Services.Library.PlaylistExportService exportService,
+        IDbContextFactory<AppDbContext> dbFactory,
         PlaylistIntelligenceService? playlistIntelligenceService = null,
         ISavedDoublesService? savedDoublesService = null,
         TrackSimilarityService? trackSimilarityService = null,
         SimilarityIndex? similarityIndex = null,
         TransitionStyleClassifier? transitionStyleClassifier = null)
     {
+        _dbFactory = dbFactory;
         _logger = logger;
         _navigationService = navigationService;
         _importHistoryViewModel = importHistoryViewModel;

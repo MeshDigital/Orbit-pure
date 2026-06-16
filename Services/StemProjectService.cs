@@ -67,7 +67,8 @@ public class StemProjectService
                     results.Add(project);
                 }
             }
-            catch { /* Ignore corrupt files */ }
+            catch (JsonException) { /* skip corrupt JSON */ }
+            catch (IOException) { /* skip unreadable file */ }
         }
         
         return results.OrderByDescending(p => p.Modified).ToList();

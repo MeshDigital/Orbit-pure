@@ -69,7 +69,11 @@ namespace SLSKDONET.Services
                         // Prevents dictionary content leak (Dead WeakRefs + Strings)
                         if (new Random().Next(0, 1000) == 0)
                         {
-                             _ = Task.Run(PurgeDeadReferences);
+                             _ = Task.Run(() =>
+                             {
+                                 try { PurgeDeadReferences(); }
+                                 catch (Exception ex) { _logger.LogDebug(ex, "Artwork cache periodic cleanup failed"); }
+                             });
                         }
                     }
                     return loaded;

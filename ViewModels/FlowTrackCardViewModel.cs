@@ -37,18 +37,20 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
 {
     // -- Identity --------------------------------------------------------------
 
-    public string Artist          { get; }
-    public string Title           { get; }
-    public string BpmDisplay      { get; }
-    public string KeyDisplay      { get; }
-    public string DurationDisplay { get; }
+    public string  Artist          { get; }
+    public string  Title           { get; }
+    public string  BpmDisplay      { get; }
+    public string  KeyDisplay      { get; }
+    public string  DurationDisplay { get; }
+    public string? AlbumArtUrl     { get; }
+    public IBrush  KeyColorBrush   { get; }
 
     /// <summary>The file path, used to load this track onto a deck.</summary>
-    public string FilePath        { get; }
+    public string FilePath  { get; }
 
     /// <summary>Unique track hash - used for DB lookups (analysis, cues).</summary>
-    public string TrackHash       { get; }
-    public PlaylistTrack Model    { get; }
+    public string TrackHash { get; }
+    public PlaylistTrack Model { get; }
 
     // -- Energy sparkline ------------------------------------------------------
 
@@ -114,12 +116,14 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         Title           = track.Title   ?? "Unknown Title";
         FilePath        = track.ResolvedFilePath ?? string.Empty;
         TrackHash       = track.TrackUniqueHash  ?? string.Empty;
+        AlbumArtUrl     = track.AlbumArtUrl;
 
         BpmDisplay      = track.BPM.HasValue
             ? track.BPM.Value.ToString("F1")
             : "-";
         // Key may be in Camelot notation (e.g. "8A") or musical (e.g. "Am")
         KeyDisplay      = string.IsNullOrEmpty(track.Key) ? "-" : track.Key;
+        KeyColorBrush   = GetKeyColorBrush(KeyDisplay);
         DurationDisplay = track.CanonicalDuration.HasValue
             ? FormatDuration(track.CanonicalDuration.Value)
             : "-";
@@ -268,6 +272,26 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
             TransitionStyleReason = transitionStyle?.Reason ?? string.Empty,
             Tooltip = tooltip,
         };
+    }
+
+    private static IBrush GetKeyColorBrush(string key)
+    {
+        if (!TryParseCamelot(key, out int n, out bool isMinor))
+            return new SolidColorBrush(Color.Parse("#4EC9B0"), 0.55);
+
+        string hex = (isMinor, n) switch
+        {
+            (true,  1)  => "#008080", (true,  2)  => "#4682B4", (true,  3)  => "#4169E1",
+            (true,  4)  => "#4B0082", (true,  5)  => "#9400D3", (true,  6)  => "#C71585",
+            (true,  7)  => "#DC143C", (true,  8)  => "#FF8C00", (true,  9)  => "#FFD700",
+            (true,  10) => "#9ACD32", (true,  11) => "#3CB371", (true,  12) => "#008B8B",
+            (false, 1)  => "#7FFFD4", (false, 2)  => "#87CEEB", (false, 3)  => "#1E90FF",
+            (false, 4)  => "#6A5ACD", (false, 5)  => "#DDA0DD", (false, 6)  => "#FF69B4",
+            (false, 7)  => "#F08080", (false, 8)  => "#FFA500", (false, 9)  => "#F0E68C",
+            (false, 10) => "#98FB98", (false, 11) => "#00FA9A", (false, 12) => "#40E0D0",
+            _ => "#4EC9B0",
+        };
+        return new SolidColorBrush(Color.Parse(hex), 0.70);
     }
 
     /// <summary>Camelot wheel distance (0 = perfect match, 6 = worst clash).</summary>

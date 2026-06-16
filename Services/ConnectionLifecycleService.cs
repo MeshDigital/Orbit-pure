@@ -350,14 +350,21 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
         // Wake up after cooldown and restart reconnect loop if eligible
         _ = Task.Run(async () =>
         {
-            var wait = _coolingUntilUtc - DateTime.UtcNow;
-            if (wait > TimeSpan.Zero)
-                await Task.Delay(wait);
-
-            if (_state == ConnectionLifecycleState.CoolingDown && !_manualDisconnect && AutoReconnectEnabled)
+            try
             {
-                TryTransition(ConnectionLifecycleState.Disconnected, "cooldown expired");
-                StartAutoReconnectLoop(correlationId: null);
+                var wait = _coolingUntilUtc - DateTime.UtcNow;
+                if (wait > TimeSpan.Zero)
+                    await Task.Delay(wait);
+
+                if (_state == ConnectionLifecycleState.CoolingDown && !_manualDisconnect && AutoReconnectEnabled)
+                {
+                    TryTransition(ConnectionLifecycleState.Disconnected, "cooldown expired");
+                    StartAutoReconnectLoop(correlationId: null);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during cooldown expiry restart");
             }
         });
     }
@@ -398,7 +405,11 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
             return;
 
         _lastHostSignalRecoveryUtc = now;
-        _ = Task.Run(() => ForceDisconnectAndRecoverAsync(reason));
+        _ = Task.Run(async () =>
+        {
+            try { await ForceDisconnectAndRecoverAsync(reason); }
+            catch (Exception ex) { _logger.LogError(ex, "Unhandled error in ForceDisconnectAndRecoverAsync"); }
+        });
     }
 
     private async Task ForceDisconnectAndRecoverAsync(string reason)

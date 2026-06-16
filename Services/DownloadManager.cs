@@ -56,7 +56,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     private readonly PeerReliabilityService _peerReliability;
     private readonly PrefetchVerifier _prefetchVerifier;
     private readonly INetworkHealthService _networkHealth;
+    private readonly SLSKDONET.Services.Diagnostics.ITrackAuditLogger _auditLogger;
 
+
+    private readonly List<IDisposable> _eventBusSubs = new();
 
     // Phase 2: Parallel Pre-Search Cache
     private readonly ConcurrentDictionary<string, Task<DownloadDiscoveryService.DiscoveryResult>> _preSearchTasks = new();
@@ -157,7 +160,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         PrefetchVerifier prefetchVerifier,
         CrashRecoveryJournal crashJournal,
         PeerReliabilityService peerReliability,
-        INetworkHealthService networkHealth) // Phase 1: Engine Overhaul
+        INetworkHealthService networkHealth,
+        SLSKDONET.Services.Diagnostics.ITrackAuditLogger auditLogger) // Phase 1: Engine Overhaul
 
     {
         _logger = logger;
@@ -176,6 +180,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         _peerReliability = peerReliability;
         _prefetchVerifier = prefetchVerifier;
         _networkHealth = networkHealth;
+        _auditLogger = auditLogger;
 
 
         // CONCURRENCY CONTROL ARCHITECTURE:
@@ -206,13 +211,13 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         _searchSemaphore = new SemaphoreSlim(initialSearchLanes, _config.MaxAdaptiveSearchLanes);
         _currentSearchLanes = initialSearchLanes;
         
-        // Phase 8: Automation Subscriptions
-        _eventBus.GetEvent<AutoDownloadTrackEvent>().Subscribe(OnAutoDownloadTrack);
-        _eventBus.GetEvent<AutoDownloadUpgradeEvent>().Subscribe(OnAutoDownloadUpgrade);
-        _eventBus.GetEvent<UpgradeAvailableEvent>().Subscribe(OnUpgradeAvailable);
+        // Phase 8: Automation Subscriptions — store IDisposables so they unsubscribe on Dispose()
+        _eventBusSubs.Add(_eventBus.GetEvent<AutoDownloadTrackEvent>().Subscribe(OnAutoDownloadTrack));
+        _eventBusSubs.Add(_eventBus.GetEvent<AutoDownloadUpgradeEvent>().Subscribe(OnAutoDownloadUpgrade));
+        _eventBusSubs.Add(_eventBus.GetEvent<UpgradeAvailableEvent>().Subscribe(OnUpgradeAvailable));
         // Phase 6: Library Interactions
-        _eventBus.GetEvent<DownloadAlbumRequestEvent>().Subscribe(OnDownloadAlbumRequest);
-        _eventBus.GetEvent<ForceStartRequestEvent>().Subscribe(e => _ = ForceStartTrack(e.TrackGlobalId));
+        _eventBusSubs.Add(_eventBus.GetEvent<DownloadAlbumRequestEvent>().Subscribe(OnDownloadAlbumRequest));
+        _eventBusSubs.Add(_eventBus.GetEvent<ForceStartRequestEvent>().Subscribe(e => _ = ForceStartTrack(e.TrackGlobalId)));
 
         // Phase 12: Adapter Event Subscriptions
         _soulseek.DownloadProgressChanged += OnDownloadProgressChanged;
@@ -242,20 +247,27 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 _logger.LogInformation("ðŸ“¢ Processing DownloadAlbumRequest for Project: {Title}", job.SourceTitle);
                 
                 // Ensure tracks are loaded
-                 _ = Task.Run(async () => 
+                 _ = Task.Run(async () =>
                  {
-                     _logger.LogInformation("ðŸ” Loading tracks for project {Id}...", job.Id);
-                     var tracks = await _libraryService.LoadPlaylistTracksAsync(job.Id);
-                     
-                     if (tracks.Any())
+                     try
                      {
-                         _logger.LogInformation("âœ… Found {Count} tracks, queuing...", tracks.Count);
-                         QueueTracks(tracks);
-                         _logger.LogInformation("ðŸš€ Queued {Count} tracks for project {Title}", tracks.Count, job.SourceTitle);
+                         _logger.LogInformation("Loading tracks for project {Id}...", job.Id);
+                         var tracks = await _libraryService.LoadPlaylistTracksAsync(job.Id);
+
+                         if (tracks.Any())
+                         {
+                             _logger.LogInformation("Found {Count} tracks, queuing...", tracks.Count);
+                             QueueTracks(tracks);
+                             _logger.LogInformation("Queued {Count} tracks for project {Title}", tracks.Count, job.SourceTitle);
+                         }
+                         else
+                         {
+                             _logger.LogWarning("No tracks found for project {Title} (ID: {Id})", job.SourceTitle, job.Id);
+                         }
                      }
-                     else
+                     catch (Exception ex)
                      {
-                         _logger.LogWarning("âš ï¸ No tracks found for project {Title} (ID: {Id}) - Database might be empty or tracks missing", job.SourceTitle, job.Id);
+                         _logger.LogError(ex, "Failed to load and queue tracks for project {Title} (ID: {Id})", job.SourceTitle, job.Id);
                      }
                  });
             }
@@ -389,6 +401,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             }
         }
     }
+    
+    public int MaxQueueWaitTimeMinutes => _config.MaxQueueWaitTimeMinutes;
     
     public async Task InitAsync()
 
@@ -626,6 +640,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         TrackUniqueHash = existingLibraryEntry?.UniqueHash ?? hash,
                         Status = shouldMarkDownloaded ? TrackStatus.Downloaded : TrackStatus.Missing,
                         ResolvedFilePath = shouldMarkDownloaded ? (existingLibraryEntry?.FilePath ?? string.Empty) : string.Empty,
+                        AvailabilityState = shouldMarkDownloaded ? (existingLibraryEntry?.AvailabilityState ?? TrackAvailabilityState.Ready) : TrackAvailabilityState.Ghost,
+                        SpotifyPlaylistId = track.SpotifyPlaylistId,
+                        SpotifyUri = track.SpotifyUri,
                         TrackNumber = idx++,
                         AddedAt = DateTime.UtcNow,
                         CompletedAt = shouldMarkDownloaded ? DateTime.UtcNow : null,
@@ -783,6 +800,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
             foreach (var track in tracks)
             {
+                if (track.AvailabilityState == TrackAvailabilityState.Ghost && !_config.EnableAutoAcquireOnImport)
+                {
+                    skipped++;
+                    continue;
+                }
+
                 DownloadContext? existingCtx = null;
                 
                 if (existingIds.TryGetValue(track.Id, out var byId)) existingCtx = byId;
@@ -877,7 +900,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
              if (!IsRunning)
              {
                  _logger.LogInformation("Auto-starting download engine for {Count} queued tracks", queued);
-                 _ = StartAsync();
+                 var logger = _logger;
+                 _ = StartAsync().ContinueWith(
+                     t => logger.LogError(t.Exception, "Download engine auto-start failed"),
+                     TaskContinuationOptions.OnlyOnFaulted);
              }
         }
     }
@@ -1166,6 +1192,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
         ctx.State = newState;
         ctx.ErrorMessage = error; // Update context
+        ctx.LastStateChangeTime = DateTime.UtcNow; // Tracks when current state was entered
+        _auditLogger.Log(ctx.GlobalId, $"[State] Transitioned to {newState}" + (string.IsNullOrEmpty(error) ? "" : $" | Info: {error}"));
 
         // Update model and timestamp for terminal states
         if (newState == PlaylistTrackState.Completed || newState == PlaylistTrackState.Failed || newState == PlaylistTrackState.Cancelled)
@@ -1236,6 +1264,37 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 ctx.Model.Id,
                 ctx.Model.ResolvedFilePath,
                 DateTime.UtcNow));
+
+            if (ctx.Model.AvailabilityState == TrackAvailabilityState.Ghost ||
+                ctx.Model.AvailabilityState == TrackAvailabilityState.QueuedForDownload ||
+                ctx.Model.AvailabilityState == TrackAvailabilityState.Downloading)
+            {
+                ctx.Model.AvailabilityState = TrackAvailabilityState.LocalUnanalyzed;
+                try
+                {
+                    using var dbContext = new AppDbContext();
+                    var dbTrack = await dbContext.PlaylistTracks.FirstOrDefaultAsync(t => t.Id == ctx.Model.Id);
+                    if (dbTrack != null)
+                    {
+                        dbTrack.AvailabilityState = TrackAvailabilityState.LocalUnanalyzed;
+                    }
+                    var masterTrack = await dbContext.Tracks.FirstOrDefaultAsync(t => t.GlobalId == queuedHash);
+                    if (masterTrack != null)
+                    {
+                        masterTrack.AvailabilityState = TrackAvailabilityState.LocalUnanalyzed;
+                    }
+                    await dbContext.SaveChangesAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to update AvailabilityState to LocalUnanalyzed in DB for {Id}", ctx.Model.Id);
+                }
+
+                _eventBus.Publish(new TrackAnalysisRequestedEvent(
+                    queuedHash,
+                    AnalysisTier.Tier1,
+                    IsHighPriority: true));
+            }
 
             await _libraryService.AddTrackToLibraryIndexAsync(ctx.Model, ctx.Model.ResolvedFilePath);
 
@@ -1403,7 +1462,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     public async Task StopAsync()
     {
         _logger.LogInformation("Stopping DownloadManager engine (soft stop)...");
-        _ = PauseAllAsync(); // Fire and forget pause of active tracks
+        var stopLogger = _logger;
+        _ = PauseAllAsync().ContinueWith(
+            t => stopLogger.LogWarning(t.Exception, "PauseAll during StopAsync failed non-fatally"),
+            TaskContinuationOptions.OnlyOnFaulted); // fire-and-forget pause of active tracks
         _globalCts.Cancel();
         try
         {
@@ -1494,6 +1556,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         {
             ctx.BlacklistedUsers.Add(stalledUser);
             _logger.LogWarning("⚠️ Health Monitor: Blacklisting peer {User} for {Track}", stalledUser, ctx.Model.Title);
+            
+            // Record failure/stall status to deprioritize bad peers in future searches
+            _peerReliability.RecordDownloadFailed(stalledUser, stalled: true);
             
             // Notify UI
             _eventBus.Publish(new NotificationEvent(
@@ -1881,9 +1946,17 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         var reduceBy = Math.Abs(diff);
         _ = Task.Run(async () =>
         {
-            for (int i = 0; i < reduceBy; i++)
+            try
             {
-                await _searchSemaphore.WaitAsync(_globalCts.Token);
+                for (int i = 0; i < reduceBy; i++)
+                {
+                    await _searchSemaphore.WaitAsync(_globalCts.Token);
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during search lane reduction");
             }
         }, _globalCts.Token);
     }
@@ -2165,12 +2238,26 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         nextContext = SelectNextTrackWithLaneAllocation(sortedEligible, activeByPriority);
                     }
                     
+                    // Periodic trim: remove terminal downloads older than 30 min to prevent unbounded growth
+                    var cutoff = DateTime.UtcNow.AddMinutes(-30);
+                    lock (_collectionLock)
+                    {
+                        _downloads.RemoveAll(d =>
+                            d.State is PlaylistTrackState.Completed or PlaylistTrackState.Failed or PlaylistTrackState.Cancelled
+                            && d.Model.CompletedAt.HasValue
+                            && d.Model.CompletedAt.Value < cutoff);
+                    }
+
                     // Phase 3C.5: Check if we need to release the hounds (Refill)
                     var pendingCount = _downloads.Count(d => d.State == PlaylistTrackState.Pending);
                     if (pendingCount < REFILL_THRESHOLD)
                     {
                          // Trigger background refill
-                         _ = Task.Run(() => RefillQueueAsync());
+                         _ = Task.Run(async () =>
+                         {
+                             try { await RefillQueueAsync(); }
+                             catch (Exception ex) { _logger.LogError(ex, "Background queue refill failed"); }
+                         });
                     }
 
                     // Pre-search is intentionally disabled in strict-concurrency mode.
@@ -2294,6 +2381,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 {
                     _logger.LogInformation("Track already exists on disk, reusing local file: {Artist} - {Title} => {Path}",
                         ctx.Model.Artist, ctx.Model.Title, ctx.Model.ResolvedFilePath);
+                    _auditLogger.Log(ctx.GlobalId, $"Track already exists on disk, reusing local file: {ctx.Model.ResolvedFilePath}");
 
                     ctx.Model.Status = TrackStatus.Downloaded;
                     await _libraryService.UpdatePlaylistTrackAsync(ctx.Model);
@@ -2304,6 +2392,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 // Pre-check: Already downloaded in this project
                 if (ctx.Model.Status == TrackStatus.Downloaded && File.Exists(ctx.Model.ResolvedFilePath))
                 {
+                    _auditLogger.Log(ctx.GlobalId, "Track already marked downloaded in project, verifying file path.");
                     await UpdateStateAsync(ctx, PlaylistTrackState.Completed);
                     return;
                 }
@@ -2314,8 +2403,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     : await _libraryService.FindLibraryEntryAsync(ctx.Model.TrackUniqueHash);
                 if (existingEntry != null && File.Exists(existingEntry.FilePath))
                 {
-                    _logger.LogInformation("â™»ï¸ Track already in library: {Artist} - {Title}, reusing file: {Path}", 
+                    _logger.LogInformation("â™»ï¸  Track already in library: {Artist} - {Title}, reusing file: {Path}", 
                         ctx.Model.Artist, ctx.Model.Title, existingEntry.FilePath);
+                    _auditLogger.Log(ctx.GlobalId, $"Track already in library, reusing file: {existingEntry.FilePath}");
                     
                     // Reuse existing file instead of downloading
                     ctx.Model.ResolvedFilePath = existingEntry.FilePath;
@@ -2437,14 +2527,15 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         // In-session retry: put at the end of the queue
                         ctx.Model.Priority = 20; // Lower priority for retries
 
-                        // Opt-P3: Add per-track jitter (±5 min) to the 20-minute base delay.
+                        // Opt-P3: Add per-track jitter to the base delay.
                         // Without jitter, all failed tracks retry simultaneously after a network
                         // outage, creating a search spike that can trigger Soulseek throttling.
-                        var jitterSeconds = _jitterRandom.Next(-300, 300); // ±5 minutes in seconds
-                        var delayMinutes = 20;
+                        // Jitter is ±60s so the 3-minute base never goes negative.
+                        var jitterSeconds = _jitterRandom.Next(-60, 60);
+                        var delayMinutes = 3;
                         ctx.NextRetryTime = DateTime.UtcNow.AddMinutes(delayMinutes).AddSeconds(jitterSeconds);
 
-                        _logger.LogWarning("🔍 No match for {Title}. In-session retry {Count}/{MaxAttempts}. Next try at {Time} (20m ±jitter | Reason: {Reason}).", 
+                        _logger.LogWarning("🔍 No match for {Title}. In-session retry {Count}/{MaxAttempts}. Next try at {Time} (3m ±jitter | Reason: {Reason}).",
                             ctx.Model.Title, ctx.Model.SearchRetryCount, _config.MaxSearchAttempts, ctx.NextRetryTime, failureReason);
 
 
@@ -3023,35 +3114,48 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     var currentBytes = ctx.BytesReceived; // Thread-safe Interlocked read
                     
                     // STALL DETECTION: throughput below floor for configured timeout window.
-                    var bytesDelta = currentBytes - lastThroughputBytes;
-                    var minimumBytesExpected = throughputFloorBytesPerSecond * heartbeatIntervalSeconds;
-
-                    if (bytesDelta < minimumBytesExpected)
+                    // CRITICAL: Skip stall detection entirely when the download is QUEUED.
+                    // Queued = we are waiting in the peer's upload queue. Zero throughput is
+                    // 100% expected and correct. The SoulseekAdapter handles zombie queue detection
+                    // via Queue Velocity (stagnation window). Do NOT abort here.
+                    if (ctx.State == PlaylistTrackState.Queued)
                     {
-                        stallCount++;
-                        if (stallCount >= stallThresholdTicks && !stalledByMonitor)
-                        {
-                            var currentKbps = bytesDelta > 0
-                                ? (bytesDelta / 1024.0) / heartbeatIntervalSeconds
-                                : 0;
-
-                            _logger.LogWarning("âš ï¸ Download stalled for >{StallTimeout}s: {Artist} - {Title} ({Current}/{Total} bytes, {Kbps:0.0} KB/s)",
-                                _config.StallTimeoutSeconds,
-                                ctx.Model.Artist, ctx.Model.Title, currentBytes, checkpointState.ExpectedSize, currentKbps);
-                            
-                            // [NEW] Overhaul Phase: Set machine-readable reason
-                            ctx.Model.StalledReason = $"Throughput below {_config.MinThroughputFloorKbps} KB/s for {_config.StallTimeoutSeconds}s";
-                            stalledByMonitor = true;
-                            stallMonitorCts.Cancel();
-                            return;
-                        }
+                        // Reset stall counter so there is no accumulated stall debt when
+                        // the peer eventually starts transferring.
+                        stallCount = 0;
+                        lastThroughputBytes = currentBytes;
                     }
                     else
                     {
-                        stallCount = 0; // Reset on progress
-                    }
+                        var bytesDelta = currentBytes - lastThroughputBytes;
+                        var minimumBytesExpected = throughputFloorBytesPerSecond * heartbeatIntervalSeconds;
 
-                    lastThroughputBytes = currentBytes;
+                        if (bytesDelta < minimumBytesExpected)
+                        {
+                            stallCount++;
+                            if (stallCount >= stallThresholdTicks && !stalledByMonitor)
+                            {
+                                var currentKbps = bytesDelta > 0
+                                    ? (bytesDelta / 1024.0) / heartbeatIntervalSeconds
+                                    : 0;
+
+                                _logger.LogWarning("⚠️ Download stalled for >{StallTimeout}s: {Artist} - {Title} ({Current}/{Total} bytes, {Kbps:0.0} KB/s)",
+                                    _config.StallTimeoutSeconds,
+                                    ctx.Model.Artist, ctx.Model.Title, currentBytes, checkpointState.ExpectedSize, currentKbps);
+                                
+                                ctx.Model.StalledReason = $"Throughput below {_config.MinThroughputFloorKbps} KB/s for {_config.StallTimeoutSeconds}s";
+                                stalledByMonitor = true;
+                                stallMonitorCts.Cancel();
+                                return;
+                            }
+                        }
+                        else
+                        {
+                            stallCount = 0; // Reset on progress
+                        }
+
+                        lastThroughputBytes = currentBytes;
+                    }
 
                     // PERFORMANCE: Only update if progress > 1KB to reduce SQLite overhead
                     if (currentBytes > 0 && currentBytes > lastHeartbeatBytes + 1024)
@@ -3148,6 +3252,13 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         switch (update.Phase)
                         {
                             case TransferLifecyclePhase.RemoteQueued:
+                                // Track when we entered the peer's queue for Queue Velocity monitoring.
+                                // Only set once — QueueEnteredAt should not reset on repeated Queued events.
+                                if (!ctx.QueueEnteredAt.HasValue)
+                                {
+                                    ctx.QueueEnteredAt = DateTime.UtcNow;
+                                    ctx.QueuePositionLastUpdated = DateTime.UtcNow;
+                                }
                                 _ = UpdateStateAsync(ctx, PlaylistTrackState.Queued, update.Detail ?? "Queued remotely by peer");
                                 _eventBus.Publish(new Events.TrackDetailedStatusEvent(
                                     ctx.GlobalId,
@@ -3155,7 +3266,15 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                                     false,
                                     ctx.CorrelationId));
                                 break;
+                            case TransferLifecyclePhase.QueuePositionUpdate:
+                                // Position improved — update the velocity clock.
+                                ctx.CurrentQueuePosition = update.QueuePosition ?? ctx.CurrentQueuePosition;
+                                ctx.QueuePositionLastUpdated = DateTime.UtcNow;
+                                _logger.LogDebug("📋 Queue position update: {Artist} - {Title} → #{Position} (peer: {Peer})",
+                                    ctx.Model.Artist, ctx.Model.Title, ctx.CurrentQueuePosition, bestMatch.Username);
+                                break;
                             case TransferLifecyclePhase.Transferring:
+                                ctx.CurrentQueuePosition = 0; // We're no longer in queue
                                 _ = UpdateStateAsync(ctx, PlaylistTrackState.Downloading, update.Detail);
                                 break;
                         }
@@ -3166,7 +3285,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             }
             catch (OperationCanceledException) when (stalledByMonitor)
             {
-                throw new TimeoutException("Local stall monitor triggered (10s with no throughput). Dropping peer.");
+                throw new TimeoutException($"Local stall monitor triggered ({_config.StallTimeoutSeconds}s with no throughput). Dropping peer.");
             }
         }
         finally
@@ -3233,6 +3352,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         if (verification != VerificationResult.Success && verification != VerificationResult.Disabled)
                         {
                             _logger.LogWarning("Strict verification failed for {Path}: {Result}", finalPath, verification);
+                            _auditLogger.Log(ctx.GlobalId, $"❌ Validation failure: Strict verification failed: {verification}", isError: true);
                             _prefetchVerifier.CleanupStagingFile(finalPath);
                             await UpdateStateAsync(ctx, PlaylistTrackState.Failed, DownloadFailureReason.FileVerificationFailed);
                             return;
@@ -3244,6 +3364,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         if (!isValidAudio)
                         {
                             _logger.LogWarning("Downloaded file failed audio format verification: {Path}", finalPath);
+                            _auditLogger.Log(ctx.GlobalId, $"❌ Validation failure: Downloaded file failed audio format verification: {finalPath}", isError: true);
                             File.Delete(finalPath);
                             await UpdateStateAsync(ctx, PlaylistTrackState.Failed, DownloadFailureReason.FileVerificationFailed);
                             return;
@@ -3253,6 +3374,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         if (!isValidSize)
                         {
                             _logger.LogWarning("Downloaded file too small (< 10KB): {Path}", finalPath);
+                            _auditLogger.Log(ctx.GlobalId, $"❌ Validation failure: Downloaded file too small (< 10KB): {finalPath}", isError: true);
                             File.Delete(finalPath);
                             await UpdateStateAsync(ctx, PlaylistTrackState.Failed, DownloadFailureReason.FileVerificationFailed);
                             return;
@@ -3260,12 +3382,14 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     }
 
                     _logger.LogInformation("✅ File verification passed: {Path}", finalPath);
+                    _auditLogger.Log(ctx.GlobalId, $"✅ File verification passed: {finalPath}");
                 }
                 catch (Exception verifyEx)
                 {
                     _logger.LogError(verifyEx, "File verification error for {Path}", finalPath);
+                    _auditLogger.Log(ctx.GlobalId, $"❌ File verification error for {finalPath}: {verifyEx.Message}", isError: true);
 
-                    try { File.Delete(finalPath); } catch { }
+                    try { File.Delete(finalPath); } catch (IOException ex) { _logger.LogDebug(ex, "Best-effort failed-download file cleanup failed for {Path}", finalPath); }
 
                     await UpdateStateAsync(ctx, PlaylistTrackState.Failed, DownloadFailureReason.FileVerificationFailed);
                     return;
@@ -3283,7 +3407,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     ctx.IsFinalizing = true;
                     
                     await _crashJournal.CompleteCheckpointAsync(checkpointId);
-                    _logger.LogDebug("âœ… Download checkpoint completed: {Id}", checkpointId);
+                    _logger.LogDebug("✅ Download checkpoint completed: {Id}", checkpointId);
                 }
 
                 // CRITICAL: Create LibraryEntry for global index (enables All Tracks view + cross-project deduplication)
@@ -3298,17 +3422,20 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     Bitrate = bestMatch.Bitrate
                 };
                 await _libraryService.SaveOrUpdateLibraryEntryAsync(libraryEntry);
-                _logger.LogInformation("ðŸ“š Added to library: {Artist} - {Title}", ctx.Model.Artist, ctx.Model.Title);
+                _logger.LogInformation("📚 Added to library: {Artist} - {Title}", ctx.Model.Artist, ctx.Model.Title);
+                _auditLogger.Log(ctx.GlobalId, $"📚 Added to library: {ctx.Model.Artist} - {ctx.Model.Title} | Format: {libraryEntry.Format} | Bitrate: {libraryEntry.Bitrate}kbps");
             }
             catch (Exception renameEx)
             {
                 _logger.LogError(renameEx, "Failed to perform atomic rename for {Track}", ctx.Model.Title);
+                _auditLogger.Log(ctx.GlobalId, $"❌ Failed to perform atomic rename: {renameEx.Message}", isError: true);
                 await UpdateStateAsync(ctx, PlaylistTrackState.Failed, 
                     DownloadFailureReason.AtomicRenameFailed);
             }
         }
         else
         {
+            _auditLogger.Log(ctx.GlobalId, $"❌ Download failed: Transfer failed from user {bestMatch.Username}", isError: true);
             await UpdateStateAsync(ctx, PlaylistTrackState.Failed, 
                 DownloadFailureReason.TransferFailed);
         }
@@ -3422,18 +3549,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             ctx.CorrelationId = e.CorrelationId!;
         }
 
-        _ = Task.Run(async () => 
+        _ = Task.Run(async () =>
         {
-            // Phase 3C Hardening: Enforce Priority 0 (Express Lane) and persistence
-            ctx.Model.Priority = 0;
-            // Persist valid priority for restart resilience
-            await _databaseService.UpdatePlaylistTrackPriorityAsync(ctx.Model.Id, 0); 
-            
-            // Allow loop to pick it up naturally (respecting semaphore)
-            await UpdateStateAsync(ctx, PlaylistTrackState.Pending);
-            
-            // Check if we need to preempt immediately (wake up loop)
-            // The loop runs every 500ms when idle, so latent pickup is fast.
+            try
+            {
+                ctx.Model.Priority = 0;
+                await _databaseService.UpdatePlaylistTrackPriorityAsync(ctx.Model.Id, 0);
+                await UpdateStateAsync(ctx, PlaylistTrackState.Pending);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to reprioritize download-queued track {TrackId}", ctx.Model.Id);
+            }
         });
     }
 
@@ -3449,24 +3576,28 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             ctx.CorrelationId = e.CorrelationId!;
         }
 
-        _ = Task.Run(async () => 
+        _ = Task.Run(async () =>
         {
-            // 1. Delete old file first to avoid confusion
-            if (!string.IsNullOrEmpty(ctx.Model.ResolvedFilePath))
+            try
             {
-                DeleteLocalFiles(ctx.Model.ResolvedFilePath);
+                if (!string.IsNullOrEmpty(ctx.Model.ResolvedFilePath))
+                {
+                    DeleteLocalFiles(ctx.Model.ResolvedFilePath);
+                }
+
+                ctx.Model.Bitrate = null;
+                ctx.Model.SpectralHash = null;
+                ctx.Model.IsTrustworthy = null;
+
+                ctx.Model.Priority = 0;
+                await _databaseService.UpdatePlaylistTrackPriorityAsync(ctx.Model.Id, 0);
+
+                await UpdateStateAsync(ctx, PlaylistTrackState.Pending);
             }
-
-            // 2. Clear old quality metrics
-            ctx.Model.Bitrate = null;
-            ctx.Model.SpectralHash = null;
-            ctx.Model.IsTrustworthy = null;
-
-            // 3. Set High Priority and Queue
-            ctx.Model.Priority = 0;
-            await _databaseService.UpdatePlaylistTrackPriorityAsync(ctx.Model.Id, 0); 
-
-            await UpdateStateAsync(ctx, PlaylistTrackState.Pending);
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to process auto-upgrade for track {TrackId}", ctx.Model.Id);
+            }
         });
     }
 
@@ -3627,7 +3758,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                             _eventBus.Publish(new TrackStalledEvent(ctx.GlobalId, e.Username));
                             _logger.LogWarning("🚧 Track stalled: {Title} from {User}, triggering hedge", ctx.Model.Title, e.Username);
                             // Trigger hedge failover
-                            _ = Task.Run(() => TryRunHedgeFailoverAsync(ctx, _globalCts.Token, "stalled"));
+                            _ = Task.Run(async () =>
+                            {
+                                try { await TryRunHedgeFailoverAsync(ctx, _globalCts.Token, "stalled"); }
+                                catch (OperationCanceledException) { }
+                                catch (Exception ex) { _logger.LogError(ex, "Hedge failover failed for track {Title}", ctx.Model.Title); }
+                            });
                         }
                     }
                     else
@@ -3661,6 +3797,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
     public void Dispose()
     {
+        foreach (var sub in _eventBusSubs) sub.Dispose();
+        _eventBusSubs.Clear();
         _soulseek.DownloadProgressChanged -= OnDownloadProgressChanged;
         _soulseek.DownloadCompleted -= OnDownloadCompleted;
         _globalCts.Cancel();

@@ -111,6 +111,8 @@ public class SearchQuery
     public bool IsEnriched { get; set; } = false;
     public bool ForceRefresh { get; set; } = false;
     public string? ISRC { get; set; }
+    public string? SpotifyPlaylistId { get; set; }
+    public string? SpotifyUri { get; set; }
 
     /// <summary>
     /// Parses a search string into a SearchQuery.

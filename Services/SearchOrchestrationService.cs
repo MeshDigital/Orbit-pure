@@ -408,6 +408,7 @@ public class SearchOrchestrationService
                 // runs for the natural Soulseek search duration (~SearchTimeout seconds)
                 // instead of waiting the full MinSearchDurationSeconds brain buffer.
                 // Results appear in ~SearchTimeout s instead of MinSearchDurationSeconds s.
+                var allowLossy = maxBitrate > 0 || System.Linq.Enumerable.Contains(formatFilter, "mp3", StringComparer.OrdinalIgnoreCase);
                 await foreach (var track in _soulseek.StreamResultsAsync(
                     networkQuery,
                     formatFilter,
@@ -416,7 +417,7 @@ public class SearchOrchestrationService
                     executionProfile,
                     cancellationToken))
                 {
-                    _safetyFilter.EvaluateSafety(track, normalizedQuery);
+                    _safetyFilter.EvaluateSafety(track, normalizedQuery, allowLossy);
                     bufferedTracks.Add(track);
 
                     if (_config.EnableAccumulatorPerfectMatchShortCircuit && IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
@@ -431,6 +432,7 @@ public class SearchOrchestrationService
             }
             else
             {
+                var allowLossy = maxBitrate > 0 || System.Linq.Enumerable.Contains(formatFilter, "mp3", StringComparer.OrdinalIgnoreCase);
                 await foreach (var track in _soulseek.StreamResultsAsync(
                     networkQuery,
                     formatFilter,
@@ -439,7 +441,7 @@ public class SearchOrchestrationService
                     executionProfile,
                     brainBufferCts.Token))
                 {
-                    _safetyFilter.EvaluateSafety(track, normalizedQuery);
+                    _safetyFilter.EvaluateSafety(track, normalizedQuery, allowLossy);
                     bufferedTracks.Add(track);
 
                     if (_config.EnableAccumulatorPerfectMatchShortCircuit && IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))

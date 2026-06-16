@@ -23,6 +23,10 @@
                     <!-- Macro Waveform -->
                     <controls:WaveformControl Name="MacroWaveform"
                                             WaveformData="{Binding WaveformData}"
+                                            LowBand="{Binding LowBandForWaveform}"
+                                            MidBand="{Binding MidBandForWaveform}"
+                                            HighBand="{Binding HighBandForWaveform}"
+                                            FrequencyColorMode="True"
                                             Cues="{Binding Cues}"
                                             PhraseSegments="{Binding PhraseSegments}"
                                             EnergyCurve="{Binding EnergyCurve}"
@@ -59,6 +63,10 @@
                     <!-- Main Micro Waveform with Integrated Ghost Layer -->
                     <controls:WaveformControl Name="MicroWaveform"
                                             WaveformData="{Binding WaveformData}"
+                                            LowBand="{Binding LowBandForWaveform}"
+                                            MidBand="{Binding MidBandForWaveform}"
+                                            HighBand="{Binding HighBandForWaveform}"
+                                            FrequencyColorMode="True"
                                             Cues="{Binding Cues}"
                                             PhraseSegments="{Binding PhraseSegments}"
                                             EnergyCurve="{Binding EnergyCurve}"
@@ -70,14 +78,14 @@
                                             SnappingMode="Hard"
                                             Bpm="{Binding Bpm}"
                                             SnapToGridEnabled="{Binding SnapToGridEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            
+
                                             CueClickedCommand="{Binding CueClickedCommand}"
                                             CueUpdatedCommand="{Binding CueUpdatedCommand}"
                                             SeekCommand="{Binding SeekCommand}"
-                                            
+
                                             PlayheadBrush="#FF4081"
                                             Foreground="#4EC9B0"
-                                            
+
                                             PointerWheelChanged="OnMicroWaveformScroll"/>
 
                     <!-- Adorner Layer (Tooltips, Hover Info) -->

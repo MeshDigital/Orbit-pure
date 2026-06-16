@@ -76,6 +76,29 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     public ObservableCollection<RecentDownloadedTrackCardViewModel> RecentDownloads { get; } = new();
     public ObservableCollection<SpotifyTrackViewModel> SpotifyRecommendations { get; } = new();
 
+    // --- Library Intelligence ---
+    private int _intelligenceTotalTracks;
+    private int _intelligenceAnalyzedTracks;
+    private int _intelligenceFlacCount;
+    private int _intelligenceMp3HqCount;
+    private int _intelligenceLowQualityCount;
+
+    public double IntelligenceAnalyzedPercent => _intelligenceTotalTracks > 0
+        ? Math.Round((double)_intelligenceAnalyzedTracks / _intelligenceTotalTracks * 100, 1) : 0;
+    public string IntelligenceAnalyzedText => $"{_intelligenceAnalyzedTracks:N0} of {_intelligenceTotalTracks:N0} tracks";
+    public double IntelligenceFlacPercent => _intelligenceTotalTracks > 0
+        ? (double)_intelligenceFlacCount / _intelligenceTotalTracks * 100 : 0;
+    public double IntelligenceMp3Percent => _intelligenceTotalTracks > 0
+        ? (double)_intelligenceMp3HqCount / _intelligenceTotalTracks * 100 : 0;
+    public double IntelligenceLowPercent => _intelligenceTotalTracks > 0
+        ? (double)_intelligenceLowQualityCount / _intelligenceTotalTracks * 100 : 0;
+    public int IntelligenceFlacCount => _intelligenceFlacCount;
+    public int IntelligenceMp3HqCount => _intelligenceMp3HqCount;
+    public int IntelligenceLowQualityCount => _intelligenceLowQualityCount;
+
+    public ObservableCollection<KeyBarViewModel> KeyDistributionBars { get; } = new();
+    public ObservableCollection<EnergyBucketViewModel> EnergyBucketBars { get; } = new();
+
     private bool _isLoadingHealth = true;
     public bool IsLoadingHealth
     {
@@ -279,17 +302,85 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     {
         try
         {
-            // Execute loading tasks in parallel for performance
             var healthTask = LoadLibraryHealthAsync();
             var recentTask = LoadRecentPlaylistsAsync();
             var recentDownloadsTask = LoadRecentDownloadsAsync();
             var spotifyTask = LoadSpotifyRecommendationsAsync();
+            var intelligenceTask = LoadIntelligenceStatsAsync();
 
-            await Task.WhenAll(healthTask, recentTask, recentDownloadsTask, spotifyTask);
+            await Task.WhenAll(healthTask, recentTask, recentDownloadsTask, spotifyTask, intelligenceTask);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to refresh dashboard");
+        }
+    }
+
+    private async Task LoadIntelligenceStatsAsync()
+    {
+        try
+        {
+            var stats = await _dashboardService.GetLibraryIntelligenceStatsAsync();
+
+            var camelotPositions = new[]
+            {
+                "1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A",
+                "1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"
+            };
+            var camelotColors = new[]
+            {
+                "#008080","#4682B4","#4169E1","#6A0DAD","#9400D3","#C71585",
+                "#DC143C","#FF8C00","#DAA520","#6B8E23","#3CB371","#008B8B",
+                "#008080","#4682B4","#4169E1","#6A0DAD","#9400D3","#C71585",
+                "#DC143C","#FF8C00","#DAA520","#6B8E23","#3CB371","#008B8B"
+            };
+
+            var bucketLabels = new[] { "Low", "Med-", "Med", "Med+", "High" };
+            var bucketColors = new[] { "#27AE60", "#2ECC71", "#F39C12", "#E67E22", "#E74C3C" };
+
+            int maxKey = camelotPositions.Select(k => stats.KeyCounts.GetValueOrDefault(k, 0)).DefaultIfEmpty(1).Max();
+            if (maxKey == 0) maxKey = 1;
+            int maxBucket = stats.EnergyBuckets.DefaultIfEmpty(1).Max();
+            if (maxBucket == 0) maxBucket = 1;
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                _intelligenceTotalTracks = stats.TotalCount;
+                _intelligenceAnalyzedTracks = stats.AnalyzedCount;
+                _intelligenceFlacCount = stats.FlacCount;
+                _intelligenceMp3HqCount = stats.Mp3HqCount;
+                _intelligenceLowQualityCount = stats.LowQualityCount;
+
+                OnPropertyChanged(nameof(IntelligenceAnalyzedPercent));
+                OnPropertyChanged(nameof(IntelligenceAnalyzedText));
+                OnPropertyChanged(nameof(IntelligenceFlacPercent));
+                OnPropertyChanged(nameof(IntelligenceMp3Percent));
+                OnPropertyChanged(nameof(IntelligenceLowPercent));
+                OnPropertyChanged(nameof(IntelligenceFlacCount));
+                OnPropertyChanged(nameof(IntelligenceMp3HqCount));
+                OnPropertyChanged(nameof(IntelligenceLowQualityCount));
+
+                KeyDistributionBars.Clear();
+                for (int i = 0; i < camelotPositions.Length; i++)
+                {
+                    var key = camelotPositions[i];
+                    var count = stats.KeyCounts.GetValueOrDefault(key, 0);
+                    KeyDistributionBars.Add(new KeyBarViewModel(key, count, (double)count / maxKey, camelotColors[i]));
+                }
+
+                EnergyBucketBars.Clear();
+                for (int i = 0; i < 5; i++)
+                {
+                    EnergyBucketBars.Add(new EnergyBucketViewModel(
+                        bucketLabels[i], stats.EnergyBuckets[i],
+                        (double)stats.EnergyBuckets[i] / maxBucket,
+                        bucketColors[i]));
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load intelligence stats");
         }
     }
 
@@ -620,4 +711,16 @@ public class RecentDownloadedTrackCardViewModel
     public string QualityLabel => _track.Bitrate > 0 ? $"{_track.Bitrate} kbps" : FormatLabel;
     public string SourceLabel => string.IsNullOrWhiteSpace(_track.SourcePlaylistName) ? "Library" : _track.SourcePlaylistName!;
     public string CompletedLabel => _track.CompletedAt?.ToLocalTime().ToString("MMM d, HH:mm") ?? "Just now";
+}
+
+public record KeyBarViewModel(string Key, int Count, double RelativeHeight, string Color)
+{
+    public double BarHeight => Math.Max(2, RelativeHeight * 88);
+    public string TooltipText => $"{Key}: {Count} tracks";
+}
+
+public record EnergyBucketViewModel(string Label, int Count, double RelativeHeight, string Color)
+{
+    public double BarHeight => Math.Max(2, RelativeHeight * 80);
+    public string TooltipText => $"{Label}: {Count} tracks";
 }

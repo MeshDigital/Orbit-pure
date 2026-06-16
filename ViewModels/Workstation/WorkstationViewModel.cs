@@ -8,7 +8,9 @@ using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ReactiveUI;
+using Microsoft.EntityFrameworkCore;
 using SLSKDONET.Configuration;
+using SLSKDONET.Data;
 using SLSKDONET.Models;
 using SLSKDONET.Models.Stem;
 using SLSKDONET.Services;
@@ -33,6 +35,15 @@ public enum WorkstationMode
     /// <summary>Sample prep, import, and deck loading assist tools.</summary>
     Samples,
 }
+
+// Discriminator proxies for the WorkstationModeRouter ContentControl+DataTemplate pattern.
+// Each carries a Parent reference so the DataTemplate can rebind DataContext to WorkstationViewModel.
+public sealed record WaveformInspectorProxy(WorkstationViewModel Parent);
+public sealed record FlowInspectorProxy(WorkstationViewModel Parent);
+public sealed record StemsInspectorProxy(WorkstationViewModel Parent);
+public sealed record ExportInspectorProxy(WorkstationViewModel Parent);
+public sealed record AutomationInspectorProxy(WorkstationViewModel Parent);
+public sealed record SamplesInspectorProxy(WorkstationViewModel Parent);
 
 public sealed class WorkstationToolOptionViewModel : ReactiveObject
 {
@@ -340,11 +351,13 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     private readonly StemPreferenceService    _stemPrefService;
     private readonly MixdownService           _mixdown;
     private readonly WorkstationSessionService _sessionService;
+    private readonly OrbSessionBundleService  _orbBundleService;
     private readonly IUndoService             _undoService;
     private readonly AnalyzeTrackStructureJob  _analyzeJob;
     private readonly IEventBus                _eventBus;
     private readonly AppConfig                _appConfig;
     private readonly ConfigManager            _configManager;
+    private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly BpmSyncService           _bpmSync = new();
     private readonly Dictionary<string, double> _flowTransitionLengthOverrides = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _flowTransitionPhraseMarkerOverrides = new(StringComparer.Ordinal);
@@ -749,6 +762,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             this.RaisePropertyChanged(nameof(IsFlowMode));
             this.RaisePropertyChanged(nameof(IsStemsMode));
             this.RaisePropertyChanged(nameof(IsExportMode));
+            this.RaisePropertyChanged(nameof(ActiveModeInspector));
             this.RaisePropertyChanged(nameof(IsAutomationMode));
             this.RaisePropertyChanged(nameof(IsSamplesMode));
             SynchronizeToolSelection();
@@ -760,6 +774,17 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public bool IsFlowMode     => ActiveMode == WorkstationMode.Flow;
     public bool IsStemsMode    => ActiveMode == WorkstationMode.Stems;
     public bool IsExportMode   => ActiveMode == WorkstationMode.Export;
+
+    /// <summary>Proxy object for the active inspector mode — drives ContentControl+DataTemplate routing.</summary>
+    public object ActiveModeInspector => ActiveMode switch
+    {
+        WorkstationMode.Flow       => new FlowInspectorProxy(this),
+        WorkstationMode.Stems      => new StemsInspectorProxy(this),
+        WorkstationMode.Export     => new ExportInspectorProxy(this),
+        WorkstationMode.Automation => new AutomationInspectorProxy(this),
+        WorkstationMode.Samples    => new SamplesInspectorProxy(this),
+        _                          => new WaveformInspectorProxy(this),
+    };
 
     // ── Inline Export panel (shown in Export mode) ────────────────────────────
 
@@ -794,6 +819,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit>          RedoCommand           { get; }
     /// <summary>Opens the Export Mix dialog for the active decks.</summary>
     public ReactiveCommand<Unit, Unit>          ExportMixCommand      { get; }
+    /// <summary>Saves the current session + playlist to a .orbsession bundle the user picks.</summary>
+    public ReactiveCommand<Unit, Unit>          ExportOrbSessionCommand { get; }
     /// <summary>Load a playlist track into the focused deck (or Deck A if none focused).</summary>
     public ReactiveCommand<PlaylistTrack, Unit> LoadToFocusedDeckCommand { get; }
     public ReactiveCommand<string, Unit>        FocusDeckCommand      { get; }
@@ -880,22 +907,26 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public WorkstationViewModel(ILibraryService library, DeckViewModel deckPair,
         CachedStemSeparator stemSeparator, ICuePointService cueService,
         StemPreferenceService stemPrefService, MixdownService mixdown,
-        WorkstationSessionService sessionService, IUndoService undoService,
+        WorkstationSessionService sessionService, OrbSessionBundleService orbBundleService,
+        IUndoService undoService,
         AnalyzeTrackStructureJob analyzeJob, IEventBus eventBus,
-        AppConfig appConfig, ConfigManager configManager)
+        AppConfig appConfig, ConfigManager configManager,
+        IDbContextFactory<AppDbContext> dbFactory)
     {
-        _library         = library;
-        _deckPair        = deckPair;
-        _stemSeparator   = stemSeparator;
-        _cueService      = cueService;
-        _stemPrefService = stemPrefService;
-        _mixdown         = mixdown;
-        _sessionService  = sessionService;
-        _undoService     = undoService;
-        _analyzeJob      = analyzeJob;
-        _eventBus        = eventBus;
-        _appConfig       = appConfig;
-        _configManager   = configManager;
+        _library           = library;
+        _deckPair          = deckPair;
+        _stemSeparator     = stemSeparator;
+        _cueService        = cueService;
+        _stemPrefService   = stemPrefService;
+        _mixdown           = mixdown;
+        _sessionService    = sessionService;
+        _orbBundleService  = orbBundleService;
+        _undoService       = undoService;
+        _analyzeJob        = analyzeJob;
+        _eventBus          = eventBus;
+        _appConfig         = appConfig;
+        _configManager     = configManager;
+        _dbFactory         = dbFactory;
 
         ToolOptions.Add(new WorkstationToolOptionViewModel("Wave", "Waveform", "Timeline, cues, and deck focus tools stay live.", WorkstationMode.Waveform, isAvailable: true));
         ToolOptions.Add(new WorkstationToolOptionViewModel("Flow", "Flow", "Playlist shaping and transition context stay docked under the timeline.", WorkstationMode.Flow, isAvailable: true));
@@ -913,8 +944,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             .DisposeWith(_disposables);
 
         // Wrap existing DeckA / DeckB
-        var deckA = new WorkstationDeckViewModel("A", deckPair.DeckA, stemSeparator, cueService, stemPrefService);
-        var deckB = new WorkstationDeckViewModel("B", deckPair.DeckB, stemSeparator, cueService, stemPrefService);
+        var deckA = new WorkstationDeckViewModel("A", deckPair.DeckA, stemSeparator, cueService, stemPrefService, _dbFactory);
+        var deckB = new WorkstationDeckViewModel("B", deckPair.DeckB, stemSeparator, cueService, stemPrefService, _dbFactory);
         deckA.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); await SaveSessionAsync(); };
         deckB.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); await SaveSessionAsync(); };
         deckA.OnDeckStateChanged = RefreshDeckTransitionGuidance;
@@ -1023,6 +1054,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         RedoCommand = ReactiveCommand.Create(() => _undoService.Redo());
 
         ExportMixCommand = ReactiveCommand.CreateFromTask(OpenExportDialogAsync);
+        ExportOrbSessionCommand = ReactiveCommand.CreateFromTask(ExportOrbSessionAsync);
 
         LoadToFocusedDeckCommand = ReactiveCommand.CreateFromTask<PlaylistTrack>(async t =>
         {
@@ -3568,6 +3600,54 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         if (owner != null)
             await Views.Avalonia.Workstation.ExportDialog.ShowForWorkstationAsync(owner, vm);
         vm.Dispose();
+    }
+
+    private async Task ExportOrbSessionAsync()
+    {
+        var owner = Avalonia.Application.Current?.ApplicationLifetime
+            is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime lt
+            ? lt.MainWindow : null;
+        if (owner == null) return;
+
+        var dialog = new Avalonia.Platform.Storage.FilePickerSaveOptions
+        {
+            Title = "Save Orbit Session Bundle",
+            SuggestedFileName = $"orbit-session-{DateTime.Now:yyyyMMdd-HHmm}.orbsession",
+            FileTypeChoices =
+            [
+                new Avalonia.Platform.Storage.FilePickerFileType("Orbit Session Bundle")
+                {
+                    Patterns = ["*.orbsession"],
+                },
+            ],
+        };
+
+        var file = await owner.StorageProvider.SaveFilePickerAsync(dialog);
+        if (file == null) return;
+
+        var session = new Models.Stem.WorkstationSession
+        {
+            ActiveModeIndex       = (int)ActiveMode,
+            ActivePlaylistId      = ActivePlaylist?.Id,
+            TimelineOffsetSeconds = TimelineOffsetSeconds,
+            TimelineWindowSeconds = TimelineWindowSeconds,
+        };
+        foreach (var deck in Decks)
+        {
+            session.Decks.Add(new Models.Stem.WorkstationDeckState
+            {
+                DeckLabel        = deck.DeckLabel,
+                FilePath         = deck.Deck.LoadedFilePath,
+                TrackUniqueHash  = deck.TrackHash,
+                TrackTitle       = deck.TrackTitle,
+                TrackArtist      = deck.TrackArtist,
+                Bpm              = deck.DisplayBpm,
+                Key              = deck.TrackKey,
+                PositionSeconds  = deck.Deck.Engine.PositionSeconds,
+            });
+        }
+
+        await _orbBundleService.ExportAsync(session, PlaylistTracks.ToList(), file.Path.LocalPath);
     }
 
     public void Dispose()

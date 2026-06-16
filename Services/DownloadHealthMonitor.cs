@@ -66,9 +66,12 @@ public class DownloadHealthMonitor : IDisposable
 
     private async Task CheckHealthAsync()
     {
-        var activeDownloads = _downloadManager.ActiveDownloads
-            .Where(d => d.State == PlaylistTrackState.Downloading)
+        var allActive = _downloadManager.ActiveDownloads
+            .Where(d => d.IsActive)
             .ToList();
+
+        var activeDownloads = allActive.Where(d => d.State == PlaylistTrackState.Downloading).ToList();
+        var queuedDownloads = allActive.Where(d => d.State == PlaylistTrackState.Queued).ToList();
 
         // 1. Cleanup stale trackers for downloads that are no longer active
         var activeIds = activeDownloads.Select(d => d.GlobalId).ToHashSet();
@@ -80,7 +83,7 @@ public class DownloadHealthMonitor : IDisposable
             }
         }
 
-        // 2. Check each active download
+        // 2. Check each ACTIVE (Downloading) download for throughput stalls
         foreach (var ctx in activeDownloads)
         {
             // Thread-safe read
@@ -113,6 +116,31 @@ public class DownloadHealthMonitor : IDisposable
                 {
                      await HandleStalledDownloadAsync(ctx, ctx.StallCount * 15);
                 }
+            }
+        }
+
+        // 3. Queue Velocity check: detect QUEUED downloads with frozen position (zombie peers).
+        // The SoulseekAdapter has an inner loop for this, but the health monitor is a safety net
+        // for cases where the adapter's loop can't detect the zombie (e.g. very slow stagnation).
+        const int QUEUE_STAGNATION_WINDOW_SECONDS = 900; // 15 minutes with no velocity = zombie
+        foreach (var ctx in queuedDownloads)
+        {
+            if (!ctx.QueuePositionLastUpdated.HasValue || !ctx.QueueEnteredAt.HasValue)
+                continue;
+
+            var stagnationSeconds = (DateTime.UtcNow - ctx.QueuePositionLastUpdated.Value).TotalSeconds;
+            var totalQueueSeconds = (DateTime.UtcNow - ctx.QueueEnteredAt.Value).TotalSeconds;
+
+            if (stagnationSeconds > QUEUE_STAGNATION_WINDOW_SECONDS)
+            {
+                _logger.LogWarning(
+                    "🚭 Queue Velocity ZERO: {Artist} - {Title} has been at position #{Position} for {Stagnation:0}s (total {Total:0}s in queue). Triggering AutoRetry.",
+                    ctx.Model.Artist, ctx.Model.Title, 
+                    ctx.CurrentQueuePosition > 0 ? ctx.CurrentQueuePosition.ToString() : "?",
+                    stagnationSeconds, totalQueueSeconds);
+
+                ctx.QueuePositionLastUpdated = DateTime.UtcNow; // Reset to avoid tight retry loop
+                await HandleStalledDownloadAsync(ctx, (int)stagnationSeconds);
             }
         }
     }
@@ -167,7 +195,9 @@ public class DownloadHealthMonitor : IDisposable
     public void Dispose()
     {
         _cts.Cancel();
-        _monitorTask?.Wait();
+        // Wait up to 5s for the monitor loop to acknowledge cancellation;
+        // avoids blocking the UI thread indefinitely on app shutdown.
+        _monitorTask?.Wait(TimeSpan.FromSeconds(5));
         _cts.Dispose();
     }
 }

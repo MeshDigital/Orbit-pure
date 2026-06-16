@@ -9,6 +9,7 @@ using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using SLSKDONET.Configuration;
+using SLSKDONET.Events;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Views;
@@ -66,12 +67,13 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             }
 
             this.RaiseAndSetIfChanged(ref _filteredTracks, value);
-            
+            this.RaisePropertyChanged(nameof(IsLibraryEmpty));
+
             if (_filteredTracks is INotifyCollectionChanged newCol)
             {
                 newCol.CollectionChanged += OnFilteredTracksChanged;
             }
-            
+
             UpdateLimitedTracks();
         }
     }
@@ -275,6 +277,18 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         private set => this.RaiseAndSetIfChanged(ref _hasMultiSelection, value);
     }
     
+    private string? _camelotKeyFilter;
+    public string? CamelotKeyFilter
+    {
+        get => _camelotKeyFilter;
+        set
+        {
+            if (_camelotKeyFilter == value) return;
+            this.RaiseAndSetIfChanged(ref _camelotKeyFilter, value);
+            RefreshFilteredTracks();
+        }
+    }
+
     // Phase 22: Search 2.0 - The Bouncer
     private bool _isBouncerActive;
     public bool IsBouncerActive
@@ -377,6 +391,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             RefreshFilteredTracks();
         }
     }
+
+    public bool IsLibraryEmpty => FilteredTracks.Count == 0;
 
     private bool _hasSelectedTracks;
     public bool HasSelectedTracks
@@ -698,6 +714,10 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         // Phase 11.6: Refresh UI when track is added (cloned)
         _disposables.Add(eventBus.GetEvent<TrackAddedEvent>().Subscribe(OnTrackAdded));
 
+        // Camelot key filter from wheel click (toggle: click same key again to clear)
+        _disposables.Add(eventBus.GetEvent<SetCamelotKeyFilterEvent>().Subscribe(evt =>
+            CamelotKeyFilter = CamelotKeyFilter == evt.Key ? null : evt.Key));
+
         
         // Throttled UI Refresh for dynamic changes (add/move/delete)
         _refreshRequestSubject
@@ -803,12 +823,13 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             // Set up virtualization
             var virtualized = new VirtualizedTrackCollection(
                 _logger,
-                _libraryService, 
-                _eventBus, 
-                _artworkCache, 
-                job.Id, 
-                SearchText, 
-                IsFilterDownloaded ? true : (IsFilterPending ? false : null));
+                _libraryService,
+                _eventBus,
+                _artworkCache,
+                job.Id,
+                SearchText,
+                IsFilterDownloaded ? true : (IsFilterPending ? false : null),
+                camelotKeyFilter: CamelotKeyFilter);
 
             // Subscribe to update LimitedTracks when data arrives
             virtualized.CollectionChanged += (s, e) => {
@@ -966,13 +987,14 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         var effectiveFilter = BuildEffectiveFilter();
         var virtualized = new VirtualizedTrackCollection(
             _logger,
-            _libraryService, 
-            _eventBus, 
-            _artworkCache, 
-            selectedProjectId, 
-            effectiveFilter, 
+            _libraryService,
+            _eventBus,
+            _artworkCache,
+            selectedProjectId,
+            effectiveFilter,
             IsFilterDownloaded ? true : (IsFilterPending ? false : null),
-            DuplicateHashesFilter);
+            DuplicateHashesFilter,
+            camelotKeyFilter: CamelotKeyFilter);
 
         virtualized.CollectionChanged += (s, e) => {
             if (e.Action == NotifyCollectionChangedAction.Reset)
@@ -1060,11 +1082,15 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         // Phase 22: Vibe Filter (Mood)
         if (!string.IsNullOrEmpty(VibeFilter))
         {
-             // Match MoodTag (e.g. "Aggressive", "Chill")
              if (!string.Equals(track.Model.MoodTag, VibeFilter, StringComparison.OrdinalIgnoreCase))
-             {
                  return false;
-             }
+        }
+
+        // Camelot key filter
+        if (!string.IsNullOrEmpty(CamelotKeyFilter))
+        {
+            if (!string.Equals(track.CamelotDisplay, CamelotKeyFilter, StringComparison.OrdinalIgnoreCase))
+                return false;
         }
 
         // Format Filters

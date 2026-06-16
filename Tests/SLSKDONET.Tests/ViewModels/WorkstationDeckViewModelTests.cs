@@ -897,6 +897,45 @@ public class WorkstationDeckViewModelTests
         Assert.False(string.IsNullOrWhiteSpace(vm.TrackLoadError));
     }
 
+    [Fact]
+    public async Task LoadPlaylistTrackCommand_InterceptsGhostTrack_QueuesDownloadAndFailsLoad()
+    {
+        var separatorInner = new Mock<IStemSeparator>();
+        separatorInner.SetupGet(x => x.Name).Returns("stub");
+        separatorInner.SetupGet(x => x.IsAvailable).Returns(false);
+        separatorInner.SetupGet(x => x.ModelTag).Returns("stub-model");
+
+        var separator = new CachedStemSeparator(
+            separatorInner.Object,
+            new StemCacheService(new NullLogger<StemCacheService>()),
+            new NullLogger<CachedStemSeparator>());
+
+        var vm = new WorkstationDeckViewModel(
+            "A",
+            new DeckSlotViewModel("A", new DeckEngine()),
+            separator,
+            Mock.Of<ICuePointService>(),
+            null!);
+
+        var track = new PlaylistTrack
+        {
+            AvailabilityState = TrackAvailabilityState.Ghost,
+            Status = TrackStatus.Missing,
+            Artist = "Ghost Artist",
+            Title = "Ghost Track",
+            ResolvedFilePath = null,
+            BPM = 120,
+            WaveformData = null
+        };
+
+        var exception = await Record.ExceptionAsync(async () =>
+            await vm.LoadPlaylistTrackCommand.Execute(track).FirstAsync());
+
+        Assert.Null(exception);
+        Assert.False(vm.IsLoaded);
+        Assert.Equal("Track not local. Queuing for download...", vm.TrackLoadError);
+    }
+
     private static WorkstationDeckViewModel CreateLoadedDeck(string label, string trackHash, string trackTitle, double bpm, string key)
     {
         var separatorInner = new Mock<IStemSeparator>();

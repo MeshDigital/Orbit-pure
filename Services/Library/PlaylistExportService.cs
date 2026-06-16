@@ -68,6 +68,20 @@ public class PlaylistExportService
                     continue;
 
                 var fileInfo = new FileInfo(track.ResolvedFilePath);
+                // Map energy (0-1 Spotify scale or ManualEnergy 1-10) → Rekordbox 0-255 Rating
+                int energyStars = 0;
+                if (track.ManualEnergy.HasValue)
+                    energyStars = Math.Clamp((int)Math.Round(track.ManualEnergy.Value / 2.0), 1, 5);
+                else if (track.Energy.HasValue && track.Energy.Value > 0)
+                    energyStars = Math.Clamp((int)Math.Ceiling(track.Energy.Value * 5), 1, 5);
+                int rbRating = energyStars > 0 ? energyStars * 51 : 0;
+
+                // Comments: embed Camelot key + energy label for MIK-compatible tagging
+                string camelotKey = track.MusicalKey ?? "";
+                string energyLabel = energyStars > 0 ? $" Energy:{track.ManualEnergy ?? (int)Math.Round(track.Energy.GetValueOrDefault() * 10)}" : "";
+                string comments = string.IsNullOrEmpty(camelotKey) ? energyLabel.TrimStart()
+                    : $"{camelotKey}{energyLabel}";
+
                 var rbTrack = new RekordboxTrack
                 {
                     TrackID = trackId++,
@@ -81,7 +95,9 @@ public class PlaylistExportService
                     BitRate = track.Bitrate ?? 0,
                     AverageBpm = track.BPM ?? 0,
                     Tonality = track.MusicalKey ?? "",
-                    Location = "file://localhost/" + track.ResolvedFilePath.Replace("\\", "/")
+                    Location = "file://localhost/" + track.ResolvedFilePath.Replace("\\", "/"),
+                    Rating = rbRating,
+                    Comments = comments,
                 };
                 rbTracks.Add(rbTrack);
             }
@@ -151,7 +167,9 @@ public class PlaylistExportService
             new XAttribute("SampleRate", t.SampleRate),
             new XAttribute("AverageBpm", t.AverageBpm.ToString("F2")),
             new XAttribute("Tonality", t.Tonality),
-            new XAttribute("Location", t.Location)
+            new XAttribute("Location", t.Location),
+            new XAttribute("Rating", t.Rating),
+            new XAttribute("Comments", t.Comments)
         );
 
         // TEMPO node — one grid anchor at the beginning of the track

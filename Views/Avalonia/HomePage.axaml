@@ -186,6 +186,98 @@
                     </Border>
                 </Grid>
 
+                <!-- Library Intelligence Row -->
+                <Grid ColumnDefinitions="*,*,*,*" RowDefinitions="180">
+                    <!-- Analysis Coverage -->
+                    <Border Grid.Column="0" Classes="glass" Padding="20" Margin="0,0,16,0">
+                        <StackPanel VerticalAlignment="Center" Spacing="6">
+                            <TextBlock Text="ANALYSIS COVERAGE" FontSize="9" FontWeight="Black" Foreground="#505050" LetterSpacing="1.5"/>
+                            <StackPanel Orientation="Horizontal" Spacing="3" Margin="0,8,0,0">
+                                <TextBlock Text="{Binding IntelligenceAnalyzedPercent, StringFormat='{}{0:F0}'}" FontSize="34" FontWeight="Black" Foreground="White"/>
+                                <TextBlock Text="%" FontSize="16" Foreground="#4EC9B0" FontWeight="Bold" VerticalAlignment="Bottom" Margin="0,0,0,6"/>
+                            </StackPanel>
+                            <ProgressBar Value="{Binding IntelligenceAnalyzedPercent}" Maximum="100" Height="4"
+                                         Foreground="#4EC9B0" Background="#1A2E2E" BorderThickness="0" CornerRadius="2"/>
+                            <TextBlock Text="{Binding IntelligenceAnalyzedText}" FontSize="10" Foreground="#505050" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Format Breakdown -->
+                    <Border Grid.Column="1" Classes="glass" Padding="20" Margin="0,0,16,0">
+                        <StackPanel VerticalAlignment="Center" Spacing="4">
+                            <TextBlock Text="FORMAT SPLIT" FontSize="9" FontWeight="Black" Foreground="#505050" LetterSpacing="1.5"/>
+                            <StackPanel Spacing="8" Margin="0,12,0,0">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <ProgressBar Value="{Binding IntelligenceFlacPercent}" Maximum="100" Height="6"
+                                                 Foreground="#4EC9B0" Background="#1A2E2E" BorderThickness="0" CornerRadius="3"/>
+                                    <TextBlock Grid.Column="1" FontSize="10" Foreground="#4EC9B0" Margin="10,0,0,0"
+                                               Text="{Binding IntelligenceFlacCount, StringFormat='{}{0} Lossless'}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <ProgressBar Value="{Binding IntelligenceMp3Percent}" Maximum="100" Height="6"
+                                                 Foreground="#27AE60" Background="#1A2A1E" BorderThickness="0" CornerRadius="3"/>
+                                    <TextBlock Grid.Column="1" FontSize="10" Foreground="#27AE60" Margin="10,0,0,0"
+                                               Text="{Binding IntelligenceMp3HqCount, StringFormat='{}{0} HQ MP3'}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <ProgressBar Value="{Binding IntelligenceLowPercent}" Maximum="100" Height="6"
+                                                 Foreground="#E67E22" Background="#2A1E0A" BorderThickness="0" CornerRadius="3"/>
+                                    <TextBlock Grid.Column="1" FontSize="10" Foreground="#E67E22" Margin="10,0,0,0"
+                                               Text="{Binding IntelligenceLowQualityCount, StringFormat='{}{0} Other'}"/>
+                                </Grid>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Key Distribution -->
+                    <Border Grid.Column="2" Classes="glass" Padding="20" Margin="0,0,16,0">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="KEY DISTRIBUTION" FontSize="9" FontWeight="Black" Foreground="#505050" LetterSpacing="1.5"/>
+                            <ItemsControl ItemsSource="{Binding KeyDistributionBars}" Margin="0,12,0,0">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Bottom" Height="96"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:KeyBarViewModel">
+                                        <Border Width="9" Height="{Binding BarHeight}"
+                                                Background="{Binding Color}" VerticalAlignment="Bottom"
+                                                CornerRadius="1,1,0,0" Opacity="0.75"
+                                                ToolTip.Tip="{Binding TooltipText}"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Energy Profile -->
+                    <Border Grid.Column="3" Classes="glass" Padding="20">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="ENERGY PROFILE" FontSize="9" FontWeight="Black" Foreground="#505050" LetterSpacing="1.5"/>
+                            <ItemsControl ItemsSource="{Binding EnergyBucketBars}" Margin="0,12,0,0">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Bottom" Height="96"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:EnergyBucketViewModel">
+                                        <StackPanel VerticalAlignment="Bottom" Spacing="3">
+                                            <Border Height="{Binding BarHeight}" Width="32"
+                                                    Background="{Binding Color}" VerticalAlignment="Bottom"
+                                                    CornerRadius="2,2,0,0" Opacity="0.85"
+                                                    ToolTip.Tip="{Binding TooltipText}"/>
+                                            <TextBlock Text="{Binding Label}" FontSize="8" Foreground="#555"
+                                                       HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
                 <!-- Genre Galaxy (Phase 12.8 -> SkiaSharp Upgrade) -->
                 <Border Classes="glass" Padding="24" Height="220" Margin="0,0,0,8" ClipToBounds="True">
                     <Grid RowDefinitions="Auto,*">

@@ -334,6 +334,7 @@ public class AnalysisQueueService : IDisposable
             if (status == AnalysisStatus.Completed)
             {
                 row.IsEnriched = true;
+                row.AvailabilityState = TrackAvailabilityState.Ready;
             }
         }
 
@@ -348,6 +349,19 @@ public class AnalysisQueueService : IDisposable
             if (status == AnalysisStatus.Completed)
             {
                 row.IsEnriched = true;
+                row.AvailabilityState = TrackAvailabilityState.Ready;
+            }
+        }
+
+        var masterTracks = await db.Tracks
+            .Where(t => t.GlobalId == trackGlobalId)
+            .ToListAsync()
+            .ConfigureAwait(false);
+        foreach (var row in masterTracks)
+        {
+            if (status == AnalysisStatus.Completed)
+            {
+                row.AvailabilityState = TrackAvailabilityState.Ready;
             }
         }
 

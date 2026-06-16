@@ -42,6 +42,10 @@ public class PlaylistTrack
     /// </summary>
     public TrackStatus Status { get; set; } = TrackStatus.Missing;
 
+    public TrackAvailabilityState AvailabilityState { get; set; } = TrackAvailabilityState.Ghost;
+    public string? SpotifyPlaylistId { get; set; }
+    public string? SpotifyUri { get; set; }
+
     /// <summary>
     /// The resolved file path for this track.
     /// - If Status = Downloaded: Points to LibraryEntry.FilePath (the actual downloaded file)
@@ -146,6 +150,9 @@ public class PlaylistTrack
     // Phase 21: AI Brain
     public double? Sadness { get; set; }
     public float[]? VectorEmbedding { get; set; } // Effnet Embeddings
+
+    // Phase 13: BPM Analysis Quality
+    public float? BpmStability { get; set; } // 0-1; <0.7 = unstable/drifting tempo
 
     // Phase 3A: Dual-Truth Metadata
     public double? SpotifyBPM { get; set; }

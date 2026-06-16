@@ -153,7 +153,7 @@ public sealed class SeratoMetadataImporter
             Math.Min(data.Length - start, 4096)).TrimEnd('\0');
         byte[] decoded;
         try   { decoded = Convert.FromBase64String(b64); }
-        catch { return; }
+        catch (FormatException) { return; }
 
         int pos = 0;
         while (pos + 6 < decoded.Length)

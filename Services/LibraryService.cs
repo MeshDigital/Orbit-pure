@@ -837,17 +837,16 @@ public class LibraryService : ILibraryService
         }
     }
 
-    public async Task<int> GetTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null)
+    public async Task<int> GetTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
     {
         try
         {
             if (playlistId == Guid.Empty)
             {
-                // FIX: Guid.Empty means "All Tracks" (Global Library Index)
-                return await _databaseService.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter).ConfigureAwait(false);
+                return await _databaseService.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter).ConfigureAwait(false);
             }
 
-            return await _databaseService.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter).ConfigureAwait(false);
+            return await _databaseService.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -856,18 +855,17 @@ public class LibraryService : ILibraryService
         }
     }
 
-    public async Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null)
+    public async Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
     {
         try
         {
             if (playlistId == Guid.Empty)
             {
-                 // FIX: Guid.Empty means "All Tracks" (Global Library Index)
-                 var globalEntities = await _databaseService.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter).ConfigureAwait(false);
-                 return globalEntities.Select(EntityToPlaylistTrack).ToList();
+                var globalEntities = await _databaseService.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter).ConfigureAwait(false);
+                return globalEntities.Select(EntityToPlaylistTrack).ToList();
             }
 
-            var entities = await _databaseService.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter).ConfigureAwait(false);
+            var entities = await _databaseService.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter).ConfigureAwait(false);
             return entities.Select(EntityToPlaylistTrack).ToList();
         }
         catch (Exception ex)
@@ -1140,6 +1138,9 @@ public class LibraryService : ILibraryService
             PreferredFormats = entity.PreferredFormats,
             MinBitrateOverride = entity.MinBitrateOverride,
             Format = entity.Format,
+            AvailabilityState = entity.AvailabilityState,
+            SpotifyPlaylistId = entity.SpotifyPlaylistId,
+            SpotifyUri = entity.SpotifyUri,
             
             // Spotify Metadata
             SpotifyTrackId = entity.SpotifyTrackId,
@@ -1223,7 +1224,9 @@ public class LibraryService : ILibraryService
 
             // Phase 21: AI Brain (Mapped from AudioFeatures)
             Sadness = entity.AudioFeatures?.Sadness,
-            VectorEmbedding = entity.AudioFeatures?.VectorEmbedding
+            VectorEmbedding = entity.AudioFeatures?.VectorEmbedding,
+
+            BpmStability = entity.AudioFeatures?.BpmStability
         };
     }
 
@@ -1250,6 +1253,9 @@ public class LibraryService : ILibraryService
             PreferredFormats = track.PreferredFormats,
             MinBitrateOverride = track.MinBitrateOverride,
             Format = track.Format,
+            AvailabilityState = track.AvailabilityState,
+            SpotifyPlaylistId = track.SpotifyPlaylistId,
+            SpotifyUri = track.SpotifyUri,
             
             // Spotify Metadata
             SpotifyTrackId = track.SpotifyTrackId,
@@ -1330,6 +1336,9 @@ public class LibraryService : ILibraryService
             Bitrate = entity.Bitrate,
             DurationSeconds = entity.DurationSeconds,
             Format = entity.Format,
+            AvailabilityState = entity.AvailabilityState,
+            SpotifyPlaylistId = entity.SpotifyPlaylistId,
+            SpotifyUri = entity.SpotifyUri,
             AddedAt = entity.AddedAt,
             
             // Scientific Fields
@@ -1500,6 +1509,9 @@ public class LibraryService : ILibraryService
         entity.Bitrate = entry.Bitrate;
         entity.DurationSeconds = entry.DurationSeconds;
         entity.Format = entry.Format;
+        entity.AvailabilityState = entry.AvailabilityState;
+        entity.SpotifyPlaylistId = entry.SpotifyPlaylistId;
+        entity.SpotifyUri = entry.SpotifyUri;
         
         // Scientific Fields
         entity.SpotifyTrackId = entry.SpotifyTrackId;

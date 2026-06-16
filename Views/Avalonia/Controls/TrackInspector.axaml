@@ -29,18 +29,21 @@
                             <TextBlock Text="{Binding TrackTitle}" FontSize="24" FontWeight="Bold" Foreground="White" TextWrapping="Wrap"/>
                             
                             <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,8,0,0">
-                                <Border Background="#12FFFFFF" CornerRadius="4" Padding="6,2">
+                                <Border Background="#12FFFFFF" CornerRadius="4" Padding="6,2" IsVisible="{Binding !IsGhost}">
                                      <TextBlock Text="{Binding FileFormat}" FontSize="10" FontWeight="Bold" Foreground="#4EC9B0"/>
                                 </Border>
-                                <TextBlock Text="{Binding BitrateDisplay}" FontSize="12" Foreground="#888" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding BitrateDisplay}" FontSize="12" Foreground="#888" VerticalAlignment="Center" IsVisible="{Binding !IsGhost}"/>
+                                <Border Background="#1A5C3C3C" BorderBrush="#8C3C3C" BorderThickness="1" CornerRadius="4" Padding="6,2" IsVisible="{Binding IsGhost}">
+                                     <TextBlock Text="FILE MISSING" FontSize="10" FontWeight="Bold" Foreground="#FF6B6B"/>
+                                </Border>
                             </StackPanel>
                         </StackPanel>
                     </Grid>
                     
-                    <Separator Background="#252526" Height="1"/>
+                    <Separator Background="#252526" Height="1" IsVisible="{Binding !IsGhost}"/>
                     
                     <!-- Metadata Stats -->
-                    <StackPanel Spacing="12">
+                    <StackPanel Spacing="12" IsVisible="{Binding !IsGhost}">
                          <TextBlock Text="TECHNICAL METADATA" FontSize="10" FontWeight="Black" Foreground="#444"/>
                          <Grid ColumnDefinitions="*, *, *" RowDefinitions="Auto, Auto">
                              <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">

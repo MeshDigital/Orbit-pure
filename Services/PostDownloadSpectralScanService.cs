@@ -39,18 +39,21 @@ public sealed class PostDownloadSpectralScanService : IDisposable
     private readonly DatabaseService _databaseService;
     private readonly IEventBus _eventBus;
     private readonly ILogger<PostDownloadSpectralScanService> _logger;
+    private readonly SLSKDONET.Services.Diagnostics.ITrackAuditLogger _auditLogger;
     private readonly System.Reactive.Disposables.CompositeDisposable _disposables = new();
 
     public PostDownloadSpectralScanService(
         IAudioIntegrityService integrityService,
         DatabaseService databaseService,
         IEventBus eventBus,
-        ILogger<PostDownloadSpectralScanService> logger)
+        ILogger<PostDownloadSpectralScanService> logger,
+        SLSKDONET.Services.Diagnostics.ITrackAuditLogger auditLogger)
     {
         _integrityService = integrityService;
         _databaseService = databaseService;
         _eventBus = eventBus;
         _logger = logger;
+        _auditLogger = auditLogger;
 
         // Subscribe to download-completion events.  Fire-and-forget: the analysis is
         // CPU-intensive and runs on a dedicated thread pool thread.
@@ -102,6 +105,7 @@ public sealed class PostDownloadSpectralScanService : IDisposable
 
             _logger.LogInformation("Spectral scan starting for '{Title}' — {Path}",
                 entity.Title, filePath);
+            _auditLogger.Log(evt.TrackGlobalId, $"[Spectral] Starting post-download spectral scan | File: {filePath}");
 
             var result = await _integrityService.AnalyseAsync(filePath);
 
@@ -157,10 +161,12 @@ public sealed class PostDownloadSpectralScanService : IDisposable
             _logger.LogInformation(
                 "Spectral verdict for '{Title}': {Verdict} (cutoff: {Cutoff}, conf: {Conf:P0})",
                 entity.Title, result.Verdict, cutoffKhz, result.Confidence);
+            _auditLogger.Log(evt.TrackGlobalId, $"[Spectral] VERDICT: {result.Verdict} | Cutoff: {cutoffKhz} | Confidence: {result.Confidence:P0} | QualityDetails: {qualityDetails}");
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Spectral scan failed for track {Hash}", evt.TrackGlobalId);
+            _auditLogger.Log(evt.TrackGlobalId, $"[Spectral] ERROR: Spectral scan failed: {ex.Message}", isError: true);
         }
     }
 

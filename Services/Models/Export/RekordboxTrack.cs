@@ -47,6 +47,18 @@ public class RekordboxTrack
     public string Location { get; set; } = string.Empty;
 
     /// <summary>
+    /// Rekordbox star rating (0=none, 51=1★, 102=2★, 153=3★, 204=4★, 255=5★).
+    /// Mapped from Orbit EnergyScore (1-10) → 1-5 stars.
+    /// </summary>
+    public int Rating { get; set; }
+
+    /// <summary>
+    /// Free-text comment written to the Rekordbox Comments field.
+    /// Used to embed Camelot key + energy label for MIK-compatible tagging.
+    /// </summary>
+    public string Comments { get; set; } = string.Empty;
+
+    /// <summary>
     /// Cue points for Rekordbox export.
     /// </summary>
     public System.Collections.Generic.List<SLSKDONET.Models.OrbitCue> CuePoints { get; set; } = new();

@@ -150,7 +150,7 @@ public sealed class AudioIngestionPipeline
         {
             // Issue #47: kill the subprocess so it does not continue consuming CPU/RAM
             // after the analysis job is cancelled.
-            try { process.Kill(entireProcessTree: true); } catch { /* already exited */ }
+            try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { /* already exited */ }
             throw;
         }
 
@@ -223,6 +223,7 @@ public sealed class AudioIngestionPipeline
     private static void TryDelete(string path)
     {
         try { if (File.Exists(path)) File.Delete(path); }
-        catch { /* best-effort */ }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 }

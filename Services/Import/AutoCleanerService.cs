@@ -1,4 +1,6 @@
 using System;
+using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
@@ -56,9 +58,11 @@ public class AutoCleanerService
             result.Smart = string.IsNullOrEmpty(normalizedArtist) ? normalizedTitle : $"{normalizedArtist} - {normalizedTitle}";
         }
 
-        // 2. Aggressive Clean: Strip "feat.", "Remastered", "Extended Mix", etc.
+        // 2. Aggressive Clean: Strip "feat.", "Remastered", "Extended Mix", diacritics, etc.
         // This is where we remove Musical Identity to maximize hits at the cost of precision.
-        result.Aggressive = StripMusicalIdentity(result.Smart);
+        // Diacritic removal (é→e, ö→o, ü→u) helps when Soulseek peers store files using ASCII
+        // filenames even though the original track has accented artist/title characters.
+        result.Aggressive = StripDiacritics(StripMusicalIdentity(result.Smart));
 
         _logger.LogDebug("Auto-Clean tiers for '{Input}':\n  Dirty: {Dirty}\n  Smart: {Smart}\n  Aggressive: {Aggressive}", 
             rawInput, result.Dirty, result.Smart, result.Aggressive);
@@ -83,6 +87,18 @@ public class AutoCleanerService
         cleaned = Regex.Replace(cleaned, @"\s*[\[\(].*?[\]\)]", "");
 
         return cleaned.Trim();
+    }
+
+    private static string StripDiacritics(string text)
+    {
+        var normalized = text.Normalize(NormalizationForm.FormD);
+        var sb = new StringBuilder(normalized.Length);
+        foreach (var c in normalized)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+                sb.Append(c);
+        }
+        return sb.ToString().Normalize(NormalizationForm.FormC);
     }
 }
 

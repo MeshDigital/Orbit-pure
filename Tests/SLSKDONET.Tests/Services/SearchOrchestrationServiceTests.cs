@@ -52,7 +52,7 @@ public class SearchOrchestrationServiceTests
             });
 
         var safety = new Mock<ISafetyFilterService>();
-        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>()));
+        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>(), It.IsAny<bool>()));
 
         var library = new Mock<ILibraryService>();
 
@@ -140,7 +140,7 @@ public class SearchOrchestrationServiceTests
                 StreamCandidates(candidates, token));
 
         var safety = new Mock<ISafetyFilterService>();
-        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>()));
+        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>(), It.IsAny<bool>()));
 
         var library = new Mock<ILibraryService>();
 
@@ -231,7 +231,7 @@ public class SearchOrchestrationServiceTests
             });
 
         var safety = new Mock<ISafetyFilterService>();
-        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>()));
+        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>(), It.IsAny<bool>()));
 
         var library = new Mock<ILibraryService>();
 
@@ -309,7 +309,7 @@ public class SearchOrchestrationServiceTests
             });
 
         var safety = new Mock<ISafetyFilterService>();
-        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>()));
+        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>(), It.IsAny<bool>()));
 
         var library = new Mock<ILibraryService>();
 
@@ -396,7 +396,7 @@ public class SearchOrchestrationServiceTests
             });
 
         var safety = new Mock<ISafetyFilterService>();
-        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>()));
+        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>(), It.IsAny<bool>()));
 
         var library = new Mock<ILibraryService>();
 
@@ -485,7 +485,7 @@ public class SearchOrchestrationServiceTests
             });
 
         var safety = new Mock<ISafetyFilterService>();
-        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>()));
+        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>(), It.IsAny<bool>()));
 
         var library = new Mock<ILibraryService>();
 
@@ -576,7 +576,7 @@ public class SearchOrchestrationServiceTests
                 }, token));
 
         var safety = new Mock<ISafetyFilterService>();
-        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>()));
+        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>(), It.IsAny<bool>()));
 
         var library = new Mock<ILibraryService>();
 
@@ -685,7 +685,7 @@ public class SearchOrchestrationServiceTests
             });
 
         var safety = new Mock<ISafetyFilterService>();
-        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>()));
+        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>(), It.IsAny<bool>()));
 
         var library = new Mock<ILibraryService>();
 
@@ -748,7 +748,7 @@ public class SearchOrchestrationServiceTests
                 => StreamThrows(new SearchLimitExceededException("cap reached", 10000, 50000), token));
 
         var safety = new Mock<ISafetyFilterService>();
-        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>()));
+        safety.Setup(s => s.EvaluateSafety(It.IsAny<Track>(), It.IsAny<string>(), It.IsAny<bool>()));
 
         var library = new Mock<ILibraryService>();
 

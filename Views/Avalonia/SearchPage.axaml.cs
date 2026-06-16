@@ -12,8 +12,8 @@ namespace SLSKDONET.Views.Avalonia
         {
             InitializeComponent();
             
-            // Wire up DataGrid interaction
-            var grid = this.FindControl<DataGrid>("ResultsGrid");
+            // Wire up VirtualGrid interaction
+            var grid = this.FindControl<SLSKDONET.Views.Avalonia.Controls.VirtualGrid>("ResultsGrid");
             if (grid != null)
             {
                 grid.DoubleTapped += (s, e) => {
