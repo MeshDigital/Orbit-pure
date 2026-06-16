@@ -8,6 +8,7 @@ namespace SLSKDONET.Views.Avalonia;
 
 public partial class CurationWorkstationPage : UserControl
 {
+    public const string WorkstationPlaylistTrackFormat = "WorkstationPlaylistTrack";
 
     private bool _isDraggingCueMarker;
     private CueMarkerViewModel? _activeTargetMarker;

@@ -627,6 +627,7 @@ public partial class App : Application
             sp.GetRequiredService<Services.PhraseAlignmentService>());
         services.AddSingleton<Services.AnalyzeTrackStructureJob>();
 
+        services.AddSingleton<SLSKDONET.ViewModels.Workstation.WorkstationViewModel>();
         services.AddSingleton<SLSKDONET.ViewModels.CurationWorkstationViewModel>();
         services.AddSingleton<SLSKDONET.Engine.Analysis.AnalysisPipeline>();
         services.AddSingleton<SLSKDONET.Engine.Cueing.CueGenerationService>();
