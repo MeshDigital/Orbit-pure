@@ -170,7 +170,8 @@ public class SearchViewModelTests
             safety.Object,
             config,
             hardening,
-            library.Object);
+            library.Object,
+            eventBus);
 
         var bulkCoordinator = new Mock<IBulkOperationCoordinator>();
         bulkCoordinator.SetupGet(x => x.IsRunning).Returns(false);
