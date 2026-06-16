@@ -673,12 +673,15 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 return;
             }
 
-            // Sprint 4: Frame throttling (60 FPS max)
+            // Sprint 4: Frame throttling (~30 FPS max)
             var now = DateTime.UtcNow;
             var elapsed = (now - _lastRenderTime).TotalMilliseconds;
             if (elapsed < FrameThrottleMs && !_isDirty)
             {
-                // Skip frame but schedule next render
+                // Throttled frame: skip the expensive bitmap rebuild but still draw
+                // cached bitmaps so the waveform doesn't disappear between frames.
+                if (_baseBitmap != null)
+                    context.DrawImage(_baseBitmap, new Rect(0, 0, Bounds.Width, Bounds.Height));
                 return;
             }
             _lastRenderTime = now;

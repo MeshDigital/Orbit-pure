@@ -4,6 +4,7 @@ using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.VisualTree;
 using SLSKDONET.Models;
+using SLSKDONET.ViewModels;
 using SLSKDONET.ViewModels.Workstation;
 using System.Reactive.Linq;
 
@@ -52,7 +53,7 @@ public partial class WorkstationDeckRow : UserControl
 
     private void OnDeckDragOver(object? sender, DragEventArgs e)
     {
-        if (e.Data.Contains(WorkstationPage.WorkstationPlaylistTrackFormat))
+        if (e.Data.Contains(CurationWorkstationPage.WorkstationPlaylistTrackFormat))
         {
             e.DragEffects = DragDropEffects.Copy;
             _dropZone?.Classes.Add("drag-over");
@@ -78,7 +79,7 @@ public partial class WorkstationDeckRow : UserControl
             return;
         }
 
-        if (this.FindAncestorOfType<WorkstationPage>()?.DataContext is WorkstationViewModel workstationVm)
+        if (this.FindAncestorOfType<CurationWorkstationPage>()?.DataContext is WorkstationViewModel workstationVm)
         {
             workstationVm.FocusedDeck = deckVm;
         }
@@ -88,12 +89,12 @@ public partial class WorkstationDeckRow : UserControl
     {
         _dropZone?.Classes.Remove("drag-over");
 
-        if (!e.Data.Contains(WorkstationPage.WorkstationPlaylistTrackFormat))
+        if (!e.Data.Contains(CurationWorkstationPage.WorkstationPlaylistTrackFormat))
         {
             return;
         }
 
-        if (e.Data.Get(WorkstationPage.WorkstationPlaylistTrackFormat) is not PlaylistTrack track)
+        if (e.Data.Get(CurationWorkstationPage.WorkstationPlaylistTrackFormat) is not PlaylistTrack track)
         {
             return;
         }
@@ -109,14 +110,14 @@ public partial class WorkstationDeckRow : UserControl
             return;
         }
 
-        if (this.FindAncestorOfType<WorkstationPage>()?.DataContext is WorkstationViewModel workstationVm)
+        if (this.FindAncestorOfType<CurationWorkstationPage>()?.DataContext is WorkstationViewModel workstationVm)
         {
             workstationVm.FocusedDeck = deckVm;
         }
 
         await deckVm.LoadPlaylistTrackCommand.Execute(track).FirstAsync();
 
-        if (this.FindAncestorOfType<WorkstationPage>()?.DataContext is WorkstationViewModel vmAfterLoad)
+        if (this.FindAncestorOfType<CurationWorkstationPage>()?.DataContext is WorkstationViewModel vmAfterLoad)
         {
             vmAfterLoad.ApplySmartSnapForDeckDrop(deckVm);
         }

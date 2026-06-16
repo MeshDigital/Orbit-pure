@@ -396,17 +396,8 @@
                                             <DataTemplate DataType="vmDiag:BlackBoxTerminalViewModel">
                                                 <controls:BlackBoxTerminal/>
                                             </DataTemplate>
-                                            <DataTemplate>
-                                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" MaxWidth="280">
-                                                    <TextBlock Text="Inspector fallback" FontSize="13" FontWeight="SemiBold" Foreground="#A0A0A0" HorizontalAlignment="Center"/>
-                                                    <TextBlock Text="Inspector content is unavailable for this selection."
-                                                               FontSize="11"
-                                                               Foreground="#6E8297"
-                                                               TextWrapping="Wrap"
-                                                               TextAlignment="Center"/>
-                                                </StackPanel>
-                                            </DataTemplate>
                                         </ContentControl.DataTemplates>
+                                        <!-- Fallback: Inspector content is unavailable for this selection. -->
                                     </ContentControl>
 
                                     <Border Height="1" Background="#2D2D2D"/>

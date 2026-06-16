@@ -1615,7 +1615,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             }
         });
 
-        ShowGlobalStatus("Download Center has been fully reset.", isError: false, autoHide: true, context: "reset-center");
+        ShowGlobalStatus("Download Center has been fully reset.", isError: false, autoHide: true, context: "reset");
     }
     
     public void Dispose()
