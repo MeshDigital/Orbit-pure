@@ -203,6 +203,8 @@ public class DownloadCenterSoftClearContractTests
             ?.SetValue(downloadManager, eventBus);
         typeof(DownloadManager).GetField("_config", BindingFlags.NonPublic | BindingFlags.Instance)
             ?.SetValue(downloadManager, new AppConfig { EnableAutoAcquireOnImport = true });
+        typeof(DownloadManager).GetField("_logger", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?.SetValue(downloadManager, Microsoft.Extensions.Logging.Abstractions.NullLogger<DownloadManager>.Instance);
 
         var albumNode = new AlbumNode("Test Album", "Test Artist", downloadManager, null, eventBus);
 

@@ -582,7 +582,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         ClearHubSelectionCommand = ReactiveCommand.Create(() => SelectedHubRow = null);
         
         ResetDownloadCenterCommand = ReactiveCommand.CreateFromTask(ExecuteResetDownloadCenterAsync);
-        CancelAllActiveCommand = ReactiveCommand.CreateFromTask(ExecuteCancelAllActiveAsync);
+        CancelAllActiveCommand = ReactiveCommand.Create(ExecuteCancelAllActive);
 
         // Phase 6: Security & Quality diagnostics feed (Shield / Gate visibility)
         _eventBus.GetEvent<SecurityAuditEvent>()
@@ -1560,27 +1560,22 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
                     Message = message
                 });
                 
-                while (EngineLogs.Count > 1000)
-                {
+                if (EngineLogs.Count > 1000)
                     EngineLogs.RemoveAt(0);
-                }
                 
                 this.RaisePropertyChanged(nameof(EngineLogCount));
             }
         });
     }
 
-    private async Task ExecuteCancelAllActiveAsync()
+    private void ExecuteCancelAllActive()
     {
-        var activeTracks = _downloadsSource.Items
+        foreach (var track in _downloadsSource.Items
             .Where(x => x.State == PlaylistTrackState.Searching || x.State == PlaylistTrackState.Downloading)
-            .ToList();
-            
-        foreach (var track in activeTracks)
+            .ToList())
         {
             _downloadManager.CancelTrack(track.GlobalId);
         }
-        await Task.CompletedTask;
     }
 
     private async Task ExecuteResetDownloadCenterAsync()

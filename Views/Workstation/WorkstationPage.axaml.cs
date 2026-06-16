@@ -6,15 +6,13 @@ using SLSKDONET.ViewModels;
 
 namespace SLSKDONET.Views.Avalonia;
 
-public partial class WorkstationPage : UserControl
+public partial class CurationWorkstationPage : UserControl
 {
-    // Used by WorkstationDeckRow to identify playlist track drag payloads
-    internal const string WorkstationPlaylistTrackFormat = "ORBIT_WorkstationPlaylistTrack";
 
     private bool _isDraggingCueMarker;
     private CueMarkerViewModel? _activeTargetMarker;
 
-    public WorkstationPage()
+    public CurationWorkstationPage()
     {
         InitializeComponent();
     }
