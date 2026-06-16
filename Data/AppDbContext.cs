@@ -133,6 +133,14 @@ public class AppDbContext : DbContext
             .HasIndex(t => new { t.Artist, t.Title })
             .HasDatabaseName("IX_Tracks_Artist_Title");
 
+        // Navigation properties on TrackEntity are not used via context.Tracks queries.
+        // Ignoring them prevents EF Core from generating shadow FK columns that don't
+        // exist in the legacy Tracks table.
+        modelBuilder.Entity<TrackEntity>()
+            .Ignore(t => t.AudioFeatures)
+            .Ignore(t => t.TechnicalDetails)
+            .Ignore(t => t.Job);
+
         // Phase 0: Fast Lookup Index for Orchestration
         modelBuilder.Entity<TrackEntity>()
             .HasIndex(t => t.GlobalId)
