@@ -17,6 +17,7 @@ Scope: Canonical status board for planning and memory docs in DOCS/memory.
 
 | File | Current Status | Notes |
 | --- | --- | --- |
+| [audio_features_sqlite_constraint_fix.md](audio_features_sqlite_constraint_fix.md) | Completed | SQLite NOT NULL constraint violation fix when saving analyzed audio features. |
 | [automatic_downloads_investigation.md](automatic_downloads_investigation.md) | Historical | Investigation complete; side plan and PoC reference. |
 | [download_filtering_implementation_plan.md](download_filtering_implementation_plan.md) | Historical | Phased backlog snapshot; Phase 1/2 complete, Phase 3 parked. |
 | [download_filtering_phase2_completion_report.md](download_filtering_phase2_completion_report.md) | Completed | Canonical completion handoff for strict-download hardening. |
@@ -33,6 +34,7 @@ Scope: Canonical status board for planning and memory docs in DOCS/memory.
 | [workstation_redesign_overhaul.md](workstation_redesign_overhaul.md) | Historical | Original redesign blueprint; implementation delivered. |
 | [ui_overhaul_piped_marble_completion.md](ui_overhaul_piped_marble_completion.md) | Completed | Full UI overhaul Tier 1–4 completion: mode decomposition, downloads side panel, search filter bar, settings help panel, Camelot wheel, energy/phrase/badge surfaces, tri-band waveform, drag-to-reorder, Rekordbox export, .orbsession bundle. |
 | [network_resilience_and_library_reconciliation.md](network_resilience_and_library_reconciliation.md) | Completed | Soulseek ban detection (GlobalMessageReceived → SearchBanDetectedEvent → 30-min search lockout) and library reconciliation engine (ReconcilePhysicalFilesAsync + Reconcile Library button in Settings). |
+| [curation_workstation_and_download_center_upgrades.md](curation_workstation_and_download_center_upgrades.md) | Completed | Complete structural auto-cue pipeline (transient cluster K-Means, chroma resets, HPSS percussive pattern envelopes), phrase snapper, loops registry, Rekordbox XML v5 exporter, WAL mode interceptor, and Download Center group queue/cancel upgrades. |
 
 ## Execution Guidance
 - Default implementation focus: avoid reopening Completed/Historical plans unless validating regressions.

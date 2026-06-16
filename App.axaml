@@ -31,6 +31,7 @@
         <converters:BoolToErrorColorConverter x:Key="BoolToErrorColorConverter"/>
         <converters:BoolToFontStyleConverter x:Key="BoolToFontStyleConverter"/>
         <conv_root:BoolOpacityConverter x:Key="BoolToOpacityConverter"/>
+        <conv_root:LogLevelColorConverter x:Key="LogLevelColorConverter"/>
         <converters:BoolToWidthConverter x:Key="BoolToWidthConverter"/>
         <conv_root:BoolToStringConverter x:Key="BoolToStringConverter"/>
         <conv_root:MultiBoolToBlurConverter x:Key="MultiBoolToBlurConverter"/>

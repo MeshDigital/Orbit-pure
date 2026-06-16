@@ -1161,18 +1161,18 @@ public class LibraryService : ILibraryService
             CanonicalDuration = entity.CanonicalDuration,
             ReleaseDate = entity.ReleaseDate,
 
-            // Musical Intelligence
-            MusicalKey = entity.MusicalKey,
-            BPM = entity.BPM,
+            // Musical Intelligence (Fallback to AudioFeatures if direct columns are not populated)
+            MusicalKey = !string.IsNullOrEmpty(entity.MusicalKey) ? entity.MusicalKey : entity.AudioFeatures?.Key,
+            BPM = entity.BPM > 0 ? entity.BPM : (entity.AudioFeatures?.Bpm > 0 ? (double?)entity.AudioFeatures.Bpm : null),
             CuePointsJson = !string.IsNullOrWhiteSpace(entity.TechnicalDetails?.CuePointsJson)
                 ? entity.TechnicalDetails!.CuePointsJson
                 : entity.CuePointsJson,
-            Energy = entity.Energy,
-            Danceability = entity.Danceability,
-            Valence = entity.Valence,
+            Energy = entity.Energy > 0 ? entity.Energy : (entity.AudioFeatures?.Energy > 0 ? (double?)entity.AudioFeatures.Energy : null),
+            Danceability = entity.Danceability > 0 ? entity.Danceability : (entity.AudioFeatures?.Danceability > 0 ? (double?)entity.AudioFeatures.Danceability : null),
+            Valence = entity.Valence > 0 ? entity.Valence : (entity.AudioFeatures?.Valence > 0 ? (double?)entity.AudioFeatures.Valence : null),
             Label = entity.Label,
             Comments = entity.Comments,
-            MoodTag = entity.MoodTag,
+            MoodTag = !string.IsNullOrEmpty(entity.MoodTag) ? entity.MoodTag : entity.AudioFeatures?.MoodTag,
             PrimaryGenre = entity.PrimaryGenre,
 
             // Phase 21: AI Brain - Mapped below via AudioFeatures
@@ -1219,8 +1219,8 @@ public class LibraryService : ILibraryService
             DynamicRange = entity.DynamicRange,
             
             // Phase 15
-            DetectedSubGenre = entity.DetectedSubGenre,
-            InstrumentalProbability = entity.InstrumentalProbability, // Phase 18.2
+            DetectedSubGenre = !string.IsNullOrEmpty(entity.DetectedSubGenre) ? entity.DetectedSubGenre : entity.AudioFeatures?.DetectedSubGenre,
+            InstrumentalProbability = entity.InstrumentalProbability ?? (entity.AudioFeatures?.InstrumentalProbability > 0 ? (double?)entity.AudioFeatures.InstrumentalProbability : null), // Phase 18.2
 
             // Phase 21: AI Brain (Mapped from AudioFeatures)
             Sadness = entity.AudioFeatures?.Sadness,
@@ -1345,14 +1345,14 @@ public class LibraryService : ILibraryService
             SpotifyTrackId = entity.SpotifyTrackId,
             ISRC = entity.ISRC,
             MusicBrainzId = entity.MusicBrainzId,
-            Energy = entity.Energy,
-            Danceability = entity.Danceability,
-            Valence = entity.Valence,
-            BPM = entity.BPM,
-            MusicalKey = entity.MusicalKey,
+            Energy = entity.Energy > 0 ? entity.Energy : (entity.AudioFeatures?.Energy > 0 ? (double?)entity.AudioFeatures.Energy : null),
+            Danceability = entity.Danceability > 0 ? entity.Danceability : (entity.AudioFeatures?.Danceability > 0 ? (double?)entity.AudioFeatures.Danceability : null),
+            Valence = entity.Valence > 0 ? entity.Valence : (entity.AudioFeatures?.Valence > 0 ? (double?)entity.AudioFeatures.Valence : null),
+            BPM = entity.BPM > 0 ? entity.BPM : (entity.AudioFeatures?.Bpm > 0 ? (double?)entity.AudioFeatures.Bpm : null),
+            MusicalKey = !string.IsNullOrEmpty(entity.MusicalKey) ? entity.MusicalKey : entity.AudioFeatures?.Key,
             Label = entity.Label,
             Comments = entity.Comments,
-            MoodTag = entity.MoodTag,
+            MoodTag = !string.IsNullOrEmpty(entity.MoodTag) ? entity.MoodTag : entity.AudioFeatures?.MoodTag,
             PrimaryGenre = entity.PrimaryGenre,
 
             // Phase 21: AI Brain
@@ -1362,7 +1362,7 @@ public class LibraryService : ILibraryService
             IsEnriched = entity.IsEnriched,
             
             // Phase 17: Technical Audio Analysis
-            Loudness = entity.Loudness,
+            Loudness = entity.Loudness ?? (entity.AudioFeatures?.LoudnessLUFS > 0 ? (double?)entity.AudioFeatures.LoudnessLUFS : null),
             TruePeak = entity.TruePeak,
             DynamicRange = entity.DynamicRange,
             
@@ -1378,7 +1378,7 @@ public class LibraryService : ILibraryService
             ManualBPM = entity.ManualBPM,
             ManualKey = entity.ManualKey,
             
-            InstrumentalProbability = entity.InstrumentalProbability // Phase 18.2
+            InstrumentalProbability = entity.InstrumentalProbability ?? (entity.AudioFeatures?.InstrumentalProbability > 0 ? (double?)entity.AudioFeatures.InstrumentalProbability : null) // Phase 18.2
             ,
             BpmConfidence = entity.AudioFeatures?.BpmConfidence,
             KeyConfidence = entity.AudioFeatures?.KeyConfidence,

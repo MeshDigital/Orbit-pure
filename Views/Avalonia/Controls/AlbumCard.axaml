@@ -23,9 +23,9 @@
                     <TextBlock Text="⬇️"/>
                 </MenuItem.Icon>
             </MenuItem>
-            <MenuItem Header="Download Missing" Command="{Binding DownloadMissingCommand}">
+            <MenuItem Header="Force Re-download" Command="{Binding ForceRedownloadCommand}">
                 <MenuItem.Icon>
-                    <TextBlock Text="🔍"/>
+                    <TextBlock Text="🔥"/>
                 </MenuItem.Icon>
             </MenuItem>
         </ContextMenu>

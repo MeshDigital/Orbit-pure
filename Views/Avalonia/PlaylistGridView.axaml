@@ -175,7 +175,7 @@
                                 Background="#CC0E1D33"
                                 BorderBrush="#00BFFF"
                                 BorderThickness="1"
-                                ToolTip.Tip="Queue complete album now"
+                                ToolTip.Tip="Queue missing tracks of this album/playlist"
                                 Command="{Binding ((vm:LibraryViewModel)DataContext).DownloadAlbumCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                 CommandParameter="{Binding Model}">
                             <StackPanel Orientation="Horizontal" Spacing="4">

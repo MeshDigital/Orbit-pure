@@ -64,6 +64,7 @@ public class AlbumNode : ILibraryNode, INotifyPropertyChanged
     
     public ICommand DownloadAlbumCommand { get; }
     public ICommand DownloadMissingCommand { get; }
+    public ICommand ForceRedownloadCommand { get; }
     public ICommand PlayAlbumCommand { get; } 
 
     public bool IsLoading => false; // Obsolete with proxy
@@ -114,6 +115,7 @@ public class AlbumNode : ILibraryNode, INotifyPropertyChanged
         
         DownloadAlbumCommand = new RelayCommand(DownloadAlbum);
         DownloadMissingCommand = new RelayCommand(DownloadMissing);
+        ForceRedownloadCommand = new RelayCommand(ForceRedownload);
         PlayAlbumCommand = new RelayCommand<object>(_ => PlayAlbum());
         
         Tracks.CollectionChanged += (s, e) => {
@@ -134,13 +136,7 @@ public class AlbumNode : ILibraryNode, INotifyPropertyChanged
 
     private void DownloadAlbum()
     {
-        if (_downloadManager == null || !Tracks.Any()) return;
-        
-        var tracksToDownload = Tracks.Select(t => { 
-            t.Model.Priority = 0; 
-            return t.Model; 
-        }).ToList();
-        _downloadManager.QueueTracks(tracksToDownload);
+        DownloadMissing();
     }
 
     private void DownloadMissing()
@@ -148,7 +144,7 @@ public class AlbumNode : ILibraryNode, INotifyPropertyChanged
         if (_downloadManager == null || !Tracks.Any()) return;
         
         var tracksToDownload = Tracks
-            .Where(t => t.Model.Status == TrackStatus.Missing || t.Model.Status == TrackStatus.Failed)
+            .Where(t => t.Model.Status != TrackStatus.Downloaded && t.Model.Status != TrackStatus.OnHold)
             .Select(t => { 
                 t.Model.Priority = 0; 
                 return t.Model; 
@@ -158,6 +154,22 @@ public class AlbumNode : ILibraryNode, INotifyPropertyChanged
         {
             _downloadManager.QueueTracks(tracksToDownload);
         }
+    }
+
+    private void ForceRedownload()
+    {
+        if (_downloadManager == null || !Tracks.Any()) return;
+        
+        var tracksToDownload = Tracks.Select(t => t.Model).ToList();
+        foreach (var t in tracksToDownload)
+        {
+            _downloadManager.CancelTrack(t.TrackUniqueHash);
+            t.Priority = 0;
+            t.Status = TrackStatus.Missing;
+            t.IsClearedFromDownloadCenter = false;
+        }
+        
+        _downloadManager.QueueTracks(tracksToDownload);
     }
 
 
