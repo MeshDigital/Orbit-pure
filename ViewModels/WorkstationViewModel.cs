@@ -13,11 +13,22 @@ using SLSKDONET.Engine.Snapping;
 using SLSKDONET.Engine.Analysis;
 using SLSKDONET.Engine.Cueing;
 using SLSKDONET.Exporters.Rekordbox;
+using SLSKDONET.ViewModels.Workstation;
 
 namespace SLSKDONET.ViewModels;
 
 public sealed class CurationWorkstationViewModel : ReactiveObject
 {
+    // ── Legacy 4-Deck Stubs for Compile Parity ────────────────────────────────
+    public WorkstationDeckViewModel? FocusedDeck { get; set; }
+    public ObservableCollection<WorkstationDeckViewModel> Decks { get; } = new();
+    public ReactiveCommand<Unit, Unit> ExitLoopFocusedCommand { get; } = ReactiveCommand.Create(() => {});
+    public ReactiveCommand<Unit, Unit> SyncBpmCommand { get; } = ReactiveCommand.Create(() => {});
+    public bool IsSnapEnabled { get; set; }
+    public KeyboardOverlayViewModel KeyboardOverlay { get; } = new();
+    public void ApplySmartSnapForDeckDrop(WorkstationDeckViewModel deckVm) { }
+    // ──────────────────────────────────────────────────────────────────────────
+
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly AnalysisPipeline _analysisPipeline;
     private readonly CueGenerationService _cueGenerationService;

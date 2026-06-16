@@ -66,3 +66,14 @@ To support bulk operations and track queue diagnostics, the following features w
 ### 3.3 Administrative Actions
 - **Reset Download Center (`ResetDownloadCenterCommand`)**: Asks for user confirmation, cancels all active/pending track operations, soft-clears all historical downloads in the database, clears the live logs collection, and displays a global status confirmation.
 - **Cancel All Active (`CancelAllActiveCommand`)**: Quickly iterates through all active tracks currently in `Searching` or `Downloading` states and cancels them on the `DownloadManager`.
+
+---
+
+## 4. Integration Hardening & Compilation Fixes (2026-06-16)
+
+Following the relocation of curation workstation elements and the simplification of the Download Center, the codebase was hardened to resolve 16 compilation/semantic errors:
+1. **LoopViewModel Escape Sequence**: Fixed `LoopViewModel.cs` where standard TimeSpan string interpolation (`$"{start:mm\\:ss}"`) triggered lexical unrecognized escape sequence errors (CS1009). Remapped to verbatim string interpolation `$@"{start:mm\:ss}"`.
+2. **PlaylistTrack Model References**: Corrected `AlbumNode.cs` and `LibraryViewModel.Commands.cs` where the `CancelTrack` call referenced `t.GlobalId` instead of the model's actual `TrackUniqueHash` identifier.
+3. **ShowGlobalStatus Parameter Alignment**: Aligned the nuclear reset command in `DownloadCenterViewModel.cs` to pass the required `context` parameter to `ShowGlobalStatus`.
+4. **4-Deck Stub Parity**: Added stub properties/methods (`FocusedDeck`, `Decks`, `ExitLoopFocusedCommand`, `SyncBpmCommand`, `IsSnapEnabled`, `KeyboardOverlay`, `ApplySmartSnapForDeckDrop`) to `WorkstationViewModel.cs` to maintain compilation compatibility with legacy 4-deck UI views (`MixerCenter`, `WaveformInspector`, `StemsInspector`, `WorkstationDeckRow`) and the global `KeyboardEventRouter` keyboard shortcut coordinator.
+5. **WorkstationDeckRow Page Reference**: Updated `WorkstationDeckRow.axaml.cs` to reference the renamed `CurationWorkstationPage` instead of the legacy `WorkstationPage`.

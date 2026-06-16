@@ -53,7 +53,7 @@ public sealed class LoopViewModel : ReactiveObject
         {
             var start = TimeSpan.FromSeconds(StartSeconds);
             var end = TimeSpan.FromSeconds(EndSeconds);
-            return $"{start:mm\\:ss} - {end:mm\\:ss}";
+            return $@"{start:mm\:ss} - {end:mm\:ss}";
         }
     }
 }
