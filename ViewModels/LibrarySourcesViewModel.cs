@@ -8,7 +8,8 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using SLSKDONET.Data; 
+using SLSKDONET.Configuration;
+using SLSKDONET.Data;
 using SLSKDONET.Services;
 using SLSKDONET.Views; // For AsyncRelayCommand (if strict match needed)
 using SLSKDONET.Models; // For Events
@@ -38,6 +39,7 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
     private readonly IFileInteractionService _fileInteractionService;
     private readonly IEventBus _eventBus;
     private readonly IDbContextFactory<Data.AppDbContext> _dbFactory;
+    private readonly AppConfig _config;
 
     // Library Folders
     public ObservableCollection<LibraryFolderViewModel> LibraryFolders { get; } = new();
@@ -58,13 +60,15 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
         LibraryFolderScannerService libraryFolderScannerService,
         IFileInteractionService fileInteractionService,
         IEventBus eventBus,
-        IDbContextFactory<Data.AppDbContext> dbFactory)
+        IDbContextFactory<Data.AppDbContext> dbFactory,
+        AppConfig config)
     {
         _logger = logger;
         _libraryFolderScannerService = libraryFolderScannerService;
         _fileInteractionService = fileInteractionService;
         _eventBus = eventBus;
         _dbFactory = dbFactory;
+        _config = config;
 
         AddLibraryFolderCommand = new AsyncRelayCommand(AddLibraryFolderAsync);
         RemoveLibraryFolderCommand = new RelayCommand<LibraryFolderViewModel?>(RemoveLibraryFolder);
@@ -175,12 +179,21 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             ScanStatus = "Scanning...";
+
+            // Auto-register configured paths so all drives are included even if the
+            // user hasn't manually added them via the Library Folders panel.
+            if (!string.IsNullOrEmpty(_config.DownloadDirectory))
+                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.DownloadDirectory);
+
+            if (!string.IsNullOrEmpty(_config.SharedFolderPath) &&
+                !string.Equals(_config.SharedFolderPath, _config.DownloadDirectory, StringComparison.OrdinalIgnoreCase))
+                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.SharedFolderPath);
+
             var progress = new Progress<ScanProgress>(p =>
             {
                 ScanStatus = $"Found: {p.FilesDiscovered} | Imported: {p.FilesImported} | Upgraded: {p.FilesAutoUpgraded} | RemoveCands: {p.FilesMarkedForRemoval} | DupPath: {p.FilesDuplicateByPath} | DupTrack: {p.FilesDuplicateByHash} | Skipped: {p.FilesSkipped}";
             });
 
-            // Use batch writes implicitly handled by refactored service (TODO)
             var results = await _libraryFolderScannerService.ScanAllFoldersAsync(progress);
 
             var totalImported = results.Values.Sum(r => r.FilesImported);
