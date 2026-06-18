@@ -506,12 +506,57 @@ public class LibraryFolderScannerService
 
         var results = new Dictionary<Guid, ScanResult>();
 
+        // Baseline accumulates completed-folder totals so the live counter is cumulative
+        // across all folders rather than resetting to zero for each one.
+        int baseDiscovered = 0, baseImported = 0, baseSkipped = 0;
+        int baseDupPath = 0, baseDupHash = 0, baseUpgraded = 0, baseRemoval = 0, baseMeta = 0;
+        int folderIndex = 0;
+
         foreach (var folder in folders)
         {
             if (ct.IsCancellationRequested) break;
-            
-            var result = await ScanFolderAsync(folder.Id, progress, ct);
+
+            folderIndex++;
+            int capturedIndex = folderIndex;
+            int capturedTotal = folders.Count;
+            int capDisc = baseDiscovered, capImp = baseImported, capSkip = baseSkipped;
+            int capDupP = baseDupPath, capDupH = baseDupHash, capUpg = baseUpgraded;
+            int capRem = baseRemoval, capMeta = baseMeta;
+
+            IProgress<ScanProgress>? wrappedProgress = progress == null ? null : new Progress<ScanProgress>(p =>
+            {
+                // Report accumulated totals + current folder's in-progress counts
+                var folderName = string.IsNullOrEmpty(p.CurrentFolder)
+                    ? string.Empty
+                    : Path.GetFileName(p.CurrentFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+
+                progress.Report(new ScanProgress
+                {
+                    FilesDiscovered     = capDisc + p.FilesDiscovered,
+                    FilesImported       = capImp  + p.FilesImported,
+                    FilesSkipped        = capSkip + p.FilesSkipped,
+                    FilesDuplicateByPath = capDupP + p.FilesDuplicateByPath,
+                    FilesDuplicateByHash = capDupH + p.FilesDuplicateByHash,
+                    FilesAutoUpgraded   = capUpg  + p.FilesAutoUpgraded,
+                    FilesMarkedForRemoval = capRem + p.FilesMarkedForRemoval,
+                    FilesMetadataFailed = capMeta + p.FilesMetadataFailed,
+                    CurrentFolder       = p.CurrentFolder,
+                    CurrentFile         = $"[{capturedIndex}/{capturedTotal}] {folderName} — {p.CurrentFile}"
+                });
+            });
+
+            var result = await ScanFolderAsync(folder.Id, wrappedProgress, ct);
             results[folder.Id] = result;
+
+            // Advance the baseline so the next folder starts from the right offset
+            baseDiscovered += result.TotalFilesFound;
+            baseImported   += result.FilesImported;
+            baseSkipped    += result.FilesSkipped;
+            baseDupPath    += result.FilesDuplicateByPath;
+            baseDupHash    += result.FilesDuplicateByHash;
+            baseUpgraded   += result.FilesAutoUpgraded;
+            baseRemoval    += result.FilesMarkedForRemoval;
+            baseMeta       += result.FilesMetadataFailed;
         }
 
         return results;
