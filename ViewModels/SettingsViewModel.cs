@@ -1819,17 +1819,18 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             
             _logger.LogInformation("Starting manual library scan...");
             
-            // 1. Ensure download folder is registered
+            // 1. Ensure configured folders are registered as library scan targets.
+            // Both the download directory and the Soulseek shared folder are included
+            // so files on different drives are always picked up.
             if (!string.IsNullOrEmpty(_config.DownloadDirectory))
-            {
                 await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.DownloadDirectory);
-            }
             else
-            {
-                 // Fallback or warning?
-                 _logger.LogWarning("No download directory configured for scanning.");
-            }
-            
+                _logger.LogWarning("No download directory configured for scanning.");
+
+            if (!string.IsNullOrEmpty(_config.SharedFolderPath) &&
+                !string.Equals(_config.SharedFolderPath, _config.DownloadDirectory, StringComparison.OrdinalIgnoreCase))
+                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.SharedFolderPath);
+
             // 2. Run Scan
             var progress = new Progress<ScanProgress>(p =>
             {
@@ -1930,6 +1931,10 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
             if (!string.IsNullOrEmpty(_config.DownloadDirectory))
                 await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.DownloadDirectory);
+
+            if (!string.IsNullOrEmpty(_config.SharedFolderPath) &&
+                !string.Equals(_config.SharedFolderPath, _config.DownloadDirectory, StringComparison.OrdinalIgnoreCase))
+                await _libraryFolderScannerService.EnsureDefaultFolderAsync(_config.SharedFolderPath);
 
             var progress = new Progress<ScanProgress>(p =>
             {
