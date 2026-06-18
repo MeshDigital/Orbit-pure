@@ -215,6 +215,16 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     private readonly ReadOnlyObservableCollection<AnalyzedSearchResultViewModel> _searchResultsView;
     public ReadOnlyObservableCollection<AnalyzedSearchResultViewModel> SearchResults => _publicSearchResults;
     public ReadOnlyObservableCollection<AnalyzedSearchResultViewModel> SearchResultsView => _searchResultsView;
+
+    // Session Downloads: tracks queued ad-hoc from the search page
+    private readonly ObservableCollection<AnalyzedSearchResultViewModel> _sessionDownloads = new();
+    public ObservableCollection<AnalyzedSearchResultViewModel> SessionDownloads => _sessionDownloads;
+    private bool _hasSessionDownloads;
+    public bool HasSessionDownloads
+    {
+        get => _hasSessionDownloads;
+        private set => SetProperty(ref _hasSessionDownloads, value);
+    }
     
     // Phase 19: Search 2.0 Dense Grid Source
 
@@ -549,6 +559,19 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                  {
                      MessageBus.Current.SendMessage(OpenInspectorEvent.Create(single, "Search.Selection.Single"));
                  }
+            })
+            .DisposeWith(_disposables);
+
+        _sessionDownloads.CollectionChanged += (_, _) => HasSessionDownloads = _sessionDownloads.Count > 0;
+
+        // Live download status updates: reflect DownloadManager events back onto search results
+        _eventBus.GetEvent<TrackStatusChangedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e =>
+            {
+                if (e.NewStatus == null) return;
+                foreach (var result in _publicSearchResults.Where(r => r.RawResult.Model.UniqueHash == e.TrackUniqueHash))
+                    result.RawResult.Status = e.NewStatus.Value;
             })
             .DisposeWith(_disposables);
 
@@ -1073,8 +1096,10 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             toDownload,
             async (vm, ct) =>
             {
-                var queued = _downloadManager.EnqueueTrack(vm.RawResult.Model);
+                var queued = _downloadManager.EnqueueTrack(vm.RawResult.Model, priority: 0);
                 vm.RawResult.Status = queued ? TrackStatus.Pending : TrackStatus.Failed;
+                if (queued && !_sessionDownloads.Contains(vm))
+                    _sessionDownloads.Add(vm);
                 return queued;
             },
             "Batch Download"

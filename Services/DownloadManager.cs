@@ -1718,7 +1718,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }
     }
     
-    public bool EnqueueTrack(Track track)
+    public bool EnqueueTrack(Track track, int priority = 0)
     {
         if (!TryValidateTrackForQueue(track, out var reason))
         {
@@ -1734,6 +1734,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
              Title = track.Title ?? "Unknown",
              Album = track.Album ?? "Unknown",
              Status = TrackStatus.Missing,
+             Priority = priority,
              ResolvedFilePath = Path.Combine(_config.DownloadDirectory!, _fileNameFormatter.Format(_config.NameFormat ?? "{artist} - {title}", track) + "." + track.GetExtension()),
              TrackUniqueHash = track.UniqueHash
         };

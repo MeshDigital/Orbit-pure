@@ -53,6 +53,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     private readonly Configuration.AppConfig _appConfig;
     private readonly ConfigManager _configManager;
     private readonly Services.Library.PlaylistExportService _exportService;
+    private readonly Services.Export.UsbExportOrchestrator _exportOrchestrator;
     private readonly PlaylistIntelligenceService? _playlistIntelligenceService;
     private readonly ISavedDoublesService? _savedDoublesService;
     private readonly TrackSimilarityService? _trackSimilarityService;
@@ -502,6 +503,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         Configuration.AppConfig appConfig,
         ConfigManager configManager,
         Services.Library.PlaylistExportService exportService,
+        Services.Export.UsbExportOrchestrator exportOrchestrator,
         IDbContextFactory<AppDbContext> dbFactory,
         PlaylistIntelligenceService? playlistIntelligenceService = null,
         ISavedDoublesService? savedDoublesService = null,
@@ -529,6 +531,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         _appConfig = appConfig;
         _configManager = configManager;
         _exportService = exportService;
+        _exportOrchestrator = exportOrchestrator;
         _playlistIntelligenceService = playlistIntelligenceService;
         _savedDoublesService = savedDoublesService;
         _trackSimilarityService = trackSimilarityService;
@@ -573,6 +576,11 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         _disposables.Add(_eventBus.GetEvent<FileIngestionStartedEvent>().Subscribe(OnFileIngestionStarted));
         _disposables.Add(_eventBus.GetEvent<FileIngestionCompletedEvent>().Subscribe(OnFileIngestionCompleted));
         _disposables.Add(_eventBus.GetEvent<FileMissingDetectedEvent>().Subscribe(OnFileMissingDetected));
+        _disposables.Add(_eventBus.GetEvent<TrackRemovedEvent>().Subscribe(evt => OnLibraryTrackRemoved(evt.TrackGlobalId)));
+        _disposables.Add(_eventBus.GetEvent<RemoveTrackFromInspectorEvent>().Subscribe(_ =>
+            Dispatcher.UIThread.InvokeAsync(() => Operations.RemoveTrackCommand.Execute(null))));
+        _disposables.Add(_eventBus.GetEvent<EditTagsFromInspectorEvent>().Subscribe(_ =>
+            Dispatcher.UIThread.InvokeAsync(() => BatchTagEditCommand.Execute(null))));
         
         // Startup background tasks
         Task.Run(() => _libraryService.SyncLibraryEntriesFromTracksAsync()).ConfigureAwait(false);

@@ -1,4 +1,3 @@
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using SLSKDONET.ViewModels.Library;
@@ -26,9 +25,11 @@ public partial class BatchTagEditDialog : Window
             {
                 IsConfirmed = true,
                 Artist = vm.Artist,
+                Title = vm.Title,
                 Album = vm.Album,
                 Genre = vm.Genre,
-                Year = vm.Year
+                Year = vm.Year,
+                NewFileName = vm.IsSingleTrack ? vm.NewFileName : null,
             };
             Close(result);
         }

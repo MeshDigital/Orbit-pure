@@ -59,12 +59,16 @@ public sealed class AudioIngestionPipeline
 
         if (exitCode != 0)
         {
-            // Clean up partial output before throwing
             TryDelete(tempFile);
-            _logger.LogError("[AudioIngestion] FFmpeg exited {Code} for {File}: {Err}",
-                exitCode, source.FilePath, stderr);
+            // Log only the last meaningful line so the multi-line FFmpeg dump doesn't
+            // flood the Serilog console output.  Full stderr is in the exception for debug.
+            var summary = stderr.Split('\n')
+                .Select(l => l.Trim())
+                .LastOrDefault(l => l.Length > 0) ?? stderr.Trim();
+            _logger.LogError("[AudioIngestion] FFmpeg exit={Code} for {File}: {Summary}",
+                exitCode, Path.GetFileName(source.FilePath), summary);
             throw new InvalidOperationException(
-                $"FFmpeg decode failed (exit {exitCode}) for '{source.FilePath}': {stderr.Trim()}");
+                $"FFmpeg exit {exitCode}: {summary}");
         }
 
         if (!File.Exists(tempFile) || new FileInfo(tempFile).Length == 0)

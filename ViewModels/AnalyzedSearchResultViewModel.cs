@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.IO;
 using Avalonia.Media;
 using Soulseek;
@@ -124,9 +125,23 @@ namespace SLSKDONET.ViewModels
         // Opacity for Ghosting (The Bouncer Phase 14A)
         public double Opacity => IsFilteredOut ? 0.45 : IsFake ? 0.3 : 1.0;
 
+        // Download state forwarded from RawResult
+        public bool HasDownloadStatus => !string.IsNullOrEmpty(_result.StatusIcon);
+        public string DownloadStatusIcon => _result.StatusIcon;
+        public string DownloadStatusText => _result.Status switch
+        {
+            Models.TrackStatus.Pending    => "Queued for download",
+            Models.TrackStatus.Downloaded => "Downloaded",
+            Models.TrackStatus.Failed     => "Download failed",
+            Models.TrackStatus.Skipped    => "Skipped",
+            Models.TrackStatus.OnHold     => "On hold",
+            _                             => ""
+        };
+
         public AnalyzedSearchResultViewModel(SearchResult result)
         {
             _result = result;
+            _result.PropertyChanged += OnRawResultPropertyChanged;
 
             // Calculate Metrics
             TrustScore = 100;
@@ -159,6 +174,16 @@ namespace SLSKDONET.ViewModels
         public string TierDescription => "Standard Track";
 
         public IBrush TierColor => Brushes.Gray;
+
+        private void OnRawResultPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName is nameof(SearchResult.Status) or nameof(SearchResult.StatusIcon))
+            {
+                this.RaisePropertyChanged(nameof(HasDownloadStatus));
+                this.RaisePropertyChanged(nameof(DownloadStatusIcon));
+                this.RaisePropertyChanged(nameof(DownloadStatusText));
+            }
+        }
 
         public void SetFilterVisibility(bool isFilteredOut, string? reason)
         {

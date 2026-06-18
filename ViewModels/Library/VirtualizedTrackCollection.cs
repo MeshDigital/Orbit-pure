@@ -248,8 +248,14 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             var pageInfo = new PageInfo { Items = viewModels, LastAccess = DateTime.Now };
             _pages[pageIndex] = pageInfo;
             
-            // Notify collection changed
-            CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Replace, viewModels, viewModels, startIndex));
+            // Defer the notification so it never fires mid-layout.
+            // Avalonia's ItemsRepeater calls get_Item during its layout pass, which
+            // triggers LoadPageAsync.  Raising CollectionChanged synchronously here
+            // would hit ItemsRepeater.OnItemsSourceViewChanged while layout is still
+            // in progress and throw "Changes in data source are not allowed during layout."
+            var changeArgs = new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Replace, viewModels, viewModels, startIndex);
+            Dispatcher.UIThread.Post(() => CollectionChanged?.Invoke(this, changeArgs));
         }
         finally
         {
@@ -278,8 +284,9 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             var pageInfo = new PageInfo { Items = viewModels, LastAccess = DateTime.Now };
             _pages[pageIndex] = pageInfo;
 
-            // Notify collection changed
-            CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Add, viewModels, startIndex));
+            var changeArgs = new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Add, viewModels, startIndex);
+            Dispatcher.UIThread.Post(() => CollectionChanged?.Invoke(this, changeArgs));
 
             return viewModels.Count;
         }

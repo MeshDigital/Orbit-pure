@@ -1002,6 +1002,30 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     public ICommand AddToProjectCommand { get; }
     public ICommand ToggleLikeCommand { get; }
     public ICommand FilterByKeyCommand { get; }
+    public ICommand RequestRemoveCommand { get; }
+    public ICommand RequestEditTagsCommand { get; }
+    public ICommand PreviousInspectorTabCommand { get; }
+    public ICommand NextInspectorTabCommand { get; }
+    public ICommand SearchAgainCommand { get; }
+
+    private int _selectedInspectorTab = 0; // default to IDENTITY tab
+    public int SelectedInspectorTab
+    {
+        get => _selectedInspectorTab;
+        set
+        {
+            if (SetProperty(ref _selectedInspectorTab, value))
+                OnPropertyChanged(nameof(InspectorTabName));
+        }
+    }
+
+    public string InspectorTabName => SelectedInspectorTab switch
+    {
+        0 => "IDENTITY",
+        1 => "ANALYSIS",
+        2 => "ACTIONS",
+        _ => ""
+    };
 
     private readonly IEventBus? _eventBus;
     private readonly ILibraryService? _libraryService;
@@ -1054,6 +1078,11 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         BumpToTopCommand = new RelayCommand(BumpToTop, () => CanBumpToTop);
         ToggleLikeCommand = new RelayCommand(() => IsLiked = !IsLiked);
         FilterByKeyCommand = new RelayCommand<string>(key => _eventBus?.Publish(new SetCamelotKeyFilterEvent(key)));
+        RequestRemoveCommand = new RelayCommand(() => _eventBus?.Publish(new Models.RemoveTrackFromInspectorEvent(GlobalId)));
+        RequestEditTagsCommand = new RelayCommand(() => _eventBus?.Publish(new Models.EditTagsFromInspectorEvent(GlobalId)));
+        PreviousInspectorTabCommand = new RelayCommand(() => { if (SelectedInspectorTab > 0) SelectedInspectorTab--; });
+        NextInspectorTabCommand = new RelayCommand(() => { if (SelectedInspectorTab < 2) SelectedInspectorTab++; });
+        SearchAgainCommand = new RelayCommand(Reset);
         
         // REMOVED: 8000+ redundant event listeners eliminated.
         // Centralized dispatch moved to VirtualizedTrackCollection.

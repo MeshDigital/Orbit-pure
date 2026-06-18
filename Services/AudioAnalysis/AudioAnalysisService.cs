@@ -101,7 +101,9 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogWarning(ex, "[AudioAnalysis] FFmpeg decode failed for {File}", filePath);
+                // Full detail already logged by AudioIngestionPipeline; log just file + summary here.
+                _logger.LogWarning("[AudioAnalysis] Decode failed for {File}: {Msg}",
+                    Path.GetFileName(filePath), ex.Message);
                 return null;
             }
 

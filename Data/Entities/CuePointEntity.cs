@@ -70,6 +70,11 @@ public class CuePointEntity
     /// Loop out point in seconds. Only meaningful when IsLoop is true.
     /// </summary>
     public double LoopEndSeconds { get; set; }
+
+    /// <summary>
+    /// Hot cue pad slot (0–7). -1 = memory cue (no pad). Defaults to -1.
+    /// </summary>
+    public int SlotIndex { get; set; } = -1;
 }
 
 /// <summary>

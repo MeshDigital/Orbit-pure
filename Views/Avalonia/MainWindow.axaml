@@ -360,21 +360,16 @@
                                 </Grid>
                             </Border>
 
-                            <!-- Scrollable context panel — Player → Inspector → Similar Tracks -->
-                            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
-                                <StackPanel Spacing="0">
-                                    <!-- Player -->
-                                    <views:PlayerControl DataContext="{Binding Sidebar.PlayerVm}"/>
+                            <!-- Tabbed workstation panel — full height, no player -->
+                            <TabControl Grid.Row="1">
 
-                                    <Border Height="1" Background="#2D2D2D"/>
-
-                                    <!-- Inspector -->
+                                <TabItem Header="Inspector">
                                     <ContentControl Content="{Binding Sidebar.CurrentContent}">
                                         <ContentControl.DataTemplates>
                                             <DataTemplate DataType="vmCore:PlayerViewModel">
-                                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" Margin="0,32">
+                                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" Margin="0,48">
                                                     <TextBlock Text="▶" FontSize="32" HorizontalAlignment="Center" Foreground="#555"/>
-                                                    <TextBlock Text="Select a track to inspect" Foreground="#888" FontSize="13"
+                                                    <TextBlock Text="Inspector content is unavailable for this selection." Foreground="#888" FontSize="13"
                                                                HorizontalAlignment="Center"/>
                                                 </StackPanel>
                                             </DataTemplate>
@@ -397,17 +392,14 @@
                                                 <controls:BlackBoxTerminal/>
                                             </DataTemplate>
                                         </ContentControl.DataTemplates>
-                                        <!-- Fallback: Inspector content is unavailable for this selection. -->
                                     </ContentControl>
+                                </TabItem>
 
-                                    <Border Height="1" Background="#2D2D2D"/>
+                                <TabItem Header="Similar Tracks">
+                                    <views:SimilarTracksPanel DataContext="{Binding Sidebar.SimilarTracksVm}"/>
+                                </TabItem>
 
-                                    <!-- Similar Tracks (collapsible) -->
-                                    <Expander Header="🔗 Similar Tracks" IsExpanded="True">
-                                        <views:SimilarTracksPanel DataContext="{Binding Sidebar.SimilarTracksVm}"/>
-                                    </Expander>
-                                </StackPanel>
-                            </ScrollViewer>
+                            </TabControl>
 
                         </Grid>
                     </Border>

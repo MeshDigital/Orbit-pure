@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using Microsoft.Extensions.Logging;
 using System.Linq;
 using System.Threading.Tasks;
@@ -1514,18 +1515,63 @@ public partial class LibraryViewModel
 
         try
         {
-            var defaultName = $"{Utils.FilenameNormalizer.GetSafeFilename(project.SourceTitle)}.xml";
-            var path = await _dialogService.SaveFileAsync("Export Rekordbox XML", defaultName, "xml");
-            
-            if (string.IsNullOrEmpty(path)) return;
+            // Ask user: copy files to USB/folder, or XML only?
+            bool copyFiles = await _dialogService.ConfirmAsync(
+                "Export Playlist",
+                $"How do you want to export \"{project.SourceTitle}\"?\n\n" +
+                "Yes — copy audio files + write Rekordbox XML (USB / folder export)\n" +
+                "No  — Rekordbox XML only (no file copy)",
+                confirmLabel: "Copy Files + XML",
+                cancelLabel: "XML Only");
 
             IsLoading = true;
-            _notificationService.Show("Exporting", $"Saving '{project.SourceTitle}' to Rekordbox XML...", NotificationType.Information);
-            
-            var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
-            await _exportService.ExportToRekordboxXmlAsync(project.SourceTitle, tracks, path);
-            
-            _notificationService.Show("Export Successful", $"Playlist exported to {Path.GetFileName(path)}", NotificationType.Success);
+            var tracks = (await _libraryService.LoadPlaylistTracksAsync(project.Id)).ToList();
+
+            if (copyFiles)
+            {
+                var folder = await _dialogService.OpenFolderDialogAsync("Choose export folder or USB drive root");
+                if (string.IsNullOrEmpty(folder)) return;
+
+                int total = tracks.Count;
+                var progressHandler = new Progress<Services.Export.ExportProgress>(p =>
+                {
+                    if (!p.IsComplete)
+                        _notificationService.Show("Exporting…",
+                            $"[{p.Copied}/{total}] {p.CurrentFile}" +
+                            (p.Skipped > 0 ? $" · {p.Skipped} skipped" : ""),
+                            NotificationType.Information);
+                });
+
+                await _exportOrchestrator.ExportAsync(
+                    project.SourceTitle, tracks, folder,
+                    Services.Export.ExportMode.FilesAndXml,
+                    progressHandler);
+
+                int skipped = tracks.Count(t =>
+                    string.IsNullOrEmpty(t.ResolvedFilePath) || !System.IO.File.Exists(t.ResolvedFilePath));
+                var xmlPath = System.IO.Path.Combine(folder, "PIONEER", "rekordbox.xml");
+                _notificationService.Show("Export Complete",
+                    $"rekordbox.xml written to {xmlPath}" +
+                    (skipped > 0 ? $" · {skipped} tracks skipped (not downloaded)" : ""),
+                    NotificationType.Success);
+            }
+            else
+            {
+                var defaultName = $"{Utils.FilenameNormalizer.GetSafeFilename(project.SourceTitle)}.xml";
+                var path = await _dialogService.SaveFileAsync("Export Rekordbox XML", defaultName, "xml");
+                if (string.IsNullOrEmpty(path)) return;
+
+                _notificationService.Show("Exporting", $"Saving '{project.SourceTitle}' to Rekordbox XML…", NotificationType.Information);
+                await _exportOrchestrator.ExportAsync(
+                    project.SourceTitle, tracks, path,
+                    Services.Export.ExportMode.XmlOnly);
+                _notificationService.Show("Export Successful",
+                    $"Playlist exported to {Path.GetFileName(path)}", NotificationType.Success);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _notificationService.Show("Export Cancelled", "Export was cancelled.", NotificationType.Warning);
         }
         catch (Exception ex)
         {
@@ -1574,7 +1620,15 @@ public partial class LibraryViewModel
         var selected = Tracks.SelectedTracks.ToList();
         if (selected.Count == 0) return;
 
-        var result = await _dialogService.ShowBatchTagEditDialogAsync();
+        string? initialFileName = null;
+        if (selected.Count == 1)
+        {
+            var singlePath = selected[0].Model?.ResolvedFilePath;
+            if (!string.IsNullOrEmpty(singlePath))
+                initialFileName = System.IO.Path.GetFileNameWithoutExtension(singlePath);
+        }
+
+        var result = await _dialogService.ShowBatchTagEditDialogAsync(initialFileName);
         if (result == null || !result.IsConfirmed) return;
 
         _logger.LogInformation("Batch tag edit for {Count} tracks starting.", selected.Count);
@@ -1611,6 +1665,10 @@ public partial class LibraryViewModel
                                     tagFile.Tag.Artists = new[] { result.Artist };
                                     tagFile.Tag.Performers = new[] { result.Artist };
                                 }
+                                if (!string.IsNullOrWhiteSpace(result.Title))
+                                {
+                                    tagFile.Tag.Title = result.Title;
+                                }
                                 if (!string.IsNullOrWhiteSpace(result.Album))
                                 {
                                     tagFile.Tag.Album = result.Album;
@@ -1642,6 +1700,7 @@ public partial class LibraryViewModel
                     if (dbTrack != null)
                     {
                         if (!string.IsNullOrWhiteSpace(result.Artist)) dbTrack.Artist = result.Artist;
+                        if (!string.IsNullOrWhiteSpace(result.Title)) dbTrack.Title = result.Title;
                         if (!string.IsNullOrWhiteSpace(result.Album)) dbTrack.Album = result.Album;
                         if (!string.IsNullOrWhiteSpace(result.Genre))
                         {
@@ -1660,6 +1719,7 @@ public partial class LibraryViewModel
                         if (dbLibraryEntry != null)
                         {
                             if (!string.IsNullOrWhiteSpace(result.Artist)) dbLibraryEntry.Artist = result.Artist;
+                            if (!string.IsNullOrWhiteSpace(result.Title)) dbLibraryEntry.Title = result.Title;
                             if (!string.IsNullOrWhiteSpace(result.Album)) dbLibraryEntry.Album = result.Album;
                             if (!string.IsNullOrWhiteSpace(result.Genre))
                             {
@@ -1669,6 +1729,61 @@ public partial class LibraryViewModel
                             if (releaseDate.HasValue) dbLibraryEntry.ReleaseDate = releaseDate;
 
                             context.LibraryEntries.Update(dbLibraryEntry);
+                        }
+                    }
+
+                    // 3b. File rename (single-track only, only when NewFileName differs from current)
+                    if (selected.Count == 1 && !string.IsNullOrWhiteSpace(result.NewFileName))
+                    {
+                        var sourcePath = track.ResolvedFilePath;
+                        if (!string.IsNullOrEmpty(sourcePath) && System.IO.File.Exists(sourcePath))
+                        {
+                            var dir = System.IO.Path.GetDirectoryName(sourcePath)!;
+                            var ext = System.IO.Path.GetExtension(sourcePath);
+                            var safeName = result.NewFileName
+                                .Replace('/', '_').Replace('\\', '_').Replace(':', '_').Trim();
+                            if (!string.Equals(safeName,
+                                    System.IO.Path.GetFileNameWithoutExtension(sourcePath),
+                                    StringComparison.OrdinalIgnoreCase)
+                                && !string.IsNullOrWhiteSpace(safeName))
+                            {
+                                var destPath = System.IO.Path.Combine(dir, safeName + ext);
+                                if (!System.IO.File.Exists(destPath))
+                                {
+                                    try
+                                    {
+                                        System.IO.File.Move(sourcePath, destPath);
+                                        track.ResolvedFilePath = destPath;
+
+                                        var dbTrackRename = await context.PlaylistTracks.FirstOrDefaultAsync(t => t.Id == track.Id);
+                                        if (dbTrackRename != null)
+                                        {
+                                            dbTrackRename.ResolvedFilePath = destPath;
+                                            context.PlaylistTracks.Update(dbTrackRename);
+                                        }
+
+                                        if (!string.IsNullOrEmpty(track.TrackUniqueHash))
+                                        {
+                                            var dbEntryRename = await context.LibraryEntries.FirstOrDefaultAsync(e => e.UniqueHash == track.TrackUniqueHash);
+                                            if (dbEntryRename != null)
+                                            {
+                                                dbEntryRename.FilePath = destPath;
+                                                context.LibraryEntries.Update(dbEntryRename);
+                                            }
+                                        }
+
+                                        _logger.LogInformation("Renamed file: {Old} -> {New}", sourcePath, destPath);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogError(ex, "Failed to rename file: {Path}", sourcePath);
+                                    }
+                                }
+                                else
+                                {
+                                    _logger.LogWarning("Rename skipped: target file already exists: {Path}", destPath);
+                                }
+                            }
                         }
                     }
 
@@ -1685,6 +1800,10 @@ public partial class LibraryViewModel
                     if (!string.IsNullOrWhiteSpace(result.Artist))
                     {
                         trackVm.Artist = result.Artist;
+                    }
+                    if (!string.IsNullOrWhiteSpace(result.Title))
+                    {
+                        trackVm.Title = result.Title;
                     }
                     if (!string.IsNullOrWhiteSpace(result.Album))
                     {

@@ -16,6 +16,8 @@ public record TrackAddedEvent(PlaylistTrack TrackModel, PlaylistTrackState? Init
 public record BatchTracksAddedEvent(IReadOnlyList<(PlaylistTrack Track, PlaylistTrackState? InitialState)> Tracks); // Issue #4: Batch event for bulk imports
 public record TrackRemovedEvent(string TrackGlobalId);
 public record TrackMovedEvent(string TrackGlobalId, Guid OldProjectId, Guid NewProjectId);
+public record RemoveTrackFromInspectorEvent(string TrackGlobalId);
+public record EditTagsFromInspectorEvent(string TrackGlobalId);
 public record TrackStateChangedEvent(string TrackGlobalId, Guid ProjectId, PlaylistTrackState State, DownloadFailureReason FailureReason = DownloadFailureReason.None, string? Error = null, SearchAttemptLog? SearchLog = null, string? PeerName = null);
 // Phase 2.5: Enhanced with byte-level progress tracking
 public record TrackProgressChangedEvent(string TrackGlobalId, double Progress, long BytesReceived, long TotalBytes, string? CorrelationId = null);
