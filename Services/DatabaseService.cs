@@ -1212,6 +1212,7 @@ public class DatabaseService
     {
         using var context = new AppDbContext();
 
+        // --- Pass 1: PlaylistTracks ---
         var assumedPresent = await context.PlaylistTracks
             .Where(t => t.Status == TrackStatus.Downloaded && t.ResolvedFilePath != null && t.ResolvedFilePath != "")
             .ToListAsync();
@@ -1223,7 +1224,7 @@ public class DatabaseService
             {
                 track.Status = TrackStatus.Missing;
                 track.AvailabilityState = TrackAvailabilityState.Ghost;
-                track.ResolvedFilePath = string.Empty; // DB schema is NOT NULL; empty signals "no file"
+                track.ResolvedFilePath = string.Empty;
                 reset++;
             }
         }
@@ -1231,7 +1232,38 @@ public class DatabaseService
         if (reset > 0)
             await context.SaveChangesAsync();
 
-        return (reset, assumedPresent.Count);
+        // --- Pass 2: LibraryEntries (source of Format Split / library counts) ---
+        // Entries whose FilePath no longer exists are stale — remove them so the
+        // DB counts match physical reality.
+        var libraryEntries = await context.LibraryEntries
+            .Where(e => e.FilePath != null && e.FilePath != "")
+            .ToListAsync();
+
+        int staleRemoved = 0;
+        var staleEntries = new List<LibraryEntryEntity>();
+        foreach (var entry in libraryEntries)
+        {
+            if (!System.IO.File.Exists(entry.FilePath))
+            {
+                staleEntries.Add(entry);
+                staleRemoved++;
+            }
+        }
+
+        if (staleEntries.Count > 0)
+        {
+            context.LibraryEntries.RemoveRange(staleEntries);
+            await context.SaveChangesAsync();
+            _logger.LogWarning(
+                "Reconcile removed {Count} stale LibraryEntry records whose files no longer exist on disk.",
+                staleRemoved);
+        }
+
+        _logger.LogInformation(
+            "Reconcile complete — PlaylistTracks: {Reset} reset (checked {Checked}), LibraryEntries: {Stale} stale removed (checked {LibChecked})",
+            reset, assumedPresent.Count, staleRemoved, libraryEntries.Count);
+
+        return (reset + staleRemoved, assumedPresent.Count + libraryEntries.Count);
     }
 
     /// <summary>
