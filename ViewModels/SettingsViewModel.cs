@@ -1834,12 +1834,17 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             // 2. Run Scan
             var progress = new Progress<ScanProgress>(p =>
             {
-                var folderLabel = string.IsNullOrWhiteSpace(p.CurrentFile)
-                    ? (string.IsNullOrWhiteSpace(p.CurrentFolder) ? string.Empty
-                        : $" | {System.IO.Path.GetFileName(p.CurrentFolder.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar))}")
-                    : $" | {p.CurrentFile}";
+                var lines = new System.Text.StringBuilder();
 
-                ScanStatus = $"Scanning: Found {p.FilesDiscovered}, Imported {p.FilesImported}, Upgraded {p.FilesAutoUpgraded}, RemoveCands {p.FilesMarkedForRemoval}, DupPath {p.FilesDuplicateByPath}, DupTrack {p.FilesDuplicateByHash}{folderLabel}";
+                // Completed folders — one summary line each
+                foreach (var f in p.CompletedFolders)
+                    lines.AppendLine(f.Display());
+
+                // Active folder — live counter
+                var active = string.IsNullOrWhiteSpace(p.CurrentFile) ? string.Empty : $"  ⟳ {p.CurrentFile}";
+                lines.Append($"Total: {p.FilesDiscovered} found  |  {p.FilesImported} new  |  {p.FilesDuplicateByPath + p.FilesDuplicateByHash} known  |  {p.FilesAutoUpgraded} upgraded{active}");
+
+                ScanStatus = lines.ToString();
             });
 
             var results = await _libraryFolderScannerService.ScanAllFoldersAsync(progress);
@@ -1853,18 +1858,20 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             int totalUpgraded = results.Values.Sum(r => r.FilesAutoUpgraded);
             int totalRemovalCandidates = results.Values.Sum(r => r.FilesMarkedForRemoval);
 
-            var topFolders = results.Values
-                .OrderByDescending(r => r.FilesImported)
-                .ThenByDescending(r => r.TotalFilesFound)
-                .Take(2)
-                .Select(r => $"{System.IO.Path.GetFileName(r.FolderPath)}:{r.FilesImported}")
-                .ToList();
-
-            var topFoldersText = topFolders.Count > 0
-                ? $" | Top: {string.Join(", ", topFolders)}"
-                : string.Empty;
-            
-            ScanStatus = $"Done. Imported {totalImported} | Upgraded {totalUpgraded} | RemoveCands {totalRemovalCandidates} | DupPath {totalDupPath} | DupTrack {totalDupHash} | MetaFail {totalMetadataFailed} | Skipped {totalSkipped}{topFoldersText}";
+            // Per-folder breakdown for the final status
+            int idx = 0;
+            var folderLines = new System.Text.StringBuilder();
+            folderLines.AppendLine($"✅ Scan complete — {totalImported} new, {totalDupPath + totalDupHash} known, {totalUpgraded} upgraded");
+            foreach (var r in results.Values)
+            {
+                idx++;
+                var name = System.IO.Path.GetFileName(r.FolderPath.TrimEnd(
+                    System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar));
+                if (string.IsNullOrEmpty(name)) name = r.FolderPath;
+                var tag = r.FilesImported > 0 ? $"+{r.FilesImported} new" : (r.TotalFilesFound > 0 ? "all known" : "empty/inaccessible");
+                folderLines.AppendLine($"  [{idx}] {name}  —  {r.TotalFilesFound} files  {tag}");
+            }
+            ScanStatus = folderLines.ToString().TrimEnd();
             _logger.LogInformation(
                 "Manual scan complete. Imported: {Imported}, Upgraded: {Upgraded}, RemoveCandidates: {RemoveCandidates}, Skipped: {Skipped}, DupPath: {DupPath}, DupHash: {DupHash}, MetaFailed: {MetaFailed}",
                 totalImported,

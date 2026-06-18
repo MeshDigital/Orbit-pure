@@ -13,6 +13,27 @@ using System.Threading.Tasks;
 
 namespace SLSKDONET.Services;
 
+public class FolderScanSummary
+{
+    public string FolderPath { get; init; } = string.Empty;
+    public int Index { get; init; }
+    public int Total { get; init; }
+    public int Found { get; init; }
+    public int Imported { get; init; }
+    public int DupPath { get; init; }
+    public int DupHash { get; init; }
+    public int Upgraded { get; init; }
+
+    public string Display()
+    {
+        var name = System.IO.Path.GetFileName(FolderPath.TrimEnd(
+            System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar));
+        if (string.IsNullOrEmpty(name)) name = FolderPath;
+        var tag = Imported > 0 ? $"+{Imported} new" : (DupPath + DupHash > 0 ? "all known" : "empty");
+        return $"[{Index}/{Total}] {name}  {Found} files  {tag}";
+    }
+}
+
 public class ScanProgress
 {
     public int FilesDiscovered { get; set; }
@@ -25,6 +46,9 @@ public class ScanProgress
     public int FilesMarkedForRemoval { get; set; }
     public string CurrentFile { get; set; } = string.Empty;
     public string CurrentFolder { get; set; } = string.Empty;
+
+    // Populated after each folder completes so the UI can render a per-folder log.
+    public List<FolderScanSummary> CompletedFolders { get; set; } = new();
 }
 
 public class ScanResult
@@ -511,6 +535,7 @@ public class LibraryFolderScannerService
         int baseDiscovered = 0, baseImported = 0, baseSkipped = 0;
         int baseDupPath = 0, baseDupHash = 0, baseUpgraded = 0, baseRemoval = 0, baseMeta = 0;
         int folderIndex = 0;
+        var completedFolders = new List<FolderScanSummary>();
 
         foreach (var folder in folders)
         {
@@ -522,33 +547,64 @@ public class LibraryFolderScannerService
             int capDisc = baseDiscovered, capImp = baseImported, capSkip = baseSkipped;
             int capDupP = baseDupPath, capDupH = baseDupHash, capUpg = baseUpgraded;
             int capRem = baseRemoval, capMeta = baseMeta;
+            var capturedCompleted = completedFolders.ToList(); // snapshot for closure
 
             IProgress<ScanProgress>? wrappedProgress = progress == null ? null : new Progress<ScanProgress>(p =>
             {
-                // Report accumulated totals + current folder's in-progress counts
-                var folderName = string.IsNullOrEmpty(p.CurrentFolder)
-                    ? string.Empty
+                var folderName = string.IsNullOrEmpty(p.CurrentFolder) ? string.Empty
                     : Path.GetFileName(p.CurrentFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
                 progress.Report(new ScanProgress
                 {
-                    FilesDiscovered     = capDisc + p.FilesDiscovered,
-                    FilesImported       = capImp  + p.FilesImported,
-                    FilesSkipped        = capSkip + p.FilesSkipped,
+                    FilesDiscovered      = capDisc + p.FilesDiscovered,
+                    FilesImported        = capImp  + p.FilesImported,
+                    FilesSkipped         = capSkip + p.FilesSkipped,
                     FilesDuplicateByPath = capDupP + p.FilesDuplicateByPath,
                     FilesDuplicateByHash = capDupH + p.FilesDuplicateByHash,
-                    FilesAutoUpgraded   = capUpg  + p.FilesAutoUpgraded,
+                    FilesAutoUpgraded    = capUpg  + p.FilesAutoUpgraded,
                     FilesMarkedForRemoval = capRem + p.FilesMarkedForRemoval,
-                    FilesMetadataFailed = capMeta + p.FilesMetadataFailed,
-                    CurrentFolder       = p.CurrentFolder,
-                    CurrentFile         = $"[{capturedIndex}/{capturedTotal}] {folderName} — {p.CurrentFile}"
+                    FilesMetadataFailed  = capMeta + p.FilesMetadataFailed,
+                    CurrentFolder        = p.CurrentFolder,
+                    CurrentFile          = $"[{capturedIndex}/{capturedTotal}] {folderName} — {p.CurrentFile}",
+                    CompletedFolders     = capturedCompleted
                 });
             });
 
             var result = await ScanFolderAsync(folder.Id, wrappedProgress, ct);
             results[folder.Id] = result;
 
-            // Advance the baseline so the next folder starts from the right offset
+            // Record this folder's outcome so the UI can show a per-folder log.
+            completedFolders.Add(new FolderScanSummary
+            {
+                FolderPath = folder.FolderPath,
+                Index      = capturedIndex,
+                Total      = capturedTotal,
+                Found      = result.TotalFilesFound,
+                Imported   = result.FilesImported,
+                DupPath    = result.FilesDuplicateByPath,
+                DupHash    = result.FilesDuplicateByHash,
+                Upgraded   = result.FilesAutoUpgraded
+            });
+
+            // Emit a completion snapshot so the UI reflects the just-finished folder immediately.
+            progress?.Report(new ScanProgress
+            {
+                FilesDiscovered      = baseDiscovered + result.TotalFilesFound,
+                FilesImported        = baseImported   + result.FilesImported,
+                FilesSkipped         = baseSkipped    + result.FilesSkipped,
+                FilesDuplicateByPath = baseDupPath    + result.FilesDuplicateByPath,
+                FilesDuplicateByHash = baseDupHash    + result.FilesDuplicateByHash,
+                FilesAutoUpgraded    = baseUpgraded   + result.FilesAutoUpgraded,
+                FilesMarkedForRemoval = baseRemoval   + result.FilesMarkedForRemoval,
+                FilesMetadataFailed  = baseMeta       + result.FilesMetadataFailed,
+                CurrentFolder        = folder.FolderPath,
+                CurrentFile          = completedFolders.Count < capturedTotal
+                    ? $"[{capturedIndex}/{capturedTotal}] done — starting next folder..."
+                    : string.Empty,
+                CompletedFolders     = completedFolders.ToList()
+            });
+
+            // Advance baseline
             baseDiscovered += result.TotalFilesFound;
             baseImported   += result.FilesImported;
             baseSkipped    += result.FilesSkipped;
