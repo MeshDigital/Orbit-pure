@@ -708,10 +708,25 @@
                                         <TextBlock Text="{Binding FocusedDeck.DisplayBpm, StringFormat='{}{0:F1} BPM', TargetNullValue='— BPM'}" FontSize="10" Foreground="#7FC7FF"/>
                                     </Border>
                                     <Border Classes="ws-chip" Background="#18222C" BorderBrush="#2F3D4A" BorderThickness="1" CornerRadius="4" Padding="6,2">
-                                        <!-- Using Camelot key notation format -->
                                         <TextBlock Text="{Binding FocusedDeck.TrackKey, TargetNullValue='— Key'}" FontSize="10" Foreground="#95D36A"/>
                                     </Border>
                                 </StackPanel>
+                                <!-- Live position readout -->
+                                <Border Background="#0D1419" BorderBrush="#1E2D3A" BorderThickness="1"
+                                        CornerRadius="4" Padding="8,4" Margin="0,4,0,0"
+                                        IsVisible="{Binding FocusedDeck.IsLoaded}">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Grid.Column="0"
+                                                   Text="{Binding FocusedDeck.PositionDisplayText}"
+                                                   FontSize="13" FontWeight="Bold" Foreground="#DDE9F5"
+                                                   FontFamily="Consolas,Courier New,monospace"/>
+                                        <Border Grid.Column="1" Background="#1A3020" BorderBrush="#2D6040"
+                                                BorderThickness="1" CornerRadius="3" Padding="5,1"
+                                                IsVisible="{Binding FocusedDeck.IsLoopActive}">
+                                            <TextBlock Text="LOOP" FontSize="9" FontWeight="Black" Foreground="#B8E986"/>
+                                        </Border>
+                                    </Grid>
+                                </Border>
                             </StackPanel>
 
                             <Separator Background="#252526" Height="1"/>
@@ -762,21 +777,116 @@
                                 </Grid>
                                 
                                 <UniformGrid Rows="2" Columns="4" Margin="0,4,0,0">
-                                    <Button Classes="hotcue hotcue-1" Command="{Binding FocusedDeck.HotCue1Command}" Content="{Binding FocusedDeck.HotCue1Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue1Tooltip}"/>
-                                    <Button Classes="hotcue hotcue-2" Command="{Binding FocusedDeck.HotCue2Command}" Content="{Binding FocusedDeck.HotCue2Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue2Tooltip}"/>
-                                    <Button Classes="hotcue hotcue-3" Command="{Binding FocusedDeck.HotCue3Command}" Content="{Binding FocusedDeck.HotCue3Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue3Tooltip}"/>
-                                    <Button Classes="hotcue hotcue-4" Command="{Binding FocusedDeck.HotCue4Command}" Content="{Binding FocusedDeck.HotCue4Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue4Tooltip}"/>
-                                    <Button Classes="hotcue hotcue-5" Command="{Binding FocusedDeck.HotCue5Command}" Content="{Binding FocusedDeck.HotCue5Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue5Tooltip}"/>
-                                    <Button Classes="hotcue hotcue-6" Command="{Binding FocusedDeck.HotCue6Command}" Content="{Binding FocusedDeck.HotCue6Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue6Tooltip}"/>
-                                    <Button Classes="hotcue hotcue-7" Command="{Binding FocusedDeck.HotCue7Command}" Content="{Binding FocusedDeck.HotCue7Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue7Tooltip}"/>
-                                    <Button Classes="hotcue hotcue-8" Command="{Binding FocusedDeck.HotCue8Command}" Content="{Binding FocusedDeck.HotCue8Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue8Tooltip}"/>
+                                    <Button Classes="hotcue hotcue-1" Command="{Binding FocusedDeck.HotCue1Command}" Content="{Binding FocusedDeck.HotCue1Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue1Tooltip}">
+                                        <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="0"/></ContextMenu></Button.ContextMenu>
+                                    </Button>
+                                    <Button Classes="hotcue hotcue-2" Command="{Binding FocusedDeck.HotCue2Command}" Content="{Binding FocusedDeck.HotCue2Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue2Tooltip}">
+                                        <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="1"/></ContextMenu></Button.ContextMenu>
+                                    </Button>
+                                    <Button Classes="hotcue hotcue-3" Command="{Binding FocusedDeck.HotCue3Command}" Content="{Binding FocusedDeck.HotCue3Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue3Tooltip}">
+                                        <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="2"/></ContextMenu></Button.ContextMenu>
+                                    </Button>
+                                    <Button Classes="hotcue hotcue-4" Command="{Binding FocusedDeck.HotCue4Command}" Content="{Binding FocusedDeck.HotCue4Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue4Tooltip}">
+                                        <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="3"/></ContextMenu></Button.ContextMenu>
+                                    </Button>
+                                    <Button Classes="hotcue hotcue-5" Command="{Binding FocusedDeck.HotCue5Command}" Content="{Binding FocusedDeck.HotCue5Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue5Tooltip}">
+                                        <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="4"/></ContextMenu></Button.ContextMenu>
+                                    </Button>
+                                    <Button Classes="hotcue hotcue-6" Command="{Binding FocusedDeck.HotCue6Command}" Content="{Binding FocusedDeck.HotCue6Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue6Tooltip}">
+                                        <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="5"/></ContextMenu></Button.ContextMenu>
+                                    </Button>
+                                    <Button Classes="hotcue hotcue-7" Command="{Binding FocusedDeck.HotCue7Command}" Content="{Binding FocusedDeck.HotCue7Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue7Tooltip}">
+                                        <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="6"/></ContextMenu></Button.ContextMenu>
+                                    </Button>
+                                    <Button Classes="hotcue hotcue-8" Command="{Binding FocusedDeck.HotCue8Command}" Content="{Binding FocusedDeck.HotCue8Text}" ToolTip.Tip="{Binding FocusedDeck.HotCue8Tooltip}">
+                                        <Button.ContextMenu><ContextMenu><MenuItem Header="Clear pad" Command="{Binding FocusedDeck.DeleteHotCueAtSlotCommand}" CommandParameter="7"/></ContextMenu></Button.ContextMenu>
+                                    </Button>
                                 </UniformGrid>
                                 <TextBlock Text="{Binding FocusedDeck.HotCueSummary, TargetNullValue='No cues prepped'}" FontSize="10" Foreground="#7CB8FF" TextTrimming="CharacterEllipsis"/>
                             </StackPanel>
 
                             <Separator Background="#252526" Height="1"/>
 
-                            <!-- 4. Stems Mixer Rack -->
+                            <!-- 4. Loop Controls -->
+                            <StackPanel Spacing="6" IsEnabled="{Binding FocusedDeck.IsLoaded}">
+                                <Grid ColumnDefinitions="*,Auto,Auto" VerticalAlignment="Center">
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <TextBlock Text="LOOP" FontSize="9" FontWeight="Black" Foreground="#666" VerticalAlignment="Center"/>
+                                        <!-- Green "ACTIVE" pill when engine loop is running -->
+                                        <Border Background="#1A3020" BorderBrush="#2D6040" BorderThickness="1"
+                                                CornerRadius="3" Padding="4,1"
+                                                IsVisible="{Binding FocusedDeck.IsLoopActive}">
+                                            <TextBlock Text="ACTIVE" FontSize="8" FontWeight="Black" Foreground="#B8E986"/>
+                                        </Border>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Classes="phrase-chip" Height="22" Padding="6,0"
+                                            Command="{Binding FocusedDeck.AddMemoryCueCommand}"
+                                            ToolTip.Tip="Drop memory cue at playhead">MEM</Button>
+                                    <Button Grid.Column="2" Classes="phrase-chip" Height="22" Padding="6,0" Margin="4,0,0,0"
+                                            Command="{Binding FocusedDeck.Deck.ExitLoopCommand}"
+                                            IsVisible="{Binding FocusedDeck.IsLoopActive}"
+                                            ToolTip.Tip="Exit active loop">EXIT</Button>
+                                </Grid>
+
+                                <!-- IN / OUT buttons row -->
+                                <Grid ColumnDefinitions="*,*,*" Margin="0,2,0,0">
+                                    <Button Grid.Column="0" Classes="secondary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                            Command="{Binding FocusedDeck.SetLoopInCommand}"
+                                            ToolTip.Tip="Set loop in-point at playhead">IN</Button>
+                                    <Button Grid.Column="1" Classes="secondary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                            Margin="4,0,0,0"
+                                            Command="{Binding FocusedDeck.SetLoopOutCommand}"
+                                            ToolTip.Tip="Set loop out-point at playhead">OUT</Button>
+                                    <Button Grid.Column="2" Classes="secondary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                            Margin="4,0,0,0"
+                                            Command="{Binding FocusedDeck.ClearStagedLoopCommand}"
+                                            ToolTip.Tip="Clear loop">CLR</Button>
+                                </Grid>
+
+                                <!-- Active loop display + commit -->
+                                <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,0">
+                                    <TextBlock Grid.Column="0" Text="{Binding FocusedDeck.LoopRegionText}"
+                                               FontSize="10" Foreground="#B8E986" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                    <Button Grid.Column="1" Classes="phrase-chip" Height="22" Padding="6,0"
+                                            Command="{Binding FocusedDeck.CommitLoopCommand}"
+                                            IsEnabled="{Binding FocusedDeck.LoopIsReady}"
+                                            ToolTip.Tip="Save loop to cue list (persists to Rekordbox export)">SAVE</Button>
+                                </Grid>
+
+                                <!-- Loop length badge (bars) -->
+                                <TextBlock Text="{Binding FocusedDeck.LoopLengthBarsText}"
+                                           FontSize="9" Foreground="#A0A0A0"
+                                           IsVisible="{Binding FocusedDeck.LoopIsReady}"/>
+
+                                <!-- Auto-loop preset row -->
+                                <Grid ColumnDefinitions="*,*,*,*,*" Margin="0,4,0,0">
+                                    <Button Grid.Column="0" Classes="phrase-chip" Padding="0"
+                                            Command="{Binding FocusedDeck.AutoLoopBarsCommand}"
+                                            CommandParameter="0.5"
+                                            ToolTip.Tip="½ bar auto-loop">½</Button>
+                                    <Button Grid.Column="1" Classes="phrase-chip" Padding="0"
+                                            Command="{Binding FocusedDeck.AutoLoopBarsCommand}"
+                                            CommandParameter="1"
+                                            ToolTip.Tip="1 bar auto-loop">1</Button>
+                                    <Button Grid.Column="2" Classes="phrase-chip" Padding="0"
+                                            Command="{Binding FocusedDeck.AutoLoopBarsCommand}"
+                                            CommandParameter="2"
+                                            ToolTip.Tip="2 bar auto-loop">2</Button>
+                                    <Button Grid.Column="3" Classes="phrase-chip" Padding="0"
+                                            Command="{Binding FocusedDeck.AutoLoopBarsCommand}"
+                                            CommandParameter="4"
+                                            ToolTip.Tip="4 bar auto-loop">4</Button>
+                                    <Button Grid.Column="4" Classes="phrase-chip" Padding="0"
+                                            Command="{Binding FocusedDeck.AutoLoopBarsCommand}"
+                                            CommandParameter="8"
+                                            ToolTip.Tip="8 bar auto-loop">8</Button>
+                                </Grid>
+                            </StackPanel>
+
+                            <Separator Background="#252526" Height="1"/>
+
+                            <!-- 5. Stems Mixer Rack -->
                             <StackPanel Spacing="6" IsEnabled="{Binding FocusedDeck.IsLoaded}">
                                 <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
                                     <TextBlock Grid.Column="0" Text="STEM MIXER" FontSize="9" FontWeight="Black" Foreground="#666" VerticalAlignment="Center"/>

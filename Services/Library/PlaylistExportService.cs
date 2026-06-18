@@ -27,13 +27,32 @@ public class PlaylistExportService
         _dbFactory = dbFactory;
     }
 
-    public async Task ExportToRekordboxXmlAsync(string playlistName, IEnumerable<PlaylistTrack> tracks, string targetPath)
+    /// <param name="pathMap">
+    /// Optional override map: local source path → destination path.
+    /// When supplied (USB/folder export) the XML Location attribute uses the
+    /// destination path instead of the original local path.
+    /// </param>
+    public async Task ExportToRekordboxXmlAsync(
+        string playlistName,
+        IEnumerable<PlaylistTrack> tracks,
+        string targetPath,
+        IReadOnlyDictionary<string, string>? pathMap = null)
     {
         try
         {
             _logger.LogInformation("Exporting playlist '{PlaylistName}' to Rekordbox XML: {Path}", playlistName, targetPath);
 
-            var trackList = tracks.ToList();
+            // Deduplicate by ResolvedFilePath so the same physical file never appears twice in the XML.
+            // A playlist can have multiple PlaylistTrack rows pointing to the same file when a track was
+            // re-imported or synced more than once. Keep only the first occurrence per path.
+            var trackList = tracks
+                .GroupBy(
+                    t => string.IsNullOrEmpty(t.ResolvedFilePath)
+                        ? t.TrackUniqueHash ?? t.Id.ToString()   // fall back to hash for unresolved tracks
+                        : t.ResolvedFilePath,
+                    StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .ToList();
 
             // Pre-load all cue points for tracks in this export in one query
             var hashes = trackList.Select(t => t.TrackUniqueHash).Where(h => !string.IsNullOrEmpty(h)).Distinct().ToList();
@@ -59,15 +78,24 @@ public class PlaylistExportService
                 }
             }
 
+            // Build parallel lists so cue look-up stays correct even when some tracks
+            // are skipped (file not found). Using a separate source list avoids the
+            // index-mismatch bug that occurs when iterating rbTracks by index into trackList.
             var rbTracks = new List<RekordboxTrack>();
+            var rbSources = new List<PlaylistTrack>();
             int trackId = 1;
 
             foreach (var track in trackList)
             {
-                if (string.IsNullOrEmpty(track.ResolvedFilePath) || !File.Exists(track.ResolvedFilePath))
+                // Use dest path when a pathMap is provided (USB/folder export), otherwise use local path
+                var effectivePath = pathMap != null && pathMap.TryGetValue(track.ResolvedFilePath ?? "", out var mapped)
+                    ? mapped
+                    : track.ResolvedFilePath;
+
+                if (string.IsNullOrEmpty(effectivePath) || !File.Exists(effectivePath))
                     continue;
 
-                var fileInfo = new FileInfo(track.ResolvedFilePath);
+                var fileInfo = new FileInfo(effectivePath);
                 // Map energy (0-1 Spotify scale or ManualEnergy 1-10) → Rekordbox 0-255 Rating
                 int energyStars = 0;
                 if (track.ManualEnergy.HasValue)
@@ -95,11 +123,12 @@ public class PlaylistExportService
                     BitRate = track.Bitrate ?? 0,
                     AverageBpm = track.BPM ?? 0,
                     Tonality = track.MusicalKey ?? "",
-                    Location = "file://localhost/" + track.ResolvedFilePath.Replace("\\", "/"),
+                    Location = "file://localhost/" + effectivePath.Replace("\\", "/"),
                     Rating = rbRating,
                     Comments = comments,
                 };
                 rbTracks.Add(rbTrack);
+                rbSources.Add(track);
             }
 
             var doc = new XDocument(
@@ -114,8 +143,8 @@ public class PlaylistExportService
                         new XAttribute("Entries", rbTracks.Count),
                         rbTracks.Select((t, idx) =>
                         {
-                            var srcTrack = trackList.ElementAtOrDefault(idx);
-                            var hash = srcTrack?.TrackUniqueHash ?? string.Empty;
+                            var srcTrack = rbSources[idx];
+                            var hash = srcTrack.TrackUniqueHash ?? string.Empty;
                             var cues = cuesByHash.TryGetValue(hash, out var list) ? list : new List<CuePointEntity>();
                             var bpm = t.AverageBpm;
 
@@ -186,11 +215,20 @@ public class PlaylistExportService
         // Merge DB cue points + user cues from CuePointsJson
         var allCues = BuildCueList(dbCues, src?.CuePointsJson);
 
-        int padNum = 0;
-        foreach (var cue in allCues.Take(32)) // Rekordbox XML supports up to 8 hot cues + memory cues
+        // Separate loops from point cues — loops get Type=4 with End attribute, point cues get Type=0
+        var pointCues = allCues.Where(c => !c.IsLoop).ToList();
+        var loopCues  = allCues.Where(c => c.IsLoop).ToList();
+
+        // Assign Rekordbox pad numbers for point cues: use SlotIndex when set (0-7), else -1 (memory cue)
+        int nextFreePad = 0;
+        foreach (var cue in pointCues.Take(32))
         {
             var (r, g, b) = HexToRgb(cue.Color);
-            int num = padNum < 8 ? padNum : -1; // 0-7 = hot cue pad; -1 = memory cue
+            int num;
+            if (cue.SlotIndex >= 0 && cue.SlotIndex <= 7)
+                num = cue.SlotIndex;
+            else
+                num = nextFreePad < 8 ? nextFreePad++ : -1;
             trackElem.Add(new XElement("POSITION_MARK",
                 new XAttribute("Name", cue.Name),
                 new XAttribute("Type", "0"),
@@ -200,7 +238,22 @@ public class PlaylistExportService
                 new XAttribute("Green", g),
                 new XAttribute("Blue", b)
             ));
-            padNum++;
+        }
+
+        // Loop cues: Type=4, Num=-1, Start + End attributes (Rekordbox format)
+        foreach (var loop in loopCues)
+        {
+            var (r, g, b) = HexToRgb(loop.Color);
+            trackElem.Add(new XElement("POSITION_MARK",
+                new XAttribute("Name", loop.Name),
+                new XAttribute("Type", "4"),
+                new XAttribute("Start", loop.Timestamp.ToString("F3")),
+                new XAttribute("End", loop.LoopEndSeconds.ToString("F3")),
+                new XAttribute("Num", "-1"),
+                new XAttribute("Red", r),
+                new XAttribute("Green", g),
+                new XAttribute("Blue", b)
+            ));
         }
 
         return trackElem;
@@ -221,10 +274,13 @@ public class PlaylistExportService
         {
             result.Add(new OrbitCue
             {
-                Timestamp = c.TimestampInSeconds,
-                Name = c.Label,
-                Color = c.Color,
-                Source = CueSource.Auto
+                Timestamp      = c.TimestampInSeconds,
+                Name           = c.Label,
+                Color          = c.Color,
+                Source         = CueSource.Auto,
+                IsLoop         = c.IsLoop,
+                LoopEndSeconds = c.LoopEndSeconds,
+                SlotIndex      = c.SlotIndex
             });
         }
 

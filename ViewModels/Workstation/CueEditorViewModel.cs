@@ -56,6 +56,9 @@ public sealed class CueEditorViewModel : ReactiveObject, IDisposable
     /// <summary>Add a new user cue at the given timestamp (seconds).</summary>
     public ReactiveCommand<double, Unit> AddCueAtPositionCommand { get; }
 
+    /// <summary>Add or replace a hot cue at the given timestamp in a specific pad slot (0–7).</summary>
+    public ReactiveCommand<(double Timestamp, int Slot), Unit> AddHotCueAtSlotCommand { get; }
+
     /// <summary>Called by WaveformControl.CueUpdatedCommand after a drag-to-move.</summary>
     public ReactiveCommand<OrbitCue, Unit> UpdateCueCommand { get; }
 
@@ -76,6 +79,9 @@ public sealed class CueEditorViewModel : ReactiveObject, IDisposable
     /// <summary>Clear any active loop cue.</summary>
     public ReactiveCommand<Unit, Unit> ClearLoopCommand { get; }
 
+    /// <summary>Remove the cue assigned to a specific hot-cue pad slot (0–7). No-op if slot is empty.</summary>
+    public ReactiveCommand<int, Unit> DeleteHotCueAtSlotCommand { get; }
+
     // ── Constructor ───────────────────────────────────────────────────────────
 
     public CueEditorViewModel(ICuePointService cueService)
@@ -84,16 +90,18 @@ public sealed class CueEditorViewModel : ReactiveObject, IDisposable
 
         var hasHash = this.WhenAnyValue(x => x.TrackHash, h => !string.IsNullOrEmpty(h));
 
-        AddCueAtPositionCommand = ReactiveCommand.CreateFromTask<double>(AddCueAtPositionAsync, hasHash);
-        UpdateCueCommand        = ReactiveCommand.CreateFromTask<OrbitCue>(UpdateCueAsync, hasHash);
+        AddCueAtPositionCommand  = ReactiveCommand.CreateFromTask<double>(AddCueAtPositionAsync, hasHash);
+        AddHotCueAtSlotCommand   = ReactiveCommand.CreateFromTask<(double, int)>(AddHotCueAtSlotAsync, hasHash);
+        UpdateCueCommand         = ReactiveCommand.CreateFromTask<OrbitCue>(UpdateCueAsync, hasHash);
         DeleteCueCommand        = ReactiveCommand.CreateFromTask<OrbitCue>(DeleteCueAsync, hasHash);
         UndoCommand             = ReactiveCommand.Create(Undo,
             this.WhenAnyValue(x => x.CanUndo));
         RedoCommand             = ReactiveCommand.Create(Redo,
             this.WhenAnyValue(x => x.CanRedo));
         ResetToAutoCommand      = ReactiveCommand.CreateFromTask(ResetToAutoAsync, hasHash);
-        SetLoopCommand          = ReactiveCommand.CreateFromTask<(double, double)>(SetLoopAsync, hasHash);
-        ClearLoopCommand        = ReactiveCommand.CreateFromTask(ClearLoopAsync, hasHash);
+        SetLoopCommand               = ReactiveCommand.CreateFromTask<(double, double)>(SetLoopAsync, hasHash);
+        ClearLoopCommand             = ReactiveCommand.CreateFromTask(ClearLoopAsync, hasHash);
+        DeleteHotCueAtSlotCommand    = ReactiveCommand.CreateFromTask<int>(DeleteHotCueAtSlotAsync, hasHash);
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -133,15 +141,47 @@ public sealed class CueEditorViewModel : ReactiveObject, IDisposable
         PushSnapshot();
         var cue = new OrbitCue
         {
-            Timestamp = timestampSeconds,
-            Name      = $"Cue {Cues.Count + 1}",
-            Color     = "#FFFF00",
-            Source    = CueSource.User,
-            Role      = CueRole.Custom
+            Timestamp  = timestampSeconds,
+            Name       = $"Cue {Cues.Count + 1}",
+            Color      = "#FFFF00",
+            Source     = CueSource.User,
+            Role       = CueRole.Custom,
+            SlotIndex  = -1  // memory cue by default
         };
         Cues.Add(cue);
         await SaveAllAsync();
     }
+
+    private async Task AddHotCueAtSlotAsync((double Timestamp, int Slot) args)
+    {
+        if (TrackHash is null) return;
+        PushSnapshot();
+        // Remove any existing cue in this slot
+        var existing = Cues.FirstOrDefault(c => c.SlotIndex == args.Slot);
+        if (existing != null) Cues.Remove(existing);
+        Cues.Add(new OrbitCue
+        {
+            Timestamp  = args.Timestamp,
+            Name       = $"H{args.Slot + 1}",
+            Color      = HotCueSlotColor(args.Slot),
+            Source     = CueSource.User,
+            Role       = CueRole.Custom,
+            SlotIndex  = args.Slot
+        });
+        await SaveAllAsync();
+    }
+
+    private static string HotCueSlotColor(int slot) => slot switch
+    {
+        0 => "#FF0000",
+        1 => "#FF8800",
+        2 => "#FFFF00",
+        3 => "#00FF00",
+        4 => "#00FFFF",
+        5 => "#0088FF",
+        6 => "#8800FF",
+        _ => "#FF00FF"
+    };
 
     private async Task UpdateCueAsync(OrbitCue cue)
     {
@@ -234,6 +274,16 @@ public sealed class CueEditorViewModel : ReactiveObject, IDisposable
         await SaveAllAsync();
     }
 
+    private async Task DeleteHotCueAtSlotAsync(int slot)
+    {
+        if (TrackHash is null) return;
+        var cue = Cues.FirstOrDefault(c => c.SlotIndex == slot);
+        if (cue == null) return;
+        PushSnapshot();
+        Cues.Remove(cue);
+        await SaveAllAsync();
+    }
+
     // ── Snapshot helpers ──────────────────────────────────────────────────────
 
     private void PushSnapshot()
@@ -262,7 +312,7 @@ public sealed class CueEditorViewModel : ReactiveObject, IDisposable
             SlotIndex      = c.SlotIndex,
             Confidence     = c.Confidence,
             IsLoop         = c.IsLoop,
-            LoopEndSeconds = c.LoopEndSeconds
+            LoopEndSeconds = c.LoopEndSeconds,
         }).ToArray();
 
     private void RestoreSnapshot(OrbitCue[] snapshot)
@@ -306,10 +356,11 @@ public sealed class CueEditorViewModel : ReactiveObject, IDisposable
         Role           = MapEntityType(e.Type),
         Confidence     = e.Confidence,
         IsLoop         = e.IsLoop,
-        LoopEndSeconds = e.LoopEndSeconds
+        LoopEndSeconds = e.LoopEndSeconds,
+        SlotIndex      = e.SlotIndex
     };
 
-    private static CuePointEntity OrbitCueToEntity(OrbitCue c, string hash, int slotIndex = 0) => new()
+    private static CuePointEntity OrbitCueToEntity(OrbitCue c, string hash, int slotIndex = -1) => new()
     {
         TrackUniqueHash    = hash,
         TimestampInSeconds = c.Timestamp,
@@ -319,7 +370,8 @@ public sealed class CueEditorViewModel : ReactiveObject, IDisposable
         Type               = MapCueRole(c.Role),
         Confidence         = (float)c.Confidence,
         IsLoop             = c.IsLoop,
-        LoopEndSeconds     = c.LoopEndSeconds
+        LoopEndSeconds     = c.LoopEndSeconds,
+        SlotIndex          = c.SlotIndex
     };
 
     private static CueRole MapEntityType(CuePointType t) => t switch

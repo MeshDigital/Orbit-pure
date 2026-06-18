@@ -28,7 +28,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     
     private string _sourceTitle = "Import Preview";
     private string _sourceType = "";
-    private ObservableCollection<SelectableTrack> _importedTracks = new();
+    private ObservableCollection<SelectableTrack> _importedTracks;
     private ObservableCollection<AlbumGroupViewModel> _albumGroups = new();
     private bool _isLoading;
     private string _statusMessage = "Ready to import";
@@ -49,7 +49,21 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     public ObservableCollection<SelectableTrack> ImportedTracks
     {
         get => _importedTracks;
-        set { _importedTracks = value; OnPropertyChanged(); }
+        set
+        {
+            if (_importedTracks != null)
+                _importedTracks.CollectionChanged -= OnImportedTracksChanged;
+            _importedTracks = value;
+            if (_importedTracks != null)
+                _importedTracks.CollectionChanged += OnImportedTracksChanged;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(TrackCount));
+        }
+    }
+
+    private void OnImportedTracksChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(TrackCount));
     }
 
     public ObservableCollection<AlbumGroupViewModel> AlbumGroups
@@ -111,6 +125,8 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
         _libraryService = libraryService;
         _navigationService = navigationService;
         _metadataService = metadataService;
+        _importedTracks = new ObservableCollection<SelectableTrack>();
+        _importedTracks.CollectionChanged += OnImportedTracksChanged;
 
         AddToLibraryCommand = new AsyncRelayCommand(AddToLibraryAsync, () => CanAddToLibrary);
         SelectAllCommand = new RelayCommand(SelectAll);

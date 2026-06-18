@@ -26,20 +26,19 @@ public static class CommentTracklistParser
     private static readonly Regex LeadingMixMarkerRegex = new(@"^\s*w\/?\s+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     
     // Keywords that indicate junk lines
-    private static readonly string[] JunkKeywords = 
-    { 
-        "tracklist", 
-        "setlist", 
-        "playlist", 
-        "📈", 
-        "🎵", 
+    private static readonly string[] JunkKeywords =
+    {
+        "tracklist",
+        "setlist",
+        "playlist",
+        "📈",
+        "🎵",
         "🎶",
         "track list",
         "timestamps",
         "artwork",
         "artwork placeholder",
         "pre-save",
-        "save ",
         "tracklist actions",
         "export to spotify",
         "add a (live) video",
@@ -260,13 +259,17 @@ public static class CommentTracklistParser
         return TimestampOnlyRegex.IsMatch(line.Trim());
     }
 
+    // Matches "Artist: Title" but not pure timestamps like "0:00" or numbered items like "1:"
+    private static readonly Regex ColonSeparatorRegex = new(@"(?<!\d)\s*:\s+(?!\d)", RegexOptions.Compiled);
+
     private static bool HasArtistTitleSeparator(string line)
     {
         if (string.IsNullOrWhiteSpace(line)) return false;
         return line.Contains(" - ", StringComparison.Ordinal) ||
                line.Contains(" – ", StringComparison.Ordinal) ||
                line.Contains(" — ", StringComparison.Ordinal) ||
-               line.Contains("|", StringComparison.Ordinal);
+               line.Contains("|", StringComparison.Ordinal) ||
+               ColonSeparatorRegex.IsMatch(line);
     }
 
     private static string StripTrailingLabel(string title)

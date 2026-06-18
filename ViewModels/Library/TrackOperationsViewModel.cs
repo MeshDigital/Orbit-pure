@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Views;
+using SLSKDONET.Events;
 
 namespace SLSKDONET.ViewModels.Library;
 
@@ -28,6 +29,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     private readonly NativeDependencyHealthService _dependencyHealthService; // Phase 10.5
     private readonly IBulkOperationCoordinator _bulkCoordinator; // Phase 10.5
     private readonly IEventBus _eventBus; // Phase 11.6 Notification
+    private readonly IDialogService _dialogService;
 
     public event PropertyChangedEventHandler? PropertyChanged;
     
@@ -61,7 +63,8 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         LibraryService libraryService,
         NativeDependencyHealthService dependencyHealthService,
         IBulkOperationCoordinator bulkCoordinator,
-        IEventBus eventBus)
+        IEventBus eventBus,
+        IDialogService dialogService)
     {
         _logger = logger;
         _downloadManager = downloadManager;
@@ -72,6 +75,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         _dependencyHealthService = dependencyHealthService;
         _bulkCoordinator = bulkCoordinator;
         _eventBus = eventBus;
+        _dialogService = dialogService;
 
         // Subscribe to dynamic health updates
         _healthChangedHandler = (s, healthy) =>
@@ -355,13 +359,18 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
         if (track == null) return;
 
+        var label = string.IsNullOrWhiteSpace(track.Title) ? track.GlobalId : $"{track.ArtistName} - {track.TrackTitle}";
+        var confirmed = await _dialogService.ConfirmAsync(
+            "Remove Track",
+            $"Remove \"{label}\" from your library and delete the file from disk?",
+            confirmLabel: "Remove",
+            cancelLabel: "Cancel");
+        if (!confirmed) return;
+
         try
         {
             _logger.LogInformation("Removing track: {Title}", track.Title);
-            
-            // Remove from download manager
             await _downloadManager.DeleteTrackFromDiskAndHistoryAsync(track.GlobalId);
-            
             _logger.LogInformation("Track removed successfully");
         }
         catch (Exception ex)

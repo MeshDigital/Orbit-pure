@@ -1,4 +1,5 @@
 using System;
+using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
 using System.Linq;
 using System.Threading.Tasks;
@@ -16,6 +17,18 @@ namespace SLSKDONET.ViewModels;
 
 public partial class LibraryViewModel
 {
+    private void OnLibraryTrackRemoved(string globalId)
+    {
+        Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var toRemove = Tracks.CurrentProjectTracks
+                .Where(t => t.GlobalId == globalId)
+                .ToList();
+            foreach (var t in toRemove)
+                Tracks.CurrentProjectTracks.Remove(t);
+        });
+    }
+
     private async void OnProjectAdded(ProjectAddedEvent evt)
     {
         try

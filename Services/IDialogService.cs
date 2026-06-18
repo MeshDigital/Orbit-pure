@@ -46,7 +46,7 @@ public interface IDialogService
     /// <summary>
     /// Shows a batch tag editor dialog.
     /// </summary>
-    Task<ViewModels.Library.BatchTagEditResult?> ShowBatchTagEditDialogAsync();
+    Task<ViewModels.Library.BatchTagEditResult?> ShowBatchTagEditDialogAsync(string? initialFileName = null);
 
     /// <summary>
     /// Shows a folder selection dialog.

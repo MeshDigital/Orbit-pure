@@ -6,8 +6,6 @@
              x:Class="SLSKDONET.Views.Avalonia.ImportPage"
              Background="#0D0D0D">
     <UserControl.KeyBindings>
-        <KeyBinding Gesture="Ctrl+V" Command="{Binding PasteTracklistFromClipboardCommand}"/>
-        <KeyBinding Gesture="Ctrl+C" Command="{Binding CopyTracklistToClipboardCommand}"/>
         <KeyBinding Gesture="Ctrl+Shift+V" Command="{Binding ImportTracklistFromClipboardCommand}"/>
         <KeyBinding Gesture="Ctrl+Enter" Command="{Binding ImportTracklistCommand}"/>
     </UserControl.KeyBindings>
@@ -139,7 +137,7 @@
                             <StackPanel Spacing="10">
                                 <TextBlock Text="1001Tracklists Quick Import" FontWeight="SemiBold" Foreground="#FFC107" FontSize="12"/>
                                 <TextBlock Text="Open the website, copy the full tracklist block, then import from clipboard." FontSize="11" Foreground="#9A9A9A"/>
-                                <TextBlock Text="Shortcuts: Ctrl+V paste, Ctrl+C copy, Ctrl+Shift+V paste+import, Ctrl+Enter import" FontSize="10" Foreground="#7E7E7E"/>
+                                <TextBlock Text="Shortcuts: Ctrl+Shift+V paste+import, Ctrl+Enter import" FontSize="10" Foreground="#7E7E7E"/>
                                 <StackPanel Orientation="Horizontal" Spacing="10">
                                     <Button Command="{Binding OpenTracklistsWebsiteCommand}"
                                             Background="#2A2A2A"

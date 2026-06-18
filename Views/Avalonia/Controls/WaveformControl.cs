@@ -432,10 +432,11 @@ namespace SLSKDONET.Views.Avalonia.Controls
                     double x = GetCueX(cue, data);
                     if (Math.Abs(point.X - x) <= CueHitThreshold)
                     {
-                        // Sprint 2: Instant Hot-Cue Audition on click
-                        if (CueClickedCommand != null && CueClickedCommand.CanExecute(cue))
+                        // Sprint 2: Instant Hot-Cue Audition on click — pass the timestamp (double)
+                        // because CueClickedCommand is bound to SeekCommand<double> in the workstation.
+                        if (CueClickedCommand != null && CueClickedCommand.CanExecute(cue.Timestamp))
                         {
-                            CueClickedCommand.Execute(cue);
+                            CueClickedCommand.Execute(cue.Timestamp);
                         }
                         _draggedCue = cue;
                         _isDraggingCue = true;

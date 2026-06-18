@@ -2,7 +2,7 @@
 
 Status: Source of Truth for DOCS/memory plan states
 
-Last reviewed: 2026-06-16 (updated)
+Last reviewed: 2026-06-18 (updated)
 Scope: Canonical status board for planning and memory docs in DOCS/memory.
 
 ## Status Legend
@@ -35,6 +35,9 @@ Scope: Canonical status board for planning and memory docs in DOCS/memory.
 | [ui_overhaul_piped_marble_completion.md](ui_overhaul_piped_marble_completion.md) | Completed | Full UI overhaul Tier 1–4 completion: mode decomposition, downloads side panel, search filter bar, settings help panel, Camelot wheel, energy/phrase/badge surfaces, tri-band waveform, drag-to-reorder, Rekordbox export, .orbsession bundle. |
 | [network_resilience_and_library_reconciliation.md](network_resilience_and_library_reconciliation.md) | Completed | Soulseek ban detection (GlobalMessageReceived → SearchBanDetectedEvent → 30-min search lockout) and library reconciliation engine (ReconcilePhysicalFilesAsync + Reconcile Library button in Settings). |
 | [curation_workstation_and_download_center_upgrades.md](curation_workstation_and_download_center_upgrades.md) | Completed | Complete structural auto-cue pipeline (transient cluster K-Means, chroma resets, HPSS percussive pattern envelopes), phrase snapper, loops registry, Rekordbox XML v5 exporter, WAL mode interceptor, and Download Center group queue/cancel upgrades. |
+| [codebase_quality_p1_p4_completion.md](codebase_quality_p1_p4_completion.md) | Completed | P1–P4 quality sweep: fire-and-forget error handling, memory leak fixes, IDbContextFactory injection across 9 ViewModels, test coverage expansion (19 SafetyFilter tests, PostDownloadSpectralScan tests), and 4 runtime crash fixes (cue-click type mismatch, VirtualizedTrackCollection layout re-entrancy, FFmpeg log noise, analysis re-queue loop). |
+| [../ANTIGRAVITY_LIBRARY_SIDEPANEL_REDESIGN.md](../ANTIGRAVITY_LIBRARY_SIDEPANEL_REDESIGN.md) | Completed | Library sidepanel redesign: three-tab inspector (Identity/Analysis/Actions), track removal bug fix (LibraryViewModel now subscribes to TrackRemovedEvent), meta-edit Title + FileName fields with file rename, confirm on remove. |
+| [workstation_cue_loop_ux_completion.md](workstation_cue_loop_ux_completion.md) | Completed | Workstation cue/loop DB schema (IsLoop/LoopEndSeconds/SlotIndex migration), CDJ hot-cue behavior, Rekordbox Type=0/Type=4 export, live position display, loop active indicator, single-pad delete, WaveformInspector LOOP section parity. |
 
 ## Execution Guidance
 - Default implementation focus: avoid reopening Completed/Historical plans unless validating regressions.

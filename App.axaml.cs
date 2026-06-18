@@ -483,6 +483,7 @@ public partial class App : Application
         services.AddSingleton<ColumnConfigurationService>();
         services.AddSingleton<SmartCrateService>();
         services.AddSingleton<PlaylistExportService>();
+        services.AddSingleton<Services.Export.UsbExportOrchestrator>();
 
         // Audio Player
         services.AddSingleton<IAudioPlayerService, AudioPlayerService>();

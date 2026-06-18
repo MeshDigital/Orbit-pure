@@ -1128,7 +1128,13 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         if (!_analysisSessionStopwatch.IsRunning || _analysisSessionStopwatch.Elapsed == TimeSpan.Zero)
             _analysisSessionStopwatch.Restart();
 
-        var queue = AnalysisQueue.Where(t => t.AnalysisStatus != AnalysisRunStatus.Completed).ToList();
+        // Exclude Failed tracks — permanently corrupt files would otherwise re-run on every
+        // "Analyze All" invocation and spam the logs with the same FFmpeg decode error.
+        // Users can still retry individual failed tracks via the manual re-analyse button.
+        var queue = AnalysisQueue
+            .Where(t => t.AnalysisStatus != AnalysisRunStatus.Completed
+                     && t.AnalysisStatus != AnalysisRunStatus.Failed)
+            .ToList();
 
         foreach (var track in queue)
         {

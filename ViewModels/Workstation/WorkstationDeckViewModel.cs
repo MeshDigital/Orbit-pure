@@ -226,6 +226,12 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
 
     public bool IsSemanticDetailMode => WaveformZoomLevel >= 3.0;
 
+    // ── Live position / state display ─────────────────────────────────────────
+    public string PositionDisplayText =>
+        IsLoaded ? $"{FormatSeconds(Deck.PositionSeconds)} / {FormatSeconds(Deck.DurationSeconds)}" : "–:– / –:–";
+
+    public bool IsLoopActive => Deck.IsLoopActive;
+
     public string HotCueSummary => BuildCuePrepSummary(Deck.HotCues);
     public string MixReadinessText => BuildMixReadinessText(TrackKey, DisplayBpm, CueEditor.Cues);
     public string PerformanceStatusSummary => BuildPerformanceStatusSummary(DeckLabel, IsLoaded, Deck.IsPlaying, Deck.IsLoopActive, Deck.KeyLock, Deck.TempoPercent);
@@ -349,7 +355,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> SeparateStemsCommand { get; }
 
     // ── Hot-cue pad commands (slot 1–8 ≃ engine slots 0–7) ───────────────────────
-    // Set cue at current position if empty; jump if already set (matches CDJ behaviour).
+    // CDJ behaviour: empty slot → set+persist cue; filled slot → jump.
     public ReactiveCommand<Unit, Unit> HotCue1Command { get; }
     public ReactiveCommand<Unit, Unit> HotCue2Command { get; }
     public ReactiveCommand<Unit, Unit> HotCue3Command { get; }
@@ -358,6 +364,80 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> HotCue6Command { get; }
     public ReactiveCommand<Unit, Unit> HotCue7Command { get; }
     public ReactiveCommand<Unit, Unit> HotCue8Command { get; }
+
+    // ── Loop controls ─────────────────────────────────────────────────────────
+    private double? _loopInSeconds;
+    public double? LoopInSeconds
+    {
+        get => _loopInSeconds;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _loopInSeconds, value);
+            this.RaisePropertyChanged(nameof(LoopRegionText));
+            this.RaisePropertyChanged(nameof(LoopIsReady));
+        }
+    }
+
+    private double? _loopOutSeconds;
+    public double? LoopOutSeconds
+    {
+        get => _loopOutSeconds;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _loopOutSeconds, value);
+            this.RaisePropertyChanged(nameof(LoopRegionText));
+            this.RaisePropertyChanged(nameof(LoopIsReady));
+        }
+    }
+
+    public bool LoopIsReady => _loopInSeconds.HasValue && _loopOutSeconds.HasValue
+                               && _loopOutSeconds.Value > _loopInSeconds.Value;
+
+    public string LoopRegionText
+    {
+        get
+        {
+            if (!_loopInSeconds.HasValue && !_loopOutSeconds.HasValue) return "– No loop set –";
+            var inStr  = _loopInSeconds.HasValue  ? FormatSeconds(_loopInSeconds.Value)  : "?";
+            var outStr = _loopOutSeconds.HasValue ? FormatSeconds(_loopOutSeconds.Value) : "?";
+            var lenStr = LoopIsReady
+                ? $" ({FormatSeconds(_loopOutSeconds!.Value - _loopInSeconds!.Value)} long)"
+                : string.Empty;
+            return $"{inStr} → {outStr}{lenStr}";
+        }
+    }
+
+    public string LoopLengthBarsText
+    {
+        get
+        {
+            if (!LoopIsReady || DisplayBpm <= 0) return string.Empty;
+            double barLength = 240.0 / DisplayBpm; // 4/4 bar in seconds
+            double loopBars = (_loopOutSeconds!.Value - _loopInSeconds!.Value) / barLength;
+            return loopBars >= 0.5 ? $"{loopBars:0.##} bar{(Math.Abs(loopBars - 1.0) < 0.01 ? "" : "s")}" : string.Empty;
+        }
+    }
+
+    /// <summary>Set loop in-point to current playhead position.</summary>
+    public ReactiveCommand<Unit, Unit> SetLoopInCommand { get; }
+
+    /// <summary>Set loop out-point to current playhead position.</summary>
+    public ReactiveCommand<Unit, Unit> SetLoopOutCommand { get; }
+
+    /// <summary>Commit the staged loop in/out to the CueEditor (persists to DB).</summary>
+    public ReactiveCommand<Unit, Unit> CommitLoopCommand { get; }
+
+    /// <summary>Clear the staged loop in/out and remove any saved loop cue from DB.</summary>
+    public ReactiveCommand<Unit, Unit> ClearStagedLoopCommand { get; }
+
+    /// <summary>Set a loop of N bars from the current position (auto-loop). 0.5 = half bar.</summary>
+    public ReactiveCommand<double, Unit> AutoLoopBarsCommand { get; }
+
+    /// <summary>Drop a memory cue (Num=-1) at the current playhead, persisted to DB.</summary>
+    public ReactiveCommand<Unit, Unit> AddMemoryCueCommand { get; }
+
+    /// <summary>Remove the cue assigned to hot-cue pad slot 0–7. Clears pad + removes from DB.</summary>
+    public ReactiveCommand<int, Unit> DeleteHotCueAtSlotCommand { get; }
 
     public ReactiveCommand<Unit, Unit> ViewWaveformCommand { get; }
     public ReactiveCommand<Unit, Unit> JumpToIntroCommand { get; }
@@ -456,14 +536,67 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         SeparateStemsCommand = ReactiveCommand.CreateFromTask(
             SeparateStemsAsync, canSeparate);
 
-        HotCue1Command = ReactiveCommand.Create(() => Deck.Engine.JumpToHotCue(0));
-        HotCue2Command = ReactiveCommand.Create(() => Deck.Engine.JumpToHotCue(1));
-        HotCue3Command = ReactiveCommand.Create(() => Deck.Engine.JumpToHotCue(2));
-        HotCue4Command = ReactiveCommand.Create(() => Deck.Engine.JumpToHotCue(3));
-        HotCue5Command = ReactiveCommand.Create(() => Deck.Engine.JumpToHotCue(4));
-        HotCue6Command = ReactiveCommand.Create(() => Deck.Engine.JumpToHotCue(5));
-        HotCue7Command = ReactiveCommand.Create(() => Deck.Engine.JumpToHotCue(6));
-        HotCue8Command = ReactiveCommand.Create(() => Deck.Engine.JumpToHotCue(7));
+        HotCue1Command = ReactiveCommand.CreateFromTask(() => TriggerHotCuePadAsync(0));
+        HotCue2Command = ReactiveCommand.CreateFromTask(() => TriggerHotCuePadAsync(1));
+        HotCue3Command = ReactiveCommand.CreateFromTask(() => TriggerHotCuePadAsync(2));
+        HotCue4Command = ReactiveCommand.CreateFromTask(() => TriggerHotCuePadAsync(3));
+        HotCue5Command = ReactiveCommand.CreateFromTask(() => TriggerHotCuePadAsync(4));
+        HotCue6Command = ReactiveCommand.CreateFromTask(() => TriggerHotCuePadAsync(5));
+        HotCue7Command = ReactiveCommand.CreateFromTask(() => TriggerHotCuePadAsync(6));
+        HotCue8Command = ReactiveCommand.CreateFromTask(() => TriggerHotCuePadAsync(7));
+
+        var hasTrack = this.WhenAnyValue(x => x.IsLoaded);
+
+        SetLoopInCommand = ReactiveCommand.Create(() =>
+        {
+            LoopInSeconds = Deck.PositionSeconds;
+        }, hasTrack);
+
+        SetLoopOutCommand = ReactiveCommand.Create(() =>
+        {
+            LoopOutSeconds = Deck.PositionSeconds;
+        }, hasTrack);
+
+        var canCommitLoop = this.WhenAnyValue(
+            x => x.LoopIsReady, x => x.IsLoaded,
+            (ready, loaded) => ready && loaded);
+
+        CommitLoopCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            if (!LoopIsReady) return;
+            await CueEditor.SetLoopCommand.Execute((_loopInSeconds!.Value, _loopOutSeconds!.Value)).FirstAsync();
+        }, canCommitLoop);
+
+        ClearStagedLoopCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            LoopInSeconds  = null;
+            LoopOutSeconds = null;
+            await CueEditor.ClearLoopCommand.Execute().FirstAsync();
+        }, hasTrack);
+
+        AutoLoopBarsCommand = ReactiveCommand.CreateFromTask<double>(async bars =>
+        {
+            if (!IsLoaded || DisplayBpm <= 0) return;
+            double barLength = 240.0 / DisplayBpm;
+            double loopLength = bars * barLength;
+            double inPt  = Deck.PositionSeconds;
+            double outPt = inPt + loopLength;
+            LoopInSeconds  = inPt;
+            LoopOutSeconds = outPt;
+            await CueEditor.SetLoopCommand.Execute((inPt, outPt)).FirstAsync();
+        }, hasTrack);
+
+        AddMemoryCueCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            if (!IsLoaded) return;
+            await CueEditor.AddCueAtPositionCommand.Execute(Deck.PositionSeconds).FirstAsync();
+        }, hasTrack);
+
+        DeleteHotCueAtSlotCommand = ReactiveCommand.CreateFromTask<int>(async slot =>
+        {
+            await CueEditor.DeleteHotCueAtSlotCommand.Execute(slot).FirstAsync();
+            ApplySuggestedHotCues(CueEditor.Cues);
+        }, hasTrack);
 
         ViewWaveformCommand = ReactiveCommand.Create(ToggleWaveformView);
         JumpToIntroCommand = ReactiveCommand.Create(() => JumpToPhrase(CueRole.Intro, 0.08d));
@@ -507,11 +640,16 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
                 this.RaisePropertyChanged(nameof(PlaybackProgress));
                 this.RaisePropertyChanged(nameof(VuLevel));
                 this.RaisePropertyChanged(nameof(PerformanceStatusSummary));
+                this.RaisePropertyChanged(nameof(PositionDisplayText));
             })
             .DisposeWith(_disposables);
 
         Deck.WhenAnyValue(x => x.IsLoopActive, x => x.KeyLock, x => x.TempoPercent)
-            .Subscribe(_ => this.RaisePropertyChanged(nameof(PerformanceStatusSummary)))
+            .Subscribe(_ =>
+            {
+                this.RaisePropertyChanged(nameof(PerformanceStatusSummary));
+                this.RaisePropertyChanged(nameof(IsLoopActive));
+            })
             .DisposeWith(_disposables);
 
         Deck.WhenAnyValue(x => x.HotCues)
@@ -561,6 +699,8 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         TrackHash    = null;  // No hash available from raw path — use LoadPlaylistTrackCommand for hash
         ClearTrackIntelligence();
         CueEditor.ClearCues();
+        LoopInSeconds  = null;
+        LoopOutSeconds = null;
         ApplySuggestedHotCues(Array.Empty<OrbitCue>());
         UpdateHarmonicGuidance(BuildHarmonicSuggestionText(TrackKey, null, Deck.SemitoneShift));
         RaiseWaveformBandPropertiesChanged();
@@ -650,12 +790,18 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         {
             await CueEditor.LoadCuesAsync(TrackHash);
             ApplySuggestedHotCues(CueEditor.Cues);
+            // Restore staged loop from saved loop cue (if any)
+            var savedLoop = CueEditor.Cues.FirstOrDefault(c => c.IsLoop);
+            LoopInSeconds  = savedLoop?.Timestamp;
+            LoopOutSeconds = savedLoop?.LoopEndSeconds;
             var pref = await _stemPrefService.GetPreferenceAsync(TrackHash);
             ApplyStemPrefs(pref);
         }
         else
         {
             CueEditor.ClearCues();
+            LoopInSeconds  = null;
+            LoopOutSeconds = null;
             ApplySuggestedHotCues(Array.Empty<OrbitCue>());
         }
 
@@ -777,6 +923,31 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
 
     private HotCue? GetHotCue(int index) =>
         (uint)index < Deck.HotCues.Length ? Deck.HotCues[index] : null;
+
+    /// <summary>
+    /// CDJ-style hot cue pad: jump if slot is occupied; set + persist if empty.
+    /// </summary>
+    private async Task TriggerHotCuePadAsync(int slot)
+    {
+        if (!IsLoaded) return;
+        var existing = GetHotCue(slot);
+        if (existing != null)
+        {
+            Deck.Engine.JumpToHotCue(slot);
+        }
+        else
+        {
+            await CueEditor.AddHotCueAtSlotCommand.Execute((Deck.PositionSeconds, slot)).FirstAsync();
+        }
+    }
+
+    private static string FormatSeconds(double seconds)
+    {
+        var ts = TimeSpan.FromSeconds(seconds);
+        return ts.Hours > 0
+            ? $"{ts.Hours}:{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds / 10:D2}"
+            : $"{ts.Minutes}:{ts.Seconds:D2}.{ts.Milliseconds / 10:D2}";
+    }
 
     private void RaiseHotCueDisplayPropertiesChanged()
     {

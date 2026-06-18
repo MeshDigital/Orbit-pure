@@ -106,7 +106,7 @@
         </Border>
 
         <!-- ZONE C: Gatekeeper & Results (Main Content) -->
-        <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <Grid RowDefinitions="Auto,Auto,*,Auto,Auto">
 
             <!-- Filters & Toggles -->
             <Border Grid.Row="0" Background="#1E1E1E" Padding="16,10" BorderBrush="#333" BorderThickness="0,0,0,1">
@@ -181,25 +181,22 @@
                 </StackPanel>
             </Border>
 
-            <!-- Results DataGrid -->
             <!-- Column Header -->
             <controls:VirtualGridHeader Grid.Row="1" Margin="16,0">
                 <controls:VirtualGridHeader.HeaderContent>
-                    <Grid ColumnDefinitions="50,60,80,*,80,120,80">
-                        <!-- Column 0: Tier -->
-                        <TextBlock Grid.Column="0" Text="TIER" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <!-- Column 1: Trust -->
-                        <TextBlock Grid.Column="1" Text="TRUST" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center"/>
-                        <!-- Column 2: Match -->
-                        <TextBlock Grid.Column="2" Text="MATCH" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <!-- Column 3: Track Details -->
-                        <TextBlock Grid.Column="3" Text="TRACK DETAILS" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0"/>
-                        <!-- Column 4: Bitrate -->
-                        <TextBlock Grid.Column="4" Text="BITRATE" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center"/>
-                        <!-- Column 5: Source -->
-                        <TextBlock Grid.Column="5" Text="SOURCE" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center"/>
-                        <!-- Column 6: Speed -->
-                        <TextBlock Grid.Column="6" Text="SPEED" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                    <Grid ColumnDefinitions="40,80,*,100,140,56">
+                        <!-- Col 0: Action -->
+                        <TextBlock Grid.Column="0" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <!-- Col 1: Match -->
+                        <TextBlock Grid.Column="1" Text="MATCH" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                        <!-- Col 2: Track Details -->
+                        <TextBlock Grid.Column="2" Text="TRACK" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0"/>
+                        <!-- Col 3: Quality -->
+                        <TextBlock Grid.Column="3" Text="QUALITY" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                        <!-- Col 4: Source -->
+                        <TextBlock Grid.Column="4" Text="SOURCE" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                        <!-- Col 5: Size -->
+                        <TextBlock Grid.Column="5" Text="SIZE" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,4,0"/>
                     </Grid>
                 </controls:VirtualGridHeader.HeaderContent>
             </controls:VirtualGridHeader>
@@ -222,117 +219,122 @@
                 </controls:VirtualGrid.ContextMenu>
                 <controls:VirtualGrid.ItemTemplate>
                     <DataTemplate DataType="vm:AnalyzedSearchResultViewModel">
-                        <Border Classes="track-row"
-                                Height="64"
-                                Focusable="True">
-                            <Grid ColumnDefinitions="50,60,80,*,80,120,80">
-                                <!-- Column 0: Tier Badge -->
-                                <TextBlock Grid.Column="0" Text="{Binding TierBadge}" 
-                                           ToolTip.Tip="{Binding TierDescription}"
-                                           VerticalAlignment="Center" 
-                                           HorizontalAlignment="Center" 
-                                           FontSize="18" />
+                        <Border Classes="track-row" Height="52" Focusable="True">
+                            <Grid ColumnDefinitions="40,80,*,100,140,56">
 
-                                <!-- Column 1: Trust Score -->
-                                <TextBlock Grid.Column="1" Text="{Binding TrustScore}" VerticalAlignment="Center"/>
+                                <!-- Col 0: Action — download button or status icon -->
+                                <Grid Grid.Column="0" VerticalAlignment="Stretch">
+                                    <Button IsVisible="{Binding !HasDownloadStatus}"
+                                            Command="{Binding #ResultsGrid.DataContext.DownloadSelectedCommand}"
+                                            CommandParameter="{Binding}"
+                                            Background="Transparent" BorderThickness="0"
+                                            Padding="6" CornerRadius="6" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                            ToolTip.Tip="Download (ad-hoc priority)">
+                                        <TextBlock Text="⬇" FontSize="15" Foreground="#1DB954"/>
+                                    </Button>
+                                    <TextBlock IsVisible="{Binding HasDownloadStatus}"
+                                               Text="{Binding DownloadStatusIcon}"
+                                               FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                               ToolTip.Tip="{Binding DownloadStatusText}"/>
+                                </Grid>
 
-                                <!-- Column 2: Match Confidence -->
-                                <Border Grid.Column="2" CornerRadius="999" Padding="8,3"
-                                        Background="#182127"
-                                        BorderBrush="{Binding MatchConfidenceColor}"
-                                        BorderThickness="1"
-                                        VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <!-- Col 1: Match Confidence pill -->
+                                <Border Grid.Column="1" CornerRadius="999" Padding="8,3"
+                                        Background="#182127" BorderBrush="{Binding MatchConfidenceColor}" BorderThickness="1"
+                                        VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,8,0">
                                     <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <TextBlock Text="●" FontSize="9" Foreground="{Binding MatchConfidenceColor}"/>
+                                        <TextBlock Text="●" FontSize="9" Foreground="{Binding MatchConfidenceColor}" VerticalAlignment="Center"/>
                                         <TextBlock Text="{Binding MatchConfidence, StringFormat='{}{0:0}%'}"
                                                    FontSize="10" FontWeight="SemiBold" Foreground="#EAF2F7"/>
                                     </StackPanel>
                                 </Border>
 
-                                <!-- Column 3: Track Details -->
-                                <StackPanel Grid.Column="3" Margin="8,8" Spacing="4" Opacity="{Binding Opacity}">
-                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"
-                                               FontSize="13"
+                                <!-- Col 2: Track Details -->
+                                <StackPanel Grid.Column="2" Margin="8,6" Spacing="3" Opacity="{Binding Opacity}">
+                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" FontSize="12"
                                                TextTrimming="CharacterEllipsis" Foreground="#F3F5F7"/>
-
-                                    <TextBlock Text="{Binding MatchReason, StringFormat='Why this matched: {0}'}"
-                                               FontSize="10"
-                                               Foreground="#AEB9C5"
-                                               TextWrapping="Wrap"
-                                               IsVisible="{Binding HasMatchReason}"/>
-
-                                    <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"
-                                            Margin="0,2,0,0" Background="#2A2415" BorderBrush="#7A6224" BorderThickness="1"
-                                            IsVisible="{Binding IsFilteredOut}"
-                                            ToolTip.Tip="{Binding FilteredOutReason}">
-                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <TextBlock Text="⚠" FontSize="10" Foreground="#FFD27A"/>
-                                            <TextBlock Text="Filtered by current rules" FontSize="10"
-                                                       FontWeight="SemiBold" Foreground="#F6E6B6"/>
-                                        </StackPanel>
-                                    </Border>
-
-                                    <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"
-                                            Margin="0,2,0,0" Background="#301C22" BorderBrush="#8A3D56" BorderThickness="1"
-                                            IsVisible="{Binding ShowHighRiskBadge}"
-                                            ToolTip.Tip="{Binding FlagReason}">
-                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <TextBlock Text="⚠" FontSize="10" Foreground="#FF9FBA"/>
-                                            <TextBlock Text="Needs review" FontSize="10"
-                                                       FontWeight="SemiBold" Foreground="#FFD7E3"/>
-                                        </StackPanel>
-                                    </Border>
-
-                                    <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"
-                                            Margin="0,2,0,0" Background="#302515" BorderBrush="#8C6A2A" BorderThickness="1"
-                                            IsVisible="{Binding IsSuspiciousLossless}"
-                                            ToolTip.Tip="{Binding SuspiciousLosslessReason}">
-                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <TextBlock Text="⚠" FontSize="10" Foreground="#FFD27A"/>
-                                            <TextBlock Text="Possible fake lossless" FontSize="10"
-                                                       FontWeight="SemiBold" Foreground="#F6E6B6"/>
-                                        </StackPanel>
-                                    </Border>
-
-                                    <!-- Sub-info -->
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <Border Background="#20262D" BorderBrush="#36414D" BorderThickness="1" CornerRadius="3" Padding="5,1">
+                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                        <Border Background="#20262D" BorderBrush="#36414D" BorderThickness="1" CornerRadius="3" Padding="4,1">
                                             <TextBlock Text="{Binding RawResult.FileFormat}" Foreground="#D6DEE7" FontSize="10" FontWeight="SemiBold"/>
                                         </Border>
-                                        <Border Background="#2A2415" BorderBrush="#5B4B20" BorderThickness="1" CornerRadius="3" Padding="5,1"
-                                                IsVisible="{Binding !!AudioQualityDisplay.Length}">
-                                            <TextBlock Text="{Binding AudioQualityDisplay}" Foreground="#E7D39C" FontSize="10"/>
+                                        <TextBlock Text="{Binding MatchReason}" FontSize="10" Foreground="#6B8FAA"
+                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                   IsVisible="{Binding HasMatchReason}"/>
+                                        <Border CornerRadius="3" Padding="4,1" HorizontalAlignment="Left"
+                                                Background="#2A2415" BorderBrush="#7A6224" BorderThickness="1"
+                                                IsVisible="{Binding IsFilteredOut}" ToolTip.Tip="{Binding FilteredOutReason}">
+                                            <TextBlock Text="⚠ Filtered" FontSize="10" Foreground="#F6E6B6"/>
                                         </Border>
-                                        <TextBlock Text="{Binding DisplaySize}" Foreground="#9AA7B4" FontSize="10" VerticalAlignment="Center"/>
-                                        <TextBlock Text="•" Foreground="#4C5864" VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding User}" Foreground="#78AEE8" FontSize="10" VerticalAlignment="Center"/>
+                                        <Border CornerRadius="3" Padding="4,1" HorizontalAlignment="Left"
+                                                Background="#301C22" BorderBrush="#8A3D56" BorderThickness="1"
+                                                IsVisible="{Binding ShowHighRiskBadge}" ToolTip.Tip="{Binding FlagReason}">
+                                            <TextBlock Text="⚠ Review" FontSize="10" Foreground="#FFD7E3"/>
+                                        </Border>
                                     </StackPanel>
                                 </StackPanel>
 
-                                <!-- Column 4: Bitrate -->
-                                <TextBlock Grid.Column="4" Text="{Binding BitRate}" VerticalAlignment="Center"/>
+                                <!-- Col 3: Quality (bitrate + hi-res) -->
+                                <StackPanel Grid.Column="3" Spacing="3" VerticalAlignment="Center" Margin="0,0,8,0">
+                                    <TextBlock Text="{Binding BitRate, StringFormat='{}{0} kbps'}"
+                                               FontSize="12" FontWeight="SemiBold" Foreground="#C8D6E0"/>
+                                    <Border Background="#2A2415" BorderBrush="#5B4B20" BorderThickness="1" CornerRadius="3" Padding="4,1"
+                                            HorizontalAlignment="Left" IsVisible="{Binding !!AudioQualityDisplay.Length}">
+                                        <TextBlock Text="{Binding AudioQualityDisplay}" Foreground="#E7D39C" FontSize="10"/>
+                                    </Border>
+                                </StackPanel>
 
-                                <!-- Column 5: Source -->
-                                <TextBlock Grid.Column="5" Text="{Binding User}" VerticalAlignment="Center"/>
+                                <!-- Col 4: Source (user + speed) -->
+                                <StackPanel Grid.Column="4" Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding User}" FontSize="11" Foreground="#78AEE8" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding UploadSpeedDisplay}" FontSize="10" Foreground="#556B80"/>
+                                </StackPanel>
 
-                                <!-- Column 6: Speed -->
-                                <TextBlock Grid.Column="6" Text="{Binding UploadSpeedDisplay}" VerticalAlignment="Center"/>
+                                <!-- Col 5: Size -->
+                                <TextBlock Grid.Column="5" Text="{Binding DisplaySize}"
+                                           FontSize="11" Foreground="#6A7A87"
+                                           VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,4,0"/>
                             </Grid>
                         </Border>
                     </DataTemplate>
                 </controls:VirtualGrid.ItemTemplate>
             </controls:VirtualGrid>
 
-            <!-- Empty State (Premium) -->
-            <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+            <!-- Empty State -->
+            <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center"
                         IsVisible="{Binding !HasDisplayedResults}" Spacing="16">
                 <TextBlock Text="📡" FontSize="48" HorizontalAlignment="Center" Opacity="0.5"/>
                 <TextBlock Text="Ready for Extraction" Foreground="#555" FontSize="20" FontWeight="Light" HorizontalAlignment="Center"/>
                 <TextBlock Text="Initiate a search to scan the Soulseek network" Foreground="#333" HorizontalAlignment="Center"/>
             </StackPanel>
 
+            <!-- Session Downloads Strip -->
+            <Border Grid.Row="3" Background="#141A22" BorderBrush="#1E2A38" BorderThickness="0,1,0,0"
+                    IsVisible="{Binding HasSessionDownloads}" Padding="16,8">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="SESSION QUEUE" FontSize="9" FontWeight="Bold" Foreground="#2E4560" LetterSpacing="1.5"/>
+                    <ItemsControl ItemsSource="{Binding SessionDownloads}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="8"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#1A2535" BorderBrush="#243547" BorderThickness="1" CornerRadius="8" Padding="8,4">
+                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding DownloadStatusIcon}" FontSize="13" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding DisplayName}" FontSize="11" Foreground="#7AACCE"
+                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="200"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
             <!-- Footer / Ghost Counter -->
-            <Border Grid.Row="2" Background="{DynamicResource RegionBrush}" BorderBrush="#333" BorderThickness="0,1,0,0" Padding="12,4">
+            <Border Grid.Row="4" Background="{DynamicResource RegionBrush}" BorderBrush="#333" BorderThickness="0,1,0,0" Padding="12,4">
                 <StackPanel Orientation="Horizontal" Spacing="24">
                     <TextBlock Text="{Binding StatusText}" Foreground="#CCC" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,20,0"/>
 
