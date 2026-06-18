@@ -153,8 +153,33 @@ public sealed class TrackFingerprintStore : IDisposable
 
     public string GetStoragePath(string trackHash)
     {
-        var shard = trackHash.Length >= 2 ? trackHash[..2].ToLowerInvariant() : "00";
-        return Path.Combine(_root, shard, $"{trackHash}.fingerprint.json");
+        var safeHash = SanitizeForFilename(trackHash);
+        var shard = safeHash.Length >= 2 ? safeHash[..2].ToLowerInvariant() : "00";
+        return Path.Combine(_root, shard, $"{safeHash}.fingerprint.json");
+    }
+
+    private static readonly char[] InvalidFileNameChars = Path.GetInvalidFileNameChars();
+
+    private static string SanitizeForFilename(string hash)
+    {
+        // Replace any character that Windows rejects in filenames with an underscore.
+        // Apostrophes and question marks are common in track titles that flow into the hash.
+        var span = hash.AsSpan();
+        System.Text.StringBuilder? sb = null;
+        for (int i = 0; i < span.Length; i++)
+        {
+            var c = span[i];
+            if (Array.IndexOf(InvalidFileNameChars, c) >= 0)
+            {
+                sb ??= new System.Text.StringBuilder(hash[..i]);
+                sb.Append('_');
+            }
+            else
+            {
+                sb?.Append(c);
+            }
+        }
+        return sb?.ToString() ?? hash;
     }
 
     public void Dispose() => _writeLock.Dispose();

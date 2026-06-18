@@ -139,6 +139,27 @@ public class Track
     public bool IsInLibrary { get; set; } = false;
 
     /// <summary>
+    /// True when a fuzzy (near-match) library duplicate was found but confidence was below
+    /// the auto-dedup threshold.  Shows a warning in the import preview so the user can decide.
+    /// </summary>
+    public bool IsPossibleDuplicate { get; set; } = false;
+
+    /// <summary>
+    /// The library entry's Artist value that triggered the possible-duplicate warning.
+    /// </summary>
+    public string? FuzzyMatchArtist { get; set; }
+
+    /// <summary>
+    /// The library entry's Title value that triggered the possible-duplicate warning.
+    /// </summary>
+    public string? FuzzyMatchTitle { get; set; }
+
+    /// <summary>
+    /// The fuzzy similarity score (0–1) that produced the possible-duplicate warning.
+    /// </summary>
+    public double FuzzyMatchScore { get; set; }
+
+    /// <summary>
     /// Unique hash for deduplication: artist-title combination (lowercase, no spaces).
     /// </summary>
     public string UniqueHash => $"{Artist?.ToLower().Replace(" ", "")}-{Title?.ToLower().Replace(" ", "")}".TrimStart('-').TrimEnd('-');

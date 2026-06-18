@@ -589,6 +589,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public string AlbumName => !string.IsNullOrWhiteSpace(Model.Album) ? Model.Album : "Unknown Album";
     public string? AlbumArtUrl => Model.AlbumArtUrl;
 
+
     private ArtworkProxy _artwork;
     public ArtworkProxy Artwork => _artwork;
     
@@ -1614,6 +1615,16 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         State = e.State;
         FailureReason = e.Error;
         FailureEnum = e.FailureReason;
+
+        // After a RESET DC, tracks have IsClearedFromDownloadCenter=true.
+        // If the engine picks them back up (Searching/Downloading/Pending), resurface them.
+        if (IsClearedFromDownloadCenter &&
+            e.State is PlaylistTrackState.Searching or PlaylistTrackState.Downloading
+                     or PlaylistTrackState.Pending or PlaylistTrackState.Queued)
+        {
+            IsClearedFromDownloadCenter = false;
+            Model.IsClearedFromDownloadCenter = false;
+        }
 
         this.RaisePropertyChanged(nameof(AvailabilityState));
         this.RaisePropertyChanged(nameof(IsGhost));

@@ -240,28 +240,38 @@
                                         <Border Background="Transparent">
                                             <Border.ContextMenu>
                                                 <ContextMenu>
+                                                    <MenuItem Header="Download Playlist"
+                                                              Command="{Binding $parent[UserControl].DataContext.DownloadAlbumCommand}"
+                                                              CommandParameter="{Binding Model}">
+                                                        <MenuItem.Icon><TextBlock Text="⬇️"/></MenuItem.Icon>
+                                                    </MenuItem>
+                                                    <MenuItem Header="Force Re-download"
+                                                              Command="{Binding $parent[UserControl].DataContext.ForceRedownloadCommand}"
+                                                              CommandParameter="{Binding Model}">
+                                                        <MenuItem.Icon><TextBlock Text="🔥"/></MenuItem.Icon>
+                                                    </MenuItem>
+                                                    <Separator/>
+                                                    <MenuItem Header="Generate Auto-Cues"
+                                                              Command="{Binding $parent[UserControl].DataContext.Projects.GenerateCuesCommand}"
+                                                              CommandParameter="{Binding Model}">
+                                                        <MenuItem.Icon><TextBlock Text="🎯"/></MenuItem.Icon>
+                                                    </MenuItem>
                                                     <MenuItem Header="Export to Rekordbox XML"
                                                               Command="{Binding $parent[UserControl].DataContext.ExportPlaylistCommand}"
                                                               CommandParameter="{Binding Model}">
-                                                        <MenuItem.Icon>
-                                                            <TextBlock Text="📂"/>
-                                                        </MenuItem.Icon>
-                                                    </MenuItem>
-                                                    <MenuItem Header="Remove Playlist From List"
-                                                              Command="{Binding $parent[UserControl].DataContext.DeleteProjectCommand}"
-                                                              CommandParameter="{Binding Model}"
-                                                              InputGesture="Delete">
-                                                        <MenuItem.Icon>
-                                                            <TextBlock Text="🗑️"/>
-                                                        </MenuItem.Icon>
+                                                        <MenuItem.Icon><TextBlock Text="📀"/></MenuItem.Icon>
                                                     </MenuItem>
                                                     <Separator/>
                                                     <MenuItem Header="Rename Playlist"
                                                               Command="{Binding $parent[UserControl].DataContext.RenameProjectCommand}"
                                                               CommandParameter="{Binding Model}">
-                                                        <MenuItem.Icon>
-                                                            <TextBlock Text="✏️"/>
-                                                        </MenuItem.Icon>
+                                                        <MenuItem.Icon><TextBlock Text="✏️"/></MenuItem.Icon>
+                                                    </MenuItem>
+                                                    <MenuItem Header="Remove Playlist From List"
+                                                              Command="{Binding $parent[UserControl].DataContext.DeleteProjectCommand}"
+                                                              CommandParameter="{Binding Model}"
+                                                              InputGesture="Delete">
+                                                        <MenuItem.Icon><TextBlock Text="🗑️"/></MenuItem.Icon>
                                                     </MenuItem>
                                                 </ContextMenu>
                                             </Border.ContextMenu>

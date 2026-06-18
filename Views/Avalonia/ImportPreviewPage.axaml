@@ -225,10 +225,24 @@
                                 <!-- Column 5: Length -->
                                 <TextBlock Grid.Column="5" Text="{Binding Model.Length, StringFormat='{}{0:mm\\:ss}'}" FontSize="11" Margin="4,0" VerticalAlignment="Center" IsVisible="{Binding $parent[Window].Bounds.Width, Converter={StaticResource WidthToVisibilityConverter}, ConverterParameter=600}"/>
                                 
-                                <!-- Column 6: Status -->
-                                <Border Grid.Column="6" CornerRadius="4" Padding="6,3" HorizontalAlignment="Center" VerticalAlignment="Center" Background="{Binding Model.IsInLibrary, Converter={StaticResource BoolToLibraryStatusColorConverter}}" IsVisible="{Binding $parent[Window].Bounds.Width, Converter={StaticResource WidthToVisibilityConverter}, ConverterParameter=500}">
-                                    <TextBlock Text="{Binding Model.IsInLibrary, Converter={StaticResource BoolToLibraryStatusTextConverter}}" FontSize="10" Foreground="White" FontWeight="SemiBold"/>
-                                </Border>
+                                <!-- Column 6: Status (IN LIB / DUPE? / MISSING) -->
+                                <Panel Grid.Column="6" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       IsVisible="{Binding $parent[Window].Bounds.Width, Converter={StaticResource WidthToVisibilityConverter}, ConverterParameter=500}">
+                                    <!-- Already in library (exact or high-confidence fuzzy match) -->
+                                    <Border CornerRadius="4" Padding="6,3" Background="#1A6B2A" IsVisible="{Binding IsInLibrary}">
+                                        <TextBlock Text="IN LIB" FontSize="10" Foreground="#5ED67F" FontWeight="SemiBold"/>
+                                    </Border>
+                                    <!-- Fuzzy near-match warning (75–88% similarity) -->
+                                    <Border CornerRadius="4" Padding="6,3" Background="#5C4A00"
+                                            IsVisible="{Binding IsPossibleDuplicate}"
+                                            ToolTip.Tip="{Binding PossibleDuplicateTooltip}">
+                                        <TextBlock Text="DUPE?" FontSize="10" Foreground="#F5C842" FontWeight="SemiBold"/>
+                                    </Border>
+                                    <!-- Not found in library -->
+                                    <Border CornerRadius="4" Padding="6,3" Background="#2A2A2A" IsVisible="{Binding IsMissingFromLibrary}">
+                                        <TextBlock Text="MISSING" FontSize="10" Foreground="#888" FontWeight="SemiBold"/>
+                                    </Border>
+                                </Panel>
                             </Grid>
                         </Border>
                     </DataTemplate>

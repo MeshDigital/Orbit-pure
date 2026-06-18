@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
@@ -9,6 +10,7 @@ using System.Windows.Input;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Utils;
 
 using SLSKDONET.Views;
 
@@ -33,6 +35,9 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     private bool _isLoading;
     private string _statusMessage = "Ready to import";
     private int _selectedCount;
+
+    // Cached for this session so fuzzy dedup doesn't reload the full library per track.
+    private List<LibraryEntry>? _cachedLibraryEntries;
 
     public string SourceTitle
     {
@@ -183,16 +188,14 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
 
             _logger.LogInformation("Created {Count} Track objects from queries", tempTracks.Count);
 
-            // Check for duplicates asynchronously
+            // Check for duplicates asynchronously (exact + fuzzy)
             if (_libraryService != null)
             {
                 try
                 {
+                    _cachedLibraryEntries ??= await _libraryService.LoadAllLibraryEntriesAsync();
                     foreach (var track in tempTracks)
-                    {
-                        var entry = await _libraryService.FindLibraryEntryAsync(track.UniqueHash);
-                        track.IsInLibrary = entry != null;
-                    }
+                        ApplyLibraryDuplicateCheck(track, _cachedLibraryEntries);
                 }
                 catch (Exception ex)
                 {
@@ -418,10 +421,10 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
              // Check library status for deduplication feedback (OFF UI THREAD)
              if (_libraryService != null)
              {
-                 try 
+                 try
                  {
-                     var entry = await _libraryService.FindLibraryEntryAsync(track.UniqueHash);
-                     track.IsInLibrary = entry != null;
+                     _cachedLibraryEntries ??= await _libraryService.LoadAllLibraryEntriesAsync();
+                     ApplyLibraryDuplicateCheck(track, _cachedLibraryEntries);
                  }
                  catch { /* Ignore DB errors during stream */ }
              }
@@ -863,6 +866,64 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
         // Navigate back to the search page on cancellation.
         _navigationService.NavigateTo("Search");
         _logger.LogInformation("Import cancelled, navigating back to Search page.");
+    }
+
+    // Thresholds for library duplicate detection:
+    // ≥88% → auto-mark as already in library (skip download)
+    // 75–88% → flag as "possible duplicate" for user review
+    private const double AutoDedupThreshold = 0.88;
+    private const double WarnDuplicateThreshold = 0.75;
+
+    /// <summary>
+    /// Checks a track against the cached library entries using exact hash first, then fuzzy
+    /// matching as a fallback.  Sets <see cref="Track.IsInLibrary"/> and/or
+    /// <see cref="Track.IsPossibleDuplicate"/> accordingly.
+    /// </summary>
+    private static void ApplyLibraryDuplicateCheck(Track track, List<LibraryEntry> allEntries)
+    {
+        // Fast path: exact hash
+        var exactEntry = allEntries.FirstOrDefault(e =>
+            string.Equals(e.UniqueHash, track.UniqueHash, StringComparison.OrdinalIgnoreCase));
+        if (exactEntry != null)
+        {
+            track.IsInLibrary = true;
+            return;
+        }
+
+        // No artist/title → can't do fuzzy
+        if (string.IsNullOrWhiteSpace(track.Artist) || string.IsNullOrWhiteSpace(track.Title))
+            return;
+
+        var inputKey = StringDistanceUtils.Normalize($"{track.Artist} {track.Title}");
+        LibraryEntry? bestEntry = null;
+        double bestScore = 0;
+
+        foreach (var entry in allEntries)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Artist) || string.IsNullOrWhiteSpace(entry.Title))
+                continue;
+            var candidateKey = StringDistanceUtils.Normalize($"{entry.Artist} {entry.Title}");
+            var score = StringDistanceUtils.GetNormalizedMatchScore(inputKey, candidateKey);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestEntry = entry;
+            }
+        }
+
+        if (bestEntry == null) return;
+
+        if (bestScore >= AutoDedupThreshold)
+        {
+            track.IsInLibrary = true;
+        }
+        else if (bestScore >= WarnDuplicateThreshold)
+        {
+            track.IsPossibleDuplicate = true;
+            track.FuzzyMatchScore = bestScore;
+            track.FuzzyMatchArtist = bestEntry.Artist;
+            track.FuzzyMatchTitle = bestEntry.Title;
+        }
     }
 
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)

@@ -55,6 +55,11 @@ public static class CommentTracklistParser
         if (string.IsNullOrWhiteSpace(rawText))
             return new List<SearchQuery>();
 
+        // Try CSV detection first — if the input has a recognizable header row, map columns directly.
+        var csvResult = TryCsvParse(rawText);
+        if (csvResult != null)
+            return csvResult;
+
         var tracks = new List<SearchQuery>();
         var lines = rawText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
         var previousTrackKey = string.Empty;
@@ -311,5 +316,87 @@ public static class CommentTracklistParser
             return value;
 
         return LeadingMixMarkerRegex.Replace(value.Trim(), string.Empty);
+    }
+
+    /// <summary>
+    /// Attempts to parse CSV-formatted input with an auto-detected artist/title header.
+    /// Returns null if the input does not look like CSV.
+    /// </summary>
+    private static List<SearchQuery>? TryCsvParse(string rawText)
+    {
+        var lines = rawText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        if (lines.Length < 2) return null;
+
+        // Detect delimiter: tab or comma
+        var firstLine = lines[0];
+        char delimiter = firstLine.Contains('\t') ? '\t' : ',';
+
+        // Need at least 2 columns and the first row must look like a header (non-numeric columns)
+        var headerCols = SplitCsvLine(firstLine, delimiter);
+        if (headerCols.Length < 2) return null;
+
+        // Must have at least one numeric data row to be CSV (not just a separator line)
+        var secondCols = SplitCsvLine(lines[1], delimiter);
+        if (secondCols.Length < 2) return null;
+
+        // Map header column names to artist/title indices
+        int artistIdx = -1, titleIdx = -1;
+        for (int i = 0; i < headerCols.Length; i++)
+        {
+            var h = headerCols[i].Trim().ToLowerInvariant().Trim('"', '\'');
+            if (artistIdx < 0 && (h == "artist" || h == "artist name" || h == "artists"))
+                artistIdx = i;
+            if (titleIdx < 0 && (h is "title" or "song" or "track" or "track name" or "song name" or "name"))
+                titleIdx = i;
+        }
+
+        if (artistIdx < 0 || titleIdx < 0) return null;
+
+        var results = new List<SearchQuery>();
+        for (int r = 1; r < lines.Length; r++)
+        {
+            var cols = SplitCsvLine(lines[r], delimiter);
+            if (cols.Length <= Math.Max(artistIdx, titleIdx)) continue;
+
+            var artist = cols[artistIdx].Trim().Trim('"', '\'');
+            var title = cols[titleIdx].Trim().Trim('"', '\'');
+
+            if (string.IsNullOrWhiteSpace(artist) && string.IsNullOrWhiteSpace(title)) continue;
+
+            results.Add(new SearchQuery
+            {
+                Artist = artist,
+                Title = title
+            });
+        }
+
+        return results.Count > 0 ? results : null;
+    }
+
+    private static string[] SplitCsvLine(string line, char delimiter)
+    {
+        // Simple CSV split respecting quoted fields
+        var fields = new List<string>();
+        bool inQuote = false;
+        var current = new System.Text.StringBuilder();
+
+        foreach (var ch in line)
+        {
+            if (ch == '"')
+            {
+                inQuote = !inQuote;
+            }
+            else if (ch == delimiter && !inQuote)
+            {
+                fields.Add(current.ToString());
+                current.Clear();
+            }
+            else
+            {
+                current.Append(ch);
+            }
+        }
+        fields.Add(current.ToString());
+        return fields.ToArray();
     }
 }

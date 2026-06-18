@@ -2525,6 +2525,11 @@ public class SchemaMigratorService
                     command.CommandText = @"ALTER TABLE ""CuePoints"" ADD COLUMN ""LoopEndSeconds"" REAL NOT NULL DEFAULT 0;";
                     await command.ExecuteNonQueryAsync();
                 }
+                if (!ColumnExists("CuePoints", "SlotIndex"))
+                {
+                    command.CommandText = @"ALTER TABLE ""CuePoints"" ADD COLUMN ""SlotIndex"" INTEGER NOT NULL DEFAULT -1;";
+                    await command.ExecuteNonQueryAsync();
+                }
             }
 
             _logger.LogInformation("Schema patching completed.");

@@ -628,7 +628,24 @@
         <!-- Phase 12.8: Download Group Template (Session Ledger) -->
         <DataTemplate x:Key="DownloadGroupTemplate" x:DataType="vm:DownloadGroupViewModel">
             <StackPanel Spacing="1">
-                <Border Background="#252526" CornerRadius="6" Padding="12,6" Margin="0,2" BorderBrush="#333" BorderThickness="1">
+                <Border CornerRadius="6" Padding="12,6" Margin="0,2" BorderThickness="1">
+                    <Border.Styles>
+                        <!-- Active: green left accent, brighter border -->
+                        <Style Selector="Border.groupActive">
+                            <Setter Property="Background" Value="#1A2A1A"/>
+                            <Setter Property="BorderBrush" Value="#2E6B2E"/>
+                        </Style>
+                        <!-- Waiting in queue: slightly muted -->
+                        <Style Selector="Border.groupWaiting">
+                            <Setter Property="Background" Value="#1E1E1E"/>
+                            <Setter Property="BorderBrush" Value="#2A2A2A"/>
+                        </Style>
+                        <!-- Default -->
+                        <Style Selector="Border">
+                            <Setter Property="Background" Value="#252526"/>
+                            <Setter Property="BorderBrush" Value="#333"/>
+                        </Style>
+                    </Border.Styles>
                     <Grid ColumnDefinitions="Auto, *, Auto, Auto">
                         <ToggleButton Grid.Column="0" IsChecked="{Binding IsExpanded}" Background="Transparent" Padding="4" BorderThickness="0">
                             <PathIcon Data="{StaticResource chevron_down_regular}" Width="10" Height="10" Foreground="#555">
@@ -647,27 +664,49 @@
                                 </PathIcon.Styles>
                             </PathIcon>
                         </ToggleButton>
-                        
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" Margin="8,0">
+
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="8,0">
                             <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="Bold" Foreground="White"/>
                             <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="#666" VerticalAlignment="Bottom" Margin="0,0,0,1"/>
+                            <!-- LIVE badge — only shown when actively searching or downloading -->
+                            <Border IsVisible="{Binding IsActive}" Background="#1B4D1B" BorderBrush="#4CAF50" BorderThickness="1"
+                                    CornerRadius="3" Padding="5,1" VerticalAlignment="Center">
+                                <TextBlock Text="LIVE" FontSize="9" FontWeight="Bold" Foreground="#4CAF50" LetterSpacing="1"/>
+                            </Border>
+                            <!-- ON DECK badge — waiting in queue but not yet active -->
+                            <Border IsVisible="{Binding IsWaitingInQueue}" Background="#2A2200" BorderBrush="#6B5900" BorderThickness="1"
+                                    CornerRadius="3" Padding="5,1" VerticalAlignment="Center">
+                                <TextBlock Text="ON DECK" FontSize="9" FontWeight="Bold" Foreground="#9E8000" LetterSpacing="1"/>
+                            </Border>
                         </StackPanel>
-                        
+
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="20" VerticalAlignment="Center" Margin="0,0,20,0">
-                             <TextBlock Text="{Binding StatusText}" FontSize="10" Foreground="#888" FontWeight="SemiBold"/>
-                             <Panel VerticalAlignment="Center">
-                                 <ProgressBar Width="120" Height="4" Minimum="0" Maximum="100" Value="{Binding TotalProgress}" 
-                                              Foreground="#00BCD4" Background="#333" CornerRadius="2"/>
-                                 <TextBlock Text="{Binding TotalProgress, StringFormat='{}{0:F0}%'}" FontSize="8" FontWeight="Black" Foreground="White" 
-                                            HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0"/>
-                             </Panel>
+                            <TextBlock Text="{Binding StatusText}" FontSize="10" FontWeight="SemiBold">
+                                <TextBlock.Styles>
+                                    <Style Selector="TextBlock">
+                                        <Setter Property="Foreground" Value="#888"/>
+                                    </Style>
+                                </TextBlock.Styles>
+                            </TextBlock>
+                            <Panel VerticalAlignment="Center">
+                                <ProgressBar Width="120" Height="4" Minimum="0" Maximum="100" Value="{Binding TotalProgress}"
+                                             Background="#333" CornerRadius="2">
+                                    <ProgressBar.Styles>
+                                        <Style Selector="ProgressBar">
+                                            <Setter Property="Foreground" Value="#555"/>
+                                        </Style>
+                                    </ProgressBar.Styles>
+                                </ProgressBar>
+                                <TextBlock Text="{Binding TotalProgress, StringFormat='{}{0:F0}%'}" FontSize="8" FontWeight="Black" Foreground="White"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0"/>
+                            </Panel>
                         </StackPanel>
-                        
+
                         <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2">
-                                <Button Command="{Binding VipStartCommand}" Background="Transparent" Padding="6" ToolTip.Tip="VIP Start Group"><PathIcon Data="{StaticResource rocket_regular}" Width="12" Height="12" Foreground="#FFD700"/></Button>
-                             <Button Command="{Binding ResumeCommand}" Background="Transparent" Padding="6" ToolTip.Tip="Resume Group"><PathIcon Data="{StaticResource play_regular}" Width="12" Height="12" Foreground="#4CAF50"/></Button>
-                             <Button Command="{Binding PauseCommand}" Background="Transparent" Padding="6" ToolTip.Tip="Pause Group"><PathIcon Data="{StaticResource pause_regular}" Width="12" Height="12"/></Button>
-                             <Button Command="{Binding CancelCommand}" Background="Transparent" Padding="6" ToolTip.Tip="Cancel Group"><PathIcon Data="{StaticResource dismiss_regular}" Width="12" Height="12" Foreground="#FF5252"/></Button>
+                            <Button Command="{Binding VipStartCommand}" Background="Transparent" Padding="6" ToolTip.Tip="VIP Start Group"><PathIcon Data="{StaticResource rocket_regular}" Width="12" Height="12" Foreground="#FFD700"/></Button>
+                            <Button Command="{Binding ResumeCommand}" Background="Transparent" Padding="6" ToolTip.Tip="Resume Group"><PathIcon Data="{StaticResource play_regular}" Width="12" Height="12" Foreground="#4CAF50"/></Button>
+                            <Button Command="{Binding PauseCommand}" Background="Transparent" Padding="6" ToolTip.Tip="Pause Group"><PathIcon Data="{StaticResource pause_regular}" Width="12" Height="12"/></Button>
+                            <Button Command="{Binding CancelCommand}" Background="Transparent" Padding="6" ToolTip.Tip="Cancel Group"><PathIcon Data="{StaticResource dismiss_regular}" Width="12" Height="12" Foreground="#FF5252"/></Button>
                         </StackPanel>
                     </Grid>
                 </Border>
