@@ -300,7 +300,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     {
         lock (_collectionLock)
         {
-            return _downloads.Count(d => d.Model.PlaylistId == projectId && d.IsActive);
+            return _downloads.Count(d => d.Model.PlaylistId == projectId &&
+                (d.IsActive || d.State == PlaylistTrackState.Pending || d.State == PlaylistTrackState.Stalled));
         }
     }
 
@@ -546,6 +547,13 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     .GroupBy(e => BuildLooseIdentityKey(e.Artist, e.Title), StringComparer.Ordinal)
                     .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.AddedAt).First(), StringComparer.Ordinal);
 
+                // Fuzzy candidate list: entries with both Artist+Title for non-Spotify imports that
+                // may have typos or formatting variations the exact/loose checks don't catch.
+                var libraryFuzzyCandidates = allLibraryEntries
+                    .Where(e => !string.IsNullOrWhiteSpace(e.Artist) && !string.IsNullOrWhiteSpace(e.Title))
+                    .OrderByDescending(e => e.AddedAt)
+                    .ToList();
+
                 _logger.LogInformation("Converting {OriginalTrackCount} OriginalTracks to PlaylistTracks (Existing: {ExistingCount})",
                     job.OriginalTracks.Count, existingByHash.Count);
 
@@ -627,7 +635,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         hash,
                         libraryByHash,
                         libraryBySpotifyId,
-                        libraryByLooseIdentity);
+                        libraryByLooseIdentity,
+                        libraryFuzzyCandidates);
                     var shouldMarkDownloaded = existingLibraryEntry != null;
 
                     playlistTracks.Add(new PlaylistTrack
@@ -646,7 +655,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         TrackNumber = idx++,
                         AddedAt = DateTime.UtcNow,
                         CompletedAt = shouldMarkDownloaded ? DateTime.UtcNow : null,
-                        Priority = 10, // Default: Bulk lane. Express (0) = VIP only, Standard (1-9) = user bumps
+                        // Priority 0 = explicit user import — bypasses the EnableAutoAcquireOnImport gate
+                        // and places the track in the VIP download lane.  Background syncs use 10.
+                        Priority = shouldMarkDownloaded ? 10 : 0,
                         // Map Metadata if available from import
                         SourcePlaylistId = job.Id,
                         SourcePlaylistName = job.SourceTitle,
@@ -714,39 +725,55 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }
     }
 
+    private const double FuzzyLibraryMatchThreshold = 0.88;
+
     private static LibraryEntry? ResolveExistingLibraryEntryForImport(
         Track track,
         string trackHash,
         IReadOnlyDictionary<string, LibraryEntry> libraryByHash,
         IReadOnlyDictionary<string, LibraryEntry> libraryBySpotifyId,
-        IReadOnlyDictionary<string, LibraryEntry> libraryByLooseIdentity)
+        IReadOnlyDictionary<string, LibraryEntry> libraryByLooseIdentity,
+        IReadOnlyList<LibraryEntry>? libraryFuzzyCandidates = null)
     {
         // Fast path: exact unique-hash lookup.
         if (!string.IsNullOrWhiteSpace(trackHash) && libraryByHash.TryGetValue(trackHash, out var byHash))
-        {
             return byHash;
-        }
 
         var artist = track.Artist ?? string.Empty;
         var title = track.Title ?? string.Empty;
         if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(title))
-        {
             return null;
-        }
 
-        // Fallback: tolerant metadata match for cases where import formatting changed hash shape.
-        if (!string.IsNullOrWhiteSpace(track.SpotifyTrackId))
-        {
-            if (libraryBySpotifyId.TryGetValue(track.SpotifyTrackId, out var bySpotifyId))
-            {
-                return bySpotifyId;
-            }
-        }
+        // Spotify ID: most precise cross-format identifier.
+        if (!string.IsNullOrWhiteSpace(track.SpotifyTrackId) &&
+            libraryBySpotifyId.TryGetValue(track.SpotifyTrackId, out var bySpotifyId))
+            return bySpotifyId;
 
+        // Loose identity: exact match after stripping spaces and non-alphanum.
         var looseKey = BuildLooseIdentityKey(artist, title);
         if (!string.IsNullOrWhiteSpace(looseKey) && libraryByLooseIdentity.TryGetValue(looseKey, out var byLooseIdentity))
-        {
             return byLooseIdentity;
+
+        // Fuzzy fallback: catch typos and minor formatting variations in paste imports
+        // that don't have Spotify IDs to anchor on.  Only scores artist+title together
+        // so a high threshold (0.88) avoids false positives across different tracks.
+        if (libraryFuzzyCandidates != null && libraryFuzzyCandidates.Count > 0)
+        {
+            var inputKey = Utils.StringDistanceUtils.Normalize($"{artist} {title}");
+            LibraryEntry? bestEntry = null;
+            double bestScore = 0;
+            foreach (var candidate in libraryFuzzyCandidates)
+            {
+                var candidateKey = Utils.StringDistanceUtils.Normalize($"{candidate.Artist} {candidate.Title}");
+                var score = Utils.StringDistanceUtils.GetNormalizedMatchScore(inputKey, candidateKey);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestEntry = candidate;
+                }
+            }
+            if (bestScore >= FuzzyLibraryMatchThreshold && bestEntry != null)
+                return bestEntry;
         }
 
         return null;
@@ -800,7 +827,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
             foreach (var track in tracks)
             {
-                if (track.AvailabilityState == TrackAvailabilityState.Ghost && !_config.EnableAutoAcquireOnImport)
+                // EnableAutoAcquireOnImport = false suppresses background Spotify-sync auto-downloads.
+                // Priority 0 means the user explicitly confirmed this import via the preview dialog,
+                // so we let those through regardless of the flag.
+                if (track.AvailabilityState == TrackAvailabilityState.Ghost
+                    && !_config.EnableAutoAcquireOnImport
+                    && track.Priority > 0)
                 {
                     skipped++;
                     continue;
@@ -820,10 +852,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         existingCtx.State == PlaylistTrackState.Pending)
                     {
                         _logger.LogInformation("Retrying existing track {Title} (State: {State}) - Bumping to Priority 10 (Standard)", track.Title, existingCtx.State);
-                        
+
                         existingCtx.Model.Priority = 10;
+                        existingCtx.Model.IsClearedFromDownloadCenter = false;
                         _ = UpdateStateAsync(existingCtx, PlaylistTrackState.Pending);
-                        
+
                         existingCtx.RetryCount = 0;
                         existingCtx.NextRetryTime = null;
                         existingCtx.FailureReason = null;
@@ -854,7 +887,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 
                 queued++;
                 
-                _eventBus.Publish(new TrackAddedEvent(track));
+                _eventBus.Publish(new TrackAddedEvent(track, PlaylistTrackState.Pending));
                 _ = SyncDbAsync(ctx);
             }
         }
@@ -1498,6 +1531,35 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }
     }
 
+
+    /// <summary>
+    /// Updates the display name stored on every in-memory download context that belongs to
+    /// <paramref name="playlistId"/>.  Call this after renaming a playlist so the Download
+    /// Center reflects the new title without a restart.
+    /// </summary>
+    public void UpdatePlaylistSourceName(Guid playlistId, string newName)
+    {
+        List<DownloadContext> affected;
+        lock (_collectionLock)
+            affected = _downloads
+                .Where(d => d.Model.PlaylistId == playlistId || d.Model.SourcePlaylistId == playlistId)
+                .ToList();
+
+        foreach (var ctx in affected)
+            ctx.Model.SourcePlaylistName = newName;
+    }
+
+    /// <summary>
+    /// Returns the current SourcePlaylistName for the first track belonging to
+    /// <paramref name="playlistId"/>, or null if no tracks are registered.
+    /// </summary>
+    public string? GetPlaylistSourceName(Guid playlistId)
+    {
+        lock (_collectionLock)
+            return _downloads
+                .FirstOrDefault(d => d.Model.PlaylistId == playlistId || d.Model.SourcePlaylistId == playlistId)
+                ?.Model.SourcePlaylistName;
+    }
 
     public void CancelTrack(string globalId)
     {

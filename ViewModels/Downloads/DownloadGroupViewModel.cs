@@ -28,7 +28,12 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
     // private bool _isPaused; // Unused
 
     public Guid? GroupKey { get; } // AlbumId or ProjectId
-    public string Title { get; }
+    private string _title = string.Empty;
+    public string Title
+    {
+        get => _title;
+        set => this.RaiseAndSetIfChanged(ref _title, value);
+    }
     public string Subtitle { get; }
     public string? ArtworkUrl { get; }
     public ReadOnlyObservableCollection<UnifiedTrackViewModel> Tracks { get; }
@@ -65,20 +70,24 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         set => this.RaiseAndSetIfChanged(ref _isExpanded, value);
     }
 
-    // #140: Derived — true when at least one child track is actively downloading/searching.
+    // True when at least one child track is actively searching or downloading.
     public bool IsActive => Tracks.Any(t => t.IsActive);
+
+    // True when tracks are queued but none are actively processing yet.
+    public bool IsWaitingInQueue => !IsActive && Tracks.Any(t =>
+        t.State == PlaylistTrackState.Pending || t.State == PlaylistTrackState.Stalled);
 
     // #140: Aggregate speed sparkline — last 30 samples, computed from active track averages.
     private readonly double[] _aggregateSpeedHistory = new double[30];
     private int _aggregateSpeedIndex;
     public IReadOnlyList<double> AggregateSpeedHistory => _aggregateSpeedHistory;
     
-    // Commands
-    public IReactiveCommand PauseCommand { get; }
-    public IReactiveCommand ResumeCommand { get; }
-    public IReactiveCommand VipStartCommand { get; }
-    public IReactiveCommand CancelCommand { get; }
-    public IReactiveCommand ToggleExpandedCommand { get; }
+    // Commands — typed as ICommand so Avalonia compiled bindings can resolve them correctly.
+    public ICommand PauseCommand { get; }
+    public ICommand ResumeCommand { get; }
+    public ICommand VipStartCommand { get; }
+    public ICommand CancelCommand { get; }
+    public ICommand ToggleExpandedCommand { get; }
 
     public DownloadGroupViewModel(IGroup<UnifiedTrackViewModel, string, Guid> group, DownloadManager downloadManager, ILibraryService libraryService)
     {
@@ -235,24 +244,28 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         _aggregateSpeedIndex++;
         this.RaisePropertyChanged(nameof(AggregateSpeedHistory));
         this.RaisePropertyChanged(nameof(IsActive));
-        
+        this.RaisePropertyChanged(nameof(IsWaitingInQueue));
+
         // Status Logic
         int completed = Tracks.Count(t => t.State == PlaylistTrackState.Completed);
         int failed = Tracks.Count(t => t.State == PlaylistTrackState.Failed);
+        int searching = Tracks.Count(t => t.State == PlaylistTrackState.Searching);
         int downloading = Tracks.Count(t => t.State == PlaylistTrackState.Downloading);
-        int queued = Tracks.Count(t => t.State == PlaylistTrackState.Pending);
-        
+        int queued = Tracks.Count(t => t.State == PlaylistTrackState.Pending || t.State == PlaylistTrackState.Stalled);
+
         HasFailures = failed > 0;
 
-        if (downloading > 0)
+        if (searching > 0 || downloading > 0)
         {
-            StatusText = queued > 0 
-                ? $"{downloading} downloading, {queued} queued" 
-                : $"{downloading} downloading";
+            var parts = new System.Collections.Generic.List<string>();
+            if (searching > 0) parts.Add($"{searching} searching");
+            if (downloading > 0) parts.Add($"{downloading} downloading");
+            if (queued > 0) parts.Add($"{queued} on deck");
+            StatusText = string.Join(", ", parts);
         }
         else if (queued > 0)
         {
-             StatusText = $"{queued} queued";
+            StatusText = $"{queued} on deck";
         }
         else if (HasFailures)
         {

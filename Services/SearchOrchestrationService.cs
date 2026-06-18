@@ -407,6 +407,37 @@ public class SearchOrchestrationService
             : maxResultsToYield;
 
         var networkQuery = BuildNetworkQuery(normalizedQuery, formatFilter, minBitrate);
+
+        // Progressive mode: score and yield each result immediately as it arrives from
+        // the network so the UI can render and re-sort results in real-time.
+        // Runs outside the try/catch because yield return is not allowed inside try/catch.
+        if (progressiveYield && lane != SearchQueryLane.Desperate)
+        {
+            var allowLossy = maxBitrate > 0 || System.Linq.Enumerable.Contains(formatFilter, "mp3", StringComparer.OrdinalIgnoreCase);
+            await foreach (var track in _soulseek.StreamResultsAsync(
+                networkQuery,
+                formatFilter,
+                (minBitrate, maxBitrate),
+                DownloadMode.Normal,
+                executionProfile,
+                cancellationToken))
+            {
+                _safetyFilter.EvaluateSafety(track, normalizedQuery, allowLossy);
+                ScoreSingleTrack(track, target, normalizedQuery, formatFilter, minBitrate, maxBitrate);
+                yield return track;
+
+                if (_config.EnableAccumulatorPerfectMatchShortCircuit && IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
+                {
+                    _logger.LogInformation(
+                        "Search accumulator short-circuit: found ideal candidate for '{Query}' from {User}.",
+                        normalizedQuery,
+                        track.Username ?? "Unknown");
+                    yield break;
+                }
+            }
+            yield break;
+        }
+
         var bufferedTracks = new List<Track>();
         using var brainBufferCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         brainBufferCts.CancelAfter(TimeSpan.FromSeconds(brainBufferSeconds));
@@ -424,34 +455,6 @@ public class SearchOrchestrationService
                     maxBitrate,
                     executionProfile,
                     brainBufferCts.Token);
-            }
-            else if (progressiveYield)
-            {
-                // Progressive mode: use the outer cancellation token directly so collection
-                // runs for the natural Soulseek search duration (~SearchTimeout seconds)
-                // instead of waiting the full MinSearchDurationSeconds brain buffer.
-                // Results appear in ~SearchTimeout s instead of MinSearchDurationSeconds s.
-                var allowLossy = maxBitrate > 0 || System.Linq.Enumerable.Contains(formatFilter, "mp3", StringComparer.OrdinalIgnoreCase);
-                await foreach (var track in _soulseek.StreamResultsAsync(
-                    networkQuery,
-                    formatFilter,
-                    (minBitrate, maxBitrate),
-                    DownloadMode.Normal,
-                    executionProfile,
-                    cancellationToken))
-                {
-                    _safetyFilter.EvaluateSafety(track, normalizedQuery, allowLossy);
-                    bufferedTracks.Add(track);
-
-                    if (_config.EnableAccumulatorPerfectMatchShortCircuit && IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
-                    {
-                        _logger.LogInformation(
-                            "Search accumulator short-circuit: found ideal candidate for '{Query}' from {User}.",
-                            normalizedQuery,
-                            track.Username ?? "Unknown");
-                        break;
-                    }
-                }
             }
             else
             {
@@ -724,6 +727,27 @@ public class SearchOrchestrationService
         
         _logger.LogInformation("Results ranked successfully");
         return rankedResults;
+    }
+
+    // Score a single track in-place so it can be yielded immediately in progressive mode.
+    private void ScoreSingleTrack(Track track, TargetMetadata target, string normalizedQuery, string[] formatFilter, int minBitrate, int maxBitrate)
+    {
+        var searchTrack = new Track { Title = normalizedQuery };
+        var evaluator = new FileConditionEvaluator();
+        if (formatFilter.Length > 0)
+            evaluator.AddRequired(new FormatCondition { AllowedFormats = formatFilter.ToList() });
+        if (minBitrate > 0 || maxBitrate > 0)
+            evaluator.AddPreferred(new BitrateCondition { MinBitrate = minBitrate > 0 ? minBitrate : null, MaxBitrate = maxBitrate > 0 ? maxBitrate : null });
+
+        ResultSorter.CalculateRank(track, searchTrack, evaluator);
+
+        var fitScore = CalculateAccumulatorFitScore(track, target, formatFilter, minBitrate);
+        var baseMatchScore = SearchCandidateRankingPolicy.MatchScoreFromRank(track.CurrentRank);
+        var finalScore = SearchCandidateRankingPolicy.CalculateFinalScore(
+            baseMatchScore, fitScore, reliability: 0.5, queueLength: track.QueueLength);
+        EnsureBlendTelemetryMetadata(track, baseMatchScore, fitScore, 0.5, finalScore);
+        track.MatchReason ??= SearchBlendReasonFormatter.BuildCompactReason(track.Metadata);
+        track.CurrentRank = finalScore;
     }
 
     private SearchSelectionAudit BuildSelectionAudit(

@@ -27,6 +27,9 @@ namespace SLSKDONET.ViewModels;
 
 public partial class LibraryViewModel
 {
+    // De-bounce guard: track last download-missing execution per project to prevent rapid repeat calls
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, DateTime> _downloadMissingLastRun = new();
+
     // Commands delegate to child view models or orchestration paths and are assigned in InitializeCommands().
     public ICommand ViewHistoryCommand { get; set; } = null!;
     public ICommand OpenSourcesCommand { get; set; } = null!;
@@ -408,6 +411,11 @@ public partial class LibraryViewModel
     {
         if (param is PlaylistJob project)
         {
+            var now = DateTime.UtcNow;
+            if (_downloadMissingLastRun.TryGetValue(project.Id, out var last) && (now - last).TotalSeconds < 30)
+                return;
+            _downloadMissingLastRun[project.Id] = now;
+
             var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
             var missing = tracks.Where(t => t.Status != TrackStatus.Downloaded && t.Status != TrackStatus.OnHold).ToList();
             if (missing.Any())
@@ -572,9 +580,14 @@ public partial class LibraryViewModel
                 var oldTitle = project.SourceTitle;
                 project.SourceTitle = newTitle;
                 await _libraryService.SavePlaylistJobAsync(project);
-                
+
+                // Push the new name into active download contexts so the Download Center
+                // and any other screen reflecting SourcePlaylistName update immediately.
+                _downloadManager.UpdatePlaylistSourceName(project.Id, newTitle);
+                _eventBus.Publish(new ProjectUpdatedEvent(project.Id));
+
                 _notificationService.Show("Project Renamed", $"'{oldTitle}' is now '{newTitle}'", NotificationType.Success);
-                
+
                 // Refresh project list
                 await Projects.LoadProjectsAsync();
             }

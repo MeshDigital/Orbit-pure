@@ -175,6 +175,27 @@ public class SelectableTrack : INotifyPropertyChanged
 
     public string? Album => Model.Album;
     public bool IsInLibrary => Model.IsInLibrary;
+    public bool IsMissingFromLibrary => !Model.IsInLibrary && !Model.IsPossibleDuplicate;
+
+    /// <summary>
+    /// True when a fuzzy near-match was found in the library but confidence was below auto-dedup.
+    /// Drives the ⚠️ duplicate-warning badge in the import preview.
+    /// </summary>
+    public bool IsPossibleDuplicate => Model.IsPossibleDuplicate;
+
+    /// <summary>
+    /// Tooltip describing the possible-duplicate match for user review.
+    /// </summary>
+    public string PossibleDuplicateTooltip
+    {
+        get
+        {
+            if (!Model.IsPossibleDuplicate) return string.Empty;
+            var pct = (int)(Model.FuzzyMatchScore * 100);
+            var matched = $"{Model.FuzzyMatchArtist ?? "?"} – {Model.FuzzyMatchTitle ?? "?"}";
+            return $"Possible duplicate ({pct}% match)\nLibrary entry: {matched}\nVerify and deselect if already owned.";
+        }
+    }
 
     private int _trackNumber;
     public int TrackNumber

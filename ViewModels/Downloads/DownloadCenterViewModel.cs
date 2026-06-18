@@ -592,6 +592,22 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
                 // SecurityQualityLogs removed
             })
             .DisposeWith(_subscriptions);
+
+        // Propagate playlist renames to DownloadGroupViewModel titles so the Download
+        // Center reflects the new name without requiring a session restart.
+        _eventBus.GetEvent<ProjectUpdatedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(evt =>
+            {
+                var newName = _downloadManager.GetPlaylistSourceName(evt.ProjectId);
+                if (string.IsNullOrEmpty(newName)) return;
+                foreach (var grp in _sessionGroups.Concat(_activeGroups).Concat(_expressGroups).Concat(_standardGroups))
+                {
+                    if (grp.GroupKey == evt.ProjectId)
+                        grp.Title = newName;
+                }
+            })
+            .DisposeWith(_subscriptions);
         
         // Initialize commands (ReactiveCommand)
         PauseAllCommand = ReactiveCommand.Create(PauseAll, 

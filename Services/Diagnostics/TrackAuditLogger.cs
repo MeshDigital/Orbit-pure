@@ -100,7 +100,8 @@ public class TrackAuditLogger : ITrackAuditLogger, IDisposable
                 Directory.CreateDirectory(directory);
             }
 
-            var logFile = Path.Combine(directory, $"{entry.TrackHash}_audit.log");
+            var safeHash = SanitizeForFileName(entry.TrackHash);
+            var logFile = Path.Combine(directory, $"{safeHash}_audit.log");
             var timestamp = (entry.Timestamp ?? DateTime.Now).ToString("yyyy-MM-dd HH:mm:ss.fff");
             var prefix = entry.IsError ? "❌" : "ℹ️";
             var logLine = $"[{timestamp}] {prefix} {entry.Message}{Environment.NewLine}";
@@ -112,6 +113,16 @@ public class TrackAuditLogger : ITrackAuditLogger, IDisposable
             // Protect background thread from crashes
             _logger.LogWarning(ex, "Failed to write audit log entry to disk for {Hash}", entry.TrackHash);
         }
+    }
+
+    private static string SanitizeForFileName(string hash)
+    {
+        if (string.IsNullOrEmpty(hash)) return "unknown";
+        var invalid = Path.GetInvalidFileNameChars();
+        var sb = new System.Text.StringBuilder(hash.Length);
+        foreach (var c in hash)
+            sb.Append(Array.IndexOf(invalid, c) >= 0 ? '_' : c);
+        return sb.ToString();
     }
 
     public void Dispose()

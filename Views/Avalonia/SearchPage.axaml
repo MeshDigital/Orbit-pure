@@ -34,7 +34,11 @@
                             <TextBox Grid.Column="1" Text="{Binding SearchQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      Watermark="Search for tracks, artists..."
                                      Background="Transparent" BorderThickness="0"
-                                     FontSize="16" VerticalContentAlignment="Center" Margin="4,0" Padding="12,0"/>
+                                     FontSize="16" VerticalContentAlignment="Center" Margin="4,0" Padding="12,0">
+                                <TextBox.KeyBindings>
+                                    <KeyBinding Gesture="Return" Command="{Binding UnifiedSearchCommand}"/>
+                                </TextBox.KeyBindings>
+                            </TextBox>
                             <Button Grid.Column="2" Command="{Binding ClearSearchCommand}" Background="Transparent" BorderThickness="0"
                                     IsVisible="{Binding CanSearch}" Margin="0,0,12,0" Padding="8">
                                 <TextBlock Text="✕" Foreground="#888" VerticalAlignment="Center" FontSize="16"/>

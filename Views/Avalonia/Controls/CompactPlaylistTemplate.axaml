@@ -26,40 +26,6 @@
             </Style>
         </Grid.Styles>
         
-        <Grid.ContextMenu>
-            <ContextMenu>
-                <MenuItem Header="Export to Rekordbox"
-                           Command="{Binding $parent[views:LibraryPage].DataContext.ExportPlaylistCommand}"
-                           CommandParameter="{Binding Model}">
-                    <MenuItem.Icon>
-                        <TextBlock Text="📀"/>
-                    </MenuItem.Icon>
-                </MenuItem>
-                <Separator/>
-                <MenuItem Header="Generate Auto-Cues" 
-                           Command="{Binding $parent[views:LibraryPage].DataContext.Projects.GenerateCuesCommand}"
-                           CommandParameter="{Binding Model}">
-                    <MenuItem.Icon>
-                        <TextBlock Text="🎯"/>
-                    </MenuItem.Icon>
-                </MenuItem>
-                <Separator/>
-                <MenuItem Header="Download Playlist" 
-                           Command="{Binding $parent[views:LibraryPage].DataContext.DownloadAlbumCommand}"
-                           CommandParameter="{Binding Model}">
-                    <MenuItem.Icon>
-                        <TextBlock Text="⬇️"/>
-                    </MenuItem.Icon>
-                </MenuItem>
-                <MenuItem Header="Force Re-download" 
-                           Command="{Binding $parent[views:LibraryPage].DataContext.ForceRedownloadCommand}"
-                           CommandParameter="{Binding Model}">
-                    <MenuItem.Icon>
-                        <TextBlock Text="🔥"/>
-                    </MenuItem.Icon>
-                </MenuItem>
-            </ContextMenu>
-        </Grid.ContextMenu>
         
         <!-- Column 0: Cover Art (Refined to 44x44 for compactness) -->
         <Panel Grid.Column="0" Width="44" Height="44" Margin="2" VerticalAlignment="Center">

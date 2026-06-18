@@ -75,7 +75,9 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
     private CancellationTokenSource? _activeConnectCts;
     private string? _lastDisconnectStatusReason;
     private DateTime _lastHostSignalRecoveryUtc = DateTime.MinValue;
-    private static readonly TimeSpan HostSignalRecoveryCooldown = TimeSpan.FromSeconds(10);
+    // Windows fires NetworkAddressChanged for every IPv6 temp-address rotation, WSL2/Docker
+    // adapter flap, etc. 60 s cooldown prevents churn from spurious interface events.
+    private static readonly TimeSpan HostSignalRecoveryCooldown = TimeSpan.FromSeconds(60);
     private readonly bool _powerEventsSubscribed;
     private bool _disposed;
 
@@ -414,6 +416,11 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
 
     private async Task ForceDisconnectAndRecoverAsync(string reason)
     {
+        // Brief stabilization delay: many NetworkAddressChanged events are transient
+        // (IPv6 temp-address rotation, WSL2 adapter flap). If the connection survives
+        // this window it almost certainly doesn't need a reconnect cycle.
+        await Task.Delay(2_000);
+
         await _commandLock.WaitAsync();
         try
         {
@@ -422,6 +429,15 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
 
             if (_state is ConnectionLifecycleState.Disconnected or ConnectionLifecycleState.Disconnecting)
                 return;
+
+            // Connection survived the stabilization window — nothing to do.
+            if (_soulseek.IsLoggedIn)
+            {
+                _logger.LogInformation(
+                    "Lifecycle: host signal ({Reason}) suppressed — Soulseek connection still alive after stabilization delay.",
+                    reason);
+                return;
+            }
 
             _logger.LogWarning(
                 "Lifecycle: host signal detected ({Reason}). Proactively severing Soulseek connection for clean reconnect.",

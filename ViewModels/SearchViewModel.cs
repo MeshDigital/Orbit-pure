@@ -467,7 +467,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
 
         _searchResults.Connect()
             .Filter(visibilityPredicate)
-            .Sort(SortExpressionComparer<AnalyzedSearchResultViewModel>.Descending(t => t.TrustScore))
+            .Sort(SortExpressionComparer<AnalyzedSearchResultViewModel>.Descending(t => t.MatchConfidence))
             .ObserveOn(RxApp.MainThreadScheduler)
             .Bind(out _searchResultsView)
             .DisposeMany()
