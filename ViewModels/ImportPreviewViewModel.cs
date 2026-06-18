@@ -39,6 +39,9 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     // Cached for this session so fuzzy dedup doesn't reload the full library per track.
     private List<LibraryEntry>? _cachedLibraryEntries;
 
+    // Background Spotify enrichment — cancelled when a new preview loads.
+    private CancellationTokenSource? _enrichmentCts;
+
     public string SourceTitle
     {
         get => _sourceTitle;
@@ -250,18 +253,16 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
                 ImportedTracks.FirstOrDefault()?.Model.Title ?? "None");
             
             // Start background metadata enrichment
-            // REMOVED: Enrichment should only happen AFTER user confirms import (Add to Library).
-            // This prevents premature API calls and "busy" UI during preview.
-            /*
+            // Enrich tracks in background: fills in CanonicalDuration, cover art, BPM, key, etc.
+            // Runs as a background fire-and-forget so it doesn't block the preview UI.
+            // For paste imports this is the only chance to get Spotify metadata before download.
             if (_metadataService != null)
             {
                 _enrichmentCts?.Cancel();
                 _enrichmentCts = new CancellationTokenSource();
                 var token = _enrichmentCts.Token;
-                
                 _ = Task.Run(() => EnrichTracksInBackgroundAsync(ImportedTracks.Select(st => st.Model).ToList(), token), token);
             }
-            */
         }
         catch (Exception ex)
         {
@@ -469,6 +470,24 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
          if (IsDuplicate)
          {
              await SelectMergeCandidatesAsync();
+         }
+
+         // Kick off background enrichment for any tracks that don't yet have Spotify metadata
+         // (always the case for paste imports; Spotify imports are already enriched via API).
+         if (_metadataService != null)
+         {
+             var needsEnrichment = enrichedTracks
+                 .Select(s => s.Model)
+                 .Where(t => string.IsNullOrEmpty(t.SpotifyTrackId))
+                 .ToList();
+
+             if (needsEnrichment.Count > 0)
+             {
+                 _enrichmentCts?.Cancel();
+                 _enrichmentCts = new CancellationTokenSource();
+                 var token = _enrichmentCts.Token;
+                 _ = Task.Run(() => EnrichTracksInBackgroundAsync(needsEnrichment, token), token);
+             }
          }
     }
 
