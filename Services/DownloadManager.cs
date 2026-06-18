@@ -129,6 +129,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     private const int LAZY_QUEUE_BUFFER_SIZE = 5000;
     private const int REFILL_THRESHOLD = 50;
 
+    // Monotonically increasing counter incremented every time a track is dispatched to
+    // Searching.  Failed tracks record RetryAfterSlot = _schedulerSlot + pendingCount so
+    // the scheduler skips them until all currently-queued tracks have had at least one attempt.
+    private long _schedulerSlot = 0;
+
     // Expose read-only copy for internal checks
     public IReadOnlyList<DownloadContext> ActiveDownloads 
     {
@@ -859,6 +864,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                         existingCtx.RetryCount = 0;
                         existingCtx.NextRetryTime = null;
+                        existingCtx.RetryAfterSlot = null; // Clear slot gate on explicit retry
                         existingCtx.FailureReason = null;
                         
 
@@ -1654,12 +1660,13 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         if (ctx == null) return;
 
         _logger.LogInformation("🚀 Force Start (VIP) triggered for {Title}", ctx.Model.Title);
-        
-        // 1. Mark as VIP and bump priority so it is selected first by queue order
+
+        // Mark as VIP, bump priority, and clear any slot/time gate so user intent is immediate.
         ctx.IsVip = true;
-        ctx.Model.Priority = 0; // Bump to top of swimlanes
-        
-        // 2. Keep strict slot accounting: queue loop will start it when a worker slot is available.
+        ctx.Model.Priority = 0;
+        ctx.RetryAfterSlot = null;
+        ctx.NextRetryTime = null;
+
         if (ctx.State != PlaylistTrackState.Downloading && ctx.State != PlaylistTrackState.Searching)
         {
             await UpdateStateAsync(ctx, PlaylistTrackState.Pending);
@@ -2287,8 +2294,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         {
                             activeByPriority[ctx.Model.Priority] = activeByPriority.GetValueOrDefault(ctx.Model.Priority) + 1;
                         }
-                        else if (ctx.State == PlaylistTrackState.Pending && 
-                            (!ctx.NextRetryTime.HasValue || ctx.NextRetryTime.Value <= DateTime.UtcNow))
+                        else if (ctx.State == PlaylistTrackState.Pending &&
+                            (!ctx.NextRetryTime.HasValue || ctx.NextRetryTime.Value <= DateTime.UtcNow) &&
+                            (!ctx.RetryAfterSlot.HasValue || ctx.RetryAfterSlot.Value <= _schedulerSlot))
                         {
                             eligibleTracks.Add(ctx);
                         }
@@ -2359,9 +2367,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     
                     // Check if our pre-selected 'nextContext' is still valid and optimal
                     // Or simply re-run selection to be safe
-                    var eligibleTracks = _downloads.Where(t => 
-                        t.State == PlaylistTrackState.Pending && 
-                        (!t.NextRetryTime.HasValue || t.NextRetryTime.Value <= DateTime.UtcNow))
+                    var eligibleTracks = _downloads.Where(t =>
+                        t.State == PlaylistTrackState.Pending &&
+                        (!t.NextRetryTime.HasValue || t.NextRetryTime.Value <= DateTime.UtcNow) &&
+                        (!t.RetryAfterSlot.HasValue || t.RetryAfterSlot.Value <= _schedulerSlot))
                         .ToList();
 
                     confirmedContext = SelectNextTrackWithLaneAllocation(eligibleTracks, activeByPriority);
@@ -2382,6 +2391,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                 // Transition state via update method
                 await UpdateStateAsync(nextContext, PlaylistTrackState.Searching);
+
+                // Advance the slot counter so retry-gated tracks count down correctly.
+                Interlocked.Increment(ref _schedulerSlot);
 
                 // Fire-and-forget pattern with guaranteed semaphore release
                 bool finalTookSlot = tookSemaphoreSlot; // Capture for lambda
@@ -2586,23 +2598,34 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                     if (ctx.Model.SearchRetryCount < _config.MaxSearchAttempts)
                     {
+                        // In-session retry: send to the back of the queue by requiring all
+                        // currently-pending tracks to be dispatched first.  This prevents a
+                        // failed track from immediately re-competing with fresh tracks.
+                        ctx.Model.Priority = 20; // Low-priority lane for retries
 
-                        // In-session retry: put at the end of the queue
-                        ctx.Model.Priority = 20; // Lower priority for retries
+                        long pendingAhead;
+                        lock (_collectionLock)
+                            pendingAhead = _downloads.Count(d =>
+                                d != ctx &&
+                                d.State == PlaylistTrackState.Pending &&
+                                (!d.RetryAfterSlot.HasValue || d.RetryAfterSlot.Value <= _schedulerSlot));
 
-                        // Opt-P3: Add per-track jitter to the base delay.
-                        // Without jitter, all failed tracks retry simultaneously after a network
-                        // outage, creating a search spike that can trigger Soulseek throttling.
-                        // Jitter is ±60s so the 3-minute base never goes negative.
-                        var jitterSeconds = _jitterRandom.Next(-60, 60);
-                        var delayMinutes = 3;
-                        ctx.NextRetryTime = DateTime.UtcNow.AddMinutes(delayMinutes).AddSeconds(jitterSeconds);
+                        // Slot gate: track becomes eligible again after every currently-pending
+                        // track has been dispatched at least once.
+                        ctx.RetryAfterSlot = _schedulerSlot + Math.Max(1, pendingAhead);
 
-                        _logger.LogWarning("🔍 No match for {Title}. In-session retry {Count}/{MaxAttempts}. Next try at {Time} (3m ±jitter | Reason: {Reason}).",
-                            ctx.Model.Title, ctx.Model.SearchRetryCount, _config.MaxSearchAttempts, ctx.NextRetryTime, failureReason);
+                        // Time gate: safety net so we don't hammer the network if the queue
+                        // drains faster than expected.  30s base + small jitter.
+                        var jitterSeconds = _jitterRandom.Next(0, 30);
+                        ctx.NextRetryTime = DateTime.UtcNow.AddSeconds(30 + jitterSeconds);
 
+                        _logger.LogWarning(
+                            "🔍 No match for {Title}. In-session retry {Count}/{MaxAttempts}. " +
+                            "Back-of-queue: eligible after slot {Slot} (currently {Now}) | Reason: {Reason}.",
+                            ctx.Model.Title, ctx.Model.SearchRetryCount, _config.MaxSearchAttempts,
+                            ctx.RetryAfterSlot, _schedulerSlot, failureReason);
 
-                        await UpdateStateAsync(ctx, PlaylistTrackState.Pending, $"Retrying in ~{delayMinutes}m ({failureReason})");
+                        await UpdateStateAsync(ctx, PlaylistTrackState.Pending, $"Queued for retry #{ctx.Model.SearchRetryCount} ({failureReason})");
                         return;
                     }
                     else
@@ -2630,7 +2653,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                             ctx.Model.NotFoundRestartCount = 0; // Reset so MP3 lane gets fresh attempts
                             ctx.Model.SearchRetryCount = 0;
                             ctx.Model.Priority = 15; // Slightly lower priority in the queue
-                            ctx.NextRetryTime = DateTime.UtcNow.AddMinutes(5); // Small delay before MP3 attempt
+                            // Send to back of queue — MP3 fallback competes only after fresh tracks
+                            long pendingAheadMp3;
+                            lock (_collectionLock)
+                                pendingAheadMp3 = _downloads.Count(d => d != ctx && d.State == PlaylistTrackState.Pending);
+                            ctx.RetryAfterSlot = _schedulerSlot + Math.Max(1, pendingAheadMp3);
+                            ctx.NextRetryTime = DateTime.UtcNow.AddSeconds(30);
                             _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, $"🎵 FLAC not found after {_config.MaxSearchAttempts * _config.MaxSearchAttempts} attempts — switching to MP3 fallback lane automatically.", false, ctx.CorrelationId));
                             await UpdateStateAsync(ctx, PlaylistTrackState.Pending, $"FLAC failed ({_config.MaxSearchAttempts * _config.MaxSearchAttempts}x) → Auto MP3 Fallback queued");
 
@@ -2741,9 +2769,14 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     }
                 }
 
-                ctx.Model.Priority = 10;
-                ctx.NextRetryTime = DateTime.UtcNow.AddSeconds(1);
-                await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "Stall detected (>10s no throughput). Re-searching with new peer.");
+                // Stall: blacklist the peer, go back-of-queue (not immediately re-compete).
+                ctx.Model.Priority = 20;
+                long pendingAheadStall;
+                lock (_collectionLock)
+                    pendingAheadStall = _downloads.Count(d => d != ctx && d.State == PlaylistTrackState.Pending);
+                ctx.RetryAfterSlot = _schedulerSlot + Math.Max(1, pendingAheadStall);
+                ctx.NextRetryTime = DateTime.UtcNow.AddSeconds(15); // Minimum gap after stall
+                await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "Stall detected — re-queued behind active tracks.");
             }
             catch (DownloadDiscoveryService.DiscoveryConnectionUnavailableException ex)
             {

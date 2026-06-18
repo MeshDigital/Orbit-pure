@@ -66,6 +66,12 @@ public class DownloadContext
     // Reliability (Phase 7: DJ's Studio)
     public int RetryCount { get; set; }
     public DateTime? NextRetryTime { get; set; }
+
+    // Slot-gated retry: the track is ineligible for re-selection until the scheduler has
+    // dispatched at least this many tracks since the failure.  This ensures a failed track
+    // waits for all currently-pending tracks to have at least one attempt before it competes
+    // again, rather than immediately re-joining the front of the queue.
+    public long? RetryAfterSlot { get; set; }
     
     // Phase: Download Failure Diagnostics
     public DownloadFailureReason? FailureReason { get; set; }
