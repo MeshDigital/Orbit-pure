@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -7,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using NAudio.Wave;
 using NWaves.Transforms;
 using NWaves.Windows;
+using SLSKDONET.Services.AudioAnalysis;
 using TagLib;
 
 namespace SLSKDONET.Services;
@@ -198,32 +201,97 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
 
     // ── step 2: PCM decoding ──────────────────────────────────────────────────
 
-    /// <summary>
-    /// Opens the audio file with NAudio's <see cref="AudioFileReader"/> (supports WAV, MP3,
-    /// AIFF and FLAC on all platforms) and reads all samples into a mono float array.
-    /// </summary>
+    // NAudio's AudioFileReader delegates to MediaFoundationReader for FLAC/AIFF/OGG.
+    // MediaFoundation requires the matching Windows codec, which is absent on some machines.
+    // When it fails we pipe the file through FFmpeg (which is already bundled) to get raw
+    // 32-bit float PCM, then feed it into the same analysis path.
+    private const int FallbackSampleRate = 44100;
+
     private static (float[] Samples, int SampleRate) DecodeMono(string filePath, CancellationToken ct)
     {
+        // Primary path: let NAudio/MediaFoundation handle it (works for MP3, WAV, AIFF,
+        // and FLAC when the Windows FLAC codec is registered).
+        try
+        {
+            return ReadViaAudioFileReader(filePath, ct);
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException
+                                        or InvalidOperationException
+                                        or System.ComponentModel.Win32Exception)
+        {
+            // Primary decoder failed (typically missing Windows FLAC/OGG codec).
+            // Fall through to FFmpeg pipe.
+        }
+
+        // Fallback: FFmpeg → raw s16le PCM piped to stdout.
+        return ReadViaFfmpegPipe(filePath, ct);
+    }
+
+    private static (float[] Samples, int SampleRate) ReadViaAudioFileReader(string filePath, CancellationToken ct)
+    {
         using var reader = new AudioFileReader(filePath);
-        var format = reader.WaveFormat;
-        var sampleRate = format.SampleRate;
+        return DrainReader(reader, ct);
+    }
+
+    private static (float[] Samples, int SampleRate) ReadViaFfmpegPipe(string filePath, CancellationToken ct)
+    {
+        var ffmpeg = AudioAnalysis.AudioIngestionPipeline.ResolveFfmpegPath();
+        if (!System.IO.File.Exists(ffmpeg) && !ExistsOnSystemPath(ffmpeg))
+            throw new InvalidOperationException(
+                $"MediaFoundation cannot decode '{Path.GetExtension(filePath)}' and FFmpeg is not available as a fallback.");
+
+        // Limit to the analysis window (3× so dynamics has headroom).
+        int maxSeconds = AnalysisDurationSeconds * 3;
+
+        // -t limits the read duration; -ac 1 downmixes to mono; -ar normalises sample rate;
+        // -f s16le emits raw signed 16-bit LE samples (easy to parse without a container).
+        var args = $"-v quiet -i \"{filePath}\" -t {maxSeconds} -ac 1 -ar {FallbackSampleRate} -f s16le -";
+
+        var psi = new ProcessStartInfo(ffmpeg, args)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
+            UseShellExecute        = false,
+            CreateNoWindow         = true,
+        };
+
+        using var proc = Process.Start(psi)
+            ?? throw new InvalidOperationException("Failed to start FFmpeg process.");
+
+        using var reg = ct.Register(() => { try { proc.Kill(); } catch { } });
+
+        // Read raw s16le bytes and convert to float samples (normalised to ±1).
+        using var ms = new MemoryStream();
+        proc.StandardOutput.BaseStream.CopyTo(ms);
+        var rawBytes = ms.ToArray();
+        proc.WaitForExit();
+
+        if (proc.ExitCode != 0)
+            throw new InvalidOperationException(
+                $"FFmpeg exited with code {proc.ExitCode} while decoding '{filePath}'.");
+
+        // s16le = 2 bytes per sample
+        var samples = new float[rawBytes.Length / 2];
+        for (int i = 0; i < samples.Length; i++)
+            samples[i] = BitConverter.ToInt16(rawBytes, i * 2) / 32768f;
+
+        return (samples, FallbackSampleRate);
+    }
+
+    private static (float[] Samples, int SampleRate) DrainReader(AudioFileReader reader, CancellationToken ct)
+    {
+        var format   = reader.WaveFormat;
         var channels = format.Channels;
+        var maxSamplesToRead = format.SampleRate * AnalysisDurationSeconds * 3;
 
-        // Cap the read at 3× the analysis window (e.g. 90 s for a 30 s window) so that
-        // very long files are not fully loaded into memory.  The extra headroom lets
-        // ComputeDynamics scan a meaningful portion of the track for noise floor detection.
-        var maxSamplesToRead = sampleRate * AnalysisDurationSeconds * 3;
-
-        var buffer = new float[FftSize * channels];
-        var accumulated = new System.Collections.Generic.List<float>(maxSamplesToRead);
-
-        int read;
+        var buffer      = new float[FftSize * channels];
+        var accumulated = new List<float>(maxSamplesToRead);
         float invChannels = 1f / channels;
+        int read;
+
         while ((read = reader.Read(buffer, 0, buffer.Length)) > 0 && accumulated.Count < maxSamplesToRead)
         {
             ct.ThrowIfCancellationRequested();
-
-            // Downmix multi-channel to mono by averaging channels
             for (int i = 0; i < read; i += channels)
             {
                 float sum = 0f;
@@ -233,7 +301,18 @@ public sealed class AudioIntegrityService : IAudioIntegrityService
             }
         }
 
-        return (accumulated.ToArray(), sampleRate);
+        return (accumulated.ToArray(), format.SampleRate);
+    }
+
+    private static bool ExistsOnSystemPath(string name)
+    {
+        var pathEnv = Environment.GetEnvironmentVariable("PATH");
+        if (pathEnv == null) return false;
+        foreach (var dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            try { if (System.IO.File.Exists(Path.Combine(dir.Trim(), name))) return true; } catch { }
+        }
+        return false;
     }
 
     // ── steps 4 & 5: windowed FFT + averaging ─────────────────────────────────
