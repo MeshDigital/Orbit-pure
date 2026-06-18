@@ -191,7 +191,8 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
 
             var progress = new Progress<ScanProgress>(p =>
             {
-                ScanStatus = $"Found: {p.FilesDiscovered} | Imported: {p.FilesImported} | Upgraded: {p.FilesAutoUpgraded} | RemoveCands: {p.FilesMarkedForRemoval} | DupPath: {p.FilesDuplicateByPath} | DupTrack: {p.FilesDuplicateByHash} | Skipped: {p.FilesSkipped}";
+                var where = string.IsNullOrWhiteSpace(p.CurrentFile) ? string.Empty : $" | {p.CurrentFile}";
+                ScanStatus = $"Found: {p.FilesDiscovered} | Imported: {p.FilesImported} | Upgraded: {p.FilesAutoUpgraded} | RemoveCands: {p.FilesMarkedForRemoval} | DupPath: {p.FilesDuplicateByPath} | DupTrack: {p.FilesDuplicateByHash} | Skipped: {p.FilesSkipped}{where}";
             });
 
             var results = await _libraryFolderScannerService.ScanAllFoldersAsync(progress);

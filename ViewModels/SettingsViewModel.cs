@@ -1834,14 +1834,14 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             // 2. Run Scan
             var progress = new Progress<ScanProgress>(p =>
             {
-                // Throttle updates or just show simplified status
-                var folderLabel = string.IsNullOrWhiteSpace(p.CurrentFolder)
-                    ? string.Empty
-                    : $" | Folder: {System.IO.Path.GetFileName(p.CurrentFolder)}";
+                var folderLabel = string.IsNullOrWhiteSpace(p.CurrentFile)
+                    ? (string.IsNullOrWhiteSpace(p.CurrentFolder) ? string.Empty
+                        : $" | {System.IO.Path.GetFileName(p.CurrentFolder.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar))}")
+                    : $" | {p.CurrentFile}";
 
                 ScanStatus = $"Scanning: Found {p.FilesDiscovered}, Imported {p.FilesImported}, Upgraded {p.FilesAutoUpgraded}, RemoveCands {p.FilesMarkedForRemoval}, DupPath {p.FilesDuplicateByPath}, DupTrack {p.FilesDuplicateByHash}{folderLabel}";
             });
-            
+
             var results = await _libraryFolderScannerService.ScanAllFoldersAsync(progress);
             
             // 3. Summarize
@@ -1938,9 +1938,10 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
             var progress = new Progress<ScanProgress>(p =>
             {
-                var folderLabel = string.IsNullOrWhiteSpace(p.CurrentFolder)
-                    ? string.Empty
-                    : $" ({System.IO.Path.GetFileName(p.CurrentFolder)})";
+                var folderLabel = string.IsNullOrWhiteSpace(p.CurrentFile)
+                    ? (string.IsNullOrWhiteSpace(p.CurrentFolder) ? string.Empty
+                        : $" ({System.IO.Path.GetFileName(p.CurrentFolder.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar))})")
+                    : $" ({p.CurrentFile})";
                 FullSyncStatus = $"Scanning{folderLabel}: {p.FilesDiscovered} found, {p.FilesImported} imported...";
             });
 
