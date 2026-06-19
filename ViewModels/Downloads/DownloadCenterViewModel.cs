@@ -190,6 +190,13 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         set => this.RaiseAndSetIfChanged(ref _failedCount, value);
     }
 
+    private int _remoteQueuedCount;
+    public int RemoteQueuedCount
+    {
+        get => _remoteQueuedCount;
+        set => this.RaiseAndSetIfChanged(ref _remoteQueuedCount, value);
+    }
+
     // Unfiltered totals — not affected by search text, used by the metric cards
     private int _totalCompletedCount;
     public int TotalCompletedCount
@@ -864,11 +871,12 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
         // 1.1 Ongoing Downloads (Downloading/Searching state)
         sharedSource
-            .Filter(x => x.State == PlaylistTrackState.Downloading || x.State == PlaylistTrackState.Searching)
+            .Filter(x => x.State == PlaylistTrackState.Downloading || x.State == PlaylistTrackState.Searching || x.State == PlaylistTrackState.Queued)
             .SortAndBind(out _ongoingDownloads, SortExpressionComparer<UnifiedTrackViewModel>.Descending(x => x.State == PlaylistTrackState.Downloading).ThenByDescending(x => x.DownloadSpeed))
             .Subscribe(_ => {
                 DownloadingCount = _downloadsSource.Items.Count(x => x.State == PlaylistTrackState.Downloading);
                 SearchingCount = _downloadsSource.Items.Count(x => x.State == PlaylistTrackState.Searching);
+                RemoteQueuedCount = _downloadsSource.Items.Count(x => x.State == PlaylistTrackState.Queued);
             })
             .DisposeWith(_subscriptions);
 

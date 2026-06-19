@@ -191,10 +191,29 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         }
         else
         {
-            Title = "Project Selection";
+            // SourcePlaylistName missing on this track — look up the job name async and patch it in.
             var distinctArtists = Tracks.Select(t => t.Model.Artist).Distinct().Take(2).Count();
+            Title    = string.Empty; // resolved below
             Subtitle = distinctArtists > 1 ? "Mixed Artists" : (firstTrack?.Artist ?? "Various Artists");
             ArtworkUrl = firstTrack?.AlbumArtUrl;
+            var jobId = GroupKey;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    if (jobId.HasValue)
+                    {
+                        var job = await libraryService.FindPlaylistJobAsync(jobId.Value).ConfigureAwait(false);
+                        var name = job?.SourceTitle;
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() => Title = !string.IsNullOrEmpty(name) ? name : "Unknown Playlist");
+                    }
+                    else
+                    {
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() => Title = "Unknown Playlist");
+                    }
+                }
+                catch { Avalonia.Threading.Dispatcher.UIThread.Post(() => Title = "Unknown Playlist"); }
+            });
         }
 
         // Aggregate Progress & Speed

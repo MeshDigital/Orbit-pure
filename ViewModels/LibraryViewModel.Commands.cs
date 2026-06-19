@@ -46,6 +46,9 @@ public partial class LibraryViewModel
     public ICommand DownloadAlbumCommand { get; set; } = null!;
     public ICommand DownloadMissingCommand { get; set; } = null!;
     public ICommand ForceRedownloadCommand { get; set; } = null!;
+    public ICommand DownloadPlaylistNormalCommand { get; set; } = null!;
+    public ICommand DownloadPlaylistHighCommand { get; set; } = null!;
+    public ICommand DownloadPlaylistCriticalCommand { get; set; } = null!;
     public ICommand AcquireMissingTracksCommand { get; set; } = null!;
     public ICommand RenameProjectCommand { get; set; } = null!;
     public ICommand DuplicateDetectionCommand { get; set; } = null!;
@@ -54,6 +57,7 @@ public partial class LibraryViewModel
     public ICommand RestoreProjectCommand { get; set; } = null!;
     public ICommand SyncProjectCommand { get; set; } = null!;
     public ICommand ExportPlaylistCommand { get; set; } = null!;
+    public ICommand ExportPlaylistM3uCommand { get; set; } = null!;
 
     public ICommand SwitchWorkspaceCommand { get; set; } = null!;
     public ICommand ToggleColumnCommand { get; set; } = null!;
@@ -89,6 +93,7 @@ public partial class LibraryViewModel
     public ICommand BatchQueueAnalysisCommand { get; set; } = null!;
     public ICommand BatchAddToPlaylistCommand { get; set; } = null!;
     public ICommand BatchExportRekordboxCommand { get; set; } = null!;
+    public ICommand BatchExportM3uCommand { get; set; } = null!;
     public ICommand BatchClearSelectionCommand { get; set; } = null!;
 
 
@@ -115,10 +120,14 @@ public partial class LibraryViewModel
         DownloadAlbumCommand = new AsyncRelayCommand<object>(ExecuteDownloadAlbumAsync);
         DownloadMissingCommand = new AsyncRelayCommand<object>(ExecuteDownloadMissingAsync);
         ForceRedownloadCommand = new AsyncRelayCommand<object>(ExecuteForceRedownloadAsync);
+        DownloadPlaylistNormalCommand   = new AsyncRelayCommand<object>(p => ExecuteQueueMissingWithPriorityAsync(p, PlaylistPriority.Normal));
+        DownloadPlaylistHighCommand     = new AsyncRelayCommand<object>(p => ExecuteQueueMissingWithPriorityAsync(p, PlaylistPriority.High));
+        DownloadPlaylistCriticalCommand = new AsyncRelayCommand<object>(p => ExecuteQueueMissingWithPriorityAsync(p, PlaylistPriority.Critical));
         AcquireMissingTracksCommand = new AsyncRelayCommand<object>(ExecuteAcquireMissingTracksAsync);
         RenameProjectCommand = new AsyncRelayCommand<object>(ExecuteRenameProjectAsync);
         SyncProjectCommand = new AsyncRelayCommand<object>(ExecuteSyncProjectAsync);
         ExportPlaylistCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistAsync);
+        ExportPlaylistM3uCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistM3uAsync);
 
 
         // Fluidity
@@ -158,6 +167,7 @@ public partial class LibraryViewModel
         BatchQueueAnalysisCommand = new AsyncRelayCommand(ExecuteBatchQueueAnalysisAsync);
         BatchAddToPlaylistCommand = new AsyncRelayCommand(ExecuteBatchAddToPlaylistAsync);
         BatchExportRekordboxCommand = new AsyncRelayCommand(ExecuteBatchExportRekordboxAsync);
+        BatchExportM3uCommand = new AsyncRelayCommand(ExecuteBatchExportM3uAsync);
         BatchClearSelectionCommand = new RelayCommand(() => Tracks.ClearSelection());
     }
 
@@ -407,6 +417,52 @@ public partial class LibraryViewModel
         await ExecuteDownloadMissingAsync(param);
     }
 
+    private async Task ExecuteQueueMissingWithPriorityAsync(object? param, PlaylistPriority urgency)
+    {
+        if (param is not PlaylistJob project) return;
+
+        // Set the job-level priority tier so the scheduler picks these tracks first
+        await _downloadManager.SetJobPriorityAsync(project.Id, urgency);
+
+        var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
+        var missing = tracks
+            .Where(t => t.Status != TrackStatus.Downloaded && t.Status != TrackStatus.OnHold)
+            .ToList();
+
+        if (missing.Count == 0)
+        {
+            _notificationService.Show(
+                "Nothing to Download",
+                $"All tracks in \"{project.SourceTitle}\" are already downloaded.",
+                NotificationType.Information);
+            return;
+        }
+
+        // Track-level Priority 0 = explicit user action — bypasses lazy-buffer size gate.
+        // Stamp SourcePlaylistName so the Downloads Hub groups correctly.
+        foreach (var t in missing)
+        {
+            t.Priority = 0;
+            if (string.IsNullOrEmpty(t.SourcePlaylistName))
+            {
+                t.SourcePlaylistName = project.SourceTitle;
+                t.SourcePlaylistId   = project.Id;
+            }
+        }
+        _downloadManager.QueueTracks(missing);
+
+        var label = urgency switch
+        {
+            PlaylistPriority.Critical => "CRITICAL",
+            PlaylistPriority.High     => "High",
+            _                         => "Normal",
+        };
+        _notificationService.Show(
+            $"Queued [{label}]",
+            $"{missing.Count} missing track(s) from \"{project.SourceTitle}\" added to queue.",
+            NotificationType.Success);
+    }
+
     private async Task ExecuteDownloadMissingAsync(object? param)
     {
         if (param is PlaylistJob project)
@@ -421,10 +477,16 @@ public partial class LibraryViewModel
             if (missing.Any())
             {
                 _notificationService.Show("Queueing Missing Tracks", $"{missing.Count} missing tracks from {project.SourceTitle}", NotificationType.Information);
-                
-                // Force Priority 0
-                foreach (var t in missing) t.Priority = 0;
-                
+
+                foreach (var t in missing)
+                {
+                    t.Priority = 0;
+                    if (string.IsNullOrEmpty(t.SourcePlaylistName))
+                    {
+                        t.SourcePlaylistName = project.SourceTitle;
+                        t.SourcePlaylistId   = project.Id;
+                    }
+                }
                 _downloadManager.QueueTracks(missing);
             }
             else
@@ -1597,6 +1659,37 @@ public partial class LibraryViewModel
         }
     }
 
+    private async Task ExecuteExportPlaylistM3uAsync(object? param)
+    {
+        if (param is not PlaylistJob project) return;
+        try
+        {
+            var safeName = Utils.FilenameNormalizer.GetSafeFilename(project.SourceTitle);
+            var path = await _dialogService.SaveFileAsync("Export M3U Playlist", $"{safeName}.m3u8", "m3u8");
+            if (string.IsNullOrEmpty(path)) return;
+
+            IsLoading = true;
+            var tracks = (await _libraryService.LoadPlaylistTracksAsync(project.Id)).ToList();
+            await _exportService.ExportToM3uAsync(project.SourceTitle, tracks, path);
+            _notificationService.Show("M3U Export Complete",
+                $"{tracks.Count} track(s) exported to {Path.GetFileName(path)}",
+                NotificationType.Success);
+        }
+        catch (OperationCanceledException)
+        {
+            _notificationService.Show("Export Cancelled", "Export was cancelled.", NotificationType.Warning);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "M3U export failed");
+            _notificationService.Show("Export Failed", ex.Message, NotificationType.Error);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
     private void ExecuteResetView()
     {
         // Reset view settings
@@ -1926,6 +2019,37 @@ public partial class LibraryViewModel
         catch (Exception ex)
         {
             _logger.LogError(ex, "Batch Rekordbox export failed");
+            _notificationService.Show("Export Failed", ex.Message, NotificationType.Error);
+        }
+    }
+
+    private async Task ExecuteBatchExportM3uAsync()
+    {
+        var selected = Tracks.SelectedTracks.ToList();
+        if (selected.Count == 0) return;
+        try
+        {
+            var outputPath = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                $"orbit-playlist-{DateTime.Now:yyyyMMdd-HHmmss}.m3u8");
+            var tracks = selected.Select(t => new Models.PlaylistTrack
+            {
+                Id               = t.Id,
+                Title            = t.Title,
+                Artist           = t.Artist,
+                ResolvedFilePath = t.Model.ResolvedFilePath ?? string.Empty,
+                BPM              = t.BPM > 0 ? t.BPM : null,
+                MusicalKey       = t.MusicalKey,
+            });
+            await _exportService.ExportToM3uAsync("ORBIT Batch Export", tracks, outputPath);
+            _notificationService.Show(
+                "M3U Export Complete",
+                $"{selected.Count} track(s) exported to {outputPath}",
+                NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Batch M3U export failed");
             _notificationService.Show("Export Failed", ex.Message, NotificationType.Error);
         }
     }

@@ -18,14 +18,9 @@
                 <MenuItem Header="Tier 2: Detailed" Command="{Binding AnalyzeAlbumT2Command}" />
                 <MenuItem Header="Tier 3: Specialized (Deep)" Command="{Binding AnalyzeAlbumT3Command}" />
             </MenuItem>
-            <MenuItem Header="Download Album" Command="{Binding DownloadAlbumCommand}">
+            <MenuItem Header="Download Missing Tracks" Command="{Binding DownloadAlbumCommand}">
                 <MenuItem.Icon>
                     <TextBlock Text="⬇️"/>
-                </MenuItem.Icon>
-            </MenuItem>
-            <MenuItem Header="Force Re-download" Command="{Binding ForceRedownloadCommand}">
-                <MenuItem.Icon>
-                    <TextBlock Text="🔥"/>
                 </MenuItem.Icon>
             </MenuItem>
         </ContextMenu>
