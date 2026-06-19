@@ -705,10 +705,11 @@ public class SearchOrchestrationService
                     baseMatchScore,
                     fitScore,
                     reliability: 0.5,
-                    queueLength: track.QueueLength);
+                    queueLength: track.QueueLength,
+                    hasFreeUploadSlot: track.HasFreeUploadSlot);
                 EnsureBlendTelemetryMetadata(track, baseMatchScore, fitScore, 0.5, finalScore);
                 var existingBreakdown = track.ScoreBreakdown;
-                var blendBreakdown = $"Blend: Match={baseMatchScore:F1}, Fit={fitScore:F1}, Rel=0.50, Queue={track.QueueLength}, Final={finalScore:F1}";
+                var blendBreakdown = $"Blend: Match={baseMatchScore:F1}, Fit={fitScore:F1}, Rel=0.50, Queue={track.QueueLength}, FreeSlot={track.HasFreeUploadSlot}, Final={finalScore:F1}";
                 track.ScoreBreakdown = string.IsNullOrWhiteSpace(existingBreakdown)
                     ? blendBreakdown
                     : $"{existingBreakdown}; {blendBreakdown}";
@@ -744,7 +745,8 @@ public class SearchOrchestrationService
         var fitScore = CalculateAccumulatorFitScore(track, target, formatFilter, minBitrate);
         var baseMatchScore = SearchCandidateRankingPolicy.MatchScoreFromRank(track.CurrentRank);
         var finalScore = SearchCandidateRankingPolicy.CalculateFinalScore(
-            baseMatchScore, fitScore, reliability: 0.5, queueLength: track.QueueLength);
+            baseMatchScore, fitScore, reliability: 0.5, queueLength: track.QueueLength,
+            hasFreeUploadSlot: track.HasFreeUploadSlot);
         EnsureBlendTelemetryMetadata(track, baseMatchScore, fitScore, 0.5, finalScore);
         track.MatchReason ??= SearchBlendReasonFormatter.BuildCompactReason(track.Metadata);
         track.CurrentRank = finalScore;

@@ -57,22 +57,27 @@ public static class SearchCandidateFitScorer
             }
         }
 
+        // HasFreeUploadSlot is the strongest availability signal: the peer will start
+        // uploading immediately without queuing the request.  Weight it heavily.
+        if (candidate.HasFreeUploadSlot)
+        {
+            score += 20;
+        }
+
+        // Queue depth bonus — lower queue means shorter wait.
+        // These stack on top of HasFreeUploadSlot since they measure different things:
+        // slot availability vs. backlog depth.
         if (candidate.QueueLength == 0)
         {
             score += 12;
         }
         else if (candidate.QueueLength <= 3)
         {
-            score += 8;
+            score += 9;
         }
         else if (candidate.QueueLength <= 10)
         {
-            score += 4;
-        }
-
-        if (candidate.HasFreeUploadSlot)
-        {
-            score += 8;
+            score += 5;
         }
 
         var ext = candidate.GetExtension().ToLowerInvariant();

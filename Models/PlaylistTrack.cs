@@ -210,6 +210,20 @@ public class PlaylistTrack
     /// Download priority: 0=High (manual/bump-to-top), 1=Standard (playlist), 10=Background (large imports).
     /// </summary>
     public int Priority { get; set; } = 1;
+
+    /// <summary>
+    /// Transient: playlist-level priority stamped from the job priority cache at hydration time.
+    /// Not persisted to the PlaylistTracks table. Used as the PRIMARY scheduling sort key,
+    /// taking precedence over the track-level Priority above.
+    /// Maps to <see cref="PlaylistPriority"/> cast to int (0=Critical … 3=Low).
+    /// </summary>
+    public int JobPriority { get; set; } = (int)PlaylistPriority.Normal;
+
+    /// <summary>
+    /// Transient: manual drag-drop sort order of the parent playlist. Not persisted.
+    /// Tiebreaker within the same JobPriority tier.
+    /// </summary>
+    public int JobManualSortOrder { get; set; } = 0;
     
     /// <summary>
     /// Source playlist ID for origin tracking and project grouping.

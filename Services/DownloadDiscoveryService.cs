@@ -530,7 +530,8 @@ public class DownloadDiscoveryService
                         scored.Score,
                         fitScore,
                         reliability,
-                        queueLength);
+                        queueLength,
+                        hasFreeUploadSlot: searchTrack.HasFreeUploadSlot);
                     EnsureBlendTelemetryMetadata(searchTrack, scored.Score, fitScore, reliability, score);
 
                     searchTrack.ScoreBreakdown = BuildCompositeScoreBreakdown(

@@ -23,6 +23,7 @@ public record TrackStateChangedEvent(string TrackGlobalId, Guid ProjectId, Playl
 public record TrackProgressChangedEvent(string TrackGlobalId, double Progress, long BytesReceived, long TotalBytes, string? CorrelationId = null);
 public record TrackMetadataUpdatedEvent(string TrackGlobalId);
 public record ForceStartRequestEvent(string TrackGlobalId);
+public record TrackQueuePositionUpdatedEvent(string TrackGlobalId, int Position, string PeerUsername);
 public record BumpToTopRequestEvent(string TrackGlobalId); // [NEW] Overhaul Phase
 
 // Transfer lifecycle events

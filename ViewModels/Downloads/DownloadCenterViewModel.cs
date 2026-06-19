@@ -189,7 +189,22 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         get => _failedCount;
         set => this.RaiseAndSetIfChanged(ref _failedCount, value);
     }
-    
+
+    // Unfiltered totals — not affected by search text, used by the metric cards
+    private int _totalCompletedCount;
+    public int TotalCompletedCount
+    {
+        get => _totalCompletedCount;
+        set => this.RaiseAndSetIfChanged(ref _totalCompletedCount, value);
+    }
+
+    private int _totalFailedCount;
+    public int TotalFailedCount
+    {
+        get => _totalFailedCount;
+        set => this.RaiseAndSetIfChanged(ref _totalFailedCount, value);
+    }
+
     private string _globalSpeed = "0 MB/s";
     public string GlobalSpeed
     {
@@ -1032,6 +1047,30 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             .Subscribe(_ => FailedCount = _failedDownloads.Count)
             .DisposeWith(_subscriptions);
 
+        // Unfiltered metric card totals — independent of SearchText so the cards never drop counts
+        // when the user types in the search box. These mirror the filtered pipelines above but skip
+        // the completedFilter so they always reflect the true session totals.
+        _downloadsSource.Connect()
+            .AutoRefresh(x => x.State)
+            .AutoRefresh(x => x.IsClearedFromDownloadCenter)
+            .Filter(x => x.State == PlaylistTrackState.Completed && !x.IsClearedFromDownloadCenter)
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(_ => TotalCompletedCount = _downloadsSource.Items.Count(x =>
+                x.State == PlaylistTrackState.Completed && !x.IsClearedFromDownloadCenter))
+            .DisposeWith(_subscriptions);
+
+        _downloadsSource.Connect()
+            .AutoRefresh(x => x.State)
+            .AutoRefresh(x => x.IsClearedFromDownloadCenter)
+            .Filter(x => (x.State == PlaylistTrackState.Failed ||
+                          x.State == PlaylistTrackState.Cancelled ||
+                          x.State == PlaylistTrackState.Stalled) && !x.IsClearedFromDownloadCenter)
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(_ => TotalFailedCount = _downloadsSource.Items.Count(x =>
+                (x.State == PlaylistTrackState.Failed ||
+                 x.State == PlaylistTrackState.Cancelled ||
+                 x.State == PlaylistTrackState.Stalled) && !x.IsClearedFromDownloadCenter))
+            .DisposeWith(_subscriptions);
 
         // 2. Swimlane Pipelines (Derived from sharedSource filtered to Active)
         // Express: Priority 0

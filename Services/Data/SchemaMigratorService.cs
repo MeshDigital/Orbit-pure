@@ -2532,6 +2532,29 @@ public class SchemaMigratorService
                 }
             }
 
+            // Playlist-level priority scheduling columns on Projects table (EF maps PlaylistJobEntity → "Projects")
+            if (TableExists("Projects"))
+            {
+                if (!ColumnExists("Projects", "JobPriority"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding JobPriority to Projects...");
+                    command.CommandText = @"ALTER TABLE ""Projects"" ADD COLUMN ""JobPriority"" INTEGER NOT NULL DEFAULT 2;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Projects", "IsFocused"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding IsFocused to Projects...");
+                    command.CommandText = @"ALTER TABLE ""Projects"" ADD COLUMN ""IsFocused"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+                if (!ColumnExists("Projects", "ManualSortOrder"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding ManualSortOrder to Projects...");
+                    command.CommandText = @"ALTER TABLE ""Projects"" ADD COLUMN ""ManualSortOrder"" INTEGER NOT NULL DEFAULT 0;";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

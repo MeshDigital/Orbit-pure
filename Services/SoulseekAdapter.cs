@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Collections.ObjectModel;
 using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
 using Open.Nat;
 
@@ -311,10 +312,32 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
         });
     }
 
+    // Configures OS-level TCP keepalives on the Soulseek server socket.
+    // Without this, a silently-dropped NAT mapping or router reboot leaves the TCP socket
+    // half-open indefinitely — the app thinks it's connected but no data ever arrives.
+    // With keepalives: after 30 s of idle the OS sends probes every 5 s; after 3 failures
+    // (~45 s total) the socket is closed and Soulseek.NET fires the disconnect event.
+    private static void ConfigureServerSocket(Socket socket)
+    {
+        socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+
+        if (OperatingSystem.IsWindows())
+        {
+            // tcp_keepalive struct: [onoff(4)] [keepalivetime(4)] [keepaliveinterval(4)] — all little-endian uint32
+            byte[] ka = new byte[12];
+            BitConverter.GetBytes((uint)1).CopyTo(ka, 0);        // enable
+            BitConverter.GetBytes((uint)30_000).CopyTo(ka, 4);   // idle before first probe: 30 s
+            BitConverter.GetBytes((uint)5_000).CopyTo(ka, 8);    // interval between probes: 5 s
+            socket.IOControl(IOControlCode.KeepAliveValues, ka, null);
+        }
+    }
+
     private SoulseekClientOptions CreateClientOptions()
     {
         var runtime = CreateRuntimeNetworkConfigSnapshot();
-        var serverConnectionOptions = new ConnectionOptions(connectTimeout: runtime.ConnectTimeout);
+        var serverConnectionOptions = new ConnectionOptions(
+            connectTimeout: runtime.ConnectTimeout,
+            configureSocket: ConfigureServerSocket);
         var messageTimeout = GetEffectiveMessageTimeout(runtime.ConnectTimeout);
 
         return new SoulseekClientOptions(
@@ -332,7 +355,9 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
     private SoulseekClientOptionsPatch CreateRuntimeNetworkOptionsPatch(RuntimeNetworkConfigSnapshot runtime)
     {
-        var serverConnectionOptions = new ConnectionOptions(connectTimeout: runtime.ConnectTimeout);
+        var serverConnectionOptions = new ConnectionOptions(
+            connectTimeout: runtime.ConnectTimeout,
+            configureSocket: ConfigureServerSocket);
 
         return new SoulseekClientOptionsPatch(
             enableListener: true,

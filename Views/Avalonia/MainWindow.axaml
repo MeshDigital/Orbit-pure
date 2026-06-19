@@ -207,7 +207,7 @@
                         <MenuItem Header="Show CURATE" IsChecked="{Binding IsCurateVisible}" ToggleType="CheckBox"/>
                         <MenuItem Header="Show DELIVER" IsChecked="{Binding IsDeliverVisible}" ToggleType="CheckBox"/>
                         <MenuItem Header="Show SYSTEM" IsChecked="{Binding IsSystemVisible}" ToggleType="CheckBox"/>
-                        <MenuItem Header="Show CREATIVE" IsChecked="{Binding IsCreativeVisible}" ToggleType="CheckBox"/>
+                        <MenuItem Header="Show EXPERIMENTAL" IsChecked="{Binding IsCreativeVisible}" ToggleType="CheckBox"/>
                         <Separator/>
                         <MenuItem Header="Zen Mode (F10)" IsChecked="{Binding IsZenMode}" ToggleType="CheckBox"/>
                     </ContextMenu>
@@ -315,12 +315,12 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <!-- CREATIVE -->
+                        <!-- EXPERIMENTAL -->
                         <StackPanel IsVisible="{Binding IsCreativeVisible}">
                             <Button Classes="group-header" Command="{Binding ToggleCreativeCommand}"
                                     Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch"
                                     Padding="16,8,12,4" ToolTip.Tip="Collapse / expand">                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="CREATIVE" FontSize="11" FontWeight="Bold" Foreground="#666" LetterSpacing="1" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="0" Text="EXPERIMENTAL" FontSize="11" FontWeight="Bold" Foreground="#666" LetterSpacing="1" VerticalAlignment="Center"/>
                                     <TextBlock Grid.Column="1" Text="{Binding CreativeChevron}" FontSize="11" Foreground="#555" VerticalAlignment="Center"/>
                                 </Grid>
                             </Button>

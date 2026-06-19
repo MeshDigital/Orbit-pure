@@ -7,95 +7,207 @@
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="120"
              x:Class="SLSKDONET.Views.Avalonia.Controls.DownloadGroupRow"
              x:DataType="vm:DownloadGroupViewModel">
-    
-    <Border Background="#1A1A1A80" 
+
+    <UserControl.Styles>
+        <!-- Priority badge tints -->
+        <Style Selector="Border.priority-badge">
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="6,2"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Border.priority-critical">
+            <Setter Property="Background" Value="#33DD2222"/>
+            <Setter Property="BorderBrush" Value="#CC882222"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style Selector="Border.priority-high">
+            <Setter Property="Background" Value="#33BB7700"/>
+            <Setter Property="BorderBrush" Value="#CCAA6600"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style Selector="Border.priority-low">
+            <Setter Property="Background" Value="#22666666"/>
+            <Setter Property="BorderBrush" Value="#44555555"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <!-- Focus ring on the row header when focused -->
+        <Style Selector="Border.focus-ring">
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style Selector="Border.focus-ring.focused">
+            <Setter Property="BorderBrush" Value="#88FFB300"/>
+        </Style>
+        <!-- Focus button dims when focus is inactive -->
+        <Style Selector="Button.icon TextBlock.focus-icon">
+            <Setter Property="Opacity" Value="0.35"/>
+        </Style>
+        <Style Selector="Button.icon.active TextBlock.focus-icon">
+            <Setter Property="Opacity" Value="1.0"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Border Background="#1A1A1A80"
             BorderBrush="#33333333"
             BorderThickness="1"
-            CornerRadius="12" 
-            Margin="0,0,0,12" 
+            CornerRadius="12"
+            Margin="0,0,0,12"
             Padding="0"
             ClipToBounds="True"
             BoxShadow="0 8 24 -8 #80000000">
-        
+
         <StackPanel>
             <!-- Header (Always Visible) -->
-            <Border Background="#25252640" Cursor="Hand" Padding="12,0">
+            <Border Name="HeaderBorder"
+                    Classes="focus-ring"
+                    Classes.focused="{Binding IsFocused}"
+                    Background="#25252640"
+                    Cursor="Hand"
+                    Padding="0,0,12,0">
+
+                <!-- Right-click context menu for priority control -->
+                <Border.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="⚡  Set Critical" Command="{Binding SetCriticalCommand}"/>
+                        <MenuItem Header="↑  Set High"     Command="{Binding SetHighCommand}"/>
+                        <MenuItem Header="·  Set Normal"   Command="{Binding SetNormalCommand}"/>
+                        <MenuItem Header="↓  Set Low"      Command="{Binding SetLowCommand}"/>
+                        <Separator/>
+                        <MenuItem Header="🎯  Toggle Focus Mode" Command="{Binding ToggleFocusModeCommand}"/>
+                    </ContextMenu>
+                </Border.ContextMenu>
+
                 <Interaction.Behaviors>
                     <EventTriggerBehavior EventName="PointerPressed">
                         <InvokeCommandAction Command="{Binding ToggleExpandedCommand}"/>
                     </EventTriggerBehavior>
                 </Interaction.Behaviors>
-                <Grid ColumnDefinitions="Auto, Auto, *, Auto" Height="64">
-                    <!-- 0. Expansion Indicator -->
-                    <PathIcon Grid.Column="0" 
-                              Data="{DynamicResource chevron_right_regular}" 
-                              Width="12" Height="12" 
+
+                <Grid ColumnDefinitions="Auto, Auto, Auto, *, Auto" Height="64">
+
+                    <!-- 0. Drag handle — PointerPressed starts DoDragDropAsync in code-behind -->
+                    <Border Grid.Column="0"
+                            Name="DragHandle"
+                            Width="28"
+                            Cursor="SizeAll"
+                            ToolTip.Tip="Drag to reorder playlist"
+                            VerticalAlignment="Stretch">
+                        <Interaction.Behaviors>
+                            <!-- Suppress expand-toggle for pointer events on the drag handle -->
+                            <EventTriggerBehavior EventName="PointerPressed">
+                                <CallMethodAction TargetObject="{Binding $parent[UserControl]}"
+                                                  MethodName="OnDragHandlePointerPressed"/>
+                            </EventTriggerBehavior>
+                        </Interaction.Behaviors>
+                        <TextBlock Text="⠿"
+                                   FontSize="16"
+                                   Foreground="#44888888"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+
+                    <!-- 1. Expansion Indicator -->
+                    <PathIcon Grid.Column="1"
+                              Data="{DynamicResource chevron_right_regular}"
+                              Width="12" Height="12"
                               Foreground="{DynamicResource TextSecondaryColor}"
-                              Margin="0,0,12,0">
+                              Margin="0,0,8,0"
+                              VerticalAlignment="Center">
                         <PathIcon.RenderTransform>
                             <RotateTransform Angle="{Binding IsExpanded, Converter={StaticResource BoolToAngleConverter}, ConverterParameter=90}"/>
                         </PathIcon.RenderTransform>
                     </PathIcon>
 
-                    <!-- 1. Metadata -->
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                    <!-- 2. Metadata (artwork + title + priority badge) -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                         <!-- Tiny Art -->
                         <Border Width="40" Height="40" CornerRadius="4" ClipToBounds="True">
-                             <Panel>
-                                 <Panel Background="{DynamicResource SystemChromeLowColor}" 
-                                        IsVisible="{Binding ArtworkUrl, Converter={x:Static ObjectConverters.IsNull}}">
-                                     <PathIcon Data="{DynamicResource disc_regular}" 
-                                               Foreground="{DynamicResource TextSecondaryColor}"
-                                               HorizontalAlignment="Center"
-                                               VerticalAlignment="Center"
-                                               Width="20" Height="20"/>
-                                 </Panel>
-                                 <Image Source="{Binding ArtworkUrl}" 
-                                        Stretch="UniformToFill"
-                                        IsVisible="{Binding ArtworkUrl, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-                             </Panel>
+                            <Panel>
+                                <Panel Background="{DynamicResource SystemChromeLowColor}"
+                                       IsVisible="{Binding ArtworkUrl, Converter={x:Static ObjectConverters.IsNull}}">
+                                    <PathIcon Data="{DynamicResource disc_regular}"
+                                              Foreground="{DynamicResource TextSecondaryColor}"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Width="20" Height="20"/>
+                                </Panel>
+                                <Image Source="{Binding ArtworkUrl}"
+                                       Stretch="UniformToFill"
+                                       IsVisible="{Binding ArtworkUrl, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                            </Panel>
                         </Border>
-                        
-                        <StackPanel VerticalAlignment="Center" Spacing="0">
-                            <TextBlock Text="{Binding Title}" 
-                                       FontWeight="SemiBold" 
+
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="{Binding Title}"
+                                       FontWeight="SemiBold"
                                        FontSize="14"
                                        Foreground="{DynamicResource TextPrimaryColor}"/>
-                            <TextBlock Text="{Binding Subtitle}" 
-                                       FontSize="12"
-                                       Foreground="{DynamicResource TextSecondaryColor}"/>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="{Binding Subtitle}"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource TextSecondaryColor}"/>
+
+                                <!-- Priority badge — hidden for Normal to reduce noise -->
+                                <Border Classes="priority-badge"
+                                        Classes.priority-critical="{Binding IsCritical}"
+                                        Classes.priority-high="{Binding IsHighPriority}"
+                                        Classes.priority-low="{Binding IsLowPriority}"
+                                        IsVisible="{Binding IsPriorityBadgeVisible}">
+                                    <TextBlock Text="{Binding PriorityLabel}"
+                                               FontSize="9"
+                                               FontWeight="Bold"
+                                               LetterSpacing="0.5"
+                                               Foreground="{Binding PriorityBrush}"/>
+                                </Border>
+
+                                <!-- Focus Mode indicator -->
+                                <TextBlock Text="🎯"
+                                           FontSize="11"
+                                           IsVisible="{Binding IsFocused}"
+                                           ToolTip.Tip="Focus Mode active — forced to Critical"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
                         </StackPanel>
                     </StackPanel>
 
-                    <!-- 2. Aggregate Stats -->
-                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="24,0">
-                         <Grid ColumnDefinitions="*, Auto" Margin="0,0,0,4">
-                             <TextBlock Text="{Binding StatusText}" 
-                                        FontSize="11" 
-                                        FontWeight="SemiBold"
-                                        Foreground="{DynamicResource TextSecondaryColor}"/>
-                             <TextBlock Grid.Column="1" 
-                                        Text="{Binding TotalProgress, StringFormat='{}{0:0}%'}" 
-                                        FontSize="11"
-                                        FontWeight="Black"
-                                        Foreground="{DynamicResource TextPrimaryColor}"/>
-                         </Grid>
-                         <ProgressBar Value="{Binding TotalProgress}" 
-                                       Maximum="100" 
-                                       Height="4" 
-                                       CornerRadius="2"
-                                       Foreground="{DynamicResource AccentGradient}"
-                                       Background="#333333"/>
-                         <!-- #140: Aggregate speed sparkline — visible only while group is active -->
-                         <controls:SparklineControl Values="{Binding AggregateSpeedHistory}"
-                                                     Height="20"
-                                                     Margin="0,4,0,0"
-                                                     IsVisible="{Binding IsActive}"
-                                                     ToolTip.Tip="Download speed — last 30 s"/>
+                    <!-- 3. Aggregate Stats -->
+                    <StackPanel Grid.Column="3" VerticalAlignment="Center" Margin="24,0">
+                        <Grid ColumnDefinitions="*, Auto" Margin="0,0,0,4">
+                            <TextBlock Text="{Binding StatusText}"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextSecondaryColor}"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding TotalProgress, StringFormat='{}{0:0}%'}"
+                                       FontSize="11"
+                                       FontWeight="Black"
+                                       Foreground="{DynamicResource TextPrimaryColor}"/>
+                        </Grid>
+                        <ProgressBar Value="{Binding TotalProgress}"
+                                     Maximum="100"
+                                     Height="4"
+                                     CornerRadius="2"
+                                     Foreground="{DynamicResource AccentGradient}"
+                                     Background="#333333"/>
+                        <!-- #140: Aggregate speed sparkline — visible only while group is active -->
+                        <controls:SparklineControl Values="{Binding AggregateSpeedHistory}"
+                                                   Height="20"
+                                                   Margin="0,4,0,0"
+                                                   IsVisible="{Binding IsActive}"
+                                                   ToolTip.Tip="Download speed — last 30 s"/>
                     </StackPanel>
 
-                    <!-- 3. Actions -->
-                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
+                    <!-- 4. Actions -->
+                    <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4">
+                        <!-- Focus Mode toggle — full opacity when active, dimmed when inactive -->
+                        <Button Classes="icon"
+                                Classes.active="{Binding IsFocused}"
+                                Command="{Binding ToggleFocusModeCommand}"
+                                ToolTip.Tip="{Binding IsFocused, Converter={StaticResource BoolToTextConverter}, ConverterParameter='Disable Focus Mode|Enable Focus Mode'}">
+                            <TextBlock Text="🎯"
+                                       Classes="focus-icon"
+                                       FontSize="13"/>
+                        </Button>
                         <Button Classes="icon" Command="{Binding VipStartCommand}" ToolTip.Tip="VIP Start Group">
                             <PathIcon Data="{DynamicResource rocket_regular}" Width="14" Height="14" Foreground="#FFD700"/>
                         </Button>
@@ -103,10 +215,10 @@
                             <PathIcon Data="{DynamicResource pause_regular}" Width="14" Height="14"/>
                         </Button>
                         <Button Classes="icon" Command="{Binding ResumeCommand}" ToolTip.Tip="Resume Group">
-                             <PathIcon Data="{DynamicResource play_regular}" Width="14" Height="14"/>
+                            <PathIcon Data="{DynamicResource play_regular}" Width="14" Height="14"/>
                         </Button>
                         <Button Classes="icon danger" Command="{Binding CancelCommand}" ToolTip.Tip="Cancel Group">
-                             <PathIcon Data="{DynamicResource dismiss_regular}" Width="14" Height="14"/>
+                            <PathIcon Data="{DynamicResource dismiss_regular}" Width="14" Height="14"/>
                         </Button>
                     </StackPanel>
                 </Grid>
@@ -121,15 +233,15 @@
 
                 <!-- The Thread Line -->
                 <Rectangle Grid.Column="0" Width="2" HorizontalAlignment="Center" Fill="#333" Margin="0,0,0,12" VerticalAlignment="Stretch"/>
-                
+
                 <ItemsRepeater Grid.Column="1" ItemsSource="{Binding Tracks}" Margin="0,0,0,8">
                     <ItemsRepeater.ItemTemplate>
                         <DataTemplate>
-                           <Grid ColumnDefinitions="24, *">
-                               <!-- Branch Connector -->
-                               <Path Grid.Column="0" Data="M 12,0 L 12,16 L 24,16" Stroke="#333" StrokeThickness="2" VerticalAlignment="Top"/>
-                               <controls:StandardTrackRow Grid.Column="1" Classes="InFlightRow" MinimalBadges="True"/>
-                           </Grid>
+                            <Grid ColumnDefinitions="24, *">
+                                <!-- Branch Connector -->
+                                <Path Grid.Column="0" Data="M 12,0 L 12,16 L 24,16" Stroke="#333" StrokeThickness="2" VerticalAlignment="Top"/>
+                                <controls:StandardTrackRow Grid.Column="1" Classes="InFlightRow" MinimalBadges="True"/>
+                            </Grid>
                         </DataTemplate>
                     </ItemsRepeater.ItemTemplate>
                     <ItemsRepeater.Layout>
@@ -140,7 +252,3 @@
         </StackPanel>
     </Border>
 </UserControl>
-
-
-
-

@@ -48,8 +48,8 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
         (ConnectionLifecycleState.CoolingDown,   ConnectionLifecycleState.Disconnected),
     };
 
-    private const int MaxQuickRetries        = 3;
-    private const int QuickRetryBaseMs       = 5_000;  // 5 s for each of the first 3 retries
+    private const int MaxQuickRetries        = 1;
+    private const int QuickRetryBaseMs       = 20_000; // 20 s for the single quick retry before exponential backoff
     private const int KickCooldownSeconds    = 60;
     private const double JitterFraction      = 0.20;   // ±20 % jitter on all delays
 
@@ -75,9 +75,10 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
     private CancellationTokenSource? _activeConnectCts;
     private string? _lastDisconnectStatusReason;
     private DateTime _lastHostSignalRecoveryUtc = DateTime.MinValue;
-    // Windows fires NetworkAddressChanged for every IPv6 temp-address rotation, WSL2/Docker
-    // adapter flap, etc. 60 s cooldown prevents churn from spurious interface events.
-    private static readonly TimeSpan HostSignalRecoveryCooldown = TimeSpan.FromSeconds(60);
+    // Windows fires NetworkAddressChanged on every mesh WiFi roam, IPv6 temp-address rotation,
+    // WSL2/Docker adapter flap, etc. 90 s cooldown prevents back-to-back roams from each
+    // triggering a proactive reconnect cycle — one check per roam cluster is enough.
+    private static readonly TimeSpan HostSignalRecoveryCooldown = TimeSpan.FromSeconds(90);
     private readonly bool _powerEventsSubscribed;
     private bool _disposed;
 
@@ -270,9 +271,13 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
         }
         else if (isDisconnected)
         {
+            // Include Disconnecting: an unplanned server drop fires Disconnecting then Disconnected
+            // in rapid succession, so by the time we reach isDisconnected the state has already
+            // moved to Disconnecting — excluding it means the reconnect loop never fires.
             var wasActive = _state is ConnectionLifecycleState.LoggedIn
                                    or ConnectionLifecycleState.LoggingIn
-                                   or ConnectionLifecycleState.Connecting;
+                                   or ConnectionLifecycleState.Connecting
+                                   or ConnectionLifecycleState.Disconnecting;
 
             TryTransition(
                 ConnectionLifecycleState.Disconnected,
@@ -296,7 +301,8 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
         {
             var wasActive = _state is ConnectionLifecycleState.LoggedIn
                                    or ConnectionLifecycleState.LoggingIn
-                                   or ConnectionLifecycleState.Connecting;
+                                   or ConnectionLifecycleState.Connecting
+                                   or ConnectionLifecycleState.Disconnecting;
 
             TryTransition(
                 ConnectionLifecycleState.Disconnected,
@@ -416,10 +422,10 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
 
     private async Task ForceDisconnectAndRecoverAsync(string reason)
     {
-        // Brief stabilization delay: many NetworkAddressChanged events are transient
+        // Stabilization delay: many NetworkAddressChanged events are transient
         // (IPv6 temp-address rotation, WSL2 adapter flap). If the connection survives
         // this window it almost certainly doesn't need a reconnect cycle.
-        await Task.Delay(2_000);
+        await Task.Delay(5_000);
 
         await _commandLock.WaitAsync();
         try
@@ -515,6 +521,20 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
                     if (_state == ConnectionLifecycleState.LoggedIn || !AutoReconnectEnabled || _manualDisconnect)
                         break;
 
+                    // Wait for a usable network interface before hitting the server.
+                    // Attempting to login while the network is down floods the server
+                    // with TCP connections that stall in LoggingIn until the server closes them.
+                    if (!NetworkInterface.GetIsNetworkAvailable())
+                    {
+                        _logger.LogInformation("Lifecycle: no network available — holding reconnect until connectivity returns.");
+                        while (!NetworkInterface.GetIsNetworkAvailable() && AutoReconnectEnabled && !_manualDisconnect)
+                            await Task.Delay(2_000);
+                        // Brief additional settle time after the adapter comes back
+                        await Task.Delay(3_000);
+                        _logger.LogInformation("Lifecycle: network restored — proceeding with reconnect.");
+                        if (!AutoReconnectEnabled || _manualDisconnect) break;
+                    }
+
                     await RequestConnectAsync(
                         _lastPassword,
                         correlationId ?? $"auto-reconnect-{_reconnectRetryCount}");
@@ -562,12 +582,13 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
             ThreadPool.GetAvailableThreads(out var availableWorkers, out var availableIo);
             ThreadPool.GetMaxThreads(out var maxWorkers, out var maxIo);
             _logger.LogWarning(
-                "[LIFECYCLE] Network state dropped to Disconnected. Diagnostics: {Reason}. ThreadPool={AvailW}/{MaxW} workers, {AvailIO}/{MaxIO} IO. Entering automated recovery protocol.",
+                "[LIFECYCLE] Network state dropped to Disconnected. Diagnostics: {Reason}. ThreadPool={AvailW}/{MaxW} workers, {AvailIO}/{MaxIO} IO. AutoReconnect={AutoReconnect}.",
                 reason,
                 availableWorkers,
                 maxWorkers,
                 availableIo,
-                maxIo);
+                maxIo,
+                AutoReconnectEnabled);
         }
 
         _eventBus.Publish(new ConnectionLifecycleStateChangedEvent(

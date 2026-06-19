@@ -6,6 +6,7 @@ using System.Windows.Input;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Configuration;
 using SLSKDONET.Services;
+using SLSKDONET.Services.Models;
 using SLSKDONET.Services.Platform;
 using SLSKDONET.Views; // For AsyncRelayCommand
 using SLSKDONET.ViewModels.Settings;
@@ -1150,6 +1151,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ScanLibraryCommand { get; } // [NEW] Manual Scan
     public ICommand ReconcileLibraryCommand { get; }
     public ICommand FullLibrarySyncCommand { get; }
+    public ICommand EnrichMissingMetadataCommand { get; }
     public ICommand RefreshRemovalCandidatesCommand { get; }
     public ICommand AddLibraryFolderCommand { get; }
     public ICommand RemoveLibraryFolderCommand { get; }
@@ -1179,6 +1181,22 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         get => _scanStatus;
         set => SetProperty(ref _scanStatus, value);
     }
+
+    private string _enrichStatus = string.Empty;
+    public string EnrichStatus
+    {
+        get => _enrichStatus;
+        set => SetProperty(ref _enrichStatus, value);
+    }
+
+    private bool _isEnriching;
+    public bool IsEnriching
+    {
+        get => _isEnriching;
+        set { SetProperty(ref _isEnriching, value); OnPropertyChanged(nameof(CanEnrich)); }
+    }
+
+    public bool CanEnrich => !_isEnriching;
 
     private bool _isReconciling;
     public bool IsReconciling
@@ -1408,6 +1426,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         ScanLibraryCommand = new AsyncRelayCommand(ScanLibraryAsync, () => !IsScanning && !IsFullSyncing);
         ReconcileLibraryCommand = new AsyncRelayCommand(ReconcileLibraryAsync, () => !IsReconciling && !IsFullSyncing);
         FullLibrarySyncCommand = new AsyncRelayCommand(FullLibrarySyncAsync, () => !IsFullSyncing && !IsScanning && !IsReconciling);
+        EnrichMissingMetadataCommand = new AsyncRelayCommand(EnrichMissingMetadataAsync, () => CanEnrich);
         RefreshRemovalCandidatesCommand = new AsyncRelayCommand(LoadRemovalCandidatesAsync);
         AddLibraryFolderCommand = new AsyncRelayCommand(AddLibraryFolderAsync);
         RemoveLibraryFolderCommand = new AsyncRelayCommand(RemoveLibraryFolderAsync, () => SelectedLibraryFolder != null);
@@ -1809,6 +1828,101 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
 
     
+    private async Task EnrichMissingMetadataAsync()
+    {
+        if (IsEnriching) return;
+        IsEnriching = true;
+        EnrichStatus = "Looking for unenriched tracks...";
+        ((AsyncRelayCommand)EnrichMissingMetadataCommand).RaiseCanExecuteChanged();
+        try
+        {
+            const int BatchSize = 100;
+            const int DelayMs = 300;
+
+            var entities = await _databaseService.GetPlaylistTracksNeedingEnrichmentAsync(BatchSize);
+            if (entities.Count == 0)
+            {
+                EnrichStatus = "✅ All tracks already have metadata";
+                await Task.Delay(3000);
+                EnrichStatus = string.Empty;
+                return;
+            }
+
+            EnrichStatus = $"Enriching {entities.Count} tracks...";
+            int enriched = 0;
+            int failed = 0;
+
+            foreach (var entity in entities)
+            {
+                try
+                {
+                    var pt = new Models.PlaylistTrack
+                    {
+                        Id = entity.Id,
+                        PlaylistId = entity.PlaylistId,
+                        Artist = entity.Artist ?? string.Empty,
+                        Title = entity.Title ?? string.Empty,
+                        Album = entity.Album,
+                        TrackUniqueHash = entity.TrackUniqueHash,
+                        Status = entity.Status,
+                        SpotifyTrackId = entity.SpotifyTrackId,
+                        AlbumArtUrl = entity.AlbumArtUrl,
+                        CanonicalDuration = entity.CanonicalDuration,
+                        BPM = entity.BPM,
+                        MusicalKey = entity.MusicalKey,
+                    };
+
+                    if (await _spotifyMetadataService.EnrichTrackAsync(pt))
+                    {
+                        var result = new Services.Models.TrackEnrichmentResult
+                        {
+                            Success = true,
+                            SpotifyId = pt.SpotifyTrackId ?? string.Empty,
+                            SpotifyAlbumId = pt.SpotifyAlbumId,
+                            SpotifyArtistId = pt.SpotifyArtistId,
+                            AlbumArtUrl = pt.AlbumArtUrl ?? string.Empty,
+                            ISRC = pt.ISRC,
+                            Bpm = (float)(pt.BPM ?? 0),
+                            MusicalKey = pt.MusicalKey,
+                            Energy = (float)(pt.Energy ?? 0),
+                        };
+                        await _databaseService.UpdatePlaylistTrackEnrichmentAsync(entity.Id, result);
+                        enriched++;
+                        EnrichStatus = $"Enriched {enriched}/{entities.Count}...";
+                    }
+                    else
+                    {
+                        failed++;
+                    }
+
+                    await Task.Delay(DelayMs);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Enrichment failed for {Artist} - {Title}", entity.Artist, entity.Title);
+                    failed++;
+                }
+            }
+
+            EnrichStatus = $"✅ Enrichment done — {enriched} updated, {failed} not found";
+            _logger.LogInformation("Bulk enrichment complete: {Enriched} updated, {Failed} not found out of {Total}", enriched, failed, entities.Count);
+            await Task.Delay(5000);
+            EnrichStatus = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Bulk metadata enrichment failed");
+            EnrichStatus = "❌ Enrichment failed";
+            await Task.Delay(3000);
+            EnrichStatus = string.Empty;
+        }
+        finally
+        {
+            IsEnriching = false;
+            ((AsyncRelayCommand)EnrichMissingMetadataCommand).RaiseCanExecuteChanged();
+        }
+    }
+
     private async Task ScanLibraryAsync()
     {
         try

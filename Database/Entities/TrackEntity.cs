@@ -221,7 +221,14 @@ public class PlaylistJobEntity
     public string? AlbumArtUrl { get; set; }
 
     public string? SourceUrl { get; set; }
-    
+
+    // Playlist-level scheduling priority (maps to PlaylistPriority enum; 2 = Normal default)
+    public int JobPriority { get; set; } = 2;
+    // Focus Mode: temporarily overrides priority to Critical (0) without changing base JobPriority
+    public bool IsFocused { get; set; } = false;
+    // Manual drag-drop sort order; tiebreaker within the same JobPriority tier (lower = higher)
+    public int ManualSortOrder { get; set; } = 0;
+
     [InverseProperty(nameof(PlaylistTrackEntity.Job))]
     public ICollection<PlaylistTrackEntity> Tracks { get; set; } = new List<PlaylistTrackEntity>();
 }
