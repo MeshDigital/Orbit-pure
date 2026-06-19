@@ -1226,7 +1226,10 @@ public class LibraryService : ILibraryService
             Sadness = entity.AudioFeatures?.Sadness,
             VectorEmbedding = entity.AudioFeatures?.VectorEmbedding,
 
-            BpmStability = entity.AudioFeatures?.BpmStability
+            BpmStability = entity.AudioFeatures?.BpmStability,
+
+            SourcePlaylistId   = entity.SourcePlaylistId,
+            SourcePlaylistName = entity.SourcePlaylistName,
         };
     }
 

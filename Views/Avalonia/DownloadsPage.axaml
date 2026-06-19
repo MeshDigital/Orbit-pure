@@ -1446,8 +1446,69 @@
                                         <Border Background="#00BCD4" Width="40" Height="2" VerticalAlignment="Center" Opacity="0.3"/>
                                     </StackPanel>
                                     
-                                    <!-- Phase 12.8: Grouped Session Ledger (Hierarchical View) -->
-                                    <ItemsRepeater ItemsSource="{Binding SessionGroups}">
+                                    <!-- LIVE FLAT VIEW: individual track rows when Live filter is active -->
+                                    <StackPanel IsVisible="{Binding SessionFilterLive}" Spacing="0">
+                                        <!-- Searching -->
+                                        <StackPanel Spacing="4" IsVisible="{Binding SearchingCount}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
+                                                <TextBlock Text="SEARCHING" FontSize="9" FontWeight="Black" Foreground="#A855F7" LetterSpacing="1" VerticalAlignment="Center"/>
+                                                <Border Background="#A855F7" Width="30" Height="1" VerticalAlignment="Center" Opacity="0.3"/>
+                                                <TextBlock Text="{Binding SearchingCount}" FontSize="9" Foreground="#A855F7" Opacity="0.7" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <ItemsRepeater ItemsSource="{Binding SessionTracks}">
+                                                <ItemsRepeater.Layout><StackLayout Spacing="4"/></ItemsRepeater.Layout>
+                                                <ItemsRepeater.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <ContentControl Content="{Binding}"
+                                                                        IsVisible="{Binding IsSearching}"
+                                                                        ContentTemplate="{StaticResource DownloadItemTemplate}"/>
+                                                    </DataTemplate>
+                                                </ItemsRepeater.ItemTemplate>
+                                            </ItemsRepeater>
+                                        </StackPanel>
+
+                                        <!-- Queued at peer -->
+                                        <StackPanel Spacing="4" Margin="0,12,0,0" IsVisible="{Binding RemoteQueuedCount}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
+                                                <TextBlock Text="IN PEER QUEUE" FontSize="9" FontWeight="Black" Foreground="#FFB300" LetterSpacing="1" VerticalAlignment="Center"/>
+                                                <Border Background="#FFB300" Width="30" Height="1" VerticalAlignment="Center" Opacity="0.3"/>
+                                                <TextBlock Text="{Binding RemoteQueuedCount}" FontSize="9" Foreground="#FFB300" Opacity="0.7" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <ItemsRepeater ItemsSource="{Binding SessionTracks}">
+                                                <ItemsRepeater.Layout><StackLayout Spacing="4"/></ItemsRepeater.Layout>
+                                                <ItemsRepeater.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <ContentControl Content="{Binding}"
+                                                                        IsVisible="{Binding IsRemoteQueued}"
+                                                                        ContentTemplate="{StaticResource DownloadItemTemplate}"/>
+                                                    </DataTemplate>
+                                                </ItemsRepeater.ItemTemplate>
+                                            </ItemsRepeater>
+                                        </StackPanel>
+
+                                        <!-- Downloading -->
+                                        <StackPanel Spacing="4" Margin="0,12,0,0" IsVisible="{Binding DownloadingCount}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
+                                                <TextBlock Text="DOWNLOADING" FontSize="9" FontWeight="Black" Foreground="#00BCD4" LetterSpacing="1" VerticalAlignment="Center"/>
+                                                <Border Background="#00BCD4" Width="30" Height="1" VerticalAlignment="Center" Opacity="0.3"/>
+                                                <TextBlock Text="{Binding DownloadingCount}" FontSize="9" Foreground="#00BCD4" Opacity="0.7" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <ItemsRepeater ItemsSource="{Binding SessionTracks}">
+                                                <ItemsRepeater.Layout><StackLayout Spacing="4"/></ItemsRepeater.Layout>
+                                                <ItemsRepeater.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <ContentControl Content="{Binding}"
+                                                                        IsVisible="{Binding IsDownloading}"
+                                                                        ContentTemplate="{StaticResource DownloadItemTemplate}"/>
+                                                    </DataTemplate>
+                                                </ItemsRepeater.ItemTemplate>
+                                            </ItemsRepeater>
+                                        </StackPanel>
+                                    </StackPanel>
+
+                                    <!-- Phase 12.8: Grouped Session Ledger — hidden when Live flat view is active -->
+                                    <ItemsRepeater ItemsSource="{Binding SessionGroups}"
+                                                   IsVisible="{Binding !SessionFilterLive}">
                                         <ItemsRepeater.Layout>
                                             <StackLayout Spacing="6"/>
                                         </ItemsRepeater.Layout>

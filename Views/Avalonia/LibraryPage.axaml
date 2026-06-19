@@ -240,15 +240,23 @@
                                         <Border Background="Transparent">
                                             <Border.ContextMenu>
                                                 <ContextMenu>
-                                                    <MenuItem Header="Download Playlist"
-                                                              Command="{Binding $parent[UserControl].DataContext.DownloadAlbumCommand}"
-                                                              CommandParameter="{Binding Model}">
+                                                    <MenuItem Header="Download Missing Tracks">
                                                         <MenuItem.Icon><TextBlock Text="⬇️"/></MenuItem.Icon>
-                                                    </MenuItem>
-                                                    <MenuItem Header="Force Re-download"
-                                                              Command="{Binding $parent[UserControl].DataContext.ForceRedownloadCommand}"
-                                                              CommandParameter="{Binding Model}">
-                                                        <MenuItem.Icon><TextBlock Text="🔥"/></MenuItem.Icon>
+                                                        <MenuItem Header="Normal — join queue"
+                                                                  Command="{Binding $parent[UserControl].DataContext.DownloadPlaylistNormalCommand}"
+                                                                  CommandParameter="{Binding Model}">
+                                                            <MenuItem.Icon><TextBlock Text="🟢"/></MenuItem.Icon>
+                                                        </MenuItem>
+                                                        <MenuItem Header="High — ahead of Normal"
+                                                                  Command="{Binding $parent[UserControl].DataContext.DownloadPlaylistHighCommand}"
+                                                                  CommandParameter="{Binding Model}">
+                                                            <MenuItem.Icon><TextBlock Text="🟡"/></MenuItem.Icon>
+                                                        </MenuItem>
+                                                        <MenuItem Header="Critical — jump to front"
+                                                                  Command="{Binding $parent[UserControl].DataContext.DownloadPlaylistCriticalCommand}"
+                                                                  CommandParameter="{Binding Model}">
+                                                            <MenuItem.Icon><TextBlock Text="🔴"/></MenuItem.Icon>
+                                                        </MenuItem>
                                                     </MenuItem>
                                                     <Separator/>
                                                     <MenuItem Header="Generate Auto-Cues"
@@ -256,10 +264,18 @@
                                                               CommandParameter="{Binding Model}">
                                                         <MenuItem.Icon><TextBlock Text="🎯"/></MenuItem.Icon>
                                                     </MenuItem>
-                                                    <MenuItem Header="Export to Rekordbox XML"
-                                                              Command="{Binding $parent[UserControl].DataContext.ExportPlaylistCommand}"
-                                                              CommandParameter="{Binding Model}">
-                                                        <MenuItem.Icon><TextBlock Text="📀"/></MenuItem.Icon>
+                                                    <MenuItem Header="Export Playlist">
+                                                        <MenuItem.Icon><TextBlock Text="📤"/></MenuItem.Icon>
+                                                        <MenuItem Header="Rekordbox XML"
+                                                                  Command="{Binding $parent[UserControl].DataContext.ExportPlaylistCommand}"
+                                                                  CommandParameter="{Binding Model}">
+                                                            <MenuItem.Icon><TextBlock Text="📀"/></MenuItem.Icon>
+                                                        </MenuItem>
+                                                        <MenuItem Header="M3U Playlist (.m3u8)"
+                                                                  Command="{Binding $parent[UserControl].DataContext.ExportPlaylistM3uCommand}"
+                                                                  CommandParameter="{Binding Model}">
+                                                            <MenuItem.Icon><TextBlock Text="🎵"/></MenuItem.Icon>
+                                                        </MenuItem>
                                                     </MenuItem>
                                                     <Separator/>
                                                     <MenuItem Header="Rename Playlist"
@@ -422,6 +438,17 @@
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <TextBlock Text="📤" FontSize="13"/>
                     <TextBlock Text="Rekordbox" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
+            <!-- Export M3U -->
+            <Button Command="{Binding BatchExportM3uCommand}"
+                    ToolTip.Tip="Export to M3U playlist (Rekordbox, VDJ, Serato, any player)"
+                    Padding="10,6" CornerRadius="18" FontSize="11"
+                    Background="#1AFFFFFF" Foreground="#DDD">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="🎵" FontSize="13"/>
+                    <TextBlock Text="M3U" VerticalAlignment="Center"/>
                 </StackPanel>
             </Button>
 
