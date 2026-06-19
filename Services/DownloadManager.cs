@@ -83,6 +83,17 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     // Opt-P3: Thread-safe RNG for retry jitter (avoids Random allocation per call)
     private static readonly Random _jitterRandom = new();
 
+    // Playlist-level priority cache — loaded at startup, updated on SetJobPriorityAsync / ToggleFocusModeAsync.
+    // Key = PlaylistJob.Id (same as PlaylistTrack.PlaylistId / SourcePlaylistId).
+    // Value = effective priority int (0=Critical … 3=Low), already accounting for Focus Mode override.
+    private readonly ConcurrentDictionary<Guid, int> _jobEffectivePriority = new();
+    // Stores the base (non-focus) priority so toggling focus off restores it correctly.
+    private readonly ConcurrentDictionary<Guid, int> _jobBasePriority = new();
+    // Focus Mode state per job (true = temporarily forced to Critical).
+    private readonly ConcurrentDictionary<Guid, bool> _jobFocused = new();
+    // Manual drag-drop sort order per job.
+    private readonly ConcurrentDictionary<Guid, int> _jobManualSortOrder = new();
+
     // Phase 2.5: Concurrency control with SemaphoreSlim throttling
     private CancellationTokenSource _globalCts = new();
     private readonly SemaphoreSlim _downloadSemaphore; // Initialized in optimization
@@ -420,7 +431,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             
             // Phase 3C.5: Lazy Hydration - Only load active/history and a buffer of pending tracks
             
-            // 1. Load ONLY actually active tracks (Downloading, Searching, Stalled) 
+            // Load job priority cache BEFORE hydration so JobPriority is correctly stamped on all tracks
+            await LoadJobPriorityCacheAsync();
+
+            // 1. Load ONLY actually active tracks (Downloading, Searching, Stalled)
             // This prevents the "Global Leak" where 10,000 history items are hydrated on boot
             var activeTracks = await _databaseService.GetActiveTracksAsync();
             HydrateAndAddEntities(activeTracks);
@@ -978,7 +992,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     SourcePlaylistId = t.SourcePlaylistId,
                     SourcePlaylistName = t.SourcePlaylistName,
                     SearchRetryCount = 0, // Reset in-session counter on start
-                    NotFoundRestartCount = t.NotFoundRestartCount
+                    NotFoundRestartCount = t.NotFoundRestartCount,
+                    // Stamp playlist-level priority from cache (transient, not from DB column)
+                    JobPriority = GetEffectiveJobPriority(t.PlaylistId),
+                    JobManualSortOrder = _jobManualSortOrder.GetValueOrDefault(t.PlaylistId, 0),
                 };
                 
                 // Map status to download state
@@ -2231,10 +2248,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         _logger.LogWarning("🔌 Circuit Breaker: Queue processing PAUSED due to disconnection.");
                         _eventBus.Publish(new GlobalStatusEvent("Disconnected: Waiting for Soulseek...", true, true));
                         
-                        // Transition active downloads to waiting state
+                        // Transition active downloads and in-flight searches to waiting state
                         lock (_collectionLock)
                         {
-                            var activeDownloading = _downloads.Where(d => d.State == PlaylistTrackState.Downloading).ToList();
+                            var activeDownloading = _downloads.Where(d =>
+                                d.State == PlaylistTrackState.Downloading ||
+                                d.State == PlaylistTrackState.Searching).ToList();
                             foreach (var d in activeDownloading)
                             {
                                 _ = UpdateStateAsync(d, PlaylistTrackState.WaitingForConnection);
@@ -2737,6 +2756,21 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     return;
                 }
 
+                // Circuit breaker already moved this track — just return; it will be re-queued on reconnect
+                if (ctx.State == PlaylistTrackState.WaitingForConnection)
+                    return;
+
+                // Connection dropped mid-task: re-queue rather than marking Cancelled
+                if (!_soulseek.IsLoggedIn)
+                {
+                    _logger.LogInformation(
+                        "Connection lost during {State} for {Title} — re-queuing for reconnect",
+                        ctx.State, ctx.Model.Title);
+                    ctx.NextRetryTime = DateTime.UtcNow.AddSeconds(5);
+                    await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "Connection lost — will retry after reconnect");
+                    return;
+                }
+
                 // Otherwise it's an unexpected cancellation (health monitor, timeout, etc.)
                 cancellationReason = "System/timeout cancellation";
                 _logger.LogWarning(
@@ -2820,6 +2854,19 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             }
             catch (Exception ex)
             {
+                // If the Soulseek client is no longer connected, the exception is ours (dropped
+                // WiFi, mesh roam, server disconnect) — not the peer's fault.  Re-queue instead of
+                // burning a retry slot or marking the track Failed.
+                if (!_soulseek.IsLoggedIn)
+                {
+                    _logger.LogInformation(
+                        "Transfer exception for {Title} while client is disconnected — re-queuing ({ExType}: {Msg})",
+                        ctx.Model.Title, ex.GetType().Name, ex.Message);
+                    ctx.NextRetryTime = DateTime.UtcNow.AddSeconds(5);
+                    await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "Connection lost mid-transfer — will retry after reconnect");
+                    return;
+                }
+
                 var transferDisposition = ClassifyTransferFailure(ex);
 
                 if (transferDisposition.AllowHedgeFailover)
@@ -3363,11 +3410,13 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                                     ctx.CorrelationId));
                                 break;
                             case TransferLifecyclePhase.QueuePositionUpdate:
-                                // Position improved — update the velocity clock.
+                                // Position improved — update the velocity clock and push to UI.
                                 ctx.CurrentQueuePosition = update.QueuePosition ?? ctx.CurrentQueuePosition;
                                 ctx.QueuePositionLastUpdated = DateTime.UtcNow;
                                 _logger.LogDebug("📋 Queue position update: {Artist} - {Title} → #{Position} (peer: {Peer})",
                                     ctx.Model.Artist, ctx.Model.Title, ctx.CurrentQueuePosition, bestMatch.Username);
+                                _eventBus.Publish(new TrackQueuePositionUpdatedEvent(
+                                    ctx.GlobalId, ctx.CurrentQueuePosition, bestMatch.Username));
                                 break;
                             case TransferLifecyclePhase.Transferring:
                                 ctx.CurrentQueuePosition = 0; // We're no longer in queue
@@ -3515,7 +3564,19 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     Album = ctx.Model.Album ?? "Unknown",
                     FilePath = finalPath,
                     Format = Path.GetExtension(finalPath).TrimStart('.'),
-                    Bitrate = bestMatch.Bitrate
+                    Bitrate = bestMatch.Bitrate,
+                    // Carry over Spotify metadata from the PlaylistTrack so artwork/BPM/key are available immediately
+                    SpotifyTrackId = ctx.Model.SpotifyTrackId,
+                    SpotifyAlbumId = ctx.Model.SpotifyAlbumId,
+                    SpotifyArtistId = ctx.Model.SpotifyArtistId,
+                    AlbumArtUrl = ctx.Model.AlbumArtUrl,
+                    ArtistImageUrl = ctx.Model.ArtistImageUrl,
+                    Genres = ctx.Model.Genres,
+                    Popularity = ctx.Model.Popularity,
+                    BPM = ctx.Model.BPM,
+                    MusicalKey = ctx.Model.MusicalKey,
+                    CanonicalDuration = ctx.Model.CanonicalDuration,
+                    ReleaseDate = ctx.Model.ReleaseDate,
                 };
                 await _libraryService.SaveOrUpdateLibraryEntryAsync(libraryEntry);
                 _logger.LogInformation("📚 Added to library: {Artist} - {Title}", ctx.Model.Artist, ctx.Model.Title);
@@ -3734,8 +3795,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
         _ = activeByPriority;
         return eligibleTracks
-            .OrderBy(t => t.Model.Priority)
-            .ThenBy(t => t.Model.AddedAt)
+            .OrderBy(t => t.Model.JobPriority)         // 1. Playlist tier (0=Critical … 3=Low)
+            .ThenBy(t => t.Model.JobManualSortOrder)   // 2. User drag-drop order within tier
+            .ThenBy(t => t.Model.Priority)             // 3. Track-level priority (0=VIP, 1=Std, 10=BG)
+            .ThenBy(t => t.Model.AddedAt)              // 4. FIFO tiebreaker
             .FirstOrDefault();
     }
 
@@ -3809,14 +3872,118 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     }
 
 
+    // ── Playlist-level priority public API ───────────────────────────────────
+
+    /// <summary>
+    /// Returns the current effective playlist priority for a given job.
+    /// Returns Normal (2) if the job is unknown.
+    /// </summary>
+    public PlaylistPriority GetJobPriority(Guid jobId)
+        => (PlaylistPriority)Math.Clamp(_jobEffectivePriority.GetValueOrDefault(jobId, (int)PlaylistPriority.Normal), 0, 3);
+
+    /// <summary>
+    /// Returns whether the given job currently has Focus Mode active.
+    /// </summary>
+    public bool GetJobFocused(Guid jobId) => _jobFocused.GetValueOrDefault(jobId, false);
+
+    /// <summary>
+    /// Sets the base playlist priority for a job. Active downloads are not interrupted;
+    /// only future slot allocations are affected. Persists to DB.
+    /// </summary>
+    public async Task SetJobPriorityAsync(Guid jobId, PlaylistPriority priority)
+    {
+        var effectivePriority = _jobFocused.GetValueOrDefault(jobId) ? 0 : (int)priority;
+
+        _jobBasePriority[jobId] = (int)priority;
+        _jobEffectivePriority[jobId] = effectivePriority;
+
+        StampJobPriorityOnInMemoryTracks(jobId, effectivePriority);
+        await _databaseService.SetJobPriorityAsync(jobId, (int)priority);
+
+        _logger.LogInformation("Job {JobId} priority → {Priority} (effective={Effective})",
+            jobId, priority, (PlaylistPriority)effectivePriority);
+    }
+
+    /// <summary>
+    /// Toggles Focus Mode for a job. When focused, effective priority is forced to Critical (0)
+    /// without changing the stored base priority. Toggling off restores the base priority.
+    /// Active downloads are not interrupted. Persists to DB.
+    /// </summary>
+    public async Task ToggleFocusModeAsync(Guid jobId, bool focused)
+    {
+        _jobFocused[jobId] = focused;
+        var effectivePriority = focused ? 0 : _jobBasePriority.GetValueOrDefault(jobId, (int)PlaylistPriority.Normal);
+        _jobEffectivePriority[jobId] = effectivePriority;
+
+        StampJobPriorityOnInMemoryTracks(jobId, effectivePriority);
+        await _databaseService.SetJobFocusAsync(jobId, focused);
+
+        _logger.LogInformation("Job {JobId} Focus Mode {State} → effective priority {Priority}",
+            jobId, focused ? "ON" : "OFF", (PlaylistPriority)effectivePriority);
+    }
+
+    /// <summary>
+    /// Updates the manual drag-drop sort order for a job and re-stamps in-memory tracks.
+    /// Persists to DB.
+    /// </summary>
+    public async Task SetJobManualSortOrderAsync(Guid jobId, int sortOrder)
+    {
+        _jobManualSortOrder[jobId] = sortOrder;
+        lock (_collectionLock)
+        {
+            foreach (var ctx in _downloads.Where(d => d.Model.PlaylistId == jobId))
+                ctx.Model.JobManualSortOrder = sortOrder;
+        }
+        await _databaseService.SetJobManualSortOrderAsync(jobId, sortOrder);
+    }
+
+    // ── Private priority helpers ──────────────────────────────────────────
+
+    private int GetEffectiveJobPriority(Guid jobId)
+    {
+        if (_jobFocused.GetValueOrDefault(jobId))
+            return 0; // Critical override
+        return _jobEffectivePriority.GetValueOrDefault(jobId, (int)PlaylistPriority.Normal);
+    }
+
+    private void StampJobPriorityOnInMemoryTracks(Guid jobId, int effectivePriority)
+    {
+        lock (_collectionLock)
+        {
+            foreach (var ctx in _downloads.Where(d => d.Model.PlaylistId == jobId))
+                ctx.Model.JobPriority = effectivePriority;
+        }
+    }
+
+    private async Task LoadJobPriorityCacheAsync()
+    {
+        try
+        {
+            var data = await _databaseService.LoadJobPrioritiesAsync();
+            foreach (var (id, info) in data)
+            {
+                _jobBasePriority[id] = info.JobPriority;
+                _jobFocused[id]      = info.IsFocused;
+                _jobManualSortOrder[id] = info.ManualSortOrder;
+                // Effective = focus overrides to Critical, otherwise stored base
+                _jobEffectivePriority[id] = info.IsFocused ? 0 : info.JobPriority;
+            }
+            _logger.LogDebug("Job priority cache loaded: {Count} jobs", data.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load job priority cache — defaulting all jobs to Normal");
+        }
+    }
+
     private void OnDownloadProgressChanged(object? sender, DownloadProgressEventArgs e)
     {
         // Find context by username (reliable enough for active transfers)
         DownloadContext? ctx;
         lock (_collectionLock)
         {
-            ctx = _downloads.FirstOrDefault(d => 
-                d.State == PlaylistTrackState.Downloading && 
+            ctx = _downloads.FirstOrDefault(d =>
+                d.State == PlaylistTrackState.Downloading &&
                 d.CurrentUsername == e.Username);
         }
 

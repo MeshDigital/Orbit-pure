@@ -703,6 +703,43 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
         }
     }
 
+    /// Enriches PlaylistTrack records already persisted in the DB (for paste imports queued
+    /// before enrichment could finish in the preview). Runs in background after QueueProject.
+    private async Task EnrichPersistedTracksAsync(Guid jobId)
+    {
+        try
+        {
+            await Task.Delay(800); // Let QueueProject DB writes settle
+            var tracks = await _libraryService!.LoadPlaylistTracksAsync(jobId);
+            var needsEnrichment = tracks.Where(t => string.IsNullOrEmpty(t.SpotifyTrackId)).ToList();
+            if (needsEnrichment.Count == 0) return;
+
+            _logger.LogInformation("Post-queue enrichment: {Count} tracks need Spotify metadata", needsEnrichment.Count);
+            int enriched = 0;
+            foreach (var pt in needsEnrichment)
+            {
+                try
+                {
+                    if (await _metadataService!.EnrichTrackAsync(pt))
+                    {
+                        await _libraryService.UpdatePlaylistTrackAsync(pt);
+                        enriched++;
+                    }
+                    await Task.Delay(300); // Respect Spotify rate limit
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Post-queue enrichment failed for {Artist} - {Title}", pt.Artist, pt.Title);
+                }
+            }
+            _logger.LogInformation("Post-queue enrichment complete: {Enriched}/{Total} tracks enriched for job {JobId}", enriched, needsEnrichment.Count, jobId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Post-queue enrichment task failed for job {JobId}", jobId);
+        }
+    }
+
     /// <summary>
     /// Group tracks by album for display in grid
     /// </summary>
@@ -770,12 +807,20 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
             }
 
             _logger.LogInformation("[IMPORT TRACE] Step 1: Calling HandlePlaylistJobAddedAsync for job {JobId}", job.Id);
-        
+
             // Queue the project to DownloadManager and navigate to Library
             await HandlePlaylistJobAddedAsync(job);
-            
+
             _logger.LogInformation("[IMPORT TRACE] Step 2: HandlePlaylistJobAddedAsync completed, firing AddedToLibrary event");
-            
+
+            // Post-queue enrichment: for paste imports without Spotify data, enrich PlaylistTracks
+            // in DB now that they're persisted. Runs in background so it doesn't block navigation.
+            if (_metadataService != null && _libraryService != null)
+            {
+                var jobIdToEnrich = job.Id;
+                _ = Task.Run(() => EnrichPersistedTracksAsync(jobIdToEnrich));
+            }
+
             // Notify that tracks have been added
             _logger.LogInformation("Firing AddedToLibrary event for job {JobId}", job.Id);
             AddedToLibrary?.Invoke(this, job);

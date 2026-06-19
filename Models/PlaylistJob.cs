@@ -193,6 +193,13 @@ public class PlaylistJob : INotifyPropertyChanged
     public bool IsDeleted { get; set; }
     public DateTime? DeletedAt { get; set; }
 
+    // Playlist-level scheduling priority (coarse tier above track-level Priority)
+    public PlaylistPriority JobPriority { get; set; } = PlaylistPriority.Normal;
+    // Focus Mode: temporarily elevates this playlist to Critical without changing JobPriority
+    public bool IsFocused { get; set; } = false;
+    // Manual drag-drop sort order; tiebreaker within the same JobPriority tier
+    public int ManualSortOrder { get; set; } = 0;
+
     // Phase 20: Smart Playlists 2.0
     public bool IsSmartPlaylist { get; set; } = false;
     public string? SmartCriteriaJson { get; set; }

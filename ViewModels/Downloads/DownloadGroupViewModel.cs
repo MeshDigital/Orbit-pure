@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reactive.Linq;
 using System.Windows.Input;
+using Avalonia.Media;
 using DynamicData;
 using DynamicData.Binding;
 using ReactiveUI;
@@ -81,20 +82,78 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
     private readonly double[] _aggregateSpeedHistory = new double[30];
     private int _aggregateSpeedIndex;
     public IReadOnlyList<double> AggregateSpeedHistory => _aggregateSpeedHistory;
-    
+
+    // ── Playlist-level priority ───────────────────────────────────────────
+
+    private static readonly SolidColorBrush[] _priorityBrushes =
+    {
+        new(Color.Parse("#CCDD2222")), // Critical — red
+        new(Color.Parse("#CCBB7700")), // High — amber
+        new(Color.Parse("#22777777")), // Normal — muted (badge hidden anyway)
+        new(Color.Parse("#22555555")), // Low — dimmed
+    };
+
+    private PlaylistPriority _jobPriority = PlaylistPriority.Normal;
+    public PlaylistPriority JobPriority
+    {
+        get => _jobPriority;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _jobPriority, value);
+            this.RaisePropertyChanged(nameof(PriorityLabel));
+            this.RaisePropertyChanged(nameof(PriorityBrush));
+            this.RaisePropertyChanged(nameof(IsPriorityBadgeVisible));
+            this.RaisePropertyChanged(nameof(IsCritical));
+            this.RaisePropertyChanged(nameof(IsHighPriority));
+            this.RaisePropertyChanged(nameof(IsLowPriority));
+        }
+    }
+
+    private bool _isFocused;
+    public bool IsFocused
+    {
+        get => _isFocused;
+        private set => this.RaiseAndSetIfChanged(ref _isFocused, value);
+    }
+
+    // Computed display helpers
+    public string PriorityLabel => _jobPriority switch
+    {
+        PlaylistPriority.Critical => "⚡ CRITICAL",
+        PlaylistPriority.High     => "↑ HIGH",
+        PlaylistPriority.Normal   => "· NORM",
+        PlaylistPriority.Low      => "↓ LOW",
+        _                         => "· NORM",
+    };
+
+    public IBrush PriorityBrush => _priorityBrushes[Math.Clamp((int)_jobPriority, 0, 3)];
+
+    // Badge hidden for Normal to reduce visual noise
+    public bool IsPriorityBadgeVisible => _jobPriority != PlaylistPriority.Normal || _isFocused;
+    public bool IsCritical     => _jobPriority == PlaylistPriority.Critical;
+    public bool IsHighPriority => _jobPriority == PlaylistPriority.High;
+    public bool IsLowPriority  => _jobPriority == PlaylistPriority.Low;
+
+    // ── Priority Commands ─────────────────────────────────────────────────
+
     // Commands — typed as ICommand so Avalonia compiled bindings can resolve them correctly.
     public ICommand PauseCommand { get; }
     public ICommand ResumeCommand { get; }
     public ICommand VipStartCommand { get; }
     public ICommand CancelCommand { get; }
     public ICommand ToggleExpandedCommand { get; }
+    public ICommand SetCriticalCommand { get; }
+    public ICommand SetHighCommand { get; }
+    public ICommand SetNormalCommand { get; }
+    public ICommand SetLowCommand { get; }
+    public ICommand ToggleFocusModeCommand { get; }
 
     public DownloadGroupViewModel(IGroup<UnifiedTrackViewModel, string, Guid> group, DownloadManager downloadManager, ILibraryService libraryService)
     {
         GroupKey = group.Key;
         _downloadManager = downloadManager;
         _libraryService = libraryService;
-        
+
         // Connect to the group cache
         var tracksLoader = group.Cache.Connect()
             .Bind(out var tracks)
@@ -104,6 +163,13 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
 
         // Initialize Metadata from first track (assuming homogenous groups for now)
         var firstTrack = Tracks.FirstOrDefault()?.Model;
+
+        // Initialize playlist-level priority from the DownloadManager cache
+        if (GroupKey.HasValue)
+        {
+            _jobPriority = downloadManager.GetJobPriority(GroupKey.Value);
+            _isFocused   = downloadManager.GetJobFocused(GroupKey.Value);
+        }
         
         var sourcePlaylistName = firstTrack?.SourcePlaylistName;
 
@@ -220,6 +286,13 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
 
         ToggleExpandedCommand = ReactiveCommand.Create(() => { IsExpanded = !IsExpanded; });
 
+        // Priority commands — fire-and-forget; scheduler picks up immediately via in-memory stamp
+        SetCriticalCommand = ReactiveCommand.CreateFromTask(() => ApplyJobPriorityAsync(PlaylistPriority.Critical));
+        SetHighCommand      = ReactiveCommand.CreateFromTask(() => ApplyJobPriorityAsync(PlaylistPriority.High));
+        SetNormalCommand    = ReactiveCommand.CreateFromTask(() => ApplyJobPriorityAsync(PlaylistPriority.Normal));
+        SetLowCommand       = ReactiveCommand.CreateFromTask(() => ApplyJobPriorityAsync(PlaylistPriority.Low));
+        ToggleFocusModeCommand = ReactiveCommand.CreateFromTask(ToggleFocusAsync);
+
         _cleanUp = new System.Reactive.Disposables.CompositeDisposable(tracksLoader, aggregates, listChanges);
     }
 
@@ -281,6 +354,25 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         }
 
         LastActivity = Tracks.Any() ? Tracks.Max(t => t.Model.AddedAt) : DateTime.MinValue;
+    }
+
+    private async System.Threading.Tasks.Task ApplyJobPriorityAsync(PlaylistPriority priority)
+    {
+        if (!GroupKey.HasValue) return;
+        await _downloadManager.SetJobPriorityAsync(GroupKey.Value, priority);
+        JobPriority = priority;
+    }
+
+    private async System.Threading.Tasks.Task ToggleFocusAsync()
+    {
+        if (!GroupKey.HasValue) return;
+        var newFocused = !_isFocused;
+        await _downloadManager.ToggleFocusModeAsync(GroupKey.Value, newFocused);
+        IsFocused = newFocused;
+        if (newFocused)
+            JobPriority = PlaylistPriority.Critical;
+        else
+            JobPriority = _downloadManager.GetJobPriority(GroupKey.Value);
     }
 
     public void Dispose()

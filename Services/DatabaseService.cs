@@ -1685,6 +1685,53 @@ public class DatabaseService
         await _trackRepository.UpdatePlaylistTrackPriorityAsync(trackId, newPriority);
     }
 
+    // ── Playlist-level priority scheduling ───────────────────────────────
+
+    /// <summary>
+    /// Returns the stored (base) priority, focus state, and manual sort order for every
+    /// playlist job. Called once at DownloadManager startup to warm the priority cache.
+    /// </summary>
+    public async Task<Dictionary<Guid, (int JobPriority, bool IsFocused, int ManualSortOrder)>> LoadJobPrioritiesAsync()
+    {
+        using var context = new AppDbContext();
+        return await context.Projects
+            .Select(j => new { j.Id, j.JobPriority, j.IsFocused, j.ManualSortOrder })
+            .ToDictionaryAsync(
+                j => j.Id,
+                j => (j.JobPriority, j.IsFocused, j.ManualSortOrder))
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Persists the base job priority (PlaylistPriority cast to int).</summary>
+    public async Task SetJobPriorityAsync(Guid jobId, int priority)
+    {
+        using var context = new AppDbContext();
+        var job = await context.Projects.FindAsync(jobId).ConfigureAwait(false);
+        if (job == null) return;
+        job.JobPriority = priority;
+        await context.SaveChangesAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Persists the Focus Mode flag for a job.</summary>
+    public async Task SetJobFocusAsync(Guid jobId, bool isFocused)
+    {
+        using var context = new AppDbContext();
+        var job = await context.Projects.FindAsync(jobId).ConfigureAwait(false);
+        if (job == null) return;
+        job.IsFocused = isFocused;
+        await context.SaveChangesAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Persists the manual drag-drop sort order for a job.</summary>
+    public async Task SetJobManualSortOrderAsync(Guid jobId, int sortOrder)
+    {
+        using var context = new AppDbContext();
+        var job = await context.Projects.FindAsync(jobId).ConfigureAwait(false);
+        if (job == null) return;
+        job.ManualSortOrder = sortOrder;
+        await context.SaveChangesAsync().ConfigureAwait(false);
+    }
+
 
 
     // ===== Phase 1B: WAL Mode & Index Optimization Methods =====

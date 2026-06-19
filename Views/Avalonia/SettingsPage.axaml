@@ -1114,6 +1114,21 @@
                                        Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
                         </StackPanel>
 
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button Command="{Binding EnrichMissingMetadataCommand}"
+                                    IsEnabled="{Binding CanEnrich}"
+                                    HorizontalAlignment="Left"
+                                    Padding="16,8" Background="#1A1A3A"
+                                    BorderBrush="#3A3A6A" BorderThickness="1" CornerRadius="6">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <PathIcon Data="{StaticResource search_regular}" Width="16" Height="16" Foreground="#9B9BFF"/>
+                                    <TextBlock Text="{Binding IsEnriching, Converter={StaticResource BoolToTextConverter}, ConverterParameter='Enriching...|Enrich Missing Metadata'}" VerticalAlignment="Center" Foreground="#C5C5FF"/>
+                                </StackPanel>
+                            </Button>
+                            <TextBlock Text="{Binding EnrichStatus}" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
+                        </StackPanel>
+
                         <Border Background="#1D1F22" BorderBrush="#333" BorderThickness="1" CornerRadius="6" Padding="12">
                             <StackPanel Spacing="10">
                                 <Grid ColumnDefinitions="*,Auto">

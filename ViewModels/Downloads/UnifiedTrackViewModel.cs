@@ -407,6 +407,16 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             .Subscribe(OnMetadataUpdated)
             .DisposeWith(_disposables);
 
+        _eventBus.GetEvent<TrackQueuePositionUpdatedEvent>()
+            .Where(e => IsSameTrackId(e.TrackGlobalId))
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e =>
+            {
+                RemoteQueuePosition = e.Position;
+                this.RaisePropertyChanged(nameof(StatusText));
+            })
+            .DisposeWith(_disposables);
+
         // Fix: Subscribe to granular search status events for live console updates
         _eventBus.GetEvent<TrackDetailedStatusEvent>()
             .Where(e => IsSameTrackId(e.TrackHash))
@@ -672,9 +682,9 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         PlaylistTrackState.Searching => !string.IsNullOrEmpty(DetailedSearchStatus) 
             ? DetailedSearchStatus 
             : (SearchAttemptCount > 1 ? $"Searching... ({SearchAttemptCount})" : "Searching..."),
-        PlaylistTrackState.Queued => !string.IsNullOrEmpty(DetailedSearchStatus)
-            ? DetailedSearchStatus
-            : "Waiting in peer queue\u2026",
+        PlaylistTrackState.Queued => _remoteQueuePosition > 0
+            ? $"#{_remoteQueuePosition} in queue"
+            : (!string.IsNullOrEmpty(DetailedSearchStatus) ? DetailedSearchStatus : "Waiting in peer queue\u2026"),
         PlaylistTrackState.Failed => !string.IsNullOrEmpty(FailureReason) ? FailureReason : 
                                      (FailureEnum != DownloadFailureReason.None ? FailureEnum.ToDisplayMessage() : "Failed"),
         PlaylistTrackState.Paused => "Paused",
@@ -722,6 +732,14 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
     /// <summary>True when the track is held in a remote peer's upload queue (not locally queued).</summary>
     public bool IsRemoteQueued => State == PlaylistTrackState.Queued;
+
+    /// <summary>Live queue position reported by the peer. -1 = not yet reported. 0 = transfer starting.</summary>
+    private int _remoteQueuePosition = -1;
+    public int RemoteQueuePosition
+    {
+        get => _remoteQueuePosition;
+        set => this.RaiseAndSetIfChanged(ref _remoteQueuePosition, value);
+    }
 
     // Phase 11: Specific activity flags
     public bool IsSearching => State == PlaylistTrackState.Searching;
@@ -1610,11 +1628,15 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     private void OnStateChanged(TrackStateChangedEvent e)
     {
         if (!IsSameTrackId(e.TrackGlobalId)) return;
-        
+
         System.Diagnostics.Debug.WriteLine($"[UnifiedTrackVM] {GlobalId} State Changed: {e.State} (Error: {e.Error})");
         State = e.State;
         FailureReason = e.Error;
         FailureEnum = e.FailureReason;
+
+        // Clear stale queue position when no longer in the peer's queue
+        if (e.State != PlaylistTrackState.Queued)
+            RemoteQueuePosition = -1;
 
         // After a RESET DC, tracks have IsClearedFromDownloadCenter=true.
         // If the engine picks them back up (Searching/Downloading/Pending), resurface them.

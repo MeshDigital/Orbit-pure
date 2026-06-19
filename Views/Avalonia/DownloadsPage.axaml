@@ -78,6 +78,9 @@
         <Style Selector="Border.metricCard.live">
             <Setter Property="BorderBrush" Value="#00BCD4"/>
         </Style>
+        <Style Selector="Border.metricCard.searching">
+            <Setter Property="BorderBrush" Value="#A855F7"/>
+        </Style>
         <Style Selector="Border.metricCard.queued">
             <Setter Property="BorderBrush" Value="#FFB300"/>
         </Style>
@@ -1375,10 +1378,19 @@
                             <StackPanel Orientation="Horizontal" Spacing="10">
                                 <Border Classes="metricCard live">
                                     <StackPanel Spacing="2">
-                                        <TextBlock Text="LIVE TRANSFERS" FontSize="9" FontWeight="Bold" Foreground="#6A8492"/>
+                                        <TextBlock Text="DOWNLOADING" FontSize="9" FontWeight="Bold" Foreground="#6A8492"/>
                                         <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <TextBlock Text="{Binding ActiveCount}" FontSize="20" FontWeight="Bold" Foreground="#DFFBFF"/>
+                                            <TextBlock Text="{Binding DownloadingCount}" FontSize="20" FontWeight="Bold" Foreground="#DFFBFF"/>
                                             <TextBlock Text="▶" FontSize="12" Foreground="#00BCD4" VerticalAlignment="Bottom" Margin="0,0,0,3"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                                <Border Classes="metricCard searching">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="SEARCHING" FontSize="9" FontWeight="Bold" Foreground="#7A5A8A"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{Binding SearchingCount}" FontSize="20" FontWeight="Bold" Foreground="#F3E8FF"/>
+                                            <TextBlock Text="⟳" FontSize="14" Foreground="#A855F7" VerticalAlignment="Bottom" Margin="0,0,0,3"/>
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
@@ -1395,7 +1407,7 @@
                                     <StackPanel Spacing="2">
                                         <TextBlock Text="COMPLETED" FontSize="9" FontWeight="Bold" Foreground="#6A8D77"/>
                                         <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <TextBlock Text="{Binding CompletedTodayCount}" FontSize="20" FontWeight="Bold" Foreground="#DDF9E8"/>
+                                            <TextBlock Text="{Binding TotalCompletedCount}" FontSize="20" FontWeight="Bold" Foreground="#DDF9E8"/>
                                             <TextBlock Text="✓" FontSize="12" Foreground="#30C97A" VerticalAlignment="Bottom" Margin="0,0,0,3"/>
                                         </StackPanel>
                                     </StackPanel>
@@ -1404,7 +1416,7 @@
                                     <StackPanel Spacing="2">
                                         <TextBlock Text="REQUIRES ACTION" FontSize="9" FontWeight="Bold" Foreground="#A07A7A"/>
                                         <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <TextBlock Text="{Binding FailedCount}" FontSize="20" FontWeight="Bold" Foreground="#FFE4E4"/>
+                                            <TextBlock Text="{Binding TotalFailedCount}" FontSize="20" FontWeight="Bold" Foreground="#FFE4E4"/>
                                             <TextBlock Text="⚠" FontSize="12" Foreground="#FF6B6B" VerticalAlignment="Bottom" Margin="0,0,0,3"/>
                                         </StackPanel>
                                     </StackPanel>
