@@ -412,6 +412,9 @@ public partial class App : Application
         services.AddSingleton<LibraryOrganizationService>();
         services.AddSingleton<IAudioIntegrityService, AudioIntegrityService>();
         services.AddSingleton<PostDownloadSpectralScanService>(); // Runs FFT analysis on completed FLAC downloads
+        services.AddSingleton<AudioCorruptionScannerService>();   // Fast per-file corruption probe (FFmpeg + NAudio)
+        services.AddSingleton<LibraryCorruptionScanService>();    // Batch library-wide corruption scan
+        services.AddSingleton<CorruptFileRemediationService>();   // Disk delete + DB reset + re-queue for corrupt/missing files
         services.AddSingleton<ArtworkPipeline>();
         services.AddSingleton<DragAdornerService>();
         
@@ -614,6 +617,7 @@ public partial class App : Application
         services.AddSingleton<ViewModels.AnalysisPageViewModel>();
         services.AddTransient<Views.Avalonia.StemsPage>();
         services.AddTransient<Views.Avalonia.WorkstationPage>();
+        services.AddTransient<Views.Avalonia.CueForgePagee>();
         services.AddSingleton<Services.ICuePointService, Services.CuePointService>();
         services.AddSingleton<Services.Audio.StemPreferenceService>();
         services.AddSingleton<Services.Audio.MixdownService>();
@@ -630,6 +634,8 @@ public partial class App : Application
         services.AddSingleton<Services.AnalyzeTrackStructureJob>();
 
         services.AddSingleton<SLSKDONET.ViewModels.Workstation.WorkstationViewModel>();
+        services.AddSingleton<SLSKDONET.ViewModels.Workstation.CueEditorViewModel>();
+        services.AddSingleton<SLSKDONET.ViewModels.CueForgeViewModel>();
         services.AddSingleton<SLSKDONET.ViewModels.CurationWorkstationViewModel>();
         services.AddSingleton<SLSKDONET.Engine.Analysis.AnalysisPipeline>();
         services.AddSingleton<SLSKDONET.Engine.Cueing.CueGenerationService>();

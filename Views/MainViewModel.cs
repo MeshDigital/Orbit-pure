@@ -220,6 +220,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateDecksCommand = new RelayCommand(NavigateToDecks);
         NavigateTimelineCommand = new RelayCommand(NavigateToTimeline);
         NavigateStemsCommand = new RelayCommand(NavigateToStems);
+        NavigateCueForgeCommand = new RelayCommand(NavigateToCueForge);
         PlayPauseCommand = new RelayCommand(() => PlayerViewModel.TogglePlayPauseCommand.Execute(null));
         FocusSearchCommand = new RelayCommand(FocusSearch);
         ToggleNavigationCommand = new RelayCommand(() => 
@@ -389,6 +390,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("NowPlaying", typeof(Avalonia.NowPlayingPage));
         _navigationService.RegisterPage("Workstation", typeof(Avalonia.WorkstationPage));
         _navigationService.RegisterPage("Stems", typeof(Avalonia.StemsPage));
+        _navigationService.RegisterPage("CueForge", typeof(Avalonia.CueForgePagee));
         
         // Subscribe to navigation events
         _navigationService.Navigated += OnNavigated;
@@ -1013,6 +1015,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateDecksCommand { get; }
     public ICommand NavigateTimelineCommand { get; }
     public ICommand NavigateStemsCommand { get; }
+    public ICommand NavigateCueForgeCommand { get; }
     public ICommand PlayPauseCommand { get; }
     public ICommand FocusSearchCommand { get; }
     public ICommand ToggleNavigationCommand { get; }
@@ -1165,6 +1168,11 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void NavigateToStems()
     {
         _navigationService.NavigateTo("Stems");
+    }
+
+    private void NavigateToCueForge()
+    {
+        _navigationService.NavigateTo("CueForge");
     }
 
     private void UpdateFontSizeResources()

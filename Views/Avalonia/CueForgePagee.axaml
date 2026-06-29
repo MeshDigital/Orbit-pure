@@ -1,0 +1,249 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:sys="clr-namespace:System;assembly=netstandard"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:wsControls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="900"
+             x:Class="SLSKDONET.Views.Avalonia.CueForgePagee"
+             x:DataType="vm:CueForgeViewModel"
+             x:Name="CueForgeRoot"
+             Background="#0A0E27">
+
+    <UserControl.Styles>
+        <!-- Button styles -->
+        <Style Selector="Button.cmd-primary">
+            <Setter Property="Background" Value="#2E7D32"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderBrush" Value="#1B5E20"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style Selector="Button.cmd-primary:pointerover">
+            <Setter Property="Background" Value="#43A047"/>
+        </Style>
+        <Style Selector="Button.cmd-secondary">
+            <Setter Property="Background" Value="#424242"/>
+            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="BorderBrush" Value="#616161"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="CornerRadius" Value="3"/>
+        </Style>
+        <Style Selector="ToggleButton.cmd-toggle">
+            <Setter Property="Background" Value="#424242"/>
+            <Setter Property="Foreground" Value="#B0BEC5"/>
+            <Setter Property="BorderBrush" Value="#616161"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="CornerRadius" Value="3"/>
+        </Style>
+        <Style Selector="ToggleButton.cmd-toggle:checked">
+            <Setter Property="Background" Value="#1565C0"/>
+            <Setter Property="Foreground" Value="#E3F2FD"/>
+            <Setter Property="BorderBrush" Value="#0D47A1"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- Row 0: Tactical Command Bar -->
+        <Border Grid.Row="0"
+                Background="#1E1E1E"
+                BorderBrush="#333333"
+                BorderThickness="0,0,0,1"
+                Padding="12,8">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,*,Auto">
+                <!-- Left: Playback Controls -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Button Classes="cmd-secondary" ToolTip.Tip="Play/Pause" Padding="8,4" Content="▶" FontSize="12"/>
+                    <Button Classes="cmd-secondary" ToolTip.Tip="Previous Cue" Padding="6,4" Content="⏮" FontSize="11"/>
+                    <Button Classes="cmd-secondary" ToolTip.Tip="Next Cue" Padding="6,4" Content="⏭" FontSize="11"/>
+                </StackPanel>
+
+                <!-- Separator -->
+                <Rectangle Grid.Column="1" Fill="#333" Margin="12,0"/>
+
+                <!-- Center-Left: Auto-Generate -->
+                <Button Grid.Column="2"
+                        Classes="cmd-primary"
+                        Command="{Binding AutoGenerateCuesCommand}"
+                        ToolTip.Tip="Auto-generate cues from track analysis"
+                        Content="🎯 Auto-Generate"
+                        FontSize="12"/>
+
+                <!-- Center: Snap & Quantize -->
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="12,0">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="Snap:" Foreground="#888" VerticalAlignment="Center" FontSize="11"/>
+                        <ToggleButton Classes="cmd-toggle"
+                                     IsChecked="{Binding SnapToGrid}"
+                                     ToolTip.Tip="Snap cues to beat grid"
+                                     Content="Grid"
+                                     FontSize="10"
+                                     Padding="6,2"/>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="Quantize:" Foreground="#888" VerticalAlignment="Center" FontSize="11"/>
+                        <ComboBox SelectedItem="{Binding QuantizeBeats}"
+                                 Background="#333333"
+                                 Foreground="#D0D0D0"
+                                 BorderBrush="#555555"
+                                 Padding="6,4"
+                                 FontSize="11"
+                                 Width="90">
+                            <ComboBoxItem>4 beats</ComboBoxItem>
+                            <ComboBoxItem>8 beats</ComboBoxItem>
+                            <ComboBoxItem>16 beats</ComboBoxItem>
+                            <ComboBoxItem>32 beats</ComboBoxItem>
+                        </ComboBox>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Center-Right: Undo/Redo -->
+                <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                    <Button Classes="cmd-secondary"
+                            Command="{Binding UndoCommand}"
+                            IsEnabled="{Binding CanUndo}"
+                            ToolTip.Tip="Undo"
+                            Padding="6,4"
+                            Content="↶"
+                            FontSize="12"/>
+                    <Button Classes="cmd-secondary"
+                            Command="{Binding RedoCommand}"
+                            IsEnabled="{Binding CanRedo}"
+                            ToolTip.Tip="Redo"
+                            Padding="6,4"
+                            Content="↷"
+                            FontSize="12"/>
+                </StackPanel>
+
+                <!-- Spacer -->
+                <Rectangle Grid.Column="5" Fill="Transparent"/>
+
+                <!-- Right: Commit/Discard -->
+                <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Button Classes="cmd-primary"
+                            Command="{Binding CommitChangesCommand}"
+                            ToolTip.Tip="Save cues to track"
+                            IsVisible="{Binding HasUncommittedChanges}"
+                            Content="✓ Commit"
+                            FontSize="12"/>
+                    <Button Classes="cmd-secondary"
+                            Command="{Binding DiscardChangesCommand}"
+                            ToolTip.Tip="Discard changes and reload from database"
+                            IsVisible="{Binding HasUncommittedChanges}"
+                            Foreground="#FF6B6B"
+                            Content="✕ Discard"
+                            FontSize="12"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Row 1: Waveform Canvas -->
+        <Border Grid.Row="1"
+                Background="#0A0E27"
+                BorderBrush="#1E1E1E"
+                BorderThickness="0,1,0,1">
+            <Grid ColumnDefinitions="*,320" RowDefinitions="*">
+                <!-- Waveform area (left) -->
+                <Border Grid.Column="0"
+                        Background="#0A0E27"
+                        BorderBrush="#1E1E1E"
+                        BorderThickness="0,0,1,0">
+                    <wsControls:CueForgeWaveformControl
+                        Cues="{Binding WorkingCues}"
+                        CurrentPlayPosition="{Binding CurrentPlayPosition}"
+                        Bpm="120"
+                        TrackDuration="300"/>
+                </Border>
+
+                <!-- Inspector Panel Separator -->
+                <GridSplitter Grid.Column="1"
+                             Background="#2E2E2E"
+                             Width="4"
+                             HorizontalAlignment="Left"
+                             Cursor="SizeWestEast"/>
+
+                <!-- Inspector Panel (right) -->
+                <Border Grid.Column="1"
+                        Background="#141414"
+                        BorderBrush="#1E1E1E"
+                        BorderThickness="1,0,0,0">
+                    <Grid RowDefinitions="Auto,*">
+                        <!-- Inspector Header -->
+                        <Border Grid.Row="0"
+                               Background="#1E1E1E"
+                               BorderBrush="#333333"
+                               BorderThickness="0,0,0,1"
+                               Padding="12,8">
+                            <TextBlock Text="CUE INSPECTOR"
+                                      Foreground="#666"
+                                      FontSize="10"
+                                      FontWeight="Bold"
+                                      LetterSpacing="1"/>
+                        </Border>
+
+                        <!-- Cue List -->
+                        <ListBox Grid.Row="1"
+                                 ItemsSource="{Binding WorkingCues}"
+                                 SelectedItem="{Binding SelectedCue}"
+                                 Background="#0A0E27"
+                                 Foreground="#D0D0D0"
+                                 BorderBrush="#333333"
+                                 BorderThickness="0"
+                                 FontSize="11">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Padding="8,6" BorderBrush="#222222" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="70,*,80,40,50,Auto">
+                                            <TextBlock Grid.Column="0" Text="{Binding Timestamp, StringFormat=mm\\:ss\\.fff}" FontSize="10" Foreground="#888"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="8,0" FontSize="11" Foreground="#D0D0D0"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Role}" FontSize="10" Foreground="#888"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding SlotIndex}" FontSize="10" Foreground="#888" HorizontalAlignment="Center"/>
+                                            <Border Grid.Column="4" Background="{Binding Color}" Width="40" Height="16" CornerRadius="2" Margin="4,0"/>
+                                            <Button Grid.Column="5" Content="✕" Padding="4,2" FontSize="10" Foreground="#FF6B6B" Background="#333333" BorderThickness="0" Cursor="Hand"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- Row 2: Status Bar -->
+        <Border Grid.Row="2"
+                Background="#1E1E1E"
+                BorderBrush="#333333"
+                BorderThickness="0,1,0,0"
+                Padding="12,6">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding CurrentPlayPosition, StringFormat='Position: {0:F2}s'}"
+                              Foreground="#888"
+                              FontSize="11"/>
+                    <TextBlock Text="{Binding WorkingCues.Count, StringFormat='Cues: {0}'}"
+                              Foreground="#888"
+                              FontSize="11"/>
+                    <TextBlock Text="Unsaved Changes"
+                              Foreground="#FF9800"
+                              FontSize="10"
+                              FontWeight="Bold"
+                              IsVisible="{Binding HasUncommittedChanges}"/>
+                </StackPanel>
+
+                <TextBlock Grid.Column="1"
+                          Text="{Binding TrackHash, StringFormat='Track: {0}'}"
+                          Foreground="#555"
+                          FontSize="10"/>
+            </Grid>
+        </Border>
+    </Grid>
+
+</UserControl>

@@ -325,6 +325,15 @@
                                 </Grid>
                             </Button>
                             <StackPanel Spacing="2" IsVisible="{Binding IsCreativeExpanded}">
+                                <Button Classes="nav" Command="{Binding NavigateCueForgeCommand}"
+                                        ToolTip.Tip="Cue Forge — Visual cue generation and loop placement"
+                                        Classes.selected="{Binding CurrentPageType, Converter={StaticResource PageTypeConverter}, ConverterParameter=CueForge}">
+                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
+                                        <TextBlock Text="🎯" FontSize="16"/>
+                                        <TextBlock Text="Cue Forge" FontSize="14"/>
+                                    </StackPanel>
+                                </Button>
+
                                 <Button Classes="nav" Command="{Binding NavigateWorkstationCommand}"
                                         ToolTip.Tip="Workstation — Decks, Timeline &amp; Stem Editor"
                                         Classes.selected="{Binding IsWorkstationOverlayActive}">

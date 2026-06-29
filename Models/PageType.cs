@@ -15,5 +15,6 @@ public enum PageType
     Decks,
     Timeline,
     Stems,
-    Workstation
+    Workstation,
+    CueForge
 }
