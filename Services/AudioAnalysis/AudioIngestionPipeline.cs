@@ -95,6 +95,40 @@ public sealed class AudioIngestionPipeline
         return (buffer[..read], reader.WaveFormat.SampleRate, reader.WaveFormat.Channels);
     }
 
+    /// <summary>
+    /// Fast corruption probe: decodes <paramref name="filePath"/> to /dev/null via FFmpeg.
+    /// Works for every format. Returns null if clean, or a concise error string if corrupt.
+    /// No temp file is created.
+    /// </summary>
+    public async Task<string?> ProbeForCorruptionAsync(
+        string filePath,
+        CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(filePath))
+            return "File does not exist";
+
+        string args = $"-v error -i \"{filePath}\" -f null -";
+        var (exitCode, stderr) = await RunProcessAsync(_ffmpegPath, args, cancellationToken)
+            .ConfigureAwait(false);
+
+        var errors = stderr
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.Trim())
+            .Where(l => l.Length > 0)
+            // Skip benign artwork/metadata warnings that don't affect audio decoding
+            .Where(l => !l.Contains("mimetype", StringComparison.OrdinalIgnoreCase)
+                     && !l.Contains("attached picture", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        if (errors.Length > 0)
+            return string.Join("; ", errors.Take(3));
+
+        if (exitCode != 0)
+            return $"FFmpeg exited {exitCode} with no stderr";
+
+        return null;
+    }
+
     // ──────────────────────────────────── helpers ──────────────────────────
 
     private static string BuildFfmpegArgs(string input, string output)

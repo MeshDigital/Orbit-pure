@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
+using NAudio.Wave;
 using TagLib;
 
 namespace SLSKDONET.Services.IO
@@ -93,5 +94,32 @@ namespace SLSKDONET.Services.IO
                 return false;
             }
         }
+
+        /// <summary>
+        /// Walks the first 200 MP3 frames using NAudio to catch truncated or unsynced bitstreams.
+        /// Returns (frameCount, errorMessage). errorMessage is null when frames look valid.
+        /// </summary>
+        public static Task<(int FrameCount, string? Error)> VerifyMp3FramesAsync(string filePath)
+            => Task.Run(() =>
+            {
+                try
+                {
+                    using var reader = new Mp3FileReader(filePath);
+                    int count = 0;
+                    Mp3Frame? frame;
+                    while ((frame = reader.ReadNextFrame()) != null)
+                    {
+                        count++;
+                        if (count >= 200) break;
+                    }
+                    return count == 0
+                        ? (0, "No valid MP3 frames found")
+                        : (count, (string?)null);
+                }
+                catch (Exception ex)
+                {
+                    return (0, ex.Message);
+                }
+            });
     }
 }

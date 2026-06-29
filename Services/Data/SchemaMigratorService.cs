@@ -2555,6 +2555,26 @@ public class SchemaMigratorService
                 }
             }
 
+            // Corruption detection columns on audio_analysis
+            if (!ColumnExists("audio_analysis", "CorruptionStatus"))
+            {
+                _logger.LogInformation("Patching Schema: Adding CorruptionStatus to audio_analysis...");
+                command.CommandText = @"ALTER TABLE ""audio_analysis"" ADD COLUMN ""CorruptionStatus"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_analysis", "CorruptionDetails"))
+            {
+                _logger.LogInformation("Patching Schema: Adding CorruptionDetails to audio_analysis...");
+                command.CommandText = @"ALTER TABLE ""audio_analysis"" ADD COLUMN ""CorruptionDetails"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_analysis", "LastIntegrityScanAt"))
+            {
+                _logger.LogInformation("Patching Schema: Adding LastIntegrityScanAt to audio_analysis...");
+                command.CommandText = @"ALTER TABLE ""audio_analysis"" ADD COLUMN ""LastIntegrityScanAt"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

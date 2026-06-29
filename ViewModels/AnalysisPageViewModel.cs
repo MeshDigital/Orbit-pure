@@ -676,6 +676,8 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     private readonly ILibraryService? _libraryService;
     private readonly ILifecycleProjectionService _lifecycleProjectionService;
     private readonly IClipboardService? _clipboardService;
+    private readonly LibraryCorruptionScanService? _corruptionScanService;
+    private readonly CorruptFileRemediationService? _remediationService;
     private readonly CompositeDisposable _disposables = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Stopwatch _analysisSessionStopwatch = new();
@@ -701,6 +703,12 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     private int _desiredDownloadCount;
     private int _ingestionBacklogCount;
     private int _onDiskIndexedTrackCount;
+    private bool _isIntegrityScanRunning;
+    private int _integrityScanProgress;
+    private string _integrityScanStatusText = string.Empty;
+    private bool _isRemediating;
+    private string _remediationStatusText = string.Empty;
+    private IReadOnlyList<CorruptFileScanEntry> _scanIssues = Array.Empty<CorruptFileScanEntry>();
 
     // ── Collections ─────────────────────────────────────────────────────────────
 
@@ -868,6 +876,73 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
     public ReactiveCommand<AnalysisPaneMode, Unit> SetPaneModeCommand { get; }
 
+    /// <summary>Runs a full library corruption scan using FFmpeg probe + NAudio frame scan.</summary>
+    public ReactiveCommand<Unit, Unit> ScanLibraryIntegrityCommand { get; }
+
+    public bool IsIntegrityScanRunning
+    {
+        get => _isIntegrityScanRunning;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _isIntegrityScanRunning, value);
+            this.RaisePropertyChanged(nameof(CanScanIntegrity));
+        }
+    }
+
+    public int IntegrityScanProgress
+    {
+        get => _integrityScanProgress;
+        private set => this.RaiseAndSetIfChanged(ref _integrityScanProgress, value);
+    }
+
+    public string IntegrityScanStatusText
+    {
+        get => _integrityScanStatusText;
+        private set => this.RaiseAndSetIfChanged(ref _integrityScanStatusText, value);
+    }
+
+    public bool CanScanIntegrity => !_isIntegrityScanRunning && _corruptionScanService is not null;
+
+    // ── Remediation state ────────────────────────────────────────────────────
+    public ReactiveCommand<Unit, Unit> FixAllIssuesCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> FixCorruptCommand   { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> FixMissingCommand   { get; private set; } = null!;
+
+    public bool IsRemediating
+    {
+        get => _isRemediating;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _isRemediating, value);
+            this.RaisePropertyChanged(nameof(CanRemediate));
+        }
+    }
+
+    public string RemediationStatusText
+    {
+        get => _remediationStatusText;
+        private set => this.RaiseAndSetIfChanged(ref _remediationStatusText, value);
+    }
+
+    public IReadOnlyList<CorruptFileScanEntry> ScanIssues
+    {
+        get => _scanIssues;
+        private set
+        {
+            _scanIssues = value;
+            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(HasScanIssues));
+            this.RaisePropertyChanged(nameof(CorruptIssueCount));
+            this.RaisePropertyChanged(nameof(MissingIssueCount));
+            this.RaisePropertyChanged(nameof(CanRemediate));
+        }
+    }
+
+    public bool HasScanIssues   => _scanIssues.Count > 0;
+    public int  CorruptIssueCount  => _scanIssues.Count(e => !e.IsMissing);
+    public int  MissingIssueCount  => _scanIssues.Count(e => e.IsMissing);
+    public bool CanRemediate    => HasScanIssues && !_isRemediating && _remediationService is not null;
+
     private string? _automixStatusMessage;
 
     /// <summary>Success / error message from the last automix generation attempt.</summary>
@@ -885,12 +960,16 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         IEventBus eventBus,
         ILifecycleProjectionService lifecycleProjectionService,
         ILibraryService? libraryService = null,
-        IClipboardService? clipboardService = null)
+        IClipboardService? clipboardService = null,
+        LibraryCorruptionScanService? corruptionScanService = null,
+        CorruptFileRemediationService? remediationService = null)
     {
         _eventBus = eventBus;
         _libraryService = libraryService;
         _clipboardService = clipboardService;
         _lifecycleProjectionService = lifecycleProjectionService;
+        _corruptionScanService = corruptionScanService;
+        _remediationService = remediationService;
 
         if (_libraryService is null)
             LoadMockData();
@@ -925,6 +1004,17 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         CopyPerformanceSnapshotCommand = ReactiveCommand.CreateFromTask(CopyPerformanceSnapshotAsync);
         ClearPerformanceProbeHistoryCommand = ReactiveCommand.Create(ClearPerformanceProbeHistory);
         SetPaneModeCommand = ReactiveCommand.Create<AnalysisPaneMode>(SetPaneMode);
+
+        var canScan = this.WhenAnyValue(x => x.CanScanIntegrity);
+        ScanLibraryIntegrityCommand = ReactiveCommand.CreateFromTask(ScanLibraryIntegrityAsync, canScan);
+
+        var canRemediate = this.WhenAnyValue(x => x.CanRemediate);
+        FixAllIssuesCommand = ReactiveCommand.CreateFromTask(
+            () => RemediateAsync(_scanIssues), canRemediate);
+        FixCorruptCommand = ReactiveCommand.CreateFromTask(
+            () => RemediateAsync(_scanIssues.Where(e => !e.IsMissing).ToList()), canRemediate);
+        FixMissingCommand = ReactiveCommand.CreateFromTask(
+            () => RemediateAsync(_scanIssues.Where(e => e.IsMissing).ToList()), canRemediate);
 
         // Keep all computed dashboard metrics in sync as the collections change.
         LibraryTracks.CollectionChanged += (_, _) => RefreshComputedState();
@@ -1933,6 +2023,89 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         {
             HookTrack(t);
             LibraryTracks.Add(t);
+        }
+    }
+
+    private async Task ScanLibraryIntegrityAsync()
+    {
+        if (_corruptionScanService is null || _isIntegrityScanRunning)
+            return;
+
+        IsIntegrityScanRunning = true;
+        IntegrityScanProgress  = 0;
+        IntegrityScanStatusText = "Starting integrity scan…";
+        ScanIssues = Array.Empty<CorruptFileScanEntry>();
+        RemediationStatusText = string.Empty;
+
+        try
+        {
+            var progress = new Progress<(int Done, int Total, string File)>(p =>
+            {
+                IntegrityScanProgress   = p.Total > 0 ? (int)((double)p.Done / p.Total * 100) : 0;
+                IntegrityScanStatusText = $"Scanning {p.Done}/{p.Total}: {p.File}";
+            });
+
+            var result = await _corruptionScanService
+                .ScanLibraryAsync(progress, _cts.Token)
+                .ConfigureAwait(true);
+
+            ScanIssues = result.Issues;
+            IntegrityScanProgress   = 100;
+            IntegrityScanStatusText =
+                $"Scan complete — {result.Clean} clean, {result.Warned} warnings, {result.Fatal - result.Missing} corrupt, {result.Missing} missing";
+            AutomixStatusMessage = IntegrityScanStatusText;
+        }
+        catch (OperationCanceledException)
+        {
+            IntegrityScanStatusText = "Integrity scan cancelled.";
+        }
+        catch (Exception ex)
+        {
+            IntegrityScanStatusText = $"Scan failed: {ex.Message}";
+        }
+        finally
+        {
+            IsIntegrityScanRunning = false;
+        }
+    }
+
+    private async Task RemediateAsync(IReadOnlyList<CorruptFileScanEntry> entries)
+    {
+        if (_remediationService is null || entries.Count == 0 || _isRemediating)
+            return;
+
+        IsRemediating = true;
+        RemediationStatusText = $"Fixing {entries.Count} files…";
+
+        try
+        {
+            var progress = new Progress<(int Done, int Total, string File)>(p =>
+            {
+                RemediationStatusText = $"Fixing {p.Done}/{p.Total}: {p.File}";
+            });
+
+            var result = await _remediationService
+                .RemediateAsync(entries, progress, _cts.Token)
+                .ConfigureAwait(true);
+
+            // Remove fixed entries from the issues list
+            var fixedHashes = new HashSet<string>(entries.Select(e => e.Hash), StringComparer.Ordinal);
+            ScanIssues = _scanIssues.Where(e => !fixedHashes.Contains(e.Hash)).ToList();
+
+            RemediationStatusText = result.Summary;
+            AutomixStatusMessage  = result.Summary;
+        }
+        catch (OperationCanceledException)
+        {
+            RemediationStatusText = "Remediation cancelled.";
+        }
+        catch (Exception ex)
+        {
+            RemediationStatusText = $"Remediation failed: {ex.Message}";
+        }
+        finally
+        {
+            IsRemediating = false;
         }
     }
 

@@ -303,6 +303,157 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- Integrity scan panel -->
+                    <Border Padding="10"
+                            Background="{DynamicResource BrushBg2}"
+                            BorderBrush="{DynamicResource BrushBorder2}"
+                            BorderThickness="1"
+                            CornerRadius="6">
+                        <StackPanel Spacing="6">
+
+                            <!-- Header row: title + Scan button -->
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0"
+                                           Text="File Integrity Scanner"
+                                           FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource BrushText1}"
+                                           VerticalAlignment="Center"/>
+                                <Button Grid.Column="1"
+                                        Classes="secondary"
+                                        Content="⚕ Scan Library"
+                                        Command="{Binding ScanLibraryIntegrityCommand}"
+                                        IsEnabled="{Binding CanScanIntegrity}"
+                                        ToolTip.Tip="Run FFmpeg + NAudio corruption probe on every local file"/>
+                            </Grid>
+
+                            <!-- Scan progress bar -->
+                            <ProgressBar Value="{Binding IntegrityScanProgress}"
+                                         Maximum="100"
+                                         Height="4"
+                                         CornerRadius="2"
+                                         IsVisible="{Binding IsIntegrityScanRunning}"/>
+
+                            <!-- Scan status text -->
+                            <TextBlock Text="{Binding IntegrityScanStatusText}"
+                                       FontSize="10"
+                                       Foreground="{DynamicResource BrushText2}"
+                                       TextWrapping="Wrap"
+                                       IsVisible="{Binding IntegrityScanStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                            <!-- Remediation panel — shown after scan finds issues -->
+                            <Border IsVisible="{Binding HasScanIssues}"
+                                    Background="{DynamicResource BrushBg3}"
+                                    BorderBrush="{DynamicResource BrushBorder2}"
+                                    BorderThickness="1"
+                                    CornerRadius="4"
+                                    Padding="8,6">
+                                <StackPanel Spacing="6">
+
+                                    <!-- Issue summary + fix buttons -->
+                                    <WrapPanel Orientation="Horizontal">
+                                        <!-- Corrupt badge -->
+                                        <Border Background="#662222" CornerRadius="3" Padding="5,1" Margin="0,0,4,0"
+                                                IsVisible="{Binding CorruptIssueCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}">
+                                            <TextBlock FontSize="10" FontWeight="SemiBold" Foreground="#FF7070"
+                                                       Text="{Binding CorruptIssueCount, StringFormat='{}{0} corrupt'}"/>
+                                        </Border>
+                                        <!-- Missing badge -->
+                                        <Border Background="#664400" CornerRadius="3" Padding="5,1" Margin="0,0,8,0"
+                                                IsVisible="{Binding MissingIssueCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}">
+                                            <TextBlock FontSize="10" FontWeight="SemiBold" Foreground="#FFBB55"
+                                                       Text="{Binding MissingIssueCount, StringFormat='{}{0} missing'}"/>
+                                        </Border>
+                                        <!-- Fix Corrupt button -->
+                                        <Button Classes="secondary" FontSize="10" Padding="6,2" Margin="0,0,4,0"
+                                                Command="{Binding FixCorruptCommand}"
+                                                IsEnabled="{Binding CanRemediate}"
+                                                IsVisible="{Binding CorruptIssueCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}"
+                                                ToolTip.Tip="Delete corrupt files from disk and re-queue for download">
+                                            <TextBlock>
+                                                <Run Text="Fix Corrupt ("/>
+                                                <Run Text="{Binding CorruptIssueCount}"/>
+                                                <Run Text=")"/>
+                                            </TextBlock>
+                                        </Button>
+                                        <!-- Fix Missing button -->
+                                        <Button Classes="secondary" FontSize="10" Padding="6,2" Margin="0,0,4,0"
+                                                Command="{Binding FixMissingCommand}"
+                                                IsEnabled="{Binding CanRemediate}"
+                                                IsVisible="{Binding MissingIssueCount, Converter={x:Static avConverters:NumericConverters.IsNotZero}}"
+                                                ToolTip.Tip="Clean up stale DB records and re-queue missing files for download">
+                                            <TextBlock>
+                                                <Run Text="Fix Missing ("/>
+                                                <Run Text="{Binding MissingIssueCount}"/>
+                                                <Run Text=")"/>
+                                            </TextBlock>
+                                        </Button>
+                                        <!-- Fix All button -->
+                                        <Button Classes="primary" FontSize="10" Padding="8,2"
+                                                Command="{Binding FixAllIssuesCommand}"
+                                                IsEnabled="{Binding CanRemediate}"
+                                                ToolTip.Tip="Fix all corrupt and missing files — deletes from disk and re-queues for download">
+                                            <TextBlock>
+                                                <Run Text="Fix All ("/>
+                                                <Run Text="{Binding ScanIssues.Count}"/>
+                                                <Run Text=")"/>
+                                            </TextBlock>
+                                        </Button>
+                                    </WrapPanel>
+
+                                    <!-- Remediation progress -->
+                                    <ProgressBar IsIndeterminate="True" Height="3" CornerRadius="2"
+                                                 IsVisible="{Binding IsRemediating}"/>
+
+                                    <!-- Remediation status / result -->
+                                    <TextBlock Text="{Binding RemediationStatusText}"
+                                               FontSize="10" Foreground="{DynamicResource BrushText2}"
+                                               TextWrapping="Wrap"
+                                               IsVisible="{Binding RemediationStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                                    <!-- Issue list (scrollable, max 120px) -->
+                                    <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto">
+                                        <ItemsControl ItemsSource="{Binding ScanIssues}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid ColumnDefinitions="Auto,Auto,*,Auto" Margin="0,1">
+                                                        <!-- Missing badge -->
+                                                        <Border Grid.Column="0"
+                                                                Background="#664400" CornerRadius="2" Padding="3,0" Margin="0,0,4,0"
+                                                                IsVisible="{Binding IsMissing}">
+                                                            <TextBlock Text="Missing" FontSize="9" FontWeight="SemiBold" Foreground="#FFBB55"/>
+                                                        </Border>
+                                                        <!-- Corrupt/Warning badge -->
+                                                        <Border Grid.Column="1"
+                                                                Background="#662222" CornerRadius="2" Padding="3,0" Margin="0,0,4,0"
+                                                                IsVisible="{Binding !IsMissing}">
+                                                            <TextBlock Text="{Binding StatusBadge}" FontSize="9" FontWeight="SemiBold" Foreground="#FF7070"/>
+                                                        </Border>
+                                                        <TextBlock Grid.Column="2"
+                                                                   Text="{Binding DisplayLabel}"
+                                                                   FontSize="10"
+                                                                   Foreground="{DynamicResource BrushText2}"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   ToolTip.Tip="{Binding FilePath}"/>
+                                                        <TextBlock Grid.Column="3"
+                                                                   Text="{Binding Details}"
+                                                                   FontSize="9"
+                                                                   Foreground="{DynamicResource BrushText3}"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   MaxWidth="180"
+                                                                   Margin="6,0,0,0"
+                                                                   ToolTip.Tip="{Binding Details}"/>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+
+                                </StackPanel>
+                            </Border>
+
+                        </StackPanel>
+                    </Border>
+
                     <!-- Search bar -->
                     <TextBox Text="{Binding SearchText, Mode=TwoWay}"
                              Watermark="Search by title or artist…"

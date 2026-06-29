@@ -1,0 +1,1165 @@
+
+
+<!DOCTYPE html>
+<html lang="en"
+      class="">
+
+  <head>
+    <meta charset="utf-8" />
+    <title>
+      
+  
+    mtg/music-arousal-valence | Run with an API on Replicate
+  
+
+    </title>
+
+    
+      
+      <meta name="viewport"
+            content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    
+
+    <link id="favicon-ico"
+          rel="icon"
+          href="https://d31rfu1d3w8e4q.cloudfront.net/static/favicon.121ea3afd763.ico"
+          sizes="any" />
+    <link id="favicon-png"
+          rel="icon"
+          href="https://d31rfu1d3w8e4q.cloudfront.net/static/favicon.fdf5ef8729cc.png"
+          type="image/png" />
+    <link rel="mask-icon"
+          href="https://d31rfu1d3w8e4q.cloudfront.net/static/safari-pinned-tab.4c32b8e091a9.svg"
+          color="#FFFFFF" />
+    <link rel="apple-touch-icon"
+          sizes="180x180"
+          href="https://d31rfu1d3w8e4q.cloudfront.net/static/apple-touch-icon.39c0aa0659e3.png" />
+
+    
+  <script nonce="S4k4xR7GmO/pw5ajm0HsaA==">
+    /* beautify ignore:start */
+    window.dataLayer = window.dataLayer || [];
+    
+    
+    dataLayer.push({
+      'event': 'user_anonymous',
+      'user_type': 'anonymous',
+      
+      'anonymous_session_id': 'b20260e3-8d42-48a9-b870-865c483739be'
+      
+    });
+    
+    /* beautify ignore:end */
+  </script>
+  <script nonce="S4k4xR7GmO/pw5ajm0HsaA==">
+    (function(w, d, s, l, i) {
+      w[l] = w[l] || [];
+      w[l].push({
+        'gtm.start': new Date().getTime(),
+        event: 'gtm.js'
+      });
+      var f = d.getElementsByTagName(s)[0],
+        j = d.createElement(s),
+        dl = l != 'dataLayer' ? '&l=' + l : '';
+      j.async = true;
+      j.src =
+        'https://www.googletagmanager.com/gtm.js?id=' + i + dl;
+      f.parentNode.insertBefore(j, f);
+    })(window, document, 'script', 'dataLayer', 'GTM-KZDCFZR9');
+  </script>
+
+
+
+    
+    
+
+    <link  rel="stylesheet" href="https://d31rfu1d3w8e4q.cloudfront.net/static/dist/index-BxwK8EBg.css" />
+<script type="module" crossorigin="" src="https://d31rfu1d3w8e4q.cloudfront.net/static/dist/index-C7c1v-Sa.js"></script>
+
+    <link rel="stylesheet"
+          href="https://d31rfu1d3w8e4q.cloudfront.net/static/dist/indexCss-E-r3t9uV.css" />
+
+    <link rel="alternate"
+          type="application/rss+xml"
+          title="Blog (RSS)"
+          href="https://replicate.com/blog/rss" />
+    <link rel="alternate"
+          type="application/atom+xml"
+          title="Blog (Atom)"
+          href="https://replicate.com/blog/atom" />
+    <link rel="alternate"
+          type="application/rss+xml"
+          title="Changelog (RSS)"
+          href="https://replicate.com/changelog/rss" />
+    <link rel="alternate"
+          type="application/atom+xml"
+          title="Changelog (Atom)"
+          href="https://replicate.com/changelog/atom" />
+    <link rel="alternate"
+          type="application/rss+xml"
+          title="Status (RSS)"
+          href="https://replicatestatus.com/feed" />
+
+    
+      <link rel="dns-prefetch"
+            href="https://replicate.delivery" />
+    
+      <link rel="dns-prefetch"
+            href="https://tjzk.replicate.delivery" />
+    
+
+    
+
+    <link rel="canonical"
+          href="https://replicate.com/mtg/music-arousal-valence" />
+
+    
+  
+  
+    
+  
+
+  <meta name="twitter:card"
+        content="summary_large_image" />
+
+
+<meta name="twitter:site"
+      content="@replicate" />
+
+
+  <meta name="twitter:image"
+        content="https://og-api.replicateassets.com/api/models/mtg/music-arousal-valence" />
+  <meta property="og:image"
+        content="https://og-api.replicateassets.com/api/models/mtg/music-arousal-valence" />
+
+
+
+
+  <meta name="twitter:title"
+        content="mtg/music-arousal-valence – Replicate" />
+  <meta name="twitter:description"
+        content="Regression of musical arousal and valence values" />
+  <meta property="og:image"
+        content="https://og-api.replicateassets.com/api/models/mtg/music-arousal-valence" />
+  <meta property="twitter:image"
+        content="https://og-api.replicateassets.com/api/models/mtg/music-arousal-valence" />
+
+  
+
+  
+    <meta name="description"
+          content="Regression of musical arousal and valence values" />
+  
+
+
+    <meta name="sentry-dsn-js"
+          content="https://3dc017e574684610bbc7fd3b5519a4e8@o255771.ingest.sentry.io/5909364" />
+    
+    
+      <meta name="anonymous-id"
+            content="b20260e3-8d42-48a9-b870-865c483739be" />
+    
+
+    
+      <script nonce="S4k4xR7GmO/pw5ajm0HsaA==">
+        const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+        if (prefersDarkScheme) {
+          document.documentElement.classList.add("dark");
+        } else {
+          document.documentElement.classList.add("light");
+        }
+      </script>
+    
+
+    
+  </head>
+
+  
+
+  <body class="font-sans overflow-y-scroll antialiased flex min-h-screen flex-col">
+    
+  <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-KZDCFZR9"
+        height="0"
+        width="0"
+        style="display:none;
+               visibility:hidden"></iframe></noscript>
+
+
+    
+
+      
+
+      
+        
+
+<div class="h-[var(--header-height)] mb-6 no-focus">
+  
+    <script id="react-component-props-abcf165a-326c-4073-882e-01d8185f416c" type="application/json">{"activePath": "/mtg/music-arousal-valence", "isAuthenticated": false, "theme": "", "showCFBanner": true, "__flags": {"show-pylon-widget": false, "assign-support-tickets-to-ai": true, "show-open-ai-api-instructions": false}}</script>
+
+<div data-component="Navigation"
+     data-props="react-component-props-abcf165a-326c-4073-882e-01d8185f416c">
+  
+</div>
+
+  
+</div>
+
+        
+
+
+
+      
+
+      
+      
+
+      
+      
+
+      
+
+      <main class="layout-main flex-1">
+        
+
+        
+          
+
+  
+  
+  
+    
+      
+
+    
+      
+    
+
+    
+
+    
+      
+
+<header class="space-y-4 pb-10 lg:pb-4"
+        aria-label="mtg/music-arousal-valence">
+
+  
+
+<div class="flex gap-8 gap-y-4 w-full flex-wrap justify-between items-center">
+  <div class="space-y-4">
+    <div class="flex-wrap flex flex-col gap-1">
+
+      <div class="flex gap-2 sm:gap-3 w-full">
+
+        <h3 aria-label="mtg/music-arousal-valence"
+            class="sr-only">
+          mtg/music-arousal-valence
+        </h3>
+
+        <div translate="no"
+             aria-hidden="true"
+             class="flex relative items-center gap-1 flex-1 flex-wrap">
+          <div class="flex items-center gap-3 whitespace-nowrap">
+            
+              
+
+
+  <img class="avatar size-9 flex-shrink-0"
+       src="https://github.com/mtg.png"
+       alt=""
+       role="presentation"
+       onerror="this.onerror=null; this.src='https://d31rfu1d3w8e4q.cloudfront.net/static/placeholder-avatar-organization.ff98795474e8.svg'" />
+
+
+            
+            <div class="text-r8-gray-11 text-lg font-heading">
+              
+                <a href="https://replicate.com/mtg">mtg</a>
+              
+            </div>
+            <div class="text-r8-gray-11 text-lg font-heading">
+              /
+            </div>
+          </div>
+          <div>
+            <span class="text-lg font-heading">
+              music-arousal-valence
+            </span>
+            <span class="[&>div]:inline">
+              
+                <script id="react-component-props-00884d37-16a2-4f94-beb4-96aa1a3f1eea" type="application/json">{"identifier": "mtg/music-arousal-valence:9ae3915e0727ccad372d2608fe076cad87437306da79876df695c82a63149175", "__flags": {"show-pylon-widget": false, "assign-support-tickets-to-ai": true, "show-open-ai-api-instructions": false}}</script>
+
+<div data-component="CopyIdentifierButton"
+     data-props="react-component-props-00884d37-16a2-4f94-beb4-96aa1a3f1eea">
+  
+</div>
+
+              
+            </span>
+          </div>
+        </div>
+      </div>
+
+      
+
+    </div>
+  </div>
+
+  <div class="relative flex flex-wrap gap-2 md:justify-end w-full md:w-auto">
+
+    
+
+    
+
+    <div>
+      <script id="react-component-props-418e62df-af2c-43c7-a27e-64dc15f86b61" type="application/json">{"model": {"cover_image_url": "https://replicate.delivery/mgxm/9e232b54-eed5-48d1-a0bb-5d800bb59f75/out.png", "description": "Regression of musical arousal and valence values", "hardware": "CPU", "latest_version": {"id": "9ae3915e0727ccad372d2608fe076cad87437306da79876df695c82a63149175"}, "name": "music-arousal-valence", "owner": "mtg", "url": "https://replicate.com/mtg/music-arousal-valence", "visibility": "public", "_extras": {"name": "mtg/music-arousal-valence", "is_official": false, "is_pipeline": false}}, "__flags": {"show-pylon-widget": false, "assign-support-tickets-to-ai": true, "show-open-ai-api-instructions": false}}</script>
+
+<div data-component="ModelDetailButton"
+     data-props="react-component-props-418e62df-af2c-43c7-a27e-64dc15f86b61">
+  
+</div>
+
+    </div>
+  </div>
+</div>
+
+
+  
+
+
+
+<div class="flex flex-col gap-2 w-full">
+  
+    <div class="flex gap-4 flex-col md:flex-row items-start">
+      
+        <p class="max-w-3xl text-r8-lg [overflow-wrap:anywhere] text-pretty">
+          
+            Regression of musical arousal and valence values
+            
+          
+        </p>
+      
+    </div>
+  
+
+  
+</div>
+
+<div class="w-full">
+  <div class="space-y-4 @container">
+
+    <div class="gap-y-2 items-start @xl:items-center grid @xl:flex @xl:flex-wrap @xl:flex-row @xs:grid-cols-2 gap-x-2 @xl:gap-x-6">
+
+      
+        <div class="flex items-center">
+          <script id="react-component-props-986f5019-2634-4049-8e7c-2d72389041c9" type="application/json">{"initialStatus": "offline", "model": {"cover_image_url": "https://replicate.delivery/mgxm/9e232b54-eed5-48d1-a0bb-5d800bb59f75/out.png", "description": "Regression of musical arousal and valence values", "hardware": "CPU", "latest_version": {"id": "9ae3915e0727ccad372d2608fe076cad87437306da79876df695c82a63149175"}, "name": "music-arousal-valence", "owner": "mtg", "url": "https://replicate.com/mtg/music-arousal-valence", "visibility": "public", "_extras": {"name": "mtg/music-arousal-valence", "is_official": false, "is_pipeline": false}}, "isOfficialModel": "", "__flags": {"show-pylon-widget": false, "assign-support-tickets-to-ai": true, "show-open-ai-api-instructions": false}}</script>
+
+  <div data-react-placeholder="ModelStatusIndicator">
+    <div class="flex items-center">
+  <div class="rounded-full bg-r8-gray-3 animate-pulse w-[64px] h-[29px]">
+  </div>
+</div>
+
+  </div>
+
+<div data-component="ModelStatusIndicator"
+     data-props="react-component-props-986f5019-2634-4049-8e7c-2d72389041c9">
+  
+</div>
+
+        </div>
+      
+
+      <div class="flex items-start gap-2">
+        
+          <span class="flex-shrink-0 -mt-0.5">
+            
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="24"
+     height="24"
+     viewBox="0 0 24 24"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="1.5"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     class="icon">
+  <circle cx="12" cy="12" r="10"></circle>
+  <line x1="2" y1="12" x2="22" y2="12"></line>
+  <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z">
+  </path>
+</svg>
+
+          </span>
+          <span class="text-r8-sm">Public</span>
+        
+      </div>
+
+      
+        <div class="flex items-start gap-2">
+          <span class="flex-shrink-0 -mt-0.5">
+            
+<svg class="icon"
+     xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 24 24"
+     width="24"
+     height="24">
+  <path fill="currentColor" fill-rule="evenodd" d="M20.322.75a10.75 10.75 0 00-7.373 2.926l-1.304 1.23A23.743 23.743 0 0010.103 6.5H5.066a1.75 1.75 0 00-1.5.85l-2.71 4.514a.75.75 0 00.49 1.12l4.571.963c.039.049.082.096.129.14L8.04 15.96l1.872 1.994c.044.047.091.09.14.129l.963 4.572a.75.75 0 001.12.488l4.514-2.709a1.75 1.75 0 00.85-1.5v-5.038a23.741 23.741 0 001.596-1.542l1.228-1.304a10.75 10.75 0 002.925-7.374V2.499A1.75 1.75 0 0021.498.75h-1.177zM16 15.112c-.333.248-.672.487-1.018.718l-3.393 2.262.678 3.223 3.612-2.167a.25.25 0 00.121-.214v-3.822zm-10.092-2.7L8.17 9.017c.23-.346.47-.685.717-1.017H5.066a.25.25 0 00-.214.121l-2.167 3.612 3.223.679zm8.07-7.644a9.25 9.25 0 016.344-2.518h1.177a.25.25 0 01.25.25v1.176a9.25 9.25 0 01-2.517 6.346l-1.228 1.303a22.248 22.248 0 01-3.854 3.257l-3.288 2.192-1.743-1.858a.764.764 0 00-.034-.034l-1.859-1.744 2.193-3.29a22.248 22.248 0 013.255-3.851l1.304-1.23zM17.5 8a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm-11 13c.9-.9.9-2.6 0-3.5-.9-.9-2.6-.9-3.5 0-1.209 1.209-1.445 3.901-1.49 4.743a.232.232 0 00.247.247c.842-.045 3.534-.281 4.743-1.49z">
+  </path>
+</svg>
+
+          </span>
+          <span class="text-r8-sm whitespace-nowrap">11.7K
+            runs
+          </span>
+        </div>
+
+        
+          <div class="[&>div]:flex">
+            
+            <script id="react-component-props-70820d0a-695f-40c3-82db-e49e620242ac" type="application/json">{"version": {"id": "9ae3915e0727ccad372d2608fe076cad87437306da79876df695c82a63149175", "created_at": "2025-02-17T22:01:48.339160Z", "_extras": {"arch": "cpu", "dereferenced_openapi_schema": {"info": {"title": "Cog", "version": "0.1.0"}, "paths": {"/": {"get": {"summary": "Root", "responses": {"200": {"content": {"application/json": {"schema": {"title": "Response Root  Get"}}}, "description": "Successful Response"}}, "operationId": "root__get"}}, "/shutdown": {"post": {"summary": "Start Shutdown", "responses": {"200": {"content": {"application/json": {"schema": {"title": "Response Start Shutdown Shutdown Post"}}}, "description": "Successful Response"}}, "operationId": "start_shutdown_shutdown_post"}}, "/predictions": {"post": {"summary": "Predict", "responses": {"200": {"content": {"application/json": {"schema": {"type": "object", "title": "PredictionResponse", "properties": {"id": {"type": "string", "title": "Id"}, "logs": {"type": "string", "title": "Logs", "default": ""}, "error": {"type": "string", "title": "Error"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "output": {"type": "string", "title": "Output", "format": "uri"}, "status": {"enum": ["starting", "processing", "succeeded", "canceled", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}, "metrics": {"type": "object", "title": "Metrics"}, "version": {"type": "string", "title": "Version"}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "started_at": {"type": "string", "title": "Started At", "format": "date-time"}, "completed_at": {"type": "string", "title": "Completed At", "format": "date-time"}}}}}, "description": "Successful Response"}, "422": {"content": {"application/json": {"schema": {"type": "object", "title": "HTTPValidationError", "properties": {"detail": {"type": "array", "items": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "title": "Detail"}}}}}, "description": "Validation Error"}}, "parameters": [{"in": "header", "name": "prefer", "schema": {"type": "string", "title": "Prefer"}, "required": false}], "description": "Run a single prediction on the model", "operationId": "predict_predictions_post", "requestBody": {"content": {"application/json": {"schema": {"type": "object", "title": "PredictionRequest", "properties": {"id": {"type": "string", "title": "Id"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "webhook": {"type": "string", "title": "Webhook", "format": "uri", "maxLength": 65536, "minLength": 1}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "output_file_prefix": {"type": "string", "title": "Output File Prefix"}, "webhook_events_filter": {"type": "array", "items": {"enum": ["start", "output", "logs", "completed"], "type": "string", "title": "WebhookEvent", "description": "An enumeration."}, "default": ["start", "output", "logs", "completed"]}}}}}}}}, "/health-check": {"get": {"summary": "Healthcheck", "responses": {"200": {"content": {"application/json": {"schema": {"title": "Response Healthcheck Health Check Get"}}}, "description": "Successful Response"}}, "operationId": "healthcheck_health_check_get"}}, "/predictions/{prediction_id}": {"put": {"summary": "Predict Idempotent", "responses": {"200": {"content": {"application/json": {"schema": {"type": "object", "title": "PredictionResponse", "properties": {"id": {"type": "string", "title": "Id"}, "logs": {"type": "string", "title": "Logs", "default": ""}, "error": {"type": "string", "title": "Error"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "output": {"type": "string", "title": "Output", "format": "uri"}, "status": {"enum": ["starting", "processing", "succeeded", "canceled", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}, "metrics": {"type": "object", "title": "Metrics"}, "version": {"type": "string", "title": "Version"}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "started_at": {"type": "string", "title": "Started At", "format": "date-time"}, "completed_at": {"type": "string", "title": "Completed At", "format": "date-time"}}}}}, "description": "Successful Response"}, "422": {"content": {"application/json": {"schema": {"type": "object", "title": "HTTPValidationError", "properties": {"detail": {"type": "array", "items": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "title": "Detail"}}}}}, "description": "Validation Error"}}, "parameters": [{"in": "path", "name": "prediction_id", "schema": {"type": "string", "title": "Prediction ID"}, "required": true}, {"in": "header", "name": "prefer", "schema": {"type": "string", "title": "Prefer"}, "required": false}], "description": "Run a single prediction on the model (idempotent creation).", "operationId": "predict_idempotent_predictions__prediction_id__put", "requestBody": {"content": {"application/json": {"schema": {"allOf": [{"type": "object", "title": "PredictionRequest", "properties": {"id": {"type": "string", "title": "Id"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "webhook": {"type": "string", "title": "Webhook", "format": "uri", "maxLength": 65536, "minLength": 1}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "output_file_prefix": {"type": "string", "title": "Output File Prefix"}, "webhook_events_filter": {"type": "array", "items": {"enum": ["start", "output", "logs", "completed"], "type": "string", "title": "WebhookEvent", "description": "An enumeration."}, "default": ["start", "output", "logs", "completed"]}}}], "title": "Prediction Request"}}}, "required": true}}}, "/predictions/{prediction_id}/cancel": {"post": {"summary": "Cancel", "responses": {"200": {"content": {"application/json": {"schema": {"title": "Response Cancel Predictions  Prediction Id  Cancel Post"}}}, "description": "Successful Response"}, "422": {"content": {"application/json": {"schema": {"type": "object", "title": "HTTPValidationError", "properties": {"detail": {"type": "array", "items": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "title": "Detail"}}}}}, "description": "Validation Error"}}, "parameters": [{"in": "path", "name": "prediction_id", "schema": {"type": "string", "title": "Prediction ID"}, "required": true}], "description": "Cancel a running prediction", "operationId": "cancel_predictions__prediction_id__cancel_post"}}}, "openapi": "3.0.2", "components": {"schemas": {"Input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "Output": {"type": "string", "title": "Output", "format": "uri"}, "Status": {"enum": ["starting", "processing", "succeeded", "canceled", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "An enumeration."}, "WebhookEvent": {"enum": ["start", "output", "logs", "completed"], "type": "string", "title": "WebhookEvent", "description": "An enumeration."}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "An enumeration."}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "An enumeration."}, "ValidationError": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "PredictionRequest": {"type": "object", "title": "PredictionRequest", "properties": {"id": {"type": "string", "title": "Id"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "webhook": {"type": "string", "title": "Webhook", "format": "uri", "maxLength": 65536, "minLength": 1}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "output_file_prefix": {"type": "string", "title": "Output File Prefix"}, "webhook_events_filter": {"type": "array", "items": {"enum": ["start", "output", "logs", "completed"], "type": "string", "title": "WebhookEvent", "description": "An enumeration."}, "default": ["start", "output", "logs", "completed"]}}}, "PredictionResponse": {"type": "object", "title": "PredictionResponse", "properties": {"id": {"type": "string", "title": "Id"}, "logs": {"type": "string", "title": "Logs", "default": ""}, "error": {"type": "string", "title": "Error"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "output": {"type": "string", "title": "Output", "format": "uri"}, "status": {"enum": ["starting", "processing", "succeeded", "canceled", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}, "metrics": {"type": "object", "title": "Metrics"}, "version": {"type": "string", "title": "Version"}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "started_at": {"type": "string", "title": "Started At", "format": "date-time"}, "completed_at": {"type": "string", "title": "Completed At", "format": "date-time"}}}, "HTTPValidationError": {"type": "object", "title": "HTTPValidationError", "properties": {"detail": {"type": "array", "items": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "title": "Detail"}}}}}}, "disabled_for_predictions": false, "disabled_for_trainings": false, "model": {"cover_image_url": "https://replicate.delivery/mgxm/9e232b54-eed5-48d1-a0bb-5d800bb59f75/out.png", "description": "Regression of musical arousal and valence values", "hardware": "CPU", "latest_version": {"id": "9ae3915e0727ccad372d2608fe076cad87437306da79876df695c82a63149175"}, "name": "music-arousal-valence", "owner": "mtg", "url": "https://replicate.com/mtg/music-arousal-valence", "visibility": "public", "_extras": {"name": "mtg/music-arousal-valence", "is_official": false, "is_pipeline": false}}, "name": "mtg/music-arousal-valence:9ae3915e", "release_notes": null, "short_id": "9ae3915e", "url": "https://replicate.com/mtg/music-arousal-valence/versions/9ae3915e0727ccad372d2608fe076cad87437306da79876df695c82a63149175"}}, "hardware": "CPU", "billingConfig": null, "price": "$0.0001 per second", "p50price": "$0.00029", "model": {"cover_image_url": "https://replicate.delivery/mgxm/9e232b54-eed5-48d1-a0bb-5d800bb59f75/out.png", "description": "Regression of musical arousal and valence values", "hardware": "CPU", "latest_version": {"id": "9ae3915e0727ccad372d2608fe076cad87437306da79876df695c82a63149175"}, "name": "music-arousal-valence", "owner": "mtg", "url": "https://replicate.com/mtg/music-arousal-valence", "visibility": "public", "_extras": {"name": "mtg/music-arousal-valence", "is_official": false, "is_pipeline": false}}, "__flags": {"show-pylon-widget": false, "assign-support-tickets-to-ai": true, "show-open-ai-api-instructions": false}}</script>
+
+<div data-component="ModelPricePopover"
+     data-props="react-component-props-70820d0a-695f-40c3-82db-e49e620242ac">
+  
+</div>
+
+          </div>
+        
+      
+
+      
+        <div class="flex items-start gap-2">
+          <i class="-mt-0.5">
+            
+<svg class="icon"
+     xmlns="http://www.w3.org/2000/svg"
+     width="24"
+     height="24"
+     viewBox="0 0 24 24"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="1.5"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+  <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z">
+  </path>
+  <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z">
+  </path>
+  <path d="M7 21h10">
+  </path>
+  <path d="M12 3v18">
+  </path>
+  <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2">
+  </path>
+</svg>
+
+          </i>
+          <a href="https://essentia.upf.edu/models.html"
+             target="_blank"
+             class="text-r8-sm">
+            License
+          </a>
+        </div>
+      
+
+      
+
+        <div class="flex items-start gap-2">
+          <i class="-mt-0.5">
+            
+<svg class="icon"
+     xmlns="http://www.w3.org/2000/svg"
+     width="24"
+     height="24"
+     viewBox="0 0 24 24"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+  <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 00-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0020 4.77 5.07 5.07 0 0019.91 1S18.73.65 16 2.48a13.38 13.38 0 00-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 005 4.77a5.44 5.44 0 00-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 009 18.13V22">
+  </path>
+</svg>
+
+          </i>
+          <a href="https://github.com/MTG/essentia-replicate-demos"
+             target="_blank"
+             class="text-r8-sm">
+            GitHub
+          </a>
+        </div>
+      
+
+      
+
+      
+
+    </div>
+
+    
+
+  </div>
+</div>
+
+
+</header>
+
+    
+    
+      
+        <div class="border-b border-r8-gray-6">
+          
+
+
+
+
+
+
+<div class="r8-tabs r8-tabs--bordered r8-tabs--md top-px relative flex-wrap">
+  
+    <a href="/mtg/music-arousal-valence"
+       aria-selected="true"
+       class="r8-tabs__tab no-underline">
+      <span class="r8-tabs__start-icon">
+        <svg class="icon"
+     xmlns="http://www.w3.org/2000/svg"
+     width="24"
+     height="24"
+     viewBox="0 0 24 24"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="1.5"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+
+</svg>
+
+      </span>
+      <span>Playground</span>
+    </a>
+  
+
+  
+    
+      <a href="/mtg/music-arousal-valence/api"
+         
+         class="r8-tabs__tab no-underline">
+
+        <span class="r8-tabs__start-icon">
+          
+<svg class="icon"
+     xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 24 24"
+     width="24"
+     height="24">
+  <path fill="currentColor" fill-rule="evenodd" d="M20.322.75a10.75 10.75 0 00-7.373 2.926l-1.304 1.23A23.743 23.743 0 0010.103 6.5H5.066a1.75 1.75 0 00-1.5.85l-2.71 4.514a.75.75 0 00.49 1.12l4.571.963c.039.049.082.096.129.14L8.04 15.96l1.872 1.994c.044.047.091.09.14.129l.963 4.572a.75.75 0 001.12.488l4.514-2.709a1.75 1.75 0 00.85-1.5v-5.038a23.741 23.741 0 001.596-1.542l1.228-1.304a10.75 10.75 0 002.925-7.374V2.499A1.75 1.75 0 0021.498.75h-1.177zM16 15.112c-.333.248-.672.487-1.018.718l-3.393 2.262.678 3.223 3.612-2.167a.25.25 0 00.121-.214v-3.822zm-10.092-2.7L8.17 9.017c.23-.346.47-.685.717-1.017H5.066a.25.25 0 00-.214.121l-2.167 3.612 3.223.679zm8.07-7.644a9.25 9.25 0 016.344-2.518h1.177a.25.25 0 01.25.25v1.176a9.25 9.25 0 01-2.517 6.346l-1.228 1.303a22.248 22.248 0 01-3.854 3.257l-3.288 2.192-1.743-1.858a.764.764 0 00-.034-.034l-1.859-1.744 2.193-3.29a22.248 22.248 0 013.255-3.851l1.304-1.23zM17.5 8a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm-11 13c.9-.9.9-2.6 0-3.5-.9-.9-2.6-.9-3.5 0-1.209 1.209-1.445 3.901-1.49 4.743a.232.232 0 00.247.247c.842-.045 3.534-.281 4.743-1.49z">
+  </path>
+</svg>
+
+        </span>
+        <span>API</span>
+      </a>
+    
+  
+
+  
+    <a href="/mtg/music-arousal-valence/examples"
+       
+       class="r8-tabs__tab no-underline">
+      <span class="r8-tabs__start-icon">
+        <svg class="icon"
+     xmlns="http://www.w3.org/2000/svg"
+     width="24"
+     height="24"
+     viewBox="0 0 24 24"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="1.5"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+  <polyline points="11 3 11 11 14 8 17 11 17 3"></polyline>
+</svg>
+
+      </span>
+      <span>Examples</span>
+    </a>
+  
+
+  
+
+  <a href="/mtg/music-arousal-valence/readme"
+     
+     class="r8-tabs__tab no-underline">
+    <span class="r8-tabs__start-icon">
+      
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="24"
+     height="24"
+     viewBox="0 0 24 24"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="1.5"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     class="icon">
+  <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z">
+  </path>
+  <polyline points="14 2 14 8 20 8"></polyline>
+  <line x1="16" y1="13" x2="8" y2="13"></line>
+  <line x1="16" y1="17" x2="8" y2="17"></line>
+  <line x1="10" y1="9" x2="8" y2="9"></line>
+</svg>
+
+    </span>
+    <span>README</span>
+  </a>
+
+  
+    <a href="/mtg/music-arousal-valence/versions"
+       
+       class="r8-tabs__tab no-underline">
+      <span class="r8-tabs__start-icon">
+        
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="24"
+     height="24"
+     viewBox="0 0 24 24"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="1.5"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     class="icon">
+  <path d="M3 3v5h5">
+  </path>
+  <path d="M3.05 13A9 9 0 106 5.3L3 8">
+  </path>
+  <path d="M12 7v5l4 2">
+  </path>
+</svg>
+
+      </span>
+      <span>Versions</span>
+    </a>
+  
+
+  
+
+  
+
+  
+</div>
+
+        </div>
+      
+    
+
+    
+      
+
+
+
+    
+
+  
+    
+  
+
+
+  
+    <div class="model-content mt-lh">
+      
+  
+    
+
+<div class="mb-2lh">
+  
+  
+  
+    
+      <script id="react-component-props-40e76a76-2344-45cd-8ba1-8be70dabe067" type="application/json">{"initialPrediction": {"completed_at": "2022-06-13T10:23:18.621655Z", "created_at": "2022-06-13T10:23:03.231861Z", "data_removed": false, "error": null, "id": "ugzdnukrgvdajhdtk545tiem34", "input": {"audio": "https://replicate.delivery/mgxm/907f9b45-185c-41b1-96af-f2742bada25b/rock.mp3", "dataset": "emomusic", "embedding_type": "msd-musicnn"}, "logs": null, "metrics": {"predict_time": 7.911718, "total_time": 15.389794}, "output": "https://replicate.delivery/mgxm/9e232b54-eed5-48d1-a0bb-5d800bb59f75/out.png", "started_at": "2022-06-13T10:23:10.709937Z", "status": "succeeded", "urls": {"get": "https://api.replicate.com/v1/predictions/ugzdnukrgvdajhdtk545tiem34", "cancel": "https://api.replicate.com/v1/predictions/ugzdnukrgvdajhdtk545tiem34/cancel"}, "_extras": {"api_token_name": null, "created_by": {"kind": "user", "url": "https://replicate.com/palonso", "username": "palonso"}, "input_files": ["https://replicate.delivery/mgxm/907f9b45-185c-41b1-96af-f2742bada25b/rock.mp3"], "is_immutable": false, "is_shared": false, "is_waiting_for_boot": null, "may_have_sensitive_output": false, "output_files": ["https://replicate.delivery/mgxm/9e232b54-eed5-48d1-a0bb-5d800bb59f75/out.png"], "pipeline_child_predictions": [], "ran_on": {"capabilities": {"hotswap": false, "run": false, "stream": false, "train": false}, "dereferenced_openapi_schema": {"info": {"title": "Cog", "version": "0.1.0"}, "paths": {"/": {"get": {"summary": "Root", "responses": {"200": {"content": {"application/json": {"schema": {}}}, "description": "Successful Response"}}, "operationId": "root__get"}}, "/predictions": {"post": {"summary": "Predict", "responses": {"200": {"content": {"application/json": {"schema": {"type": "object", "title": "Response", "required": ["status"], "properties": {"error": {"type": "string", "title": "Error"}, "output": {"type": "string", "title": "Output", "format": "uri"}, "status": {"enum": ["processing", "success", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}}, "description": "The status of a prediction."}}}, "description": "Successful Response"}, "422": {"content": {"application/json": {"schema": {"type": "object", "title": "HTTPValidationError", "properties": {"detail": {"type": "array", "items": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "title": "Detail"}}}}}, "description": "Validation Error"}}, "description": "Run a single prediction on the model.", "operationId": "predict_predictions_post", "requestBody": {"content": {"application/json": {"schema": {"type": "object", "title": "Request", "properties": {"input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "output_file_prefix": {"type": "string", "title": "Output File Prefix"}}}}}}}}}, "openapi": "3.0.2", "components": {"schemas": {"Input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "Output": {"type": "string", "title": "Output", "format": "uri"}, "Status": {"enum": ["processing", "success", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}, "Request": {"type": "object", "title": "Request", "properties": {"input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "output_file_prefix": {"type": "string", "title": "Output File Prefix"}}}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "An enumeration."}, "Response": {"type": "object", "title": "Response", "required": ["status"], "properties": {"error": {"type": "string", "title": "Error"}, "output": {"type": "string", "title": "Output", "format": "uri"}, "status": {"enum": ["processing", "success", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}}, "description": "The status of a prediction."}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "An enumeration."}, "ValidationError": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "HTTPValidationError": {"type": "object", "title": "HTTPValidationError", "properties": {"detail": {"type": "array", "items": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "title": "Detail"}}}}}}, "has_special_pricing": false, "is_official": false, "kind": "version", "model": {"name": "music-arousal-valence", "username": "mtg", "visibility": "public"}, "supports_cancelation": true, "url": "https://replicate.com/mtg/music-arousal-valence/versions/1064850eeb2853ac69d7ff50c05404e7113ade77e176a6760086354e49c13dee", "version": {"id": "1064850eeb2853ac69d7ff50c05404e7113ade77e176a6760086354e49c13dee"}}, "source": "web", "total_child_predictions": 0}, "version": "1064850eeb2853ac69d7ff50c05404e7113ade77e176a6760086354e49c13dee"}, "initialPredictionVersion": {"id": "1064850eeb2853ac69d7ff50c05404e7113ade77e176a6760086354e49c13dee", "created_at": "2022-06-13T10:22:36.762280Z", "_extras": {"arch": "cpu", "dereferenced_openapi_schema": {"info": {"title": "Cog", "version": "0.1.0"}, "paths": {"/": {"get": {"summary": "Root", "responses": {"200": {"content": {"application/json": {"schema": {}}}, "description": "Successful Response"}}, "operationId": "root__get"}}, "/predictions": {"post": {"summary": "Predict", "responses": {"200": {"content": {"application/json": {"schema": {"type": "object", "title": "Response", "required": ["status"], "properties": {"error": {"type": "string", "title": "Error"}, "output": {"type": "string", "title": "Output", "format": "uri"}, "status": {"enum": ["processing", "success", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}}, "description": "The status of a prediction."}}}, "description": "Successful Response"}, "422": {"content": {"application/json": {"schema": {"type": "object", "title": "HTTPValidationError", "properties": {"detail": {"type": "array", "items": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "title": "Detail"}}}}}, "description": "Validation Error"}}, "description": "Run a single prediction on the model.", "operationId": "predict_predictions_post", "requestBody": {"content": {"application/json": {"schema": {"type": "object", "title": "Request", "properties": {"input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "output_file_prefix": {"type": "string", "title": "Output File Prefix"}}}}}}}}}, "openapi": "3.0.2", "components": {"schemas": {"Input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "Output": {"type": "string", "title": "Output", "format": "uri"}, "Status": {"enum": ["processing", "success", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}, "Request": {"type": "object", "title": "Request", "properties": {"input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "output_file_prefix": {"type": "string", "title": "Output File Prefix"}}}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "An enumeration."}, "Response": {"type": "object", "title": "Response", "required": ["status"], "properties": {"error": {"type": "string", "title": "Error"}, "output": {"type": "string", "title": "Output", "format": "uri"}, "status": {"enum": ["processing", "success", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}}, "description": "The status of a prediction."}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "An enumeration."}, "ValidationError": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "HTTPValidationError": {"type": "object", "title": "HTTPValidationError", "properties": {"detail": {"type": "array", "items": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "title": "Detail"}}}}}}, "disabled_for_predictions": true, "disabled_for_trainings": true, "model": {"cover_image_url": "https://replicate.delivery/mgxm/9e232b54-eed5-48d1-a0bb-5d800bb59f75/out.png", "description": "Regression of musical arousal and valence values", "hardware": "CPU", "latest_version": {"id": "9ae3915e0727ccad372d2608fe076cad87437306da79876df695c82a63149175"}, "name": "music-arousal-valence", "owner": "mtg", "url": "https://replicate.com/mtg/music-arousal-valence", "visibility": "public", "_extras": {"name": "mtg/music-arousal-valence", "is_official": false, "is_pipeline": false}}, "name": "mtg/music-arousal-valence:1064850e", "release_notes": null, "short_id": "1064850e", "url": "https://replicate.com/mtg/music-arousal-valence/versions/1064850eeb2853ac69d7ff50c05404e7113ade77e176a6760086354e49c13dee"}}, "isAuthenticated": false, "features": {"show_pipeline_steps": false, "show_before_after_slider_output": false, "show_goo_shader_output": false, "link_to_video_upscaler": false, "link_to_image_upscaler": false, "link_to_playground": true, "link_to_audio_adder": false, "pixelate_images": false}, "permissions": {"create_example": false, "debug": false, "edit_featured_inputs": false, "report": true, "run": true, "tweak": true, "delete": false, "share": false}, "schema": {"info": {"title": "Cog", "version": "0.1.0"}, "paths": {"/": {"get": {"summary": "Root", "responses": {"200": {"content": {"application/json": {"schema": {"title": "Response Root  Get"}}}, "description": "Successful Response"}}, "operationId": "root__get"}}, "/shutdown": {"post": {"summary": "Start Shutdown", "responses": {"200": {"content": {"application/json": {"schema": {"title": "Response Start Shutdown Shutdown Post"}}}, "description": "Successful Response"}}, "operationId": "start_shutdown_shutdown_post"}}, "/predictions": {"post": {"summary": "Predict", "responses": {"200": {"content": {"application/json": {"schema": {"type": "object", "title": "PredictionResponse", "properties": {"id": {"type": "string", "title": "Id"}, "logs": {"type": "string", "title": "Logs", "default": ""}, "error": {"type": "string", "title": "Error"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "output": {"type": "string", "title": "Output", "format": "uri"}, "status": {"enum": ["starting", "processing", "succeeded", "canceled", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}, "metrics": {"type": "object", "title": "Metrics"}, "version": {"type": "string", "title": "Version"}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "started_at": {"type": "string", "title": "Started At", "format": "date-time"}, "completed_at": {"type": "string", "title": "Completed At", "format": "date-time"}}}}}, "description": "Successful Response"}, "422": {"content": {"application/json": {"schema": {"type": "object", "title": "HTTPValidationError", "properties": {"detail": {"type": "array", "items": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "title": "Detail"}}}}}, "description": "Validation Error"}}, "parameters": [{"in": "header", "name": "prefer", "schema": {"type": "string", "title": "Prefer"}, "required": false}], "description": "Run a single prediction on the model", "operationId": "predict_predictions_post", "requestBody": {"content": {"application/json": {"schema": {"type": "object", "title": "PredictionRequest", "properties": {"id": {"type": "string", "title": "Id"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "webhook": {"type": "string", "title": "Webhook", "format": "uri", "maxLength": 65536, "minLength": 1}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "output_file_prefix": {"type": "string", "title": "Output File Prefix"}, "webhook_events_filter": {"type": "array", "items": {"enum": ["start", "output", "logs", "completed"], "type": "string", "title": "WebhookEvent", "description": "An enumeration."}, "default": ["start", "output", "logs", "completed"]}}}}}}}}, "/health-check": {"get": {"summary": "Healthcheck", "responses": {"200": {"content": {"application/json": {"schema": {"title": "Response Healthcheck Health Check Get"}}}, "description": "Successful Response"}}, "operationId": "healthcheck_health_check_get"}}, "/predictions/{prediction_id}": {"put": {"summary": "Predict Idempotent", "responses": {"200": {"content": {"application/json": {"schema": {"type": "object", "title": "PredictionResponse", "properties": {"id": {"type": "string", "title": "Id"}, "logs": {"type": "string", "title": "Logs", "default": ""}, "error": {"type": "string", "title": "Error"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "output": {"type": "string", "title": "Output", "format": "uri"}, "status": {"enum": ["starting", "processing", "succeeded", "canceled", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}, "metrics": {"type": "object", "title": "Metrics"}, "version": {"type": "string", "title": "Version"}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "started_at": {"type": "string", "title": "Started At", "format": "date-time"}, "completed_at": {"type": "string", "title": "Completed At", "format": "date-time"}}}}}, "description": "Successful Response"}, "422": {"content": {"application/json": {"schema": {"type": "object", "title": "HTTPValidationError", "properties": {"detail": {"type": "array", "items": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "title": "Detail"}}}}}, "description": "Validation Error"}}, "parameters": [{"in": "path", "name": "prediction_id", "schema": {"type": "string", "title": "Prediction ID"}, "required": true}, {"in": "header", "name": "prefer", "schema": {"type": "string", "title": "Prefer"}, "required": false}], "description": "Run a single prediction on the model (idempotent creation).", "operationId": "predict_idempotent_predictions__prediction_id__put", "requestBody": {"content": {"application/json": {"schema": {"allOf": [{"type": "object", "title": "PredictionRequest", "properties": {"id": {"type": "string", "title": "Id"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "webhook": {"type": "string", "title": "Webhook", "format": "uri", "maxLength": 65536, "minLength": 1}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "output_file_prefix": {"type": "string", "title": "Output File Prefix"}, "webhook_events_filter": {"type": "array", "items": {"enum": ["start", "output", "logs", "completed"], "type": "string", "title": "WebhookEvent", "description": "An enumeration."}, "default": ["start", "output", "logs", "completed"]}}}], "title": "Prediction Request"}}}, "required": true}}}, "/predictions/{prediction_id}/cancel": {"post": {"summary": "Cancel", "responses": {"200": {"content": {"application/json": {"schema": {"title": "Response Cancel Predictions  Prediction Id  Cancel Post"}}}, "description": "Successful Response"}, "422": {"content": {"application/json": {"schema": {"type": "object", "title": "HTTPValidationError", "properties": {"detail": {"type": "array", "items": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "title": "Detail"}}}}}, "description": "Validation Error"}}, "parameters": [{"in": "path", "name": "prediction_id", "schema": {"type": "string", "title": "Prediction ID"}, "required": true}], "description": "Cancel a running prediction", "operationId": "cancel_predictions__prediction_id__cancel_post"}}}, "openapi": "3.0.2", "components": {"schemas": {"Input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "Output": {"type": "string", "title": "Output", "format": "uri"}, "Status": {"enum": ["starting", "processing", "succeeded", "canceled", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "An enumeration."}, "WebhookEvent": {"enum": ["start", "output", "logs", "completed"], "type": "string", "title": "WebhookEvent", "description": "An enumeration."}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "An enumeration."}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "An enumeration."}, "ValidationError": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "PredictionRequest": {"type": "object", "title": "PredictionRequest", "properties": {"id": {"type": "string", "title": "Id"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "webhook": {"type": "string", "title": "Webhook", "format": "uri", "maxLength": 65536, "minLength": 1}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "output_file_prefix": {"type": "string", "title": "Output File Prefix"}, "webhook_events_filter": {"type": "array", "items": {"enum": ["start", "output", "logs", "completed"], "type": "string", "title": "WebhookEvent", "description": "An enumeration."}, "default": ["start", "output", "logs", "completed"]}}}, "PredictionResponse": {"type": "object", "title": "PredictionResponse", "properties": {"id": {"type": "string", "title": "Id"}, "logs": {"type": "string", "title": "Logs", "default": ""}, "error": {"type": "string", "title": "Error"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "output": {"type": "string", "title": "Output", "format": "uri"}, "status": {"enum": ["starting", "processing", "succeeded", "canceled", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}, "metrics": {"type": "object", "title": "Metrics"}, "version": {"type": "string", "title": "Version"}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "started_at": {"type": "string", "title": "Started At", "format": "date-time"}, "completed_at": {"type": "string", "title": "Completed At", "format": "date-time"}}}, "HTTPValidationError": {"type": "object", "title": "HTTPValidationError", "properties": {"detail": {"type": "array", "items": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "title": "Detail"}}}}}}, "version": {"id": "9ae3915e0727ccad372d2608fe076cad87437306da79876df695c82a63149175", "created_at": "2025-02-17T22:01:48.339160Z", "_extras": {"arch": "cpu", "dereferenced_openapi_schema": {"info": {"title": "Cog", "version": "0.1.0"}, "paths": {"/": {"get": {"summary": "Root", "responses": {"200": {"content": {"application/json": {"schema": {"title": "Response Root  Get"}}}, "description": "Successful Response"}}, "operationId": "root__get"}}, "/shutdown": {"post": {"summary": "Start Shutdown", "responses": {"200": {"content": {"application/json": {"schema": {"title": "Response Start Shutdown Shutdown Post"}}}, "description": "Successful Response"}}, "operationId": "start_shutdown_shutdown_post"}}, "/predictions": {"post": {"summary": "Predict", "responses": {"200": {"content": {"application/json": {"schema": {"type": "object", "title": "PredictionResponse", "properties": {"id": {"type": "string", "title": "Id"}, "logs": {"type": "string", "title": "Logs", "default": ""}, "error": {"type": "string", "title": "Error"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "output": {"type": "string", "title": "Output", "format": "uri"}, "status": {"enum": ["starting", "processing", "succeeded", "canceled", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}, "metrics": {"type": "object", "title": "Metrics"}, "version": {"type": "string", "title": "Version"}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "started_at": {"type": "string", "title": "Started At", "format": "date-time"}, "completed_at": {"type": "string", "title": "Completed At", "format": "date-time"}}}}}, "description": "Successful Response"}, "422": {"content": {"application/json": {"schema": {"type": "object", "title": "HTTPValidationError", "properties": {"detail": {"type": "array", "items": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "title": "Detail"}}}}}, "description": "Validation Error"}}, "parameters": [{"in": "header", "name": "prefer", "schema": {"type": "string", "title": "Prefer"}, "required": false}], "description": "Run a single prediction on the model", "operationId": "predict_predictions_post", "requestBody": {"content": {"application/json": {"schema": {"type": "object", "title": "PredictionRequest", "properties": {"id": {"type": "string", "title": "Id"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "webhook": {"type": "string", "title": "Webhook", "format": "uri", "maxLength": 65536, "minLength": 1}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "output_file_prefix": {"type": "string", "title": "Output File Prefix"}, "webhook_events_filter": {"type": "array", "items": {"enum": ["start", "output", "logs", "completed"], "type": "string", "title": "WebhookEvent", "description": "An enumeration."}, "default": ["start", "output", "logs", "completed"]}}}}}}}}, "/health-check": {"get": {"summary": "Healthcheck", "responses": {"200": {"content": {"application/json": {"schema": {"title": "Response Healthcheck Health Check Get"}}}, "description": "Successful Response"}}, "operationId": "healthcheck_health_check_get"}}, "/predictions/{prediction_id}": {"put": {"summary": "Predict Idempotent", "responses": {"200": {"content": {"application/json": {"schema": {"type": "object", "title": "PredictionResponse", "properties": {"id": {"type": "string", "title": "Id"}, "logs": {"type": "string", "title": "Logs", "default": ""}, "error": {"type": "string", "title": "Error"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "output": {"type": "string", "title": "Output", "format": "uri"}, "status": {"enum": ["starting", "processing", "succeeded", "canceled", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}, "metrics": {"type": "object", "title": "Metrics"}, "version": {"type": "string", "title": "Version"}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "started_at": {"type": "string", "title": "Started At", "format": "date-time"}, "completed_at": {"type": "string", "title": "Completed At", "format": "date-time"}}}}}, "description": "Successful Response"}, "422": {"content": {"application/json": {"schema": {"type": "object", "title": "HTTPValidationError", "properties": {"detail": {"type": "array", "items": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "title": "Detail"}}}}}, "description": "Validation Error"}}, "parameters": [{"in": "path", "name": "prediction_id", "schema": {"type": "string", "title": "Prediction ID"}, "required": true}, {"in": "header", "name": "prefer", "schema": {"type": "string", "title": "Prefer"}, "required": false}], "description": "Run a single prediction on the model (idempotent creation).", "operationId": "predict_idempotent_predictions__prediction_id__put", "requestBody": {"content": {"application/json": {"schema": {"allOf": [{"type": "object", "title": "PredictionRequest", "properties": {"id": {"type": "string", "title": "Id"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "webhook": {"type": "string", "title": "Webhook", "format": "uri", "maxLength": 65536, "minLength": 1}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "output_file_prefix": {"type": "string", "title": "Output File Prefix"}, "webhook_events_filter": {"type": "array", "items": {"enum": ["start", "output", "logs", "completed"], "type": "string", "title": "WebhookEvent", "description": "An enumeration."}, "default": ["start", "output", "logs", "completed"]}}}], "title": "Prediction Request"}}}, "required": true}}}, "/predictions/{prediction_id}/cancel": {"post": {"summary": "Cancel", "responses": {"200": {"content": {"application/json": {"schema": {"title": "Response Cancel Predictions  Prediction Id  Cancel Post"}}}, "description": "Successful Response"}, "422": {"content": {"application/json": {"schema": {"type": "object", "title": "HTTPValidationError", "properties": {"detail": {"type": "array", "items": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "title": "Detail"}}}}}, "description": "Validation Error"}}, "parameters": [{"in": "path", "name": "prediction_id", "schema": {"type": "string", "title": "Prediction ID"}, "required": true}], "description": "Cancel a running prediction", "operationId": "cancel_predictions__prediction_id__cancel_post"}}}, "openapi": "3.0.2", "components": {"schemas": {"Input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "Output": {"type": "string", "title": "Output", "format": "uri"}, "Status": {"enum": ["starting", "processing", "succeeded", "canceled", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "An enumeration."}, "WebhookEvent": {"enum": ["start", "output", "logs", "completed"], "type": "string", "title": "WebhookEvent", "description": "An enumeration."}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "An enumeration."}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "An enumeration."}, "ValidationError": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "PredictionRequest": {"type": "object", "title": "PredictionRequest", "properties": {"id": {"type": "string", "title": "Id"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "webhook": {"type": "string", "title": "Webhook", "format": "uri", "maxLength": 65536, "minLength": 1}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "output_file_prefix": {"type": "string", "title": "Output File Prefix"}, "webhook_events_filter": {"type": "array", "items": {"enum": ["start", "output", "logs", "completed"], "type": "string", "title": "WebhookEvent", "description": "An enumeration."}, "default": ["start", "output", "logs", "completed"]}}}, "PredictionResponse": {"type": "object", "title": "PredictionResponse", "properties": {"id": {"type": "string", "title": "Id"}, "logs": {"type": "string", "title": "Logs", "default": ""}, "error": {"type": "string", "title": "Error"}, "input": {"type": "object", "title": "Input", "properties": {"url": {"type": "string", "title": "Url", "x-order": 1, "description": "YouTube URL to process (overrides audio input)"}, "audio": {"type": "string", "title": "Audio", "format": "uri", "x-order": 0, "description": "Audio file to process"}, "dataset": {"enum": ["emomusic", "deam", "muse"], "type": "string", "title": "dataset", "description": "Arousal/Valence training dataset", "default": "emomusic", "x-order": 3}, "output_format": {"enum": ["Visualization", "JSON"], "type": "string", "title": "output_format", "description": "Output either a bar chart visualization or a JSON blob", "default": "Visualization", "x-order": 4}, "embedding_type": {"enum": ["msd-musicnn", "audioset-vggish"], "type": "string", "title": "embedding_type", "description": "Embedding type to use: vggish, or musicnn", "default": "msd-musicnn", "x-order": 2}}}, "output": {"type": "string", "title": "Output", "format": "uri"}, "status": {"enum": ["starting", "processing", "succeeded", "canceled", "failed"], "type": "string", "title": "Status", "description": "An enumeration."}, "metrics": {"type": "object", "title": "Metrics"}, "version": {"type": "string", "title": "Version"}, "created_at": {"type": "string", "title": "Created At", "format": "date-time"}, "started_at": {"type": "string", "title": "Started At", "format": "date-time"}, "completed_at": {"type": "string", "title": "Completed At", "format": "date-time"}}}, "HTTPValidationError": {"type": "object", "title": "HTTPValidationError", "properties": {"detail": {"type": "array", "items": {"type": "object", "title": "ValidationError", "required": ["loc", "msg", "type"], "properties": {"loc": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}}}, "title": "Detail"}}}}}}, "disabled_for_predictions": false, "disabled_for_trainings": false, "model": {"cover_image_url": "https://replicate.delivery/mgxm/9e232b54-eed5-48d1-a0bb-5d800bb59f75/out.png", "description": "Regression of musical arousal and valence values", "hardware": "CPU", "latest_version": {"id": "9ae3915e0727ccad372d2608fe076cad87437306da79876df695c82a63149175"}, "name": "music-arousal-valence", "owner": "mtg", "url": "https://replicate.com/mtg/music-arousal-valence", "visibility": "public", "_extras": {"name": "mtg/music-arousal-valence", "is_official": false, "is_pipeline": false}}, "name": "mtg/music-arousal-valence:9ae3915e", "release_notes": null, "short_id": "9ae3915e", "url": "https://replicate.com/mtg/music-arousal-valence/versions/9ae3915e0727ccad372d2608fe076cad87437306da79876df695c82a63149175"}}, "token": "", "modelStatus": "offline", "modelInputSettings": null, "requiresCredit": true, "__flags": {"show-pylon-widget": false, "assign-support-tickets-to-ai": true, "show-open-ai-api-instructions": false}}</script>
+
+  <div data-react-placeholder="APIPlayground">
+    <div class="input-output-grid">
+  <div class="flex flex-col md:flex-row">
+    <div class="input-col relative md:flex-1 pb-4 min-w-0">
+      <div class="mb-2 flex items-center justify-between">
+        <div class="flex-1">
+          <div class="mb-4 bg-r8-gray-4 animate-pulse h-8 w-24">
+          </div>
+        </div>
+      </div>
+      <div class="h-8 bg-r8-gray-4 animate-pulse mb-6">
+      </div>
+      <div class="space-y-4">
+        
+          <div class="flex flex-col space-y-2">
+            <div class="w-24 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-full h-8 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-3/4 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+          </div>
+        
+          <div class="flex flex-col space-y-2">
+            <div class="w-24 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-full h-8 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-3/4 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+          </div>
+        
+          <div class="flex flex-col space-y-2">
+            <div class="w-24 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-full h-8 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-3/4 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+          </div>
+        
+          <div class="flex flex-col space-y-2">
+            <div class="w-24 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-full h-8 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-3/4 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+          </div>
+        
+          <div class="flex flex-col space-y-2">
+            <div class="w-24 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-full h-8 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-3/4 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+          </div>
+        
+          <div class="flex flex-col space-y-2">
+            <div class="w-24 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-full h-8 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-3/4 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+          </div>
+        
+          <div class="flex flex-col space-y-2">
+            <div class="w-24 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-full h-8 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-3/4 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+          </div>
+        
+          <div class="flex flex-col space-y-2">
+            <div class="w-24 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-full h-8 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-3/4 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+          </div>
+        
+          <div class="flex flex-col space-y-2">
+            <div class="w-24 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-full h-8 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-3/4 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+          </div>
+        
+          <div class="flex flex-col space-y-2">
+            <div class="w-24 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-full h-8 bg-r8-gray-4 animate-pulse">
+            </div>
+            <div class="w-3/4 h-4 bg-r8-gray-4 animate-pulse">
+            </div>
+          </div>
+        
+      </div>
+    </div>
+    <div class="input-output-grid--divider flex-shrink-0 md:mx-6 mb-6 md:my-0"
+         role="separator">
+      <div class="bg-r8-gray-6 md:w-px md:h-full h-px w-full">
+      </div>
+    </div>
+    <div class="output-col md:flex-1 pb-4 min-w-0">
+      <div class="flex flex-col">
+        <div class="flex-1">
+          <div class="mb-4 bg-r8-gray-4 animate-pulse h-8 w-24">
+          </div>
+        </div>
+        <div class="h-8 bg-r8-gray-4 animate-pulse mb-6">
+        </div>
+        <div class="aspect-square bg-r8-gray-4 animate-pulse">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+  </div>
+
+<div data-component="APIPlayground"
+     data-props="react-component-props-40e76a76-2344-45cd-8ba1-8be70dabe067">
+  
+</div>
+
+    
+  
+</div>
+
+    
+
+
+
+  
+  
+  
+    <div class="pb-2 border-b border-r8-gray-5 mb-lh flex">
+      <h2 class="inline-block flex-grow text-r8-2xl">
+        Examples
+      </h2>
+
+      <p>
+        <a href="/mtg/music-arousal-valence/examples"
+           class="no-default">
+          View more <span class="hidden sm:inline">examples</span><span class="relative -top-0.5">
+          
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="24"
+     height="24"
+     viewBox="0 0 24 24"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="1.5"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     class="icon">
+  <line x1="7" y1="17" x2="17" y2="7"></line>
+  <polyline points="7 7 17 7 17 17"></polyline>
+</svg>
+
+        </span></a>
+      </p>
+    </div>
+
+    <div class="mb-2lh h-40 overflow-hidden ">
+      
+        
+          <div class="inline-block h-40 w-40 overflow-hidden">
+            <a class="relative"
+               href="/mtg/music-arousal-valence/examples#ugzdnukrgvdajhdtk545tiem34">
+
+              
+                <img data-src="https://replicate.delivery/mgxm/9e232b54-eed5-48d1-a0bb-5d800bb59f75/out.png"
+                     alt=""
+                     role="presentation"
+                     
+                     class="object-cover object-center w-full h-full lazy" />
+              
+
+            </a>
+          </div>
+        
+      
+        
+          <div class="inline-block h-40 w-40 overflow-hidden">
+            <a class="relative"
+               href="/mtg/music-arousal-valence/examples#v7wcps5sjbcbffazteu63oh7qa">
+
+              
+                <img data-src="https://replicate.delivery/mgxm/a4902c53-0c6e-4a72-b680-25f2a2d9a61b/out.png"
+                     alt=""
+                     role="presentation"
+                     
+                     class="object-cover object-center w-full h-full lazy" />
+              
+
+            </a>
+          </div>
+        
+      
+        
+          <div class="inline-block h-40 w-40 overflow-hidden">
+            <a class="relative"
+               href="/mtg/music-arousal-valence/examples#ctmocj3s4nd3rgwrhefes22qdy">
+
+              
+                <img data-src="https://replicate.delivery/mgxm/2cb2bdd8-9065-46cd-990e-b97f19dc5048/out.png"
+                     alt=""
+                     role="presentation"
+                     
+                     class="object-cover object-center w-full h-full lazy" />
+              
+
+            </a>
+          </div>
+        
+      
+        
+          <div class="inline-block h-40 w-40 overflow-hidden">
+            <a class="relative"
+               href="/mtg/music-arousal-valence/examples#mhccalm5ezfo7e3pn64gprrnbq">
+
+              
+                <img data-src="https://replicate.delivery/mgxm/bca022c6-564b-4955-ac2d-8d67fecc1ffb/out.png"
+                     alt=""
+                     role="presentation"
+                     
+                     class="object-cover object-center w-full h-full lazy" />
+              
+
+            </a>
+          </div>
+        
+      
+        
+          <div class="inline-block h-40 w-40 overflow-hidden">
+            <a class="relative"
+               href="/mtg/music-arousal-valence/examples#26txabffk5cetdkha6z4qswmvu">
+
+              
+                <img data-src="https://replicate.delivery/mgxm/1906a95b-39ce-4313-863d-223f745edafc/out.png"
+                     alt=""
+                     role="presentation"
+                     
+                     class="object-cover object-center w-full h-full lazy" />
+              
+
+            </a>
+          </div>
+        
+      
+        
+          <div class="inline-block h-40 w-40 overflow-hidden">
+            <a class="relative"
+               href="/mtg/music-arousal-valence/examples#ezzcv3gjbjcv5bsz2del5vdi5y">
+
+              
+                <img data-src="https://replicate.delivery/mgxm/7ee11417-2e2e-46bb-9c6a-f445641f5164/out.png"
+                     alt=""
+                     role="presentation"
+                     
+                     class="object-cover object-center w-full h-full lazy" />
+              
+
+            </a>
+          </div>
+        
+      
+        
+          <div class="inline-block h-40 w-40 overflow-hidden">
+            <a class="relative"
+               href="/mtg/music-arousal-valence/examples#xknunt4nfvaqfkj7yrp5kkas4i">
+
+              
+                <img data-src="https://replicate.delivery/mgxm/1ee5291b-721f-4570-86bc-80e8644c2485/out.png"
+                     alt=""
+                     role="presentation"
+                     
+                     class="object-cover object-center w-full h-full lazy" />
+              
+
+            </a>
+          </div>
+        
+      
+    </div>
+  
+
+
+
+
+    
+      
+
+<div id="pricing"
+     class="mb-2lh">
+  <a id="performance"></a>
+
+  <h2 class="mb-lh pb-2 border-b border-r8-gray-5 text-r8-2xl">
+    Run time and cost
+  </h2>
+
+  
+
+  
+
+    
+      
+        <p class="mb-lh">
+          This model costs approximately $0.00029 to run on Replicate, or 3448 runs per $1, but this varies depending on your inputs. It is also open source and you can <a href="/mtg/music-arousal-valence/api">run it on your own computer with Docker</a>.
+        </p>
+      
+    
+
+    
+
+    <p class="mb-lh">
+      
+        This model runs on <a href="https://replicate.com/docs/billing">CPU hardware</a>.
+      
+      
+
+      
+        Predictions typically complete within 3 seconds.
+
+        
+      
+    </p>
+  
+</div>
+
+    
+
+    
+
+<article class="mb-2lh">
+  
+    <div id="readme"
+         class="border-b border-r8-gray-5 pb-2 mb-lh flex items-center gap-2">
+      <h2 class="inline-block text-r8-2xl">
+        Readme
+      </h2>
+      
+    </div>
+  
+  
+    <div class="readme-prose max-w-4xl">
+      <p>This demo runs a series of transfer learning regression models trained to predict musical arousal and valence values.
+These classifiers were trained on a mixture of public and in-house MTG datasets.</p>
+<h2 id="source-models">Source models</h2>
+<ul>
+<li><a href="https://arxiv.org/abs/1909.06654" rel="nofollow ugc">MusiCNN</a>. A musically motivated CNN with two variants trained on the Million Song Dataset and the MagnaTagATune. </li>
+<li><a href="https://ieeexplore.ieee.org/abstract/document/7952132" rel="nofollow ugc">VGGish</a>. A large VGG variant trained on a preliminary version of the AudioSet Dataset.</li>
+</ul>
+<h2 id="transfer-learning-classifiers">Transfer learning classifiers</h2>
+<p>Our models consist of single-hidden-layer MLPs trained on the considered embeddings.</p>
+<h2 id="license">License</h2>
+<p>These models are part of <a href="https://essentia.upf.edu/models.html" rel="nofollow ugc">Essentia Models</a> made by <a href="https://www.upf.edu/web/mtg/" rel="nofollow ugc">MTG-UPF</a> and are publicly available under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="nofollow ugc">CC by-nc-sa</a> and commercial license.</p>
+    </div>
+  
+
+  
+
+<div class="flex w-fit flex-wrap items-center gap-x-6 gap-y-2 text-r8-sm text-r8-gray-10 mt-lh">
+
+  <div>
+    <span class="font-semibold">Model created</span>
+    <time datetime="2022-06-11T12:15:53.528919+00:00"
+          title="June 11, 2022, 12:15 p.m.">
+      over 1 year ago
+    </time>
+  </div>
+
+  
+    <div>
+      <span class="font-semibold">Model updated</span>
+      <time datetime="2025-02-17T22:01:48.339160+00:00"
+            title="February 17, 2025, 10:01 p.m.">
+        10 months, 3 weeks ago
+      </time>
+    </div>
+  
+
+</div>
+
+</article>
+
+    
+
+
+
+
+    <script id="react-component-props-34bc9213-57ef-4907-98a5-952189ed37a8" type="application/json">{"name": "mtg/music-arousal-valence", "__flags": {"show-pylon-widget": false, "assign-support-tickets-to-ai": true, "show-open-ai-api-instructions": false}}</script>
+
+<div data-component="RelatedModels"
+     data-props="react-component-props-34bc9213-57ef-4907-98a5-952189ed37a8">
+  
+</div>
+
+  </div>
+
+
+    </div>
+  
+
+  <div class="model-content mt-2lh">
+    
+
+
+
+  </div>
+
+
+
+          
+        
+      </main>
+
+      
+        
+
+<div class="footer no-focus">
+  <script id="react-component-props-34e811fc-623e-455b-a75c-23c5835af03e" type="application/json">{"theme": "", "__flags": {"show-pylon-widget": false, "assign-support-tickets-to-ai": true, "show-open-ai-api-instructions": false}}</script>
+
+<div data-component="Footer"
+     data-props="react-component-props-34e811fc-623e-455b-a75c-23c5835af03e">
+  
+</div>
+
+</div>
+
+      
+
+    
+
+    <script nonce="S4k4xR7GmO/pw5ajm0HsaA==">
+      window.VIDEOJS_NO_DYNAMIC_STYLE = true;
+    </script>
+
+    <script nonce="S4k4xR7GmO/pw5ajm0HsaA==">
+      const header = document.getElementById("app-header");
+
+      function monitorHeaderStickiness() {
+        if (header) {
+          header.setAttribute("data-stuck", window.scrollY > 0);
+        }
+      }
+
+      monitorHeaderStickiness();
+
+      document.addEventListener("scroll", (event) => {
+        monitorHeaderStickiness();
+      });
+
+      // Prevent mousewheel from being able to change the value of a numeric input.
+      // This "feature" often causes issues when users scroll from a focused input field
+      // to the submit button and accidentally increment the contents of the field.
+      document.addEventListener("wheel", (event) => {
+        if (document.activeElement && document.activeElement.matches('input[type=number]') && document.activeElement === event.target) {
+          event.preventDefault();
+        }
+      }, {
+        passive: false
+      });
+    </script>
+
+    
+    
+    
+
+  </body>
+
+</html>

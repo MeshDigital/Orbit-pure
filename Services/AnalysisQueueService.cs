@@ -38,6 +38,7 @@ public class AnalysisQueueService : IDisposable
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IAudioAnalysisService? _audioAnalysisService;
     private readonly AnalyzeTrackStructureJob? _analyzeTrackStructureJob;
+    private readonly AudioCorruptionScannerService? _corruptionScanner;
     private readonly IDisposable _requestSubscription;
     private readonly SemaphoreSlim _parallelismGate;
     private readonly SemaphoreSlim _dispatchSignal = new(0);
@@ -64,6 +65,7 @@ public class AnalysisQueueService : IDisposable
         IDbContextFactory<AppDbContext> dbFactory,
         IAudioAnalysisService? audioAnalysisService = null,
         AnalyzeTrackStructureJob? analyzeTrackStructureJob = null,
+        AudioCorruptionScannerService? corruptionScanner = null,
         AppConfig? config = null)
     {
         _eventBus = eventBus;
@@ -71,6 +73,7 @@ public class AnalysisQueueService : IDisposable
         _dbFactory = dbFactory;
         _audioAnalysisService = audioAnalysisService;
         _analyzeTrackStructureJob = analyzeTrackStructureJob;
+        _corruptionScanner = corruptionScanner;
 
         int requested = config?.MaxConcurrentAnalyses ?? 0;
         MaxWorkers = requested > 0
@@ -255,6 +258,33 @@ public class AnalysisQueueService : IDisposable
                 completedOrFailed = true;
                 PublishStatus(_isStealthMode ? "Stealth (Low CPU)" : "Standard");
                 return;
+            }
+
+            // Corruption pre-check: fast FFmpeg probe + TagLib + NAudio frame scan.
+            // Fatal = block analysis entirely. Warning = log and continue.
+            if (_corruptionScanner is not null)
+            {
+                PublishProgress(evt.TrackGlobalId, "Checking file integrity…", 5);
+                var (corruptionStatus, corruptionDetails) = await _corruptionScanner
+                    .ScanAsync(filePath, CancellationToken.None).ConfigureAwait(false);
+
+                if (corruptionStatus == Data.Entities.CorruptionStatus.Fatal)
+                {
+                    var msg = $"Corrupt file — analysis blocked: {corruptionDetails}";
+                    _logger.LogWarning("[AnalysisQueue] {Hash} — {Msg}", evt.TrackGlobalId, msg);
+                    PublishProgress(evt.TrackGlobalId, "File corrupt — skipped", 100);
+                    await UpdateTrackAnalysisStatusAsync(evt.TrackGlobalId, AnalysisStatus.Failed, msg).ConfigureAwait(false);
+                    _eventBus.Publish(new TrackAnalysisFailedEvent(evt.TrackGlobalId, msg));
+                    _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, false, msg));
+                    completedOrFailed = true;
+                    return;
+                }
+
+                if (corruptionStatus == Data.Entities.CorruptionStatus.Warning)
+                {
+                    _logger.LogWarning("[AnalysisQueue] {Hash} — integrity warning (continuing): {Details}",
+                        evt.TrackGlobalId, corruptionDetails);
+                }
             }
 
             _activeTrackHashes.TryAdd(evt.TrackGlobalId, 0);

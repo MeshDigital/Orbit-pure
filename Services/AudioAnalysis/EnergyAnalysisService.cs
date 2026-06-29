@@ -177,6 +177,37 @@ public sealed class EnergyAnalysisService
 
     private static int ToEnergyScore(float normalizedEnergy)
         => Math.Clamp((int)Math.Round(1 + (Math.Clamp(normalizedEnergy, 0f, 1f) * 9f)), 1, 10);
+
+    /// <summary>
+    /// Checks a decoded PCM buffer for pathological signal conditions that indicate corruption.
+    /// Call this after reading the temp WAV — it costs nothing since the buffer is already in memory.
+    /// </summary>
+    /// <returns>
+    /// IsSilent: RMS below -90 dBFS across the full file (blank/placeholder file).
+    /// IsClipped: more than 2 % of samples are at digital ceiling (severe distortion/corruption).
+    /// RmsDbfs: overall loudness in dBFS.
+    /// </returns>
+    public static (bool IsSilent, bool IsClipped, float RmsDbfs) CheckPcmSanity(float[] samples)
+    {
+        if (samples.Length == 0)
+            return (IsSilent: true, IsClipped: false, RmsDbfs: -96f);
+
+        double sumSquares = 0d;
+        int clipped = 0;
+        for (int i = 0; i < samples.Length; i++)
+        {
+            double v = samples[i];
+            sumSquares += v * v;
+            if (MathF.Abs(samples[i]) >= 0.999f) clipped++;
+        }
+
+        float rms = (float)Math.Sqrt(sumSquares / samples.Length);
+        float rmsDbfs = rms > 1e-10f ? (float)(20.0 * Math.Log10(rms)) : -96f;
+        bool isSilent  = rmsDbfs < -90f;
+        bool isClipped = (double)clipped / samples.Length > 0.02;
+
+        return (isSilent, isClipped, rmsDbfs);
+    }
 }
 
 /// <summary>

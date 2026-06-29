@@ -6,6 +6,11 @@ namespace SLSKDONET.Models;
 public enum AnalysisTier
 {
     /// <summary>
+    /// Integrity: Fast corruption-only scan — no waveform, no BPM, no Essentia. Seconds per track.
+    /// </summary>
+    Integrity = 0,
+
+    /// <summary>
     /// Tier 1: Basic analysis (BPM, Key, Basic Mood, Danceability). Fast.
     /// </summary>
     Tier1 = 1,

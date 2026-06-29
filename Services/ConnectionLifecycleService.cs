@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 using SLSKDONET.Configuration;
 using SLSKDONET.Models;
+using SLSKDONET.Views;
 using Soulseek;
 
 namespace SLSKDONET.Services;
@@ -48,10 +49,16 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
         (ConnectionLifecycleState.CoolingDown,   ConnectionLifecycleState.Disconnected),
     };
 
-    private const int MaxQuickRetries        = 1;
-    private const int QuickRetryBaseMs       = 20_000; // 20 s for the single quick retry before exponential backoff
-    private const int KickCooldownSeconds    = 60;
-    private const double JitterFraction      = 0.20;   // ±20 % jitter on all delays
+    private const int MaxQuickRetries              = 1;
+    private const int QuickRetryBaseMs             = 20_000; // 20 s for the single quick retry before exponential backoff
+    private const int KickCooldownSeconds          = 60;
+    private const double JitterFraction            = 0.20;   // ±20 % jitter on all delays
+    // Server-side login throttle detection: if we get N consecutive LoggingIn drops
+    // (UNKNOWN_UNPLANNED_DROP during handshake, not a session eviction), apply a
+    // progressive cooldown so we stop hammering a server that is already rate-limiting us.
+    private const int LoginThrottleDropThreshold   = 2;   // trigger after 2 consecutive mid-handshake drops
+    private const int LoginThrottleCooldownSeconds = 120; // 2 min base cooldown
+    private const int LoginThrottleMaxCooldownSecs = 600; // escalates up to 10 min
 
     // ── dependencies ────────────────────────────────────────────────────
     private readonly ILogger<ConnectionLifecycleService> _logger;
@@ -74,6 +81,8 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
     private readonly Random _rng = new();
     private CancellationTokenSource? _activeConnectCts;
     private string? _lastDisconnectStatusReason;
+    private bool _inLoginConflict; // set when UNKNOWN_UNPLANNED_DROP_LOGGED_IN detected
+    private int _consecutiveLoginDrops; // counts LoggingIn→Disconnected mid-handshake drops
     private DateTime _lastHostSignalRecoveryUtc = DateTime.MinValue;
     // Windows fires NetworkAddressChanged on every mesh WiFi roam, IPv6 temp-address rotation,
     // WSL2/Docker adapter flap, etc. 90 s cooldown prevents back-to-back roams from each
@@ -258,9 +267,11 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
 
             if (!wasLoggedIn)
             {
-                // Successful (re)connect — reset counters
-                _reconnectRetryCount = 0;
-                _quickRetryCount     = 0;
+                // Successful (re)connect — reset all counters including login-throttle tracker
+                _reconnectRetryCount  = 0;
+                _quickRetryCount      = 0;
+                _inLoginConflict      = false;
+                _consecutiveLoginDrops = 0;
             }
         }
         else if (isDisconnecting)
@@ -274,14 +285,40 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
             // Include Disconnecting: an unplanned server drop fires Disconnecting then Disconnected
             // in rapid succession, so by the time we reach isDisconnected the state has already
             // moved to Disconnecting — excluding it means the reconnect loop never fires.
-            var wasActive = _state is ConnectionLifecycleState.LoggedIn
-                                   or ConnectionLifecycleState.LoggingIn
-                                   or ConnectionLifecycleState.Connecting
-                                   or ConnectionLifecycleState.Disconnecting;
+            var wasLoggingIn = _state is ConnectionLifecycleState.LoggingIn;
+            var wasActive    = _state is ConnectionLifecycleState.LoggedIn
+                                      or ConnectionLifecycleState.LoggingIn
+                                      or ConnectionLifecycleState.Connecting
+                                      or ConnectionLifecycleState.Disconnecting;
 
             TryTransition(
                 ConnectionLifecycleState.Disconnected,
                 ComposeDisconnectReason("soulseek reported Disconnected", consume: true));
+
+            // Detect server-side login throttling: repeated drops during the login handshake
+            // (LoggingIn → Disconnected) with no session established. This is distinct from
+            // UNKNOWN_UNPLANNED_DROP_LOGGED_IN (session eviction) and requires a longer pause
+            // so we stop flooding a server that is already rejecting our handshake.
+            if (wasLoggingIn && !_inLoginConflict)
+            {
+                _consecutiveLoginDrops++;
+                if (_consecutiveLoginDrops >= LoginThrottleDropThreshold)
+                {
+                    // Progressive: 2 min → 4 min → 6 min … capped at 10 min
+                    int cooldownSecs = Math.Min(
+                        LoginThrottleCooldownSeconds * (_consecutiveLoginDrops - LoginThrottleDropThreshold + 1),
+                        LoginThrottleMaxCooldownSecs);
+                    _coolingUntilUtc = DateTime.UtcNow.AddSeconds(cooldownSecs);
+                    _logger.LogWarning(
+                        "[LIFECYCLE] Server-side login throttle detected ({Count} consecutive mid-handshake drops). Backing off {Secs}s before next attempt.",
+                        _consecutiveLoginDrops, cooldownSecs);
+                    _eventBus.Publish(new NotificationEvent(
+                        "Connection Throttled",
+                        $"Soulseek server is rate-limiting login attempts ({_consecutiveLoginDrops}×). ORBIT will retry in {cooldownSecs / 60} min.",
+                        NotificationType.Warning,
+                        TimeSpan.FromSeconds(10)));
+                }
+            }
 
             if (wasActive && AutoReconnectEnabled && !_manualDisconnect)
             {
@@ -347,6 +384,25 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
             {
                 Interlocked.Exchange(ref _lastDisconnectStatusReason, evt.Reason);
             }
+        }
+
+        // UNKNOWN_UNPLANNED_DROP_LOGGED_IN arrives as status="disconnecting" with the drop code
+        // in the reason — the Soulseek.NET library never sends status="kicked" for this case.
+        // Detect it here and arm the cooldown so the reconnect loop doesn't immediately ping-pong
+        // with whatever competing session just evicted us.
+        var isLoginConflict = !string.IsNullOrWhiteSpace(evt.Reason)
+            && evt.Reason.Contains("UNKNOWN_UNPLANNED_DROP_LOGGED_IN", StringComparison.Ordinal);
+
+        if (isLoginConflict && !_inLoginConflict)
+        {
+            _inLoginConflict = true;
+            _coolingUntilUtc = DateTime.UtcNow.AddSeconds(KickCooldownSeconds);
+            _logger.LogWarning("[LIFECYCLE] Session evicted by competing login (UNKNOWN_UNPLANNED_DROP_LOGGED_IN). Cooldown {Secs}s armed.", KickCooldownSeconds);
+            _eventBus.Publish(new NotificationEvent(
+                "Session Conflict",
+                "Another Soulseek session is competing for your account. Close other Soulseek apps — ORBIT will retry automatically.",
+                NotificationType.Warning,
+                TimeSpan.FromSeconds(12)));
         }
 
         if (!string.Equals(evt.Status, "kicked", StringComparison.OrdinalIgnoreCase))
@@ -502,6 +558,33 @@ public sealed class ConnectionLifecycleService : IConnectionLifecycleService, ID
                             await Task.Delay(remaining);
                         }
                         continue;
+                    }
+
+                    // Respect eviction cooldown even when state is Disconnected — prevents
+                    // immediate ping-pong with a competing Soulseek session after LOGGED_IN drop.
+                    if (_inLoginConflict)
+                    {
+                        var evictionCooldown = _coolingUntilUtc - DateTime.UtcNow;
+                        if (evictionCooldown > TimeSpan.Zero)
+                        {
+                            _logger.LogInformation(
+                                "Lifecycle: login-conflict cooldown active, waiting {Secs:F0}s before retry.",
+                                evictionCooldown.TotalSeconds);
+                            await Task.Delay(evictionCooldown);
+                        }
+
+                        // Escalate after 3 consecutive failures — the competing session is still active
+                        if (_reconnectRetryCount >= 3 && _inLoginConflict)
+                        {
+                            _coolingUntilUtc = DateTime.UtcNow.AddSeconds(300);
+                            _logger.LogWarning("[LIFECYCLE] Persistent session conflict — {Count} evictions. Extended cooldown 300s.", _reconnectRetryCount);
+                            _eventBus.Publish(new NotificationEvent(
+                                "Persistent Session Conflict",
+                                $"ORBIT keeps getting evicted ({_reconnectRetryCount}×). Check for Soulseek running on another device or phone. Retrying in 5 min.",
+                                NotificationType.Warning,
+                                TimeSpan.FromSeconds(15)));
+                            await Task.Delay(300_000);
+                        }
                     }
 
                     _reconnectRetryCount++;

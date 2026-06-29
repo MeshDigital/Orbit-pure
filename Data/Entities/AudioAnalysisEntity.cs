@@ -54,4 +54,17 @@ public class AudioAnalysisEntity
     public string SpectralHash { get; set; } = string.Empty; // For deduplication/verification
     public int FrequencyCutoff { get; set; } // e.g. 16000 for 128kbps, 20000+ for 320kbps
     public double QualityConfidence { get; set; } // 0.0 - 1.0
+
+    // Corruption detection
+    public CorruptionStatus CorruptionStatus { get; set; } = CorruptionStatus.Unknown;
+    public string? CorruptionDetails { get; set; }
+    public DateTime? LastIntegrityScanAt { get; set; }
+}
+
+public enum CorruptionStatus
+{
+    Unknown = 0,
+    Clean   = 1,
+    Warning = 2,
+    Fatal   = 3
 }
