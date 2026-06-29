@@ -739,6 +739,14 @@
             </Border.IsVisible>
              <Grid>
                  <views:HorizontalPlayerControl DataContext="{Binding PlayerViewModel}"/>
+                 <!-- Spectrum visualizer — overlays right edge of player bar during library preview -->
+                 <controls:SpectrumBarVisualizer
+                     Width="220" Height="84"
+                     HorizontalAlignment="Right"
+                     VerticalAlignment="Center"
+                     Margin="0,0,12,0"
+                     Opacity="0.9"
+                     IsHitTestVisible="False"/>
              </Grid>
         </Border>
 
