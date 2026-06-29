@@ -391,15 +391,15 @@ public class SearchOrchestrationService
                                    !formatFilter.Contains("mp3", StringComparer.OrdinalIgnoreCase);
 
         var brainBufferSeconds = lane == SearchQueryLane.Desperate
-            ? Math.Clamp(_config.SearchAccumulatorWindowSeconds, 5, 30)
-            : Math.Clamp(_config.MinSearchDurationSeconds, searchTimeoutSeconds + 4, 30);
+            ? Math.Clamp(_config.SearchAccumulatorWindowSeconds, 5, 20)  // was 30 cap — AccumulatorShortCircuit exits early for good tracks
+            : Math.Clamp(_config.MinSearchDurationSeconds, searchTimeoutSeconds + 2, 20); // was +4/30 — +2s overhead is sufficient; AccumulatorShortCircuit handles fast exits
 
         if (isLosslessOnlyIntent)
         {
             brainBufferSeconds = Math.Clamp(
                 Math.Max(brainBufferSeconds, _config.MinLosslessSearchDurationSeconds),
-                20,
-                30);
+                10,  // was 20 — AccumulatorShortCircuit handles immediate golden exits; 10s fallback for sparse tracks
+                20); // was 30 — tighter cap reduces worst-case latency for truly obscure tracks
         }
 
         var brainWinnerCount = lane == SearchQueryLane.Desperate

@@ -3002,7 +3002,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             return new TransferFailureDisposition(
                 DownloadFailureReason.RemoteQueueDenied,
                 AllowHedgeFailover: true,
-                Delay: TimeSpan.FromMinutes(2),   // Peer needs time to free a slot
+                Delay: TimeSpan.FromSeconds(30),  // was 2 min — hedge failover fires first anyway; 30s is enough before re-try
                 OperatorMessage: "peer queue rejected transfer");
         }
 

@@ -1749,7 +1749,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
             // e.g. 15 min stagnation = zombie. A 500-deep queue should move every few minutes.
             var maxQueueWaitSeconds = Math.Max(300, _config.MaxQueueWaitTimeMinutes * 60);
             const int QUEUE_INITIAL_GRACE_SECONDS = 120;  // Allow 2 min before any position is required
-            const int QUEUE_STAGNATION_WINDOW_SECONDS = 900; // 15 min stagnation = zombie (position frozen)
+            const int QUEUE_STAGNATION_WINDOW_SECONDS = 300; // was 900 — 5 min stagnation = zombie; re-discover faster instead of waiting 15 min on dead peers
 
             var downloadOptions = new TransferOptions(
                 stateChanged: (args) =>
