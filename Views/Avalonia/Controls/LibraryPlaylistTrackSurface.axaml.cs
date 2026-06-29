@@ -58,6 +58,10 @@ public partial class LibraryPlaylistTrackSurface : UserControl
     private void OnRootPointerExited(object? sender, PointerEventArgs e)
     {
         SetMagneticGap(null);
+
+        // Mouse left the library surface — stop any active hover-preview
+        if (DataContext is TrackListViewModel vm)
+            vm.StopPreview();
     }
 
     private void OnTrackRowPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -85,6 +89,10 @@ public partial class LibraryPlaylistTrackSurface : UserControl
 
     private void OnTrackRowPointerEntered(object? sender, PointerEventArgs e)
     {
+        // Trigger hover-preview for downloaded tracks (debounced inside the service)
+        if (DataContext is TrackListViewModel vm && sender is Border row && row.DataContext is PlaylistTrackViewModel track)
+            vm.PreviewTrack(track);
+
         OnTrackRowPointerMoved(sender, e);
     }
 

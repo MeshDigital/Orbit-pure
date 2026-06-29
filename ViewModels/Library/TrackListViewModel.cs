@@ -37,6 +37,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     private readonly IEventBus _eventBus;
     private readonly AppConfig _config;
     private readonly IBulkOperationCoordinator _bulkCoordinator;
+    private readonly ILibraryPreviewPlayer _previewPlayer;
 
     public TrackOperationsViewModel? Operations { get; set; }
 
@@ -602,7 +603,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         ArtworkCacheService artworkCache,
         IEventBus eventBus,
         AppConfig config,
-        IBulkOperationCoordinator bulkCoordinator)
+        IBulkOperationCoordinator bulkCoordinator,
+        ILibraryPreviewPlayer previewPlayer)
     {
         _logger = logger;
         _libraryService = libraryService;
@@ -611,6 +613,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         _eventBus = eventBus;
         _config = config;
         _bulkCoordinator = bulkCoordinator;
+        _previewPlayer = previewPlayer;
 
         Hierarchical = new HierarchicalLibraryViewModel(config, downloadManager, artworkCache, eventBus);
         
@@ -742,6 +745,27 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     {
         UpdateSelectionState();
     }
+
+    // ── Library preview (hover-to-listen) ───────────────────────────────────
+
+    /// <summary>
+    /// Called when the pointer enters a library row. Debounced 250 ms inside
+    /// the service so fast mouse sweeps do not trigger a flurry of file opens.
+    /// Only fires for downloaded tracks that have a file on disk.
+    /// </summary>
+    public void PreviewTrack(PlaylistTrackViewModel track)
+    {
+        var path = track.Model.ResolvedFilePath;
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        _previewPlayer.RequestPreview(path, track.Model.BPM);
+    }
+
+    /// <summary>Called when the pointer leaves the library surface entirely.</summary>
+    public void StopPreview() => _previewPlayer.StopPreview();
+
+    // ── Dispose ─────────────────────────────────────────────────────────────
 
     public void Dispose()
     {

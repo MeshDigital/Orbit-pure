@@ -487,6 +487,7 @@ public partial class App : Application
 
         // Audio Player
         services.AddSingleton<IAudioPlayerService, AudioPlayerService>();
+        services.AddSingleton<ILibraryPreviewPlayer, LibraryPreviewPlayer>();
         services.AddSingleton<PlayerViewModel>();
 
         // Entertainment Engine Services
