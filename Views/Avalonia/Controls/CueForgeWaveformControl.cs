@@ -57,6 +57,26 @@ public class CueForgeWaveformControl : Control
         set => SetValue(BpmProperty, value);
     }
 
+    public static readonly StyledProperty<bool> SnapToGridProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, bool>(
+            nameof(SnapToGrid), true);
+
+    public bool SnapToGrid
+    {
+        get => GetValue(SnapToGridProperty);
+        set => SetValue(SnapToGridProperty, value);
+    }
+
+    public static readonly StyledProperty<int> QuantizeBeatsProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, int>(
+            nameof(QuantizeBeats), 16);
+
+    public int QuantizeBeats
+    {
+        get => GetValue(QuantizeBeatsProperty);
+        set => SetValue(QuantizeBeatsProperty, value);
+    }
+
     // ── State ────────────────────────────────────────────────────────────
 
     private float[]? _waveformCache;
@@ -245,6 +265,7 @@ public class CueForgeWaveformControl : Control
         if (_draggedCue != null)
         {
             double newTime = PixelToTime(point.X, bounds);
+            newTime = ApplySnapping(newTime);
             _draggedCue.Timestamp = Math.Clamp(newTime, 0, TrackDuration);
             InvalidateVisual();
         }
@@ -255,6 +276,7 @@ public class CueForgeWaveformControl : Control
             if (activeLoop != null)
             {
                 double newTime = PixelToTime(point.X, bounds);
+                newTime = ApplySnapping(newTime);
                 newTime = Math.Clamp(newTime, 0, TrackDuration);
 
                 if (_isDraggingLoopStart)
@@ -265,6 +287,27 @@ public class CueForgeWaveformControl : Control
                 InvalidateVisual();
             }
         }
+    }
+
+    private double ApplySnapping(double timeSeconds)
+    {
+        if (!SnapToGrid || Bpm <= 0) return timeSeconds;
+
+        double beatDurationSeconds = 60.0 / Bpm;
+        double snapDistance;
+
+        if (QuantizeBeats > 0)
+        {
+            double gridDurationSeconds = beatDurationSeconds * QuantizeBeats;
+            double nearestGrid = Math.Round(timeSeconds / gridDurationSeconds) * gridDurationSeconds;
+            snapDistance = Math.Abs(timeSeconds - nearestGrid);
+            if (snapDistance < 0.05)
+                return nearestGrid;
+        }
+
+        double nearestBeat = Math.Round(timeSeconds / beatDurationSeconds) * beatDurationSeconds;
+        snapDistance = Math.Abs(timeSeconds - nearestBeat);
+        return snapDistance < 0.05 ? nearestBeat : timeSeconds;
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
@@ -283,7 +326,9 @@ public class CueForgeWaveformControl : Control
 
         if (change.Property == CuesProperty ||
             change.Property == CurrentPlayPositionProperty ||
-            change.Property == BpmProperty)
+            change.Property == BpmProperty ||
+            change.Property == SnapToGridProperty ||
+            change.Property == QuantizeBeatsProperty)
         {
             InvalidateVisual();
         }

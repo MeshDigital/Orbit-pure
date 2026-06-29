@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reactive;
 using System.Reactive.Disposables;
+using System.Reactive.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
@@ -24,6 +25,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private readonly PlayerViewModel _playerViewModel;
     private readonly ILogger<CueForgeViewModel> _logger;
     private readonly CompositeDisposable _disposables = new();
+    private const double SnapThreshold = 0.05;
 
     // Undo/Redo management
     private readonly Stack<OrbitCue[]> _undoStack = new();
@@ -156,6 +158,18 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         // Monitor collection changes to detect uncommitted edits
         WorkingCues.CollectionChanged += (s, e) => HasUncommittedChanges = true;
+
+        // Subscribe to playhead position updates from PlayerViewModel
+        this.WhenAnyValue(x => x._playerViewModel.Position, x => x._playerViewModel.LengthMs,
+            (pos, len) => (pos, len))
+            .Throttle(TimeSpan.FromMilliseconds(33)) // ~30fps cap
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(posAndLen =>
+            {
+                if (posAndLen.len > 0)
+                    CurrentPlayPosition = posAndLen.pos * (posAndLen.len / 1000.0);
+            })
+            .DisposeWith(_disposables);
     }
 
     // ── Public API ──────────────────────────────────────────────────
@@ -370,6 +384,27 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     {
         CanUndo = _undoStack.Count > 0;
         CanRedo = _redoStack.Count > 0;
+    }
+
+    // ── Precision Snap Helpers ──────────────────────────────────────
+
+    /// <summary>Snap a timestamp to nearest beat grid line.</summary>
+    public double SnapToBeatGrid(double seconds, int bpm)
+    {
+        if (bpm <= 0) return seconds;
+        double beatDurationSeconds = 60.0 / bpm;
+        double nearestBeat = Math.Round(seconds / beatDurationSeconds) * beatDurationSeconds;
+        return Math.Abs(seconds - nearestBeat) < SnapThreshold ? nearestBeat : seconds;
+    }
+
+    /// <summary>Snap to quantize grid (e.g., 4 beats, 8 beats, 16 beats).</summary>
+    public double SnapToQuantizeGrid(double seconds, int bpm, int quantizeBeats)
+    {
+        if (bpm <= 0 || quantizeBeats <= 0) return seconds;
+        double beatDurationSeconds = 60.0 / bpm;
+        double gridDurationSeconds = beatDurationSeconds * quantizeBeats;
+        double nearestGrid = Math.Round(seconds / gridDurationSeconds) * gridDurationSeconds;
+        return Math.Abs(seconds - nearestGrid) < SnapThreshold ? nearestGrid : seconds;
     }
 
     // ── Model ↔ Entity Mapping ──────────────────────────────────────

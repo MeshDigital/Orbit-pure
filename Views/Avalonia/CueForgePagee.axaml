@@ -159,6 +159,8 @@
                         Cues="{Binding WorkingCues}"
                         CurrentPlayPosition="{Binding CurrentPlayPosition}"
                         Bpm="120"
+                        SnapToGrid="{Binding SnapToGrid}"
+                        QuantizeBeats="{Binding QuantizeBeats}"
                         TrackDuration="300"/>
                 </Border>
 
