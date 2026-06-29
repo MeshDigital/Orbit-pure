@@ -114,7 +114,7 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
             var fftProvider = new PreviewFftSampleProvider(_volumeProvider, FftSize, magnitudes =>
                 SpectrumChanged?.Invoke(this, magnitudes));
 
-            _output = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, latencyMilliseconds: 100);
+            _output = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
             _output.Init(fftProvider);
             _output.PlaybackStopped += OnPlaybackStopped;
             _output.Play();
