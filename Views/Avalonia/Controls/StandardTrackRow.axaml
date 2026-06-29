@@ -197,9 +197,19 @@
             Classes.completed="{Binding IsCompleted}"
             Classes.failed="{Binding IsFailed}"
             Classes.ghost="{Binding IsGhost}">
+        <Panel>
+
+        <!-- Full-length RGB waveform underlay — rendered behind metadata.
+             SkiaSharp tri-band bitmap, background thread, cached per row. -->
+        <controls:LibraryWaveformView
+            WaveformData="{Binding WaveformData}"
+            IsVisible="{Binding HasWaveformData}"
+            Opacity="0.22"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Stretch"
+            IsHitTestVisible="False"/>
+
         <StackPanel>
-            <!-- Phase 5B: Removed waveform underlay - was visually noisy in list context -->
-            
         <!-- Column 0: Art & Health, 1: Artist, 2: Title, 3: BPM/Key, 4: Badges, 5: Actions -->
         <Grid RowDefinitions="Auto, *" Margin="0,2">
             <Grid.RowDefinitions>
@@ -568,5 +578,6 @@
                      Opacity="0.8"/>
     </Grid>
 </StackPanel>
+        </Panel>
 </Border>
 </UserControl>

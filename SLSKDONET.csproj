@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>ORBIT</AssemblyName>
     <RootNamespace>SLSKDONET</RootNamespace>
-    <Version>0.5.1</Version>
+    <Version>0.5.2</Version>
     <Authors>SLSK_CSV Contributors</Authors>
     <Description>Soulseek batch downloader using Soulseek.NET - Cross-platform with Avalonia UI</Description>
   </PropertyGroup>
