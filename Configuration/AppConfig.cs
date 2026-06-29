@@ -18,14 +18,14 @@ public class AppConfig
     public bool UseUPnP { get; set; } = false;
     public int ConnectTimeout { get; set; } = 60000; // ms
     public int SearchTimeout { get; set; } = 12000; // ms; longer idle window improves late peer discovery for lossless searches
-    public int SearchAccumulatorWindowSeconds { get; set; } = 30; // Cap broad-search accumulation to a bounded stale-time window
+    public int SearchAccumulatorWindowSeconds { get; set; } = 15; // was 30 — cap desperate-lane accumulation; accumulatorShortCircuit handles early exits for normal lanes
     public int MaxConcurrentSearches { get; set; } = 5; // Throttling to prevent bans
     public int MaxDiscoveryLanes { get; set; } = 5; // Concurrent discovery jobs for seeker pipeline
     public int MaxSearchVariations { get; set; } = 3; // Cap cascade fan-out to avoid flooding (3 = Strict/Standard/Desperate)
     public int StrictSearchSufficientResultCount { get; set; } = 5; // Strict-first: skip relaxed variations when enough strict hits were found
-    public bool EnableStrictHighConfidenceShortCircuit { get; set; } = false; // When false, strict high-confidence hits do not skip relaxed variations
-    public bool EnableStrictSufficientResultShortCircuit { get; set; } = false; // When false, do not stop after strict variation simply because enough hits were found
-    public bool EnableFastClearanceEarlyExit { get; set; } = false; // When false, fast-clearance ranks across all active variations instead of yielding first winner
+    public bool EnableStrictHighConfidenceShortCircuit { get; set; } = true; // Skip relaxed variations when strict lane yields a high-confidence winner
+    public bool EnableStrictSufficientResultShortCircuit { get; set; } = true; // Stop after strict variation when enough good results found
+    public bool EnableFastClearanceEarlyExit { get; set; } = true; // Fast-clearance yields first idle-peer winner immediately
     public int SearchThrottleDelayMs { get; set; } = 200; // Protocol pacing to prevent flood protection
     public bool EnableSearchLoadShedding { get; set; } = true;
     // Elevated: fires when enough parallel searches are running that we risk Soulseek throttling.
@@ -48,13 +48,13 @@ public class AppConfig
     public int SearchHardFileCap { get; set; } = 50000; // Absolute per-search circuit breaker for inbound files (0 disables)
     public int MaxPeerQueueLength { get; set; } = 50; // Ignore peers with very long queue lengths
     public int MinSearchDurationSeconds { get; set; } = 5; // Brain buffer floor: 5s gives network time to collect results but doesn't make downloads glacially slow
-    public int MinLosslessSearchDurationSeconds { get; set; } = 20; // Ensure FLAC/lossless-only discovery streams long enough before declaring no-result
-    public bool EnableSpeculativeEarlyAccept { get; set; } = false; // When false, keep streaming until lane completion/timeout (recommended for reliability)
+    public int MinLosslessSearchDurationSeconds { get; set; } = 10; // was 20 — accumulator short-circuit handles fast exits; 10s is the fallback for scarce tracks
+    public bool EnableSpeculativeEarlyAccept { get; set; } = true; // Accept silver match after minSearchDuration window; avoids waiting full buffer for good-enough results
     public bool EnableAutoAcquireOnImport { get; set; } = false; // Auto-acquire imported Spotify Ghost tracks
-    public bool EnableGoldenEarlyExit { get; set; } = false; // When false, golden hits are tracked but do not cancel the lane immediately
-    public bool EnableFastLaneEarlyExit { get; set; } = false; // When false, fast-lane candidates are ranked with all candidates
-    public bool EnableQuickStrikeEarlyExit { get; set; } = false; // When false, very high scores no longer short-circuit tier processing
-    public bool EnableAccumulatorPerfectMatchShortCircuit { get; set; } = false; // When false, accumulator keeps collecting until window close/cancel
+    public bool EnableGoldenEarlyExit { get; set; } = true; // Golden FLAC hit (score≥85, >700kbps, queue=0) cancels the lane immediately
+    public bool EnableFastLaneEarlyExit { get; set; } = true; // Idle peer winner cancels the lane immediately; avoids waiting for the rest of the stream
+    public bool EnableQuickStrikeEarlyExit { get; set; } = true; // Score>95 exits the tier immediately without waiting for full buffer
+    public bool EnableAccumulatorPerfectMatchShortCircuit { get; set; } = true; // Breaks collection loop when a perfect candidate arrives; most impactful speed-up
     public bool EnableHedgedSearch { get; set; } = false; // Disabled — causes delays and complexity
     public int HedgedSearchDelaySeconds { get; set; } = 8; // Delay MP3 hedge so FLAC lanes get first chance to settle
     public bool EnableMp3Fallback { get; set; } = true; // Allow MP3 download when lossless is unavailable; set false for strict lossless-only
@@ -106,7 +106,7 @@ public class AppConfig
     public int MaxDownloadRetries { get; set; } = 2;
     public int PeerConnectFailFastSeconds { get; set; } = 10;
     public int TransferStallTimeoutSeconds { get; set; } = 60;
-    public int MaxQueueWaitTimeMinutes { get; set; } = 60; // Max time to wait in a remote queue before timing out (minutes)
+    public int MaxQueueWaitTimeMinutes { get; set; } = 30; // was 60 — re-discover sooner when a peer's queue stalls
     // Brain 2.0 & Quality Guard
     public SearchPolicy SearchPolicy { get; set; } = SearchPolicy.QualityFirst(); // [NEW] The "Biggers App" Search Policy
 
