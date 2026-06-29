@@ -819,6 +819,13 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     public byte[] LowData => WaveformData.LowData;
     public byte[] MidData => WaveformData.MidData;
     public byte[] HighData => WaveformData.HighData;
+
+    /// <summary>
+    /// True when the track has stored waveform data suitable for the library row underlay.
+    /// Checks the base model bytes so no lazy-load is required.
+    /// </summary>
+    public bool HasWaveformData =>
+        (Model.RmsData?.Length > 0) || (Model.WaveformData?.Length > 0);
     
     // Technical Stats
     public int SampleRate => Model.SpectralSampleRateHz ?? 0;
