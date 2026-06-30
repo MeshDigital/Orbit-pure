@@ -1,161 +1,189 @@
 """
-Windows-safe model weight downloader for EDMFormer/SongFormer.
+Downloads EDMFormer model weights from smileyxo/ORBI-AI-Models (HuggingFace Space).
 
-Improvements over the original fetch_pretrained.py:
-- Resumable downloads (uses Range header — survives network drops)
-- Short local path (downloads to %TEMP% first, then moves to avoid OneDrive long-path issues)
-- MD5 verification after download
-- Retry with exponential back-off on failure
+Uses huggingface_hub.snapshot_download — built-in resumption, integrity checks,
+no custom HTTP code needed. Falls back to original upstream sources on failure.
+
+Expected layout in ckpts/ after download:
+  ckpts/
+    SongFormer.safetensors
+    MusicFM/
+      pretrained_msd.pt
+      msd_stats.json
 """
 
-import hashlib
 import os
 import shutil
 import sys
-import tempfile
-import time
+from pathlib import Path
 
-import requests
-from tqdm import tqdm
 
-# ── Expected MD5 hashes (from ckpts/md5sum.txt) ────────────────────────────
-EXPECTED_MD5 = {
-    "MusicFM/pretrained_msd.pt":   "df930aceac8209818556c4a656a0714c",
-    "MusicFM/msd_stats.json":      "75ab2e47b093e07378f7f703bdb82c14",
-    "SongFormer.safetensors":      "5a24800e12ab357744f8b47e523ba3e6",
-}
+HF_REPO_ID   = "smileyxo/ORBI-AI-Models"
+HF_REPO_TYPE = "space"
 
-FILES = [
+# Fallback: original upstream sources if Space download fails
+FALLBACK_FILES = [
     (
         "https://huggingface.co/minzwon/MusicFM/resolve/main/msd_stats.json",
-        os.path.join("ckpts", "MusicFM", "msd_stats.json"),
         "MusicFM/msd_stats.json",
     ),
     (
         "https://huggingface.co/minzwon/MusicFM/resolve/main/pretrained_msd.pt",
-        os.path.join("ckpts", "MusicFM", "pretrained_msd.pt"),
         "MusicFM/pretrained_msd.pt",
     ),
     (
         "https://huggingface.co/ASLP-lab/SongFormer/resolve/main/SongFormer.safetensors",
-        os.path.join("ckpts", "SongFormer.safetensors"),
         "SongFormer.safetensors",
     ),
 ]
 
 
-def md5_of_file(path: str, chunk: int = 1 << 20) -> str:
-    h = hashlib.md5()
-    with open(path, "rb") as f:
-        while True:
-            buf = f.read(chunk)
-            if not buf:
-                break
-            h.update(buf)
-    return h.hexdigest()
+def resolve_ckpts_dir() -> Path:
+    here = Path(__file__).resolve().parent
+    # Script may live in utils/ inside SongFormer, or copied elsewhere by installer
+    candidates = [
+        here.parent / "ckpts",
+        here.parent.parent.parent / "EDMFormer" / "src" / "SongFormer" / "ckpts",
+    ]
+    for c in candidates:
+        if c.parent.name == "SongFormer" or (c.parent / "infer.py").exists():
+            return c
+    return here / "ckpts"
 
 
-def download_resumable(url: str, dest: str, max_retries: int = 5) -> bool:
-    """Download url to dest, resuming if the file is partially downloaded."""
-    os.makedirs(os.path.dirname(os.path.abspath(dest)), exist_ok=True)
+def _place(src: Path, dst: Path):
+    if src.exists() and not dst.exists():
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src), str(dst))
+        print(f"  Placed: {dst.name}")
 
-    existing = os.path.getsize(dest) if os.path.exists(dest) else 0
-    headers = {"Range": f"bytes={existing}-"} if existing > 0 else {}
 
-    for attempt in range(1, max_retries + 1):
+def move_to_ckpts(staging: Path, ckpts: Path):
+    musicfm = ckpts / "MusicFM"
+    for fname, dest in [
+        ("SongFormer.safetensors", ckpts / "SongFormer.safetensors"),
+        ("SongFormer.pt",          ckpts / "SongFormer.pt"),
+        ("pretrained_msd.pt",      musicfm / "pretrained_msd.pt"),
+        ("msd_stats.json",         musicfm / "msd_stats.json"),
+    ]:
+        _place(staging / fname, dest)
+        _place(staging / "MusicFM" / fname, dest)
+
+
+def download_from_space(ckpts: Path) -> bool:
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        print("  huggingface_hub not available — skipping Space download")
+        return False
+
+    staging = ckpts / "_hf_staging"
+    staging.mkdir(parents=True, exist_ok=True)
+    print(f"  Source : huggingface.co/{HF_REPO_ID}")
+    print(f"  Dest   : {ckpts}")
+    print("  (Resumable — safe to interrupt and re-run)\n")
+
+    try:
+        snapshot_download(
+            repo_id=HF_REPO_ID,
+            repo_type=HF_REPO_TYPE,
+            local_dir=str(staging),
+            ignore_patterns=["*.py", "*.md", "*.txt", "requirements*", "app*",
+                             ".gitattributes", "README*"],
+        )
+    except Exception as e:
+        print(f"  Space download error: {e}")
+        shutil.rmtree(staging, ignore_errors=True)
+        return False
+
+    move_to_ckpts(staging, ckpts)
+    shutil.rmtree(staging, ignore_errors=True)
+    return True
+
+
+def download_fallback(ckpts: Path) -> bool:
+    try:
+        import requests
+        from tqdm import tqdm
+    except ImportError:
+        print("  requests/tqdm not installed — cannot use fallback")
+        return False
+
+    all_ok = True
+    for url, rel_path in FALLBACK_FILES:
+        dest = ckpts / rel_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+
+        if dest.exists():
+            print(f"  Already exists: {rel_path}")
+            continue
+
+        print(f"  Downloading (fallback): {rel_path}")
+        existing = dest.stat().st_size if dest.exists() else 0
+        headers = {"Range": f"bytes={existing}-"} if existing else {}
+
         try:
             resp = requests.get(url, stream=True, headers=headers, timeout=60)
             total = int(resp.headers.get("content-length", 0)) + existing
-
-            if resp.status_code == 416:
-                # Server says range not satisfiable — file already complete
-                print(f"  Already complete: {os.path.basename(dest)}")
-                return True
-
-            if resp.status_code not in (200, 206):
-                print(f"  HTTP {resp.status_code} — retrying ({attempt}/{max_retries})")
-                time.sleep(2 ** attempt)
-                continue
-
-            mode = "ab" if existing > 0 and resp.status_code == 206 else "wb"
-            if mode == "wb":
-                existing = 0  # Server didn't honour Range, restart
+            mode = "ab" if existing and resp.status_code == 206 else "wb"
 
             with open(dest, mode) as f, tqdm(
-                desc=f"  {os.path.basename(dest)}",
-                initial=existing,
-                total=total,
-                unit="B",
-                unit_scale=True,
-                unit_divisor=1024,
-                ncols=80,
+                desc=f"    {dest.name}", initial=existing, total=total,
+                unit="B", unit_scale=True, unit_divisor=1024, ncols=80
             ) as bar:
-                for chunk in resp.iter_content(chunk_size=1 << 17):  # 128 KB
+                for chunk in resp.iter_content(chunk_size=1 << 17):
                     f.write(chunk)
                     bar.update(len(chunk))
-
-            return True
-
-        except (requests.ConnectionError, requests.Timeout) as e:
-            print(f"  Network error ({e}) — retry {attempt}/{max_retries} in {2**attempt}s")
-            time.sleep(2 ** attempt)
-
-    return False
-
-
-def download_all():
-    # Run from src/SongFormer directory so relative ckpts/ paths resolve correctly
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    songformer_dir = os.path.dirname(script_dir)  # src/SongFormer
-    os.chdir(songformer_dir)
-    print(f"Working directory: {songformer_dir}\n")
-
-    all_ok = True
-    for url, rel_path, md5_key in FILES:
-        abs_path = os.path.join(songformer_dir, rel_path)
-        print(f"[{'✓' if os.path.exists(abs_path) else ' '}] {rel_path}")
-
-        # Skip if already downloaded and MD5 matches
-        if os.path.exists(abs_path):
-            expected = EXPECTED_MD5.get(md5_key)
-            if expected:
-                print(f"  Verifying MD5...", end=" ", flush=True)
-                actual = md5_of_file(abs_path)
-                if actual == expected:
-                    print("OK (cached)")
-                    continue
-                else:
-                    print(f"MISMATCH — re-downloading (got {actual[:8]}...)")
-                    os.remove(abs_path)
-            else:
-                print("  No MD5 to verify — using cached file")
-                continue
-
-        print(f"  Downloading from: {url}")
-        ok = download_resumable(url, abs_path)
-        if not ok:
-            print(f"  FAILED after retries: {rel_path}")
+        except Exception as e:
+            print(f"  FAILED: {e}")
             all_ok = False
-            continue
 
-        # Verify MD5 after download
-        expected = EXPECTED_MD5.get(md5_key)
-        if expected:
-            print(f"  Verifying MD5...", end=" ", flush=True)
-            actual = md5_of_file(abs_path)
-            if actual != expected:
-                print(f"MISMATCH — file may be corrupt (got {actual[:8]}...)")
-                all_ok = False
-            else:
-                print("OK")
+    return all_ok
 
-    print()
-    if all_ok:
-        print("All model weights downloaded and verified.")
-    else:
-        print("Some downloads failed. Re-run this script to resume.")
+
+def verify(ckpts: Path) -> bool:
+    required = [
+        ckpts / "SongFormer.safetensors",
+        ckpts / "MusicFM" / "pretrained_msd.pt",
+        ckpts / "MusicFM" / "msd_stats.json",
+    ]
+    missing = [f for f in required if not f.exists()]
+    if missing:
+        for m in missing:
+            print(f"  Missing: {m}")
+        return False
+
+    print("  All weights present:")
+    for f in required:
+        mb = f.stat().st_size / (1024 * 1024)
+        print(f"    {f.name}: {mb:.0f} MB")
+    return True
+
+
+def main():
+    ckpts = resolve_ckpts_dir()
+    print(f"Target: {ckpts}\n")
+
+    if verify(ckpts):
+        print("\nWeights already downloaded — nothing to do.")
+        return
+
+    print("[1/2] Downloading from ORBIT HuggingFace Space...")
+    download_from_space(ckpts)
+
+    if not verify(ckpts):
+        print("\n[2/2] Trying upstream sources directly...")
+        download_fallback(ckpts)
+
+    if not verify(ckpts):
+        print("\nDownload incomplete — re-run to resume.")
+        print("Manual sources:")
+        for url, rel in FALLBACK_FILES:
+            print(f"  {url}")
         sys.exit(1)
+
+    print("\nAll model weights ready.")
 
 
 if __name__ == "__main__":
-    download_all()
+    main()
