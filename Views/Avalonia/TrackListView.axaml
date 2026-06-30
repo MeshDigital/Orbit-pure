@@ -260,6 +260,9 @@
                     <MenuItem Header="Export to CSV" Command="{Binding BulkExportCsvCommand}">
                          <MenuItem.Icon><TextBlock Text="📊" FontSize="12"/></MenuItem.Icon>
                     </MenuItem>
+                    <MenuItem Header="Edit Cues in Cue Forge" Command="{Binding Operations.OpenInCueForgeCommand}">
+                         <MenuItem.Icon><TextBlock Text="🎯" FontSize="12"/></MenuItem.Icon>
+                    </MenuItem>
                     <Separator/>
                     <MenuItem Header="Remove Track" Command="{Binding Operations.RemoveTrackCommand}" InputGesture="Delete">
                          <MenuItem.Icon><TextBlock Text="🗑️" FontSize="12" Foreground="#FF5252"/></MenuItem.Icon>

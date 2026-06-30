@@ -30,9 +30,10 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     private readonly IBulkOperationCoordinator _bulkCoordinator; // Phase 10.5
     private readonly IEventBus _eventBus; // Phase 11.6 Notification
     private readonly IDialogService _dialogService;
+    private readonly CueForgeViewModel _cueForgeViewModel;
 
     public event PropertyChangedEventHandler? PropertyChanged;
-    
+
     // Commands
     public System.Windows.Input.ICommand PlayTrackCommand { get; }
     public System.Windows.Input.ICommand HardRetryCommand { get; }
@@ -49,6 +50,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand AddSelectedToQueueCommand { get; }
     public System.Windows.Input.ICommand AnalyseTrackCommand { get; }
     public System.Windows.Input.ICommand OpenAuditLogCommand { get; }
+    public System.Windows.Input.ICommand OpenInCueForgeCommand { get; }
 
     // Phase 10.5: Dependency Warning Property
     public bool AreDependenciesHealthy => _dependencyHealthService.IsHealthy;
@@ -64,7 +66,8 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         NativeDependencyHealthService dependencyHealthService,
         IBulkOperationCoordinator bulkCoordinator,
         IEventBus eventBus,
-        IDialogService dialogService)
+        IDialogService dialogService,
+        CueForgeViewModel cueForgeViewModel)
     {
         _logger = logger;
         _downloadManager = downloadManager;
@@ -76,6 +79,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         _bulkCoordinator = bulkCoordinator;
         _eventBus = eventBus;
         _dialogService = dialogService;
+        _cueForgeViewModel = cueForgeViewModel;
 
         // Subscribe to dynamic health updates
         _healthChangedHandler = (s, healthy) =>
@@ -105,7 +109,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         AddSelectedToQueueCommand = new RelayCommand(ExecuteAddSelectedToQueue);
         AnalyseTrackCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteAnalyseTrack);
         OpenAuditLogCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteOpenAuditLog);
-        
+        OpenInCueForgeCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteOpenInCueForge);
     }
 
     public void SetMainViewModel(MainViewModel mainViewModel)
@@ -463,6 +467,20 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         ReactiveUI.MessageBus.Current.SendMessage(SLSKDONET.Events.OpenInspectorEvent.Create(
             new SLSKDONET.ViewModels.Diagnostics.BlackBoxTerminalViewModel(trackHash), 
             "Library.TrackSelection.AuditLog"));
+    }
+
+    private async Task ExecuteOpenInCueForge(PlaylistTrackViewModel? track)
+    {
+        track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
+        if (track == null) return;
+
+        var hash = string.IsNullOrWhiteSpace(track.Model?.TrackUniqueHash)
+            ? track.Model?.Id.ToString("N")
+            : track.Model?.TrackUniqueHash;
+        if (string.IsNullOrEmpty(hash)) return;
+
+        await _cueForgeViewModel.LoadTrackAsync(hash, track.Title, track.Artist);
+        _mainViewModel?.NavigateCueForgeCommand.Execute(null);
     }
 
     public void Dispose()
