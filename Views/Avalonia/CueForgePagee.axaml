@@ -4,7 +4,6 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:ctrl="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
-             xmlns:models="clr-namespace:SLSKDONET.Models"
              mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="900"
              x:Class="SLSKDONET.Views.Avalonia.CueForgePagee"
              x:DataType="vm:CueForgeViewModel"
@@ -187,7 +186,7 @@
                     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding BrowserTracks}">
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate DataType="models:LibraryEntry">
+                                <DataTemplate DataType="vm:PlaylistTrackViewModel">
                                     <Button Command="{Binding $parent[UserControl].DataContext.LoadFromBrowserCommand}"
                                             CommandParameter="{Binding}"
                                             Background="Transparent" BorderThickness="0"

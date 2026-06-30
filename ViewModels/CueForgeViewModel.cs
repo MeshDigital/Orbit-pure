@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
+using SLSKDONET.Configuration;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Engine.Analysis;
 using SLSKDONET.Engine.Cueing;
@@ -37,6 +38,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private readonly PlayerViewModel _playerViewModel;
     private readonly CamelotKeyDisplayService _camelotKeyService;
     private readonly ILogger<CueForgeViewModel> _logger;
+    private readonly AppConfig _config;
+    private readonly ConfigManager _configManager;
     private readonly CompositeDisposable _disposables = new();
 
     private const double SnapThreshold = 0.05;
@@ -156,35 +159,42 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         "16 beats" => 16, "32 beats" => 32, "64 beats (16 bars)" => 64, "128 beats (32 bars)" => 128, _ => 16
     };
 
-    // ── Track Browser ──────────────────────────────────────────────────────
+    // ── Playlist Browser ───────────────────────────────────────────────────
 
-    public ObservableCollection<Models.LibraryEntry> BrowserTracks { get; } = new();
+    // Full list of tracks from the active playlist (set by caller when navigating here)
+    private readonly List<PlaylistTrackViewModel> _allPlaylistTracks = new();
+
+    public ObservableCollection<PlaylistTrackViewModel> BrowserTracks { get; } = new();
 
     private string _browserQuery = "";
     public string BrowserQuery
     {
         get => _browserQuery;
-        set { this.RaiseAndSetIfChanged(ref _browserQuery, value); _ = SearchBrowserAsync(value); }
+        set { this.RaiseAndSetIfChanged(ref _browserQuery, value); ApplyBrowserFilter(value); }
     }
 
     public System.Windows.Input.ICommand LoadFromBrowserCommand { get; private set; } = null!;
 
-    private async Task SearchBrowserAsync(string query)
+    public void SetPlaylistTracks(IEnumerable<PlaylistTrackViewModel>? tracks)
     {
-        try
-        {
-            List<Models.LibraryEntry> results = string.IsNullOrWhiteSpace(query)
-                ? await _libraryService.LoadAllLibraryEntriesAsync()
-                : await _libraryService.SearchLibraryEntriesWithStatusAsync(query, 80);
+        _allPlaylistTracks.Clear();
+        if (tracks != null) _allPlaylistTracks.AddRange(tracks);
+        ApplyBrowserFilter(_browserQuery);
+    }
 
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-            {
-                BrowserTracks.Clear();
-                foreach (var e in results.Take(80))
-                    BrowserTracks.Add(e);
-            });
-        }
-        catch (Exception ex) { _logger.LogWarning(ex, "CueForge browser search failed"); }
+    private void ApplyBrowserFilter(string query)
+    {
+        var filtered = string.IsNullOrWhiteSpace(query)
+            ? _allPlaylistTracks
+            : _allPlaylistTracks.Where(t =>
+                t.Title.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                t.Artist.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            BrowserTracks.Clear();
+            foreach (var t in filtered) BrowserTracks.Add(t);
+        });
     }
 
     // ── Commands ───────────────────────────────────────────────────────────
@@ -211,7 +221,9 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         Engine.Cueing.CueGenerationService engineCueService,
         PlayerViewModel playerViewModel,
         CamelotKeyDisplayService camelotKeyService,
-        ILogger<CueForgeViewModel> logger)
+        ILogger<CueForgeViewModel> logger,
+        AppConfig config,
+        ConfigManager configManager)
     {
         _cueService = cueService;
         _libraryService = libraryService;
@@ -219,6 +231,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         _playerViewModel = playerViewModel;
         _camelotKeyService = camelotKeyService;
         _logger = logger;
+        _config = config;
+        _configManager = configManager;
 
         var hasTrack = this.WhenAnyValue(x => x.TrackHash, h => !string.IsNullOrEmpty(h));
         var notGenerating = this.WhenAnyValue(x => x.IsGenerating, g => !g);
@@ -238,15 +252,19 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         UndoCommand = ReactiveCommand.Create(Undo, this.WhenAnyValue(x => x.CanUndo));
         RedoCommand = ReactiveCommand.Create(Redo, this.WhenAnyValue(x => x.CanRedo));
 
-        LoadFromBrowserCommand = new Views.AsyncRelayCommand<Models.LibraryEntry>(async entry =>
+        LoadFromBrowserCommand = new Views.AsyncRelayCommand<PlaylistTrackViewModel>(async track =>
         {
-            if (entry == null) return;
-            await LoadTrackAsync(entry.UniqueHash, entry.Title, entry.Artist);
+            if (track == null) return;
+            await LoadTrackAsync(track.GlobalId, track.Title, track.Artist);
         });
 
         WorkingCues.CollectionChanged += (_, _) => HasUncommittedChanges = true;
 
-        _ = SearchBrowserAsync("");
+        // Restore last session
+        if (!string.IsNullOrEmpty(_config.CueForgeLastTrackHash))
+            _ = LoadTrackAsync(_config.CueForgeLastTrackHash,
+                               _config.CueForgeLastTrackTitle,
+                               _config.CueForgeLastTrackArtist);
 
         // Auto-load when PlayerViewModel.CurrentTrack changes
         this.WhenAnyValue(x => x._playerViewModel.CurrentTrack)
@@ -349,6 +367,12 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         _logger.LogInformation("CueForge: loaded {Count} cues for {Hash} (BPM={Bpm} Dur={Dur:F0}s)",
             cues.Count, trackHash, Bpm, TrackDuration);
+
+        // Persist last-opened track so we can restore it on next launch
+        _config.CueForgeLastTrackHash = trackHash;
+        _config.CueForgeLastTrackTitle = title;
+        _config.CueForgeLastTrackArtist = artist;
+        _configManager.Save(_config);
     }
 
     public void ClearWorkingDraft()

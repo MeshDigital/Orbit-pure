@@ -222,6 +222,11 @@ public class AppConfig
     // Structure sensitivity slider (0..100): higher values prioritize intro/drop/breakdown/outro continuity
     public int LibrarySmartInsertStructureSensitivity { get; set; } = 55;
 
+    // Cue Forge last session
+    public string? CueForgeLastTrackHash { get; set; }
+    public string? CueForgeLastTrackTitle { get; set; }
+    public string? CueForgeLastTrackArtist { get; set; }
+
     public override string ToString()
     {
         return $"AppConfig(User={Username}, Port={ListenPort}, Downloads={DownloadDirectory})";
