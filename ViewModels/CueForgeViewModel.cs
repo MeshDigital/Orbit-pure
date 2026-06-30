@@ -77,6 +77,13 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         set => this.RaiseAndSetIfChanged(ref _energyCurveData, value);
     }
 
+    private float[]? _vocalDensityCurveData;
+    public float[]? VocalDensityCurveData
+    {
+        get => _vocalDensityCurveData;
+        set => this.RaiseAndSetIfChanged(ref _vocalDensityCurveData, value);
+    }
+
     private string _currentCamelotKey = "?";
     public string CurrentCamelotKey
     {

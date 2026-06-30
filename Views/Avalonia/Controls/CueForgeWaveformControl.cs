@@ -87,6 +87,16 @@ public class CueForgeWaveformControl : Control
         set => SetValue(EnergyCurveProperty, value);
     }
 
+    public static readonly StyledProperty<float[]?> VocalDensityCurveProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, float[]?>(
+            nameof(VocalDensityCurve), null);
+
+    public float[]? VocalDensityCurve
+    {
+        get => GetValue(VocalDensityCurveProperty);
+        set => SetValue(VocalDensityCurveProperty, value);
+    }
+
     /// <summary>Parse quantize string to beat count.</summary>
     private int ParseQuantizeBeatCount(string quantizeStr)
     {
@@ -132,6 +142,7 @@ public class CueForgeWaveformControl : Control
         DrawBeatGrid(context, bounds);
         DrawWaveform(context, bounds);
         DrawEnergyOverlay(context, bounds);
+        DrawVocalOverlay(context, bounds);
         DrawLoopBlocks(context, bounds);
         DrawCueMarkers(context, bounds);
         DrawPlayhead(context, bounds);
@@ -207,6 +218,28 @@ public class CueForgeWaveformControl : Control
             double y2 = bounds.Bottom - energy2 * bounds.Height * 0.3 - bounds.Height * 0.1;
 
             context.DrawLine(energyPen, new Point(x, y1), new Point(x + 1, y2));
+        }
+    }
+
+    private void DrawVocalOverlay(DrawingContext context, Rect bounds)
+    {
+        if (VocalDensityCurve == null || VocalDensityCurve.Length < 2) return;
+
+        int width = (int)bounds.Width;
+
+        // Paint vertical strips where vocals are detected (>0.3 threshold = vocal presence)
+        for (int x = 0; x < width; x++)
+        {
+            int idx = Math.Min(x, VocalDensityCurve.Length - 1);
+            float vocalDensity = VocalDensityCurve[idx];
+
+            if (vocalDensity > 0.3f)
+            {
+                // Higher vocal density = deeper red tint, higher opacity
+                byte alpha = (byte)(vocalDensity * 60); // 0-60 opacity
+                var vocalBrush = new SolidColorBrush(Color.FromArgb(alpha, 255, 80, 80)); // Red-tinted
+                context.FillRectangle(vocalBrush, new Rect(x, bounds.Top, 1, bounds.Height));
+            }
         }
     }
 
@@ -381,7 +414,8 @@ public class CueForgeWaveformControl : Control
             change.Property == BpmProperty ||
             change.Property == SnapToGridProperty ||
             change.Property == QuantizeBeatStringProperty ||
-            change.Property == EnergyCurveProperty)
+            change.Property == EnergyCurveProperty ||
+            change.Property == VocalDensityCurveProperty)
         {
             InvalidateVisual();
         }
