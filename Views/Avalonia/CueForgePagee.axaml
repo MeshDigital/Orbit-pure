@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:ctrl="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:models="clr-namespace:SLSKDONET.Models"
              mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="900"
              x:Class="SLSKDONET.Views.Avalonia.CueForgePagee"
              x:DataType="vm:CueForgeViewModel"
@@ -167,11 +168,53 @@
             </Grid>
         </Border>
 
-        <!-- Row 2: Waveform + Inspector -->
-        <Grid Grid.Row="2" ColumnDefinitions="*,300">
+        <!-- Row 2: Browser + Waveform + Inspector -->
+        <Grid Grid.Row="2" ColumnDefinitions="200,*,300">
+
+            <!-- Track Browser -->
+            <Border Grid.Column="0" Background="#0E0E16" BorderBrush="#1A1A2A" BorderThickness="0,0,1,0">
+                <Grid RowDefinitions="Auto,*">
+                    <!-- Search box -->
+                    <Border Grid.Row="0" Background="#111118" BorderBrush="#1E1E2E" BorderThickness="0,0,0,1" Padding="8,6">
+                        <TextBox Text="{Binding BrowserQuery}"
+                                 Watermark="Search library..."
+                                 Background="#0A0A12" Foreground="#A0A0C0"
+                                 BorderBrush="#2A2A40" BorderThickness="1"
+                                 CornerRadius="3" Padding="6,4" FontSize="11"
+                                 CaretBrush="#7777AA"/>
+                    </Border>
+                    <!-- Track list -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding BrowserTracks}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="models:LibraryEntry">
+                                    <Button Command="{Binding $parent[UserControl].DataContext.LoadFromBrowserCommand}"
+                                            CommandParameter="{Binding}"
+                                            Background="Transparent" BorderThickness="0"
+                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                            Padding="8,6" Cursor="Hand">
+                                        <Button.Styles>
+                                            <Style Selector="Button:pointerover /template/ ContentPresenter">
+                                                <Setter Property="Background" Value="#181828"/>
+                                            </Style>
+                                        </Button.Styles>
+                                        <StackPanel Spacing="1">
+                                            <TextBlock Text="{Binding Title}" Foreground="#C0C0D8"
+                                                       FontSize="11" FontWeight="SemiBold"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding Artist}" Foreground="#606080"
+                                                       FontSize="10" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
 
             <!-- Waveform Canvas -->
-            <Border Grid.Column="0" Background="#0A0E27" BorderBrush="#1A1A2A" BorderThickness="0,0,1,0">
+            <Border Grid.Column="1" Background="#0A0E27" BorderBrush="#1A1A2A" BorderThickness="0,0,1,0">
                 <ctrl:CueForgeWaveformControl
                     Cues="{Binding WorkingCues}"
                     PhraseSegments="{Binding PhraseSegments}"
@@ -189,7 +232,7 @@
             </Border>
 
             <!-- Inspector Panel -->
-            <Border Grid.Column="1" Background="#111118">
+            <Border Grid.Column="2" Background="#111118">
                 <Grid RowDefinitions="Auto,Auto,*">
 
                     <!-- Inspector header -->

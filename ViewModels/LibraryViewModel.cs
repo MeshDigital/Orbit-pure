@@ -806,11 +806,9 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     public void SetMainViewModel(Views.MainViewModel mainViewModel)
     {
         MainViewModel = mainViewModel;
-        // Keep track list context aligned with the active main VM.
         if (Tracks != null)
-        {
             Tracks.SetMainViewModel(mainViewModel);
-        }
+        Operations?.SetMainViewModel(mainViewModel);
     }
 
     public void AddToPlaylist(PlaylistJob targetPlaylist, PlaylistTrackViewModel track)

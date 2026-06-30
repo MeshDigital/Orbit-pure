@@ -156,6 +156,37 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         "16 beats" => 16, "32 beats" => 32, "64 beats (16 bars)" => 64, "128 beats (32 bars)" => 128, _ => 16
     };
 
+    // ── Track Browser ──────────────────────────────────────────────────────
+
+    public ObservableCollection<Models.LibraryEntry> BrowserTracks { get; } = new();
+
+    private string _browserQuery = "";
+    public string BrowserQuery
+    {
+        get => _browserQuery;
+        set { this.RaiseAndSetIfChanged(ref _browserQuery, value); _ = SearchBrowserAsync(value); }
+    }
+
+    public System.Windows.Input.ICommand LoadFromBrowserCommand { get; private set; } = null!;
+
+    private async Task SearchBrowserAsync(string query)
+    {
+        try
+        {
+            List<Models.LibraryEntry> results = string.IsNullOrWhiteSpace(query)
+                ? await _libraryService.LoadAllLibraryEntriesAsync()
+                : await _libraryService.SearchLibraryEntriesWithStatusAsync(query, 80);
+
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                BrowserTracks.Clear();
+                foreach (var e in results.Take(80))
+                    BrowserTracks.Add(e);
+            });
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "CueForge browser search failed"); }
+    }
+
     // ── Commands ───────────────────────────────────────────────────────────
 
     public ReactiveCommand<Unit, Unit> AddCueAtPlayheadCommand { get; }
@@ -207,7 +238,15 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         UndoCommand = ReactiveCommand.Create(Undo, this.WhenAnyValue(x => x.CanUndo));
         RedoCommand = ReactiveCommand.Create(Redo, this.WhenAnyValue(x => x.CanRedo));
 
+        LoadFromBrowserCommand = new Views.AsyncRelayCommand<Models.LibraryEntry>(async entry =>
+        {
+            if (entry == null) return;
+            await LoadTrackAsync(entry.UniqueHash, entry.Title, entry.Artist);
+        });
+
         WorkingCues.CollectionChanged += (_, _) => HasUncommittedChanges = true;
+
+        _ = SearchBrowserAsync("");
 
         // Auto-load when PlayerViewModel.CurrentTrack changes
         this.WhenAnyValue(x => x._playerViewModel.CurrentTrack)
