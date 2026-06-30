@@ -68,6 +68,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private readonly IConnectionLifecycleService _lifecycle;
     private readonly IDbContextFactory<AppDbContext>? _dbFactory;
     private readonly ILibraryService? _libraryService;
+    private readonly AiEngineService _aiEngine;
 
     // Hardcoded public client ID provided by user/project
     // Ideally this would be in a secured config, but for this desktop app scenario it's acceptable as a default.
@@ -75,6 +76,11 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    // AI Engine (optional EDMFormer microservice)
+    public AiEngineService AiEngine => _aiEngine;
+    public ICommand InstallAiEngineCommand { get; }
+    public ICommand StartAiServerCommand { get; }
+    public ICommand CheckAiEngineCommand { get; }
 
     // Settings Properties
     public string DownloadPath
@@ -1384,7 +1390,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         IConnectionLifecycleService lifecycle,
         KeyboardMappingsViewModel keyboardMappings,
         IDbContextFactory<AppDbContext>? dbFactory = null,
-        ILibraryService? libraryService = null)
+        ILibraryService? libraryService = null,
+        AiEngineService? aiEngine = null)
     {
         _logger = logger;
         _config = config;
@@ -1401,6 +1408,12 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _lifecycle = lifecycle;
         _libraryService = libraryService;
         KeyboardMappings = keyboardMappings;
+        _aiEngine = aiEngine ?? new AiEngineService();
+
+        InstallAiEngineCommand = new AsyncRelayCommand(() => _aiEngine.StartInstallAsync());
+        StartAiServerCommand   = new AsyncRelayCommand(() => _aiEngine.StartServerAsync());
+        CheckAiEngineCommand   = new AsyncRelayCommand(() => _aiEngine.CheckStatusAsync());
+        _ = _aiEngine.CheckStatusAsync();
 
         // Ensure default Client ID is set if empty
         if (string.IsNullOrEmpty(_config.SpotifyClientId))

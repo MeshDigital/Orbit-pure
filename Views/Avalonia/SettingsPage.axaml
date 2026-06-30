@@ -12,6 +12,11 @@
     <UserControl.Resources>
         <conv:RankColorConverter x:Key="RankColorConverter"/>
         <conv:BoolToTextConverter x:Key="BoolToTextConverter"/>
+        <conv:AiStatusToDotBrushConverter    x:Key="AiStatusToDotBrushConverter"/>
+        <conv:AiStatusToBorderBrushConverter x:Key="AiStatusToBorderBrushConverter"/>
+        <conv:AiStatusToInstallVisConverter  x:Key="AiStatusToInstallVisConverter"/>
+        <conv:AiStatusToStartVisConverter    x:Key="AiStatusToStartVisConverter"/>
+        <conv:AiStatusToCheckingVisConverter x:Key="AiStatusToCheckingVisConverter"/>
     </UserControl.Resources>
 
     <UserControl.Styles>
@@ -128,6 +133,78 @@
                                FontSize="12"
                                TextWrapping="Wrap"
                                IsVisible="{Binding SoulseekConnectionStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                </StackPanel>
+            </Border>
+
+            <!-- AI Engine -->
+            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderThickness="1"
+                    BorderBrush="{Binding AiEngine.Status, Converter={StaticResource AiStatusToBorderBrushConverter}}">
+                <StackPanel Spacing="0">
+
+                    <!-- Header -->
+                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,4">
+                        <TextBlock Text="🤖" FontSize="20" VerticalAlignment="Center"/>
+                        <StackPanel>
+                            <TextBlock Text="AI Engine (Optional)" FontSize="15" FontWeight="SemiBold" Foreground="#E8EAF0"/>
+                            <TextBlock Text="EDMFormer phrase detection — 30-50% better cue points for EDM"
+                                       FontSize="11" Foreground="#5A6A80" Margin="0,1,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Border Height="1" Background="#1E2A3A" Margin="0,12,0,14"/>
+
+                    <!-- Status row -->
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,10" VerticalAlignment="Center">
+                        <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                 Fill="{Binding AiEngine.Status, Converter={StaticResource AiStatusToDotBrushConverter}}"/>
+                        <TextBlock Text="Status:" FontSize="12" Foreground="#8892AA" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding AiEngine.StatusText}" FontSize="12" Foreground="#C8D0E0"
+                                   VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    </StackPanel>
+
+                    <!-- Description -->
+                    <TextBlock FontSize="11" Foreground="#4A5A70" TextWrapping="Wrap" Margin="0,0,0,14"
+                               Text="Requires ~4 GB disk, conda (Miniconda/Anaconda), and a one-time weight download. Once installed, cue auto-generation uses ML-grade phrase detection. Without it, the built-in DSP engine (sub-bass + spectral flux) runs automatically with no setup needed."/>
+
+                    <!-- Checking / Installing indicator -->
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,10"
+                                IsVisible="{Binding AiEngine.Status, Converter={StaticResource AiStatusToCheckingVisConverter}}">
+                        <TextBlock Text="⏳" FontSize="13" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding AiEngine.StatusText}" FontSize="12" Foreground="#DDB800" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- Button row -->
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <!-- Install button: NotInstalled or Error -->
+                        <Button Command="{Binding InstallAiEngineCommand}"
+                                Padding="14,7" CornerRadius="6" FontSize="12" FontWeight="Medium"
+                                Background="#1A3A26" Foreground="#00C878" BorderBrush="#00C878" BorderThickness="1"
+                                IsVisible="{Binding AiEngine.Status, Converter={StaticResource AiStatusToInstallVisConverter}}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="⬇" FontSize="12" VerticalAlignment="Center"/>
+                                <TextBlock Text="Install AI Engine" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Start Server button: Ready -->
+                        <Button Command="{Binding StartAiServerCommand}"
+                                Padding="14,7" CornerRadius="6" FontSize="12" FontWeight="Medium"
+                                Background="#1A2A3A" Foreground="#4D9FFF" BorderBrush="#4D9FFF" BorderThickness="1"
+                                IsVisible="{Binding AiEngine.Status, Converter={StaticResource AiStatusToStartVisConverter}}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="▶" FontSize="12" VerticalAlignment="Center"/>
+                                <TextBlock Text="Start AI Server" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Re-check button always visible -->
+                        <Button Command="{Binding CheckAiEngineCommand}"
+                                Padding="10,7" CornerRadius="6" FontSize="12"
+                                Background="#1A1A1A" Foreground="#6A7A90" BorderBrush="#2A3A4A" BorderThickness="1">
+                            <TextBlock Text="↺ Refresh" VerticalAlignment="Center"/>
+                        </Button>
+                    </StackPanel>
+
                 </StackPanel>
             </Border>
 

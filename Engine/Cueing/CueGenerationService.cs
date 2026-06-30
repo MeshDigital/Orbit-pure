@@ -86,7 +86,13 @@ public sealed class CueGenerationService
                 trackHash, analysis.PhraseSegments, duration, bpm, downbeatAnchor);
         }
 
-        // ── Path 2: Heuristic DSP (unchanged original logic) ───────────────
+        // ── Path 2: Sub-bass DSP (no AI needed — uses computed energy signals)
+        if (analysis.SubBassReturnTimestamps.Count >= 1 || analysis.NoveltyDropSignatures.Count >= 1)
+        {
+            return GenerateCuesDsp(trackHash, analysis, downbeatAnchor, duration, bpm);
+        }
+
+        // ── Path 3: Heuristic fallback (transient clustering + IntentClassifier)
         return GenerateCuesHeuristic(
             trackHash, analysis, downbeatAnchor, duration, bpm, vocalStart, vocalEnd, vocalIntensity);
     }
@@ -177,6 +183,174 @@ public sealed class CueGenerationService
 
         cues.Sort((a, b) => a.TimestampInSeconds.CompareTo(b.TimestampInSeconds));
         return cues;
+    }
+
+    // ── DSP Path (sub-bass + spectral flux — no AI required) ──────────────
+
+    /// <summary>
+    /// Generates 8 structural cues directly from computed energy signals.
+    ///
+    /// Signal semantics used:
+    ///   SubBassReturnTimestamps  → near-perfect drop markers (bass kicks back in)
+    ///   SubBassDropoutTimestamps → near-perfect breakdown markers (bass drops out)
+    ///   NoveltyDropSignatures    → (DropSeconds, BuildStartSeconds, Strength) — high-confidence boundaries
+    ///   EnergyCurve              → 1s RMS windows for intro/outro shape
+    /// </summary>
+    private List<CuePointEntity> GenerateCuesDsp(
+        string trackHash,
+        AnalysisPipelineResult analysis,
+        double downbeatAnchor,
+        double duration,
+        double bpm)
+    {
+        var cues = new List<CuePointEntity>(8);
+        double bar  = 60.0 / bpm * 4;
+        double beat = 60.0 / bpm;
+
+        // ── 1. Collect and score drop candidates ──────────────────────────
+        // SubBassReturns are the strongest signal. Reinforce with flux novelty.
+        var dropCandidates = new List<(double Time, float Score)>();
+
+        foreach (var t in analysis.SubBassReturnTimestamps)
+        {
+            float fluxBonus = SampleFluxAt(analysis.SpectralFluxNovelty, t, duration);
+            dropCandidates.Add((t, 0.7f + 0.3f * fluxBonus));
+        }
+
+        // Also consider novelty drop signatures not already covered
+        foreach (var (dropTs, buildStart, strength) in analysis.NoveltyDropSignatures)
+        {
+            bool alreadyCovered = dropCandidates.Any(d => Math.Abs(d.Time - dropTs) < bar * 2);
+            if (!alreadyCovered)
+                dropCandidates.Add((dropTs, strength * 0.8f));
+        }
+
+        // Sort by time, deduplicate within 2 bars
+        dropCandidates.Sort((a, b) => a.Time.CompareTo(b.Time));
+        dropCandidates = Deduplicate(dropCandidates, bar * 2);
+
+        // ── 2. Pick primary drops (up to 2) ──────────────────────────────
+        // The highest-scored drop in each half of the track
+        double midpoint = duration * 0.5;
+        var drop1 = dropCandidates
+            .Where(d => d.Time < midpoint && d.Time > duration * 0.1)
+            .OrderByDescending(d => d.Score).FirstOrDefault();
+        var drop2 = dropCandidates
+            .Where(d => d.Time >= midpoint && d.Time < duration * 0.9)
+            .OrderByDescending(d => d.Score).FirstOrDefault();
+
+        // Fallback positions when signals are missing
+        double drop1Time = drop1.Time > 0
+            ? SnapToBar(drop1.Time, bpm, downbeatAnchor)
+            : SnapToBar(duration * 0.32, bpm, downbeatAnchor);
+        double drop2Time = drop2.Time > 0
+            ? SnapToBar(drop2.Time, bpm, downbeatAnchor)
+            : SnapToBar(drop1Time + bar * 32, bpm, downbeatAnchor);
+        drop2Time = Math.Min(drop2Time, duration - bar * 8);
+
+        // ── 3. Breakdowns — sub-bass dropout timestamps ───────────────────
+        var dropouts = analysis.SubBassDropoutTimestamps
+            .Select(t => SnapToBar(t, bpm, downbeatAnchor))
+            .OrderBy(t => t)
+            .ToList();
+
+        double brk1Time = dropouts.Where(t => t < drop1Time - bar).OrderByDescending(t => t)
+                               .FirstOrDefault();
+        if (brk1Time <= 0)
+            brk1Time = SnapToBar(drop1Time - bar * 8, bpm, downbeatAnchor);
+        brk1Time = Math.Max(brk1Time, downbeatAnchor + bar * 2);
+
+        double brk2Time = dropouts.Where(t => t > drop1Time && t < drop2Time - bar)
+                               .OrderBy(t => t).FirstOrDefault();
+        if (brk2Time <= 0)
+            brk2Time = SnapToBar(drop1Time + bar * 16, bpm, downbeatAnchor);
+        brk2Time = Math.Min(brk2Time, drop2Time - bar);
+
+        // ── 4. Builds — from NoveltyDropSignatures or 16 bars before drop ─
+        double build1Time;
+        var sig1 = analysis.NoveltyDropSignatures
+            .Where(s => Math.Abs(s.DropSeconds - drop1Time) < bar * 4)
+            .OrderByDescending(s => s.Strength).FirstOrDefault();
+        build1Time = sig1.BuildStartSeconds > 0
+            ? SnapToBar(sig1.BuildStartSeconds, bpm, downbeatAnchor)
+            : SnapToBar(drop1Time - bar * 16, bpm, downbeatAnchor);
+        build1Time = Math.Clamp(build1Time, downbeatAnchor + bar, brk1Time - bar);
+
+        // ── 5. Intro — first downbeat, adjusted for long DJ intros ────────
+        double introTime = downbeatAnchor;
+        // If energy is low for first 8+ bars, advance intro cue to first energy peak
+        if (analysis.EnergyCurve.Length > 0)
+        {
+            int barSamples = (int)Math.Round(bar); // 1s windows
+            float earlyAvg = analysis.EnergyCurve.Take(barSamples * 8).DefaultIfEmpty(0).Average();
+            float trackAvg = analysis.EnergyCurve.Average();
+            if (earlyAvg < trackAvg * 0.5f)
+                introTime = downbeatAnchor; // keep at 0 for low-energy DJ intros
+        }
+
+        // ── 6. Mix-In point — good early DJ mix marker (32 bars in) ───────
+        double mixInTime = SnapToBar(introTime + bar * 32, bpm, downbeatAnchor);
+        mixInTime = Math.Min(mixInTime, build1Time - bar * 4);
+
+        // ── 7. Mix-Out and Outro ──────────────────────────────────────────
+        double outroTime = SnapToBar(duration - bar * 8, bpm, downbeatAnchor);
+        // If energy curve exists, find where it drops sustainedly below 40%
+        if (analysis.EnergyCurve.Length > 8)
+        {
+            float trackPeak = analysis.EnergyCurve.Max();
+            double secPerSample = duration / analysis.EnergyCurve.Length;
+            for (int i = analysis.EnergyCurve.Length - 1; i > analysis.EnergyCurve.Length / 2; i--)
+            {
+                if (analysis.EnergyCurve[i] > trackPeak * 0.4f)
+                {
+                    double candidate = SnapToBar(i * secPerSample, bpm, downbeatAnchor);
+                    if (candidate > drop2Time + bar * 4)
+                        outroTime = candidate;
+                    break;
+                }
+            }
+        }
+        double mixOutTime = SnapToBar(outroTime - bar * 16, bpm, downbeatAnchor);
+        mixOutTime = Math.Max(mixOutTime, drop2Time + bar * 4);
+
+        // ── 8. Assemble 8-slot map ────────────────────────────────────────
+        cues.Add(Make(trackHash, introTime,  CuePointType.Intro,     "Intro",          1.0f));
+        cues.Add(Make(trackHash, mixInTime,  CuePointType.Intro,     "Mix-In",         0.85f));
+        cues.Add(Make(trackHash, brk1Time,   CuePointType.Breakdown, "Breakdown",      0.90f));
+        cues.Add(Make(trackHash, drop1Time,  CuePointType.Drop,      "Drop 1",         drop1.Time > 0 ? 0.93f : 0.70f));
+        cues.Add(Make(trackHash, brk2Time,   CuePointType.Breakdown, "Breakdown 2",    0.85f));
+        cues.Add(Make(trackHash, drop2Time,  CuePointType.Drop,      "Drop 2",         drop2.Time > 0 ? 0.90f : 0.65f));
+        cues.Add(Make(trackHash, mixOutTime, CuePointType.Outro,     "Mix-Out",        0.88f));
+        cues.Add(Make(trackHash, outroTime,  CuePointType.Outro,     "Outro",          0.92f));
+
+        cues.Sort((a, b) => a.TimestampInSeconds.CompareTo(b.TimestampInSeconds));
+        return cues;
+    }
+
+    private static float SampleFluxAt(float[] fluxCurve, double timeSec, double duration)
+    {
+        if (fluxCurve.Length == 0 || duration <= 0) return 0f;
+        int idx = (int)Math.Clamp(timeSec / duration * fluxCurve.Length, 0, fluxCurve.Length - 1);
+        // sample a ±3 frame window and return normalized peak
+        float peak = 0f;
+        for (int i = Math.Max(0, idx - 3); i <= Math.Min(fluxCurve.Length - 1, idx + 3); i++)
+            peak = Math.Max(peak, fluxCurve[i]);
+        float max = fluxCurve.Max();
+        return max > 0 ? peak / max : 0f;
+    }
+
+    private static List<(double Time, float Score)> Deduplicate(
+        List<(double Time, float Score)> sorted, double minGap)
+    {
+        var result = new List<(double, float)>();
+        foreach (var item in sorted)
+        {
+            if (result.Count == 0 || item.Time - result[^1].Time >= minGap)
+                result.Add(item);
+            else if (item.Score > result[^1].Score)
+                result[^1] = item; // keep higher-scored one in the window
+        }
+        return result;
     }
 
     // ── Heuristic Path (original logic, preserved) ──────────────────────────

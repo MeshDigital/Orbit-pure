@@ -565,6 +565,7 @@ public partial class App : Application
         services.AddSingleton<UserCollectionViewModel>();
         services.AddSingleton<SearchFilterViewModel>(); // [FIX] Added missing registration
         services.AddSingleton<ConnectionViewModel>();
+        services.AddSingleton<AiEngineService>();
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<BulkOperationViewModel>();
         services.AddSingleton<HomeViewModel>();
