@@ -625,6 +625,9 @@ public partial class App : Application
         services.AddSingleton<Services.OrbSessionBundleService>();
         services.AddSingleton<Services.IUndoService, Services.UndoService>();
 
+        // ── EDMFormer ML phrase detection service (optional — requires local Python service on port 7774) ──
+        services.AddSingleton<Services.Audio.IEdmFormerService, Services.Audio.EdmFormerService>();
+
         // ── Auto-cue / phrase detection pipeline ──────────────────────────
         services.AddSingleton<Services.CueGenerationService>();
         services.AddSingleton<Services.AudioAnalysis.CuePointDetectionService>();
@@ -640,7 +643,11 @@ public partial class App : Application
         services.AddSingleton<SLSKDONET.ViewModels.Workstation.CueEditorViewModel>();
         services.AddSingleton<SLSKDONET.ViewModels.CueForgeViewModel>();
         services.AddSingleton<SLSKDONET.ViewModels.CurationWorkstationViewModel>();
-        services.AddSingleton<SLSKDONET.Engine.Analysis.AnalysisPipeline>();
+        services.AddSingleton<SLSKDONET.Engine.Analysis.AnalysisPipeline>(sp =>
+            new SLSKDONET.Engine.Analysis.AnalysisPipeline(
+                sp.GetRequiredService<SLSKDONET.Services.AudioAnalysis.AudioIngestionPipeline>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SLSKDONET.Engine.Analysis.AnalysisPipeline>>(),
+                sp.GetService<SLSKDONET.Services.Audio.IEdmFormerService>()));
         services.AddSingleton<SLSKDONET.Engine.Cueing.CueGenerationService>();
         services.AddSingleton<Services.AnalysisQueueService>();
 

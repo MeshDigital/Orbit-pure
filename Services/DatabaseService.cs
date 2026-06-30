@@ -1963,6 +1963,36 @@ public class DatabaseService
         return await context.AudioFeatures.AsNoTracking().FirstOrDefaultAsync(f => f.TrackUniqueHash == uniqueHash);
     }
 
+    /// <summary>
+    /// Returns the local file path for a track by its unique hash.
+    /// Checks LibraryEntries.FilePath first, then Tracks.LocalFilePath.
+    /// Returns null if no path is found or the file no longer exists on disk.
+    /// </summary>
+    public async Task<string?> GetLocalFilePathByHashAsync(string uniqueHash)
+    {
+        using var context = new AppDbContext();
+
+        var libPath = await context.LibraryEntries
+            .AsNoTracking()
+            .Where(e => e.UniqueHash == uniqueHash && e.FilePath != null && e.FilePath != "")
+            .Select(e => e.FilePath)
+            .FirstOrDefaultAsync();
+
+        if (!string.IsNullOrEmpty(libPath) && System.IO.File.Exists(libPath))
+            return libPath;
+
+        var trackPath = await context.Tracks
+            .AsNoTracking()
+            .Where(t => t.GlobalId == uniqueHash && t.LocalFilePath != null && t.LocalFilePath != "")
+            .Select(t => t.LocalFilePath)
+            .FirstOrDefaultAsync();
+
+        if (!string.IsNullOrEmpty(trackPath) && System.IO.File.Exists(trackPath))
+            return trackPath;
+
+        return null;
+    }
+
     public async Task<List<LibraryEntryEntity>> GetLibraryEntriesNeedingMusicBrainzEnrichmentAsync(int count)
     {
         using var context = new AppDbContext();

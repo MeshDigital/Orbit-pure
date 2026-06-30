@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
+using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.AudioAnalysis;
 using SLSKDONET.Services.Embeddings;
 
@@ -31,6 +32,7 @@ public sealed class AnalyzeTrackStructureJob
     private readonly IPhraseAlignmentService _phraseAlignmentService;
     private readonly IEmbeddingExtractionService _embeddingExtractionService;
     private readonly EnergyAnalysisService _energyAnalysisService;
+    private readonly IEdmFormerService? _edmFormer;
     private readonly IEventBus _eventBus;
     private readonly ILogger<AnalyzeTrackStructureJob> _logger;
 
@@ -41,13 +43,15 @@ public sealed class AnalyzeTrackStructureJob
         IEmbeddingExtractionService embeddingExtractionService,
         EnergyAnalysisService energyAnalysisService,
         IEventBus eventBus,
-        ILogger<AnalyzeTrackStructureJob> logger)
+        ILogger<AnalyzeTrackStructureJob> logger,
+        IEdmFormerService? edmFormerService = null)
     {
         _databaseService = databaseService;
         _cueGenerationService = cueGenerationService;
         _phraseAlignmentService = phraseAlignmentService;
         _embeddingExtractionService = embeddingExtractionService;
         _energyAnalysisService = energyAnalysisService;
+        _edmFormer = edmFormerService;
         _eventBus = eventBus;
         _logger = logger;
     }
@@ -129,6 +133,30 @@ public sealed class AnalyzeTrackStructureJob
             // Step 5: Generate and persist cue points
             var cues = await _cueGenerationService.GenerateDefaultCuesAsync(
                 trackUniqueHash, analysisResult, cancellationToken);
+
+            // Step 5.5: EDMFormer ML phrase detection (optional — requires local Python service)
+            if (_edmFormer?.IsAvailable == true)
+            {
+                try
+                {
+                    var audioPath = await _databaseService.GetLocalFilePathByHashAsync(trackUniqueHash);
+                    if (!string.IsNullOrEmpty(audioPath))
+                    {
+                        var edmSegments = await _edmFormer.AnalyzeAsync(audioPath, cancellationToken);
+                        if (edmSegments is { Count: > 0 })
+                        {
+                            features.PhraseSegmentsJson = JsonSerializer.Serialize(edmSegments);
+                            _logger.LogInformation(
+                                "[AnalyzeTrackStructureJob] EDMFormer produced {n} phrase segments for {Hash}",
+                                edmSegments.Count, trackUniqueHash);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[AnalyzeTrackStructureJob] EDMFormer call failed for {Hash}, continuing without ML phrases", trackUniqueHash);
+                }
+            }
 
             // Step 6: Mark structural analysis version on the features entity
             features.StructuralVersion += 1;
