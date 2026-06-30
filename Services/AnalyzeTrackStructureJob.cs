@@ -131,8 +131,22 @@ public sealed class AnalyzeTrackStructureJob
                 await _databaseService.SavePhrasesAsync(sections);
 
             // Step 5: Generate and persist cue points
+            // Use EDMFormer ML phrase segments when available, otherwise heuristic
+            IReadOnlyList<PhraseSegment>? phraseSegments = null;
+            if (!string.IsNullOrWhiteSpace(features.PhraseSegmentsJson) && features.PhraseSegmentsJson != "[]")
+            {
+                try
+                {
+                    phraseSegments = JsonSerializer.Deserialize<List<PhraseSegment>>(features.PhraseSegmentsJson);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[AnalyzeTrackStructureJob] Could not deserialize PhraseSegmentsJson for {Hash}", trackUniqueHash);
+                }
+            }
+
             var cues = await _cueGenerationService.GenerateDefaultCuesAsync(
-                trackUniqueHash, analysisResult, cancellationToken);
+                trackUniqueHash, analysisResult, phraseSegments, cancellationToken);
 
             // Step 5.5: EDMFormer ML phrase detection (optional — requires local Python service)
             if (_edmFormer?.IsAvailable == true)

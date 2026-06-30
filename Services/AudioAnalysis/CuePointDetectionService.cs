@@ -72,7 +72,7 @@ public sealed class CuePointDetectionService
 
         // ── 3. Persist via CueGenerationService ───────────────────────────
         var cues = await _cueGenerator
-            .GenerateDefaultCuesAsync(trackUniqueHash, result, cancellationToken)
+            .GenerateDefaultCuesAsync(trackUniqueHash, result, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
         // ── 4. Back-fill shortcut fields on AudioFeaturesEntity ───────────
