@@ -67,14 +67,32 @@ public class CueForgeWaveformControl : Control
         set => SetValue(SnapToGridProperty, value);
     }
 
-    public static readonly StyledProperty<int> QuantizeBeatsProperty =
-        AvaloniaProperty.Register<CueForgeWaveformControl, int>(
-            nameof(QuantizeBeats), 16);
+    public static readonly StyledProperty<string> QuantizeBeatStringProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, string>(
+            nameof(QuantizeBeatString), "16 beats");
 
-    public int QuantizeBeats
+    public string QuantizeBeatString
     {
-        get => GetValue(QuantizeBeatsProperty);
-        set => SetValue(QuantizeBeatsProperty, value);
+        get => GetValue(QuantizeBeatStringProperty);
+        set => SetValue(QuantizeBeatStringProperty, value);
+    }
+
+    /// <summary>Parse quantize string to beat count.</summary>
+    private int ParseQuantizeBeatCount(string quantizeStr)
+    {
+        return quantizeStr switch
+        {
+            "Off" => 0,
+            "1 beat" => 1,
+            "2 beats" => 2,
+            "4 beats" => 4,
+            "8 beats" => 8,
+            "16 beats" => 16,
+            "32 beats" => 32,
+            "64 beats (16 bars)" => 64,
+            "128 beats (32 bars)" => 128,
+            _ => 16
+        };
     }
 
     // ── State ────────────────────────────────────────────────────────────
@@ -294,11 +312,12 @@ public class CueForgeWaveformControl : Control
         if (!SnapToGrid || Bpm <= 0) return timeSeconds;
 
         double beatDurationSeconds = 60.0 / Bpm;
+        int quantizeBeats = ParseQuantizeBeatCount(QuantizeBeatString);
         double snapDistance;
 
-        if (QuantizeBeats > 0)
+        if (quantizeBeats > 0)
         {
-            double gridDurationSeconds = beatDurationSeconds * QuantizeBeats;
+            double gridDurationSeconds = beatDurationSeconds * quantizeBeats;
             double nearestGrid = Math.Round(timeSeconds / gridDurationSeconds) * gridDurationSeconds;
             snapDistance = Math.Abs(timeSeconds - nearestGrid);
             if (snapDistance < 0.05)
@@ -328,7 +347,7 @@ public class CueForgeWaveformControl : Control
             change.Property == CurrentPlayPositionProperty ||
             change.Property == BpmProperty ||
             change.Property == SnapToGridProperty ||
-            change.Property == QuantizeBeatsProperty)
+            change.Property == QuantizeBeatStringProperty)
         {
             InvalidateVisual();
         }

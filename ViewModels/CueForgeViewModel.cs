@@ -62,11 +62,29 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         set => this.RaiseAndSetIfChanged(ref _snapToGrid, value);
     }
 
-    private int _quantizeBeats = 16;
-    public int QuantizeBeats
+    private string _quantizeBeats = "16 beats";
+    public string QuantizeBeats
     {
         get => _quantizeBeats;
         set => this.RaiseAndSetIfChanged(ref _quantizeBeats, value);
+    }
+
+    /// <summary>Parse QuantizeBeats string to numeric beats value.</summary>
+    public int GetQuantizeBeatCount()
+    {
+        return _quantizeBeats switch
+        {
+            "Off" => 0,
+            "1 beat" => 1,
+            "2 beats" => 2,
+            "4 beats" => 4,
+            "8 beats" => 8,
+            "16 beats" => 16,
+            "32 beats" => 32,
+            "64 beats (16 bars)" => 64,
+            "128 beats (32 bars)" => 128,
+            _ => 16 // Default
+        };
     }
 
     private OrbitCue? _selectedCue;

@@ -95,11 +95,17 @@
                                  BorderBrush="#555555"
                                  Padding="6,4"
                                  FontSize="11"
-                                 Width="90">
+                                 Width="110">
+                            <ComboBoxItem>Off</ComboBoxItem>
+                            <ComboBoxItem>1 beat</ComboBoxItem>
+                            <ComboBoxItem>2 beats</ComboBoxItem>
                             <ComboBoxItem>4 beats</ComboBoxItem>
                             <ComboBoxItem>8 beats</ComboBoxItem>
                             <ComboBoxItem>16 beats</ComboBoxItem>
                             <ComboBoxItem>32 beats</ComboBoxItem>
+                            <!-- High-BPM DnB macro phrasing -->
+                            <ComboBoxItem>64 beats (16 bars)</ComboBoxItem>
+                            <ComboBoxItem>128 beats (32 bars)</ComboBoxItem>
                         </ComboBox>
                     </StackPanel>
                 </StackPanel>
@@ -160,7 +166,7 @@
                         CurrentPlayPosition="{Binding CurrentPlayPosition}"
                         Bpm="120"
                         SnapToGrid="{Binding SnapToGrid}"
-                        QuantizeBeats="{Binding QuantizeBeats}"
+                        QuantizeBeatString="{Binding QuantizeBeats}"
                         TrackDuration="300"/>
                 </Border>
 
