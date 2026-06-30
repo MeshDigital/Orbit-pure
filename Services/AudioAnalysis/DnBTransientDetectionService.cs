@@ -37,7 +37,7 @@ public sealed class DnBTransientDetectionService
 
     /// <summary>
     /// Analyzes energy curve for DnB-specific patterns: transient onsets,
-    /// sub-bass dropouts, and pre-drop sections.
+    /// sub-bass dropouts, pre-drop sections, and energy visualization.
     /// </summary>
     public DnBAnalysisResult AnalyzeForDnB(
         float[] energyCurve,
@@ -48,7 +48,8 @@ public sealed class DnBTransientDetectionService
         var result = new DnBAnalysisResult
         {
             Bpm = bpm,
-            EnergyWindowSeconds = energyWindowSeconds
+            EnergyWindowSeconds = energyWindowSeconds,
+            EnergyCurve = energyCurve != null ? (float[])energyCurve.Clone() : new float[0]
         };
 
         if (energyCurve == null || energyCurve.Length < 2)
@@ -246,6 +247,9 @@ public sealed class DnBAnalysisResult
 {
     public float Bpm { get; set; }
     public double EnergyWindowSeconds { get; set; }
+
+    /// <summary>Normalized energy curve (0-1) for visualization overlays.</summary>
+    public float[] EnergyCurve { get; set; } = new float[0];
 
     /// <summary>Detected percussive onsets (kick, snare).</summary>
     public List<TransientMarker> TransientOnsets { get; set; } = new();

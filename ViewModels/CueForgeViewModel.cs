@@ -69,6 +69,13 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         set => this.RaiseAndSetIfChanged(ref _quantizeBeats, value);
     }
 
+    private float[]? _energyCurveData;
+    public float[]? EnergyCurveData
+    {
+        get => _energyCurveData;
+        set => this.RaiseAndSetIfChanged(ref _energyCurveData, value);
+    }
+
     /// <summary>Parse QuantizeBeats string to numeric beats value.</summary>
     public int GetQuantizeBeatCount()
     {

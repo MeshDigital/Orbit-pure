@@ -77,6 +77,16 @@ public class CueForgeWaveformControl : Control
         set => SetValue(QuantizeBeatStringProperty, value);
     }
 
+    public static readonly StyledProperty<float[]?> EnergyCurveProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, float[]?>(
+            nameof(EnergyCurve), null);
+
+    public float[]? EnergyCurve
+    {
+        get => GetValue(EnergyCurveProperty);
+        set => SetValue(EnergyCurveProperty, value);
+    }
+
     /// <summary>Parse quantize string to beat count.</summary>
     private int ParseQuantizeBeatCount(string quantizeStr)
     {
@@ -121,6 +131,7 @@ public class CueForgeWaveformControl : Control
 
         DrawBeatGrid(context, bounds);
         DrawWaveform(context, bounds);
+        DrawEnergyOverlay(context, bounds);
         DrawLoopBlocks(context, bounds);
         DrawCueMarkers(context, bounds);
         DrawPlayhead(context, bounds);
@@ -174,6 +185,28 @@ public class CueForgeWaveformControl : Control
             double y2 = bounds.Height * 0.5 + (r + g + b) / 3.0 / 255.0 * bounds.Height * 0.4;
 
             context.DrawLine(pen, new Point(x, y1), new Point(x, y2));
+        }
+    }
+
+    private void DrawEnergyOverlay(DrawingContext context, Rect bounds)
+    {
+        if (EnergyCurve == null || EnergyCurve.Length < 2) return;
+
+        int width = (int)bounds.Width;
+        var energyPen = new Pen(new SolidColorBrush(Color.FromArgb(60, 100, 200, 100)), 2.0);
+
+        for (int x = 0; x < width - 1; x++)
+        {
+            int idx1 = Math.Min(x, EnergyCurve.Length - 1);
+            int idx2 = Math.Min(x + 1, EnergyCurve.Length - 1);
+
+            float energy1 = EnergyCurve[idx1];
+            float energy2 = EnergyCurve[idx2];
+
+            double y1 = bounds.Bottom - energy1 * bounds.Height * 0.3 - bounds.Height * 0.1;
+            double y2 = bounds.Bottom - energy2 * bounds.Height * 0.3 - bounds.Height * 0.1;
+
+            context.DrawLine(energyPen, new Point(x, y1), new Point(x + 1, y2));
         }
     }
 
@@ -347,7 +380,8 @@ public class CueForgeWaveformControl : Control
             change.Property == CurrentPlayPositionProperty ||
             change.Property == BpmProperty ||
             change.Property == SnapToGridProperty ||
-            change.Property == QuantizeBeatStringProperty)
+            change.Property == QuantizeBeatStringProperty ||
+            change.Property == EnergyCurveProperty)
         {
             InvalidateVisual();
         }

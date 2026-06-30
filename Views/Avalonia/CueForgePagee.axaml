@@ -167,6 +167,7 @@
                         Bpm="120"
                         SnapToGrid="{Binding SnapToGrid}"
                         QuantizeBeatString="{Binding QuantizeBeats}"
+                        EnergyCurve="{Binding EnergyCurveData}"
                         TrackDuration="300"/>
                 </Border>
 
