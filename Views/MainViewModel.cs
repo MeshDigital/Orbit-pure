@@ -769,6 +769,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsPlayerOverlayActive => CurrentPageType == PageType.NowPlaying;
     public bool IsSettingsOverlayActive => CurrentPageType == PageType.Settings;
     public bool IsWorkstationOverlayActive => IsCreativeOverlayPage(CurrentPageType);
+    public bool IsCueForgeOverlayActive => CurrentPageType == PageType.CueForge;
 
     private static readonly string[] NavigationOverlayPropertyNames =
     [
@@ -783,7 +784,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         nameof(IsAnalysisOverlayActive),
         nameof(IsPlayerOverlayActive),
         nameof(IsSettingsOverlayActive),
-        nameof(IsWorkstationOverlayActive)
+        nameof(IsWorkstationOverlayActive),
+        nameof(IsCueForgeOverlayActive)
     ];
 
     public static PageType ResolvePageType(Type? pageType, PageType fallback)
