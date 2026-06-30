@@ -20,7 +20,39 @@ public sealed class AnalysisPipelineResult
     public IReadOnlyList<TransientDataPoint> Transients { get; set; } = Array.Empty<TransientDataPoint>();
     public IReadOnlyList<double> HarmonicResets { get; set; } = Array.Empty<double>();
     public IReadOnlyList<double> DrumSignatureChanges { get; set; } = Array.Empty<double>();
+
+    // ── Tier-1: RMS energy curve (1s windows, 3-tier normalized) ──────────
     public float[] EnergyCurve { get; set; } = Array.Empty<float>();
+
+    // ── Tier-2: Spectral Flux Novelty (half-wave rectified STFT delta) ────
+    // High values = sudden spectral change → build peaks and drop onsets.
+    // Resolution: one value per hopSize/sampleRate seconds (~11ms at 512/44100).
+    public float[] SpectralFluxNovelty { get; set; } = Array.Empty<float>();
+
+    // ── Tier-3: Sub-bass energy curve (20–120 Hz, 0.5s windows) ──────────
+    // Critical for DnB: bass dropouts before drops are the most stable drop signature.
+    public float[] SubBassEnergyCurve { get; set; } = Array.Empty<float>();
+
+    // ── Detected structural events (from new engines) ─────────────────────
+    /// <summary>Timestamps where sub-bass energy drops to <25% of track mean (start of breakdown).</summary>
+    public IReadOnlyList<double> SubBassDropoutTimestamps { get; set; } = Array.Empty<double>();
+
+    /// <summary>Timestamps where sub-bass energy returns to >60% of track mean after a dropout (drop hit).</summary>
+    public IReadOnlyList<double> SubBassReturnTimestamps { get; set; } = Array.Empty<double>();
+
+    /// <summary>Spectral flux novelty peaks with build confirmation — high-confidence drop candidates.</summary>
+    public IReadOnlyList<(double DropSeconds, double BuildStartSeconds, float Strength)> NoveltyDropSignatures { get; set; }
+        = Array.Empty<(double, double, float)>();
+
+    // ── Essentia AI signals (fed in from EssentiaOutput when available) ───
+    /// <summary>0–1. From Essentia HighLevel voice_instrumental model. >0.7 = likely instrumental section.</summary>
+    public float EssentiaInstrumentalProbability { get; set; } = 0.5f;
+
+    /// <summary>0–1. From Essentia HighLevel mood_aggressive model. High = likely drop/build energy.</summary>
+    public float EssentiaAggressiveProbability { get; set; } = 0f;
+
+    /// <summary>0–1. From Essentia HighLevel danceability model.</summary>
+    public float EssentiaDanceability { get; set; } = 0.5f;
 }
 
 /// <summary>
@@ -33,6 +65,8 @@ public sealed class AnalysisPipeline
     private readonly HarmonicPhaseTracker _harmonicTracker;
     private readonly DrumPatternFingerprintEngine _drumEngine;
     private readonly EnergyCurveNormalizer _energyNormalizer;
+    private readonly SpectralFluxNoveltyEngine _noveltyEngine;
+    private readonly SubBassDropoutEngine _subBassEngine;
     private readonly ILogger<AnalysisPipeline> _logger;
 
     public AnalysisPipeline(
@@ -41,11 +75,13 @@ public sealed class AnalysisPipeline
     {
         _ingestionPipeline = ingestionPipeline ?? throw new ArgumentNullException(nameof(ingestionPipeline));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        
+
         _transientEngine = new TransientClusteringEngine();
         _harmonicTracker = new HarmonicPhaseTracker();
         _drumEngine = new DrumPatternFingerprintEngine();
         _energyNormalizer = new EnergyCurveNormalizer();
+        _noveltyEngine = new SpectralFluxNoveltyEngine();
+        _subBassEngine = new SubBassDropoutEngine();
     }
 
     /// <summary>
@@ -143,7 +179,21 @@ public sealed class AnalysisPipeline
 
             var energyCurve = _energyNormalizer.NormalizeEnergyCurve(rawEnergyCurve, estimatedBpm, energyWindowSecs, genre);
 
-            _logger.LogInformation($"[AnalysisPipeline] Completed curation analysis. Found {transients.Count} transients, {harmonicResets.Count} harmonic resets, {drumMismatches.Count} pattern switches.");
+            // Pass E: Spectral Flux Novelty (EDM drop detection — replaces pure RMS delta)
+            _logger.LogDebug("[AnalysisPipeline] Computing Spectral Flux Novelty curve...");
+            var spectralFluxNovelty = _noveltyEngine.ComputeNoveltyFunction(monoSamples, sampleRate);
+            var noveltyDropSignatures = _noveltyEngine.DetectDropSignatures(spectralFluxNovelty, sampleRate, 512);
+
+            // Pass F: Sub-Bass Dropout Detection (DnB-specific drop signature)
+            _logger.LogDebug("[AnalysisPipeline] Running Sub-Bass Dropout detection...");
+            var subBassEnergyCurve = _subBassEngine.ComputeSubBassEnergyCurve(monoSamples, sampleRate);
+            var (subBassDropouts, subBassReturns) = _subBassEngine.DetectDropoutEvents(subBassEnergyCurve);
+
+            _logger.LogInformation(
+                "[AnalysisPipeline] Completed. Transients={T}, HarmonicResets={H}, DrumSwitches={D}, " +
+                "NoveltyDrops={N}, SubBassDropouts={SBD}, SubBassReturns={SBR}",
+                transients.Count, harmonicResets.Count, drumMismatches.Count,
+                noveltyDropSignatures.Count, subBassDropouts.Count, subBassReturns.Count);
 
             return new AnalysisPipelineResult
             {
@@ -152,7 +202,12 @@ public sealed class AnalysisPipeline
                 Transients = transients,
                 HarmonicResets = harmonicResets,
                 DrumSignatureChanges = drumMismatches,
-                EnergyCurve = energyCurve
+                EnergyCurve = energyCurve,
+                SpectralFluxNovelty = spectralFluxNovelty,
+                SubBassEnergyCurve = subBassEnergyCurve,
+                SubBassDropoutTimestamps = subBassDropouts,
+                SubBassReturnTimestamps = subBassReturns,
+                NoveltyDropSignatures = noveltyDropSignatures,
             };
         }
         finally

@@ -77,52 +77,39 @@ public sealed class CueGenerationService
         double beatDuration = 60.0 / bpm;
         double barDuration = beatDuration * 4;
 
-        // 1. Collect and classify candidate points
-        var candidates = new List<(double Time, CueIntent Intent, float Confidence)>();
+        // 1. Build candidate timestamps from all signal sources
+        var rawCandidates = new HashSet<double>();
 
-        // Check transients
+        // Transients (phrase-snapped)
         foreach (var t in analysis.Transients)
         {
             double snapped = _snappingEngine.SnapRawTimeToPhraseLedger(t.Timestamp, bpm, downbeatAnchor);
-            
-            // Check vocal density: if it lands in the middle of a vocal phrase, avoid/adjust it
-            if (vocalStart.HasValue && vocalEnd.HasValue && vocalIntensity.HasValue && vocalIntensity.Value > 0.4)
+
+            // Vocal avoidance: shift cues landing in high-intensity vocal phrases to phrase boundary
+            if (vocalStart.HasValue && vocalEnd.HasValue && vocalIntensity.HasValue && vocalIntensity.Value > 0.4
+                && snapped >= vocalStart.Value && snapped <= vocalEnd.Value)
             {
-                if (snapped >= vocalStart.Value && snapped <= vocalEnd.Value)
-                {
-                    // Shift out of vocal if it lands on a non-phrase boundary
-                    double relativeToPhrase = (snapped - downbeatAnchor) / (beatDuration * 32);
-                    if (Math.Abs(relativeToPhrase - Math.Round(relativeToPhrase)) > 0.05)
-                    {
-                        // Shift to nearest phrase boundary
-                        snapped = _snappingEngine.SnapRawTimeToPhraseLedger(snapped, bpm, downbeatAnchor);
-                    }
-                }
+                double relativeToPhrase = (snapped - downbeatAnchor) / (beatDuration * 32);
+                if (Math.Abs(relativeToPhrase - Math.Round(relativeToPhrase)) > 0.05)
+                    snapped = _snappingEngine.SnapRawTimeToPhraseLedger(snapped, bpm, downbeatAnchor);
             }
 
-            // Estimate local energy delta
-            int windowIdx = (int)Math.Round(snapped);
-            float energyDelta = 0f;
-            if (analysis.EnergyCurve.Length > 0)
-            {
-                int currIdx = Math.Clamp(windowIdx, 0, analysis.EnergyCurve.Length - 1);
-                int prevIdx = Math.Clamp(windowIdx - 1, 0, analysis.EnergyCurve.Length - 1);
-                energyDelta = analysis.EnergyCurve[currIdx] - analysis.EnergyCurve[prevIdx];
-            }
-
-            bool isHarmonicReset = analysis.HarmonicResets.Any(h => Math.Abs(h - snapped) < 1.0);
-            bool isDrumDisappeared = analysis.DrumSignatureChanges.Any(d => Math.Abs(d - snapped) < 1.0) && energyDelta < -0.1f;
-            bool isDrumReturned = analysis.DrumSignatureChanges.Any(d => Math.Abs(d - snapped) < 1.0) && energyDelta > 0.1f;
-
-            var intent = _classifier.ClassifyIntent(snapped, duration, energyDelta, isHarmonicReset, isDrumDisappeared, isDrumReturned);
-            if (intent != CueIntent.Unknown)
-            {
-                float confidence = 0.8f;
-                if (isHarmonicReset) confidence += 0.1f;
-                if (intent == CueIntent.FirstDrop) confidence += 0.1f;
-                candidates.Add((snapped, intent, Math.Clamp(confidence, 0f, 1f)));
-            }
+            rawCandidates.Add(snapped);
         }
+
+        // Sub-bass return timestamps are the highest-confidence drop candidates for DnB
+        foreach (var r in analysis.SubBassReturnTimestamps)
+            rawCandidates.Add(_snappingEngine.SnapRawTimeToPhraseLedger(r, bpm, downbeatAnchor));
+
+        // Spectral flux novelty drop signatures
+        foreach (var (dropTs, _, _) in analysis.NoveltyDropSignatures)
+            rawCandidates.Add(_snappingEngine.SnapRawTimeToPhraseLedger(dropTs, bpm, downbeatAnchor));
+
+        // 2. Classify all candidates using the multi-feature weighted classifier
+        var classified = _classifier.ClassifyAll(rawCandidates, duration, analysis);
+        var candidates = classified
+            .Select(c => (Time: c.Timestamp, Intent: c.Result.Intent, Confidence: c.Result.Confidence))
+            .ToList();
 
         // 2. Build the 8 Standard Cues using candidates and mathematical backups
 
