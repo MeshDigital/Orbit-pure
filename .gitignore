@@ -63,6 +63,9 @@ logs/
 !appsettings.json
 !appsettings.Development.json
 !dotnet-tools.json
+!Tools/edmformer_requirements_windows.txt
+!Tools/edmformer_fetch_pretrained.py
+!Tools/edmformer_server.py
 
 # Dev/Debug data
 crash_*.json
@@ -92,3 +95,6 @@ RATING_LIKES_PLAN.md
 SEARCH_RANKING_OPTIMIZATION.md
 SLSKDONET_LEARNINGS.md
 SPOTIFY_PKCE_FLOW_ANALYSIS.md
+
+# EDMFormer cloned repo (installed locally, not tracked in ORBIT)
+Tools/EDMFormer/

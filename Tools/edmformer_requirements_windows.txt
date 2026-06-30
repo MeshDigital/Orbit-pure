@@ -1,0 +1,72 @@
+# EDMFormer Windows requirements
+# torch/torchaudio are installed separately via the Windows CUDA index in install_windows.bat
+# triton is excluded — Linux-only, not available on Windows
+
+# Core ML
+lightning==2.5.1.post0
+transformers==4.51.1
+accelerate==1.5.2
+datasets==3.6.0
+tokenizers==0.21.1
+huggingface-hub==0.30.1
+safetensors==0.5.3
+ema-pytorch==0.7.7
+torchmetrics==1.7.1
+einops==0.8.1
+einx==0.3.0
+x-transformers==2.4.14
+x-clip==0.14.4
+schedulefree==1.4.1
+beartype==0.21.0
+
+# Scientific Computing
+numpy==1.25.0
+scipy==1.15.2
+scikit-learn==1.6.1
+pandas==2.2.3
+
+# Audio Processing
+librosa==0.11.0
+audioread==3.0.1
+soundfile==0.13.1
+nnAudio==0.3.3
+julius==0.2.7
+soxr==0.5.0.post1
+mir_eval==0.8.2
+jams==0.3.4
+
+# msaf (Music Structure Analysis) — installs pure-Python on Windows
+msaf==0.1.80
+
+# MuQ model (OpenMuQ SSL embedding)
+muq==0.1.0
+
+# Config & CLI
+hydra-core==1.3.2
+omegaconf==2.3.0
+fire==0.7.1
+click==8.1.8
+
+# Data & Utilities
+h5py==3.13.0
+pyarrow==19.0.1
+pillow==11.1.0
+tqdm==4.67.1
+loguru==0.7.3
+joblib==1.4.2
+easydict==1.13
+addict==2.4.0
+requests==2.32.3
+
+# Text Processing
+ftfy==6.3.1
+regex==2024.11.6
+
+# ORBIT microservice dependencies
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.4
+
+# Monitoring (optional, skip if fails)
+# wandb  -- excluded, requires login
+# gpustat -- excluded, can cause issues on some Windows setups
