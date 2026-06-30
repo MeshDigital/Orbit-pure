@@ -23,6 +23,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private readonly ICuePointService _cueService;
     private readonly CueGenerationService _cueGenerationService;
     private readonly PlayerViewModel _playerViewModel;
+    private readonly CamelotKeyDisplayService _camelotKeyService;
     private readonly ILogger<CueForgeViewModel> _logger;
     private readonly CompositeDisposable _disposables = new();
     private const double SnapThreshold = 0.05;
@@ -74,6 +75,20 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     {
         get => _energyCurveData;
         set => this.RaiseAndSetIfChanged(ref _energyCurveData, value);
+    }
+
+    private string _currentCamelotKey = "?";
+    public string CurrentCamelotKey
+    {
+        get => _currentCamelotKey;
+        private set => this.RaiseAndSetIfChanged(ref _currentCamelotKey, value);
+    }
+
+    private string _compatibleCamelotKeys = "";
+    public string CompatibleCamelotKeys
+    {
+        get => _compatibleCamelotKeys;
+        private set => this.RaiseAndSetIfChanged(ref _compatibleCamelotKeys, value);
     }
 
     /// <summary>Parse QuantizeBeats string to numeric beats value.</summary>
@@ -160,11 +175,13 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         ICuePointService cueService,
         CueGenerationService cueGenerationService,
         PlayerViewModel playerViewModel,
+        CamelotKeyDisplayService camelotKeyService,
         ILogger<CueForgeViewModel> logger)
     {
         _cueService = cueService;
         _cueGenerationService = cueGenerationService;
         _playerViewModel = playerViewModel;
+        _camelotKeyService = camelotKeyService;
         _logger = logger;
 
         var hasTrack = this.WhenAnyValue(x => x.TrackHash, h => !string.IsNullOrEmpty(h));
@@ -228,6 +245,24 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         _redoStack.Clear();
         HasUncommittedChanges = false;
         UpdateUndoRedoState();
+        CurrentCamelotKey = "?";
+        CompatibleCamelotKeys = "";
+    }
+
+    /// <summary>Update harmonic key display from audio features.</summary>
+    public void UpdateCamelotKeyDisplay(string camelotKeyFromAudioFeatures)
+    {
+        if (string.IsNullOrEmpty(camelotKeyFromAudioFeatures))
+        {
+            CurrentCamelotKey = "?";
+            CompatibleCamelotKeys = "";
+            return;
+        }
+
+        CurrentCamelotKey = camelotKeyFromAudioFeatures;
+        var compatible = _camelotKeyService.GetCompatibleKeys(camelotKeyFromAudioFeatures);
+        var others = compatible.Where(k => k != camelotKeyFromAudioFeatures).ToList();
+        CompatibleCamelotKeys = others.Count > 0 ? string.Join(", ", others) : "—";
     }
 
     // ── Command Implementations ─────────────────────────────────────

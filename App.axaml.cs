@@ -630,6 +630,7 @@ public partial class App : Application
         services.AddSingleton<Services.AudioAnalysis.CuePointDetectionService>();
         services.AddSingleton<Services.AudioAnalysis.DnBTransientDetectionService>();
         services.AddSingleton<Services.DnBCueNamingService>();
+        services.AddSingleton<Services.CamelotKeyDisplayService>();
         services.AddSingleton<Services.PhraseAlignmentService>();
         services.AddSingleton<Services.IPhraseAlignmentService>(sp =>
             sp.GetRequiredService<Services.PhraseAlignmentService>());
