@@ -110,6 +110,7 @@ public class CueForgeWaveformControl : Control
         DrawRgbWaveform(ctx, waveformBounds);
         DrawEnergyOverlay(ctx, waveformBounds);
         DrawVocalOverlay(ctx, waveformBounds);
+        DrawDoubleDropZone(ctx, waveformBounds);
         DrawLoopBlocks(ctx, waveformBounds);
         DrawCueMarkers(ctx, waveformBounds);
         DrawPlayhead(ctx, waveformBounds);
@@ -258,6 +259,41 @@ public class CueForgeWaveformControl : Control
             byte alpha = (byte)(v * 55);
             ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(alpha, 255, 80, 80)), new Rect(x, b.Top, 1, b.Height));
         }
+    }
+
+    private void DrawDoubleDropZone(DrawingContext ctx, Rect b)
+    {
+        if (Cues is null) return;
+        var drops = Cues
+            .Where(c => !c.IsLoop && c.Role == CueRole.Drop)
+            .OrderBy(c => c.Timestamp)
+            .Take(2)
+            .ToList();
+        if (drops.Count < 2) return;
+
+        double x1 = TimeToPixel(drops[0].Timestamp, b);
+        double x2 = TimeToPixel(drops[1].Timestamp, b);
+        double w = x2 - x1;
+        if (w < 2) return;
+
+        // Translucent purple fill between the two drops
+        var fillBrush = new SolidColorBrush(Color.FromArgb(28, 180, 60, 255));
+        ctx.FillRectangle(fillBrush, new Rect(x1, b.Top, w, b.Height));
+
+        // Dashed border on each edge using short segments
+        var edgePen = new Pen(new SolidColorBrush(Color.FromArgb(160, 180, 60, 255)), 1.5,
+            new DashStyle(new double[] { 5, 4 }, 0));
+        ctx.DrawLine(edgePen, new Point(x1, b.Top), new Point(x1, b.Bottom));
+        ctx.DrawLine(edgePen, new Point(x2, b.Top), new Point(x2, b.Bottom));
+
+        // "DOUBLE DROP" label at top center
+        var label = new FormattedText("DOUBLE DROP",
+            System.Globalization.CultureInfo.InvariantCulture,
+            FlowDirection.LeftToRight, Typeface.Default, 8,
+            new SolidColorBrush(Color.FromArgb(180, 200, 100, 255)));
+        double lx = x1 + (w - label.Width) / 2;
+        if (lx >= 0 && lx + label.Width <= b.Width)
+            ctx.DrawText(label, new Point(lx, b.Top + 16));
     }
 
     private void DrawLoopBlocks(DrawingContext ctx, Rect b)

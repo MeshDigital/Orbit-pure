@@ -212,6 +212,13 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> DiscardChangesCommand { get; }
     public ReactiveCommand<Unit, Unit> UndoCommand { get; }
     public ReactiveCommand<Unit, Unit> RedoCommand { get; }
+    public ReactiveCommand<Unit, Unit> PinLoopStartAsCueCommand { get; }
+
+    // True when track has at least one Intro, one Drop, and one Outro cue
+    public bool IsExportReady => TrackHash != null &&
+        WorkingCues.Any(c => c.Role == CueRole.Intro) &&
+        WorkingCues.Any(c => c.Role == CueRole.Drop) &&
+        WorkingCues.Any(c => c.Role == CueRole.Outro);
 
     // ── Constructor ────────────────────────────────────────────────────────
 
@@ -251,6 +258,9 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         DiscardChangesCommand = ReactiveCommand.CreateFromTask(DiscardChangesAsync);
         UndoCommand = ReactiveCommand.Create(Undo, this.WhenAnyValue(x => x.CanUndo));
         RedoCommand = ReactiveCommand.Create(Redo, this.WhenAnyValue(x => x.CanRedo));
+        PinLoopStartAsCueCommand = ReactiveCommand.Create(PinLoopStartAsCue,
+            this.WhenAnyValue(x => x.LoopInSeconds, x => x.TrackHash,
+                (lo, h) => lo.HasValue && !string.IsNullOrEmpty(h)));
 
         LoadFromBrowserCommand = new Views.AsyncRelayCommand<PlaylistTrackViewModel>(async track =>
         {
@@ -258,7 +268,11 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             await LoadTrackAsync(track.GlobalId, track.Title, track.Artist);
         });
 
-        WorkingCues.CollectionChanged += (_, _) => HasUncommittedChanges = true;
+        WorkingCues.CollectionChanged += (_, _) =>
+        {
+            HasUncommittedChanges = true;
+            this.RaisePropertyChanged(nameof(IsExportReady));
+        };
 
         // Restore last session
         if (!string.IsNullOrEmpty(_config.CueForgeLastTrackHash))
@@ -365,6 +379,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             foreach (var c in cues) WorkingCues.Add(c);
         });
 
+        this.RaisePropertyChanged(nameof(IsExportReady));
         _logger.LogInformation("CueForge: loaded {Count} cues for {Hash} (BPM={Bpm} Dur={Dur:F0}s)",
             cues.Count, trackHash, Bpm, TrackDuration);
 
@@ -500,6 +515,22 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         extended = Math.Min(extended, TrackDuration);
         LoopOutSeconds = extended; loop.LoopEndSeconds = extended;
         loop.Name = FormatLoopLength(LoopInSeconds.Value, extended);
+    }
+
+    private void PinLoopStartAsCue()
+    {
+        if (!LoopInSeconds.HasValue || TrackHash is null) return;
+        PushSnapshot();
+        InsertCueSorted(new OrbitCue
+        {
+            Timestamp = LoopInSeconds.Value,
+            Name = "Loop Pin",
+            Color = "#00FF88",
+            Source = CueSource.User,
+            Role = CueRole.Custom,
+            SlotIndex = -1,
+            Confidence = 1.0,
+        });
     }
 
     private async Task ClearLoopAsync()

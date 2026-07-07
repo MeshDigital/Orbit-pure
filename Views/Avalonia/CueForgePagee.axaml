@@ -363,6 +363,9 @@
                                Foreground="#447744" FontSize="10" VerticalAlignment="Center"/>
                     <TextBlock Text="{Binding LoopOutSeconds, StringFormat='OUT: {0:F2}s', FallbackValue='OUT: —'}"
                                Foreground="#447744" FontSize="10" VerticalAlignment="Center"/>
+                    <Button Classes="cmd-secondary" Command="{Binding PinLoopStartAsCueCommand}"
+                            Content="→ Cue" FontSize="10" Padding="8,3"
+                            ToolTip.Tip="Pin loop IN point as a hot cue marker"/>
                     <Button Classes="cmd-danger" Command="{Binding ClearLoopCommand}" Content="Clear Loop"
                             FontSize="10" Padding="8,3"/>
                 </StackPanel>
@@ -385,6 +388,12 @@
                     <Border Background="#0A2A0A" BorderBrush="#1A5A1A" BorderThickness="1"
                             CornerRadius="2" Padding="6,2" IsVisible="{Binding IsGenerating}">
                         <TextBlock Text="⚙ GENERATING..." Foreground="#60D060" FontSize="9"
+                                   FontWeight="Bold" LetterSpacing="1"/>
+                    </Border>
+                    <Border Background="#0A1A0A" BorderBrush="#1A5A2A" BorderThickness="1"
+                            CornerRadius="2" Padding="6,2" IsVisible="{Binding IsExportReady}"
+                            ToolTip.Tip="Track has Intro, Drop, and Outro cues — ready to export">
+                        <TextBlock Text="✓ EXPORT READY" Foreground="#44DD88" FontSize="9"
                                    FontWeight="Bold" LetterSpacing="1"/>
                     </Border>
                 </StackPanel>
