@@ -51,6 +51,7 @@ bin/
 obj/
 **/bin/
 **/obj/
+artifacts/
 
 # Logs and Local Testing
 Buildlogs/
