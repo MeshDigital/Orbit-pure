@@ -478,6 +478,27 @@ public sealed class PlaylistIntelligenceService
             .ToList();
     }
 
+    /// <summary>
+    /// Checks whether a track has an analysis fingerprint yet, so callers (e.g. Smart Insert)
+    /// can tell the user "these tracks haven't been analyzed" instead of a generic
+    /// "no match found" when the real reason is missing analysis data.
+    /// </summary>
+    public async Task<bool> HasFingerprintAsync(string trackHash, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(trackHash)) return false;
+        var lookup = await LoadFingerprintLookupAsync(new[] { trackHash }, ct).ConfigureAwait(false);
+        return lookup.ContainsKey(trackHash);
+    }
+
+    /// <summary>Counts how many of the given tracks have an analysis fingerprint available.</summary>
+    public async Task<int> CountFingerprintedAsync(IEnumerable<string> trackHashes, CancellationToken ct = default)
+    {
+        var hashes = trackHashes.Where(h => !string.IsNullOrWhiteSpace(h)).Distinct(StringComparer.Ordinal).ToList();
+        if (hashes.Count == 0) return 0;
+        var lookup = await LoadFingerprintLookupAsync(hashes, ct).ConfigureAwait(false);
+        return lookup.Count;
+    }
+
     private async Task<Dictionary<string, TrackFingerprint>> LoadFingerprintLookupAsync(IEnumerable<string> hashes, CancellationToken ct)
     {
         // A10.6: load all fingerprints concurrently — cache hits in TrackFingerprintStore

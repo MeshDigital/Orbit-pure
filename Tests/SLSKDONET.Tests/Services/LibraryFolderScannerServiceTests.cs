@@ -17,6 +17,7 @@ public class LibraryFolderScannerServiceTests
         var scanner = new LibraryFolderScannerService(
             NullLogger<LibraryFolderScannerService>.Instance,
             null!,
+            null!,
             null!);
 
         var testFolder = CreateTempFolder();
@@ -43,6 +44,7 @@ public class LibraryFolderScannerServiceTests
     {
         var scanner = new LibraryFolderScannerService(
             NullLogger<LibraryFolderScannerService>.Instance,
+            null!,
             null!,
             null!);
 
@@ -75,6 +77,7 @@ public class LibraryFolderScannerServiceTests
         var scanner = new LibraryFolderScannerService(
             NullLogger<LibraryFolderScannerService>.Instance,
             null!,
+            null!,
             null!);
 
         var testFolder = CreateTempFolder();
@@ -104,6 +107,7 @@ public class LibraryFolderScannerServiceTests
         var scanner = new LibraryFolderScannerService(
             NullLogger<LibraryFolderScannerService>.Instance,
             null!,
+            null!,
             null!);
 
         var testFolder = CreateTempFolder();
@@ -131,6 +135,7 @@ public class LibraryFolderScannerServiceTests
     {
         var scanner = new LibraryFolderScannerService(
             NullLogger<LibraryFolderScannerService>.Instance,
+            null!,
             null!,
             null!);
 
@@ -163,6 +168,7 @@ public class LibraryFolderScannerServiceTests
     {
         var scanner = new LibraryFolderScannerService(
             NullLogger<LibraryFolderScannerService>.Instance,
+            null!,
             null!,
             null!);
 

@@ -499,6 +499,11 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
             .Subscribe(evt => HandleFindBridgeBetweenRequest(evt))
             .DisposeWith(_disposables);
 
+        ReactiveUI.MessageBus.Current.Listen<SLSKDONET.Events.FindSimilarTrackRequestEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(evt => HandleFindSimilarTrackRequest(evt))
+            .DisposeWith(_disposables);
+
         // Debounced subscription on SeedTrackHash changes
         this.WhenAnyValue(x => x.SeedTrackHash)
             .Throttle(TimeSpan.FromMilliseconds(DebounceMs),
@@ -581,6 +586,20 @@ public sealed class SimilarTracksViewModel : ReactiveObject, IDisposable
         var toTitle = evt.ToTrackTitle ?? evt.ToTrackHash[..Math.Min(8, evt.ToTrackHash.Length)];
         StatusMessage = $"Finding bridges between \"{fromTitle}\" and \"{toTitle}\"...";
         FindBridgeBetweenCommand.Execute().Subscribe();
+    }
+
+    private void HandleFindSimilarTrackRequest(SLSKDONET.Events.FindSimilarTrackRequestEvent evt)
+    {
+        if (string.IsNullOrWhiteSpace(evt.TrackHash)) return;
+
+        Results.Clear();
+        BridgeSuggestions.Clear();
+        IsBridgeMode = false;
+        IsBridgeBetweenMode = false;
+
+        var label = evt.TrackLabel ?? evt.TrackHash[..Math.Min(8, evt.TrackHash.Length)];
+        StatusMessage = $"Finding matches for {label}...";
+        SeedTrackHash = evt.TrackHash;
     }
 
     public void PrimeFromInspectorContext(object? viewModel)

@@ -12,8 +12,8 @@ public interface ISafetyFilterService
 {
     bool IsSafe(Track candidate, string query, int? targetDurationSeconds = null);
     bool IsUpscaled(PlaylistTrack track);
-    SafetyCheckResult EvaluateCandidate(Track candidate, string query, int? targetDuration = null, bool allowLossy = false);
-    void EvaluateSafety(Track track, string query, bool allowLossy = false);
+    SafetyCheckResult EvaluateCandidate(Track candidate, string query, int? targetDuration = null, bool allowLossy = false, SearchPolicy? policy = null);
+    void EvaluateSafety(Track track, string query, bool allowLossy = false, SearchPolicy? policy = null);
 }
 
 /// <summary>
@@ -51,9 +51,9 @@ public class SafetyFilterService : ISafetyFilterService
     /// Evaluates track safety and flags suspicious files (Fake FLACs, Bad Users) without hiding them.
     /// Sets track.IsFlagged and track.FlagReason.
     /// </summary>
-    public void EvaluateSafety(Track track, string query, bool allowLossy = false)
+    public void EvaluateSafety(Track track, string query, bool allowLossy = false, SearchPolicy? policy = null)
     {
-        var result = EvaluateCandidate(track, query, null, allowLossy);
+        var result = EvaluateCandidate(track, query, null, allowLossy, policy);
         
         if (!result.IsSafe)
         {
@@ -71,8 +71,16 @@ public class SafetyFilterService : ISafetyFilterService
     /// Evaluates a candidate track and returns a detailed safety result.
     /// Used by both the UI (via EvaluateSafety) and the Automated Seeker (for Audit Logging).
     /// </summary>
-    public SafetyCheckResult EvaluateCandidate(Track candidate, string query, int? targetDuration = null, bool allowLossy = false)
+    public SafetyCheckResult EvaluateCandidate(Track candidate, string query, int? targetDuration = null, bool allowLossy = false, SearchPolicy? policy = null)
     {
+        // Settings toggles (SearchPolicy.EnforceFileIntegrity / EnforceDurationMatch / EnforceStrictTitleMatch)
+        // gate the checks below. When no policy is supplied (legacy callers/tests), preserve the
+        // exact prior always-on behavior for FileIntegrity/DurationMatch. StrictTitleMatch is new
+        // logic that never existed before, so it only runs when a caller explicitly opts in via a
+        // policy — it must not silently start rejecting results for callers that don't pass one.
+        bool enforceFileIntegrity = policy?.EnforceFileIntegrity ?? true;
+        bool enforceDurationMatch = policy?.EnforceDurationMatch ?? true;
+
         // 1. Check Extension Blacklist
         var ext = Path.GetExtension(candidate.Filename ?? string.Empty).ToLowerInvariant();
         if (_bannedExtensions.Contains(ext))
@@ -91,16 +99,19 @@ public class SafetyFilterService : ISafetyFilterService
             return new SafetyCheckResult(false, "Unsupported Extension", $"Extension '{ext}' is outside the allowed audio whitelist.");
         }
 
-        // 2. The Accountant: Bitrate vs Size Math (Delegated to Forensic Core)
-        // A 320kbps MP3 MUST be approx 2.4MB per minute. 
-        if (candidate.Bitrate > 0 && candidate.Length > 0 && candidate.Size.HasValue)
+        if (enforceFileIntegrity)
         {
-            // Simple size check instead of forensic service
-            double expectedBytes = (candidate.Bitrate * 1000.0 / 8.0) * (candidate.Length.Value);
-            if (candidate.Size < (expectedBytes * 0.5) || candidate.Size > (expectedBytes * 2.0))
+            // 2. The Accountant: Bitrate vs Size Math (Delegated to Forensic Core)
+            // A 320kbps MP3 MUST be approx 2.4MB per minute.
+            if (candidate.Bitrate > 0 && candidate.Length > 0 && candidate.Size.HasValue)
             {
-                _logger.LogWarning("Size check detected suspicious file for {Track}: Size {Size} vs Expected {Expected}", candidate.Title, candidate.Size, expectedBytes);
-                return new SafetyCheckResult(false, "Forensic Integrity Failure", "File size deviates significantly from expected bitrate duration.");
+                // Simple size check instead of forensic service
+                double expectedBytes = (candidate.Bitrate * 1000.0 / 8.0) * (candidate.Length.Value);
+                if (candidate.Size < (expectedBytes * 0.5) || candidate.Size > (expectedBytes * 2.0))
+                {
+                    _logger.LogWarning("Size check detected suspicious file for {Track}: Size {Size} vs Expected {Expected}", candidate.Title, candidate.Size, expectedBytes);
+                    return new SafetyCheckResult(false, "Forensic Integrity Failure", "File size deviates significantly from expected bitrate duration.");
+                }
             }
         }
 
@@ -115,54 +126,70 @@ public class SafetyFilterService : ISafetyFilterService
             }
         }
 
-        // 4. Bitrate & sample-rate evidence gate for lossless intake
-        if (!allowLossy)
+        if (enforceFileIntegrity)
         {
-            // If bitrate is reported (> 0), require > 400kbps for lossless.
-            // Real 16-bit/44.1kHz FLACs of acoustic/folk/quiet music commonly fall between 400-700kbps;
-            // the old 700kbps floor was rejecting these legitimate files. 400kbps still catches
-            // MP3-to-FLAC transcodes (which report ~320kbps) and other low-bitrate fakes.
-            if (candidate.Bitrate > 0 && candidate.Bitrate <= 400)
+            // 4. Bitrate & sample-rate evidence gate for lossless intake
+            if (!allowLossy)
             {
-                return new SafetyCheckResult(false, "Bitrate Too Low", $"Bitrate {candidate.Bitrate}kbps is below 400kbps lossless floor (likely MP3 transcode).");
-            }
+                // If bitrate is reported (> 0), require > 400kbps for lossless.
+                // Real 16-bit/44.1kHz FLACs of acoustic/folk/quiet music commonly fall between 400-700kbps;
+                // the old 700kbps floor was rejecting these legitimate files. 400kbps still catches
+                // MP3-to-FLAC transcodes (which report ~320kbps) and other low-bitrate fakes.
+                if (candidate.Bitrate > 0 && candidate.Bitrate <= 400)
+                {
+                    return new SafetyCheckResult(false, "Bitrate Too Low", $"Bitrate {candidate.Bitrate}kbps is below 400kbps lossless floor (likely MP3 transcode).");
+                }
 
-            // Require 44.1kHz / 48kHz or higher for strict pass (if reported)
-            if (candidate.SampleRate.HasValue && candidate.SampleRate.Value < 44100)
+                // Require 44.1kHz / 48kHz or higher for strict pass (if reported)
+                if (candidate.SampleRate.HasValue && candidate.SampleRate.Value < 44100)
+                {
+                    return new SafetyCheckResult(false, "Sample Rate Too Low", $"Sample rate {candidate.SampleRate.Value}Hz is below 44.1kHz threshold.");
+                }
+            }
+            else
             {
-                return new SafetyCheckResult(false, "Sample Rate Too Low", $"Sample rate {candidate.SampleRate.Value}Hz is below 44.1kHz threshold.");
+                // MP3 Fallback Standard Enforcer: Enforce bitrate >= 256kbps for StemSeparation viability (if reported)
+                if (candidate.Bitrate > 0 && candidate.Bitrate < 256)
+                {
+                    return new SafetyCheckResult(false, "Bitrate Too Low (Lossy Fallback)", $"Bitrate {candidate.Bitrate}kbps is below required standard 256kbps fallback threshold.");
+                }
             }
         }
-        else
-        {
-            // MP3 Fallback Standard Enforcer: Enforce bitrate >= 256kbps for StemSeparation viability (if reported)
-            if (candidate.Bitrate > 0 && candidate.Bitrate < 256)
-            {
-                return new SafetyCheckResult(false, "Bitrate Too Low (Lossy Fallback)", $"Bitrate {candidate.Bitrate}kbps is below required standard 256kbps fallback threshold.");
-            }
-        }
-        
+
         // 5. Manual Blacklist (Keywords/Users)
         if (IsBlacklisted(candidate))
         {
              return new SafetyCheckResult(false, "Blacklisted", "Matches banned keyword or user.");
         }
 
-        // 5. Duration Check (if target provided)
-        if (targetDuration.HasValue && candidate.Length.HasValue && targetDuration.Value > 0)
+        if (enforceDurationMatch)
         {
-             int delta = Math.Abs(candidate.Length.Value - targetDuration.Value);
-             if (delta > 10)
-             {
-                 return new SafetyCheckResult(false, "High-Risk Duration Mismatch", 
-                    $"Length {candidate.Length}s != Target {targetDuration}s (Delta: {delta}s). High probability of wrong version (Extended vs Radio).");
-             }
-             else if (delta > 3)
-             {
-                 // Small warning for scores but don't reject yet? 
-                 // Actually, Matcher handles scoring. SafetyFilter handles REJECTION.
-                 // So we reject > 10s.
-             }
+            // 6. Duration Check (if target provided) — uses the configured tolerance when a policy
+            // is supplied (SearchPolicy.DurationToleranceSeconds, e.g. DJ Ready allows 15s for
+            // extended mixes), falling back to the original hardcoded 10s otherwise.
+            if (targetDuration.HasValue && candidate.Length.HasValue && targetDuration.Value > 0)
+            {
+                 int maxDelta = policy?.DurationToleranceSeconds ?? 10;
+                 int delta = Math.Abs(candidate.Length.Value - targetDuration.Value);
+                 if (delta > maxDelta)
+                 {
+                     return new SafetyCheckResult(false, "High-Risk Duration Mismatch",
+                        $"Length {candidate.Length}s != Target {targetDuration}s (Delta: {delta}s). High probability of wrong version (Extended vs Radio).");
+                 }
+            }
+        }
+
+        // 7. Strict Title Match (opt-in only — new check, see comment above): reject if the
+        // filename doesn't contain every token from the search query.
+        if (policy?.EnforceStrictTitleMatch == true && !string.IsNullOrWhiteSpace(query) && !string.IsNullOrEmpty(candidate.Filename))
+        {
+            var filenameLower = candidate.Filename.ToLowerInvariant();
+            var queryTokens = query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            var missingToken = queryTokens.FirstOrDefault(t => t.Length > 1 && !filenameLower.Contains(t.ToLowerInvariant()));
+            if (missingToken != null)
+            {
+                return new SafetyCheckResult(false, "Strict Title Mismatch", $"Filename is missing query token '{missingToken}'.");
+            }
         }
 
         return new SafetyCheckResult(true, "Passed", null);

@@ -14,8 +14,10 @@ public sealed class BpmDetectionService
 {
     // Any BPM below this threshold is considered a potential half-time artefact.
     private const float MinReasonableBpm = 60f;
-    // BPM above this is a potential double-time artefact.
-    private const float MaxReasonableBpm = 200f;
+    // BPM above this is a potential double-time artefact. 200 clipped genuinely fast genres
+    // (hardcore/gabber commonly run 170-220) so real tracks in that range were silently halved;
+    // 220 covers them while still folding clear double-time misreads (e.g. 240 → 120).
+    private const float MaxReasonableBpm = 220f;
 
     /// <summary>
     /// Extracts BPM from <paramref name="essentiaOutput"/> using histogram median smoothing

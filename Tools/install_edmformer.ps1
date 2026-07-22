@@ -5,10 +5,23 @@
 .DESCRIPTION
   Installs the EDMFormer phrase-detection microservice into a conda environment.
   Run from any directory; paths are resolved relative to this script.
-  Requires: conda (Miniconda/Anaconda), git, ~4GB disk.
+  Requires: conda (Miniconda/Anaconda), git, ~4GB disk — both are installed
+  automatically (per-user, no admin rights) if missing and consent is given.
+.PARAMETER AutoInstallConda
+  Install Miniconda silently, without prompting, if conda isn't already on PATH.
+  Pass this only after the user has already consented (e.g. from ORBIT's Settings
+  dialog). When this switch is absent, a missing conda still prompts interactively.
+.PARAMETER AutoInstallGit
+  Same as -AutoInstallConda, but for Git for Windows.
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File Tools\install_edmformer.ps1
+.EXAMPLE
+  powershell -ExecutionPolicy Bypass -File Tools\install_edmformer.ps1 -AutoInstallConda -AutoInstallGit
 #>
+param(
+    [switch]$AutoInstallConda,
+    [switch]$AutoInstallGit
+)
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'   # faster Invoke-WebRequest
@@ -26,18 +39,132 @@ function Write-OK([string]$msg)   { Write-Host "  $msg" -ForegroundColor Green }
 function Write-Warn([string]$msg) { Write-Host "  WARNING: $msg" -ForegroundColor Yellow }
 function Write-Fail([string]$msg) { Write-Host "`nERROR: $msg" -ForegroundColor Red; Read-Host "Press Enter to exit"; exit 1 }
 
+function Confirm-Consent([string]$prompt) {
+    Write-Host ""
+    Write-Host "  $prompt" -ForegroundColor Yellow
+    $answer = Read-Host "  Continue? [Y/n]"
+    return ($answer -eq '' -or $answer -match '^[Yy]')
+}
+
+# Prepend a newly-installed tool's directories to the CURRENT process's PATH so the
+# rest of this script (and any child `conda`/`git` invocations) can find it immediately —
+# a fresh install doesn't update variables already loaded into this running process.
+function Add-ToSessionPath([string[]]$paths) {
+    $env:Path = ($paths -join ';') + ';' + $env:Path
+}
+
+function Install-MinicondaSilently {
+    Write-Host "  Downloading Miniconda installer..." -ForegroundColor Gray
+    $installerUrl  = "https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe"
+    $installerPath = Join-Path $env:TEMP "Miniconda3-latest-Windows-x86_64.exe"
+    $targetDir     = Join-Path $env:USERPROFILE "Miniconda3"
+
+    try {
+        Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
+    } catch {
+        Write-Fail "Failed to download Miniconda: $($_.Exception.Message)"
+    }
+
+    Write-Host "  Installing Miniconda to $targetDir (this PC user only, no admin needed)..." -ForegroundColor Gray
+    # Official silent-install flags: JustMe = no admin required; AddToPath registers it for
+    # this user's future shells (this script also patches its own session below since that
+    # registration doesn't affect the already-running process).
+    $installArgs = @(
+        "/InstallationType=JustMe",
+        "/RegisterPython=0",
+        "/AddToPath=1",
+        "/S",
+        "/D=$targetDir"
+    )
+    $proc = Start-Process -FilePath $installerPath -ArgumentList $installArgs -Wait -PassThru
+    Remove-Item $installerPath -ErrorAction SilentlyContinue
+
+    if ($proc.ExitCode -ne 0) {
+        Write-Fail "Miniconda installer exited with code $($proc.ExitCode)."
+    }
+
+    Add-ToSessionPath @($targetDir, (Join-Path $targetDir "Scripts"), (Join-Path $targetDir "condabin"))
+}
+
+function Install-GitSilently {
+    Write-Host "  Looking up the latest Git for Windows release..." -ForegroundColor Gray
+    try {
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/git-for-windows/git/releases/latest" -Headers @{ "User-Agent" = "ORBIT-Installer" }
+        $asset   = $release.assets | Where-Object { $_.name -like "*64-bit.exe" } | Select-Object -First 1
+        if (-not $asset) { Write-Fail "Could not find a Git for Windows 64-bit installer in the latest release." }
+    } catch {
+        Write-Fail "Failed to look up the latest Git for Windows release: $($_.Exception.Message)"
+    }
+
+    $installerPath = Join-Path $env:TEMP $asset.name
+    Write-Host "  Downloading $($asset.name)..." -ForegroundColor Gray
+    try {
+        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installerPath
+    } catch {
+        Write-Fail "Failed to download Git for Windows: $($_.Exception.Message)"
+    }
+
+    # Installed under LOCALAPPDATA (always user-writable) so no admin elevation is required —
+    # the default Program Files location would need it.
+    $targetDir = Join-Path $env:LOCALAPPDATA "Programs\Git"
+    Write-Host "  Installing Git to $targetDir (this PC user only, no admin needed)..." -ForegroundColor Gray
+    $installArgs = @(
+        "/VERYSILENT",
+        "/NORESTART",
+        "/NOCANCEL",
+        "/SP-",
+        "/SUPPRESSMSGBOXES",
+        "/DIR=$targetDir"
+    )
+    $proc = Start-Process -FilePath $installerPath -ArgumentList $installArgs -Wait -PassThru
+    Remove-Item $installerPath -ErrorAction SilentlyContinue
+
+    if ($proc.ExitCode -ne 0) {
+        Write-Fail "Git installer exited with code $($proc.ExitCode)."
+    }
+
+    Add-ToSessionPath @((Join-Path $targetDir "cmd"), (Join-Path $targetDir "bin"))
+}
+
 Write-Host ""
 Write-Host "=======================================================" -ForegroundColor Magenta
 Write-Host "  ORBIT -- EDMFormer Windows Installer (PowerShell)" -ForegroundColor Magenta
 Write-Host "=======================================================" -ForegroundColor Magenta
 
-# ── 0. Verify conda ────────────────────────────────────────────────────────────
-Write-Step "[0] Checking conda..."
+# ── 0. Verify prerequisites (conda, git) ───────────────────────────────────────
+Write-Step "[0] Checking prerequisites..."
+
 $condaCmd = Get-Command conda -ErrorAction SilentlyContinue
 if (-not $condaCmd) {
-    Write-Fail "conda not found in PATH.`nInstall Miniconda: https://www.anaconda.com/download/success`nThen re-open this terminal and run the script again."
+    $shouldInstall = $AutoInstallConda -or (Confirm-Consent "Conda (Miniconda) was not found. ORBIT can download and install it automatically (~80MB, per-user, no admin rights).")
+    if (-not $shouldInstall) {
+        Write-Fail "conda not found in PATH.`nInstall Miniconda: https://www.anaconda.com/download/success`nThen re-open this terminal and run the script again."
+    }
+    Install-MinicondaSilently
+    $condaCmd = Get-Command conda -ErrorAction SilentlyContinue
+    if (-not $condaCmd) {
+        Write-Fail "Miniconda was installed but conda still isn't on PATH. Close this terminal, open a new one, and re-run the script."
+    }
+    Write-OK "Miniconda installed: $($condaCmd.Source)"
+} else {
+    Write-OK "conda found: $($condaCmd.Source)"
 }
-Write-OK "conda found: $($condaCmd.Source)"
+
+$gitCmd = Get-Command git -ErrorAction SilentlyContinue
+if (-not $gitCmd) {
+    $shouldInstall = $AutoInstallGit -or (Confirm-Consent "Git was not found. ORBIT can download and install Git for Windows automatically (~50MB, per-user, no admin rights).")
+    if (-not $shouldInstall) {
+        Write-Fail "git not found in PATH.`nInstall Git for Windows: https://git-scm.com/download/win`nThen re-open this terminal and run the script again."
+    }
+    Install-GitSilently
+    $gitCmd = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $gitCmd) {
+        Write-Fail "Git was installed but isn't on PATH. Close this terminal, open a new one, and re-run the script."
+    }
+    Write-OK "Git installed: $($gitCmd.Source)"
+} else {
+    Write-OK "git found: $($gitCmd.Source)"
+}
 
 # ── 1. Clone EDMFormer ────────────────────────────────────────────────────────
 Write-Step "[1/6] EDMFormer source..."

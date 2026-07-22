@@ -1,177 +1,65 @@
-# ORBIT Pure
+# ORBIT
 
-Reliability-first Soulseek client and music curation workstation with explainable search, forensic filtering, and operator-grade download controls.
+ORBIT is a music library and DJ prep tool. It finds tracks on Soulseek, checks that what it downloads is actually the right file at the quality it claims to be, and analyzes everything it collects (BPM, key, energy, phrase structure, cue points) so you can build sets without needing Mixed In Key or a separate prep step in Rekordbox.
 
-ORBIT Pure is built with .NET 9 + Avalonia and prioritizes signal quality over raw download volume.
+Think of it as: search + downloads + a music library + a lightweight DJ workstation, in one app.
 
-> Legal & privacy notice
-> ORBIT connects to the Soulseek P2P network, where your IP may be visible to peers. Use a VPN and only download/share content you are legally allowed to use.
-
----
-
-## Project State (March 2026)
-
-- Current branch baseline is `master`, with the latest documented release milestone at `0.1.0-alpha.33`.
-- Build and tests are green for the latest integration pass:
-  - `dotnet build SLSKDONET.sln -c Debug`
-  - `dotnet test Tests/SLSKDONET.Tests/SLSKDONET.Tests.csproj -c Debug --no-build`
-- Product focus is now on three operational pillars:
-  - explainable search decisions
-  - resilient high-fidelity download orchestration
-  - dense, real-time operator UX in Download Center and Library
-
-### Newly documented March 2026 runtime systems
-
-- metadata-aware search lane planning (`Strict` → `Standard` → `Desperate`)
-- shared fit/ranking blend scoring for search and discovery
-- reactive buffered search-stream ingestion with explicit session ownership
-- adapter-side hard-cap circuit breaker for pathological result streams
-- compact preferred-reason propagation across search, discovery, and downloads
-
-Start with:
-
-- `DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md`
-- `DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md`
-- `SOULSEEK_LOGIN_AND_SERVICE_SIGNALS_TECHNICAL.md`
+> **Before you use it:** ORBIT connects to the Soulseek P2P network, where your IP address is visible to other peers. Use a VPN if that matters to you, and only download or share what you're legally allowed to.
 
 ---
 
-## Core Capabilities
+## What it actually does
 
-### 1) Explainable Search & Curation
-- Cached filtered-out results can be shown without issuing a new network search.
-- Hidden-result reasoning is explicit (bitrate floor, format gate, queue/reliability, safety/forensic gate).
-- Search UI exposes quick controls to reveal hidden candidates and relax filters against the cached result set.
-- Search winners now use shared blend reasoning that combines identity match, metadata fit, peer reliability, and queue pressure.
+- **Search & download** — searches Soulseek, filters out fake/mislabeled files (wrong bitrate, wrong duration, upscaled lossy-to-"lossless" fakes) before they ever hit your library, and shows you *why* a result was rejected instead of just hiding it.
+- **A real library** — playlists organized into folders, ratings, duplicate detection, drag-and-drop between playlists, sortable columns.
+- **Playback** — gapless/crossfade transitions between tracks, pitch control.
+- **DJ prep (Workstation)** — waveform view, hot cues, loops, energy/phrase analysis, harmonic (Camelot key) matching for finding compatible tracks, and export to Rekordbox XML.
+- **Smart playlists** — build playlists from BPM/energy/mood criteria, or ask it to find tracks similar to one you already have.
 
-### 2) Download Orchestration & Manual Override
-- Multi-lane discovery with fast-lane/golden-winner short-circuiting.
-- Structured per-track live peer result feed in row details (time, user, state, detail, speed, file).
-- Manual per-candidate force download from row details when the operator wants a specific peer/file.
-
-### 3) Forensic Quality Controls
-- Safety/bouncer gating for suspect/upscaled results.
-- Forensic quality surfacing in track/list views.
-- Spectral and integrity-aware decision signals are surfaced across search and download UX.
-
-### 4) Network & Runtime Resilience
-- Hardened disconnect/reconnect behavior and distributed-parent recovery paths.
-- Crash-aware download state handling and recovery-friendly orchestration.
-- Global exception reporting and cleaner non-fatal runtime diagnostics.
-- Search streams now use explicit stop-listening semantics, buffered UI delivery, idle telemetry, and adapter-side hard caps.
-
-### 5) Library & Workstation UX
-- Album-first flows and dense playlist grid/cards.
-- Hover/flyout forensic diagnostics and quality signaling.
-- Performance-friendly population and virtualization-oriented UI updates for larger libraries.
+It's under active development, so expect some rough edges — but the core loop (search → download → verify → play/prep) works end to end.
 
 ---
 
-## Recent Delivery Timeline (alpha.25 → alpha.33)
+## Getting started
 
-- `alpha.33`: Search hidden-result transparency, row-level live peer details, and force-candidate download action.
-- `alpha.32`: Discovery reason surfacing, fast-lane UX improvements, disconnect handling hardening, and UI cleanup.
-- `alpha.31`: Library slim-rail behavior and responsive playlist card/grid refinements.
-- `alpha.30`: Discovery lane semaphore budget, distributed-parent trigger refinement, dedup/fingerprinter upgrade.
-- `alpha.29`: Strict purist lossless policy and stronger fake-lossless rejection criteria.
-- `alpha.28`: Parent-health monitoring, streaming tier cancellation improvements, peer-lane dashboard, health banner.
-- `alpha.27`: Visual dashboard upgrades (slim rail defaults, circular forensic ring, quality HUD).
-- `alpha.26`: Search and queue-aware protocol tuning (response caps, file caps, queue-depth filtering).
-- `alpha.25`: Golden-search gate and library/workflow activation refinements.
+You'll need [.NET 9 SDK](https://dotnet.microsoft.com/download) and [FFmpeg](https://ffmpeg.org/download.html) on your PATH.
 
-For full details, see RECENT_CHANGES.md.
+```bash
+git clone https://github.com/MeshDigital/Orbit-pure.git
+cd Orbit-pure
+dotnet restore
+dotnet build SLSKDONET.sln -c Debug
+dotnet run
+```
 
----
+On first launch, add your Soulseek account details in Settings.
 
-## Tech Stack
-
-- UI: Avalonia + ReactiveUI
-- Reactive collections: DynamicData + Rx buffering/session control
-- Runtime: .NET 9 (C#)
-- Network: Soulseek.NET integration
-- Data: SQLite (EF Core)
-- Audio/forensics: FFmpeg, NAudio, Essentia, NWaves
-- Analysis/ML: ML.NET-based feature workflows where applicable
+Optional: the Settings page can install an additional AI phrase-detection engine for cue placement. It's off by default and only installs anything (Conda, plus its own environment) after you explicitly confirm.
 
 ---
 
-## Quick Start
+## Built with
 
-1. Clone:
-
-  ```bash
-  git clone https://github.com/MeshDigital/Orbit-pure.git
-  cd Orbit-pure
-  ```
-
-2. Restore and build:
-
-  ```bash
-  dotnet restore
-  dotnet build SLSKDONET.sln -c Debug
-  ```
-
-3. Run:
-
-  ```bash
-  dotnet run
-  ```
-
-4. First launch:
-- Configure Soulseek credentials in Settings.
-- Ensure `ffmpeg` is installed and available on PATH for audio forensic services.
+- **.NET 9 / C#**, UI in **Avalonia**
+- **SQLite** (via EF Core) for the local library
+- **Soulseek.NET** for the P2P network connection
+- **FFmpeg / NAudio** for audio playback and analysis
 
 ---
 
-## Repository Map
+## Project layout
 
-- `Views/Avalonia`: XAML pages and controls
-- `ViewModels`: reactive presentation state
-- `Services`: orchestration, discovery, network, forensic, and IO services
-- `Data`, `Migrations`: persistence layer and schema evolution
-- `Tests`: unit/integration test coverage
-- `RECENT_CHANGES.md`: chronological release and implementation notes
-- `DOCS`: deep technical writeups for major runtime systems
-
----
-
-## Search Runtime Architecture Highlights
-
-### Query planning and lane execution
-- `SearchNormalizationService` now builds structured `SearchPlan` instances instead of relying only on loose text variations.
-- `SearchOrchestrationService` executes ordered lanes with explicit `Strict`, `Standard`, and `Desperate` semantics.
-- Broad-search escalation is bounded and lane-aware, reducing stale accumulation and low-signal fan-out.
-
-### Shared ranking and explainability
-- `SearchCandidateFitScorer` scores candidate fit using artist/title/album/duration plus accessibility hints.
-- `SearchCandidateRankingPolicy` blends match score, fit score, peer reliability, and queue penalty into final rank.
-- `SearchBlendReasonFormatter` converts telemetry into compact operator-facing reasons.
-
-### Firehose-safe search streaming
-- `SearchViewModel` owns a real search session with `SerialDisposable` subscription control and explicit `IsListening` state.
-- Search results are projected off the UI thread and buffered into chunked updates (`250ms` or `50` items).
-- `SoulseekAdapter` enforces hard result/file caps and surfaces `SearchLimitExceededException` when a search must be cut off safely.
-
-### Validation
-- Focused tests cover query planning, ranking, reason propagation, orchestration lane behavior, adapter cap propagation, and search UI batch/cancel behavior.
-- Latest focused validation included:
-  - `SearchOrchestrationServiceTests`
-  - `SearchViewModelTests`
-
----
-
-## Documentation
-
-- `DOCUMENTATION_INDEX.md`: master doc map
-- `DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md`: end-to-end search runtime deep dive
-- `DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md`: implementation plan and acceptance criteria
-- `RECENT_CHANGES.md`: release-oriented implementation log
+- `Views/Avalonia` — the UI (pages, controls)
+- `ViewModels` — screen logic
+- `Services` — search, downloads, library, analysis, and everything else behind the scenes
+- `Data`, `Migrations` — the local database
+- `Tests` — the test suite
+- `DOCS/` — deeper technical write-ups, for anyone poking around the internals
 
 ---
 
 ## Contributing
 
-Contributions are welcome, especially around reliability, performance, and explainability.
-Please keep changes surgical, test-backed, and aligned with the existing architecture and event-driven patterns.
+Contributions are welcome — especially anything that makes search results more trustworthy, downloads more reliable, or the UI less cluttered. Try to keep changes focused and tested.
 
 License: GPL-3.0

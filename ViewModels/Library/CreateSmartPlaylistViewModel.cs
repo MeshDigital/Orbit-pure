@@ -65,24 +65,52 @@ namespace SLSKDONET.ViewModels.Library
             get => _minBpm;
             set => this.RaiseAndSetIfChanged(ref _minBpm, value);
         }
-        
+
         private double? _maxBpm;
         public double? MaxBpm
         {
             get => _maxBpm;
             set => this.RaiseAndSetIfChanged(ref _maxBpm, value);
         }
-        
+
+        private double? _minDanceability;
+        public double? MinDanceability
+        {
+            get => _minDanceability;
+            set => this.RaiseAndSetIfChanged(ref _minDanceability, value);
+        }
+
+        private double? _maxDanceability;
+        public double? MaxDanceability
+        {
+            get => _maxDanceability;
+            set => this.RaiseAndSetIfChanged(ref _maxDanceability, value);
+        }
+
+        private int? _minRating;
+        public int? MinRating
+        {
+            get => _minRating;
+            set => this.RaiseAndSetIfChanged(ref _minRating, value);
+        }
+
+        private bool _onlyLiked;
+        public bool OnlyLiked
+        {
+            get => _onlyLiked;
+            set => this.RaiseAndSetIfChanged(ref _onlyLiked, value);
+        }
+
         public SonicProfileData PreviewProfile
         {
             get
             {
                 // Calculate average target logic for preview
-                var e = (MinEnergy ?? 0 + MaxEnergy ?? 1.0) / 2.0;
+                var e = ((MinEnergy ?? 0) + (MaxEnergy ?? 1.0)) / 2.0;
                 if (MinEnergy.HasValue && !MaxEnergy.HasValue) e = MinEnergy.Value;
                 if (!MinEnergy.HasValue && MaxEnergy.HasValue) e = MaxEnergy.Value;
-                
-                var v = (MinValence ?? 0 + MaxValence ?? 1.0) / 2.0;
+
+                var v = ((MinValence ?? 0) + (MaxValence ?? 1.0)) / 2.0;
                 if (MinValence.HasValue && !MaxValence.HasValue) v = MinValence.Value;
                 if (!MinValence.HasValue && MaxValence.HasValue) v = MaxValence.Value;
 
@@ -117,8 +145,12 @@ namespace SLSKDONET.ViewModels.Library
                 MaxEnergy = MaxEnergy,
                 MinValence = MinValence,
                 MaxValence = MaxValence,
+                MinDanceability = MinDanceability,
+                MaxDanceability = MaxDanceability,
                 MinBPM = MinBpm,
                 MaxBPM = MaxBpm,
+                MinRating = MinRating,
+                IsLiked = OnlyLiked ? true : null,
                 Genre = Genre
             };
 

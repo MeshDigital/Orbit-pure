@@ -300,12 +300,16 @@
             </Border>
 
             <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Command="{Binding PlayerViewModel.OpenCurrentTrackCueForgeCommand}"
+                        Content="🎯 Cue Forge"
+                        FontSize="10"
+                        Padding="10,4"/>
                 <Button Command="{Binding PlayerViewModel.OpenCurrentTrackWorkstationCommand}"
-                        Content="Open in Workstation"
+                        Content="Workstation"
                         FontSize="10"
                         Padding="10,4"/>
                 <Button Command="{Binding PlayerViewModel.OpenPlayerViewCommand}"
-                        Content="Show full player"
+                        Content="Full player"
                         FontSize="10"
                         Padding="10,4"/>
             </StackPanel>

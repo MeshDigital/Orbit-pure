@@ -544,6 +544,9 @@ public partial class App : Application
         services.AddSingleton<IClipboardService, ClipboardService>();
         services.AddSingleton<IDialogService, DialogService>();
         services.AddSingleton<Services.Telemetry.FlowBuilderSuggestionTelemetryService>();
+        // FlowBuilderView resolves this from DI at construction — without this registration the
+        // whole Flow Builder tab silently gets a null DataContext (every control dead).
+        services.AddSingleton<ViewModels.FlowBuilderViewModel>();
         services.AddSingleton<DashboardService>();
         // Keyboard mapping system (Epic #119)
         services.AddSingleton<IKeyboardMappingService, KeyboardMappingService>();
@@ -702,6 +705,8 @@ public partial class App : Application
                 sp.GetRequiredService<Services.Audio.StemCacheService>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Audio.Separation.CachedStemSeparator>>()));
         services.AddSingleton<Services.IStemSeparationService, Services.StemSeparationServiceAdapter>();
+        services.AddSingleton<Services.Audio.ISurgicalProcessingService, Services.Audio.SurgicalProcessingService>();
+        services.AddSingleton<Services.Audio.ITransitionPreviewPlayer, Services.Audio.TransitionPreviewPlayer>();
         services.AddSingleton<Services.IWaveformCacheService, Services.WaveformCacheService>();
         services.AddSingleton<ViewModels.StemMixerViewModel>();
         services.AddSingleton<ViewModels.StemWaveformViewModel>();

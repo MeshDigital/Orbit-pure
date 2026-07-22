@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using NWaves.Transforms;
+using NWaves.Windows;
 
 namespace SLSKDONET.Engine.Analysis;
 
@@ -39,13 +41,24 @@ public sealed class SpectralFluxNoveltyEngine
         int numFrames = (monoSignal.Length - fftSize) / hopSize + 1;
         if (numFrames <= 1) return Array.Empty<float>();
 
-        // Step 1: compute magnitude spectra per frame
+        // Step 1: compute magnitude spectra per frame, via NWaves' real FFT — the original
+        // implementation here was a naive O(fftSize) per-bin direct DFT (nested loop with
+        // Math.Cos/Math.Sin per sample per bin), which for a 4-minute track works out to
+        // roughly 20,000 frames x ~2M inner iterations each: tens of minutes per track.
+        // RealFft (already used elsewhere in this codebase, e.g. WaveformExtractionService)
+        // does the same job in O(fftSize log fftSize) per frame.
         int numBins = fftSize / 2 + 1;
+        var fft = new RealFft(fftSize);
+        var window = Window.OfType(WindowType.Hann, fftSize);
+        var frameBuffer = new float[fftSize];
+        var re = new float[fftSize];
+        var im = new float[fftSize];
+
         var magnitudes = new float[numFrames][];
         for (int f = 0; f < numFrames; f++)
         {
             int offset = f * hopSize;
-            magnitudes[f] = ComputeMagnitudeSpectrum(monoSignal, offset, fftSize);
+            magnitudes[f] = ComputeMagnitudeSpectrum(monoSignal, offset, fftSize, numBins, fft, window, frameBuffer, re, im);
         }
 
         // Step 2: half-wave rectified spectral flux
@@ -144,25 +157,21 @@ public sealed class SpectralFluxNoveltyEngine
 
     // ── internal helpers ───────────────────────────────────────────────────
 
-    private static float[] ComputeMagnitudeSpectrum(float[] signal, int offset, int fftSize)
+    private static float[] ComputeMagnitudeSpectrum(
+        float[] signal, int offset, int fftSize, int numBins,
+        RealFft fft, float[] window, float[] frameBuffer, float[] re, float[] im)
     {
-        int numBins = fftSize / 2 + 1;
-        var mags = new float[numBins];
         int len = Math.Min(fftSize, signal.Length - offset);
 
+        Array.Clear(frameBuffer, 0, fftSize);
+        for (int n = 0; n < len; n++)
+            frameBuffer[n] = signal[offset + n] * window[n];
+
+        fft.Direct(frameBuffer, re, im);
+
+        var mags = new float[numBins];
         for (int k = 0; k < numBins; k++)
-        {
-            double real = 0.0, imag = 0.0;
-            for (int n = 0; n < len; n++)
-            {
-                // Hann window applied inline
-                double w = 0.5 * (1.0 - Math.Cos(2.0 * Math.PI * n / (fftSize - 1)));
-                double angle = -2.0 * Math.PI * k * n / fftSize;
-                real += signal[offset + n] * w * Math.Cos(angle);
-                imag += signal[offset + n] * w * Math.Sin(angle);
-            }
-            mags[k] = (float)Math.Sqrt(real * real + imag * imag);
-        }
+            mags[k] = (float)Math.Sqrt(re[k] * re[k] + im[k] * im[k]);
 
         return mags;
     }

@@ -56,6 +56,77 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         }
     }
 
+    private TrackSortColumn _sortColumn = TrackSortColumn.Default;
+    /// <summary>Which column the grid is sorted by. Applied both to the DB-backed
+    /// (VirtualizedTrackCollection) and in-memory (smart playlist) paths.</summary>
+    public TrackSortColumn SortColumn
+    {
+        get => _sortColumn;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _sortColumn, value);
+            RaiseSortIndicatorProperties();
+            RefreshFilteredTracks();
+        }
+    }
+
+    private bool _sortDescending;
+    public bool SortDescending
+    {
+        get => _sortDescending;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _sortDescending, value);
+            RaiseSortIndicatorProperties();
+            RefreshFilteredTracks();
+        }
+    }
+
+    /// <summary>Clicking a column header sorts by it ascending; clicking the same column again
+    /// flips direction, matching the usual grid-header sort convention.</summary>
+    public System.Windows.Input.ICommand SortByColumnCommand { get; }
+
+    private void ExecuteSortByColumn(TrackSortColumn column)
+    {
+        if (_sortColumn == column)
+        {
+            SortDescending = !SortDescending;
+            return;
+        }
+
+        // Avoid triggering RefreshFilteredTracks() twice (once per property) when switching
+        // to a different column — set both fields first, then refresh once.
+        _sortColumn = column;
+        this.RaisePropertyChanged(nameof(SortColumn));
+        _sortDescending = false;
+        this.RaisePropertyChanged(nameof(SortDescending));
+        RaiseSortIndicatorProperties();
+        RefreshFilteredTracks();
+    }
+
+    // Header sort-arrow indicators. Plain per-column booleans (rather than an XAML enum-equality
+    // converter/multibinding) since this Avalonia version's ObjectConverters has no Equals member.
+    private void RaiseSortIndicatorProperties()
+    {
+        this.RaisePropertyChanged(nameof(IsSortedByArtistAscending));
+        this.RaisePropertyChanged(nameof(IsSortedByArtistDescending));
+        this.RaisePropertyChanged(nameof(IsSortedByTitleAscending));
+        this.RaisePropertyChanged(nameof(IsSortedByTitleDescending));
+        this.RaisePropertyChanged(nameof(IsSortedByBpmAscending));
+        this.RaisePropertyChanged(nameof(IsSortedByBpmDescending));
+        this.RaisePropertyChanged(nameof(IsSortedByDurationAscending));
+        this.RaisePropertyChanged(nameof(IsSortedByDurationDescending));
+    }
+
+    public bool IsSortedByArtistAscending => SortColumn == TrackSortColumn.Artist && !SortDescending;
+    public bool IsSortedByArtistDescending => SortColumn == TrackSortColumn.Artist && SortDescending;
+    public bool IsSortedByTitleAscending => SortColumn == TrackSortColumn.Title && !SortDescending;
+    public bool IsSortedByTitleDescending => SortColumn == TrackSortColumn.Title && SortDescending;
+    public bool IsSortedByBpmAscending => SortColumn == TrackSortColumn.Bpm && !SortDescending;
+    public bool IsSortedByBpmDescending => SortColumn == TrackSortColumn.Bpm && SortDescending;
+    public bool IsSortedByDurationAscending => SortColumn == TrackSortColumn.Duration && !SortDescending;
+    public bool IsSortedByDurationDescending => SortColumn == TrackSortColumn.Duration && SortDescending;
+
     private IList<PlaylistTrackViewModel> _filteredTracks = new ObservableCollection<PlaylistTrackViewModel>();
     public IList<PlaylistTrackViewModel> FilteredTracks
     {
@@ -619,6 +690,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         
         ToggleColumnFilterStripCommand = ReactiveCommand.Create(() => IsColumnFilterStripVisible = !IsColumnFilterStripVisible);
 
+        SortByColumnCommand = ReactiveCommand.Create<TrackSortColumn>(ExecuteSortByColumn);
+
         SelectAllTracksCommand = ReactiveCommand.Create(() => 
         {
             // Update IsSelected property to reflect selection visually
@@ -981,6 +1054,18 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     private void ExecuteFindSimilar(PlaylistTrackViewModel? track)
     {
         _logger.LogInformation("Find Similar requested for {Artist} - {Title}", track?.Model?.Artist ?? "Unknown", track?.Model?.Title ?? "Unknown");
+
+        if (track == null || string.IsNullOrWhiteSpace(track.GlobalId))
+        {
+            _logger.LogWarning("Find Similar requested but the track had no analysis hash to search against");
+            return;
+        }
+
+        // Opens the Similar Tracks sidebar panel and seeds it with this track — same event
+        // mechanism (and the same real harmonic/energy/rhythm/timbre/structure similarity
+        // engine) already used by the Bridge Finder, just for a single track instead of two.
+        ReactiveUI.MessageBus.Current.SendMessage(
+            new FindSimilarTrackRequestEvent(track.GlobalId, $"{track.ArtistName} - {track.TrackTitle}"));
     }
 
     public void RefreshFilteredTracks()
@@ -997,8 +1082,12 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         {
              // Use in-memory tracks (useful for Smart Playlists that aren't DB crates)
              _logger.LogInformation("RefreshFilteredTracks: Using in-memory tracks (Count: {Count})", CurrentProjectTracks.Count);
-             var filtered = CurrentProjectTracks.Where(FilterTracks).ToList();
-             
+             // Computed once here instead of inside FilterTracks (which used to re-run this
+             // Where().ToList() for every single track being filtered — visible input lag on
+             // large projects with style filters active).
+             var selectedStyles = StyleFilters.Where(s => s.IsSelected).ToList();
+             var filtered = ApplyInMemorySort(CurrentProjectTracks.Where(t => FilterTracks(t, selectedStyles)).ToList());
+
              var oldVtcMemory = FilteredTracks as VirtualizedTrackCollection;
              FilteredTracks = new ObservableCollection<PlaylistTrackViewModel>(filtered);
              this.RaisePropertyChanged(nameof(LimitedTracks));
@@ -1018,7 +1107,9 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             effectiveFilter,
             IsFilterDownloaded ? true : (IsFilterPending ? false : null),
             DuplicateHashesFilter,
-            camelotKeyFilter: CamelotKeyFilter);
+            camelotKeyFilter: CamelotKeyFilter,
+            sortColumn: SortColumn,
+            sortDescending: SortDescending);
 
         virtualized.CollectionChanged += (s, e) => {
             if (e.Action == NotifyCollectionChangedAction.Reset)
@@ -1038,6 +1129,28 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             selectedProjectId, effectiveFilter, IsFilterDownloaded, IsFilterPending);
     }
 
+    /// <summary>Applies the current sort selection to the in-memory (smart playlist) path. The
+    /// DB-backed VirtualizedTrackCollection path applies the equivalent sort in SQL instead.</summary>
+    internal List<PlaylistTrackViewModel> ApplyInMemorySort(List<PlaylistTrackViewModel> tracks)
+    {
+        return SortColumn switch
+        {
+            TrackSortColumn.Artist => SortDescending
+                ? tracks.OrderByDescending(t => t.Artist).ThenBy(t => t.Title).ToList()
+                : tracks.OrderBy(t => t.Artist).ThenBy(t => t.Title).ToList(),
+            TrackSortColumn.Title => SortDescending
+                ? tracks.OrderByDescending(t => t.Title).ToList()
+                : tracks.OrderBy(t => t.Title).ToList(),
+            TrackSortColumn.Bpm => SortDescending
+                ? tracks.OrderByDescending(t => t.BPM).ToList()
+                : tracks.OrderBy(t => t.BPM).ToList(),
+            TrackSortColumn.Duration => SortDescending
+                ? tracks.OrderByDescending(t => t.Model.CanonicalDuration ?? 0).ToList()
+                : tracks.OrderBy(t => t.Model.CanonicalDuration ?? 0).ToList(),
+            _ => tracks
+        };
+    }
+
     /// <summary>Merges global search text with per-column filters into one token for VTC/DB queries.</summary>
     private string BuildEffectiveFilter()
     {
@@ -1048,7 +1161,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         return string.Join(" ", parts);
     }
 
-    private bool FilterTracks(object obj)
+    private bool FilterTracks(object obj, System.Collections.Generic.List<StyleFilterItem> selectedStyles)
     {
         if (obj is not PlaylistTrackViewModel track) return false;
 
@@ -1068,7 +1181,6 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         // Phase 15: Style Filtering
         // If NO styles are selected, show ALL (ignore this filter level).
         // If ANY styles are selected, track must match ONE of them.
-        var selectedStyles = StyleFilters.Where(s => s.IsSelected).ToList();
         if (selectedStyles.Any())
         {
             var trackStyle = track.Model.DetectedSubGenre;
@@ -1167,6 +1279,33 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         HasMultiSelection = count > 1;
         SelectedCountText = $"{count} tracks selected";
         this.RaisePropertyChanged(nameof(LeadSelectedTrack));
+        UpdateHarmonicHighlights();
+    }
+
+    /// <summary>
+    /// MixedInKey-style harmonic mixing highlight: marks tracks in the current library
+    /// view as key-compatible with the lead selected track (Camelot wheel adjacent,
+    /// relative major/minor, or exact key).
+    /// </summary>
+    private void UpdateHarmonicHighlights()
+    {
+        var lead = LeadSelectedTrack;
+        var referenceKey = lead?.CamelotDisplay;
+        var hasReference = !string.IsNullOrEmpty(referenceKey) && referenceKey != "—";
+
+        foreach (var track in CurrentProjectTracks)
+        {
+            if (!hasReference || track == lead)
+            {
+                track.IsHarmonicMatch = false;
+                track.IsExactKeyMatch = false;
+                continue;
+            }
+
+            var relation = Utils.KeyConverter.GetHarmonicRelation(referenceKey, track.CamelotDisplay);
+            track.IsHarmonicMatch = relation == Utils.HarmonicRelation.Compatible;
+            track.IsExactKeyMatch = relation == Utils.HarmonicRelation.Exact;
+        }
     }
 
     private async Task ExecuteBulkDownloadAsync()

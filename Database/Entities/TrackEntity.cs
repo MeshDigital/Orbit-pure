@@ -229,8 +229,30 @@ public class PlaylistJobEntity
     // Manual drag-drop sort order; tiebreaker within the same JobPriority tier (lower = higher)
     public int ManualSortOrder { get; set; } = 0;
 
+    // Playlist Folders: which folder this playlist lives in (null = root level)
+    public Guid? FolderId { get; set; }
+
     [InverseProperty(nameof(PlaylistTrackEntity.Job))]
     public ICollection<PlaylistTrackEntity> Tracks { get; set; } = new List<PlaylistTrackEntity>();
+}
+
+/// <summary>
+/// Database entity for a playlist folder, used to organize playlists into a nested tree.
+/// </summary>
+public class PlaylistFolderEntity
+{
+    [Key]
+    public Guid Id { get; set; }
+
+    public string Name { get; set; } = string.Empty;
+
+    // Self-referencing parent for nested folders (null = root level)
+    public Guid? ParentFolderId { get; set; }
+
+    // Manual drag-drop sort order among siblings (lower = higher)
+    public int SortOrder { get; set; } = 0;
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
 /// <summary>

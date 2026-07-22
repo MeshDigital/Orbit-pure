@@ -32,17 +32,16 @@ namespace SLSKDONET.Services.Audio
         public async Task StartTransitionPreviewAsync(LibraryEntryEntity trackA, LibraryEntryEntity trackB, double overlapSeconds, CancellationToken ct = default)
         {
             _logger.LogInformation("🎧 Starting Transition Preview: {TrackA} -> {TrackB} (Overlap: {Overlap}s)", trackA.Title, trackB.Title, overlapSeconds);
-            
-            // Strategy:
-            // 1. Get the last X seconds of Track A.
-            // 2. Get the first X seconds of Track B.
-            // 3. Command SurgicalProcessingService to render a temporary transition fragment.
-            // 4. Play it back using AudioPlayerService.
 
-            // Note: This is a complex orchestration that will yield a temp file path.
-            // await _surgicalService.RenderPreviewAsync(...);
-            
-            await Task.Delay(500, ct); // Simulating preparation
+            double trackADuration = trackA.DurationSeconds ?? trackA.CanonicalDuration ?? 0;
+            double tailStart = Math.Max(0, trackADuration - overlapSeconds);
+
+            string previewPath = await _surgicalService.RenderTransitionPreviewAsync(
+                trackA.FilePath, tailStart,
+                trackB.FilePath, overlapSeconds,
+                overlapSeconds, ct).ConfigureAwait(false);
+
+            _audioPlayer.Play(previewPath);
         }
 
         public void StopPreview()

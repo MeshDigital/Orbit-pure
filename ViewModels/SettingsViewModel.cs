@@ -69,6 +69,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private readonly IDbContextFactory<AppDbContext>? _dbFactory;
     private readonly ILibraryService? _libraryService;
     private readonly AiEngineService _aiEngine;
+    private readonly IDialogService? _dialogService;
 
     // Hardcoded public client ID provided by user/project
     // Ideally this would be in a secured config, but for this desktop app scenario it's acceptable as a default.
@@ -1375,6 +1376,54 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         });
     }
 
+    /// <summary>
+    /// Installs the AI phrase-detection engine. If Conda and/or Git aren't already installed,
+    /// asks for explicit consent before the installer silently downloads and installs them
+    /// (per-user, no admin rights) — previously the installer just failed with instructions to
+    /// go install Miniconda by hand.
+    /// </summary>
+    private async Task ExecuteInstallAiEngineAsync()
+    {
+        var (condaMissing, gitMissing) = await _aiEngine.CheckPrerequisitesAsync();
+
+        if (!condaMissing && !gitMissing)
+        {
+            await _aiEngine.StartInstallAsync();
+            return;
+        }
+
+        if (_dialogService == null)
+        {
+            // No dialog service available (e.g. design-time) — fall back to the installer's
+            // own manual-instructions failure rather than silently installing without consent.
+            await _aiEngine.StartInstallAsync();
+            return;
+        }
+
+        var missing = new System.Collections.Generic.List<string>();
+        if (condaMissing) missing.Add("Conda (Miniconda) — ~80MB download");
+        if (gitMissing) missing.Add("Git for Windows — ~50MB download");
+
+        var message =
+            "The AI phrase-detection engine needs the following that ORBIT couldn't find on this PC:\n\n" +
+            string.Join("\n", missing.ConvertAll(m => $"  •  {m}")) +
+            "\n\nORBIT can download and install these automatically, for your user account only " +
+            "(no admin rights required, from their official sources). Continue?";
+
+        var consented = await _dialogService.ConfirmAsync(
+            "Install Prerequisites",
+            message,
+            confirmLabel: "Install",
+            cancelLabel: "Cancel");
+
+        if (!consented)
+        {
+            return;
+        }
+
+        await _aiEngine.StartInstallAsync(autoInstallConda: condaMissing, autoInstallGit: gitMissing);
+    }
+
     public SettingsViewModel(
         ILogger<SettingsViewModel> logger,
         AppConfig config,
@@ -1391,7 +1440,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         KeyboardMappingsViewModel keyboardMappings,
         IDbContextFactory<AppDbContext>? dbFactory = null,
         ILibraryService? libraryService = null,
-        AiEngineService? aiEngine = null)
+        AiEngineService? aiEngine = null,
+        IDialogService? dialogService = null)
     {
         _logger = logger;
         _config = config;
@@ -1409,8 +1459,9 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _libraryService = libraryService;
         KeyboardMappings = keyboardMappings;
         _aiEngine = aiEngine ?? new AiEngineService();
+        _dialogService = dialogService;
 
-        InstallAiEngineCommand = new AsyncRelayCommand(() => _aiEngine.StartInstallAsync());
+        InstallAiEngineCommand = new AsyncRelayCommand(ExecuteInstallAiEngineAsync);
         StartAiServerCommand   = new AsyncRelayCommand(() => _aiEngine.StartServerAsync());
         CheckAiEngineCommand   = new AsyncRelayCommand(() => _aiEngine.CheckStatusAsync());
         _ = _aiEngine.CheckStatusAsync();
@@ -2033,11 +2084,15 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             ReconcileStatus = "Checking...";
             (ReconcileLibraryCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
 
-            var (reset, checked_) = await _libraryService.ReconcileLibraryAsync();
+            var (reset, checked_, relinked) = await _libraryService.ReconcileLibraryAsync();
 
-            ReconcileStatus = reset == 0
-                ? $"All {checked_} files verified present."
-                : $"Reset {reset} missing file(s) to re-download queue (checked {checked_}).";
+            ReconcileStatus = (reset, relinked) switch
+            {
+                (0, 0) => $"All {checked_} files verified present.",
+                (0, > 0) => $"Relinked {relinked} moved/renamed file(s) (checked {checked_}).",
+                (> 0, 0) => $"Reset {reset} missing file(s) to re-download queue (checked {checked_}).",
+                _ => $"Relinked {relinked} moved file(s), reset {reset} truly missing to re-download queue (checked {checked_})."
+            };
         }
         catch (Exception ex)
         {
@@ -2084,13 +2139,18 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             int totalUpgraded = results.Values.Sum(r => r.FilesAutoUpgraded);
 
             FullSyncStatus = "Step 2/2: Reconciling file paths...";
-            var (reset, checked_) = await _libraryService.ReconcileLibraryAsync();
+            var (reset, checked_, relinked) = await _libraryService.ReconcileLibraryAsync();
 
             await LoadRemovalCandidatesAsync();
 
-            FullSyncStatus = reset == 0
-                ? $"Done. Imported {totalImported} | Upgraded {totalUpgraded} | All {checked_} files verified."
-                : $"Done. Imported {totalImported} | Upgraded {totalUpgraded} | Reset {reset} missing file(s).";
+            var reconcileSummary = (reset, relinked) switch
+            {
+                (0, 0) => $"All {checked_} files verified.",
+                (0, > 0) => $"Relinked {relinked} moved file(s).",
+                (> 0, 0) => $"Reset {reset} missing file(s).",
+                _ => $"Relinked {relinked}, reset {reset} missing file(s)."
+            };
+            FullSyncStatus = $"Done. Imported {totalImported} | Upgraded {totalUpgraded} | {reconcileSummary}";
 
             _logger.LogInformation("Full library sync complete. Imported: {Imported}, Upgraded: {Upgraded}, Reset: {Reset}", totalImported, totalUpgraded, reset);
         }

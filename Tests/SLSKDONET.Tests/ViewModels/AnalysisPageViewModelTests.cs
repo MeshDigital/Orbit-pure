@@ -99,6 +99,19 @@ public class AnalysisPageViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task ReanalyzeAllTracksAsync_QueuesEveryLibraryTrack_EvenAlreadyCompleteOnes()
+    {
+        int totalBefore = _vm.LibraryTracks.Count;
+        Assert.True(totalBefore > 0);
+
+        await _vm.ReanalyzeAllTracksAsync();
+
+        Assert.Equal(totalBefore, _vm.QueueTrackCount);
+        Assert.All(_vm.LibraryTracks, t => Assert.True(t.IsInQueue));
+        Assert.All(_vm.LibraryTracks, t => Assert.Equal(AnalysisRunStatus.Queued, t.AnalysisStatus));
+    }
+
+    [Fact]
     public async Task TrackAnalysisCompletedEvent_Success_RemovesTrackFromQueueAndMarksCompleted()
     {
         var pending = _vm.LibraryTracks.First(t => !t.HasAnalysis);

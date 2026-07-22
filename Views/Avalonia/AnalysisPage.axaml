@@ -245,18 +245,23 @@
                 <!-- Pane header -->
                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10" Spacing="8">
 
-                    <!-- Title row with "Queue All Unanalyzed" bulk-action button -->
+                    <!-- Title row with bulk-action buttons -->
                     <Grid ColumnDefinitions="*,Auto">
                         <TextBlock Grid.Column="0"
                                    Text="📚  Track Library"
                                    FontSize="14" FontWeight="SemiBold"
                                    Foreground="{DynamicResource BrushText0}"
                                    VerticalAlignment="Center"/>
-                        <Button Grid.Column="1"
-                                Classes="secondary"
-                                Content="＋ Queue All Unanalyzed"
-                                Command="{Binding QueueAllUnanalyzedCommand}"
-                                ToolTip.Tip="Add all unanalyzed visible tracks to the analysis queue"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button Classes="secondary"
+                                    Content="＋ Queue All Unanalyzed"
+                                    Command="{Binding QueueAllUnanalyzedCommand}"
+                                    ToolTip.Tip="Add all unanalyzed visible tracks to the analysis queue"/>
+                            <Button Classes="secondary"
+                                    Content="⟲ Force Reanalyze All"
+                                    Command="{Binding ReanalyzeAllTracksCommand}"
+                                    ToolTip.Tip="Queue every track for a fresh analysis pass, even ones that already look complete. Use this after a detection pipeline upgrade — 'incomplete' tracks alone won't catch tracks analysed with older, worse logic."/>
+                        </StackPanel>
                     </Grid>
 
                     <Border Padding="10"

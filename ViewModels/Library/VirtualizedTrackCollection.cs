@@ -31,6 +31,8 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     private readonly int _pageSize;
     private readonly IEnumerable<string>? _hashFilter;
     private readonly string? _camelotKeyFilter;
+    private readonly TrackSortColumn _sortColumn;
+    private readonly bool _sortDescending;
     
     private int _count = -1;
     private readonly List<PlaylistTrackViewModel> _loadedItems = new();
@@ -52,7 +54,9 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         bool? downloadedOnly = null,
         IEnumerable<string>? hashFilter = null,
         int pageSize = 100,
-        string? camelotKeyFilter = null)
+        string? camelotKeyFilter = null,
+        TrackSortColumn sortColumn = TrackSortColumn.Default,
+        bool sortDescending = false)
     {
         _logger = logger;
         _libraryService = libraryService;
@@ -64,6 +68,8 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         _hashFilter = hashFilter;
         _pageSize = pageSize;
         _camelotKeyFilter = camelotKeyFilter;
+        _sortColumn = sortColumn;
+        _sortDescending = sortDescending;
         
         // Centralized event dispatch
         SubscribeToEvents();
@@ -132,17 +138,27 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             
             // Load the page containing this index
             var pageIndex = index / _pageSize;
-            var itemIndexInPage = index % _pageSize;
-            
-            // Load the page synchronously (this might block UI, but for now it's necessary)
-            LoadPageAsync(pageIndex).Wait();
-            
+
+            // Blocking the calling thread (usually the UI thread, via Avalonia's virtualizing
+            // panel) here is a real known issue — see project_codebase_improvement_backlog.md.
+            // A full fix means letting this return early and backfilling via the CollectionChanged
+            // this class already posts once the page loads, but several callers (e.g.
+            // LibraryPlaylistTrackSurface.axaml.cs) dereference this indexer's result without a
+            // null check, so relaxing the "never returns null" contract needs a full caller audit
+            // first. Bounding the wait at least prevents a slow/stuck DB call from hanging the UI
+            // indefinitely — a normal page fetch is single-digit milliseconds, so this timeout
+            // should never be hit in practice.
+            if (!LoadPageAsync(pageIndex).Wait(TimeSpan.FromSeconds(10)))
+            {
+                _logger.LogWarning("[VirtualizedTrackCollection] Page {Page} load timed out after 10s", pageIndex);
+            }
+
             // Return the item if it was loaded
             if (index < _loadedItems.Count)
             {
                 return _loadedItems[index];
             }
-            
+
             throw new InvalidOperationException($"Failed to load item at index {index}");
         }
         set
@@ -229,7 +245,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             
             if (itemsToLoad <= 0) return;
             
-            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter);
+            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending);
             var viewModels = tracks.Select(t => new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
             
             // Ensure _loadedItems has enough capacity
@@ -275,7 +291,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
 
         try
         {
-            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter);
+            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending);
             var viewModels = tracks.Select(t => new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
 
             _loadedItems.AddRange(viewModels);

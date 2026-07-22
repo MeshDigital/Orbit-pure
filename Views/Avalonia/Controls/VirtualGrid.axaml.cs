@@ -63,6 +63,18 @@ namespace SLSKDONET.Views.Avalonia.Controls
         private bool _isUpdatingSelection = false;
         private bool _isIncrementalLoading = false;
 
+        /// <summary>
+        /// Raised once a press-and-move gesture on a row crosses the drag threshold. VirtualGrid
+        /// itself stays format-agnostic (it's shared across the Library grid, Workstation,
+        /// Import Preview, and Search results) — the consumer decides what DataObject/format to
+        /// build and calls DragDrop.DoDragDrop with the supplied PointerEventArgs.
+        /// </summary>
+        public event EventHandler<VirtualGridItemDragEventArgs>? ItemDragStarted;
+
+        private Point? _dragCandidatePoint;
+        private int _dragCandidateIndex = -1;
+        private object? _dragCandidateItem;
+
         public VirtualGrid()
         {
             InitializeComponent();
@@ -321,11 +333,47 @@ namespace SLSKDONET.Views.Avalonia.Controls
                         return;
                     }
 
+                    // Track this as a candidate drag gesture; OnItemsRepeaterPointerMoved
+                    // promotes it to an actual drag once the pointer moves past the threshold.
+                    _dragCandidatePoint = point.Position;
+                    _dragCandidateIndex = index;
+                    _dragCandidateItem = item;
+
                     ApplyPointerSelection(index, item, e.KeyModifiers);
                     Focus();
                     e.Handled = true;
                 }
             }
+        }
+
+        private void OnItemsRepeaterPointerMoved(object? sender, PointerEventArgs e)
+        {
+            if (!_dragCandidatePoint.HasValue || _dragCandidateItem == null) return;
+
+            var point = e.GetCurrentPoint(this);
+            if (!point.Properties.IsLeftButtonPressed)
+            {
+                _dragCandidatePoint = null;
+                return;
+            }
+
+            var diff = point.Position - _dragCandidatePoint.Value;
+            if (Math.Abs(diff.X) <= 5 && Math.Abs(diff.Y) <= 5) return;
+
+            var index = _dragCandidateIndex;
+            var item = _dragCandidateItem;
+            _dragCandidatePoint = null;
+            _dragCandidateIndex = -1;
+            _dragCandidateItem = null;
+
+            ItemDragStarted?.Invoke(this, new VirtualGridItemDragEventArgs(index, item, e));
+        }
+
+        private void OnItemsRepeaterPointerReleased(object? sender, PointerReleasedEventArgs e)
+        {
+            _dragCandidatePoint = null;
+            _dragCandidateIndex = -1;
+            _dragCandidateItem = null;
         }
 
         private void ApplyPointerSelection(int index, object item, KeyModifiers modifiers)
@@ -596,6 +644,22 @@ namespace SLSKDONET.Views.Avalonia.Controls
             base.OnApplyTemplate(e);
             // Wire pointer pressed on ItemsRepeater to detect rows
             PartItemsRepeater.PointerPressed += OnItemsRepeaterPointerPressed;
+            PartItemsRepeater.PointerMoved += OnItemsRepeaterPointerMoved;
+            PartItemsRepeater.PointerReleased += OnItemsRepeaterPointerReleased;
+        }
+    }
+
+    public class VirtualGridItemDragEventArgs : EventArgs
+    {
+        public int Index { get; }
+        public object Item { get; }
+        public PointerEventArgs PointerEventArgs { get; }
+
+        public VirtualGridItemDragEventArgs(int index, object item, PointerEventArgs pointerEventArgs)
+        {
+            Index = index;
+            Item = item;
+            PointerEventArgs = pointerEventArgs;
         }
     }
 }

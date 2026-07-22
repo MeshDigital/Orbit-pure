@@ -33,6 +33,21 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="6"/>
         </Style>
+        <!-- MixedInKey-style harmonic mixing highlight -->
+        <Style Selector="Border.track-row.harmonic-match:not(.selected)">
+            <Setter Property="Background" Value="#124EC9B0"/>
+        </Style>
+        <Style Selector="Border.key-badge">
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style Selector="Border.key-badge.harmonic-match">
+            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+        </Style>
+        <Style Selector="Border.key-badge.exact-match">
+            <Setter Property="BorderBrush" Value="White"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+        </Style>
     </UserControl.Styles>
 
     <Grid RowDefinitions="Auto,*" Focusable="True" KeyDown="OnRootKeyDown" PointerPressed="OnRootPointerPressed" PointerExited="OnRootPointerExited">
@@ -62,13 +77,14 @@
                         <StackPanel Spacing="0">
                             <Border Classes="track-row"
                                     Classes.selected="{Binding IsSelected}"
+                                    Classes.harmonic-match="{Binding IsHarmonicMatch}"
                                     Padding="16,8"
                                     Focusable="True"
                                     PointerPressed="OnTrackRowPointerPressed"
                                     PointerEntered="OnTrackRowPointerEntered"
                                     PointerMoved="OnTrackRowPointerMoved"
                                     PointerExited="OnTrackRowPointerExited">
-                                <Grid ColumnDefinitions="Auto,Auto,160,*,90,110,120,80">
+                                <Grid ColumnDefinitions="Auto,Auto,160,*,90,120,110,120,80,84">
                                     <Border Grid.Column="0"
                                             Width="8"
                                             Height="8"
@@ -117,7 +133,22 @@
                                                                IsVisible="{Binding HasAnalysisData}"
                                                                ToolTip.Tip="Energy contour — analysed audio"/>
 
-                                    <Border Grid.Column="5"
+                                    <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,0,10,0" IsVisible="{Binding HasBpm}">
+                                        <TextBlock Text="{Binding BpmDisplay}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Width="26" TextAlignment="Right" VerticalAlignment="Center"/>
+                                        <Border Classes="key-badge"
+                                                Classes.harmonic-match="{Binding IsHarmonicMatch}"
+                                                Classes.exact-match="{Binding IsExactKeyMatch}"
+                                                Background="{Binding ColorBrush}"
+                                                CornerRadius="4"
+                                                Padding="5,2"
+                                                MinWidth="30"
+                                                VerticalAlignment="Center"
+                                                ToolTip.Tip="{Binding KeyDisplay}">
+                                            <TextBlock Text="{Binding CamelotDisplay}" Foreground="White" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center"/>
+                                        </Border>
+                                    </StackPanel>
+
+                                    <Border Grid.Column="6"
                                             Background="#1A1F2C"
                                             BorderBrush="#3300BFFF"
                                             BorderThickness="1"
@@ -132,7 +163,7 @@
                                         </StackPanel>
                                     </Border>
 
-                                    <Border Grid.Column="6"
+                                    <Border Grid.Column="7"
                                             Background="{Binding IntegrityColor}"
                                             CornerRadius="10"
                                             Padding="8,3"
@@ -146,12 +177,24 @@
                                         </StackPanel>
                                     </Border>
 
-                                    <TextBlock Grid.Column="7"
+                                    <TextBlock Grid.Column="8"
                                                Text="{Binding DurationDisplay}"
                                                VerticalAlignment="Center"
                                                HorizontalAlignment="Right"
                                                Foreground="#A0A0A0"
                                                FontSize="10"/>
+
+                                    <StackPanel Grid.Column="9" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="10,0,0,0">
+                                        <controls:StarRatingControl Rating="{Binding Rating, Mode=TwoWay}" StarSize="11"/>
+                                        <ToggleButton IsChecked="{Binding IsLiked, Mode=TwoWay}"
+                                                      Background="Transparent" BorderThickness="0" Padding="0"
+                                                      Cursor="Hand" ToolTip.Tip="Like">
+                                            <Panel>
+                                                <TextBlock Text="🤍" FontSize="11" Opacity="0.5" IsVisible="{Binding !IsLiked}"/>
+                                                <TextBlock Text="❤️" FontSize="11" IsVisible="{Binding IsLiked}"/>
+                                            </Panel>
+                                        </ToggleButton>
+                                    </StackPanel>
                                 </Grid>
                             </Border>
 

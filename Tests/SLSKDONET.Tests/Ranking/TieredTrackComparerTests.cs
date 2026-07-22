@@ -131,7 +131,7 @@ public class TieredTrackComparerTests
 
         // Assert
         Assert.True(result < 0, "Key match should be ranked higher than mismatch in DJ Mode");
-        Assert.Equal(TrackTier.Diamond, (TrackTier)typeof(TieredTrackComparer).GetMethod("CalculateTier", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).Invoke(comparer, new object[] { keyMatch }));
+        Assert.Equal(TrackTier.Diamond, comparer.CalculateTier(keyMatch));
     }
 
     [Fact]

@@ -696,7 +696,7 @@ public class DownloadDiscoveryService
                 // Phase 14: Forensic Gatekeeping (The Bouncer)
                 // Audit Trail: Log why we rejected this candidate
                 var targetDurationSeconds = track.CanonicalDuration.HasValue ? track.CanonicalDuration.Value / 1000 : (int?)null;
-                var safety = _safetyFilter.EvaluateCandidate(searchTrack, query, targetDurationSeconds, allowLossy: forceMp3);
+                var safety = _safetyFilter.EvaluateCandidate(searchTrack, query, targetDurationSeconds, allowLossy: forceMp3, policy: _config.SearchPolicy);
                 
                 // Track entity usually has Length in seconds. PlaylistTrack has CanonicalDuration (ms) or Duration (ms). 
                 // Let's check what PlaylistTrack has. It has 'Duration' (Timespan?) or 'CanonicalDuration'.
@@ -1057,9 +1057,24 @@ public class DownloadDiscoveryService
 
         if (isUpgrade)
         {
+            // "Upgrade Scout" master toggle in Settings — previously this whole branch ran
+            // unconditionally regardless of the flag, so background upgrade-searching was always
+            // active even though the toggle (default OFF) told the user it wasn't.
+            if (!_config.UpgradeScoutEnabled)
+            {
+                return;
+            }
+
             int currentBitrate = track.Bitrate ?? 0;
             int newBitrate = bestMatch.Bitrate;
-            
+
+            // "Upgrade everything below this bitrate" — tracks already at/above the configured
+            // floor aren't upgrade candidates at all, regardless of gain. Was never read anywhere.
+            if (currentBitrate >= _config.UpgradeMinBitrateThreshold)
+            {
+                return;
+            }
+
             // Upgrade Logic: Better bitrate AND minimum gain achieved
             if (newBitrate > currentBitrate && (newBitrate - currentBitrate) >= _config.UpgradeMinGainKbps)
             {

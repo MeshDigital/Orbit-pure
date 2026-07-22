@@ -121,6 +121,19 @@ public sealed class AnalyzeTrackStructureJob
                 ? await EnrichAlignedPhrasesAsync(alignedPhrases, trackUniqueHash, features, analysisResult, cancellationToken)
                 : await BuildPhraseEntitiesAsync(trackUniqueHash, features, analysisResult, cancellationToken);
 
+            // Bridge the real rule-based phrase analysis into PhraseSegmentsJson. This is the
+            // same field Cue Forge's phrase map and GenerateDefaultCuesAsync's ML path read,
+            // but it was previously only ever populated by the optional EDMFormer microservice
+            // (Step 5.5 below), which requires a user to manually run a separate Python service.
+            // Without this bridge, phrase-aware cue generation and the Cue Forge phrase map were
+            // silently empty for everyone who hasn't set EDMFormer up — even though this same
+            // rule-based structural analysis already ran for every track and produced real data,
+            // just under a different table (TrackPhrases) that nothing downstream consulted.
+            if (sections.Count >= 2 && (string.IsNullOrWhiteSpace(features.PhraseSegmentsJson) || features.PhraseSegmentsJson == "[]"))
+            {
+                features.PhraseSegmentsJson = JsonSerializer.Serialize(ToPhraseSegments(sections, features.Bpm));
+            }
+
             var energyProfile = _energyAnalysisService.BuildEnergyProfile(
                 analysisResult.EnergyCurve,
                 analysisResult.EnergyWindowSeconds,
@@ -232,6 +245,29 @@ public sealed class AnalyzeTrackStructureJob
                 Confidence = 0.45f,
                 Label = $"Phrase {index + 1}",
                 SuggestedType = InferTypeFromPosition(boundary, analysisResult.DurationSeconds)
+            })
+            .ToList();
+    }
+
+    /// <summary>
+    /// Converts rule-based structural sections into the same <see cref="PhraseSegment"/> shape
+    /// EDMFormer produces, so both writers of PhraseSegmentsJson are interchangeable to readers.
+    /// </summary>
+    private static List<PhraseSegment> ToPhraseSegments(IReadOnlyList<TrackPhraseEntity> sections, float bpm)
+    {
+        double beatSeconds = bpm > 0 ? 60.0 / bpm : 0;
+        double barSeconds = beatSeconds * 4;
+
+        return sections
+            .OrderBy(s => s.OrderIndex)
+            .Select(s => new PhraseSegment
+            {
+                Label = string.IsNullOrWhiteSpace(s.Label) ? s.Type.ToString() : s.Label,
+                Start = s.StartTimeSeconds,
+                Duration = s.DurationSeconds,
+                Bars = barSeconds > 0 ? (int)Math.Round(s.DurationSeconds / barSeconds) : 0,
+                Beats = beatSeconds > 0 ? (int)Math.Round(s.DurationSeconds / beatSeconds) : 0,
+                Confidence = Math.Clamp(s.Confidence, 0f, 1f),
             })
             .ToList();
     }

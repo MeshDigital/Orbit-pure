@@ -11,6 +11,12 @@ public interface IDialogService
     Task<Data.Entities.SmartCrateDefinitionEntity?> ShowSmartCrateEditorAsync(ViewModels.Library.SmartCrateEditorViewModel vm);
 
     /// <summary>
+    /// Shows the "New Smart Playlist" dialog for building a criteria-based (BPM/Energy/
+    /// Valence/Danceability/Rating/Liked) smart playlist. Returns null if cancelled.
+    /// </summary>
+    Task<(string Name, SmartPlaylistCriteria Criteria)?> ShowCreateSmartPlaylistAsync();
+
+    /// <summary>
     /// Shows a confirmation dialog with Yes/No options.
     /// </summary>
     /// <returns>True if confirmed (Yes), False otherwise.</returns>

@@ -170,8 +170,7 @@ public class IngestionLifecycleServiceLoggingTests
         var prefetchVerifier = new PrefetchVerifier(
             NullLogger<PrefetchVerifier>.Instance,
             config,
-            databaseService,
-            new TrackFingerprintBuilderService(new HarmonicAnalysisService()));
+            databaseService);
 
         var pathProvider = new PathProviderService(config, formatter, NullLogger<PathProviderService>.Instance);
         var crashJournal = new CrashRecoveryJournal(NullLogger<CrashRecoveryJournal>.Instance);

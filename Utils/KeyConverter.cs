@@ -83,4 +83,49 @@ public static class KeyConverter
 
         return standard;
     }
+
+    /// <summary>
+    /// Camelot wheel harmonic relation between two keys, for MixedInKey-style
+    /// "compatible key" highlighting in track lists.
+    /// </summary>
+    public static HarmonicRelation GetHarmonicRelation(string? camelotA, string? camelotB)
+    {
+        if (!TryParseCamelot(camelotA, out var numA, out var isMinorA)) return HarmonicRelation.None;
+        if (!TryParseCamelot(camelotB, out var numB, out var isMinorB)) return HarmonicRelation.None;
+
+        if (numA == numB)
+        {
+            return isMinorA == isMinorB ? HarmonicRelation.Exact : HarmonicRelation.Compatible; // relative major/minor
+        }
+
+        if (isMinorA == isMinorB)
+        {
+            int prev = numA == 1 ? 12 : numA - 1;
+            int next = numA == 12 ? 1 : numA + 1;
+            if (numB == prev || numB == next) return HarmonicRelation.Compatible; // adjacent wheel step
+        }
+
+        return HarmonicRelation.None;
+    }
+
+    private static bool TryParseCamelot(string? camelot, out int number, out bool isMinor)
+    {
+        number = 0;
+        isMinor = false;
+        if (string.IsNullOrWhiteSpace(camelot)) return false;
+
+        var match = Regex.Match(camelot.Trim(), @"^(1[0-2]|[1-9])([AB])$", RegexOptions.IgnoreCase);
+        if (!match.Success) return false;
+
+        number = int.Parse(match.Groups[1].Value);
+        isMinor = match.Groups[2].Value.Equals("A", StringComparison.OrdinalIgnoreCase);
+        return true;
+    }
+}
+
+public enum HarmonicRelation
+{
+    None,
+    Compatible,
+    Exact
 }

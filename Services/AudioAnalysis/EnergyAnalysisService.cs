@@ -52,6 +52,43 @@ public sealed class EnergyAnalysisService
     }
 
     /// <summary>
+    /// Computes the raw normalized per-second RMS energy curve directly from an audio file,
+    /// independent of Essentia. This is what <see cref="AudioAnalysisService"/> persists into
+    /// <see cref="AudioFeaturesEntity.EnergyCurveJson"/> so downstream drop/phrase detection
+    /// (<see cref="CuePointDetectionService"/>, structural analysis) has a real time-series
+    /// signal instead of a flat placeholder.
+    /// </summary>
+    public async Task<IReadOnlyList<float>> ComputeRawEnergyCurveAsync(
+        string filePath,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            return Array.Empty<float>();
+
+        try
+        {
+            var windows = await Task.Run(() => ReadRmsWindows(filePath, cancellationToken), cancellationToken)
+                .ConfigureAwait(false);
+            if (windows.Count == 0)
+                return Array.Empty<float>();
+
+            var sanitized = windows
+                .Select(v => float.IsNaN(v) || float.IsInfinity(v) ? 0f : v)
+                .ToArray();
+            return Normalize(sanitized);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[EnergyAnalysis] Failed to compute raw energy curve for {FilePath}", filePath);
+            return Array.Empty<float>();
+        }
+    }
+
+    /// <summary>
     /// Computes a normalized energy profile directly from an audio file using RMS windows.
     /// This is a fallback path for analysis stages where a persisted energy curve is not yet available.
     /// </summary>

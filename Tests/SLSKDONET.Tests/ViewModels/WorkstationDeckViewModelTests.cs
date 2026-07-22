@@ -220,7 +220,7 @@ public class WorkstationDeckViewModelTests
     {
         var text = WorkstationViewModel.BuildToolbarHint(WorkstationMode.Waveform, true, true);
 
-        Assert.Contains("Waveform", text);
+        Assert.Contains("Prep", text);
         Assert.Contains("Snap on", text);
         Assert.Contains("Quantize on", text);
     }
@@ -253,37 +253,7 @@ public class WorkstationDeckViewModelTests
         Assert.Contains("Peak Set", text);
         Assert.Contains("12 flow-ready tracks", text);
         Assert.Contains("2 live decks", text);
-        Assert.Contains("flow active", text);
-    }
-
-    [Fact]
-    public void BuildAutomationModeSummary_ReportsSyncAndViewportState()
-    {
-        var text = WorkstationViewModel.BuildAutomationModeSummary(
-            snapEnabled: true,
-            quantizeEnabled: false,
-            metronomeEnabled: true,
-            flowWindowSummary: "Viewport 0:30 → 1:30 • 60s window",
-            focusedDeckLabel: "B");
-
-        Assert.Contains("Deck B focused", text);
-        Assert.Contains("Snap on", text);
-        Assert.Contains("Quantize off", text);
-        Assert.Contains("Metronome on", text);
-        Assert.Contains("Viewport 0:30", text);
-    }
-
-    [Fact]
-    public void BuildSamplesModeSummary_ReportsFallbackWhenPlaylistOrDeckMissing()
-    {
-        var text = WorkstationViewModel.BuildSamplesModeSummary(
-            playlistTitle: null,
-            readyTrackCount: 0,
-            focusedDeckLabel: null);
-
-        Assert.Contains("No playlist selected", text);
-        Assert.Contains("0 ready sample sources", text);
-        Assert.Contains("No focused deck", text);
+        Assert.Contains("set plan active", text);
     }
 
     [Fact]

@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Data.Essentia;
+using SLSKDONET.Engine.Analysis;
 
 namespace SLSKDONET.Services.AudioAnalysis;
 
@@ -29,6 +30,9 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
     private readonly CuePointDetectionService _cues;
     private readonly EssentiaRunner _essentia;
     private readonly EnergyScoringService _energyScoring;
+    private readonly EnergyAnalysisService _energyAnalysis;
+    private readonly SubBassDropoutEngine _subBassEngine = new();
+    private readonly SpectralFluxNoveltyEngine _noveltyEngine = new();
     private readonly TrackFingerprintBuilderService _trackFingerprintBuilder;
     private readonly TrackFingerprintStore _trackFingerprintStore;
     private readonly DatabaseService _db;
@@ -43,6 +47,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         CuePointDetectionService cuePointDetection,
         EssentiaRunner essentiaRunner,
         EnergyScoringService energyScoring,
+        EnergyAnalysisService energyAnalysis,
         TrackFingerprintBuilderService trackFingerprintBuilder,
         TrackFingerprintStore trackFingerprintStore,
         DatabaseService db,
@@ -56,6 +61,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         _cues          = cuePointDetection;
         _essentia      = essentiaRunner;
         _energyScoring = energyScoring;
+        _energyAnalysis = energyAnalysis;
         _trackFingerprintBuilder = trackFingerprintBuilder;
         _trackFingerprintStore = trackFingerprintStore;
         _db            = db;
@@ -119,6 +125,57 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             // ── Step 4: Extract waveform bands ────────────────────────────
             progress?.Report((25, "Extracting waveform..."));
             await _waveform.ExtractAsync(tempWav, features, cancellationToken).ConfigureAwait(false);
+
+            // ── Step 4b: Real per-second RMS energy curve ─────────────────
+            // Independent of Essentia, so drop/phrase detection (CuePointDetectionService,
+            // AnalyzeTrackStructureJob) gets a genuine time-series signal to work with even
+            // when the optional Essentia binary isn't installed. Previously EnergyCurveJson
+            // was never populated at analysis time, so those detectors ran against a flat
+            // placeholder curve and could only ever "find" a drop at its artificial edges.
+            try
+            {
+                var rmsCurve = await _energyAnalysis.ComputeRawEnergyCurveAsync(tempWav, cancellationToken)
+                    .ConfigureAwait(false);
+                if (rmsCurve.Count > 0)
+                    features.EnergyCurveJson = JsonSerializer.Serialize(rmsCurve);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex,
+                    "[AudioAnalysis] RMS energy curve computation failed for {File}; drop/phrase detection will fall back to a flat estimate.",
+                    Path.GetFileName(filePath));
+            }
+
+            // ── Step 4c: Real multi-candidate drop signals ────────────────
+            // Feeds Engine.Cueing.CueGenerationService's DSP drop-scoring path with actual
+            // candidate timestamps (every sub-bass dropout/return, every build-confirmed
+            // novelty peak) instead of the single collapsed DropTimeSeconds/DropConfidence
+            // float pair it previously had to work with.
+            try
+            {
+                var (pcmSamples, pcmSampleRate, pcmChannels) = AudioIngestionPipeline.ReadPcmFloat(tempWav);
+                if (pcmSamples.Length > 0)
+                {
+                    var mono = ToMono(pcmSamples, pcmChannels);
+
+                    var subBassCurve = _subBassEngine.ComputeSubBassEnergyCurve(mono, pcmSampleRate);
+                    var (dropouts, returns) = _subBassEngine.DetectDropoutEvents(subBassCurve);
+                    features.SubBassDropoutTimestampsJson = JsonSerializer.Serialize(dropouts);
+                    features.SubBassReturnTimestampsJson = JsonSerializer.Serialize(returns);
+
+                    var novelty = _noveltyEngine.ComputeNoveltyFunction(mono, pcmSampleRate);
+                    var dropSignatures = _noveltyEngine.DetectDropSignatures(novelty, pcmSampleRate, 512);
+                    features.NoveltyDropSignaturesJson = JsonSerializer.Serialize(dropSignatures
+                        .Select(d => new NoveltyDropSignatureDto(d.DropSeconds, d.BuildStartSeconds, d.DropStrength))
+                        .ToList());
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex,
+                    "[AudioAnalysis] Drop-signal detection failed for {File}; DSP drop scoring will fall back to a single collapsed timestamp.",
+                    Path.GetFileName(filePath));
+            }
 
             // ── Step 5: Essentia BPM / Key / Beatgrid (optional) ─────────
             EssentiaOutput? essentiaOutput = null;
@@ -277,6 +334,22 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
     }
 
     // ── helpers ───────────────────────────────────────────────────────────
+
+    private static float[] ToMono(float[] interleaved, int channels)
+    {
+        if (channels <= 1) return interleaved;
+
+        int numFrames = interleaved.Length / channels;
+        var mono = new float[numFrames];
+        for (int i = 0; i < numFrames; i++)
+        {
+            float sum = 0f;
+            for (int c = 0; c < channels; c++)
+                sum += interleaved[i * channels + c];
+            mono[i] = sum / channels;
+        }
+        return mono;
+    }
 
     private static double MeasureDuration(string wavPath)
     {

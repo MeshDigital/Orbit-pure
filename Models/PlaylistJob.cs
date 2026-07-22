@@ -204,6 +204,9 @@ public class PlaylistJob : INotifyPropertyChanged
     public bool IsSmartPlaylist { get; set; } = false;
     public string? SmartCriteriaJson { get; set; }
 
+    // Playlist Folders: which folder this playlist lives in (null = root level)
+    public Guid? FolderId { get; set; }
+
     /// <summary>
     /// Overall progress percentage for this job (0-100).
     /// Calculated as: (SuccessfulCount + FailedCount) / TotalTracks * 100

@@ -91,6 +91,26 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
     public ObservableCollection<DownloadRowViewModel> HubCompletedRecentRows { get; } = new();
 
+    /// <summary>Playlists that still have Missing tracks — start their downloads from here.</summary>
+    public ObservableCollection<MissingPlaylistSummaryViewModel> MissingPlaylists { get; } = new();
+
+    private bool _showAllCompleted;
+    /// <summary>False = recent completed only; true = the full completed history inline —
+    /// replaces the separate "Completed History" tab so the Hub is the single source of truth.</summary>
+    public bool ShowAllCompleted
+    {
+        get => _showAllCompleted;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _showAllCompleted, value);
+            this.RaisePropertyChanged(nameof(VisibleCompletedRows));
+        }
+    }
+
+    /// <summary>Recent-20 or the full completed set, depending on <see cref="ShowAllCompleted"/>.</summary>
+    public IEnumerable<DownloadRowViewModel> VisibleCompletedRows
+        => ShowAllCompleted ? _hubCompletedRows : HubCompletedRecentRows;
+
     // Phase 2: Active Groups (Album-Centric)
     private readonly ReadOnlyObservableCollection<DownloadGroupViewModel> _activeGroups;
     public ReadOnlyObservableCollection<DownloadGroupViewModel> ActiveGroups => _activeGroups;
@@ -839,26 +859,44 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             .Ascending(x => x.Priority)
             .ThenByDescending(x => x.LastUpdatedUtc);
 
+        // Live search filter for hub rows — previously SearchText only filtered the old
+        // session/history tabs, leaving the Hub's filter box decorative.
+        var hubSearchFilter = this.WhenAnyValue(x => x.SearchText)
+            .Throttle(TimeSpan.FromMilliseconds(250))
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Select<string?, Func<UnifiedTrackViewModel, bool>>(text => track =>
+                string.IsNullOrWhiteSpace(text)
+                || track.TrackTitle.Contains(text, StringComparison.OrdinalIgnoreCase)
+                || track.ArtistName.Contains(text, StringComparison.OrdinalIgnoreCase));
+
         sharedSource
             .Filter(x => !x.IsClearedFromDownloadCenter)
+            .Filter(hubSearchFilter)
             .Transform(x => new DownloadRowViewModel(x, row => SelectedHubRow = row))
+            .DisposeMany() // rows subscribe to their track's PropertyChanged — unhook on removal
+            .AutoRefresh(x => x.Priority) // re-sort when a row's status flips its section
             .SortAndBind(out _hubRows, hubRowComparer)
             .Subscribe()
             .DisposeWith(_subscriptions);
 
+        // AutoRefresh(Priority) on each section: without it a row that transitions
+        // (e.g. Downloading → Completed) stays stuck in its original section forever.
         _hubRows.ToObservableChangeSet()
+            .AutoRefresh(x => x.Priority)
             .Filter(x => x.Priority == DownloadRowPriority.Active)
             .Bind(out _hubActiveRows)
             .Subscribe()
             .DisposeWith(_subscriptions);
 
         _hubRows.ToObservableChangeSet()
+            .AutoRefresh(x => x.Priority)
             .Filter(x => x.Priority == DownloadRowPriority.Attention)
             .Bind(out _hubAttentionRows)
             .Subscribe()
             .DisposeWith(_subscriptions);
 
         _hubRows.ToObservableChangeSet()
+            .AutoRefresh(x => x.Priority)
             .Filter(x => x.Priority == DownloadRowPriority.Completed)
             .Bind(out _hubCompletedRows)
             .Subscribe()
@@ -1213,6 +1251,18 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
         RefreshHubCompletedRecentRows();
 
+        // Playlists-with-missing panel: initial load, then refresh (throttled) whenever
+        // completions land so counts stay honest.
+        _ = RefreshMissingPlaylistsAsync();
+        _hubCompletedRows.ToObservableChangeSet()
+            .Throttle(TimeSpan.FromSeconds(3))
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(changes =>
+            {
+                var fireAndForget = RefreshMissingPlaylistsAsync();
+            })
+            .DisposeWith(_subscriptions);
+
         // Phase 3.7: Defensive Hydration - Catch up if Manager already finished while we were initializing
         if (_downloadManager.IsHydrated)
         {
@@ -1228,6 +1278,118 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         foreach (var row in _hubCompletedRows.Take(20))
         {
             HubCompletedRecentRows.Add(row);
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds the "Playlists with missing tracks" panel from live DB counts
+    /// (persisted PlaylistJob.MissingCount can drift, so count for real).
+    /// </summary>
+    public async System.Threading.Tasks.Task RefreshMissingPlaylistsAsync()
+    {
+        try
+        {
+            List<(Guid PlaylistId, int Missing, int Total)> counts;
+            await using (var db = await _dbFactory.CreateDbContextAsync())
+            {
+                counts = (await db.PlaylistTracks
+                        .AsNoTracking()
+                        .GroupBy(t => t.PlaylistId)
+                        .Select(g => new
+                        {
+                            PlaylistId = g.Key,
+                            Missing = g.Count(t => t.Status == TrackStatus.Missing),
+                            Total = g.Count(),
+                        })
+                        .Where(x => x.Missing > 0)
+                        .ToListAsync())
+                    .Select(x => (x.PlaylistId, x.Missing, x.Total))
+                    .ToList();
+            }
+
+            var jobs = await _libraryService.LoadAllPlaylistJobsAsync();
+            var titleById = jobs.ToDictionary(j => j.Id, j => j.SourceTitle);
+
+            var queuedPlaylistIds = _downloadsSource.Items
+                .Where(x => x.IsActive || x.IsWaiting)
+                .Select(x => x.Model.SourcePlaylistId ?? x.Model.PlaylistId)
+                .Where(id => id != Guid.Empty)
+                .ToHashSet();
+
+            var summaries = counts
+                .Where(c => titleById.ContainsKey(c.PlaylistId))
+                .OrderByDescending(c => c.Missing)
+                .Select(c =>
+                {
+                    var vm = new MissingPlaylistSummaryViewModel(
+                        c.PlaylistId,
+                        titleById[c.PlaylistId],
+                        c.Missing,
+                        c.Total,
+                        StartMissingPlaylistAsync);
+                    vm.IsQueued = queuedPlaylistIds.Contains(c.PlaylistId);
+                    return vm;
+                })
+                .ToList();
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                MissingPlaylists.Clear();
+                foreach (var summary in summaries)
+                {
+                    MissingPlaylists.Add(summary);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "Failed to refresh missing-playlists panel");
+        }
+    }
+
+    /// <summary>
+    /// Queues every Missing track of the given playlist — same path as the Library page's
+    /// "Download Missing" context-menu action, now reachable directly from the Download Center.
+    /// </summary>
+    private async System.Threading.Tasks.Task StartMissingPlaylistAsync(MissingPlaylistSummaryViewModel playlist, PlaylistPriority priority)
+    {
+        try
+        {
+            await _downloadManager.SetJobPriorityAsync(playlist.PlaylistId, priority);
+
+            var tracks = await _libraryService.LoadPlaylistTracksAsync(playlist.PlaylistId);
+            var missing = tracks
+                .Where(t => t.Status != TrackStatus.Downloaded && t.Status != TrackStatus.OnHold)
+                .ToList();
+
+            if (missing.Count == 0)
+            {
+                ShowGlobalStatus($"All tracks in \"{playlist.Title}\" are already downloaded or on hold.", isError: false, autoHide: true, context: "missing-playlists");
+                return;
+            }
+
+            foreach (var t in missing)
+            {
+                // Track-level Priority 0 = explicit user action — bypasses lazy-buffer size gate.
+                t.Priority = 0;
+                if (string.IsNullOrEmpty(t.SourcePlaylistName))
+                {
+                    t.SourcePlaylistName = playlist.Title;
+                    t.SourcePlaylistId = playlist.PlaylistId;
+                }
+            }
+
+            _downloadManager.QueueTracks(missing);
+
+            var priorityLabel = priority == PlaylistPriority.Normal ? string.Empty : $" [{priority}]";
+            ShowGlobalStatus($"Queued {missing.Count} missing track(s) from \"{playlist.Title}\"{priorityLabel}.", isError: false, autoHide: true, context: "missing-playlists");
+
+            playlist.IsQueued = true;
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Failed to start missing downloads for playlist {Playlist}", playlist.Title);
+            ShowGlobalStatus($"Failed to queue \"{playlist.Title}\": {ex.Message}", isError: true, autoHide: false, context: "missing-playlists");
         }
     }
 
@@ -1719,6 +1881,11 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
                 }
             }
         }
-        catch {}
+        catch (Exception ex)
+        {
+            // Was a bare catch — one exception here permanently and silently disabled stall
+            // detection for the rest of the session, with no trace of why.
+            Serilog.Log.Warning(ex, "CheckSlotHealth failed — stall detection may be degraded this session");
+        }
     }
 }

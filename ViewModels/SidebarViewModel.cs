@@ -98,6 +98,16 @@ namespace SLSKDONET.ViewModels
                 .Subscribe(_ => _rightPanelService.OpenPanel(SimilarTracksVm, "SIMILAR TRACKS", "🔗"))
                 .DisposeWith(_disposables);
 
+            // Open right sidebar when "Find Similar" is requested for a single track (Library row button)
+            ReactiveUI.MessageBus.Current.Listen<SLSKDONET.Events.FindSimilarTrackRequestEvent>()
+                .ObserveOn(RxApp.MainThreadScheduler)
+                .Subscribe(_ =>
+                {
+                    ActiveTab = SidebarTab.Similarity;
+                    _rightPanelService.OpenPanel(SimilarTracksVm, "SIMILAR TRACKS", "🔗");
+                })
+                .DisposeWith(_disposables);
+
             SwitchToPlayerCommand     = ReactiveCommand.Create(() =>
             {
                 ActiveTab = SidebarTab.Player;

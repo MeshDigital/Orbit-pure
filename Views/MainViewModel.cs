@@ -287,12 +287,16 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         // Spotify Hub Initialization (TODO: Phase 7 - Implement when needed)
         // Downloads Page Commands
-        PauseAllDownloadsCommand = new RelayCommand(PauseAllDownloads);
-        ResumeAllDownloadsCommand = new RelayCommand(ResumeAllDownloads);
-        RetryAllFailedDownloadsCommand = new RelayCommand(RetryAllFailedDownloads); // NEW
+        PauseAllDownloadsCommand = new AsyncRelayCommand(PauseAllDownloadsAsync);
+        ResumeAllDownloadsCommand = new AsyncRelayCommand(ResumeAllDownloadsAsync);
+        RetryAllFailedDownloadsCommand = new AsyncRelayCommand(RetryAllFailedDownloadsAsync); // NEW
         CancelDownloadsCommand = new RelayCommand(CancelAllowedDownloads);
         // Using generic RelayCommand<PlaylistTrackViewModel> for DeleteTrackCommand
         DeleteTrackCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(DeleteTrackAsync);
+        DismissToastCommand = new RelayCommand<ToastNotificationViewModel>(toast =>
+        {
+            if (toast != null) Toasts.Remove(toast);
+        });
         
         // Subscribe to EventBus events
         // Subscribe to EventBus events
@@ -307,9 +311,25 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _disposables.Add(_eventBus.GetEvent<RevealFileRequestEvent>().Subscribe(evt => 
             _fileInteractionService.RevealFileInExplorer(evt.FilePath)));
             
-        _disposables.Add(_eventBus.GetEvent<AddToProjectRequestEvent>().Subscribe(evt => 
+        _disposables.Add(_eventBus.GetEvent<AddToProjectRequestEvent>().Subscribe(evt =>
         {
              _ = OnAddToProjectRequested(evt.Tracks);
+        }));
+
+        // Theater Mode: reuses the existing Zen Mode chrome-hiding (collapsed nav, hidden top bar/sidebar)
+        _disposables.Add(_eventBus.GetEvent<RequestTheaterModeEvent>().Subscribe(_ =>
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                PlayerViewModel.IsTheaterMode = !PlayerViewModel.IsTheaterMode;
+                IsZenMode = PlayerViewModel.IsTheaterMode;
+            });
+        }));
+
+        // Toast notifications: INotificationService.Show(...) used to only log; render it for real.
+        _disposables.Add(_eventBus.GetEvent<SLSKDONET.Services.ToastRequestedEvent>().Subscribe(evt =>
+        {
+            Dispatcher.UIThread.Post(() => ShowToast(evt));
         }));
         
         // Glass Box Architecture: Analysis Queue Visibility
@@ -967,6 +987,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
 
     // Event-Driven Collection
+    public System.Collections.ObjectModel.ObservableCollection<ToastNotificationViewModel> Toasts { get; } = new();
+
     public System.Collections.ObjectModel.ObservableCollection<PlaylistTrackViewModel> AllGlobalTracks { get; } = new();
     
     // Filtered Collection for Downloads Page
@@ -1056,6 +1078,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ResumeAllDownloadsCommand { get; }
     public ICommand CancelDownloadsCommand { get; }
     public ICommand DeleteTrackCommand { get; }
+    public ICommand DismissToastCommand { get; }
 
     // Page instances (lazy-loaded)
     // Lazy-loaded page instances
@@ -1254,6 +1277,26 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         });
     }
 
+    private const int MaxVisibleToasts = 4;
+
+    private void ShowToast(SLSKDONET.Services.ToastRequestedEvent evt)
+    {
+        var toast = new ToastNotificationViewModel(evt.Title, evt.Message, evt.Type);
+        Toasts.Add(toast);
+
+        // Cap how many stack up on screen at once — oldest drops off first.
+        while (Toasts.Count > MaxVisibleToasts)
+        {
+            Toasts.RemoveAt(0);
+        }
+
+        var lifetime = evt.Duration ?? TimeSpan.FromSeconds(4);
+        _ = Task.Delay(lifetime).ContinueWith(_ =>
+        {
+            Dispatcher.UIThread.Post(() => Toasts.Remove(toast));
+        }, TaskScheduler.Default);
+    }
+
     private void OnTrackAdded(PlaylistTrack trackModel)
     {
         global::Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => 
@@ -1348,29 +1391,51 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     }
 
     // Command Implementations
-    private async void PauseAllDownloads()
+    private async Task PauseAllDownloadsAsync()
     {
-        foreach (var track in AllGlobalTracks.Where(t => t.CanPause))
+        foreach (var track in AllGlobalTracks.Where(t => t.CanPause).ToList())
         {
-            await _downloadManager.PauseTrackAsync(track.GlobalId);
+            try
+            {
+                await _downloadManager.PauseTrackAsync(track.GlobalId);
+            }
+            catch (Exception ex)
+            {
+                // Previously unguarded — one failing track silently aborted the rest of "Pause All".
+                _logger.LogWarning(ex, "Failed to pause track {TrackId} during Pause All", track.GlobalId);
+            }
         }
     }
 
-    private async void ResumeAllDownloads()
+    private async Task ResumeAllDownloadsAsync()
     {
-        foreach (var track in AllGlobalTracks.Where(t => t.State == PlaylistTrackState.Paused))
+        foreach (var track in AllGlobalTracks.Where(t => t.State == PlaylistTrackState.Paused).ToList())
         {
-            await _downloadManager.ResumeTrackAsync(track.GlobalId);
+            try
+            {
+                await _downloadManager.ResumeTrackAsync(track.GlobalId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to resume track {TrackId} during Resume All", track.GlobalId);
+            }
         }
     }
 
-    private async void RetryAllFailedDownloads()
+    private async Task RetryAllFailedDownloadsAsync()
     {
         var failed = AllGlobalTracks.Where(t => t.State == PlaylistTrackState.Failed).ToList();
         _logger.LogInformation("Retrying {Count} failed downloads", failed.Count);
         foreach (var track in failed)
         {
-            await _downloadManager.ResumeTrackAsync(track.GlobalId);
+            try
+            {
+                await _downloadManager.ResumeTrackAsync(track.GlobalId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to retry track {TrackId} during Retry All Failed", track.GlobalId);
+            }
         }
     }
 

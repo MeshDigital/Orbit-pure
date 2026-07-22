@@ -46,6 +46,7 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     private readonly ConfigManager       _configManager;
     private readonly IDialogService _dialogService;
     private readonly FlowBuilderSuggestionTelemetryService _telemetryService;
+    private readonly SLSKDONET.Services.Library.PlaylistExportService? _exportService;
     private string? _transitionCacheKey;
     private IReadOnlyDictionary<(string FromHash, string ToHash), PlaylistRecommendation>? _transitionCache;
     private string? _activeInspectorTransitionFromHash;
@@ -238,6 +239,8 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> ViewSuggestedFlowImpactCommand { get; }
     public ReactiveCommand<Unit, Unit> LoadPlaylistsCommand        { get; }
     public ReactiveCommand<Unit, Unit> ClearCommand                { get; }
+    public ReactiveCommand<Unit, Unit> SaveOrderToPlaylistCommand  { get; }
+    public ReactiveCommand<Unit, Unit> ExportSetCommand            { get; }
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
@@ -251,8 +254,10 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         ConfigManager configManager,
         IDialogService dialogService,
         FlowBuilderSuggestionTelemetryService telemetryService,
-        SLSKDONET.Services.Similarity.SectionVectorService? sectionVectors = null)
+        SLSKDONET.Services.Similarity.SectionVectorService? sectionVectors = null,
+        SLSKDONET.Services.Library.PlaylistExportService? exportService = null)
     {
+        _exportService = exportService;
         _library   = library;
         _optimizer = optimizer;
         _playlistIntelligence = playlistIntelligence;
@@ -301,6 +306,34 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
                 RaiseTrackCollectionChanged();
             },
             this.WhenAnyValue(x => x.HasTracks));
+
+        SaveOrderToPlaylistCommand = ReactiveCommand.CreateFromTask(
+            SaveOrderToPlaylistAsync,
+            this.WhenAnyValue(x => x.SelectedPlaylist, x => x.IsLoading, x => x.HasTracks,
+                (pl, loading, hasTracks) => pl != null && !loading && hasTracks));
+
+        ExportSetCommand = ReactiveCommand.CreateFromTask(
+            ExportSetAsync,
+            this.WhenAnyValue(x => x.IsLoading, x => x.HasTracks,
+                (loading, hasTracks) => !loading && hasTracks));
+
+        SaveOrderToPlaylistCommand.ThrownExceptions
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(ex =>
+            {
+                IsLoading = false;
+                StatusText = $"Save order failed: {ex.Message}";
+            })
+            .DisposeWith(_disposables);
+
+        ExportSetCommand.ThrownExceptions
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(ex =>
+            {
+                IsLoading = false;
+                StatusText = $"Export failed: {ex.Message}";
+            })
+            .DisposeWith(_disposables);
 
         LoadPlaylistsCommand.ThrownExceptions
             .ObserveOn(RxApp.MainThreadScheduler)
@@ -723,6 +756,103 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
             CurrentSuggestedFlowImpact = SuggestedFlowStyleImpact.Empty;
             await RefreshBridgesAsync();
             StatusText = $"Applied A10 suggested flow • avg flow {(appliedScore * 100):F0}%";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// The "finish" of the Set Plan workflow: writes the current on-screen set order back to the
+    /// selected playlist. Bridge tracks pulled in from other playlists are added to the playlist
+    /// first; playlist tracks not staged in the flow keep their place after the planned set.
+    /// </summary>
+    private async Task SaveOrderToPlaylistAsync()
+    {
+        if (SelectedPlaylist == null || Tracks.Count == 0) return;
+
+        IsLoading = true;
+        StatusText = $"Saving set order to \"{SelectedPlaylist.SourceTitle}\"…";
+        try
+        {
+            // Bridge insertions may reference tracks from other playlists — membership first.
+            var foreignModels = Tracks
+                .Select(card => card.Model)
+                .Where(model => model.PlaylistId != SelectedPlaylist.Id)
+                .ToList();
+
+            if (foreignModels.Count > 0)
+            {
+                await _library.AddTracksToProjectAsync(foreignModels, SelectedPlaylist.Id);
+            }
+
+            // Re-load the playlist's own rows so we order the real membership (including rows
+            // just created for bridge tracks, and tracks hidden from the flow as not-ready).
+            var playlistTracks = await _library.LoadPlaylistTracksAsync(SelectedPlaylist.Id);
+
+            var stagedOrder = Tracks
+                .Select((card, index) => new { card.TrackHash, index })
+                .Where(x => !string.IsNullOrWhiteSpace(x.TrackHash))
+                .GroupBy(x => x.TrackHash, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.First().index, StringComparer.Ordinal);
+
+            var ordered = playlistTracks
+                .OrderBy(t => stagedOrder.TryGetValue(t.TrackUniqueHash ?? string.Empty, out var idx)
+                    ? idx
+                    : stagedOrder.Count + Math.Max(0, t.SortOrder))
+                .ToList();
+
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                ordered[i].SortOrder = i + 1;
+                ordered[i].TrackNumber = i + 1;
+            }
+
+            await _library.SaveTrackOrderAsync(SelectedPlaylist.Id, ordered);
+
+            var unstaged = ordered.Count - stagedOrder.Count;
+            StatusText = unstaged > 0
+                ? $"Saved set order to \"{SelectedPlaylist.SourceTitle}\" — {stagedOrder.Count} planned tracks first, {unstaged} unstaged kept after."
+                : $"Saved set order to \"{SelectedPlaylist.SourceTitle}\" ({ordered.Count} tracks).";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// Exports the planned set — in its current on-screen order, with all saved hot cues and
+    /// loops — as a Rekordbox XML file the user can import into their DJ software.
+    /// </summary>
+    private async Task ExportSetAsync()
+    {
+        if (Tracks.Count == 0) return;
+
+        if (_exportService == null)
+        {
+            StatusText = "Export service unavailable.";
+            return;
+        }
+
+        IsLoading = true;
+        try
+        {
+            var setName = SelectedPlaylist?.SourceTitle ?? "ORBIT Set";
+            var safeName = string.Join("_", setName.Split(System.IO.Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries)).Trim();
+            if (safeName.Length == 0) safeName = "orbit-set";
+
+            var outputPath = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                $"{safeName}-set-{DateTime.Now:yyyyMMdd-HHmmss}.xml");
+
+            await _exportService.ExportToRekordboxXmlAsync(
+                setName,
+                Tracks.Select(card => card.Model),
+                outputPath);
+
+            StatusText = $"Exported set with cues → {outputPath}";
         }
         finally
         {

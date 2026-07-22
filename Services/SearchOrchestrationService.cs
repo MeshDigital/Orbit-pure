@@ -333,6 +333,14 @@ public class SearchOrchestrationService
         if (track.IsFlagged)
             return false;
 
+        // Relevance floor: file quality and peer availability alone must never be enough to
+        // short-circuit search. Without this, a high-bitrate file from an idle peer for a
+        // completely different song can still clear the blended match-score threshold below,
+        // because that score weights quality/availability far more heavily than text match (see
+        // ResultSorter.CalculateRank). This directly compares artist/title relevance instead.
+        if (track.MetadataMatchScore < ScoringConstants.Availability.FastLaneMinMetadataScore)
+            return false;
+
         var minimumScore = Math.Min(ScoringConstants.Availability.FastLaneMinMatchScore, 50);
         if (track.CurrentRank < minimumScore)
             return false;
@@ -422,7 +430,7 @@ public class SearchOrchestrationService
                 executionProfile,
                 cancellationToken))
             {
-                _safetyFilter.EvaluateSafety(track, normalizedQuery, allowLossy);
+                _safetyFilter.EvaluateSafety(track, normalizedQuery, allowLossy, _config?.SearchPolicy);
                 ScoreSingleTrack(track, target, normalizedQuery, formatFilter, minBitrate, maxBitrate);
                 yield return track;
 
@@ -467,7 +475,7 @@ public class SearchOrchestrationService
                     executionProfile,
                     brainBufferCts.Token))
                 {
-                    _safetyFilter.EvaluateSafety(track, normalizedQuery, allowLossy);
+                    _safetyFilter.EvaluateSafety(track, normalizedQuery, allowLossy, _config?.SearchPolicy);
                     bufferedTracks.Add(track);
 
                     if (_config.EnableAccumulatorPerfectMatchShortCircuit && IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
@@ -546,7 +554,7 @@ public class SearchOrchestrationService
                     executionProfile,
                     cancellationToken))
                 {
-                    _safetyFilter.EvaluateSafety(track, normalizedQuery);
+                    _safetyFilter.EvaluateSafety(track, normalizedQuery, policy: _config?.SearchPolicy);
                     await channel.Writer.WriteAsync(track, cancellationToken);
                 }
             }

@@ -14,7 +14,7 @@ public class WorkstationTimelineLayoutGuardTests
     {
         var xaml = ReadWorkstationPageXaml();
 
-        Assert.Contains("<Grid Grid.Row=\"2\" Grid.Column=\"0\">", xaml);
+        Assert.Contains("<Grid Grid.Row=\"1\" Grid.Column=\"0\">", xaml);
         Assert.Contains("<ItemsControl ItemsSource=\"{Binding Decks}\">", xaml);
         Assert.Contains("IsHitTestVisible=\"False\"", xaml);
         Assert.Contains("Opacity=\"0.72\"", xaml);
@@ -41,12 +41,17 @@ public class WorkstationTimelineLayoutGuardTests
     }
 
     [Fact]
-    public void FlowViewportSummary_IsCanonicalInLane_NotDuplicatedInInspector()
+    public void ModeLaneBannerStrip_StaysDeleted_AfterWorkspaceCollapse()
     {
+        // The per-mode "lane" banner strip was removed in the 6→2 workspace collapse
+        // (its content was either noise or duplicated in the Flow Drawer). Guard against
+        // it creeping back in.
         var xaml = ReadWorkstationPageXaml();
 
-        Assert.Contains("<TextBlock Text=\"{Binding FlowWindowSummary}\"", xaml);
-        Assert.DoesNotContain("<Border Classes=\"ws-chip\"><TextBlock Text=\"{Binding FlowWindowSummary}\"", xaml);
+        Assert.DoesNotContain("Classes=\"ws-lane\"", xaml);
+        Assert.DoesNotContain("Waveform Lane", xaml);
+        Assert.DoesNotContain("Automation Lane", xaml);
+        Assert.DoesNotContain("Samples Lane", xaml);
     }
 
     [Fact]

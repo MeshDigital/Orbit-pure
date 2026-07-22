@@ -62,6 +62,7 @@
         <converters:PlayPauseConverter x:Key="PlayPauseConverter"/>
         <conv_root:ParameterizedBooleanConverter x:Key="BoolParameterConverter"/>
         <conv_root:ParameterizedBooleanConverter x:Key="ParameterizedBooleanConverter"/>
+        <conv_root:NotificationTypeToColorConverter x:Key="NotificationTypeToColorConverter"/>
         
         <converters:PercentToWidthConverter x:Key="PercentToWidthConverter"/>
         

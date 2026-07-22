@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows.Input;
 using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
+using SLSKDONET.Configuration;
 using SLSKDONET.Models;
 using SLSKDONET.Models.Entertainment;
 using SLSKDONET.Models.Musical;
@@ -43,6 +44,8 @@ namespace SLSKDONET.ViewModels
             return true;
         }
         private readonly IAudioPlayerService _playerService;
+        private readonly AppConfig? _config;
+        private readonly ConfigManager? _configManager;
         private readonly DatabaseService _databaseService;
         private readonly ArtworkCacheService _artworkCacheService;
         private readonly IEventBus _eventBus;
@@ -191,6 +194,14 @@ namespace SLSKDONET.ViewModels
         /// </summary>
         public WaveformAnalysisData? WaveformData => _currentTrack?.WaveformData;
         public bool HasCurrentTrack => _currentTrack is not null;
+
+        /// <summary>
+        /// The file path actually loaded into the audio engine right now — ad-hoc PlayTrack()
+        /// calls first, falling back to the queued CurrentTrack's resolved path. Lets other
+        /// pages (e.g. Cue Forge) check whether they need to (re)load this track before trying
+        /// to play/seek/audition it, without duplicating the resolution order used internally.
+        /// </summary>
+        public string? CurrentFilePath => _currentFilePath ?? CurrentTrack?.Model?.ResolvedFilePath;
         public string CurrentTrackContextSummary => BuildTrackContextSummary(_currentTrack);
         public string CurrentTrackWorkflowHint => BuildTrackWorkflowHint(_currentTrack);
         public string CurrentTrackWorkstationPrepSummary => BuildWorkstationPrepSummary(_currentTrack);
@@ -224,14 +235,42 @@ namespace SLSKDONET.ViewModels
         public bool IsShuffling
         {
             get => _isShuffling;
-            set => SetProperty(ref _isShuffling, value);
+            set { if (SetProperty(ref _isShuffling, value)) SchedulePreloadNext(); }
         }
-        
+
         private RepeatMode _repeatMode = RepeatMode.Off;
         public RepeatMode RepeatMode
         {
             get => _repeatMode;
-            set => SetProperty(ref _repeatMode, value);
+            set { if (SetProperty(ref _repeatMode, value)) SchedulePreloadNext(); }
+        }
+
+        /// <summary>Gapless/crossfade: when enabled, the preloaded next track overlaps and
+        /// fades in while the current one fades out, instead of a hard cut at track boundaries.</summary>
+        public bool IsCrossfadeEnabled
+        {
+            get => _playerService.CrossfadeEnabled;
+            set
+            {
+                if (_playerService.CrossfadeEnabled == value) return;
+                _playerService.CrossfadeEnabled = value;
+                OnPropertyChanged();
+                PersistPlaybackSettings(c => c.PlaybackCrossfadeEnabled = value);
+            }
+        }
+
+        /// <summary>Length of the crossfade overlap, in seconds. Only used when
+        /// <see cref="IsCrossfadeEnabled"/> is true.</summary>
+        public double CrossfadeSeconds
+        {
+            get => _playerService.CrossfadeSeconds;
+            set
+            {
+                if (Math.Abs(_playerService.CrossfadeSeconds - value) < 0.01) return;
+                _playerService.CrossfadeSeconds = value;
+                OnPropertyChanged();
+                PersistPlaybackSettings(c => c.PlaybackCrossfadeSeconds = value);
+            }
         }
         
         // Player Dock Location
@@ -424,8 +463,18 @@ namespace SLSKDONET.ViewModels
                 if (SetProperty(ref _pitch, value))
                 {
                     _playerService.Pitch = value;
+                    PersistPlaybackSettings(c => c.PlaybackPitch = value);
                 }
             }
+        }
+
+        /// <summary>Writes a playback setting change to disk. Fire-and-forget, same pattern as
+        /// other ViewModels' incidental settings saves (e.g. DownloadManager, SearchViewModel).</summary>
+        private void PersistPlaybackSettings(Action<AppConfig> apply)
+        {
+            if (_config == null || _configManager == null) return;
+            apply(_config);
+            _ = _configManager.SaveAsync(_config);
         }
         
         // Shuffle history to prevent immediate repeats
@@ -443,6 +492,7 @@ namespace SLSKDONET.ViewModels
         public ICommand ClearQueueCommand { get; }
         public ICommand ToggleShuffleCommand { get; }
         public ICommand ToggleRepeatCommand { get; }
+        public ICommand ToggleCrossfadeCommand { get; }
         public ICommand TogglePlayerDockCommand { get; }
         public ICommand ToggleQueueCommand { get; }
         public ICommand ToggleLikeCommand { get; } // Phase 9.3
@@ -461,6 +511,7 @@ namespace SLSKDONET.ViewModels
         public ICommand OpenCurrentTrackInspectorCommand { get; }
         public ICommand OpenCurrentTrackWorkstationCommand { get; }
         public ICommand OpenCurrentTrackFlowCommand { get; }
+        public ICommand OpenCurrentTrackCueForgeCommand { get; }
         public ICommand LoadCurrentTrackToDeckACommand { get; }
         public ICommand LoadCurrentTrackToDeckBCommand { get; }
         public ICommand AnalyzeCurrentTrackCommand { get; }
@@ -479,7 +530,7 @@ namespace SLSKDONET.ViewModels
         // Phase 5C: UI Throttling
         private DateTime _lastTimeUpdate = DateTime.MinValue;
 
-        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null)
+        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null, AppConfig? config = null, ConfigManager? configManager = null)
         {
             _playerService = playerService;
             _databaseService = databaseService;
@@ -489,6 +540,17 @@ namespace SLSKDONET.ViewModels
             _rightPanelService = rightPanelService;
             _ambientModeService = ambientModeService;
             _flowModeService = flowModeService;
+            _config = config;
+            _configManager = configManager;
+
+            // Restore persisted playback settings (crossfade/pitch used to reset to defaults every restart)
+            if (_config != null)
+            {
+                _playerService.CrossfadeEnabled = _config.PlaybackCrossfadeEnabled;
+                _playerService.CrossfadeSeconds = _config.PlaybackCrossfadeSeconds;
+                _pitch = _config.PlaybackPitch;
+                _playerService.Pitch = _config.PlaybackPitch;
+            }
 
             // Wire Ambient Mode service events
             if (_ambientModeService is not null)
@@ -625,6 +687,13 @@ namespace SLSKDONET.ViewModels
                 .Subscribe(e => Dispatcher.UIThread.Post(() => OnEndReached(e.Sender, EventArgs.Empty)))
                 .DisposeWith(_disposables);
 
+            // Gapless/crossfade: the engine advanced to a preloaded track on its own (either a
+            // hard gapless swap or a completed crossfade) — sync our "now playing" state to
+            // match without calling Play() again, since the audio is already running.
+            Observable.FromEventPattern(h => _playerService.TrackAdvanced += h, h => _playerService.TrackAdvanced -= h)
+                .Subscribe(_ => Dispatcher.UIThread.Post(OnTrackAdvanced))
+                .DisposeWith(_disposables);
+
             Observable.FromEventPattern<float>(h => _playerService.PositionChanged += h, h => _playerService.PositionChanged -= h)
                 .Sample(TimeSpan.FromMilliseconds(50)) // 20fps for progress markers
                 .ObserveOn(RxApp.MainThreadScheduler)
@@ -679,6 +748,7 @@ namespace SLSKDONET.ViewModels
             ClearQueueCommand = new RelayCommand(ClearQueue, () => Queue.Any());
             ToggleShuffleCommand = new RelayCommand(ToggleShuffle);
             ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
+            ToggleCrossfadeCommand = new RelayCommand(() => IsCrossfadeEnabled = !IsCrossfadeEnabled);
             TogglePlayerDockCommand = new RelayCommand(TogglePlayerDock);
             ToggleQueueCommand = new RelayCommand(ToggleQueue);
             ToggleLikeCommand = new AsyncRelayCommand(ToggleLikeAsync); // Phase 9.3
@@ -700,6 +770,7 @@ namespace SLSKDONET.ViewModels
             OpenCurrentTrackInspectorCommand = new RelayCommand(OpenCurrentTrackInspector);
             OpenCurrentTrackWorkstationCommand = new RelayCommand(OpenCurrentTrackWorkstation);
             OpenCurrentTrackFlowCommand = new RelayCommand(OpenCurrentTrackFlow);
+            OpenCurrentTrackCueForgeCommand = new RelayCommand(OpenCurrentTrackCueForge);
             LoadCurrentTrackToDeckACommand = new RelayCommand(() => RouteCurrentTrackToWorkstation("A"));
             LoadCurrentTrackToDeckBCommand = new RelayCommand(() => RouteCurrentTrackToWorkstation("B"));
             AnalyzeCurrentTrackCommand = new RelayCommand(AnalyzeCurrentTrack);
@@ -990,6 +1061,13 @@ namespace SLSKDONET.ViewModels
         private void OpenCurrentTrackWorkstation()
         {
             RouteCurrentTrackToWorkstation();
+        }
+
+        private void OpenCurrentTrackCueForge()
+        {
+            IsExpandedPlayerOpen = false;
+            IsQueueOpen = false;
+            _navigationService.NavigateTo("CueForge");
         }
 
         private void OpenCurrentTrackFlow()
@@ -1318,30 +1396,107 @@ namespace SLSKDONET.ViewModels
         private void PlayTrackAtIndex(int index)
         {
             if (index < 0 || index >= Queue.Count) return;
-            
-            CurrentQueueIndex = index;
-            CurrentTrack = Queue[index];
-            
+
             var track = Queue[index];
+            SetNowPlayingState(index, track);
+
             var filePath = track.Model?.ResolvedFilePath;
-            
+            if (!string.IsNullOrEmpty(filePath))
+            {
+                PlayTrack(filePath, track.Title ?? "Unknown", track.Artist ?? "Unknown");
+            }
+
+            SchedulePreloadNext();
+        }
+
+        /// <summary>
+        /// Updates queue position, current-track pointer, artwork, and like status. Shared by
+        /// PlayTrackAtIndex (starting a track ourselves) and OnTrackAdvanced (the engine already
+        /// advanced audio to a preloaded track and we're just syncing UI state to match).
+        /// </summary>
+        private void SetNowPlayingState(int index, PlaylistTrackViewModel track)
+        {
+            CurrentQueueIndex = index;
+            CurrentTrack = track;
+
             // Phase 9.2 & 9.3: Set album artwork and like status
             Dispatcher.UIThread.Post(async () =>
             {
                 AlbumArtUrl = track.Model?.AlbumArtUrl;
                 IsCurrentTrackLiked = track.Model?.IsLiked ?? false;
-                
+
                 // Ensure bitmap is loaded for UI
                 // Phase 0: Artwork loaded via Proxy
                 // if (track.ArtworkBitmap == null) await track.LoadAlbumArtworkAsync();
             });
-
-            if (!string.IsNullOrEmpty(filePath))
-            {
-                PlayTrack(filePath, track.Title ?? "Unknown", track.Artist ?? "Unknown");
-            }
         }
-        
+
+        /// <summary>Queue index the engine currently has preloaded, or null if nothing is preloaded.</summary>
+        private int? _preloadedQueueIndex;
+
+        /// <summary>
+        /// Works out what track will play after the current one (without side effects) and
+        /// asks the engine to have it hot and ready, so the transition can be gapless or
+        /// crossfaded instead of a cold file-open. Call whenever the current track changes or
+        /// anything that affects "what's next" changes (repeat mode, shuffle toggle).
+        /// </summary>
+        private void SchedulePreloadNext()
+        {
+            var nextIndex = PeekNextIndex();
+            if (nextIndex is int idx && idx >= 0 && idx < Queue.Count)
+            {
+                var path = Queue[idx].Model?.ResolvedFilePath;
+                if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
+                {
+                    _playerService.PreloadNext(path);
+                    _preloadedQueueIndex = idx;
+                    return;
+                }
+            }
+
+            _playerService.CancelPreload();
+            _preloadedQueueIndex = null;
+        }
+
+        /// <summary>
+        /// Determines the next queue index without mutating any state (in particular, without
+        /// touching shuffle history) so it's safe to call speculatively for preloading. Shuffle
+        /// mode intentionally returns null — the actual pick has side effects (recorded into
+        /// shuffle history) that must only happen once, at the moment playback truly advances.
+        /// </summary>
+        private int? PeekNextIndex()
+        {
+            if (!Queue.Any()) return null;
+            if (IsShuffling) return null;
+            if (RepeatMode == RepeatMode.One) return CurrentQueueIndex;
+
+            var nextIndex = CurrentQueueIndex + 1;
+            if (nextIndex >= Queue.Count)
+            {
+                return RepeatMode == RepeatMode.All ? 0 : null;
+            }
+
+            return nextIndex;
+        }
+
+        /// <summary>
+        /// The engine autonomously advanced to the preloaded track (gapless swap or crossfade
+        /// completion). Sync our "now playing" state to match — the audio is already playing,
+        /// so this must NOT call PlayTrack()/Play() again.
+        /// </summary>
+        private void OnTrackAdvanced()
+        {
+            if (_preloadedQueueIndex is not int index || index < 0 || index >= Queue.Count)
+            {
+                return;
+            }
+
+            var track = Queue[index];
+            _preloadedQueueIndex = null;
+            SetNowPlayingState(index, track);
+            SchedulePreloadNext();
+        }
+
         private bool HasNextTrack()
         {
             if (!Queue.Any()) return false;
@@ -1794,8 +1949,21 @@ namespace SLSKDONET.ViewModels
         
         // Helper to load track
         public void PlayTrack(string filePath, string title, string artist)
+            => LoadTrackCore(filePath, title, artist, autoPlay: true);
+
+        /// <summary>
+        /// Loads a track "hot and ready" without starting playback — e.g. Cue Forge loading
+        /// whatever track it's editing so Play/Seek/Audition have something to act on, without
+        /// audibly blipping the track that's about to be silently loaded. A PlayTrack()-then-
+        /// immediately-Pause() sequence still lets a moment of real audio through the WASAPI
+        /// buffer before the pause takes effect.
+        /// </summary>
+        public void LoadTrackPaused(string filePath, string title, string artist)
+            => LoadTrackCore(filePath, title, artist, autoPlay: false);
+
+        private void LoadTrackCore(string filePath, string title, string artist, bool autoPlay)
         {
-            Console.WriteLine($"[PlayerViewModel] PlayTrack called with: {filePath}");
+            Console.WriteLine($"[PlayerViewModel] LoadTrackCore called with: {filePath} (autoPlay={autoPlay})");
 
             // Phase 9.2: Show loading state
             Dispatcher.UIThread.Post(() =>
@@ -1810,9 +1978,10 @@ namespace SLSKDONET.ViewModels
                 _currentFilePath = filePath;
                 TrackTitle = title;
                 TrackArtist = artist;
-                
-                _playerService.Play(filePath);
-                IsPlaying = true;
+
+                if (autoPlay) _playerService.Play(filePath);
+                else _playerService.LoadWithoutPlaying(filePath);
+                IsPlaying = autoPlay;
 
                 // Hide loading state
                 Dispatcher.UIThread.Post(() => IsLoading = false);

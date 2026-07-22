@@ -1,29 +1,34 @@
 using System;
 using Microsoft.Extensions.Logging;
-using System.Reflection;
 using SLSKDONET.Views;
 
 namespace SLSKDONET.Services;
 
 /// <summary>
-/// Adapter that implements the view-level INotificationService for Avalonia.
-/// Falls back to logging when no UI notification service is available.
+/// Published whenever <see cref="NotificationServiceAdapter.Show"/> is called, so the UI layer
+/// (a toast host bound in MainViewModel) can render an actual on-screen notification.
 /// </summary>
+public record ToastRequestedEvent(string Title, string Message, NotificationType Type, TimeSpan? Duration);
+
+/// <summary>
+/// Adapter that implements the view-level INotificationService for Avalonia.
+/// Publishes a <see cref="ToastRequestedEvent"/> for the UI to render, and always logs too.
 /// </summary>
 public class NotificationServiceAdapter : global::SLSKDONET.Views.INotificationService
 {
     private readonly ILogger<NotificationServiceAdapter> _logger;
+    private readonly IEventBus _eventBus;
 
-    public NotificationServiceAdapter(ILogger<NotificationServiceAdapter> logger)
+    public NotificationServiceAdapter(ILogger<NotificationServiceAdapter> logger, IEventBus eventBus)
     {
         _logger = logger;
+        _eventBus = eventBus;
     }
 
     public void Show(string title, string message, NotificationType type = NotificationType.Information, TimeSpan? duration = null)
     {
-        // Log the notification (Avalonia doesn't have built-in toast notifications like WPF)
         var logMessage = $"{type}: {title} - {message}";
-        
+
         switch (type)
         {
             case NotificationType.Error:
@@ -38,8 +43,7 @@ public class NotificationServiceAdapter : global::SLSKDONET.Views.INotificationS
                 _logger.LogInformation(logMessage);
                 break;
         }
-        
-        // TODO: Implement proper Avalonia toast notifications here
-        // Can use third-party libraries like Notification.Avalonia or custom toast windows
+
+        _eventBus.Publish(new ToastRequestedEvent(title, message, type, duration));
     }
 }

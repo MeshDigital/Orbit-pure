@@ -20,22 +20,28 @@ public class DatabaseService
     private readonly SchemaMigratorService _schemaMigrator;
     private readonly Repositories.ITrackRepository _trackRepository;
     private readonly Services.IO.IFileWriteService _fileWriteService;
-    
+    private readonly Configuration.AppConfig? _appConfig;
+    private readonly IFilePathResolverService? _filePathResolver;
+
     // Semaphore to serialize database write operations and prevent SQLite locking issues
     private static readonly SemaphoreSlim _writeSemaphore = new SemaphoreSlim(1, 1);
     private readonly SemaphoreSlim _initSemaphore = new SemaphoreSlim(1, 1);
     private bool _isInitialized;
 
     public DatabaseService(
-        ILogger<DatabaseService> logger, 
+        ILogger<DatabaseService> logger,
         SchemaMigratorService schemaMigrator,
         Repositories.ITrackRepository trackRepository,
-        Services.IO.IFileWriteService fileWriteService)
+        Services.IO.IFileWriteService fileWriteService,
+        Configuration.AppConfig? appConfig = null,
+        IFilePathResolverService? filePathResolver = null)
     {
         _logger = logger;
         _schemaMigrator = schemaMigrator;
         _trackRepository = trackRepository;
         _fileWriteService = fileWriteService;
+        _appConfig = appConfig;
+        _filePathResolver = filePathResolver;
     }
 
     private Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? _currentTransaction;
@@ -515,6 +521,74 @@ public class DatabaseService
         }
     }
 
+    // ===== PlaylistFolder Methods =====
+
+    public async Task<List<PlaylistFolderEntity>> LoadAllPlaylistFoldersAsync()
+    {
+        using var context = new AppDbContext();
+        return await context.PlaylistFolders
+            .AsNoTracking()
+            .OrderBy(f => f.SortOrder)
+            .ToListAsync();
+    }
+
+    public async Task<PlaylistFolderEntity> SavePlaylistFolderAsync(PlaylistFolderEntity folder)
+    {
+        using var context = new AppDbContext();
+        if (context.Entry(folder).State == EntityState.Detached)
+        {
+            var existing = await context.PlaylistFolders.FindAsync(folder.Id);
+            if (existing == null)
+            {
+                context.PlaylistFolders.Add(folder);
+            }
+            else
+            {
+                context.Entry(existing).CurrentValues.SetValues(folder);
+            }
+        }
+        await context.SaveChangesAsync();
+        return folder;
+    }
+
+    public async Task DeletePlaylistFolderAsync(Guid folderId)
+    {
+        using var context = new AppDbContext();
+
+        // Un-nest anything that lived inside this folder rather than cascading destructively:
+        // child folders and playlists move up to this folder's parent (or root).
+        var folder = await context.PlaylistFolders.FindAsync(folderId);
+        if (folder == null) return;
+
+        var childFolders = await context.PlaylistFolders.Where(f => f.ParentFolderId == folderId).ToListAsync();
+        foreach (var child in childFolders)
+        {
+            child.ParentFolderId = folder.ParentFolderId;
+        }
+
+        var childPlaylists = await context.Projects.Where(p => p.FolderId == folderId).ToListAsync();
+        foreach (var playlist in childPlaylists)
+        {
+            playlist.FolderId = folder.ParentFolderId;
+        }
+
+        context.PlaylistFolders.Remove(folder);
+        await context.SaveChangesAsync();
+        _logger.LogInformation("Deleted PlaylistFolder: {Id}, {ChildFolders} subfolder(s) and {ChildPlaylists} playlist(s) moved up",
+            folderId, childFolders.Count, childPlaylists.Count);
+    }
+
+    public async Task SetPlaylistFolderAsync(Guid playlistId, Guid? folderId)
+    {
+        using var context = new AppDbContext();
+        var job = await context.Projects.FindAsync(playlistId);
+        if (job != null)
+        {
+            job.FolderId = folderId;
+            await context.SaveChangesAsync();
+        }
+    }
+
     public async Task<List<PlaylistJobEntity>> LoadDeletedPlaylistJobsAsync()
     {
         using var context = new AppDbContext();
@@ -563,9 +637,9 @@ public class DatabaseService
         return await _trackRepository.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter);
     }
 
-    public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
+    public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false)
     {
-        return await _trackRepository.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter);
+        return await _trackRepository.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending);
     }
 
     public async Task<List<TrackPhraseEntity>> GetPhrasesByHashAsync(string trackHash)
@@ -583,9 +657,9 @@ public class DatabaseService
         return await _trackRepository.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter);
     }
 
-    public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
+    public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false)
     {
-        return await _trackRepository.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter);
+        return await _trackRepository.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending);
     }
 
     public async Task<PlaylistTrackEntity?> GetPlaylistTrackByHashAsync(Guid jobId, string trackHash)
@@ -1208,9 +1282,25 @@ public class DatabaseService
     /// Any row whose file no longer exists on disk is reset to Missing so auto-download can re-acquire it.
     /// Returns counts: (reset, checked).
     /// </summary>
-    public async Task<(int Reset, int Checked)> ReconcilePhysicalFilesAsync()
+    public async Task<(int Reset, int Checked, int Relinked)> ReconcilePhysicalFilesAsync()
     {
         using var context = new AppDbContext();
+
+        // The file-path resolver reads its search roots from AppConfig.LibraryRootPaths, which is
+        // never populated elsewhere — seed it from the user's configured (enabled) library folders,
+        // the actual source of truth the scanner itself uses.
+        if (_filePathResolver != null && _appConfig != null)
+        {
+            var folderPaths = await context.LibraryFolders
+                .Where(f => f.IsEnabled)
+                .Select(f => f.FolderPath)
+                .ToListAsync();
+
+            if (folderPaths.Count > 0)
+            {
+                _appConfig.LibraryRootPaths = folderPaths;
+            }
+        }
 
         // --- Pass 1: PlaylistTracks ---
         var assumedPresent = await context.PlaylistTracks
@@ -1218,9 +1308,29 @@ public class DatabaseService
             .ToListAsync();
 
         int reset = 0;
+        int relinked = 0;
         foreach (var track in assumedPresent)
         {
-            if (!System.IO.File.Exists(track.ResolvedFilePath!))
+            if (System.IO.File.Exists(track.ResolvedFilePath!))
+            {
+                continue;
+            }
+
+            var relinkedPath = _filePathResolver != null
+                ? await _filePathResolver.ResolveMissingFilePathAsync(new LibraryEntry
+                {
+                    Artist = track.Artist,
+                    Title = track.Title,
+                    FilePath = track.ResolvedFilePath!
+                })
+                : null;
+
+            if (relinkedPath != null)
+            {
+                track.ResolvedFilePath = relinkedPath;
+                relinked++;
+            }
+            else
             {
                 track.Status = TrackStatus.Missing;
                 track.AvailabilityState = TrackAvailabilityState.Ghost;
@@ -1229,12 +1339,12 @@ public class DatabaseService
             }
         }
 
-        if (reset > 0)
+        if (reset > 0 || relinked > 0)
             await context.SaveChangesAsync();
 
         // --- Pass 2: LibraryEntries (source of Format Split / library counts) ---
-        // Entries whose FilePath no longer exists are stale — remove them so the
-        // DB counts match physical reality.
+        // Entries whose FilePath no longer exists are stale — try to relink them to their new
+        // location first, and only remove the ones that genuinely can't be found.
         var libraryEntries = await context.LibraryEntries
             .Where(e => e.FilePath != null && e.FilePath != "")
             .ToListAsync();
@@ -1243,7 +1353,26 @@ public class DatabaseService
         var staleEntries = new List<LibraryEntryEntity>();
         foreach (var entry in libraryEntries)
         {
-            if (!System.IO.File.Exists(entry.FilePath))
+            if (System.IO.File.Exists(entry.FilePath))
+            {
+                continue;
+            }
+
+            var relinkedPath = _filePathResolver != null
+                ? await _filePathResolver.ResolveMissingFilePathAsync(new LibraryEntry
+                {
+                    Artist = entry.Artist,
+                    Title = entry.Title,
+                    FilePath = entry.FilePath
+                })
+                : null;
+
+            if (relinkedPath != null)
+            {
+                entry.FilePath = relinkedPath;
+                relinked++;
+            }
+            else
             {
                 staleEntries.Add(entry);
                 staleRemoved++;
@@ -1253,17 +1382,25 @@ public class DatabaseService
         if (staleEntries.Count > 0)
         {
             context.LibraryEntries.RemoveRange(staleEntries);
+        }
+
+        if (staleEntries.Count > 0 || relinked > 0)
+        {
             await context.SaveChangesAsync();
+        }
+
+        if (staleRemoved > 0)
+        {
             _logger.LogWarning(
                 "Reconcile removed {Count} stale LibraryEntry records whose files no longer exist on disk.",
                 staleRemoved);
         }
 
         _logger.LogInformation(
-            "Reconcile complete — PlaylistTracks: {Reset} reset (checked {Checked}), LibraryEntries: {Stale} stale removed (checked {LibChecked})",
-            reset, assumedPresent.Count, staleRemoved, libraryEntries.Count);
+            "Reconcile complete — PlaylistTracks: {Reset} reset (checked {Checked}), LibraryEntries: {Stale} stale removed (checked {LibChecked}), {Relinked} relinked to a moved/renamed path",
+            reset, assumedPresent.Count, staleRemoved, libraryEntries.Count, relinked);
 
-        return (reset + staleRemoved, assumedPresent.Count + libraryEntries.Count);
+        return (reset + staleRemoved, assumedPresent.Count + libraryEntries.Count, relinked);
     }
 
     /// <summary>

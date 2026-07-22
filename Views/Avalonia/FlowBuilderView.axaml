@@ -44,7 +44,7 @@
                 BorderBrush="#3E3E3E"
                 BorderThickness="0,0,0,1"
                 Padding="20,12">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
 
                 <!-- Title block -->
                 <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
@@ -132,6 +132,24 @@
                         Content="✕ Clear"
                         Command="{Binding ClearCommand}"
                         IsEnabled="{Binding HasTracks}"
+                        Margin="4,0"
+                        VerticalAlignment="Center"/>
+
+                <!-- Finish: persist the planned order -->
+                <Button Grid.Column="8"
+                        Content="✔ Save Order"
+                        Classes="fb-primary"
+                        Command="{Binding SaveOrderToPlaylistCommand}"
+                        ToolTip.Tip="Write this set order back to the playlist (bridge tracks from other playlists are added)"
+                        Margin="12,0,4,0"
+                        VerticalAlignment="Center"/>
+
+                <!-- Finish: hand off to DJ software -->
+                <Button Grid.Column="9"
+                        Content="⇪ Export Set"
+                        Classes="fb-primary"
+                        Command="{Binding ExportSetCommand}"
+                        ToolTip.Tip="Export this set in order — with all saved hot cues and loops — as Rekordbox XML"
                         Margin="4,0"
                         VerticalAlignment="Center"/>
 

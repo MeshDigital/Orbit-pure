@@ -2281,8 +2281,17 @@ public class SchemaMigratorService
                 checkCmd.CommandText = "SELECT sql FROM sqlite_master WHERE name='LibraryEntriesFts'";
                 var sql = (await checkCmd.ExecuteScalarAsync())?.ToString();
 
+                // sqlite_master stores CREATE TABLE text close to verbatim, including the
+                // multi-line formatting below — so ", Key" (single space) never actually matches
+                // "Album,\n    Key," and this check was permanently true, dropping/recreating the
+                // table (and logging a false "incorrectly configured" warning) on every startup.
+                // Collapse whitespace runs before comparing so formatting can't affect the result.
+                var normalizedSql = sql != null
+                    ? string.Join(" ", sql.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
+                    : null;
+
                 // Drop if it's missing the UniqueHash column or the new Key column or has legacy content mapping
-                if (sql != null && (!sql.Contains("UniqueHash") || !sql.Contains(", Key") || sql.Contains("content=")))
+                if (normalizedSql != null && (!normalizedSql.Contains("UniqueHash") || !normalizedSql.Contains(", Key") || normalizedSql.Contains("content=")))
                 {
                     isLibFtsIncorrect = true;
                     _logger.LogWarning("LibraryEntriesFts is incorrectly configured. Dropping and recreating...");
@@ -2572,6 +2581,52 @@ public class SchemaMigratorService
             {
                 _logger.LogInformation("Patching Schema: Adding LastIntegrityScanAt to audio_analysis...");
                 command.CommandText = @"ALTER TABLE ""audio_analysis"" ADD COLUMN ""LastIntegrityScanAt"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 18. Real multi-candidate drop signals (SubBassDropoutEngine / SpectralFluxNoveltyEngine)
+            // for Engine.Cueing.CueGenerationService's DSP drop-scoring path — previously only a
+            // single collapsed DropTimeSeconds/DropConfidence float pair survived to the database.
+            if (!ColumnExists("audio_features", "SubBassDropoutTimestampsJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding SubBassDropoutTimestampsJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""SubBassDropoutTimestampsJson"" TEXT NOT NULL DEFAULT '[]';";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "SubBassReturnTimestampsJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding SubBassReturnTimestampsJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""SubBassReturnTimestampsJson"" TEXT NOT NULL DEFAULT '[]';";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("audio_features", "NoveltyDropSignaturesJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding NoveltyDropSignaturesJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""NoveltyDropSignaturesJson"" TEXT NOT NULL DEFAULT '[]';";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 19. Playlist Folders: nested tree for organizing playlists
+            if (!TableExists("PlaylistFolders"))
+            {
+                _logger.LogInformation("Patching Schema: Creating PlaylistFolders table...");
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS ""PlaylistFolders"" (
+                        ""Id"" TEXT PRIMARY KEY,
+                        ""Name"" TEXT NOT NULL,
+                        ""ParentFolderId"" TEXT NULL,
+                        ""SortOrder"" INTEGER NOT NULL DEFAULT 0,
+                        ""CreatedAt"" TEXT NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_PlaylistFolders_ParentFolderId"" ON ""PlaylistFolders""(""ParentFolderId"");";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("Projects") && !ColumnExists("Projects", "FolderId"))
+            {
+                _logger.LogInformation("Patching Schema: Adding FolderId to Projects...");
+                command.CommandText = @"ALTER TABLE ""Projects"" ADD COLUMN ""FolderId"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"CREATE INDEX IF NOT EXISTS ""IX_Projects_FolderId"" ON ""Projects""(""FolderId"");";
                 await command.ExecuteNonQueryAsync();
             }
 

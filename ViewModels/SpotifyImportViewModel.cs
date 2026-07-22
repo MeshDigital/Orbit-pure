@@ -169,7 +169,6 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
     public ICommand ConnectCommand { get; }
     public ICommand RefreshPlaylistsCommand { get; }
     public ICommand ImportPlaylistCommand { get; }
-    public ICommand DownloadCommand { get; }
     public ICommand ImportTracklistCommand { get; }
     public ICommand PasteTracklistFromClipboardCommand { get; }
     public ICommand CopyTracklistToClipboardCommand { get; }
@@ -271,9 +270,6 @@ public class SpotifyImportViewModel : INotifyPropertyChanged
         AddWebShortcutCommand = new AsyncRelayCommand(ExecuteAddWebShortcutAsync);
         AddSelectedSubgenrePresetCommand = new AsyncRelayCommand(ExecuteAddSelectedSubgenrePresetAsync);
         AddGenreShortcutCommand = new AsyncRelayCommand(ExecuteAddGenreShortcutAsync);
-
-        // Disable unused commands
-        DownloadCommand = new RelayCommand(() => {}, () => false);
 
         LoadWebShortcuts();
         LoadSubgenrePresets();

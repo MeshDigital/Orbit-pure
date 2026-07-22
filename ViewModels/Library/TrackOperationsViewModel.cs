@@ -479,8 +479,8 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
             : track.Model?.TrackUniqueHash;
         if (string.IsNullOrEmpty(hash)) return;
 
-        // Pass all tracks from the current playlist into the Cue Forge browser
-        _cueForgeViewModel.SetPlaylistTracks(LibraryViewModel?.Tracks.CurrentProjectTracks);
+        // Sync browser sidebar to the playlist that contains this track
+        _cueForgeViewModel.SetPlaylistContext(LibraryViewModel?.SelectedProject);
 
         await _cueForgeViewModel.LoadTrackAsync(hash, track.Title, track.Artist);
         _eventBus.Publish(new Models.NavigateToPageEvent("CueForge"));

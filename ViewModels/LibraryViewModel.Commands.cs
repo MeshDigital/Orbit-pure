@@ -867,26 +867,47 @@ public partial class LibraryViewModel
         try
         {
             IsLoading = true;
-            _notificationService.Show("Searching Duplicates", "Hashing library entries...", NotificationType.Information);
-            
+            _notificationService.Show("Searching Duplicates", "Analyzing library for duplicates...", NotificationType.Information);
+
             var entries = await _libraryService.LoadAllLibraryEntriesAsync();
-            var duplicateHashes = entries
+
+            // Exact identity duplicates. UniqueHash is the upsert key for LibraryEntry
+            // (SaveOrUpdateLibraryEntryAsync dedupes on it), so this essentially never fires
+            // in practice — kept as a defensive first pass in case that invariant is ever violated.
+            var exactGroups = entries
                 .GroupBy(e => e.UniqueHash)
-                .Where(g => g.Count() > 1)
-                .Select(g => g.Key)
+                .Where(g => g.Count() > 1);
+
+            // Fuzzy content duplicates: the same recording re-imported/re-encoded under a
+            // different UniqueHash (which is derived from Artist/Title, so a retag — "feat.",
+            // "(Remastered)", a typo fix — silently produces a new identity for the same audio).
+            // AudioFingerprint/SpectralHash exist on the entities but are never actually computed
+            // anywhere in the analysis pipeline, so instead of relying on those dead columns we
+            // build an equivalent signature from fields that genuinely come from decoding the
+            // audio (duration, BPM, musical key), which stay stable across re-encodes even when
+            // tags differ. Requiring a normalized-artist match too keeps false positives low.
+            var fuzzyGroups = entries
+                .Where(e => (e.DurationSeconds ?? e.CanonicalDuration ?? 0) > 0
+                            && (e.BPM ?? e.ManualBPM ?? e.SpotifyBPM ?? 0) > 0)
+                .GroupBy(BuildContentSignature)
+                .Where(g => g.Count() > 1);
+
+            var duplicateHashes = exactGroups
+                .Concat(fuzzyGroups)
+                .SelectMany(g => g.Select(e => e.UniqueHash))
                 .ToHashSet();
 
             if (!duplicateHashes.Any())
             {
-                _notificationService.Show("Clean Library", "No duplicate hashes detected.", NotificationType.Success);
+                _notificationService.Show("Clean Library", "No duplicates detected.", NotificationType.Success);
                 Tracks.DuplicateHashesFilter = null;
             }
             else
             {
-                _notificationService.Show("Review Required", $"Found {duplicateHashes.Count} duplicate groups.", NotificationType.Warning);
+                _notificationService.Show("Review Required", $"Found {duplicateHashes.Count} likely duplicate track(s).", NotificationType.Warning);
                 Tracks.DuplicateHashesFilter = duplicateHashes;
             }
-            
+
             Tracks.RefreshFilteredTracks();
         }
         catch (Exception ex)
@@ -898,6 +919,29 @@ public partial class LibraryViewModel
         {
             IsLoading = false;
         }
+    }
+
+    /// <summary>
+    /// Builds a content-based signature for fuzzy duplicate detection: normalized artist +
+    /// duration bucketed to the nearest 2 seconds + rounded BPM + musical key. Two entries
+    /// sharing this signature are very likely the same recording, even if title/tags differ.
+    /// </summary>
+    internal static string BuildContentSignature(LibraryEntry entry)
+    {
+        var duration = entry.DurationSeconds ?? entry.CanonicalDuration ?? 0;
+        var durationBucket = (int)Math.Round(duration / 2.0) * 2;
+        var bpm = entry.BPM ?? entry.ManualBPM ?? entry.SpotifyBPM ?? 0;
+        var bpmBucket = (int)Math.Round(bpm);
+        var key = (entry.CamelotKey ?? entry.MusicalKey ?? entry.ManualKey ?? string.Empty).Trim().ToUpperInvariant();
+        var normalizedArtist = NormalizeForSignature(entry.Artist);
+
+        return $"{normalizedArtist}|{durationBucket}|{bpmBucket}|{key}";
+    }
+
+    private static string NormalizeForSignature(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+        return new string(value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
     }
 
     private void ExecuteOpenFlowBuilder()
@@ -1453,6 +1497,24 @@ public partial class LibraryViewModel
             return new SmartInsertResult(false, "No external candidate tracks are available to insert.", NotificationType.Information);
         }
 
+        // Smart Insert scores candidates against the two anchor tracks' audio fingerprints —
+        // if either hasn't been analyzed yet, InsertBetweenAsync returns an empty list with no
+        // way to tell "not analyzed" apart from "no good match", so check that distinctly here.
+        var fromHasFingerprint = await _playlistIntelligenceService!.HasFingerprintAsync(from.TrackUniqueHash);
+        var toHasFingerprint = await _playlistIntelligenceService!.HasFingerprintAsync(to.TrackUniqueHash);
+        if (!fromHasFingerprint || !toHasFingerprint)
+        {
+            var whichTrack = !fromHasFingerprint && !toHasFingerprint
+                ? $"\"{from.Title}\" and \"{to.Title}\" haven't"
+                : !fromHasFingerprint
+                    ? $"\"{from.Title}\" hasn't"
+                    : $"\"{to.Title}\" hasn't";
+            return new SmartInsertResult(
+                false,
+                $"{whichTrack} been analyzed yet. Analyze it first, then try Smart Insert again.",
+                NotificationType.Information);
+        }
+
         var recommendations = await _playlistIntelligenceService!.InsertBetweenAsync(
             from.TrackUniqueHash,
             to.TrackUniqueHash,
@@ -1477,7 +1539,11 @@ public partial class LibraryViewModel
         var best = bestRanked?.Recommendation;
         if (best is null || string.IsNullOrWhiteSpace(best.TrackHash))
         {
-            return new SmartInsertResult(false, "No suitable bridge track found for the selected pair.", NotificationType.Information);
+            var fingerprintedCandidates = await _playlistIntelligenceService!.CountFingerprintedAsync(candidateHashes);
+            var message = fingerprintedCandidates == 0
+                ? "None of your other library tracks have been analyzed yet, so there's nothing to compare against. Analyze some tracks first."
+                : "No suitable bridge track found for the selected pair.";
+            return new SmartInsertResult(false, message, NotificationType.Information);
         }
 
         var entry = await _libraryService.FindLibraryEntryAsync(best.TrackHash);

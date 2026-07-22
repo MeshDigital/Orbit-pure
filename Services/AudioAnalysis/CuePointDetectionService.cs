@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -59,7 +60,7 @@ public sealed class CuePointDetectionService
         }
 
         // ── 1. Build energy curve from features ───────────────────────────
-        float[] energyCurve = BuildEnergyCurve(features, essentiaOutput);
+        float[] energyCurve = BuildEnergyCurve(trackUniqueHash, features, essentiaOutput);
 
         // ── 2. Run structural analysis ────────────────────────────────────
         var result = StructuralAnalysisEngine.Analyze(
@@ -88,14 +89,41 @@ public sealed class CuePointDetectionService
     // ──────────────────────────────────── helpers ─────────────────────────
 
     /// <summary>
-    /// Reconstructs a simplified energy curve from stored features so the
-    /// StructuralAnalysisEngine can work without raw audio.
+    /// Real per-second RMS energy curve, computed from raw audio at analysis time
+    /// (see <see cref="AudioAnalysisService"/> Step 4b) and stored in
+    /// <see cref="AudioFeaturesEntity.EnergyCurveJson"/>. Falls back to a flat synthetic
+    /// curve only when that's unavailable (e.g. decode failed for this track before the
+    /// RMS pass could run) — a flat curve has ~zero variance, so a derivative-based
+    /// drop detector can only "find" a drop at its artificial edges. Real variance is
+    /// what makes drop/phrase detection actually work.
     /// </summary>
-    private static float[] BuildEnergyCurve(AudioFeaturesEntity f, EssentiaOutput? output)
+    private float[] BuildEnergyCurve(string trackUniqueHash, AudioFeaturesEntity f, EssentiaOutput? output)
     {
-        // Use onset rate as a proxy for rhythmic density.
-        // A short synthetic curve is enough for the heuristic algorithm.
+        if (!string.IsNullOrWhiteSpace(f.EnergyCurveJson) && f.EnergyCurveJson != "[]")
+        {
+            try
+            {
+                var real = JsonSerializer.Deserialize<float[]>(f.EnergyCurveJson);
+                if (real is { Length: > 0 })
+                    return real;
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "[CueDetection] Could not deserialise EnergyCurveJson for {Hash}; falling back to synthetic curve", trackUniqueHash);
+            }
+        }
 
+        _logger.LogDebug("[CueDetection] {Hash}: no real energy curve available, using flat synthetic fallback", trackUniqueHash);
+        return BuildSyntheticEnergyCurve(f, output);
+    }
+
+    /// <summary>
+    /// Last-resort fallback when no real RMS curve was computed for this track.
+    /// A flat curve modulated only by a single scalar can't represent an actual drop —
+    /// this exists purely so downstream code always has a non-empty curve to work with.
+    /// </summary>
+    private static float[] BuildSyntheticEnergyCurve(AudioFeaturesEntity f, EssentiaOutput? output)
+    {
         double duration   = f.TrackDuration;
         double windowSecs = StructuralAnalysisEngine.EnergyWindowSeconds;
         int    bins       = (int)Math.Ceiling(duration / windowSecs);

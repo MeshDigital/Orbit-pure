@@ -76,39 +76,42 @@ public sealed class CorruptFileRemediationService
                     playlistTracksReset++;
                 }
 
-                // 3 — Remove LibraryEntryEntity (re-created after successful re-download)
-                var libEntry = await db.LibraryEntries.FindAsync(new object?[] { entry.Hash }, cancellationToken);
-                if (libEntry is not null)
+                // Save the PlaylistTrack reset before touching AudioFeatures/LibraryEntries below.
+                // Previously all six steps shared one SaveChangesAsync call — once the AudioFeatures
+                // row got loaded into the same context (step 6) and then removed, EF's relationship
+                // fixup (PlaylistTrack -> AudioFeatures via TrackUniqueHash, configured IsRequired(false))
+                // nulled out the already-tracked PlaylistTrack rows' TrackUniqueHash, violating its
+                // NOT NULL constraint and failing remediation every time for the affected track.
+                if (playlistTracks.Count > 0)
                 {
-                    db.LibraryEntries.Remove(libEntry);
-                    libEntriesRemoved++;
+                    await db.SaveChangesAsync(cancellationToken);
                 }
+
+                // 3 — Remove LibraryEntryEntity (re-created after successful re-download).
+                // ExecuteDeleteAsync bypasses change tracking entirely, so it can't trigger the
+                // fixup above even if more steps are added here later.
+                var libDeleted = await db.LibraryEntries
+                    .Where(e => e.UniqueHash == entry.Hash)
+                    .ExecuteDeleteAsync(cancellationToken);
+                if (libDeleted > 0) libEntriesRemoved++;
 
                 // 4 — Clear LocalFilePath on TrackEntity
-                var trackEntity = await db.Tracks
-                    .FirstOrDefaultAsync(t => t.GlobalId == entry.Hash, cancellationToken);
-                if (trackEntity is not null)
-                {
-                    trackEntity.LocalFilePath = null;
-                    trackEntity.IsLocalFile   = false;
-                }
+                await db.Tracks
+                    .Where(t => t.GlobalId == entry.Hash)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(t => t.LocalFilePath, (string?)null)
+                        .SetProperty(t => t.IsLocalFile, false), cancellationToken);
 
                 // 5 — Remove AudioAnalysisEntity (regenerated after re-download + re-analysis)
-                var analysis = await db.AudioAnalysis
-                    .FirstOrDefaultAsync(a => a.TrackUniqueHash == entry.Hash, cancellationToken);
-                if (analysis is not null)
-                {
-                    db.AudioAnalysis.Remove(analysis);
-                    analysisCleaned++;
-                }
+                var analysisDeleted = await db.AudioAnalysis
+                    .Where(a => a.TrackUniqueHash == entry.Hash)
+                    .ExecuteDeleteAsync(cancellationToken);
+                if (analysisDeleted > 0) analysisCleaned++;
 
                 // 6 — Remove AudioFeaturesEntity
-                var features = await db.AudioFeatures
-                    .FirstOrDefaultAsync(f => f.TrackUniqueHash == entry.Hash, cancellationToken);
-                if (features is not null)
-                    db.AudioFeatures.Remove(features);
-
-                await db.SaveChangesAsync(cancellationToken);
+                await db.AudioFeatures
+                    .Where(f => f.TrackUniqueHash == entry.Hash)
+                    .ExecuteDeleteAsync(cancellationToken);
             }
             catch (OperationCanceledException)
             {

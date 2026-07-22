@@ -80,18 +80,21 @@ public class LibraryFolderScannerService
     private readonly ILogger<LibraryFolderScannerService> _logger;
     private readonly DatabaseService _databaseService;
     private readonly LibraryService _libraryService;
+    private readonly IEventBus _eventBus;
     private const int EnsureDefaultFolderMaxAttempts = 3;
-    
+
     private static readonly string[] SupportedExtensions = new[] { ".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg" };
 
     public LibraryFolderScannerService(
         ILogger<LibraryFolderScannerService> logger,
         DatabaseService databaseService,
-        LibraryService libraryService)
+        LibraryService libraryService,
+        IEventBus eventBus)
     {
         _logger = logger;
         _databaseService = databaseService;
         _libraryService = libraryService;
+        _eventBus = eventBus;
     }
 
     /// <summary>
@@ -375,11 +378,23 @@ public class LibraryFolderScannerService
     /// </summary>
     private async Task SaveBatchAsync(List<LibraryEntryEntity> batch, CancellationToken ct)
     {
-        try 
+        try
         {
             using var context = new AppDbContext();
             context.LibraryEntries.AddRange(batch);
             await context.SaveChangesAsync(ct);
+
+            // Locally-scanned files never pass through DownloadManager's completion handler
+            // (that only fires for Soulseek downloads), so without this they'd sit
+            // un-analyzed forever — no BPM/key/energy, and invisible to Similar Tracks /
+            // Smart Insert, which both depend on this analysis having run.
+            foreach (var entry in batch)
+            {
+                if (!string.IsNullOrWhiteSpace(entry.UniqueHash))
+                {
+                    _eventBus.Publish(new SLSKDONET.Models.TrackAnalysisRequestedEvent(entry.UniqueHash));
+                }
+            }
         }
         catch (Exception ex)
         {

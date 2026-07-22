@@ -84,7 +84,8 @@ public sealed class TieredTrackComparer : IComparer<Track>
 
     // ── Tier logic ────────────────────────────────────────────────────────
 
-    private TrackTier CalculateTier(Track candidate)
+    /// <summary>Internal (not private) so tests can call it directly instead of via reflection.</summary>
+    internal TrackTier CalculateTier(Track candidate)
     {
         // Integrity gate: suspicious duration drops to Trash
         if (_searchTrack.Length.HasValue && candidate.Length.HasValue)

@@ -945,7 +945,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                  }
                  catch (Exception ex)
                  {
-                     _logger.LogDebug(ex, "[QueuePersist] Failed to save queue snapshot after QueueTracks");
+                     // Was LogDebug (invisible in production) — a failure here means pending
+                     // downloads can silently vanish or reappear as phantom-pending after restart.
+                     _logger.LogWarning(ex, "[QueuePersist] Failed to save queue snapshot after QueueTracks");
                  }
              });
              
@@ -1276,7 +1278,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 _ = Task.Run(async () =>
                 {
                     try { await _databaseService.RemoveFromDownloadQueueAsync(ctx.Model.Id); }
-                    catch (Exception ex) { _logger.LogDebug(ex, "[QueuePersist] Failed to remove {TrackId} from download queue", ctx.Model.Id); }
+                    catch (Exception ex) { _logger.LogWarning(ex, "[QueuePersist] Failed to remove {TrackId} from download queue", ctx.Model.Id); }
                 });
             }
         }
@@ -2492,21 +2494,26 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 }
 
                 // Phase 0: Check if file already exists in global library (cross-project deduplication)
-                var existingEntry = string.IsNullOrWhiteSpace(ctx.Model.TrackUniqueHash)
-                    ? null
-                    : await _libraryService.FindLibraryEntryAsync(ctx.Model.TrackUniqueHash);
-                if (existingEntry != null && File.Exists(existingEntry.FilePath))
+                // Gated by the "Prevent Duplicate Downloads" setting — previously ran unconditionally
+                // regardless of the toggle.
+                if (_config.CheckForDuplicates)
                 {
-                    _logger.LogInformation("â™»ï¸  Track already in library: {Artist} - {Title}, reusing file: {Path}", 
-                        ctx.Model.Artist, ctx.Model.Title, existingEntry.FilePath);
-                    _auditLogger.Log(ctx.GlobalId, $"Track already in library, reusing file: {existingEntry.FilePath}");
-                    
-                    // Reuse existing file instead of downloading
-                    ctx.Model.ResolvedFilePath = existingEntry.FilePath;
-                    ctx.Model.Status = TrackStatus.Downloaded;
-                    await _libraryService.UpdatePlaylistTrackAsync(ctx.Model);
-                    await UpdateStateAsync(ctx, PlaylistTrackState.Completed);
-                    return;
+                    var existingEntry = string.IsNullOrWhiteSpace(ctx.Model.TrackUniqueHash)
+                        ? null
+                        : await _libraryService.FindLibraryEntryAsync(ctx.Model.TrackUniqueHash);
+                    if (existingEntry != null && File.Exists(existingEntry.FilePath))
+                    {
+                        _logger.LogInformation("â™»ï¸  Track already in library: {Artist} - {Title}, reusing file: {Path}",
+                            ctx.Model.Artist, ctx.Model.Title, existingEntry.FilePath);
+                        _auditLogger.Log(ctx.GlobalId, $"Track already in library, reusing file: {existingEntry.FilePath}");
+
+                        // Reuse existing file instead of downloading
+                        ctx.Model.ResolvedFilePath = existingEntry.FilePath;
+                        ctx.Model.Status = TrackStatus.Downloaded;
+                        await _libraryService.UpdatePlaylistTrackAsync(ctx.Model);
+                        await UpdateStateAsync(ctx, PlaylistTrackState.Completed);
+                        return;
+                    }
                 }
 
                 // Phase 3.1: Use Detection Service (Searching State)
@@ -2836,7 +2843,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                 // 2. Exponential Backoff for "No Results" (Retry Logic)
                 ctx.RetryCount++;
-                if (ctx.RetryCount < _config.MaxDownloadRetries)
+                if (_config.AutoRetryFailedDownloads && ctx.RetryCount < _config.MaxDownloadRetries)
                 {
                     var delayMinutes = Math.Pow(2, ctx.RetryCount); // 2, 4, 8, 16...
                     ctx.NextRetryTime = DateTime.UtcNow.AddMinutes(delayMinutes);
@@ -2917,7 +2924,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 
                 // Exponential / classified backoff logic
                 ctx.RetryCount++;
-                if (ctx.RetryCount < _config.MaxDownloadRetries)
+                if (_config.AutoRetryFailedDownloads && ctx.RetryCount < _config.MaxDownloadRetries)
                 {
                     // Epic 4.1: Use seconds-scale exponential backoff (1s → 2s → 4s → 8s, capped 32s)
                     // for transient network failures (Delay == null).  Fixed delays (e.g. 2 minutes

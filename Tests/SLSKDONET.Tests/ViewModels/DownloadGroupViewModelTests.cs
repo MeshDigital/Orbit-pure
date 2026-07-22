@@ -55,7 +55,7 @@ public class DownloadGroupViewModelTests
         var source = new SourceCache<UnifiedTrackViewModel, string>(track => track.GlobalId);
         ReadOnlyObservableCollection<DownloadGroupViewModel>? groups = null;
 
-        var downloadManager = (DownloadManager)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(DownloadManager));
+        var downloadManager = CreateUninitializedDownloadManager();
         var libraryService = Mock.Of<ILibraryService>();
 
         using var changes = source.Connect()
@@ -71,7 +71,7 @@ public class DownloadGroupViewModelTests
 
     private static UnifiedTrackViewModel CreateTrackViewModel(PlaylistTrack model)
     {
-        var downloadManager = (DownloadManager)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(DownloadManager));
+        var downloadManager = CreateUninitializedDownloadManager();
         var eventBus = new EventBusService();
         var artworkCache = (ArtworkCacheService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(ArtworkCacheService));
         var libraryService = Mock.Of<ILibraryService>();
@@ -109,5 +109,27 @@ public class DownloadGroupViewModelTests
             SourcePlaylistName = sourcePlaylistName,
             Status = TrackStatus.Pending
         };
+    }
+
+    /// <summary>
+    /// GetUninitializedObject bypasses field initializers, so DownloadManager's readonly
+    /// ConcurrentDictionary fields (used by GetJobPriority/GetJobFocused, which
+    /// DownloadGroupViewModel's constructor calls) are null rather than empty — initialize them
+    /// so tests that build a DownloadGroupViewModel don't NRE on an uninitialized dictionary.
+    /// </summary>
+    private static DownloadManager CreateUninitializedDownloadManager()
+    {
+        var instance = (DownloadManager)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(DownloadManager));
+        SetField(instance, "_jobEffectivePriority", new System.Collections.Concurrent.ConcurrentDictionary<Guid, int>());
+        SetField(instance, "_jobBasePriority", new System.Collections.Concurrent.ConcurrentDictionary<Guid, int>());
+        SetField(instance, "_jobFocused", new System.Collections.Concurrent.ConcurrentDictionary<Guid, bool>());
+        return instance;
+    }
+
+    private static void SetField(object instance, string name, object value)
+    {
+        var field = instance.GetType().GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException($"Field not found: {name}");
+        field.SetValue(instance, value);
     }
 }

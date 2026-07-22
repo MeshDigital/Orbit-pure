@@ -94,7 +94,22 @@ public sealed class AiEngineService : INotifyPropertyChanged
         }
     }
 
-    public async Task StartInstallAsync()
+    /// <summary>
+    /// Checks which of the installer's external prerequisites (conda, git) are missing, so the
+    /// caller can ask for consent before the installer silently downloads/installs them.
+    /// </summary>
+    public async Task<(bool CondaMissing, bool GitMissing)> CheckPrerequisitesAsync()
+    {
+        var condaMissing = !await IsCondaAvailableAsync().ConfigureAwait(false);
+        var gitMissing = !await IsGitAvailableAsync().ConfigureAwait(false);
+        return (condaMissing, gitMissing);
+    }
+
+    /// <param name="autoInstallConda">If true, and conda isn't already on PATH, the installer
+    /// silently downloads and installs Miniconda (per-user, no admin rights) before continuing.
+    /// Callers should only pass true after the user has explicitly consented.</param>
+    /// <param name="autoInstallGit">Same, for Git for Windows.</param>
+    public async Task StartInstallAsync(bool autoInstallConda = false, bool autoInstallGit = false)
     {
         if (!File.Exists(InstallerScript))
         {
@@ -106,10 +121,14 @@ public sealed class AiEngineService : INotifyPropertyChanged
 
         try
         {
+            var extraArgs = "";
+            if (autoInstallConda) extraArgs += " -AutoInstallConda";
+            if (autoInstallGit) extraArgs += " -AutoInstallGit";
+
             var psi = new ProcessStartInfo
             {
                 FileName  = "pwsh.exe",
-                Arguments = $"-ExecutionPolicy Bypass -File \"{InstallerScript}\"",
+                Arguments = $"-ExecutionPolicy Bypass -File \"{InstallerScript}\"{extraArgs}",
                 UseShellExecute = true,
                 WorkingDirectory = AppDir
             };
@@ -176,13 +195,31 @@ public sealed class AiEngineService : INotifyPropertyChanged
     private void Notify([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
-    private static async Task<bool> IsCondaAvailableAsync()
+    public static async Task<bool> IsCondaAvailableAsync()
     {
         try
         {
             var psi = new ProcessStartInfo
             {
                 FileName = "cmd.exe", Arguments = "/c where conda",
+                RedirectStandardOutput = true, RedirectStandardError = true,
+                UseShellExecute = false, CreateNoWindow = true
+            };
+            using var p = Process.Start(psi);
+            if (p == null) return false;
+            await p.WaitForExitAsync().ConfigureAwait(false);
+            return p.ExitCode == 0;
+        }
+        catch { return false; }
+    }
+
+    public static async Task<bool> IsGitAvailableAsync()
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "cmd.exe", Arguments = "/c where git",
                 RedirectStandardOutput = true, RedirectStandardError = true,
                 UseShellExecute = false, CreateNoWindow = true
             };

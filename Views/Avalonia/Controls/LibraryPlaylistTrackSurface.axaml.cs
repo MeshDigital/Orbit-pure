@@ -1,12 +1,15 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.VisualTree;
+using SLSKDONET.Services;
 using SLSKDONET.ViewModels;
 using SLSKDONET.ViewModels.Library;
 using SLSKDONET.Views.Avalonia;
 
+using System;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Collections.Generic;
@@ -21,6 +24,11 @@ public partial class LibraryPlaylistTrackSurface : UserControl
     private InsertBetweenRowControl? _activeMagneticGap;
     private TrackListViewModel? _boundVm;
     private INotifyCollectionChanged? _boundFilteredCollection;
+
+    // Drag-initiation state: a track row press becomes a drag once the pointer moves past the
+    // threshold, so it can be dropped onto a playlist in the sidebar or the player queue.
+    private Point? _dragStartPoint;
+    private PlaylistTrackViewModel? _dragCandidateTrack;
 
     public LibraryPlaylistTrackSurface()
     {
@@ -79,6 +87,9 @@ public partial class LibraryPlaylistTrackSurface : UserControl
         if (index < 0)
             return;
 
+        _dragStartPoint = e.GetPosition(this);
+        _dragCandidateTrack = track;
+
         ApplyPointerSelection(vm, index, e.KeyModifiers);
         _focusedIndex = index;
         UpdateFocusedRowVisual(vm);
@@ -96,10 +107,38 @@ public partial class LibraryPlaylistTrackSurface : UserControl
         OnTrackRowPointerMoved(sender, e);
     }
 
-    private void OnTrackRowPointerMoved(object? sender, PointerEventArgs e)
+    private async void OnTrackRowPointerMoved(object? sender, PointerEventArgs e)
     {
         if (DataContext is not TrackListViewModel vm || sender is not Border row || row.DataContext is not PlaylistTrackViewModel track)
             return;
+
+        if (_dragStartPoint.HasValue && ReferenceEquals(_dragCandidateTrack, track))
+        {
+            var current = e.GetCurrentPoint(this);
+            if (!current.Properties.IsLeftButtonPressed)
+            {
+                _dragStartPoint = null;
+                _dragCandidateTrack = null;
+            }
+            else
+            {
+                var diff = current.Position - _dragStartPoint.Value;
+                if (Math.Abs(diff.X) > 5 || Math.Abs(diff.Y) > 5)
+                {
+                    _dragStartPoint = null;
+                    _dragCandidateTrack = null;
+
+                    if (!string.IsNullOrEmpty(track.GlobalId))
+                    {
+                        var data = new DataObject();
+                        data.Set(DragContext.LibraryTrackFormat, track.GlobalId);
+                        await DragDrop.DoDragDrop(e, data, DragDropEffects.Copy);
+                    }
+
+                    return;
+                }
+            }
+        }
 
         RefreshInsertGapStates(vm);
 
@@ -116,6 +155,8 @@ public partial class LibraryPlaylistTrackSurface : UserControl
     private void OnTrackRowPointerExited(object? sender, PointerEventArgs e)
     {
         // Keep current magnetic state until another row/gap claims hover.
+        _dragStartPoint = null;
+        _dragCandidateTrack = null;
     }
 
     private void OnInsertGapPointerEntered(object? sender, PointerEventArgs e)

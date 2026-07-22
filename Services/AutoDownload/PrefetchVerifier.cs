@@ -8,7 +8,6 @@ using SLSKDONET.Configuration;
 using SLSKDONET.Data;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
-using SLSKDONET.Services.AudioAnalysis;
 
 namespace SLSKDONET.Services.AutoDownload;
 
@@ -39,18 +38,15 @@ public class PrefetchVerifier
     private readonly ILogger<PrefetchVerifier> _logger;
     private readonly AppConfig _config;
     private readonly DatabaseService _databaseService;
-    private readonly TrackFingerprintBuilderService _fingerprintBuilder;
 
     public PrefetchVerifier(
         ILogger<PrefetchVerifier> logger,
         AppConfig config,
-        DatabaseService databaseService,
-        TrackFingerprintBuilderService fingerprintBuilder)
+        DatabaseService databaseService)
     {
         _logger = logger;
         _config = config;
         _databaseService = databaseService;
-        _fingerprintBuilder = fingerprintBuilder;
     }
 
     /// <summary>
@@ -158,8 +154,9 @@ public class PrefetchVerifier
     }
 
     /// <summary>
-    /// Runs fingerprint extraction on a downloaded file.
-    /// Verifies that the audio content is readable and matches duration.
+    /// Verifies that the downloaded audio is readable and its actual duration matches the
+    /// expected track duration — catches truncated downloads and "wrong track" mismatches that
+    /// slip past the size/format gates above.
     /// </summary>
     private async Task<FingerprintVerificationResult> VerifyFingerprintAsync(
         PlaylistTrack track,
@@ -168,16 +165,64 @@ public class PrefetchVerifier
     {
         try
         {
-            // Call the existing fingerprint builder service
-            // In a full implementation, pass track and file path to extract fingerprint
-            // For skeleton: return success if file is readable audio
+            bool formatValid = await SLSKDONET.Services.IO.FileVerificationHelper
+                .VerifyAudioFormatAsync(localFilePath)
+                .ConfigureAwait(false);
 
-            // TODO: Call _fingerprintBuilder.BuildAsync(...) or similar
-            // Stub: return success
+            if (!formatValid)
+            {
+                return new FingerprintVerificationResult
+                {
+                    IsValid = false,
+                    Reason = "File is corrupt or unreadable as audio"
+                };
+            }
+
+            int actualDurationSeconds;
+            using (var tagFile = TagLib.File.Create(localFilePath))
+            {
+                actualDurationSeconds = (int)tagFile.Properties.Duration.TotalSeconds;
+            }
+
+            if (string.Equals(Path.GetExtension(localFilePath), ".mp3", StringComparison.OrdinalIgnoreCase))
+            {
+                var (frameCount, mp3Error) = await SLSKDONET.Services.IO.FileVerificationHelper
+                    .VerifyMp3FramesAsync(localFilePath)
+                    .ConfigureAwait(false);
+
+                if (mp3Error != null)
+                {
+                    return new FingerprintVerificationResult
+                    {
+                        IsValid = false,
+                        Reason = $"MP3 frame check failed: {mp3Error}"
+                    };
+                }
+            }
+
+            if (track.CanonicalDuration.HasValue && track.CanonicalDuration.Value > 0)
+            {
+                int expectedSeconds = track.CanonicalDuration.Value / 1000;
+                int deltaSeconds = Math.Abs(actualDurationSeconds - expectedSeconds);
+                // Encoder padding/VBR headers commonly drift a few seconds — allow 5s or 5% of
+                // length, whichever is larger, before flagging it as likely the wrong track.
+                int toleranceSeconds = Math.Max(5, expectedSeconds / 20);
+
+                if (deltaSeconds > toleranceSeconds)
+                {
+                    return new FingerprintVerificationResult
+                    {
+                        IsValid = false,
+                        DurationSeconds = actualDurationSeconds,
+                        Reason = $"Duration mismatch: expected ~{expectedSeconds}s, got {actualDurationSeconds}s"
+                    };
+                }
+            }
+
             return new FingerprintVerificationResult
             {
                 IsValid = true,
-                DurationSeconds = track.CanonicalDuration.HasValue ? track.CanonicalDuration.Value / 1000 : 0
+                DurationSeconds = actualDurationSeconds
             };
         }
         catch (Exception ex)

@@ -20,6 +20,7 @@ public class AppDbContext : DbContext
     public DbSet<TrackEntity> Tracks { get; set; }
     public DbSet<LibraryEntryEntity> LibraryEntries { get; set; }
     public DbSet<PlaylistJobEntity> Projects { get; set; }
+    public DbSet<PlaylistFolderEntity> PlaylistFolders { get; set; }
     public DbSet<PlaylistTrackEntity> PlaylistTracks { get; set; }
     public DbSet<PlaylistActivityLogEntity> ActivityLogs { get; set; }
     public DbSet<QueueItemEntity> QueueItems { get; set; }
@@ -162,6 +163,19 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PlaylistJobEntity>()
             .HasIndex(j => j.CreatedAt)
             .HasDatabaseName("IX_PlaylistJob_CreatedAt");
+
+        // Playlist Folders: nested tree, self-referencing parent
+        modelBuilder.Entity<PlaylistFolderEntity>()
+            .HasOne<PlaylistFolderEntity>()
+            .WithMany()
+            .HasForeignKey(f => f.ParentFolderId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<PlaylistJobEntity>()
+            .HasOne<PlaylistFolderEntity>()
+            .WithMany()
+            .HasForeignKey(j => j.FolderId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         // Phase 1B: Centralize Status Enum (using EF Core's built-in converter)
         modelBuilder

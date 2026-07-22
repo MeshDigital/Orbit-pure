@@ -110,6 +110,26 @@ public class DialogService : IDialogService
         });
     }
 
+    public async Task<(string Name, SLSKDONET.Models.SmartPlaylistCriteria Criteria)?> ShowCreateSmartPlaylistAsync()
+    {
+        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var vm = new ViewModels.Library.CreateSmartPlaylistViewModel();
+            var dialog = new Views.Avalonia.Dialogs.CreateSmartPlaylistDialog
+            {
+                DataContext = vm
+            };
+
+            var owner = GetOwnerWindow();
+            if (owner != null)
+            {
+                return await dialog.ShowDialog<(string, SLSKDONET.Models.SmartPlaylistCriteria)?>(owner);
+            }
+
+            return null;
+        });
+    }
+
     public async Task<string?> ShowPromptAsync(string title, string message, string initialValue = "")
     {
         return await Dispatcher.UIThread.InvokeAsync(async () =>

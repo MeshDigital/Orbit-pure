@@ -150,6 +150,40 @@ public interface ILibraryService
     /// </summary>
     Task SaveTrackOrderAsync(Guid playlistId, IEnumerable<PlaylistTrack> tracks);
 
+    // ===== Playlist Folders =====
+
+    /// <summary>
+    /// Loads all playlist folders, used to build the nested folder tree in the sidebar.
+    /// </summary>
+    Task<List<PlaylistFolder>> LoadAllPlaylistFoldersAsync();
+
+    /// <summary>
+    /// Creates a new playlist folder, optionally nested under an existing parent folder.
+    /// </summary>
+    Task<PlaylistFolder> CreatePlaylistFolderAsync(string name, Guid? parentFolderId);
+
+    /// <summary>
+    /// Renames an existing playlist folder.
+    /// </summary>
+    Task RenamePlaylistFolderAsync(Guid folderId, string newName);
+
+    /// <summary>
+    /// Moves a folder under a new parent (or to root if null). Returns false if the move
+    /// would create a cycle (e.g. moving a folder into one of its own descendants).
+    /// </summary>
+    Task<bool> MovePlaylistFolderAsync(Guid folderId, Guid? newParentFolderId);
+
+    /// <summary>
+    /// Deletes a folder. Playlists and subfolders inside it move up to its parent (or root)
+    /// rather than being deleted.
+    /// </summary>
+    Task DeletePlaylistFolderAsync(Guid folderId);
+
+    /// <summary>
+    /// Moves a playlist into a folder (or back to root level if null).
+    /// </summary>
+    Task MovePlaylistToFolderAsync(Guid playlistId, Guid? folderId);
+
     // ===== INDEX 3: PlaylistTrack (Relational Index) =====
 
     /// <summary>
@@ -172,7 +206,7 @@ public interface ILibraryService
     /// <summary>
     /// Loads a page of tracks for a specific playlist.
     /// </summary>
-    Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null);
+    Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false);
 
     /// <summary>
     /// Loads a specific track from a playlist by its unique hash.
@@ -269,5 +303,5 @@ public interface ILibraryService
     /// Missing files are reset to TrackStatus.Missing so the auto-download queue can re-acquire them.
     /// Returns (reset count, total checked).
     /// </summary>
-    Task<(int Reset, int Checked)> ReconcileLibraryAsync();
+    Task<(int Reset, int Checked, int Relinked)> ReconcileLibraryAsync();
 }

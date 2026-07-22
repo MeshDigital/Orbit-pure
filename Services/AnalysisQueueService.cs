@@ -424,9 +424,16 @@ public class AnalysisQueueService : IDisposable
         _dispatchCts.Cancel();
         try
         {
-            _dispatchLoopTask.GetAwaiter().GetResult();
+            // Bounded wait instead of an unconditional block — this runs during app shutdown
+            // (DI singleton disposal), potentially on the UI thread; a dispatch loop that's slow
+            // to observe cancellation shouldn't be able to hang the whole app close indefinitely.
+            _dispatchLoopTask.Wait(TimeSpan.FromSeconds(5));
         }
         catch (OperationCanceledException)
+        {
+            // Expected during shutdown.
+        }
+        catch (AggregateException ex) when (ex.InnerException is OperationCanceledException)
         {
             // Expected during shutdown.
         }

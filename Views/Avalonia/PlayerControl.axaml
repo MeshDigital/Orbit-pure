@@ -409,9 +409,25 @@
                             <Setter Property="Background" Value="#2D2D2D"/>
                         </Style>
                     </Button.Styles>
-                    <TextBlock Text="{Binding RepeatMode, Converter={StaticResource RepeatModeIconConverter}}" 
-                               FontSize="16" 
+                    <TextBlock Text="{Binding RepeatMode, Converter={StaticResource RepeatModeIconConverter}}"
+                               FontSize="16"
                                Foreground="{Binding RepeatMode, Converter={StaticResource RepeatModeColorConverter}}"/>
+                </Button>
+
+                <!-- Crossfade -->
+                <Button Command="{Binding ToggleCrossfadeCommand}"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Width="36" Height="36"
+                        ToolTip.Tip="Crossfade tracks (overlap and blend transitions instead of a hard cut)">
+                    <Button.Styles>
+                        <Style Selector="Button:pointerover">
+                            <Setter Property="Background" Value="#2D2D2D"/>
+                        </Style>
+                    </Button.Styles>
+                    <TextBlock Text="⇄"
+                               FontSize="16"
+                               Foreground="{Binding IsCrossfadeEnabled, Converter={StaticResource BoolToColorConverter}}"/>
                 </Button>
             </StackPanel>
             

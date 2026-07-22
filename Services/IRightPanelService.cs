@@ -61,15 +61,13 @@ namespace SLSKDONET.Services
 
         public void ClosePanel()
         {
+            IsPanelOpen = false;
+
             if (_fallbackVm != null && CurrentPanelVm != _fallbackVm)
             {
                 CurrentPanelVm = _fallbackVm;
                 ModeLabel = _fallbackLabel;
                 ModeIcon = _fallbackIcon;
-            }
-            else
-            {
-                IsPanelOpen = false;
             }
         }
 

@@ -9,6 +9,7 @@ using SLSKDONET.Configuration;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.ViewModels.Workstation;
+using SLSKDONET.Views.Avalonia.Controls;
 using System.Linq;
 using System.Reactive;
 using System.Reactive.Linq;
@@ -525,7 +526,7 @@ public partial class WorkstationPage : UserControl
     {
         if (DataContext is not WorkstationViewModel vm) return;
 
-        var grid = this.FindControl<DataGrid>("FlowTrackGrid");
+        var grid = this.FindControl<VirtualGrid>("FlowTrackGrid");
         if (grid == null) return;
 
         var selected = grid.SelectedItems

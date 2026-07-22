@@ -25,7 +25,6 @@ public class PrefetchVerifierTests
         var verifier = new PrefetchVerifier(
             NullLogger<PrefetchVerifier>.Instance,
             config,
-            null!,
             null!);
 
         var track = new PlaylistTrack
@@ -78,7 +77,6 @@ public class PrefetchVerifierTests
         var verifier = new PrefetchVerifier(
             NullLogger<PrefetchVerifier>.Instance,
             config,
-            null!,
             null!);
 
         var track = new PlaylistTrack

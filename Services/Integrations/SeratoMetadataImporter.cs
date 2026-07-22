@@ -98,7 +98,7 @@ public sealed class SeratoMetadataImporter
 
     // ── Serato cue parsing ───────────────────────────────────────────────
 
-    private static List<ImportedCue> ParseSeratoCues(TagLib.File tagFile)
+    private List<ImportedCue> ParseSeratoCues(TagLib.File tagFile)
     {
         var cues = new List<ImportedCue>();
 
@@ -118,9 +118,11 @@ public sealed class SeratoMetadataImporter
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Serato markers are optional; silently ignore parse errors
+            // Was a bare catch that silently swallowed this — a user importing a track with real
+            // Serato hot cues could end up with zero cues transferred and no indication why.
+            _logger.LogWarning(ex, "Failed to parse Serato Markers2 cue data — import will proceed with no cues");
         }
 
         return cues;

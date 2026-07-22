@@ -37,6 +37,7 @@ public class LibraryViewModelPlaylistUpgradeCommandTests
     {
         var vm = (TrackListViewModel)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(TrackListViewModel));
         SetField(vm, "_selectedTracks", new ObservableCollection<PlaylistTrackViewModel>());
+        SetField(vm, "_currentProjectTracks", new ObservableCollection<PlaylistTrackViewModel>());
         return vm;
     }
 

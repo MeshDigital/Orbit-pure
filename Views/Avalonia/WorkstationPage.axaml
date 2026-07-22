@@ -293,7 +293,14 @@
                     </StackPanel>
                 </StackPanel>
 
-                <StackPanel Grid.Column="3" Margin="{StaticResource WsMarginHeaderRight}" Spacing="6" VerticalAlignment="Center">
+                <StackPanel Grid.Column="3" Margin="{StaticResource WsMarginHeaderRight}" Spacing="6" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Classes="secondary"
+                            Command="{Binding ExportRekordboxCommand}"
+                            ToolTip.Tip="Finish prep: export the active playlist — with all saved hot cues and loops — as Rekordbox XML">Rekordbox XML</Button>
+                    <Button Classes="secondary"
+                            Command="{Binding ExportMixCommand}"
+                            IsEnabled="{Binding CanUseExportLaneActions}"
+                            ToolTip.Tip="{Binding ExportLaneActionHint}">Export Mix…</Button>
                     <Button Classes="secondary"
                             Click="OnToggleDrawerClick"
                             ToolTip.Tip="Show or hide Flow Drawer to prioritize waveform space">Toggle Flow Drawer</Button>
@@ -310,7 +317,7 @@
                     ToolTip.Tip="Timeline viewport position"/>
         </Grid>
 
-        <Grid Grid.Row="1" ColumnDefinitions="*,276" RowDefinitions="Auto,Auto,*,Auto">
+        <Grid Grid.Row="1" ColumnDefinitions="*,276" RowDefinitions="Auto,*,Auto">
             <Border Grid.Row="0" Grid.Column="0" Background="#131C26" BorderBrush="#293949" BorderThickness="0,0,0,1" Padding="{StaticResource WsPadLane}">
                 <Grid ColumnDefinitions="250,*,Auto">
                     <TextBlock Grid.Column="0"
@@ -347,70 +354,7 @@
                 </Grid>
             </Border>
 
-            <Border Grid.Row="1" Grid.Column="0" Background="#131C26" BorderBrush="#293949" BorderThickness="0,0,0,1" Padding="{StaticResource WsPadLane}">
-                <Grid>
-                    <Border Classes="ws-lane" IsVisible="{Binding IsWaveformMode}">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="Waveform Lane" FontSize="{StaticResource WsFontSm}" FontWeight="SemiBold" Foreground="#8EC8FF"/>
-                            <TextBlock Text="{Binding FlowWindowSummary}" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextMutedReadable}"/>
-                        </StackPanel>
-                    </Border>
-                    <Border Classes="ws-lane" IsVisible="{Binding IsFlowMode}">
-                        <StackPanel Spacing="6">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <TextBlock Text="Flow Lane" FontSize="{StaticResource WsFontSm}" FontWeight="SemiBold" Foreground="#B8E986"/>
-                                <TextBlock Text="{Binding ActivePlaylistFlowSummary}" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextTrimming="CharacterEllipsis" MaxWidth="760"/>
-                            </StackPanel>
-                            <WrapPanel Orientation="Horizontal" ItemHeight="28">
-                                <Border Classes="ws-chip">
-                                    <TextBlock Text="{Binding FlowLaneReadinessSummary}" FontSize="{StaticResource WsFontXs}" Foreground="{StaticResource WsTextPrimaryReadable}"/>
-                                </Border>
-                                <Button Classes="secondary lane-action" Click="OnFocusPlaylistCtaClick" IsVisible="{Binding ShouldShowSelectPlaylistCta}" ToolTip.Tip="{Binding SelectPlaylistCtaHint}">Select Playlist</Button>
-                                <Button Classes="secondary lane-action" Click="OnDownloadTracksCtaClick" IsVisible="{Binding ShouldShowAcquireCtas}" ToolTip.Tip="{Binding DownloadTracksCtaHint}">Download Tracks</Button>
-                                <Button Classes="secondary lane-action" Command="{Binding AnalyzePlaylistCuesCommand}" IsEnabled="{Binding CanAnalyzePlaylistFromLane}" IsVisible="{Binding ShouldShowReadyTrackCtas}" ToolTip.Tip="{Binding FlowLaneAnalyzeHint}">Analyze Playlist</Button>
-                                <Button Classes="secondary lane-action" Click="OnOpenTrackListOverlayClick" IsEnabled="{Binding CanOpenTrackOverlayFromLane}" ToolTip.Tip="{Binding FlowLaneOverlayHint}">Track Overlay</Button>
-                            </WrapPanel>
-                        </StackPanel>
-                    </Border>
-                    <Border Classes="ws-lane" IsVisible="{Binding IsStemsMode}">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="Stems Lane" FontSize="{StaticResource WsFontSm}" FontWeight="SemiBold" Foreground="#B8E986"/>
-                            <TextBlock Text="{Binding FocusedDeck.StemControlSummary, TargetNullValue='Focus a loaded deck to shape stem lanes.'}" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextTrimming="CharacterEllipsis" MaxWidth="760"/>
-                            <Button Classes="secondary lane-action" Command="{Binding FocusedDeck.ToggleInstrumentalCommand}" IsEnabled="{Binding CanUseFocusedDeckLaneActions}" ToolTip.Tip="{Binding StemsLaneActionHint}">Instrumental</Button>
-                            <Button Classes="secondary lane-action" Command="{Binding FocusedDeck.ToggleDrumsOnlyCommand}" IsEnabled="{Binding CanUseFocusedDeckLaneActions}" ToolTip.Tip="{Binding StemsLaneActionHint}">Drums Only</Button>
-                        </StackPanel>
-                    </Border>
-                    <Border Classes="ws-lane" IsVisible="{Binding IsExportMode}">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="Export Lane" FontSize="{StaticResource WsFontSm}" FontWeight="SemiBold" Foreground="#B8E0FF"/>
-                            <TextBlock Text="{Binding ExportPanel.StatusMessage, TargetNullValue='Export preview lane ready. Open inspector for output configuration.'}" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextTrimming="CharacterEllipsis" MaxWidth="760"/>
-                            <Button Classes="secondary lane-action" Command="{Binding ExportMixCommand}" IsEnabled="{Binding CanUseExportLaneActions}" ToolTip.Tip="{Binding ExportLaneActionHint}">Export…</Button>
-                        </StackPanel>
-                    </Border>
-                    <Border Classes="ws-lane" IsVisible="{Binding IsAutomationMode}">
-                        <StackPanel Spacing="6">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <TextBlock Text="Automation Lane" FontSize="{StaticResource WsFontSm}" FontWeight="SemiBold" Foreground="#FFD58A"/>
-                                <TextBlock Text="{Binding AutomationModeSummary}" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextTrimming="CharacterEllipsis" MaxWidth="760"/>
-                            </StackPanel>
-                        </StackPanel>
-                    </Border>
-                    <Border Classes="ws-lane" IsVisible="{Binding IsSamplesMode}">
-                        <StackPanel Spacing="6">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <TextBlock Text="Samples Lane" FontSize="{StaticResource WsFontSm}" FontWeight="SemiBold" Foreground="#FFCAA8"/>
-                                <TextBlock Text="{Binding SamplesModeSummary}" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextTrimming="CharacterEllipsis" MaxWidth="760"/>
-                            </StackPanel>
-                            <WrapPanel Orientation="Horizontal" ItemHeight="28">
-                                <Button Classes="secondary lane-action" Click="OnImportLocalFilesCtaClick" ToolTip.Tip="{Binding ImportLocalFilesCtaHint}">Import Local Files</Button>
-                                <Button Classes="secondary lane-action" Margin="6,0,0,0" Click="OnFocusPlaylistCtaClick" ToolTip.Tip="{Binding SelectPlaylistCtaHint}">Select Playlist</Button>
-                            </WrapPanel>
-                        </StackPanel>
-                    </Border>
-                </Grid>
-            </Border>
-
-            <Grid Grid.Row="2" Grid.Column="0">
+            <Grid Grid.Row="1" Grid.Column="0">
                 <Border Margin="12"
                         Background="#0E151D"
                         BorderBrush="#243545"
@@ -666,7 +610,7 @@
                                    FontSize="{StaticResource WsFontSm}"
                                    Foreground="{StaticResource WsTextPrimaryReadable}"
                                    TextWrapping="Wrap"/>
-                        <TextBlock Text="Waveforms, transition overlays, stems lanes, and automation lanes will appear here once the first track is loaded."
+                        <TextBlock Text="Waveforms and transition overlays will appear here once the first track is loaded."
                                    FontSize="{StaticResource WsFontXs}"
                                    Foreground="{StaticResource WsTextHintReadable}"
                                    TextWrapping="Wrap"/>
@@ -674,10 +618,10 @@
                 </Border>
             </Grid>
 
-            <wsViews:MixerCenter Grid.Row="3" Grid.Column="0"/>
+            <wsViews:MixerCenter Grid.Row="2" Grid.Column="0"/>
 
             <Border Grid.Row="0"
-                    Grid.RowSpan="3"
+                    Grid.RowSpan="2"
                     Grid.Column="1"
                     Classes="ws-inspector"
                     Margin="12,8,8,8"
@@ -1015,22 +959,8 @@
                             </WrapPanel>
                         </StackPanel>
 
-                        <StackPanel Spacing="8" IsVisible="{Binding IsAutomationMode}">
-                            <TextBlock Text="Automation" FontSize="{StaticResource WsFontLg}" FontWeight="SemiBold" Foreground="#E5EEF8"/>
-                            <TextBlock Text="Timeline editing and snapping are active. Use the header grid controls to configure snapping behavior." FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextWrapping="Wrap"/>
-                        </StackPanel>
-
-                        <StackPanel Spacing="8" IsVisible="{Binding IsSamplesMode}">
-                            <TextBlock Text="Samples" FontSize="{StaticResource WsFontLg}" FontWeight="SemiBold" Foreground="#E5EEF8"/>
-                            <WrapPanel Orientation="Horizontal" ItemHeight="28">
-                                <Button Classes="secondary" Click="OnImportLocalFilesCtaClick" ToolTip.Tip="{Binding ImportLocalFilesCtaHint}">Import</Button>
-                                <Button Classes="secondary" Margin="6,0,0,0" Click="OnDownloadTracksCtaClick" IsVisible="{Binding ShouldShowDownloadTracksCta}" ToolTip.Tip="{Binding DownloadTracksCtaHint}">Download</Button>
-                            </WrapPanel>
-                        </StackPanel>
-
-                        <StackPanel Spacing="8" IsVisible="{Binding IsStemsMode}">
-                            <TextBlock Text="Stem Rack" FontSize="{StaticResource WsFontLg}" FontWeight="SemiBold" Foreground="#E5EEF8"/>
-                            <TextBlock Text="{Binding FocusedDeck.TrackTitle, TargetNullValue='Load a track and run separation to activate stem controls'}" FontSize="{StaticResource WsFontMd}" FontWeight="SemiBold" Foreground="#DDE9F5" TextWrapping="Wrap"/>
+                        <StackPanel Spacing="8" IsVisible="{Binding IsWaveformMode}">
+                            <TextBlock Text="STEM RACK" FontSize="{StaticResource WsFontSm}" FontWeight="SemiBold" Foreground="{StaticResource WsTextSecondaryReadable}"/>
                             <Border Classes="ws-chip"><TextBlock Text="{Binding FocusedDeck.SectionJumpSummary, TargetNullValue='Phrase-aware jumps appear after cue prep.'}" FontSize="{StaticResource WsFontSm}" Foreground="#8EC8FF" TextWrapping="Wrap"/></Border>
                             <WrapPanel Orientation="Horizontal" ItemHeight="28">
                                 <Button Classes="secondary" Command="{Binding FocusedDeck.ToggleVocalsCommand}" IsEnabled="{Binding FocusedDeck.IsLoaded}">Vocals</Button>
@@ -1038,36 +968,11 @@
                                 <Button Classes="secondary" Margin="6,0,0,0" Command="{Binding FocusedDeck.ToggleBassCommand}" IsEnabled="{Binding FocusedDeck.IsLoaded}">Bass</Button>
                                 <Button Classes="secondary" Margin="6,0,0,0" Command="{Binding FocusedDeck.ToggleOtherCommand}" IsEnabled="{Binding FocusedDeck.IsLoaded}">Other</Button>
                             </WrapPanel>
+                            <WrapPanel Orientation="Horizontal" ItemHeight="28">
+                                <Button Classes="secondary" Command="{Binding FocusedDeck.ToggleInstrumentalCommand}" IsEnabled="{Binding CanUseFocusedDeckLaneActions}" ToolTip.Tip="{Binding StemsLaneActionHint}">Instrumental</Button>
+                                <Button Classes="secondary" Margin="6,0,0,0" Command="{Binding FocusedDeck.ToggleDrumsOnlyCommand}" IsEnabled="{Binding CanUseFocusedDeckLaneActions}" ToolTip.Tip="{Binding StemsLaneActionHint}">Drums Only</Button>
+                            </WrapPanel>
                             <Button Classes="secondary" Command="{Binding FocusedDeck.SeparateStemsCommand}" IsEnabled="{Binding FocusedDeck.IsLoaded}">Separate Stems</Button>
-                        </StackPanel>
-
-                        <StackPanel Spacing="8" IsVisible="{Binding IsExportMode}">
-                            <TextBlock Text="Export" FontSize="{StaticResource WsFontLg}" FontWeight="SemiBold" Foreground="#E5EEF8"/>
-                            <TextBlock Text="Configure mixdown output without leaving the cockpit. Use Export Mixdown for the full dialog flow." FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}" TextWrapping="Wrap"/>
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="Format" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}"/>
-                                <ComboBox ItemsSource="{Binding ExportPanel.AvailableFormats}" SelectedItem="{Binding ExportPanel.SelectedFormat, Mode=TwoWay}"/>
-                            </StackPanel>
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="Output Path" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}"/>
-                                <TextBox Text="{Binding ExportPanel.OutputPath, Mode=TwoWay}" Watermark="Choose output path"/>
-                            </StackPanel>
-                            <CheckBox IsChecked="{Binding ExportPanel.Normalize, Mode=TwoWay}">Normalize</CheckBox>
-                            <CheckBox IsChecked="{Binding ExportPanel.Dither, Mode=TwoWay}">Dither</CheckBox>
-                            <TextBlock Text="Loaded Tracks" FontSize="{StaticResource WsFontSm}" Foreground="{StaticResource WsTextSecondaryReadable}"/>
-                            <ItemsControl ItemsSource="{Binding ExportPanel.Decks}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:ExportDeckEntry">
-                                        <Border Classes="ws-chip" Margin="0,0,0,4">
-                                            <StackPanel Spacing="2">
-                                                <TextBlock Text="{Binding Label}" FontSize="{StaticResource WsFontSm}" Foreground="#DDE9F5" TextWrapping="Wrap"/>
-                                                <TextBlock Text="{Binding Volume, StringFormat='Volume {0:F2}'}" FontSize="{StaticResource WsFontXs}" Foreground="{StaticResource WsTextSecondaryReadable}"/>
-                                            </StackPanel>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <Button Background="#0078D4" Foreground="White" BorderBrush="#0078D4" BorderThickness="1" CornerRadius="6" Padding="14,7" Command="{Binding ExportMixCommand}">Export Mixdown...</Button>
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>

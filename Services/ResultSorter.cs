@@ -54,6 +54,7 @@ public static class ResultSorter
         var availabilityScore = CalculateAvailabilityScore(result);
         var metadataScore = CalculateMetadataScore(result, searchTrack);
         var preferredScore = evaluator.ScorePreferred(result);
+        result.MetadataMatchScore = metadataScore;
 
         var weightedScore =
             (qualityScore * 0.45) +

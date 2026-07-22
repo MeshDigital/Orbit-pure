@@ -663,7 +663,9 @@ public class LibraryService : ILibraryService
 
                 // Phase 20
                 IsSmartPlaylist = job.IsSmartPlaylist,
-                SmartCriteriaJson = job.SmartCriteriaJson
+                SmartCriteriaJson = job.SmartCriteriaJson,
+
+                FolderId = job.FolderId
             };
 
             await _databaseService.SavePlaylistJobAsync(entity).ConfigureAwait(false);
@@ -778,6 +780,104 @@ public class LibraryService : ILibraryService
         return job;
     }
 
+    // ===== Playlist Folders =====
+
+    public async Task<List<PlaylistFolder>> LoadAllPlaylistFoldersAsync()
+    {
+        try
+        {
+            var entities = await _databaseService.LoadAllPlaylistFoldersAsync().ConfigureAwait(false);
+            return entities.Select(EntityToPlaylistFolder).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load playlist folders");
+            return new List<PlaylistFolder>();
+        }
+    }
+
+    public async Task<PlaylistFolder> CreatePlaylistFolderAsync(string name, Guid? parentFolderId)
+    {
+        var folder = new PlaylistFolder
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            ParentFolderId = parentFolderId,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await _databaseService.SavePlaylistFolderAsync(PlaylistFolderToEntity(folder)).ConfigureAwait(false);
+        _logger.LogInformation("Created playlist folder: {Name} ({Id})", folder.Name, folder.Id);
+        return folder;
+    }
+
+    public async Task RenamePlaylistFolderAsync(Guid folderId, string newName)
+    {
+        var folders = await _databaseService.LoadAllPlaylistFoldersAsync().ConfigureAwait(false);
+        var entity = folders.FirstOrDefault(f => f.Id == folderId);
+        if (entity == null) return;
+
+        entity.Name = newName;
+        await _databaseService.SavePlaylistFolderAsync(entity).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Moves a folder under a new parent (or to root if null). Rejects moves that would
+    /// create a cycle (moving a folder into itself or one of its own descendants).
+    /// </summary>
+    public async Task<bool> MovePlaylistFolderAsync(Guid folderId, Guid? newParentFolderId)
+    {
+        if (folderId == newParentFolderId) return false;
+
+        var folders = await _databaseService.LoadAllPlaylistFoldersAsync().ConfigureAwait(false);
+        var byId = folders.ToDictionary(f => f.Id);
+
+        // Walk up from the proposed new parent; if we hit the folder being moved, it's a cycle.
+        var cursor = newParentFolderId;
+        while (cursor.HasValue)
+        {
+            if (cursor.Value == folderId) return false;
+            cursor = byId.TryGetValue(cursor.Value, out var parent) ? parent.ParentFolderId : null;
+        }
+
+        var entity = byId.GetValueOrDefault(folderId);
+        if (entity == null) return false;
+
+        entity.ParentFolderId = newParentFolderId;
+        await _databaseService.SavePlaylistFolderAsync(entity).ConfigureAwait(false);
+        return true;
+    }
+
+    public async Task DeletePlaylistFolderAsync(Guid folderId)
+    {
+        await _databaseService.DeletePlaylistFolderAsync(folderId).ConfigureAwait(false);
+    }
+
+    public async Task MovePlaylistToFolderAsync(Guid playlistId, Guid? folderId)
+    {
+        await _databaseService.SetPlaylistFolderAsync(playlistId, folderId).ConfigureAwait(false);
+        _cache.InvalidateProject(playlistId);
+        _eventBus.Publish(new ProjectUpdatedEvent(playlistId));
+    }
+
+    private static PlaylistFolder EntityToPlaylistFolder(Data.PlaylistFolderEntity entity) => new()
+    {
+        Id = entity.Id,
+        Name = entity.Name,
+        ParentFolderId = entity.ParentFolderId,
+        SortOrder = entity.SortOrder,
+        CreatedAt = entity.CreatedAt
+    };
+
+    private static Data.PlaylistFolderEntity PlaylistFolderToEntity(PlaylistFolder folder) => new()
+    {
+        Id = folder.Id,
+        Name = folder.Name,
+        ParentFolderId = folder.ParentFolderId,
+        SortOrder = folder.SortOrder,
+        CreatedAt = folder.CreatedAt
+    };
+
     public async Task SaveTrackOrderAsync(Guid playlistId, IEnumerable<PlaylistTrack> tracks)
     {
         try
@@ -855,17 +955,17 @@ public class LibraryService : ILibraryService
         }
     }
 
-    public async Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
+    public async Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false)
     {
         try
         {
             if (playlistId == Guid.Empty)
             {
-                var globalEntities = await _databaseService.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter).ConfigureAwait(false);
+                var globalEntities = await _databaseService.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending).ConfigureAwait(false);
                 return globalEntities.Select(EntityToPlaylistTrack).ToList();
             }
 
-            var entities = await _databaseService.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter).ConfigureAwait(false);
+            var entities = await _databaseService.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending).ConfigureAwait(false);
             return entities.Select(EntityToPlaylistTrack).ToList();
         }
         catch (Exception ex)
@@ -1098,7 +1198,9 @@ public class LibraryService : ILibraryService
 
             // Phase 20
             IsSmartPlaylist = entity.IsSmartPlaylist,
-            SmartCriteriaJson = entity.SmartCriteriaJson
+            SmartCriteriaJson = entity.SmartCriteriaJson,
+
+            FolderId = entity.FolderId
         };
 
         job.MissingCount = entity.TotalTracks - entity.SuccessfulCount - entity.FailedCount;
@@ -1770,13 +1872,19 @@ public class LibraryService : ILibraryService
 
         // 2. Update all Playlist Tracks
         var playlistTracks = await db.PlaylistTracks.Where(t => t.TrackUniqueHash == trackHash).ToListAsync();
+
+        // Batched instead of one TechnicalDetails query per playlist track (N+1) — matters most
+        // for tracks duplicated across many playlists, a common case for DJs reusing tracks.
+        var trackIds = playlistTracks.Select(t => t.Id).ToList();
+        var technicalDetailsById = await db.TechnicalDetails
+            .Where(td => trackIds.Contains(td.PlaylistTrackId))
+            .ToDictionaryAsync(td => td.PlaylistTrackId);
+
         foreach (var track in playlistTracks)
         {
             track.CuePointsJson = cuePointsJson;
-            
-            // Also update technical details if they exist
-            var tech = await db.TechnicalDetails.FirstOrDefaultAsync(td => td.PlaylistTrackId == track.Id);
-            if (tech != null)
+
+            if (technicalDetailsById.TryGetValue(track.Id, out var tech))
             {
                 tech.CuePointsJson = cuePointsJson;
             }
@@ -1871,26 +1979,26 @@ public class LibraryService : ILibraryService
         }
     }
 
-    public async Task<(int Reset, int Checked)> ReconcileLibraryAsync()
+    public async Task<(int Reset, int Checked, int Relinked)> ReconcileLibraryAsync()
     {
         _logger.LogInformation("Library reconciliation started — cross-referencing PlaylistTrack DB rows against physical files.");
 
-        var (reset, checked_) = await _databaseService.ReconcilePhysicalFilesAsync();
+        var (reset, checked_, relinked) = await _databaseService.ReconcilePhysicalFilesAsync();
 
-        if (reset > 0)
+        if (reset > 0 || relinked > 0)
         {
             // Invalidate the global cache so the next load reflects the corrected states.
             _cache.InvalidateGlobalLibrary();
 
             _logger.LogWarning(
-                "Library reconciliation: reset {Reset} missing files to Missing state (checked {Checked} total).",
-                reset, checked_);
+                "Library reconciliation: reset {Reset} missing files to Missing state, relinked {Relinked} to a moved/renamed path (checked {Checked} total).",
+                reset, relinked, checked_);
         }
         else
         {
             _logger.LogInformation("Library reconciliation complete — all {Checked} files verified present.", checked_);
         }
 
-        return (reset, checked_);
+        return (reset, checked_, relinked);
     }
 }

@@ -67,13 +67,34 @@
                 </StackPanel>
             </Grid>
 
+            <!-- Danceability -->
+            <Grid ColumnDefinitions="*, 10, *">
+                <StackPanel Grid.Column="0" Spacing="5">
+                    <TextBlock Text="Min Danceability (0.0 - 1.0)" Foreground="#AAAAAA" FontSize="12"/>
+                    <TextBox Text="{Binding MinDanceability}" Watermark="0.0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="5">
+                    <TextBlock Text="Max Danceability (0.0 - 1.0)" Foreground="#AAAAAA" FontSize="12"/>
+                    <TextBox Text="{Binding MaxDanceability}" Watermark="1.0"/>
+                </StackPanel>
+            </Grid>
+
             <!-- Genre -->
             <StackPanel Spacing="5">
                 <TextBlock Text="Genre (Contains)" Foreground="#AAAAAA"/>
                 <TextBox Text="{Binding Genre}" Watermark="e.g. House"/>
             </StackPanel>
 
-
+            <!-- Rating / Liked -->
+            <Grid ColumnDefinitions="*, 10, *">
+                <StackPanel Grid.Column="0" Spacing="5">
+                    <TextBlock Text="Min Rating (0-5 stars)" Foreground="#AAAAAA" FontSize="12"/>
+                    <TextBox Text="{Binding MinRating}" Watermark="0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="5" VerticalAlignment="Bottom">
+                    <CheckBox Content="Only Liked tracks" IsChecked="{Binding OnlyLiked}" Foreground="#AAAAAA"/>
+                </StackPanel>
+            </Grid>
 
             <Separator Background="#333333" Height="1" Margin="0,5"/>
 

@@ -133,6 +133,16 @@ public class Track
     public string? ScoreBreakdown { get; set; }
 
     /// <summary>
+    /// How well this search result's artist/title text matches the search query (0.0-1.0),
+    /// set by <see cref="SLSKDONET.Services.ResultSorter.CalculateRank"/>. Distinct from
+    /// <see cref="CurrentRank"/>, which blends this together with file quality and peer
+    /// availability — this raw signal exists so relevance-sensitive decisions (like the
+    /// discovery fast-lane short-circuit) can require a minimum match confidence on its own,
+    /// rather than letting a great-quality file for the wrong song satisfy a blended threshold.
+    /// </summary>
+    public double MetadataMatchScore { get; set; } = 0.0;
+
+    /// <summary>
     /// Indicates whether this track already exists in the user's library.
     /// Used by ImportPreview to show duplicate status.
     /// </summary>

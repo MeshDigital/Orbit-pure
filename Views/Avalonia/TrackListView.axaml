@@ -23,6 +23,26 @@
     </UserControl.Resources>
 
     <UserControl.Styles>
+        <Style Selector="Button.sortableHeader">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.sortableHeader:pointerover">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="Button.sortableHeader TextBlock.label">
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="#555"/>
+        </Style>
+        <Style Selector="Button.sortableHeader:pointerover TextBlock.label">
+            <Setter Property="Foreground" Value="#999"/>
+        </Style>
         <Style Selector="Border.track-row">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderBrush" Value="#2A2A2E"/>
@@ -43,6 +63,21 @@
             <Setter Property="BorderBrush" Value="#4EC9B0"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <!-- MixedInKey-style harmonic mixing highlight -->
+        <Style Selector="Border.track-row.harmonic-match:not(.selected)">
+            <Setter Property="Background" Value="#124EC9B0"/>
+        </Style>
+        <Style Selector="Border.key-badge">
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style Selector="Border.key-badge.harmonic-match">
+            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+        </Style>
+        <Style Selector="Border.key-badge.exact-match">
+            <Setter Property="BorderBrush" Value="White"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
         </Style>
         <Style Selector="Button.insert-affordance">
             <Setter Property="Opacity" Value="0"/>
@@ -201,27 +236,60 @@
         <!-- Column Header -->
         <controls:VirtualGridHeader Grid.Row="4">
             <controls:VirtualGridHeader.HeaderContent>
-                <Grid ColumnDefinitions="60,44,124,180,*,90,100,120,80">
+                <Grid ColumnDefinitions="60,44,124,180,*,90,110,100,120,80,84">
                     <!-- Column 0: Artwork/Status (Empty) -->
                     <!-- Column 1: Q -->
                     <TextBlock Grid.Column="1" Text="Q" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0"/>
                     <!-- Column 2: INSERT -->
                     <TextBlock Grid.Column="2" Text="INSERT" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="2,0,0,0"/>
                     <!-- Column 3: Artist -->
-                    <TextBlock Grid.Column="3" Text="ARTIST" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"/>
+                    <Button Grid.Column="3" Classes="sortableHeader" Margin="12,0"
+                            Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Artist}">
+                        <StackPanel Orientation="Horizontal" Spacing="3">
+                            <TextBlock Classes="label" Text="ARTIST"/>
+                            <TextBlock Classes="label" Text="▲" Foreground="#4EC9B0" IsVisible="{Binding IsSortedByArtistAscending}"/>
+                            <TextBlock Classes="label" Text="▼" Foreground="#4EC9B0" IsVisible="{Binding IsSortedByArtistDescending}"/>
+                        </StackPanel>
+                    </Button>
                     <!-- Column 4: Title -->
-                    <TextBlock Grid.Column="4" Text="TITLE" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"/>
+                    <Button Grid.Column="4" Classes="sortableHeader" Margin="12,0"
+                            Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Title}">
+                        <StackPanel Orientation="Horizontal" Spacing="3">
+                            <TextBlock Classes="label" Text="TITLE"/>
+                            <TextBlock Classes="label" Text="▲" Foreground="#4EC9B0" IsVisible="{Binding IsSortedByTitleAscending}"/>
+                            <TextBlock Classes="label" Text="▼" Foreground="#4EC9B0" IsVisible="{Binding IsSortedByTitleDescending}"/>
+                        </StackPanel>
+                    </Button>
                     <!-- Column 5: Energy -->
                     <TextBlock Grid.Column="5" Text="ENERGY" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0"/>
-                    <!-- Column 6: Format -->
-                    <TextBlock Grid.Column="6" Text="FORMAT" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"
+                    <!-- Column 6: BPM / Key -->
+                    <Button Grid.Column="6" Classes="sortableHeader" Margin="8,0"
+                            Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Bpm}"
+                            ToolTip.Tip="Sort by BPM. Click a track to highlight harmonically compatible keys">
+                        <StackPanel Orientation="Horizontal" Spacing="3">
+                            <TextBlock Classes="label" Text="BPM / KEY"/>
+                            <TextBlock Classes="label" Text="▲" Foreground="#4EC9B0" IsVisible="{Binding IsSortedByBpmAscending}"/>
+                            <TextBlock Classes="label" Text="▼" Foreground="#4EC9B0" IsVisible="{Binding IsSortedByBpmDescending}"/>
+                        </StackPanel>
+                    </Button>
+                    <!-- Column 7: Format -->
+                    <TextBlock Grid.Column="7" Text="FORMAT" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"
                                IsVisible="{Binding IsFormatColumnVisible}"/>
-                    <!-- Column 7: Forensics -->
-                    <TextBlock Grid.Column="7" Text="FORENSICS" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"
+                    <!-- Column 8: Forensics -->
+                    <TextBlock Grid.Column="8" Text="FORENSICS" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"
                                IsVisible="{Binding IsForensicsColumnVisible}"/>
-                    <!-- Column 8: Duration -->
-                    <TextBlock Grid.Column="8" Text="DURATION" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0"
-                               IsVisible="{Binding IsDurationColumnVisible}"/>
+                    <!-- Column 9: Duration -->
+                    <Button Grid.Column="9" Classes="sortableHeader" Margin="12,0" HorizontalAlignment="Right"
+                            Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Duration}"
+                            IsVisible="{Binding IsDurationColumnVisible}">
+                        <StackPanel Orientation="Horizontal" Spacing="3">
+                            <TextBlock Classes="label" Text="▲" Foreground="#4EC9B0" IsVisible="{Binding IsSortedByDurationAscending}"/>
+                            <TextBlock Classes="label" Text="▼" Foreground="#4EC9B0" IsVisible="{Binding IsSortedByDurationDescending}"/>
+                            <TextBlock Classes="label" Text="DURATION"/>
+                        </StackPanel>
+                    </Button>
+                    <!-- Column 10: Rating -->
+                    <TextBlock Grid.Column="10" Text="RATING" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"/>
                 </Grid>
             </controls:VirtualGridHeader.HeaderContent>
         </controls:VirtualGridHeader>
@@ -273,9 +341,10 @@
             <controls:VirtualGrid.ItemTemplate>
                 <DataTemplate DataType="vm:PlaylistTrackViewModel">
                     <Border Classes="track-row"
+                            Classes.harmonic-match="{Binding IsHarmonicMatch}"
                             Height="48"
                             Focusable="True">
-                        <Grid ColumnDefinitions="60,44,124,180,*,90,100,120,80">
+                        <Grid ColumnDefinitions="60,44,124,180,*,90,110,100,120,80,84">
                             <!-- Column 0: Artwork/Status -->
                             <Panel Grid.Column="0" Margin="12,0,0,0">
                                 <Border Width="32" Height="32" CornerRadius="4" Background="#2A2A2E" ClipToBounds="True">
@@ -346,8 +415,24 @@
                                 IsVisible="{Binding HasAnalysisData}"
                                 ToolTip.Tip="Energy contour — analysed audio"/>
 
-                            <!-- Column 6: Format -->
-                            <Border Grid.Column="6" Background="#1A1F2C" BorderBrush="#3300BFFF" BorderThickness="1" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"
+                            <!-- Column 6: BPM / Key (harmonic mixing) -->
+                            <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="8,0" IsVisible="{Binding HasBpm}">
+                                <TextBlock Text="{Binding BpmDisplay}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Width="26" TextAlignment="Right" VerticalAlignment="Center"/>
+                                <Border Classes="key-badge"
+                                        Classes.harmonic-match="{Binding IsHarmonicMatch}"
+                                        Classes.exact-match="{Binding IsExactKeyMatch}"
+                                        Background="{Binding ColorBrush}"
+                                        CornerRadius="4"
+                                        Padding="5,2"
+                                        MinWidth="30"
+                                        VerticalAlignment="Center"
+                                        ToolTip.Tip="{Binding KeyDisplay}">
+                                    <TextBlock Text="{Binding CamelotDisplay}" Foreground="White" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center"/>
+                                </Border>
+                            </StackPanel>
+
+                            <!-- Column 7: Format -->
+                            <Border Grid.Column="7" Background="#1A1F2C" BorderBrush="#3300BFFF" BorderThickness="1" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"
                                     IsVisible="{Binding $parent[UserControl].DataContext.IsFormatColumnVisible}">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <TextBlock Text="{Binding Format}" FontSize="9" FontWeight="Bold" Foreground="#00BFFF" Opacity="0.8"/>
@@ -355,8 +440,8 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- Column 7: Forensics -->
-                            <Border Grid.Column="7" Background="{Binding IntegrityColor}"
+                            <!-- Column 8: Forensics -->
+                            <Border Grid.Column="8" Background="{Binding IntegrityColor}"
                                     CornerRadius="10"
                                     Padding="8,3"
                                     HorizontalAlignment="Left"
@@ -373,9 +458,22 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- Column 8: Duration -->
-                            <TextBlock Grid.Column="8" Text="{Binding DurationDisplay}" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0" Opacity="0.5"
+                            <!-- Column 9: Duration -->
+                            <TextBlock Grid.Column="9" Text="{Binding DurationDisplay}" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0" Opacity="0.5"
                                        IsVisible="{Binding $parent[UserControl].DataContext.IsDurationColumnVisible}"/>
+
+                            <!-- Column 10: Rating -->
+                            <StackPanel Grid.Column="10" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="12,0">
+                                <controls:StarRatingControl Rating="{Binding Rating, Mode=TwoWay}" StarSize="11"/>
+                                <ToggleButton IsChecked="{Binding IsLiked, Mode=TwoWay}"
+                                              Background="Transparent" BorderThickness="0" Padding="0"
+                                              Cursor="Hand" ToolTip.Tip="Like">
+                                    <Panel>
+                                        <TextBlock Text="🤍" FontSize="11" Opacity="0.5" IsVisible="{Binding !IsLiked}"/>
+                                        <TextBlock Text="❤️" FontSize="11" IsVisible="{Binding IsLiked}"/>
+                                    </Panel>
+                                </ToggleButton>
+                            </StackPanel>
                         </Grid>
                     </Border>
                 </DataTemplate>

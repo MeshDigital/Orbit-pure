@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
@@ -79,6 +80,31 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    // Playlist Folders: nested tree used by the sidebar
+    public ObservableCollection<PlaylistFolder> AllFolders { get; } = new();
+    public ObservableCollection<PlaylistTreeNodeViewModel> RootTreeNodes { get; } = new();
+
+    private PlaylistTreeNodeViewModel? _selectedTreeNode;
+    public PlaylistTreeNodeViewModel? SelectedTreeNode
+    {
+        get => _selectedTreeNode;
+        set
+        {
+            if (ReferenceEquals(_selectedTreeNode, value))
+            {
+                return;
+            }
+
+            _selectedTreeNode = value;
+            OnPropertyChanged();
+
+            if (value is PlaylistTreeCardNodeViewModel cardNode && !ReferenceEquals(SelectedProjectCard, cardNode.Card))
+            {
+                SelectedProjectCard = cardNode.Card;
+            }
+        }
+    }
+
     private LibraryPlaylistCardViewModel? _selectedProjectCard;
     public LibraryPlaylistCardViewModel? SelectedProjectCard
     {
@@ -92,6 +118,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
 
             _selectedProjectCard = value;
             OnPropertyChanged();
+            SyncSelectedTreeNodeFromCard(value);
 
             var selectedFromCard = value?.Model;
             if (!ReferenceEquals(_selectedProject, selectedFromCard))
@@ -172,6 +199,12 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand GenerateCuesCommand { get; }
     public System.Windows.Input.ICommand ExportProjectCommand { get; }
 
+    // Playlist Folder commands
+    public System.Windows.Input.ICommand CreateFolderCommand { get; }
+    public System.Windows.Input.ICommand CreateSubfolderCommand { get; }
+    public System.Windows.Input.ICommand RenameFolderCommand { get; }
+    public System.Windows.Input.ICommand DeleteFolderCommand { get; }
+
     // Services
     private readonly ImportOrchestrator _importOrchestrator;
     private readonly IEnumerable<IImportProvider> _importProviders;
@@ -230,6 +263,14 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         SyncProjectCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteSyncProjectAsync);
         GenerateCuesCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteGenerateCuesAsync);
         ExportProjectCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteExportProjectAsync);
+
+        CreateFolderCommand = new AsyncRelayCommand(() => ExecuteCreateFolderAsync(null));
+        CreateSubfolderCommand = new AsyncRelayCommand<PlaylistTreeFolderNodeViewModel>(node => ExecuteCreateFolderAsync(node?.Folder.Id));
+        RenameFolderCommand = new AsyncRelayCommand<PlaylistTreeFolderNodeViewModel>(ExecuteRenameFolderAsync);
+        DeleteFolderCommand = new AsyncRelayCommand<PlaylistTreeFolderNodeViewModel>(ExecuteDeleteFolderAsync);
+
+        FilteredProjectCards.CollectionChanged += (_, _) => RebuildTree();
+        AllFolders.CollectionChanged += (_, _) => RebuildTree();
 
         // Subscribe to auth changes
         _authChangedHandler = (s, authenticated) => 
@@ -325,12 +366,33 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>
     /// Loads all projects from the database.
     /// </summary>
+    public async Task LoadFoldersAsync()
+    {
+        try
+        {
+            var folders = await _libraryService.LoadAllPlaylistFoldersAsync().ConfigureAwait(false);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AllFolders.Clear();
+                foreach (var folder in folders)
+                {
+                    AllFolders.Add(folder);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load playlist folders");
+        }
+    }
+
     public async Task LoadProjectsAsync()
     {
         try
         {
             _logger.LogInformation("Loading projects from database...");
             var jobs = await _libraryService.LoadAllPlaylistJobsAsync();
+            await LoadFoldersAsync();
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -419,6 +481,184 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         {
             _selectedProjectCard = card;
             OnPropertyChanged(nameof(SelectedProjectCard));
+        }
+
+        SyncSelectedTreeNodeFromCard(card);
+    }
+
+    private void SyncSelectedTreeNodeFromCard(LibraryPlaylistCardViewModel? card)
+    {
+        var node = card is null || RootTreeNodes is null ? null : FindCardNode(RootTreeNodes, card);
+        if (!ReferenceEquals(_selectedTreeNode, node))
+        {
+            _selectedTreeNode = node;
+            OnPropertyChanged(nameof(SelectedTreeNode));
+        }
+    }
+
+    private static PlaylistTreeCardNodeViewModel? FindCardNode(IEnumerable<PlaylistTreeNodeViewModel> nodes, LibraryPlaylistCardViewModel card)
+    {
+        foreach (var node in nodes)
+        {
+            if (node is PlaylistTreeCardNodeViewModel cardNode && ReferenceEquals(cardNode.Card, card))
+            {
+                return cardNode;
+            }
+
+            if (node is PlaylistTreeFolderNodeViewModel folderNode)
+            {
+                var found = FindCardNode(folderNode.ChildNodes, card);
+                if (found != null) return found;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Rebuilds the nested folder/playlist tree from AllFolders + FilteredProjectCards.
+    /// Called whenever either source collection changes.
+    /// </summary>
+    private void RebuildTree()
+    {
+        var folderNodes = AllFolders.ToDictionary(f => f.Id, f => new PlaylistTreeFolderNodeViewModel(f));
+
+        foreach (var folder in AllFolders)
+        {
+            if (folder.ParentFolderId.HasValue && folderNodes.TryGetValue(folder.ParentFolderId.Value, out var parentNode))
+            {
+                parentNode.ChildNodes.Add(folderNodes[folder.Id]);
+            }
+        }
+
+        foreach (var card in FilteredProjectCards)
+        {
+            var folderId = card.Model.FolderId;
+            if (folderId.HasValue && folderNodes.TryGetValue(folderId.Value, out var folderNode))
+            {
+                folderNode.ChildNodes.Add(new PlaylistTreeCardNodeViewModel(card));
+            }
+        }
+
+        var newRoots = new List<PlaylistTreeNodeViewModel>();
+        newRoots.AddRange(AllFolders
+            .Where(f => f.ParentFolderId == null)
+            .OrderBy(f => f.SortOrder)
+            .ThenBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(f => (PlaylistTreeNodeViewModel)folderNodes[f.Id]));
+        newRoots.AddRange(FilteredProjectCards
+            .Where(c => !c.Model.FolderId.HasValue || !folderNodes.ContainsKey(c.Model.FolderId.Value))
+            .Select(c => (PlaylistTreeNodeViewModel)new PlaylistTreeCardNodeViewModel(c)));
+
+        RootTreeNodes.Clear();
+        foreach (var node in newRoots)
+        {
+            RootTreeNodes.Add(node);
+        }
+
+        SyncSelectedTreeNodeFromCard(SelectedProjectCard);
+    }
+
+    private async Task ExecuteCreateFolderAsync(Guid? parentFolderId)
+    {
+        var name = await _dialogService.ShowPromptAsync("New Folder", "Enter a name for the new folder:");
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        try
+        {
+            await _libraryService.CreatePlaylistFolderAsync(name.Trim(), parentFolderId);
+            await LoadFoldersAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create playlist folder");
+            await _dialogService.ShowAlertAsync("Error", $"Could not create folder: {ex.Message}");
+        }
+    }
+
+    private async Task ExecuteRenameFolderAsync(PlaylistTreeFolderNodeViewModel? node)
+    {
+        if (node == null) return;
+
+        var name = await _dialogService.ShowPromptAsync("Rename Folder", "Enter a new name:", node.Folder.Name);
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        try
+        {
+            await _libraryService.RenamePlaylistFolderAsync(node.Folder.Id, name.Trim());
+            await LoadFoldersAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to rename playlist folder {Id}", node.Folder.Id);
+        }
+    }
+
+    private async Task ExecuteDeleteFolderAsync(PlaylistTreeFolderNodeViewModel? node)
+    {
+        if (node == null) return;
+
+        var confirmed = await _dialogService.ConfirmAsync(
+            "Delete Folder",
+            $"Delete folder '{node.Folder.Name}'? Playlists and subfolders inside it will move up one level, not be deleted.");
+        if (!confirmed) return;
+
+        try
+        {
+            await _libraryService.DeletePlaylistFolderAsync(node.Folder.Id);
+            await LoadFoldersAsync();
+            await LoadProjectsAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete playlist folder {Id}", node.Folder.Id);
+        }
+    }
+
+    /// <summary>
+    /// Moves a playlist into a folder (or back to root if null). Called from the sidebar's
+    /// drag-and-drop handler in code-behind.
+    /// </summary>
+    public async Task MovePlaylistToFolderAsync(Guid playlistId, Guid? folderId)
+    {
+        try
+        {
+            await _libraryService.MovePlaylistToFolderAsync(playlistId, folderId).ConfigureAwait(false);
+
+            var job = AllProjects.FirstOrDefault(p => p.Id == playlistId);
+            if (job != null)
+            {
+                job.FolderId = folderId;
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(RebuildTree);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to move playlist {Id} to folder {FolderId}", playlistId, folderId);
+        }
+    }
+
+    /// <summary>
+    /// Moves a folder under a new parent (or to root if null). Called from the sidebar's
+    /// drag-and-drop handler in code-behind. Silently no-ops if the move would create a cycle.
+    /// </summary>
+    public async Task MoveFolderAsync(Guid folderId, Guid? newParentFolderId)
+    {
+        try
+        {
+            var moved = await _libraryService.MovePlaylistFolderAsync(folderId, newParentFolderId).ConfigureAwait(false);
+            if (!moved)
+            {
+                _notificationService.Show("Move Folder", "Can't move a folder into itself or one of its own subfolders.", Views.NotificationType.Warning);
+                return;
+            }
+
+            await LoadFoldersAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to move folder {Id} to parent {ParentId}", folderId, newParentFolderId);
         }
     }
     // ... existing methods ...

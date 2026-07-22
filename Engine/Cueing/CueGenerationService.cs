@@ -342,13 +342,13 @@ public sealed class CueGenerationService
     private static List<(double Time, float Score)> Deduplicate(
         List<(double Time, float Score)> sorted, double minGap)
     {
-        var result = new List<(double, float)>();
+        var result = new List<(double Time, float Score)>();
         foreach (var item in sorted)
         {
             if (result.Count == 0 || item.Time - result[^1].Time >= minGap)
                 result.Add(item);
             else if (item.Score > result[^1].Score)
-                result[^1] = item; // keep higher-scored one in the window
+                result[^1] = item;
         }
         return result;
     }

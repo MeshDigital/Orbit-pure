@@ -146,7 +146,29 @@ public class AudioFeaturesEntity
     /// Confidence of the drop detection (0.0 - 1.0).
     /// </summary>
     public float DropConfidence { get; set; }
-    
+
+    /// <summary>
+    /// Full multi-candidate sub-bass dropout timestamps (JSON array of seconds), from
+    /// SubBassDropoutEngine — every point where sub-bass energy fell below 25% of the
+    /// track mean, not just the single collapsed DropTimeSeconds. Feeds
+    /// Engine.Cueing.CueGenerationService's DSP drop-scoring path.
+    /// </summary>
+    public string SubBassDropoutTimestampsJson { get; set; } = "[]";
+
+    /// <summary>
+    /// Full multi-candidate sub-bass return timestamps (JSON array of seconds), from
+    /// SubBassDropoutEngine — every point where sub-bass energy returned above 60% of
+    /// the track mean after a dropout (a drop-hit candidate).
+    /// </summary>
+    public string SubBassReturnTimestampsJson { get; set; } = "[]";
+
+    /// <summary>
+    /// Full multi-candidate build-confirmed drop signatures (JSON array of
+    /// {DropSeconds, BuildStartSeconds, Strength} objects), from SpectralFluxNoveltyEngine.
+    /// </summary>
+    public string NoveltyDropSignaturesJson { get; set; } = "[]";
+
+
     /// <summary>
     /// Intro cue point (usually 0.0 - start of track).
     /// </summary>

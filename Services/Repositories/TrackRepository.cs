@@ -179,7 +179,7 @@ public class TrackRepository : ITrackRepository
         return await query.CountAsync();
     }
 
-    public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
+    public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false)
     {
         using var context = new AppDbContext();
         var query = context.PlaylistTracks
@@ -194,12 +194,40 @@ public class TrackRepository : ITrackRepository
         }
 
         query = ApplyFilters(query, filter, downloadedOnly, hashFilter, camelotKeyFilter);
+        query = ApplyPlaylistTrackSort(query, sortColumn, sortDescending);
 
         return await query
-            .OrderBy(t => t.SortOrder)
             .Skip(skip)
             .Take(take)
             .ToListAsync();
+    }
+
+    private static IQueryable<PlaylistTrackEntity> ApplyPlaylistTrackSort(IQueryable<PlaylistTrackEntity> query, TrackSortColumn sortColumn, bool descending)
+    {
+        return sortColumn switch
+        {
+            TrackSortColumn.Artist => descending
+                ? query.OrderByDescending(t => t.Artist).ThenBy(t => t.Title)
+                : query.OrderBy(t => t.Artist).ThenBy(t => t.Title),
+            TrackSortColumn.Title => descending ? query.OrderByDescending(t => t.Title) : query.OrderBy(t => t.Title),
+            TrackSortColumn.Bpm => descending ? query.OrderByDescending(t => t.BPM) : query.OrderBy(t => t.BPM),
+            TrackSortColumn.Duration => descending ? query.OrderByDescending(t => t.CanonicalDuration) : query.OrderBy(t => t.CanonicalDuration),
+            _ => query.OrderBy(t => t.SortOrder)
+        };
+    }
+
+    private static IQueryable<LibraryEntryEntity> ApplyLibraryEntrySort(IQueryable<LibraryEntryEntity> query, TrackSortColumn sortColumn, bool descending)
+    {
+        return sortColumn switch
+        {
+            TrackSortColumn.Artist => descending
+                ? query.OrderByDescending(t => t.Artist).ThenBy(t => t.Title)
+                : query.OrderBy(t => t.Artist).ThenBy(t => t.Title),
+            TrackSortColumn.Title => descending ? query.OrderByDescending(t => t.Title) : query.OrderBy(t => t.Title),
+            TrackSortColumn.Bpm => descending ? query.OrderByDescending(t => t.BPM) : query.OrderBy(t => t.BPM),
+            TrackSortColumn.Duration => descending ? query.OrderByDescending(t => t.CanonicalDuration) : query.OrderBy(t => t.CanonicalDuration),
+            _ => query.OrderByDescending(t => t.AddedAt)
+        };
     }
 
     private IQueryable<PlaylistTrackEntity> ApplyFilters(IQueryable<PlaylistTrackEntity> query, string? filter, bool? downloadedOnly, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
@@ -852,7 +880,7 @@ public class TrackRepository : ITrackRepository
         return await baseQuery.CountAsync();
     }
 
-    public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
+    public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false)
     {
         using var context = new AppDbContext();
         var hashSet = hashFilter?.Where(h => !string.IsNullOrWhiteSpace(h)).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -894,8 +922,9 @@ public class TrackRepository : ITrackRepository
         }
 
         // 4. Order & Page (Optimized: Select only what's needed for the list view, avoiding heavy blobs)
+        query = ApplyLibraryEntrySort(query, sortColumn, sortDescending);
+
         var entries = await query
-            .OrderByDescending(t => t.AddedAt)
             .Skip(skip)
             .Take(take)
             .Select(e => new 

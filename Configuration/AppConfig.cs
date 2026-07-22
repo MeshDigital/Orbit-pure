@@ -67,6 +67,11 @@ public class AppConfig
     public int MaxConcurrentDownloads { get; set; } = 5; // Optimized: was 2, increased for better throughput
     public string? NameFormat { get; set; } = "{artist|filename} - {title}";
     public bool CheckForDuplicates { get; set; } = true;
+
+    // Playback (persisted so crossfade/pitch survive an app restart)
+    public bool PlaybackCrossfadeEnabled { get; set; } = false;
+    public double PlaybackCrossfadeSeconds { get; set; } = 3.0;
+    public double PlaybackPitch { get; set; } = 1.0;
     public List<string> ImportWebShortcuts { get; set; } = new()
     {
         "1001Tracklists|https://www.1001tracklists.com/",

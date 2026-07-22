@@ -869,6 +869,15 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     /// <summary>Queues all tracks that currently have incomplete analysis data.</summary>
     public ReactiveCommand<Unit, Unit> ReanalyzeAllIncompleteCommand { get; }
 
+    /// <summary>
+    /// Queues every track in the library for re-analysis, regardless of current status.
+    /// "Incomplete" only catches tracks missing BPM/key/cues/waveform — it has no way to know
+    /// a track's stored analysis predates a pipeline improvement (e.g. better drop/phrase
+    /// detection), since that track still looks perfectly "complete" by those checks. This is
+    /// the deliberate override for "the detection got better, redo everything."
+    /// </summary>
+    public ReactiveCommand<Unit, Unit> ReanalyzeAllTracksCommand { get; }
+
     /// <summary>Copies the full analysis JSON for a track to the clipboard.</summary>
     public ReactiveCommand<AnalysisTrackItem, Unit> CopyAnalysisJsonCommand { get; }
     public ReactiveCommand<Unit, Unit> CopyPerformanceSnapshotCommand { get; }
@@ -1000,6 +1009,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         RunPerformanceProbeCommand = ReactiveCommand.Create(RunPerformanceProbe);
         ReanalyzeCommand = ReactiveCommand.Create<AnalysisTrackItem>(Reanalyze);
         ReanalyzeAllIncompleteCommand = ReactiveCommand.CreateFromTask(ReanalyzeAllIncompleteAsync);
+        ReanalyzeAllTracksCommand = ReactiveCommand.CreateFromTask(ReanalyzeAllTracksAsync);
         CopyAnalysisJsonCommand = ReactiveCommand.CreateFromTask<AnalysisTrackItem>(CopyAnalysisJsonAsync);
         CopyPerformanceSnapshotCommand = ReactiveCommand.CreateFromTask(CopyPerformanceSnapshotAsync);
         ClearPerformanceProbeHistoryCommand = ReactiveCommand.Create(ClearPerformanceProbeHistory);
@@ -1141,6 +1151,41 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         AutomixStatusMessage = incompleteTracks.Count == 0
             ? "No incomplete tracks found for reanalysis."
             : $"Queued {incompleteTracks.Count} incomplete track(s) for reanalysis.";
+
+        RefreshComputedState();
+    }
+
+    /// <summary>
+    /// Force-queues every track for a fresh analysis pass, bypassing the "incomplete" filter.
+    /// Use this after a detection-pipeline upgrade, when already-analyzed tracks look
+    /// "complete" by every existing check but were produced by the old, worse logic.
+    /// </summary>
+    public async Task ReanalyzeAllTracksAsync()
+    {
+        var timer = Stopwatch.StartNew();
+
+        var allTracks = LibraryTracks.ToList();
+
+        int batchCount = 0;
+        foreach (var track in allTracks)
+        {
+            ResetTrackAnalysisState(track);
+            AddToQueueCore(track, refreshState: false);
+            batchCount++;
+            if (batchCount % 10 == 0)
+            {
+                await Task.Yield();
+            }
+        }
+
+        timer.Stop();
+        _lastQueueMutationMilliseconds = timer.Elapsed.TotalMilliseconds;
+        this.RaisePropertyChanged(nameof(InteractionPerformanceDisplay));
+        this.RaisePropertyChanged(nameof(PerformanceDiagnosticsSummary));
+
+        AutomixStatusMessage = allTracks.Count == 0
+            ? "No tracks in library to reanalyze."
+            : $"Queued all {allTracks.Count} track(s) for full reanalysis. Click Start Analysis to run.";
 
         RefreshComputedState();
     }
@@ -2166,77 +2211,6 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         PlaylistTracks.Clear();
         AutomixStatusMessage = "Automix staging cleared.";
         RefreshComputedState();
-    }
-
-    /// <summary>
-    /// Builds an ordered automix sequence from <see cref="PlaylistTracks"/> using
-    /// <see cref="AutomixConstraints"/>.  Sorts by BPM within the allowed range,
-    /// then applies a key-compatibility filter.
-    /// </summary>
-    public void CreateAutomixPlaylist()
-    {
-        CreateAutomixPlaylistAsync().GetAwaiter().GetResult();
-    }
-
-    public async Task CreateAutomixPlaylistAsync()
-    {
-        if (PlaylistTracks.Count < 2)
-        {
-            AutomixStatusMessage = "Add at least 2 analyzed tracks to the playlist first.";
-            return;
-        }
-
-        var c = AutomixConstraints;
-
-        var eligible = PlaylistTracks
-            .Where(IsEligibleForAutomix)
-            .ToList();
-
-        if (eligible.Count < 2)
-        {
-            AutomixStatusMessage = $"Not enough tracks in the BPM range {c.MinBpm}–{c.MaxBpm}.";
-            return;
-        }
-
-        var maxTracks = Math.Max(2, c.MaxTracks);
-        var ordered = await TryBuildOptimizedOrderAsync(eligible, c, maxTracks).ConfigureAwait(true)
-            ?? BuildFallbackOrder(eligible, maxTracks);
-
-        PlaylistTracks.Clear();
-        foreach (var t in ordered) PlaylistTracks.Add(t);
-
-        if (ordered.Count < 2)
-        {
-            AutomixStatusMessage = "Not enough tracks available to build automix ordering.";
-            return;
-        }
-
-        var minBpm = ordered.First().AnalysisData?.Mechanics.Bpm ?? ordered.First().Bpm ?? 0;
-        var maxBpm = ordered.Last().AnalysisData?.Mechanics.Bpm ?? ordered.Last().Bpm ?? 0;
-        AutomixStatusMessage = $"Automix ready: {ordered.Count} tracks, {minBpm:F0}–{maxBpm:F0} BPM.";
-    }
-
-    private bool IsEligibleForAutomix(AnalysisTrackItem track)
-    {
-        var bpm = track.AnalysisData?.Mechanics.Bpm ?? track.Bpm ?? 0;
-        return bpm >= AutomixConstraints.MinBpm && bpm <= AutomixConstraints.MaxBpm;
-    }
-
-    private async Task<List<AnalysisTrackItem>?> TryBuildOptimizedOrderAsync(
-        IReadOnlyList<AnalysisTrackItem> eligibleTracks,
-        AutomixConstraints constraints,
-        int maxTracks)
-    {
-        await Task.CompletedTask;
-        return null;
-    }
-
-    private static List<AnalysisTrackItem> BuildFallbackOrder(IReadOnlyList<AnalysisTrackItem> tracks, int maxTracks)
-    {
-        return tracks
-            .OrderBy(t => t.AnalysisData?.Mechanics.Bpm ?? t.Bpm ?? 0)
-            .Take(maxTracks)
-            .ToList();
     }
 
 }

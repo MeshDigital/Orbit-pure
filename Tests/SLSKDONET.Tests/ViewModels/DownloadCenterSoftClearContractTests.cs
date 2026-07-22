@@ -33,7 +33,7 @@ public class DownloadCenterSoftClearContractTests
             IsClearedFromDownloadCenter = true
         };
 
-        var downloadManager = (DownloadManager)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(DownloadManager));
+        var downloadManager = CreateUninitializedDownloadManager();
         var eventBus = new EventBusService();
         var artworkCache = (ArtworkCacheService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(ArtworkCacheService));
         var libraryService = Mock.Of<ILibraryService>();
@@ -104,7 +104,7 @@ public class DownloadCenterSoftClearContractTests
             IsClearedFromDownloadCenter = false
         };
 
-        var downloadManager = (DownloadManager)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(DownloadManager));
+        var downloadManager = CreateUninitializedDownloadManager();
         typeof(DownloadManager).GetField("_downloads", BindingFlags.NonPublic | BindingFlags.Instance)
             ?.SetValue(downloadManager, new List<DownloadContext>());
         typeof(DownloadManager).GetField("_collectionLock", BindingFlags.NonPublic | BindingFlags.Instance)
@@ -148,7 +148,7 @@ public class DownloadCenterSoftClearContractTests
     public void SoftClearedTracks_DoNotReappear_OnDownloadCenterRestart()
     {
         // Arrange
-        var downloadManager = (DownloadManager)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(DownloadManager));
+        var downloadManager = CreateUninitializedDownloadManager();
         typeof(DownloadManager).GetField("_downloads", BindingFlags.NonPublic | BindingFlags.Instance)
             ?.SetValue(downloadManager, new List<DownloadContext>());
         typeof(DownloadManager).GetField("_collectionLock", BindingFlags.NonPublic | BindingFlags.Instance)
@@ -194,7 +194,7 @@ public class DownloadCenterSoftClearContractTests
     {
         // Arrange
         var eventBus = new EventBusService();
-        var downloadManager = (DownloadManager)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(DownloadManager));
+        var downloadManager = CreateUninitializedDownloadManager();
         typeof(DownloadManager).GetField("_downloads", BindingFlags.NonPublic | BindingFlags.Instance)
             ?.SetValue(downloadManager, new List<DownloadContext>());
         typeof(DownloadManager).GetField("_collectionLock", BindingFlags.NonPublic | BindingFlags.Instance)
@@ -237,5 +237,27 @@ public class DownloadCenterSoftClearContractTests
 
         return method.Invoke(instance, new[] { arg })
             ?? throw new InvalidOperationException($"Method returned null: {methodName}");
+    }
+
+    /// <summary>
+    /// GetUninitializedObject bypasses field initializers, so DownloadManager's readonly
+    /// ConcurrentDictionary fields (used by GetJobPriority/GetJobFocused, which
+    /// DownloadGroupViewModel's constructor calls) are null rather than empty — initialize them
+    /// so tests that build a DownloadGroupViewModel don't NRE on an uninitialized dictionary.
+    /// </summary>
+    private static DownloadManager CreateUninitializedDownloadManager()
+    {
+        var instance = (DownloadManager)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(DownloadManager));
+        SetField(instance, "_jobEffectivePriority", new System.Collections.Concurrent.ConcurrentDictionary<Guid, int>());
+        SetField(instance, "_jobBasePriority", new System.Collections.Concurrent.ConcurrentDictionary<Guid, int>());
+        SetField(instance, "_jobFocused", new System.Collections.Concurrent.ConcurrentDictionary<Guid, bool>());
+        return instance;
+    }
+
+    private static void SetField(object instance, string name, object value)
+    {
+        var field = instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException($"Field not found: {name}");
+        field.SetValue(instance, value);
     }
 }

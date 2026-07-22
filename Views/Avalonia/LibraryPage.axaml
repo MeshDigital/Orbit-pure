@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:ds="clr-namespace:DraggingService;assembly=Simple-Avalonia-DragnDrop-Service"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:liblib="clr-namespace:SLSKDONET.ViewModels.Library"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
              xmlns:conv="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
@@ -127,8 +128,13 @@
                                      <MenuItem Header="Manage Sources" Command="{Binding OpenSourcesCommand}" InputGesture="Ctrl+,">
                                          <MenuItem.Icon><TextBlock Text="📁"/></MenuItem.Icon>
                                      </MenuItem>
-                                     <MenuItem Header="New Smart Playlist" Command="{Binding CreateSmartPlaylistCommand}" InputGesture="Ctrl+N">
+                                     <MenuItem Header="New Smart Crate (Genre/Mood)" Command="{Binding CreateSmartPlaylistCommand}" InputGesture="Ctrl+N"
+                                               ToolTip.Tip="Rule-based playlist: sub-genre, mood, BPM/energy range">
                                          <MenuItem.Icon><TextBlock Text="⚡"/></MenuItem.Icon>
+                                     </MenuItem>
+                                     <MenuItem Header="New Smart Playlist (Custom Criteria)" Command="{Binding SmartPlaylists.CreateCustomSmartPlaylistCommand}" InputGesture="Ctrl+Shift+N"
+                                               ToolTip.Tip="Filter by BPM, Energy, Valence, Danceability, Rating, or Liked status">
+                                         <MenuItem.Icon><TextBlock Text="🧠"/></MenuItem.Icon>
                                      </MenuItem>
                                      <Separator/>
                                      <MenuItem Header="🌊 Flow Builder" Command="{Binding OpenFlowBuilderCommand}"
@@ -195,7 +201,13 @@
 
                             <!-- Section: Project Workspace -->
                             <Separator Height="1" Background="#2A2A2A" Margin="12,12"/>
-                            <TextBlock Text="PROJECTS" FontSize="10" FontWeight="Bold" Foreground="#555" Margin="16,4,16,4"/>
+                            <Grid ColumnDefinitions="*,Auto" Margin="16,4,12,4">
+                                <TextBlock Grid.Column="0" Text="PROJECTS" FontSize="10" FontWeight="Bold" Foreground="#555" VerticalAlignment="Center"/>
+                                <Button Grid.Column="1" Command="{Binding Projects.CreateFolderCommand}"
+                                        Classes="icon-button" ToolTip.Tip="New Folder" Padding="4">
+                                    <TextBlock Text="📁➕" FontSize="11"/>
+                                </Button>
+                            </Grid>
 
                             <!-- Project Filter -->
                             <Border Background="#2D2D2D" BorderBrush="#333" BorderThickness="1" CornerRadius="8" Margin="8,4,8,8" Padding="10,2">
@@ -205,13 +217,14 @@
                                 </Grid>
                             </Border>
 
-                            <ListBox ItemsSource="{Binding Projects.FilteredProjectCards}"
-                                     SelectedItem="{Binding Projects.SelectedProjectCard, Mode=TwoWay}"
-                                     Background="Transparent" BorderThickness="0" Padding="0,4">
-                                <ListBox.Styles>
-                                    <Style Selector="ListBoxItem">
+                            <TreeView x:Name="PlaylistTreeView"
+                                      ItemsSource="{Binding Projects.RootTreeNodes}"
+                                      SelectedItem="{Binding Projects.SelectedTreeNode, Mode=TwoWay}"
+                                      Background="Transparent" BorderThickness="0" Padding="0,4">
+                                <TreeView.Styles>
+                                    <Style Selector="TreeViewItem">
                                         <Setter Property="Padding" Value="4"/>
-                                        <Setter Property="Margin" Value="8,2"/>
+                                        <Setter Property="Margin" Value="4,2"/>
                                         <Setter Property="CornerRadius" Value="8"/>
                                         <Setter Property="Background" Value="Transparent"/>
                                         <Setter Property="BorderBrush" Value="Transparent"/>
@@ -223,79 +236,115 @@
                                             </Transitions>
                                         </Setter>
                                     </Style>
-                                    <Style Selector="ListBoxItem:pointerover">
+                                    <Style Selector="TreeViewItem:pointerover">
                                         <Setter Property="Background" Value="{StaticResource GlassBrush}"/>
                                         <Setter Property="BorderBrush" Value="{StaticResource GlassHeavyBrush}"/>
                                     </Style>
-                                    <Style Selector="ListBoxItem:selected">
+                                    <Style Selector="TreeViewItem:selected">
                                         <Setter Property="Background" Value="{StaticResource AccentGlowBrush}"/>
                                         <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
                                     </Style>
-                                    <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-                                        <Setter Property="Background" Value="{Binding $parent[ListBoxItem].Background}"/>
-                                    </Style>
-                                </ListBox.Styles>
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Background="Transparent">
-                                            <Border.ContextMenu>
-                                                <ContextMenu>
-                                                    <MenuItem Header="Download Missing Tracks">
-                                                        <MenuItem.Icon><TextBlock Text="⬇️"/></MenuItem.Icon>
-                                                        <MenuItem Header="Normal — join queue"
-                                                                  Command="{Binding $parent[UserControl].DataContext.DownloadPlaylistNormalCommand}"
-                                                                  CommandParameter="{Binding Model}">
-                                                            <MenuItem.Icon><TextBlock Text="🟢"/></MenuItem.Icon>
-                                                        </MenuItem>
-                                                        <MenuItem Header="High — ahead of Normal"
-                                                                  Command="{Binding $parent[UserControl].DataContext.DownloadPlaylistHighCommand}"
-                                                                  CommandParameter="{Binding Model}">
-                                                            <MenuItem.Icon><TextBlock Text="🟡"/></MenuItem.Icon>
-                                                        </MenuItem>
-                                                        <MenuItem Header="Critical — jump to front"
-                                                                  Command="{Binding $parent[UserControl].DataContext.DownloadPlaylistCriticalCommand}"
-                                                                  CommandParameter="{Binding Model}">
-                                                            <MenuItem.Icon><TextBlock Text="🔴"/></MenuItem.Icon>
-                                                        </MenuItem>
-                                                    </MenuItem>
-                                                    <Separator/>
-                                                    <MenuItem Header="Generate Auto-Cues"
-                                                              Command="{Binding $parent[UserControl].DataContext.Projects.GenerateCuesCommand}"
-                                                              CommandParameter="{Binding Model}">
-                                                        <MenuItem.Icon><TextBlock Text="🎯"/></MenuItem.Icon>
-                                                    </MenuItem>
-                                                    <MenuItem Header="Export Playlist">
-                                                        <MenuItem.Icon><TextBlock Text="📤"/></MenuItem.Icon>
-                                                        <MenuItem Header="Rekordbox XML"
-                                                                  Command="{Binding $parent[UserControl].DataContext.ExportPlaylistCommand}"
-                                                                  CommandParameter="{Binding Model}">
-                                                            <MenuItem.Icon><TextBlock Text="📀"/></MenuItem.Icon>
-                                                        </MenuItem>
-                                                        <MenuItem Header="M3U Playlist (.m3u8)"
-                                                                  Command="{Binding $parent[UserControl].DataContext.ExportPlaylistM3uCommand}"
-                                                                  CommandParameter="{Binding Model}">
-                                                            <MenuItem.Icon><TextBlock Text="🎵"/></MenuItem.Icon>
-                                                        </MenuItem>
-                                                    </MenuItem>
-                                                    <Separator/>
-                                                    <MenuItem Header="Rename Playlist"
-                                                              Command="{Binding $parent[UserControl].DataContext.RenameProjectCommand}"
-                                                              CommandParameter="{Binding Model}">
-                                                        <MenuItem.Icon><TextBlock Text="✏️"/></MenuItem.Icon>
-                                                    </MenuItem>
-                                                    <MenuItem Header="Remove Playlist From List"
-                                                              Command="{Binding $parent[UserControl].DataContext.DeleteProjectCommand}"
-                                                              CommandParameter="{Binding Model}"
-                                                              InputGesture="Delete">
-                                                        <MenuItem.Icon><TextBlock Text="🗑️"/></MenuItem.Icon>
-                                                    </MenuItem>
-                                                </ContextMenu>
-                                            </Border.ContextMenu>
-                                            <controls:CompactPlaylistTemplate/>
-                                        </Border>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
+                                </TreeView.Styles>
+                                <TreeView.ItemTemplate>
+                                    <TreeDataTemplate ItemsSource="{ReflectionBinding Children}">
+                                        <ContentControl Content="{ReflectionBinding}">
+                                            <ContentControl.DataTemplates>
+
+                                                <!-- Folder node: name + rename/delete/new-subfolder context menu -->
+                                                <DataTemplate DataType="liblib:PlaylistTreeFolderNodeViewModel">
+                                                    <Border Background="Transparent" Padding="4,2">
+                                                        <Border.ContextMenu>
+                                                            <ContextMenu>
+                                                                <MenuItem Header="New Subfolder"
+                                                                          Command="{Binding $parent[UserControl].DataContext.Projects.CreateSubfolderCommand}"
+                                                                          CommandParameter="{ReflectionBinding}">
+                                                                    <MenuItem.Icon><TextBlock Text="📁"/></MenuItem.Icon>
+                                                                </MenuItem>
+                                                                <MenuItem Header="Rename Folder"
+                                                                          Command="{Binding $parent[UserControl].DataContext.Projects.RenameFolderCommand}"
+                                                                          CommandParameter="{ReflectionBinding}">
+                                                                    <MenuItem.Icon><TextBlock Text="✏️"/></MenuItem.Icon>
+                                                                </MenuItem>
+                                                                <Separator/>
+                                                                <MenuItem Header="Delete Folder"
+                                                                          Command="{Binding $parent[UserControl].DataContext.Projects.DeleteFolderCommand}"
+                                                                          CommandParameter="{ReflectionBinding}">
+                                                                    <MenuItem.Icon><TextBlock Text="🗑️"/></MenuItem.Icon>
+                                                                </MenuItem>
+                                                            </ContextMenu>
+                                                        </Border.ContextMenu>
+                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                            <TextBlock Text="{ReflectionBinding Icon}" VerticalAlignment="Center"/>
+                                                            <TextBlock Text="{ReflectionBinding DisplayName}" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+
+                                                <!-- Playlist card node: unchanged rich card template, bindings routed through Card.* -->
+                                                <DataTemplate DataType="liblib:PlaylistTreeCardNodeViewModel">
+                                                    <Border Background="Transparent">
+                                                        <Border.ContextMenu>
+                                                            <ContextMenu>
+                                                                <MenuItem Header="Download Missing Tracks">
+                                                                    <MenuItem.Icon><TextBlock Text="⬇️"/></MenuItem.Icon>
+                                                                    <MenuItem Header="Normal — join queue"
+                                                                              Command="{Binding $parent[UserControl].DataContext.DownloadPlaylistNormalCommand}"
+                                                                              CommandParameter="{Binding Card.Model}">
+                                                                        <MenuItem.Icon><TextBlock Text="🟢"/></MenuItem.Icon>
+                                                                    </MenuItem>
+                                                                    <MenuItem Header="High — ahead of Normal"
+                                                                              Command="{Binding $parent[UserControl].DataContext.DownloadPlaylistHighCommand}"
+                                                                              CommandParameter="{Binding Card.Model}">
+                                                                        <MenuItem.Icon><TextBlock Text="🟡"/></MenuItem.Icon>
+                                                                    </MenuItem>
+                                                                    <MenuItem Header="Critical — jump to front"
+                                                                              Command="{Binding $parent[UserControl].DataContext.DownloadPlaylistCriticalCommand}"
+                                                                              CommandParameter="{Binding Card.Model}">
+                                                                        <MenuItem.Icon><TextBlock Text="🔴"/></MenuItem.Icon>
+                                                                    </MenuItem>
+                                                                </MenuItem>
+                                                                <Separator/>
+                                                                <MenuItem Header="Generate Auto-Cues"
+                                                                          Command="{Binding $parent[UserControl].DataContext.Projects.GenerateCuesCommand}"
+                                                                          CommandParameter="{Binding Card.Model}">
+                                                                    <MenuItem.Icon><TextBlock Text="🎯"/></MenuItem.Icon>
+                                                                </MenuItem>
+                                                                <MenuItem Header="Export Playlist">
+                                                                    <MenuItem.Icon><TextBlock Text="📤"/></MenuItem.Icon>
+                                                                    <MenuItem Header="Rekordbox XML"
+                                                                              Command="{Binding $parent[UserControl].DataContext.ExportPlaylistCommand}"
+                                                                              CommandParameter="{Binding Card.Model}">
+                                                                        <MenuItem.Icon><TextBlock Text="📀"/></MenuItem.Icon>
+                                                                    </MenuItem>
+                                                                    <MenuItem Header="M3U Playlist (.m3u8)"
+                                                                              Command="{Binding $parent[UserControl].DataContext.ExportPlaylistM3uCommand}"
+                                                                              CommandParameter="{Binding Card.Model}">
+                                                                        <MenuItem.Icon><TextBlock Text="🎵"/></MenuItem.Icon>
+                                                                    </MenuItem>
+                                                                </MenuItem>
+                                                                <Separator/>
+                                                                <MenuItem Header="Rename Playlist"
+                                                                          Command="{Binding $parent[UserControl].DataContext.RenameProjectCommand}"
+                                                                          CommandParameter="{Binding Card.Model}">
+                                                                    <MenuItem.Icon><TextBlock Text="✏️"/></MenuItem.Icon>
+                                                                </MenuItem>
+                                                                <MenuItem Header="Remove Playlist From List"
+                                                                          Command="{Binding $parent[UserControl].DataContext.DeleteProjectCommand}"
+                                                                          CommandParameter="{Binding Card.Model}"
+                                                                          InputGesture="Delete">
+                                                                    <MenuItem.Icon><TextBlock Text="🗑️"/></MenuItem.Icon>
+                                                                </MenuItem>
+                                                            </ContextMenu>
+                                                        </Border.ContextMenu>
+                                                        <controls:CompactPlaylistTemplate DataContext="{Binding Card}"/>
+                                                    </Border>
+                                                </DataTemplate>
+
+                                            </ContentControl.DataTemplates>
+                                        </ContentControl>
+                                    </TreeDataTemplate>
+                                </TreeView.ItemTemplate>
+                            </TreeView>
                         </StackPanel>
                     </ScrollViewer>
 

@@ -84,7 +84,7 @@ public class SidebarAndPanelServiceTests
     }
 
     [Fact]
-    public void ClosePanel_WithFallback_SwitchesToFallbackVm()
+    public void ClosePanel_WithFallback_ClosesPanelAndResetsToFallbackVm()
     {
         var svc      = new RightPanelService();
         var fallback = new object();
@@ -95,10 +95,12 @@ public class SidebarAndPanelServiceTests
 
         svc.ClosePanel();
 
-        // When a fallback is set and CurrentPanelVm differs, ClosePanel
-        // should route back to the fallback without closing the panel.
+        // ClosePanel must always close in a single call. Content still
+        // resets to the fallback so the next OpenPanel starts clean, but
+        // the panel itself is closed immediately rather than requiring a
+        // second ClosePanel call.
         Assert.Same(fallback, svc.CurrentPanelVm);
-        Assert.True(svc.IsPanelOpen);
+        Assert.False(svc.IsPanelOpen);
     }
 
     [Fact]

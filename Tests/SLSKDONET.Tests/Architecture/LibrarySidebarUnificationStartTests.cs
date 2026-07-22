@@ -224,8 +224,11 @@ public class LibrarySidebarUnificationStartTests
     {
         var xaml = ReadLibraryPageXaml();
 
-        Assert.Contains("ItemsSource=\"{Binding Projects.FilteredProjectCards}\"", xaml);
-        Assert.Contains("SelectedItem=\"{Binding Projects.SelectedProjectCard, Mode=TwoWay}\"", xaml);
+        // Playlist Folders: the sidebar list is now a nested tree (RootTreeNodes) whose leaves
+        // wrap LibraryPlaylistCardViewModel via PlaylistTreeCardNodeViewModel.Card, rather than
+        // binding ItemsSource directly to the flat FilteredProjectCards collection.
+        Assert.Contains("ItemsSource=\"{Binding Projects.RootTreeNodes}\"", xaml);
+        Assert.Contains("SelectedItem=\"{Binding Projects.SelectedTreeNode, Mode=TwoWay}\"", xaml);
         Assert.DoesNotContain("ItemsSource=\"{Binding Projects.FilteredProjects}\"", xaml);
     }
 

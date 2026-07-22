@@ -116,7 +116,18 @@ public static class ScoringConstants
 
         /// <summary>Minimum match score for discovery fast-lane early acceptance.</summary>
         public static readonly double FastLaneMinMatchScore = 85;
-        
+
+        /// <summary>
+        /// Minimum text/metadata relevance (0.0-1.0, artist+title similarity to the query) a
+        /// candidate must reach before it can trigger a fast-lane short-circuit. Quality and
+        /// availability alone are not enough — without this floor, a high-bitrate file from an
+        /// idle peer for a completely different song can out-score genuine matches on
+        /// <see cref="FastLaneMinMatchScore"/> alone, since that blended score weights file
+        /// quality/peer availability far more heavily than metadata match.
+        /// </summary>
+        public static readonly double FastLaneMinMetadataScore = 0.35;
+
+
         /// <summary>Penalty per item in queue</summary>
         public static readonly int QueuePenaltyPerItem = 10;
         

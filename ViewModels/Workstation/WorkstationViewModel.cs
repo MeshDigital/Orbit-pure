@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using ReactiveUI;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using SLSKDONET.Configuration;
 using SLSKDONET.Data;
 using SLSKDONET.Models;
@@ -19,31 +20,18 @@ using SLSKDONET.Services.Audio.Separation;
 
 namespace SLSKDONET.ViewModels.Workstation;
 
-/// <summary>The creative canvas inside the Workstation page.</summary>
+/// <summary>
+/// The two workspaces inside the Workstation page. Enum member names kept as
+/// Waveform/Flow (matching the primary surface of each workspace) so existing
+/// bindings and persisted sessions stay valid; the UI labels them PREP and SET PLAN.
+/// </summary>
 public enum WorkstationMode
 {
-    /// <summary>Multi-deck waveform view: zoom, cue editing, beat-matching.</summary>
+    /// <summary>PREP: decks, waveforms, hot cues, loops, and the stem rack.</summary>
     Waveform,
-    /// <summary>Flow Builder: playlist sequence, transition scoring, energy arc.</summary>
+    /// <summary>SET PLAN: playlist sequence, transition scoring, energy arc.</summary>
     Flow,
-    /// <summary>Stem separation: per-instrument faders, mute/solo.</summary>
-    Stems,
-    /// <summary>Mixdown + export: normalisation, dither, export profiles.</summary>
-    Export,
-    /// <summary>Timeline automation overlays and transport assist tools.</summary>
-    Automation,
-    /// <summary>Sample prep, import, and deck loading assist tools.</summary>
-    Samples,
 }
-
-// Discriminator proxies for the WorkstationModeRouter ContentControl+DataTemplate pattern.
-// Each carries a Parent reference so the DataTemplate can rebind DataContext to WorkstationViewModel.
-public sealed record WaveformInspectorProxy(WorkstationViewModel Parent);
-public sealed record FlowInspectorProxy(WorkstationViewModel Parent);
-public sealed record StemsInspectorProxy(WorkstationViewModel Parent);
-public sealed record ExportInspectorProxy(WorkstationViewModel Parent);
-public sealed record AutomationInspectorProxy(WorkstationViewModel Parent);
-public sealed record SamplesInspectorProxy(WorkstationViewModel Parent);
 
 public sealed class WorkstationToolOptionViewModel : ReactiveObject
 {
@@ -358,6 +346,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     private readonly AppConfig                _appConfig;
     private readonly ConfigManager            _configManager;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly ILogger<WorkstationViewModel>? _logger;
+    private readonly SLSKDONET.Services.Library.PlaylistExportService? _playlistExporter;
     private readonly BpmSyncService           _bpmSync = new();
     private readonly Dictionary<string, double> _flowTransitionLengthOverrides = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _flowTransitionPhraseMarkerOverrides = new(StringComparer.Ordinal);
@@ -647,8 +637,6 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public string FlowLaneReadinessSummary => HasReadyPlaylistTracks
         ? $"{PlaylistTracks.Count} ready track{(PlaylistTracks.Count == 1 ? string.Empty : "s")} • {AnalysisQueueSummary}"
         : FlowCtaStateSummary;
-    public string AutomationModeSummary => BuildAutomationModeSummary(IsSnapEnabled, IsQuantizeEnabled, IsMetronomeEnabled, FlowWindowSummary, FocusedDeck?.DeckLabel);
-    public string SamplesModeSummary => BuildSamplesModeSummary(ActivePlaylist?.SourceTitle, PlaylistTracks.Count, FocusedDeck?.DeckLabel);
     public string SelectPlaylistCtaHint => "Open and focus the playlist selector in the flow drawer.";
     public string DownloadTracksCtaHint => HasActivePlaylist
         ? "Open Downloads to fetch missing tracks for the active playlist."
@@ -681,9 +669,6 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public bool IsDeckBFocused => string.Equals(FocusedDeck?.DeckLabel, "B", StringComparison.OrdinalIgnoreCase);
     public bool IsDeckCFocused => string.Equals(FocusedDeck?.DeckLabel, "C", StringComparison.OrdinalIgnoreCase);
     public bool IsDeckDFocused => string.Equals(FocusedDeck?.DeckLabel, "D", StringComparison.OrdinalIgnoreCase);
-    public bool IsAutomationMode => ActiveMode == WorkstationMode.Automation;
-    public bool IsSamplesMode => ActiveMode == WorkstationMode.Samples;
-
     // ── Crossfader ─────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -760,11 +745,6 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             this.RaiseAndSetIfChanged(ref _activeMode, value);
             this.RaisePropertyChanged(nameof(IsWaveformMode));
             this.RaisePropertyChanged(nameof(IsFlowMode));
-            this.RaisePropertyChanged(nameof(IsStemsMode));
-            this.RaisePropertyChanged(nameof(IsExportMode));
-            this.RaisePropertyChanged(nameof(ActiveModeInspector));
-            this.RaisePropertyChanged(nameof(IsAutomationMode));
-            this.RaisePropertyChanged(nameof(IsSamplesMode));
             SynchronizeToolSelection();
             RaiseHeaderProperties();
         }
@@ -772,19 +752,6 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 
     public bool IsWaveformMode => ActiveMode == WorkstationMode.Waveform;
     public bool IsFlowMode     => ActiveMode == WorkstationMode.Flow;
-    public bool IsStemsMode    => ActiveMode == WorkstationMode.Stems;
-    public bool IsExportMode   => ActiveMode == WorkstationMode.Export;
-
-    /// <summary>Proxy object for the active inspector mode — drives ContentControl+DataTemplate routing.</summary>
-    public object ActiveModeInspector => ActiveMode switch
-    {
-        WorkstationMode.Flow       => new FlowInspectorProxy(this),
-        WorkstationMode.Stems      => new StemsInspectorProxy(this),
-        WorkstationMode.Export     => new ExportInspectorProxy(this),
-        WorkstationMode.Automation => new AutomationInspectorProxy(this),
-        WorkstationMode.Samples    => new SamplesInspectorProxy(this),
-        _                          => new WaveformInspectorProxy(this),
-    };
 
     // ── Inline Export panel (shown in Export mode) ────────────────────────────
 
@@ -821,6 +788,10 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit>          ExportMixCommand      { get; }
     /// <summary>Saves the current session + playlist to a .orbsession bundle the user picks.</summary>
     public ReactiveCommand<Unit, Unit>          ExportOrbSessionCommand { get; }
+
+    /// <summary>PREP finish line: exports the active playlist — with every saved hot cue and
+    /// loop — as a Rekordbox XML file, ready to import into the user's DJ software.</summary>
+    public ReactiveCommand<Unit, Unit>          ExportRekordboxCommand { get; }
     /// <summary>Load a playlist track into the focused deck (or Deck A if none focused).</summary>
     public ReactiveCommand<PlaylistTrack, Unit> LoadToFocusedDeckCommand { get; }
     public ReactiveCommand<string, Unit>        FocusDeckCommand      { get; }
@@ -911,8 +882,12 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         IUndoService undoService,
         AnalyzeTrackStructureJob analyzeJob, IEventBus eventBus,
         AppConfig appConfig, ConfigManager configManager,
-        IDbContextFactory<AppDbContext> dbFactory)
+        IDbContextFactory<AppDbContext> dbFactory,
+        ILogger<WorkstationViewModel>? logger = null,
+        SLSKDONET.Services.Library.PlaylistExportService? playlistExporter = null)
     {
+        _logger = logger;
+        _playlistExporter = playlistExporter;
         _library           = library;
         _deckPair          = deckPair;
         _stemSeparator     = stemSeparator;
@@ -928,12 +903,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         _configManager     = configManager;
         _dbFactory         = dbFactory;
 
-        ToolOptions.Add(new WorkstationToolOptionViewModel("Wave", "Waveform", "Timeline, cues, and deck focus tools stay live.", WorkstationMode.Waveform, isAvailable: true));
-        ToolOptions.Add(new WorkstationToolOptionViewModel("Flow", "Flow", "Playlist shaping and transition context stay docked under the timeline.", WorkstationMode.Flow, isAvailable: true));
-        ToolOptions.Add(new WorkstationToolOptionViewModel("Stems", "Stems", "Stem state and separation controls surface in the cockpit.", WorkstationMode.Stems, isAvailable: true));
-        ToolOptions.Add(new WorkstationToolOptionViewModel("Auto", "Automation", "Automation lane surfaces snap, quantize, metronome, and viewport guidance inside the cockpit.", WorkstationMode.Automation, isAvailable: true));
-        ToolOptions.Add(new WorkstationToolOptionViewModel("Samples", "Samples", "Sample prep keeps import and loading actions docked beside the workstation timeline.", WorkstationMode.Samples, isAvailable: true));
-        ToolOptions.Add(new WorkstationToolOptionViewModel("Export", "Export", "Mixdown and output settings remain available from the cockpit.", WorkstationMode.Export, isAvailable: true));
+        ToolOptions.Add(new WorkstationToolOptionViewModel("Prep", "Prep", "Decks, waveforms, hot cues, loops, and the stem rack — get tracks performance-ready.", WorkstationMode.Waveform, isAvailable: true));
+        ToolOptions.Add(new WorkstationToolOptionViewModel("Set Plan", "Set Planning", "Playlist order, transition compatibility scores, and energy arc — plan the set.", WorkstationMode.Flow, isAvailable: true));
         SynchronizeToolSelection();
 
         ExportPanel = new ExportDialogViewModel(mixdown);
@@ -1055,6 +1026,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 
         ExportMixCommand = ReactiveCommand.CreateFromTask(OpenExportDialogAsync);
         ExportOrbSessionCommand = ReactiveCommand.CreateFromTask(ExportOrbSessionAsync);
+        ExportRekordboxCommand = ReactiveCommand.CreateFromTask(ExportRekordboxAsync,
+            this.WhenAnyValue(x => x.ActivePlaylist).Select(playlist => playlist != null));
 
         LoadToFocusedDeckCommand = ReactiveCommand.CreateFromTask<PlaylistTrack>(async t =>
         {
@@ -3006,11 +2979,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         var title = string.IsNullOrWhiteSpace(playlistTitle) ? "No playlist selected" : playlistTitle;
         var mode = activeMode switch
         {
-            WorkstationMode.Flow => "flow active",
-            WorkstationMode.Stems => "stems active",
-            WorkstationMode.Automation => "automation active",
-            WorkstationMode.Samples => "samples active",
-            _ => "workstation active"
+            WorkstationMode.Flow => "set plan active",
+            _ => "prep active"
         };
 
         return $"{title} • {Math.Max(0, readyTrackCount)} flow-ready track{(readyTrackCount == 1 ? string.Empty : "s")} • {Math.Max(0, liveDeckCount)} live deck{(liveDeckCount == 1 ? string.Empty : "s")} • {mode}";
@@ -3038,13 +3008,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     {
         var modeLabel = activeMode switch
         {
-            WorkstationMode.Waveform => "Waveform",
-            WorkstationMode.Flow => "Flow",
-            WorkstationMode.Stems => "Stems",
-            WorkstationMode.Export => "Export",
-            WorkstationMode.Automation => "Automation",
-            WorkstationMode.Samples => "Samples",
-            _ => "Workstation"
+            WorkstationMode.Flow => "Set Plan",
+            _ => "Prep"
         };
 
         return $"{modeLabel} mode • Snap {(snapEnabled ? "on" : "off")} • Quantize {(quantizeEnabled ? "on" : "off")} • F1 shortcuts";
@@ -3103,19 +3068,6 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         return $"Mix coach • Deck {focusedDeckLabel} • {harmonic} • {transition}";
     }
 
-    public static string BuildAutomationModeSummary(bool snapEnabled, bool quantizeEnabled, bool metronomeEnabled, string flowWindowSummary, string? focusedDeckLabel)
-    {
-        var deck = string.IsNullOrWhiteSpace(focusedDeckLabel) ? "No focused deck" : $"Deck {focusedDeckLabel} focused";
-        return $"{deck} • Snap {(snapEnabled ? "on" : "off")} • Quantize {(quantizeEnabled ? "on" : "off")} • Metronome {(metronomeEnabled ? "on" : "off")} • {flowWindowSummary}";
-    }
-
-    public static string BuildSamplesModeSummary(string? playlistTitle, int readyTrackCount, string? focusedDeckLabel)
-    {
-        var playlist = string.IsNullOrWhiteSpace(playlistTitle) ? "No playlist selected" : playlistTitle;
-        var deck = string.IsNullOrWhiteSpace(focusedDeckLabel) ? "No focused deck" : $"Load target Deck {focusedDeckLabel}";
-        return $"{playlist} • {Math.Max(0, readyTrackCount)} ready sample source{(readyTrackCount == 1 ? string.Empty : "s")} • {deck}";
-    }
-
     private void RaiseHeaderProperties()
     {
         RefreshExportInspector();
@@ -3164,8 +3116,6 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(HasFlowPlaylistTransitions));
         this.RaisePropertyChanged(nameof(IsFlowPlaylistOverlayVisible));
         RaiseFlowSelectionProperties();
-        this.RaisePropertyChanged(nameof(AutomationModeSummary));
-        this.RaisePropertyChanged(nameof(SamplesModeSummary));
         this.RaisePropertyChanged(nameof(SelectPlaylistCtaHint));
         this.RaisePropertyChanged(nameof(DownloadTracksCtaHint));
         this.RaisePropertyChanged(nameof(ImportLocalFilesCtaHint));
@@ -3290,7 +3240,12 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
 
             await _sessionService.SaveAsync(session);
         }
-        catch { /* Never crash the UI thread over a save failure */ }
+        catch (Exception ex)
+        {
+            // Never crash the UI thread over a save failure, but a silent failure here means the
+            // user's deck/timeline session is lost on next launch with zero diagnostic trail.
+            _logger?.LogWarning(ex, "Failed to save workstation session");
+        }
     }
 
     /// <summary>
@@ -3307,7 +3262,11 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         {
             try
             {
-                ActiveMode            = (WorkstationMode)session.ActiveModeIndex;
+                // Sessions saved before the 6→2 mode collapse may carry indexes 2-5 (Stems/Export/
+                // Automation/Samples) — fold anything out of range back to Prep.
+                ActiveMode            = session.ActiveModeIndex == (int)WorkstationMode.Flow
+                    ? WorkstationMode.Flow
+                    : WorkstationMode.Waveform;
                 _pendingActivePlaylistId = session.ActivePlaylistId;
                 TimelineOffsetSeconds = session.TimelineOffsetSeconds;
                 TimelineWindowSeconds = session.TimelineWindowSeconds;
@@ -3568,7 +3527,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             return;
         }
 
-        ActiveMode = request.OpenStemRack ? WorkstationMode.Stems : WorkstationMode.Waveform;
+        // The stem rack lives inside the Prep workspace now, so both paths land on Prep.
+        ActiveMode = WorkstationMode.Waveform;
 
         var targetDeck = !string.IsNullOrWhiteSpace(request.PreferredDeck)
             ? Decks.FirstOrDefault(deck => string.Equals(deck.DeckLabel, request.PreferredDeck, StringComparison.OrdinalIgnoreCase))
@@ -3586,6 +3546,43 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         {
             AnalysisStatusText = $"Opening stems for {request.Track.Artist} — {request.Track.Title} on Deck {targetDeck.DeckLabel}.";
             await targetDeck.SeparateStemsCommand.Execute().FirstAsync();
+        }
+    }
+
+    private async Task ExportRekordboxAsync()
+    {
+        var playlist = ActivePlaylist;
+        if (playlist == null) return;
+
+        if (_playlistExporter == null)
+        {
+            AnalysisStatusText = "Rekordbox export unavailable (export service not initialized).";
+            return;
+        }
+
+        try
+        {
+            AnalysisStatusText = $"Exporting \"{playlist.SourceTitle}\" to Rekordbox XML…";
+
+            // Export the playlist's saved order, not just the workstation-ready subset —
+            // the handoff to DJ software should carry the whole crate.
+            var tracks = await _library.LoadPlaylistTracksAsync(playlist.Id);
+            var ordered = tracks.OrderBy(t => t.SortOrder).ThenBy(t => t.TrackNumber).ToList();
+
+            var safeName = string.Join("_", playlist.SourceTitle.Split(System.IO.Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries)).Trim();
+            if (safeName.Length == 0) safeName = "orbit-playlist";
+            var outputPath = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                $"{safeName}-rekordbox-{DateTime.Now:yyyyMMdd-HHmmss}.xml");
+
+            await _playlistExporter.ExportToRekordboxXmlAsync(playlist.SourceTitle, ordered, outputPath);
+
+            AnalysisStatusText = $"Rekordbox XML exported with cues → {outputPath}";
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Rekordbox export failed for playlist {Playlist}", playlist.SourceTitle);
+            AnalysisStatusText = $"Rekordbox export failed: {ex.Message}";
         }
     }
 
@@ -3654,7 +3651,13 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     {
         // Synchronously block for a brief window so the session is flushed
         // even when the OS terminates the process after the window closes.
-        SaveSessionAsync().GetAwaiter().GetResult();
+        // Bounded rather than unconditional — SaveSessionAsync already catches its own
+        // exceptions, but a stuck DB write (lock contention, disk stall) shouldn't be able to
+        // hang the whole window-close indefinitely.
+        if (!SaveSessionAsync().Wait(TimeSpan.FromSeconds(5)))
+        {
+            _logger?.LogWarning("Workstation session save timed out during close — session may not have flushed");
+        }
         _analysisCts?.Cancel();
         _analysisCts?.Dispose();
         ExportPanel.Dispose();

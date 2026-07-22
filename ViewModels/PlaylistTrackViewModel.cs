@@ -62,6 +62,22 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         set => SetProperty(ref _isSavedDoublePartner, value);
     }
 
+    // MixedInKey-style harmonic mixing highlight, driven by TrackListViewModel
+    // relative to the currently selected/lead track. Mutually exclusive.
+    private bool _isHarmonicMatch;
+    public bool IsHarmonicMatch
+    {
+        get => _isHarmonicMatch;
+        set => SetProperty(ref _isHarmonicMatch, value);
+    }
+
+    private bool _isExactKeyMatch;
+    public bool IsExactKeyMatch
+    {
+        get => _isExactKeyMatch;
+        set => SetProperty(ref _isExactKeyMatch, value);
+    }
+
     private int _sortOrder;
     public DateTime AddedAt => Model?.AddedAt ?? DateTime.MinValue;
 

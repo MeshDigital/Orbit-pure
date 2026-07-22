@@ -52,6 +52,10 @@ public class SmartPlaylistViewModel : INotifyPropertyChanged
     
     public ReactiveCommand<Unit, Unit> CreateCrateCommand { get; }
 
+    /// <summary>Creates a criteria-based smart playlist (BPM/Energy/Valence/Danceability/
+    /// Rating/Liked) — distinct from CreateCrateCommand's genre/mood "Smart Crates".</summary>
+    public ReactiveCommand<Unit, Unit> CreateCustomSmartPlaylistCommand { get; }
+
     public SmartPlaylistViewModel(
         ILogger<SmartPlaylistViewModel> logger,
         ILoggerFactory loggerFactory,
@@ -68,21 +72,22 @@ public class SmartPlaylistViewModel : INotifyPropertyChanged
         _dialogService = dialogService;
 
         CreateCrateCommand = ReactiveCommand.CreateFromTask(CreateCrateAsync);
+        CreateCustomSmartPlaylistCommand = ReactiveCommand.CreateFromTask(CreateCustomSmartPlaylistAsync);
 
         InitializeSmartPlaylists();
     }
-    
+
     private async Task CreateCrateAsync()
     {
         try
         {
             var vm = new SmartCrateEditorViewModel(
-                _smartCrateService, 
+                _smartCrateService,
                 _loggerFactory.CreateLogger<SmartCrateEditorViewModel>()
             );
-            
+
             var newCrate = await _dialogService.ShowSmartCrateEditorAsync(vm);
-            
+
             if (newCrate != null)
             {
                 var playlist = new SmartPlaylist
@@ -92,7 +97,7 @@ public class SmartPlaylistViewModel : INotifyPropertyChanged
                     Icon = "🔮",
                     Definition = newCrate
                 };
-                
+
                 SmartPlaylists.Add(playlist);
                 SelectedSmartPlaylist = playlist; // Auto-select
             }
@@ -100,6 +105,48 @@ public class SmartPlaylistViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to create smart crate");
+        }
+    }
+
+    private async Task CreateCustomSmartPlaylistAsync()
+    {
+        try
+        {
+            var result = await _dialogService.ShowCreateSmartPlaylistAsync();
+            if (result == null) return;
+
+            var (name, criteria) = result.Value;
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            var entity = new SLSKDONET.Data.PlaylistJobEntity
+            {
+                Id = Guid.NewGuid(),
+                SourceTitle = name,
+                SourceType = "Smart",
+                CreatedAt = DateTime.UtcNow,
+                DateUpdated = DateTime.UtcNow,
+                IsSmartPlaylist = true,
+                SmartCriteriaJson = JsonSerializer.Serialize(criteria)
+            };
+
+            await _db.SavePlaylistJobAsync(entity);
+
+            var playlist = new SmartPlaylist
+            {
+                Id = entity.Id,
+                Name = entity.SourceTitle,
+                Icon = "🧠",
+                Criteria = criteria,
+                Filter = tracks => tracks.Where(t =>
+                    t.Model != null && _smartPlaylistService.EvaluateTrack(t.Model, criteria))
+            };
+
+            SmartPlaylists.Add(playlist);
+            SelectedSmartPlaylist = playlist; // Auto-select
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create custom smart playlist");
         }
     }
 

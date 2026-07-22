@@ -82,4 +82,25 @@ public class OrbitCue
     /// Loop end position in seconds. Only meaningful when IsLoop is true.
     /// </summary>
     public double LoopEndSeconds { get; set; }
+
+    // ── Display helpers (derived, not persisted) ───────────────────────────
+
+    public string TimestampDisplay => TimeSpan.FromSeconds(Timestamp).ToString(@"mm\:ss\.ff");
+    public bool HasSlot => SlotIndex >= 0;
+    public string SlotLabel => SlotIndex >= 0 ? ((char)('A' + Math.Min(SlotIndex, 7))).ToString() : string.Empty;
+
+    // Confidence colour: green ≥80%, amber ≥50%, red <50%
+    public string ConfidenceColor => Confidence >= 0.8 ? "#44DD88" : Confidence >= 0.5 ? "#FF9800" : "#FF5555";
+
+    // "Why here?" one-liner shown as tooltip on the confidence dot
+    public string WhyHereTooltip
+    {
+        get
+        {
+            string src = Source == CueSource.User ? "User cue" : $"Auto — {Role}";
+            string conf = Source == CueSource.Auto ? $" ({(int)(Confidence * 100)}% confidence)" : "";
+            string bar = Timestamp > 0 ? $" @ {TimestampDisplay}" : "";
+            return $"{src}{conf}{bar}";
+        }
+    }
 }

@@ -54,6 +54,18 @@
                             <TextBlock Text="FILE MISSING" FontSize="10" FontWeight="Bold" Foreground="#FF6B6B"/>
                         </Border>
                     </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,6,0,0">
+                        <controls:StarRatingControl Rating="{Binding Rating, Mode=TwoWay}" StarSize="15"/>
+                        <ToggleButton IsChecked="{Binding IsLiked, Mode=TwoWay}"
+                                      Background="Transparent" BorderThickness="0" Padding="0"
+                                      Cursor="Hand" ToolTip.Tip="Like">
+                            <Panel>
+                                <TextBlock Text="🤍" FontSize="15" Opacity="0.5" IsVisible="{Binding !IsLiked}"/>
+                                <TextBlock Text="❤️" FontSize="15" IsVisible="{Binding IsLiked}"/>
+                            </Panel>
+                        </ToggleButton>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
 
