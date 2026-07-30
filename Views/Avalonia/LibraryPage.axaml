@@ -128,6 +128,10 @@
                                      <MenuItem Header="Manage Sources" Command="{Binding OpenSourcesCommand}" InputGesture="Ctrl+,">
                                          <MenuItem.Icon><TextBlock Text="📁"/></MenuItem.Icon>
                                      </MenuItem>
+                                     <MenuItem Header="Recently Deleted Playlists" Command="{Binding LoadDeletedProjectsCommand}"
+                                               ToolTip.Tip="Restore a playlist you removed from the list">
+                                         <MenuItem.Icon><TextBlock Text="🗑️"/></MenuItem.Icon>
+                                     </MenuItem>
                                      <MenuItem Header="New Smart Crate (Genre/Mood)" Command="{Binding CreateSmartPlaylistCommand}" InputGesture="Ctrl+N"
                                                ToolTip.Tip="Rule-based playlist: sub-genre, mood, BPM/energy range">
                                          <MenuItem.Icon><TextBlock Text="⚡"/></MenuItem.Icon>
@@ -513,6 +517,57 @@
             </Button>
 
         </StackPanel>
+    </Border>
+
+    <!-- Recently Deleted Playlists overlay -->
+    <Border IsVisible="{Binding IsRemovalHistoryVisible}" Background="#CC000000">
+        <Border Width="480" MaxHeight="560" HorizontalAlignment="Center" VerticalAlignment="Center"
+                Background="#252526" CornerRadius="10" BorderBrush="#3E3E42" BorderThickness="1">
+            <Grid RowDefinitions="Auto,Auto,*">
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="20,16,12,12">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="🗑️" FontSize="18"/>
+                        <TextBlock Text="Recently Deleted Playlists" FontSize="15" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Command="{Binding CloseRemovalHistoryCommand}" Background="Transparent" BorderThickness="0" Padding="8,4">
+                        <TextBlock Text="✕" FontSize="14" Foreground="#AAA"/>
+                    </Button>
+                </Grid>
+
+                <Border Grid.Row="1" Height="1" Background="#3E3E42"/>
+
+                <StackPanel Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" Margin="20,40"
+                            IsVisible="{Binding !DeletedProjects.Count}">
+                    <TextBlock Text="Nothing here" FontSize="13" Foreground="#888" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Playlists you remove from the list show up here for restoring." FontSize="11" Foreground="#666"
+                               TextWrapping="Wrap" TextAlignment="Center" MaxWidth="320"/>
+                </StackPanel>
+
+                <ScrollViewer Grid.Row="2" MaxHeight="440" IsVisible="{Binding DeletedProjects.Count}">
+                    <ItemsControl ItemsSource="{Binding DeletedProjects}" Margin="12,8">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="models:PlaylistJob">
+                                <Border Background="#2D2D30" CornerRadius="6" Padding="12,10" Margin="0,4">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <TextBlock Grid.Column="0" Text="{Binding SourceIcon}" FontSize="16" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding SourceTitle}" FontWeight="SemiBold" Foreground="White" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock FontSize="11" Foreground="#888">
+                                                <Run Text="{Binding TotalTracks}"/><Run Text=" tracks · deleted "/><Run Text="{Binding DeletedAt, StringFormat='{}{0:yyyy-MM-dd}'}"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Content="Restore" Padding="10,5" FontSize="11" CornerRadius="6"
+                                                Background="#1AFFFFFF" Foreground="#2DB5FF" BorderThickness="0"
+                                                Command="{Binding $parent[UserControl].DataContext.RestoreProjectCommand}"
+                                                CommandParameter="{Binding}"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
     </Border>
 
     </Panel>

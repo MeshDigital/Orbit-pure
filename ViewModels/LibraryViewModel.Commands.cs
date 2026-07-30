@@ -55,6 +55,7 @@ public partial class LibraryViewModel
     public ICommand AutoOrganizeCommand { get; set; } = null!;
     public ICommand LoadDeletedProjectsCommand { get; set; } = null!;
     public ICommand RestoreProjectCommand { get; set; } = null!;
+    public ICommand CloseRemovalHistoryCommand { get; set; } = null!;
     public ICommand SyncProjectCommand { get; set; } = null!;
     public ICommand ExportPlaylistCommand { get; set; } = null!;
     public ICommand ExportPlaylistM3uCommand { get; set; } = null!;
@@ -126,6 +127,9 @@ public partial class LibraryViewModel
         AcquireMissingTracksCommand = new AsyncRelayCommand<object>(ExecuteAcquireMissingTracksAsync);
         RenameProjectCommand = new AsyncRelayCommand<object>(ExecuteRenameProjectAsync);
         SyncProjectCommand = new AsyncRelayCommand<object>(ExecuteSyncProjectAsync);
+        LoadDeletedProjectsCommand = new AsyncRelayCommand(ExecuteLoadDeletedProjectsAsync);
+        RestoreProjectCommand = new AsyncRelayCommand<object>(ExecuteRestoreProjectAsync);
+        CloseRemovalHistoryCommand = new RelayCommand(() => IsRemovalHistoryVisible = false);
         ExportPlaylistCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistAsync);
         ExportPlaylistM3uCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistM3uAsync);
 
