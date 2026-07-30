@@ -4,7 +4,7 @@ ORBIT is a music library and DJ prep tool. It finds tracks on Soulseek, checks t
 
 Think of it as: search + downloads + a music library + a lightweight DJ workstation, in one app.
 
-> **Before you use it:** ORBIT connects to the Soulseek P2P network, where your IP address is visible to other peers. Use a VPN if that matters to you, and only download or share what you're legally allowed to.
+> **Before you use it:** ORBIT connects to the Soulseek P2P network, where your IP address is visible to other peers. Like any real Soulseek client, it also shares files back to the network — anyone can browse and download from your configured shared folder. Use a VPN if that matters to you, and only download or share what you're legally allowed to.
 
 ---
 
@@ -15,6 +15,8 @@ Think of it as: search + downloads + a music library + a lightweight DJ workstat
 - **Playback** — gapless/crossfade transitions between tracks, pitch control.
 - **DJ prep (Workstation)** — waveform view, hot cues, loops, energy/phrase analysis, harmonic (Camelot key) matching for finding compatible tracks, and export to Rekordbox XML.
 - **Smart playlists** — build playlists from BPM/energy/mood criteria, or ask it to find tracks similar to one you already have.
+- **Social** — every peer you've downloaded from becomes a contact: see their shared library, online status, and download history, and chat with them 1:1 or in public rooms (images supported). A notification center keeps you posted on new messages and finished downloads.
+- **Playlist sync** — re-check an imported Spotify (or other) playlist for newly added tracks and queue just the new ones, without re-downloading what you already have.
 
 It's under active development, so expect some rough edges — but the core loop (search → download → verify → play/prep) works end to end.
 
