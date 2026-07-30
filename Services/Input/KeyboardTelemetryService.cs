@@ -18,9 +18,9 @@ public sealed class KeyboardTelemetryService : IKeyboardTelemetryService, IDispo
 {
     private readonly AppConfig                          _config;
     private readonly ILogger<KeyboardTelemetryService> _logger;
-    private readonly LiteDatabase                      _db;
-    private readonly ILiteCollection<ActionRecord>     _actions;
-    private readonly ILiteCollection<PresetRecord>     _presets;
+    private readonly LiteDatabase?                     _db;
+    private readonly ILiteCollection<ActionRecord>?    _actions;
+    private readonly ILiteCollection<PresetRecord>?    _presets;
     private          bool                              _disposed;
 
     public KeyboardTelemetryService(
@@ -31,17 +31,33 @@ public sealed class KeyboardTelemetryService : IKeyboardTelemetryService, IDispo
         _config = config;
         _logger = logger;
 
-        var dbDir  = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "ORBIT-Pure");
-        Directory.CreateDirectory(dbDir);
-        _db = new LiteDatabase(Path.Combine(dbDir, "keyboard-telemetry.db"));
+        // This is an opt-in, non-critical feature — if the DB file is transiently locked
+        // (antivirus scan, a not-yet-released handle from a just-exited prior instance, disk
+        // hiccup) the whole app must not go down with it. A constructor exception here would
+        // also permanently poison this singleton in the DI container (Microsoft.DI caches and
+        // rethrows the same failure on every later resolve), so telemetry just self-disables
+        // for the session instead — every public method below no-ops when _db is null.
+        try
+        {
+            var dbDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "ORBIT-Pure");
+            Directory.CreateDirectory(dbDir);
+            _db = new LiteDatabase(Path.Combine(dbDir, "keyboard-telemetry.db"));
 
-        _actions = _db.GetCollection<ActionRecord>("actions");
-        _actions.EnsureIndex(x => x.ActionName);
+            _actions = _db.GetCollection<ActionRecord>("actions");
+            _actions.EnsureIndex(x => x.ActionName);
 
-        _presets = _db.GetCollection<PresetRecord>("presets");
-        _presets.EnsureIndex(x => x.PresetName);
+            _presets = _db.GetCollection<PresetRecord>("presets");
+            _presets.EnsureIndex(x => x.PresetName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Telemetry] Failed to open keyboard-telemetry.db — telemetry disabled for this session");
+            _db = null;
+            _actions = null;
+            _presets = null;
+        }
 
         // Wire up to the mapping service event
         mapping.ActionTriggered += OnActionTriggered;
@@ -51,18 +67,20 @@ public sealed class KeyboardTelemetryService : IKeyboardTelemetryService, IDispo
 
     public void RecordAction(KeyboardAction action)
     {
-        if (!_config.EnableKeyboardTelemetry) return;
+        if (!_config.EnableKeyboardTelemetry || _actions == null) return;
         UpsertAction(action.ToString());
     }
 
     public void RecordPresetLoad(string presetName)
     {
-        if (!_config.EnableKeyboardTelemetry) return;
+        if (!_config.EnableKeyboardTelemetry || _presets == null) return;
         UpsertPreset(presetName);
     }
 
     public IReadOnlyList<(string ActionName, int Count)> GetTopActions(int n = 5)
     {
+        if (_actions == null) return Array.Empty<(string, int)>();
+
         return _actions.FindAll()
             .OrderByDescending(x => x.Count)
             .Take(n)
@@ -72,6 +90,8 @@ public sealed class KeyboardTelemetryService : IKeyboardTelemetryService, IDispo
 
     public IReadOnlyList<(string PresetName, int Count)> GetTopPresets(int n = 3)
     {
+        if (_presets == null) return Array.Empty<(string, int)>();
+
         return _presets.FindAll()
             .OrderByDescending(x => x.Count)
             .Take(n)
@@ -92,6 +112,8 @@ public sealed class KeyboardTelemetryService : IKeyboardTelemetryService, IDispo
 
     private void UpsertAction(string name)
     {
+        if (_actions == null) return;
+
         var r = _actions.FindOne(x => x.ActionName == name);
         if (r == null)
             _actions.Insert(new ActionRecord { ActionName = name, Count = 1, LastUsed = DateTime.UtcNow });
@@ -100,6 +122,8 @@ public sealed class KeyboardTelemetryService : IKeyboardTelemetryService, IDispo
 
     private void UpsertPreset(string name)
     {
+        if (_presets == null) return;
+
         var r = _presets.FindOne(x => x.PresetName == name);
         if (r == null)
             _presets.Insert(new PresetRecord { PresetName = name, Count = 1, LastUsed = DateTime.UtcNow });
@@ -112,7 +136,7 @@ public sealed class KeyboardTelemetryService : IKeyboardTelemetryService, IDispo
     {
         if (_disposed) return;
         _disposed = true;
-        _db.Dispose();
+        _db?.Dispose();
     }
 
     // ─── LiteDB document models ───────────────────────────────────────────────
