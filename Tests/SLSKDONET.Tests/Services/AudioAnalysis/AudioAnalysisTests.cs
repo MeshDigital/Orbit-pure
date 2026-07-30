@@ -73,8 +73,88 @@ namespace SLSKDONET.Tests.Services.AudioAnalysis
             Assert.Equal(99f, target.Bpm); // unchanged
         }
 
+        // ── Half-time correction (DnB/Jungle/breakbeat) ────────────────────
+        // Thresholds/values below mirror real essentia_streaming_extractor_music output captured
+        // against confirmed half-time-misdetected DnB tracks (raw BPM ~86.8, onset rate ~4.4-4.6/sec)
+        // — an earlier design that additionally required bimodal BPM-histogram energy near 2x was
+        // dropped after validating against real output showed that signal never actually appears;
+        // this build's beat tracker fully commits to one octave and leaves no histogram trace of
+        // the rejected candidate, so onset rate is the sole corroborating signal.
+
+        [Fact]
+        public void Detect_AmbiguousBandWithHighOnsetRate_CorrectsToDoubleTime()
+        {
+            var output = MakeRhythmOutput(bpm: 87f, confidence: 0.7f, onsetRate: 4.6f);
+            var target = new AudioFeaturesEntity();
+
+            _sut.Detect(output, target);
+
+            Assert.InRange(target.Bpm, 170f, 182f);
+            Assert.True(target.BpmConfidence < 0.7f, "Confidence should be penalised for an inferred correction");
+            Assert.Contains("bpm_halftime", target.AnomaliesJson);
+        }
+
+        [Fact]
+        public void Detect_AmbiguousBandWithLowOnsetRate_DoesNotCorrect()
+        {
+            // Onset rate too low to corroborate a genuine breakbeat pattern — must not flip a
+            // genuinely slow track that happens to land in the same ambiguous BPM band.
+            var output = MakeRhythmOutput(bpm: 87f, confidence: 0.7f, onsetRate: 2.0f);
+            var target = new AudioFeaturesEntity();
+
+            _sut.Detect(output, target);
+
+            Assert.InRange(target.Bpm, 82f, 92f);
+            Assert.Equal("[]", target.AnomaliesJson);
+        }
+
+        [Fact]
+        public void Detect_CandidateOutsideHalfTimeBand_NeverInvokesCorrection()
+        {
+            // Even with a dense onset rate, a candidate outside [70,95] must never be corrected.
+            var output = MakeRhythmOutput(bpm: 128f, confidence: 0.7f, onsetRate: 6.0f);
+            var target = new AudioFeaturesEntity();
+
+            _sut.Detect(output, target);
+
+            Assert.InRange(target.Bpm, 120f, 135f);
+            Assert.Equal("[]", target.AnomaliesJson);
+        }
+
+        [Fact]
+        public void Detect_ZeroBpmConfidence_FallsBackToHistogramFirstPeakWeight()
+        {
+            // The real essentia_streaming_extractor_music build never populates bpm_confidence
+            // (confirmed against real output) — Detect must fall back to the histogram's
+            // winning-peak weight instead of silently reporting confidence 0 for every track.
+            var output = MakeRhythmOutput(bpm: 128f, confidence: 0f, histogramFirstPeakWeight: 0.6f);
+            var target = new AudioFeaturesEntity();
+
+            _sut.Detect(output, target);
+
+            Assert.True(target.BpmConfidence > 0f, "Confidence should fall back to the histogram peak weight, not stay 0");
+        }
+
+        [Fact]
+        public void Detect_ZeroBpmConfidenceAndZeroFirstPeakWeight_FallsBackToSelfComputedHistogramConcentration()
+        {
+            // Observed real-world Essentia quirk: bpm_histogram_first_peak_weight itself can be 0
+            // even when the histogram clearly shows a dominant peak. Detect must fall back further
+            // to a self-computed concentration (winning bin weight / total mass) rather than
+            // silently reporting confidence 0.
+            var hist = new float[200];
+            hist[172] = 0.563f; // dominant peak at 173 bpm
+            hist[178] = 0.048f;
+            var output = MakeRhythmOutput(bpm: 172f, confidence: 0f, histogram: hist, histogramFirstPeakWeight: 0f);
+            var target = new AudioFeaturesEntity();
+
+            _sut.Detect(output, target);
+
+            Assert.True(target.BpmConfidence > 0.5f, "Confidence should reflect the histogram's real concentration, not stay 0");
+        }
+
         private static EssentiaOutput MakeRhythmOutput(float bpm, float confidence,
-            float[]? histogram = null)
+            float[]? histogram = null, float onsetRate = 0f, float histogramFirstPeakWeight = 0f)
             => new()
             {
                 Rhythm = new RhythmData
@@ -82,6 +162,8 @@ namespace SLSKDONET.Tests.Services.AudioAnalysis
                     Bpm           = bpm,
                     BpmConfidence = confidence,
                     BpmHistogram  = histogram,
+                    OnsetRate     = onsetRate,
+                    BpmHistogramFirstPeakWeight = histogramFirstPeakWeight,
                 }
             };
     }

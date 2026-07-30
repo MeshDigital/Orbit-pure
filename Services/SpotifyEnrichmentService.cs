@@ -471,4 +471,7 @@ public class SpotifyTrackViewModel
     public string? ImageUrl { get; set; }
     public string? ISRC { get; set; }
     public bool InLibrary { get; set; }
+
+    /// <summary>Lazily loads the track's art from its (remote) URL on first access. Assigned by the consumer since this is a plain data model with no DI access of its own.</summary>
+    public SLSKDONET.Models.ArtworkProxy? Artwork { get; set; }
 }

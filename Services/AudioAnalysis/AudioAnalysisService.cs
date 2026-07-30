@@ -38,6 +38,15 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
     private readonly DatabaseService _db;
     private readonly ILogger<AudioAnalysisService> _logger;
 
+    // ── Style-definition cache ──────────────────────────────────────────────
+    // StyleDefinitions is static reference data outside of the offline Style Lab curation tool —
+    // caching it avoids a full-table re-query on every single track analyzed (a "Force Reanalyze
+    // All" pass over a large library was otherwise re-fetching the same table thousands of times).
+    private List<StyleDefinitionEntity>? _styleDefinitionsCache;
+    private DateTime _styleDefinitionsCacheAt = DateTime.MinValue;
+    private readonly SemaphoreSlim _styleDefinitionsCacheLock = new(1, 1);
+    private static readonly TimeSpan StyleDefinitionsCacheTtl = TimeSpan.FromMinutes(5);
+
     public AudioAnalysisService(
         AudioIngestionPipeline ingestion,
         WaveformExtractionService waveformExtraction,
@@ -126,35 +135,54 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             progress?.Report((25, "Extracting waveform..."));
             await _waveform.ExtractAsync(tempWav, features, cancellationToken).ConfigureAwait(false);
 
-            // ── Step 4b: Real per-second RMS energy curve ─────────────────
-            // Independent of Essentia, so drop/phrase detection (CuePointDetectionService,
-            // AnalyzeTrackStructureJob) gets a genuine time-series signal to work with even
-            // when the optional Essentia binary isn't installed. Previously EnergyCurveJson
-            // was never populated at analysis time, so those detectors ran against a flat
-            // placeholder curve and could only ever "find" a drop at its artificial edges.
+            // ── Step 4b/4c: Decode once, feed both the RMS energy curve and the ─
+            // ── multi-candidate drop-signal engines ─────────────────────────
+            // Previously each of these decoded the same tempWav file independently (once via
+            // NAudio streaming RMS windows, once via a full PCM float read) — doubling I/O/CPU
+            // decode cost per analyzed track for no benefit. Decoding once here and reusing the
+            // buffer for both consumers keeps each consumer's own failure isolated (RMS failure
+            // must not block drop-signal detection and vice versa) while paying for the decode
+            // only once.
+            float[] pcmSamples = Array.Empty<float>();
+            int pcmSampleRate = 44100;
+            int pcmChannels = 2;
             try
             {
-                var rmsCurve = await _energyAnalysis.ComputeRawEnergyCurveAsync(tempWav, cancellationToken)
-                    .ConfigureAwait(false);
-                if (rmsCurve.Count > 0)
-                    features.EnergyCurveJson = JsonSerializer.Serialize(rmsCurve);
+                (pcmSamples, pcmSampleRate, pcmChannels) = AudioIngestionPipeline.ReadPcmFloat(tempWav);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex,
-                    "[AudioAnalysis] RMS energy curve computation failed for {File}; drop/phrase detection will fall back to a flat estimate.",
+                    "[AudioAnalysis] PCM decode failed for {File}; energy curve and drop-signal detection will be skipped.",
                     Path.GetFileName(filePath));
             }
 
-            // ── Step 4c: Real multi-candidate drop signals ────────────────
-            // Feeds Engine.Cueing.CueGenerationService's DSP drop-scoring path with actual
-            // candidate timestamps (every sub-bass dropout/return, every build-confirmed
-            // novelty peak) instead of the single collapsed DropTimeSeconds/DropConfidence
-            // float pair it previously had to work with.
-            try
+            if (pcmSamples.Length > 0)
             {
-                var (pcmSamples, pcmSampleRate, pcmChannels) = AudioIngestionPipeline.ReadPcmFloat(tempWav);
-                if (pcmSamples.Length > 0)
+                // Real per-second RMS energy curve — independent of Essentia, so drop/phrase
+                // detection (CuePointDetectionService, AnalyzeTrackStructureJob) gets a genuine
+                // time-series signal to work with even when the optional Essentia binary isn't
+                // installed. Previously EnergyCurveJson was never populated at analysis time, so
+                // those detectors ran against a flat placeholder curve and could only ever "find"
+                // a drop at its artificial edges.
+                try
+                {
+                    var rmsCurve = _energyAnalysis.ComputeRawEnergyCurveFromPcm(pcmSamples, pcmSampleRate, pcmChannels);
+                    if (rmsCurve.Count > 0)
+                        features.EnergyCurveJson = JsonSerializer.Serialize(rmsCurve);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex,
+                        "[AudioAnalysis] RMS energy curve computation failed for {File}; drop/phrase detection will fall back to a flat estimate.",
+                        Path.GetFileName(filePath));
+                }
+
+                // Real multi-candidate drop signals — feeds Engine.Cueing.CueGenerationService's
+                // DSP drop-scoring path with actual candidate timestamps (every sub-bass
+                // dropout/return, every build-confirmed novelty peak) instead of the single
+                // collapsed DropTimeSeconds/DropConfidence float pair it previously had to work with.
+                try
                 {
                     var mono = ToMono(pcmSamples, pcmChannels);
 
@@ -169,12 +197,12 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                         .Select(d => new NoveltyDropSignatureDto(d.DropSeconds, d.BuildStartSeconds, d.DropStrength))
                         .ToList());
                 }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogWarning(ex,
-                    "[AudioAnalysis] Drop-signal detection failed for {File}; DSP drop scoring will fall back to a single collapsed timestamp.",
-                    Path.GetFileName(filePath));
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex,
+                        "[AudioAnalysis] Drop-signal detection failed for {File}; DSP drop scoring will fall back to a single collapsed timestamp.",
+                        Path.GetFileName(filePath));
+                }
             }
 
             // ── Step 5: Essentia BPM / Key / Beatgrid (optional) ─────────
@@ -595,6 +623,36 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         return (string.Empty, 0f);
     }
 
+    /// <summary>
+    /// Returns the cached style-definition table, refreshing it from the database at most once
+    /// per <see cref="StyleDefinitionsCacheTtl"/>. Safe to call concurrently — only one refresh
+    /// runs at a time, and other callers just wait on the freshly-populated cache.
+    /// </summary>
+    private async Task<List<StyleDefinitionEntity>> GetStyleDefinitionsCachedAsync(CancellationToken cancellationToken)
+    {
+        if (_styleDefinitionsCache is not null && DateTime.UtcNow - _styleDefinitionsCacheAt < StyleDefinitionsCacheTtl)
+            return _styleDefinitionsCache;
+
+        await _styleDefinitionsCacheLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_styleDefinitionsCache is not null && DateTime.UtcNow - _styleDefinitionsCacheAt < StyleDefinitionsCacheTtl)
+                return _styleDefinitionsCache;
+
+            _logger.LogDebug("[AudioAnalysis] Style definitions cache refreshed");
+            _styleDefinitionsCache = await _db.LoadAllStyleDefinitionsAsync().ConfigureAwait(false);
+            _styleDefinitionsCacheAt = DateTime.UtcNow;
+            return _styleDefinitionsCache;
+        }
+        finally
+        {
+            _styleDefinitionsCacheLock.Release();
+        }
+    }
+
+    /// <summary>Explicit invalidation hook for future wiring (e.g. from Style Lab curation saves).</summary>
+    public void InvalidateStyleDefinitionsCache() => _styleDefinitionsCache = null;
+
     private async Task<(string Label, float Confidence)> InferGenreFromStyleCentroidsAsync(
         AudioFeaturesEntity features,
         CancellationToken cancellationToken)
@@ -605,7 +663,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             return (string.Empty, 0f);
         }
 
-        var styles = await _db.LoadAllStyleDefinitionsAsync().ConfigureAwait(false);
+        var styles = await GetStyleDefinitionsCachedAsync(cancellationToken).ConfigureAwait(false);
         if (styles.Count == 0)
         {
             return (string.Empty, 0f);

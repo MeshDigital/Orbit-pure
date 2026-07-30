@@ -476,6 +476,14 @@
                                                     Padding="0"
                                                     IsVisible="{Binding HasBridge}"
                                                     Foreground="#FFB800"/>
+                                                <Button Content="{Binding IsPreviewingTransition, Converter={StaticResource BoolToTextConverter}, ConverterParameter='⏹|▶'}"
+                                                    Command="{Binding PreviewTransitionCommand}"
+                                                    ToolTip.Tip="Preview this transition (crossfade)"
+                                                    Width="28" Height="22"
+                                                    FontSize="10"
+                                                    Padding="0"
+                                                    IsVisible="{Binding HasBridge}"
+                                                    Foreground="#4EC9B0"/>
                                             <Button Content="✕"
                                                     Command="{Binding RemoveCommand}"
                                                     ToolTip.Tip="Remove from set"

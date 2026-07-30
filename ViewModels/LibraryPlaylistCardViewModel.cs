@@ -14,7 +14,7 @@ namespace SLSKDONET.ViewModels;
 /// Enhanced ViewModel wrapper for playlist cards in the library with forensic health metrics.
 /// Provides UI-specific properties including the Health Ring calculation.
 /// </summary>
-public class LibraryPlaylistCardViewModel : ReactiveObject
+public class LibraryPlaylistCardViewModel : ReactiveObject, IDisposable
 {
     private readonly PlaylistJob _playlist;
     private readonly ArtworkCacheService? _artworkCacheService;
@@ -238,4 +238,20 @@ public class LibraryPlaylistCardViewModel : ReactiveObject
 
     // Explicit access to the underlying model if needed for commands
     public PlaylistJob Model => _playlist;
+
+    private bool _isDisposed;
+
+    /// <summary>
+    /// Detaches from the underlying (long-lived) PlaylistJob's PropertyChanged event. Callers that
+    /// discard a card — e.g. ProjectListViewModel rebuilding FilteredProjectCards on every search
+    /// keystroke — must call this, or the card stays subscribed forever, growing a zombie
+    /// subscriber list that keeps re-running property-changed handlers and re-triggering cover-art
+    /// loads for a card nothing displays anymore.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_isDisposed) return;
+        _isDisposed = true;
+        _playlist.PropertyChanged -= OnPlaylistPropertyChanged;
+    }
 }

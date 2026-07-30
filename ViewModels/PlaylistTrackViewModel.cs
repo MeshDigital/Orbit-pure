@@ -953,6 +953,29 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
 
     public bool IsGhost => Model.AvailabilityState == SLSKDONET.Models.TrackAvailabilityState.Ghost;
 
+    /// <summary>
+    /// True only for the shared <see cref="Placeholder"/> instance returned by
+    /// <see cref="Library.VirtualizedTrackCollection"/> on a cache miss, standing in for a row
+    /// whose real data hasn't loaded from the DB yet. Never a real track — consumers must treat
+    /// it as inert (no selection, no drag, no reverse index lookups) rather than acting on it.
+    /// </summary>
+    public bool IsPlaceholder { get; }
+
+    /// <summary>Sentinel hash — deliberately not shaped like a real TrackUniqueHash, so it can never collide with one.</summary>
+    public const string PlaceholderGlobalId = "__orbit_placeholder__00000000-0000-0000-0000-000000000000";
+
+    private static readonly Lazy<PlaylistTrackViewModel> _placeholderInstance = new(() => new PlaylistTrackViewModel(
+        new PlaylistTrack { TrackUniqueHash = PlaceholderGlobalId, Artist = string.Empty, Title = "Loading…" },
+        isPlaceholder: true));
+
+    /// <summary>
+    /// Shared "row not loaded yet" stand-in returned by <see cref="Library.VirtualizedTrackCollection"/>
+    /// on a cache miss. A single shared instance (not one per index) so cache misses during a fast
+    /// scroll fling stay allocation-free. Must never be persisted into any selection/identity
+    /// collection — see <see cref="IsPlaceholder"/>.
+    /// </summary>
+    public static PlaylistTrackViewModel Placeholder => _placeholderInstance.Value;
+
     // Cancellation token source for this specific track's operation
     public System.Threading.CancellationTokenSource? CancellationTokenSource { get; set; }
 
@@ -1059,14 +1082,16 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     private bool _isDisposed;
 
     public PlaylistTrackViewModel(
-        PlaylistTrack track, 
+        PlaylistTrack track,
         IEventBus? eventBus = null,
         ILibraryService? libraryService = null,
-        ArtworkCacheService? artworkCacheService = null)
+        ArtworkCacheService? artworkCacheService = null,
+        bool isPlaceholder = false)
     {
         _eventBus = eventBus;
         _libraryService = libraryService;
         _artworkCacheService = artworkCacheService;
+        IsPlaceholder = isPlaceholder;
         Model = track;
         SourceId = track.PlaylistId;
         GlobalId = track.TrackUniqueHash;
@@ -1719,7 +1744,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"Failed to parse cues: {ex.Message}");
+                        Serilog.Log.Warning(ex, "Failed to parse cue points for track {GlobalId}", GlobalId);
                     }
                 }
 
@@ -1746,18 +1771,30 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Failed to load technical data: {ex.Message}");
+            Serilog.Log.Warning(ex, "Failed to load technical data for track {GlobalId}", GlobalId);
         }
     }
 
     /// <summary>Loads analysis/technical data for this track. Alias for <see cref="LoadTechnicalDataAsync"/>.</summary>
     public Task LoadAnalysisDataAsync() => LoadTechnicalDataAsync();
 
-    /// <summary>Updates the label on a cue point in-memory.</summary>
-    public Task SaveCueLabelAsync(OrbitCue cue, string newLabel)
+    /// <summary>Updates the label on a cue point and persists the full cue list for this track.</summary>
+    public async Task SaveCueLabelAsync(OrbitCue cue, string newLabel)
     {
         cue.Name = newLabel;
-        return Task.CompletedTask;
+
+        if (_libraryService == null || string.IsNullOrEmpty(GlobalId))
+            return;
+
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(_cues);
+            await _libraryService.UpdateTrackCuePointsAsync(GlobalId, json);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "Failed to persist cue label change for track {GlobalId}", GlobalId);
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

@@ -893,7 +893,10 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
 
     private static bool HasCuePrepData(PlaylistTrack track)
     {
-        return !string.IsNullOrWhiteSpace(track.CuePointsJson);
+        // CuePointCount reflects the real CuePoints table (the current cue-generation pipeline's
+        // actual storage). CuePointsJson is a legacy blob kept only for tracks analyzed before that
+        // pipeline existed, so either signal being present is enough.
+        return track.CuePointCount > 0 || !string.IsNullOrWhiteSpace(track.CuePointsJson);
     }
 
     private void RaiseWaveformBandPropertiesChanged()

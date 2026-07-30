@@ -396,6 +396,7 @@ public partial class LibraryViewModel
             catch (Exception ex)
             {
                  _logger.LogError(ex, "Failed to restore project");
+                 _notificationService.Show("Restore Failed", ex.Message, NotificationType.Error);
             }
         }
     }
@@ -504,16 +505,18 @@ public partial class LibraryViewModel
             if (tracks.Any())
             {
                 _notificationService.Show("Force Downloading Playlist", $"Force queueing {tracks.Count} tracks from {project.SourceTitle}...", NotificationType.Information);
-                
+
                 foreach (var t in tracks)
                 {
                     _downloadManager.CancelTrack(t.TrackUniqueHash);
                     t.Priority = 0;
                     t.Status = TrackStatus.Missing;
                     t.IsClearedFromDownloadCenter = false;
-                    await _libraryService.UpdatePlaylistTrackAsync(t);
                 }
-                
+
+                // One batched upsert instead of one DB round-trip per track.
+                await _libraryService.SavePlaylistTracksAsync(tracks);
+
                 await Task.Delay(100);
                 _downloadManager.QueueTracks(tracks);
             }
@@ -541,19 +544,29 @@ public partial class LibraryViewModel
                 try
                 {
                     await using var dbContext = _dbFactory.CreateDbContext();
+
+                    // Batch both lookups instead of 2 individual queries per ghost track.
+                    var ghostIds = ghostTracks.Select(t => t.Id).ToList();
+                    var ghostHashes = ghostTracks.Select(t => t.TrackUniqueHash).ToList();
+
+                    var dbTracksById = await dbContext.PlaylistTracks
+                        .Where(dt => ghostIds.Contains(dt.Id))
+                        .ToDictionaryAsync(dt => dt.Id);
+                    var masterTracksByHash = await dbContext.Tracks
+                        .Where(mt => ghostHashes.Contains(mt.GlobalId))
+                        .ToDictionaryAsync(mt => mt.GlobalId);
+
                     foreach (var track in ghostTracks)
                     {
-                        var dbTrack = await dbContext.PlaylistTracks.FirstOrDefaultAsync(dt => dt.Id == track.Id);
-                        if (dbTrack != null)
+                        if (dbTracksById.TryGetValue(track.Id, out var dbTrack))
                         {
                             dbTrack.AvailabilityState = TrackAvailabilityState.QueuedForDownload;
                             dbTrack.Status = TrackStatus.Missing;
                             dbTrack.SearchRetryCount = 0;
                             dbTrack.NotFoundRestartCount = 0;
                         }
-                        
-                        var masterTrack = await dbContext.Tracks.FirstOrDefaultAsync(mt => mt.GlobalId == track.TrackUniqueHash);
-                        if (masterTrack != null)
+
+                        if (masterTracksByHash.TryGetValue(track.TrackUniqueHash, out var masterTrack))
                         {
                             masterTrack.AvailabilityState = TrackAvailabilityState.QueuedForDownload;
                             masterTrack.SearchRetryCount = 0;
@@ -1818,6 +1831,18 @@ public partial class LibraryViewModel
         {
             await using var context = _dbFactory.CreateDbContext();
 
+            // Preload both lookups in two batched queries instead of one FirstOrDefaultAsync per
+            // track per table (2N round-trips for an N-track selection).
+            var trackIds = selected.Select(t => t.Model.Id).ToList();
+            var trackHashes = selected.Select(t => t.Model.TrackUniqueHash).Where(h => !string.IsNullOrEmpty(h)).ToList();
+
+            var dbTracksById = await context.PlaylistTracks
+                .Where(t => trackIds.Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id);
+            var dbEntriesByHash = await context.LibraryEntries
+                .Where(e => trackHashes.Contains(e.UniqueHash))
+                .ToDictionaryAsync(e => e.UniqueHash);
+
             foreach (var trackVm in selected)
             {
                 var track = trackVm.Model;
@@ -1868,7 +1893,7 @@ public partial class LibraryViewModel
                 // 2. Update Database Entity (PlaylistTrackEntity)
                 try
                 {
-                    var dbTrack = await context.PlaylistTracks.FirstOrDefaultAsync(t => t.Id == track.Id);
+                    dbTracksById.TryGetValue(track.Id, out var dbTrack);
                     if (dbTrack != null)
                     {
                         if (!string.IsNullOrWhiteSpace(result.Artist)) dbTrack.Artist = result.Artist;
@@ -1887,7 +1912,7 @@ public partial class LibraryViewModel
                     // 3. Update Library Entry if exists
                     if (!string.IsNullOrEmpty(track.TrackUniqueHash))
                     {
-                        var dbLibraryEntry = await context.LibraryEntries.FirstOrDefaultAsync(e => e.UniqueHash == track.TrackUniqueHash);
+                        dbEntriesByHash.TryGetValue(track.TrackUniqueHash, out var dbLibraryEntry);
                         if (dbLibraryEntry != null)
                         {
                             if (!string.IsNullOrWhiteSpace(result.Artist)) dbLibraryEntry.Artist = result.Artist;
@@ -1964,6 +1989,9 @@ public partial class LibraryViewModel
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Failed to update tags in database for track ID: {Id}", track.Id);
+                    // Don't apply the edit to the visible row below — its DB write failed, so
+                    // showing it as "applied" would just silently revert on the next reload.
+                    continue;
                 }
 
                 // 4. Update the ViewModels dynamically in the UI thread
@@ -1997,10 +2025,15 @@ public partial class LibraryViewModel
             await context.SaveChangesAsync();
         });
 
+        var failedCount = selected.Count - dbUpdateSuccessCount;
+        var message = $"Successfully edited metadata tags for {dbUpdateSuccessCount} track(s) in DB (and {tagUpdateSuccessCount} physical files).";
+        if (failedCount > 0)
+            message += $" {failedCount} track(s) failed and were not changed — see logs for details.";
+
         _notificationService.Show(
             "Tags Updated",
-            $"Successfully edited metadata tags for {dbUpdateSuccessCount} track(s) in DB (and {tagUpdateSuccessCount} physical files).",
-            NotificationType.Success);
+            message,
+            failedCount > 0 ? NotificationType.Warning : NotificationType.Success);
     }
 
     private async Task ExecuteBatchQueueAnalysisAsync()

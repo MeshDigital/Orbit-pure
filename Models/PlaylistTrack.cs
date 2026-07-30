@@ -134,6 +134,13 @@ public class PlaylistTrack
     public string? Tonality => MusicalKey; // Alias for PlaylistTrackViewModel
     public double? BPM { get; set; }
     public string? CuePointsJson { get; set; }
+
+    /// <summary>
+    /// Real cue-point count from the <c>CuePoints</c> table (the current cue-generation pipeline's
+    /// actual storage). Use this for readiness checks — <see cref="CuePointsJson"/> is a legacy blob
+    /// no longer populated for newly-analyzed tracks.
+    /// </summary>
+    public int CuePointCount { get; set; }
     public string? AudioFingerprint { get; set; }
     public int? BitrateScore { get; set; }
     public int? Bitrate { get; set; }

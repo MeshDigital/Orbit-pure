@@ -40,6 +40,10 @@ public class RhythmData
     [JsonPropertyName("bpm")]
     public float Bpm { get; set; }
 
+    // Not present in the current essentia_streaming_extractor_music build's output — always
+    // deserializes to 0. Kept for forward-compatibility with any Essentia build/profile that
+    // does emit it; BpmDetectionService.Detect falls back to BpmHistogramFirstPeakWeight
+    // (which this build DOES emit) whenever this is 0.
     [JsonPropertyName("bpm_confidence")]
     public float BpmConfidence { get; set; }
 
@@ -52,6 +56,11 @@ public class RhythmData
     // Phase 13A: BPM Drift Detection
     [JsonPropertyName("bpm_histogram")]
     public float[]? BpmHistogram { get; set; }
+
+    // Dominance (0-1 fraction of total histogram mass) of the winning BPM candidate — the real,
+    // always-populated confidence proxy this Essentia build provides for BPM stability.
+    [JsonPropertyName("bpm_histogram_first_peak_weight")]
+    public float BpmHistogramFirstPeakWeight { get; set; }
 
     // Task 1.5: absolute beat positions in seconds from Essentia BeatTrackerMultiFeature
     [JsonPropertyName("beats_position")]

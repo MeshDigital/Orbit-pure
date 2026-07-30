@@ -33,6 +33,7 @@ public partial class WorkstationPage : UserControl
     internal const string WorkstationPlaylistTrackFormat = "ORBIT_WorkstationPlaylistTrack";
 
     private GridLength _lastExpandedDrawerHeight = new(300, GridUnitType.Pixel);
+    private GridLength _lastExpandedPrepRowHeight = new(1, GridUnitType.Star);
     private Point? _flowGridDragStart;
     private bool _overlaySizePinnedByUser;
     private bool _isOverlayResizing;
@@ -399,6 +400,73 @@ public partial class WorkstationPage : UserControl
     {
         base.OnAttachedToVisualTree(e);
         ApplyDensityMode();
+
+        if (DataContext is WorkstationViewModel vm)
+        {
+            vm.PropertyChanged += OnWorkstationViewModelPropertyChanged;
+            ApplyModeLayout(vm.IsFlowMode);
+        }
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        if (DataContext is WorkstationViewModel vm)
+        {
+            vm.PropertyChanged -= OnWorkstationViewModelPropertyChanged;
+        }
+
+        base.OnDetachedFromVisualTree(e);
+    }
+
+    private void OnWorkstationViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(WorkstationViewModel.IsFlowMode) && sender is WorkstationViewModel vm)
+        {
+            ApplyModeLayout(vm.IsFlowMode);
+        }
+    }
+
+    /// <summary>
+    /// Set Plan doesn't need the Prep waveform/mixer chrome — it works entirely off the Flow
+    /// Builder card list. Swap which of Row 1 (waveform/mixer) and Row 3 (Flow Drawer) gets the
+    /// dominant share of vertical space instead of always giving Prep's timeline the whole star
+    /// row and squeezing Set Plan's cards into a small fixed-height drawer.
+    /// </summary>
+    private void ApplyModeLayout(bool isFlowMode)
+    {
+        if (this.FindControl<Grid>("CockpitGrid") is not { } grid || grid.RowDefinitions.Count < 4)
+        {
+            return;
+        }
+
+        var prepRow = grid.RowDefinitions[1];
+        var drawerRow = grid.RowDefinitions[3];
+
+        if (isFlowMode)
+        {
+            // Remember whatever the user last had, in either mode, so switching back restores it
+            // instead of resetting to a hardcoded default every time.
+            if (prepRow.Height.GridUnitType == GridUnitType.Star)
+            {
+                _lastExpandedPrepRowHeight = prepRow.Height;
+            }
+            if (!IsDrawerRowCollapsed(drawerRow.Height) && drawerRow.Height.GridUnitType == GridUnitType.Pixel)
+            {
+                _lastExpandedDrawerHeight = drawerRow.Height;
+            }
+
+            prepRow.Height = new GridLength(260, GridUnitType.Pixel);
+            drawerRow.Height = new GridLength(1, GridUnitType.Star);
+        }
+        else
+        {
+            prepRow.Height = _lastExpandedPrepRowHeight.GridUnitType == GridUnitType.Star
+                ? _lastExpandedPrepRowHeight
+                : new GridLength(1, GridUnitType.Star);
+            drawerRow.Height = _lastExpandedDrawerHeight.Value > 1
+                ? _lastExpandedDrawerHeight
+                : new GridLength(280, GridUnitType.Pixel);
+        }
     }
 
     private void OnOpenTrackListOverlayClick(object? sender, RoutedEventArgs e)
@@ -472,6 +540,14 @@ public partial class WorkstationPage : UserControl
         }
     }
 
+    /// <summary>
+    /// True only for a genuinely collapsed (near-zero pixel) drawer row — a Star-sized row (as
+    /// used by Set Plan mode, see <see cref="ApplyModeLayout"/>) has <c>Value == 1</c> too, but
+    /// is not collapsed, so unit type must be checked alongside the value.
+    /// </summary>
+    private static bool IsDrawerRowCollapsed(GridLength height) =>
+        height.GridUnitType == GridUnitType.Pixel && height.Value <= 1;
+
     private void OnDrawerSplitterDoubleTapped(object? sender, TappedEventArgs e)
     {
         if (this.FindControl<Grid>("CockpitGrid") is not { } grid || grid.RowDefinitions.Count < 4)
@@ -480,7 +556,7 @@ public partial class WorkstationPage : UserControl
         }
 
         var drawerRow = grid.RowDefinitions[3];
-        if (drawerRow.Height.Value > 1)
+        if (!IsDrawerRowCollapsed(drawerRow.Height))
         {
             _lastExpandedDrawerHeight = drawerRow.Height;
             drawerRow.Height = new GridLength(0, GridUnitType.Pixel);
@@ -500,7 +576,7 @@ public partial class WorkstationPage : UserControl
         }
 
         var drawerRow = grid.RowDefinitions[3];
-        if (drawerRow.Height.Value > 1)
+        if (!IsDrawerRowCollapsed(drawerRow.Height))
         {
             _lastExpandedDrawerHeight = drawerRow.Height;
             drawerRow.Height = new GridLength(0, GridUnitType.Pixel);
@@ -553,7 +629,7 @@ public partial class WorkstationPage : UserControl
         if (this.FindControl<Grid>("CockpitGrid") is { } grid && grid.RowDefinitions.Count >= 4)
         {
             var drawerRow = grid.RowDefinitions[3];
-            if (drawerRow.Height.Value <= 1)
+            if (IsDrawerRowCollapsed(drawerRow.Height))
             {
                 drawerRow.Height = _lastExpandedDrawerHeight.Value > 1
                     ? _lastExpandedDrawerHeight

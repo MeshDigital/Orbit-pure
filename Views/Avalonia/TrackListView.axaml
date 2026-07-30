@@ -236,7 +236,20 @@
         <!-- Column Header -->
         <controls:VirtualGridHeader Grid.Row="4">
             <controls:VirtualGridHeader.HeaderContent>
-                <Grid ColumnDefinitions="60,44,124,180,*,90,110,100,120,80,84">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="60"/>
+                        <ColumnDefinition Width="44"/>
+                        <ColumnDefinition Width="124"/>
+                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="*" MinWidth="150"/>
+                        <ColumnDefinition Width="90"/>
+                        <ColumnDefinition Width="110"/>
+                        <ColumnDefinition Width="100"/>
+                        <ColumnDefinition Width="120"/>
+                        <ColumnDefinition Width="80"/>
+                        <ColumnDefinition Width="84"/>
+                    </Grid.ColumnDefinitions>
                     <!-- Column 0: Artwork/Status (Empty) -->
                     <!-- Column 1: Q -->
                     <TextBlock Grid.Column="1" Text="Q" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0"/>
@@ -344,7 +357,20 @@
                             Classes.harmonic-match="{Binding IsHarmonicMatch}"
                             Height="48"
                             Focusable="True">
-                        <Grid ColumnDefinitions="60,44,124,180,*,90,110,100,120,80,84">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60"/>
+                                <ColumnDefinition Width="44"/>
+                                <ColumnDefinition Width="124"/>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="*" MinWidth="150"/>
+                                <ColumnDefinition Width="90"/>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="100"/>
+                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="84"/>
+                            </Grid.ColumnDefinitions>
                             <!-- Column 0: Artwork/Status -->
                             <Panel Grid.Column="0" Margin="12,0,0,0">
                                 <Border Width="32" Height="32" CornerRadius="4" Background="#2A2A2E" ClipToBounds="True">

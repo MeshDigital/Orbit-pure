@@ -47,6 +47,8 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     private readonly IDialogService _dialogService;
     private readonly FlowBuilderSuggestionTelemetryService _telemetryService;
     private readonly SLSKDONET.Services.Library.PlaylistExportService? _exportService;
+    private readonly SLSKDONET.Services.Audio.ITransitionPreviewPlayer? _transitionPreviewPlayer;
+    private FlowTrackCardViewModel? _activePreviewCard;
     private string? _transitionCacheKey;
     private IReadOnlyDictionary<(string FromHash, string ToHash), PlaylistRecommendation>? _transitionCache;
     private string? _activeInspectorTransitionFromHash;
@@ -255,9 +257,17 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         IDialogService dialogService,
         FlowBuilderSuggestionTelemetryService telemetryService,
         SLSKDONET.Services.Similarity.SectionVectorService? sectionVectors = null,
-        SLSKDONET.Services.Library.PlaylistExportService? exportService = null)
+        SLSKDONET.Services.Library.PlaylistExportService? exportService = null,
+        SLSKDONET.Services.Audio.ITransitionPreviewPlayer? transitionPreviewPlayer = null)
     {
         _exportService = exportService;
+        _transitionPreviewPlayer = transitionPreviewPlayer;
+        if (_transitionPreviewPlayer != null)
+        {
+            _transitionPreviewPlayer.PreviewStopped += OnTransitionPreviewStopped;
+            _disposables.Add(System.Reactive.Disposables.Disposable.Create(
+                () => _transitionPreviewPlayer.PreviewStopped -= OnTransitionPreviewStopped));
+        }
         _library   = library;
         _optimizer = optimizer;
         _playlistIntelligence = playlistIntelligence;
@@ -888,8 +898,92 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
             onMoveRight: () => MoveCard(track, +1),
             onRemove:    () => RemoveCard(track),
             onFindBridgeToNext: currentHash => FindBridgeToNextTrack(currentHash),
-            onSelectTransitionInspector: currentHash => OpenTransitionInspector(currentHash));
+            onSelectTransitionInspector: currentHash => OpenTransitionInspector(currentHash),
+            onPreviewTransition: currentHash => PreviewTransitionAsync(currentHash));
         return card;
+    }
+
+    /// <summary>
+    /// Plays a live crossfade preview of the bridge between a card and the next card — the tail
+    /// of the current track blended into the head of the next one, using the app's configured
+    /// crossfade length. Toggles off if the same pair is already previewing.
+    /// </summary>
+    private async Task PreviewTransitionAsync(string currentTrackHash)
+    {
+        if (_transitionPreviewPlayer == null)
+        {
+            StatusText = "Transition preview is unavailable.";
+            return;
+        }
+
+        var currentIndex = Tracks
+            .Select((card, idx) => new { card, idx })
+            .FirstOrDefault(x => string.Equals(x.card.TrackHash, currentTrackHash, StringComparison.Ordinal))?.idx ?? -1;
+
+        if (currentIndex < 0 || currentIndex >= Tracks.Count - 1)
+        {
+            StatusText = "No adjacent transition available to preview.";
+            return;
+        }
+
+        var currentCard = Tracks[currentIndex];
+
+        // Toggle off if this exact bridge is already previewing.
+        if (_activePreviewCard == currentCard && currentCard.IsPreviewingTransition)
+        {
+            _transitionPreviewPlayer.StopPreview();
+            return;
+        }
+
+        var nextCard = Tracks[currentIndex + 1];
+
+        if (string.IsNullOrWhiteSpace(currentCard.FilePath) || !System.IO.File.Exists(currentCard.FilePath) ||
+            string.IsNullOrWhiteSpace(nextCard.FilePath) || !System.IO.File.Exists(nextCard.FilePath))
+        {
+            StatusText = "Preview unavailable — one of these tracks isn't downloaded locally yet.";
+            return;
+        }
+
+        // Only one preview plays at a time.
+        if (_activePreviewCard != null)
+        {
+            _activePreviewCard.IsPreviewingTransition = false;
+        }
+
+        var overlapSeconds = Math.Clamp(_appConfig.PlaybackCrossfadeSeconds, 2.0, 30.0);
+        var trackADuration = currentCard.Model.CanonicalDuration.HasValue
+            ? currentCard.Model.CanonicalDuration.Value / 1000.0
+            : overlapSeconds;
+
+        try
+        {
+            _activePreviewCard = currentCard;
+            currentCard.IsPreviewingTransition = true;
+            StatusText = $"Previewing transition: {currentCard.Artist} — {currentCard.Title} → {nextCard.Artist} — {nextCard.Title}";
+
+            await _transitionPreviewPlayer.StartTransitionPreviewAsync(
+                $"{currentCard.Artist} - {currentCard.Title}", currentCard.FilePath, trackADuration,
+                $"{nextCard.Artist} - {nextCard.Title}", nextCard.FilePath,
+                overlapSeconds);
+        }
+        catch (Exception ex)
+        {
+            currentCard.IsPreviewingTransition = false;
+            _activePreviewCard = null;
+            StatusText = $"Transition preview failed: {ex.Message}";
+        }
+    }
+
+    private void OnTransitionPreviewStopped(object? sender, EventArgs e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_activePreviewCard != null)
+            {
+                _activePreviewCard.IsPreviewingTransition = false;
+                _activePreviewCard = null;
+            }
+        });
     }
 
     private void OpenTransitionInspector(string currentTrackHash)

@@ -53,6 +53,9 @@ public partial class LibraryPlaylistTrackSurface : UserControl
         if (!TryResolveGapContextRequest(e.Source, out var request, out var gapControl))
             return;
 
+        if (request.FromTrack.IsPlaceholder)
+            return;
+
         var focusIndex = vm.FilteredTracks.IndexOf(request.FromTrack);
         if (focusIndex < 0)
             return;
@@ -83,6 +86,9 @@ public partial class LibraryPlaylistTrackSurface : UserControl
         if (DataContext is not TrackListViewModel vm || sender is not Border row || row.DataContext is not PlaylistTrackViewModel track)
             return;
 
+        if (track.IsPlaceholder)
+            return;
+
         var index = vm.FilteredTracks.IndexOf(track);
         if (index < 0)
             return;
@@ -101,7 +107,7 @@ public partial class LibraryPlaylistTrackSurface : UserControl
     private void OnTrackRowPointerEntered(object? sender, PointerEventArgs e)
     {
         // Trigger hover-preview for downloaded tracks (debounced inside the service)
-        if (DataContext is TrackListViewModel vm && sender is Border row && row.DataContext is PlaylistTrackViewModel track)
+        if (DataContext is TrackListViewModel vm && sender is Border row && row.DataContext is PlaylistTrackViewModel track && !track.IsPlaceholder)
             vm.PreviewTrack(track);
 
         OnTrackRowPointerMoved(sender, e);
@@ -110,6 +116,9 @@ public partial class LibraryPlaylistTrackSurface : UserControl
     private async void OnTrackRowPointerMoved(object? sender, PointerEventArgs e)
     {
         if (DataContext is not TrackListViewModel vm || sender is not Border row || row.DataContext is not PlaylistTrackViewModel track)
+            return;
+
+        if (track.IsPlaceholder)
             return;
 
         if (_dragStartPoint.HasValue && ReferenceEquals(_dragCandidateTrack, track))
@@ -234,6 +243,10 @@ public partial class LibraryPlaylistTrackSurface : UserControl
 
     private void ApplyPointerSelection(TrackListViewModel vm, int index, KeyModifiers modifiers)
     {
+        var candidate = vm.FilteredTracks[index];
+        if (candidate.IsPlaceholder)
+            return;
+
         if ((modifiers & KeyModifiers.Shift) == KeyModifiers.Shift && _selectionAnchorIndex >= 0)
         {
             SetRangeSelection(vm, _selectionAnchorIndex, index);
@@ -242,7 +255,6 @@ public partial class LibraryPlaylistTrackSurface : UserControl
 
         if ((modifiers & KeyModifiers.Control) == KeyModifiers.Control)
         {
-            var candidate = vm.FilteredTracks[index];
             var next = vm.SelectedTracks.ToList();
             if (next.Contains(candidate))
                 next.Remove(candidate);
@@ -255,7 +267,7 @@ public partial class LibraryPlaylistTrackSurface : UserControl
         }
 
         _selectionAnchorIndex = index;
-        ApplySelectionSet(vm, new[] { vm.FilteredTracks[index] });
+        ApplySelectionSet(vm, new[] { candidate });
     }
 
     private void ApplyKeyboardSelection(TrackListViewModel vm, int index, KeyModifiers modifiers)
@@ -269,8 +281,12 @@ public partial class LibraryPlaylistTrackSurface : UserControl
             return;
         }
 
+        var candidate = vm.FilteredTracks[index];
+        if (candidate.IsPlaceholder)
+            return;
+
         _selectionAnchorIndex = index;
-        ApplySelectionSet(vm, new[] { vm.FilteredTracks[index] });
+        ApplySelectionSet(vm, new[] { candidate });
     }
 
     private void SetRangeSelection(TrackListViewModel vm, int startIndex, int endIndex)
@@ -279,7 +295,11 @@ public partial class LibraryPlaylistTrackSurface : UserControl
         var to = startIndex <= endIndex ? endIndex : startIndex;
         var range = new List<PlaylistTrackViewModel>();
         for (var idx = from; idx <= to; idx++)
-            range.Add(vm.FilteredTracks[idx]);
+        {
+            var candidate = vm.FilteredTracks[idx];
+            if (!candidate.IsPlaceholder)
+                range.Add(candidate);
+        }
 
         ApplySelectionSet(vm, range);
     }
@@ -306,6 +326,9 @@ public partial class LibraryPlaylistTrackSurface : UserControl
             return;
 
         var track = vm.FilteredTracks[index];
+        if (track.IsPlaceholder)
+            return;
+
         if ((modifiers & KeyModifiers.Control) == KeyModifiers.Control)
         {
             ApplyPointerSelection(vm, index, KeyModifiers.Control);
@@ -320,6 +343,12 @@ public partial class LibraryPlaylistTrackSurface : UserControl
         var focusedTrack = (_focusedIndex >= 0 && _focusedIndex < vm.FilteredTracks.Count)
             ? vm.FilteredTracks[_focusedIndex]
             : vm.LeadSelectedTrack;
+
+        // The placeholder is a single shared instance across every not-yet-loaded row, so if it
+        // were left in place here every currently-realized placeholder row would satisfy the
+        // ReferenceEquals check below simultaneously and all light up as "focused" at once.
+        if (focusedTrack is { IsPlaceholder: true })
+            focusedTrack = null;
 
         foreach (var border in this.GetVisualDescendants().OfType<Border>())
         {
@@ -406,17 +435,22 @@ public partial class LibraryPlaylistTrackSurface : UserControl
         foreach (var item in EnumerateRealizedRowsAndGaps(vm))
         {
             var hasNext = item.Index + 1 < vm.FilteredTracks.Count;
-            item.Gap.IsVisible = hasNext;
+            var nextTrack = hasNext ? vm.FilteredTracks[item.Index + 1] : null;
+            var nextIsUsable = hasNext && nextTrack?.IsPlaceholder == false;
 
-            if (!hasNext)
+            item.Gap.IsVisible = nextIsUsable;
+
+            if (!nextIsUsable)
             {
+                // A not-yet-loaded neighbor just keeps the gap's prior state — the next
+                // CollectionChanged-triggered RefreshInsertGapStates call (already wired via
+                // OnFilteredTracksCollectionChanged) re-evaluates it once the real row arrives.
                 item.Gap.IsMagneticHover = false;
                 item.Gap.InsertBetweenCommandParameter = null;
                 continue;
             }
 
-            var nextTrack = vm.FilteredTracks[item.Index + 1];
-            item.Gap.InsertBetweenCommandParameter = new SmartInsertContextRequest(item.Track, nextTrack);
+            item.Gap.InsertBetweenCommandParameter = new SmartInsertContextRequest(item.Track, nextTrack!);
         }
 
         if (_activeMagneticGap is { IsVisible: false })
@@ -438,7 +472,7 @@ public partial class LibraryPlaylistTrackSurface : UserControl
     {
         foreach (var panel in this.GetVisualDescendants().OfType<StackPanel>())
         {
-            if (panel.DataContext is not PlaylistTrackViewModel track)
+            if (panel.DataContext is not PlaylistTrackViewModel track || track.IsPlaceholder)
                 continue;
 
             var row = panel.Children.OfType<Border>().FirstOrDefault(border => border.Classes.Contains("track-row"));

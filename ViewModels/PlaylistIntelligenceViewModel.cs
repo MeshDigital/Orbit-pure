@@ -418,7 +418,7 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
         }
         catch (Exception ex)
         {
-            _library.Logger.LogDebug(ex, "Failed to refresh Suggest Next candidates");
+            _library.Logger.LogWarning(ex, "Failed to refresh Suggest Next candidates");
             if (refreshVersion != _suggestNextRefreshVersion)
                 return;
 
@@ -567,7 +567,7 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
         }
         catch (Exception ex)
         {
-            _library.Logger.LogDebug(ex, "Failed to refresh Playlist Upgrade candidates");
+            _library.Logger.LogWarning(ex, "Failed to refresh Playlist Upgrade candidates");
             if (refreshVersion != _playlistUpgradeRefreshVersion)
                 return;
 
@@ -742,7 +742,7 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
         StagedAutomixTracks.Clear();
         var sourceTracks = _library.Tracks.CurrentProjectTracks.Any()
             ? _library.Tracks.CurrentProjectTracks.ToList()
-            : _library.Tracks.FilteredTracks.ToList();
+            : _library.Tracks.FilteredTracks.ToList().Where(t => !t.IsPlaceholder).ToList();
 
         var analyzed = sourceTracks.Where(t => t.HasBpm || t.HasAnalysisData).ToList();
 
@@ -846,6 +846,7 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
         }
         catch (Exception ex)
         {
+            _library.Logger.LogWarning(ex, "Automix build failed");
             AutomixStatusMessage = $"Optimization failed: {ex.Message}";
         }
     }
@@ -885,6 +886,7 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
         }
         catch (Exception ex)
         {
+            _library.Logger.LogError(ex, "Automix apply (SaveTrackOrderAsync) failed for playlist {ProjectId}", project.Id);
             AutomixStatusMessage = $"Failed to save track order: {ex.Message}";
         }
     }

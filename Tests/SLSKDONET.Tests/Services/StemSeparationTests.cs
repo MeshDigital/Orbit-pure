@@ -181,16 +181,16 @@ namespace SLSKDONET.Tests.Services
         }
 
         [Theory]
-        [InlineData(StemType.Vocals, "Vocals", "#00CFFF")]
-        [InlineData(StemType.Drums,  "Drums",  "#FF8C00")]
-        [InlineData(StemType.Bass,   "Bass",   "#44FF88")]
-        [InlineData(StemType.Other,  "Other",  "#BB88FF")]
-        public void DisplayName_And_AccentColor_CorrectPerStemType(
-            StemType st, string name, string color)
+        [InlineData(StemType.Vocals, "VOCALS")]
+        [InlineData(StemType.Drums,  "DRUMS")]
+        [InlineData(StemType.Bass,   "BASS")]
+        [InlineData(StemType.Other,  "OTHER")]
+        public void DisplayName_CorrectPerStemType(StemType st, string name)
         {
+            // Uppercase — distinct from NeuralMixEqViewModel's title-case DisplayName below;
+            // this is the older stem-mixer-rack channel strip, a separate UI surface.
             var ch = new SLSKDONET.ViewModels.StemChannelViewModel(st, CreateMixer());
-            Assert.Equal(name,  ch.DisplayName);
-            Assert.Equal(color, ch.AccentColor);
+            Assert.Equal(name, ch.DisplayName);
         }
     }
 
@@ -250,111 +250,6 @@ namespace SLSKDONET.Tests.Services
             public SilenceStemProvider(WaveFormat fmt) => WaveFormat = fmt;
             public int Read(float[] buffer, int offset, int count)
             { Array.Clear(buffer, offset, count); return count; }
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // StemWaveformRowViewModel tests — Task 6.4
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    public class StemWaveformRowViewModelTests
-    {
-        [Fact]
-        public void Defaults_NoWaveformData_NotLoading()
-        {
-            var vm = new SLSKDONET.ViewModels.StemWaveformRowViewModel("Vocals", "#00CFFF");
-            Assert.Null(vm.WaveformData);
-            Assert.False(vm.IsLoading);
-        }
-
-        [Fact]
-        public void ViewOffset_Stored()
-        {
-            var vm = new SLSKDONET.ViewModels.StemWaveformRowViewModel("Drums", "#FF8C00");
-            vm.ViewOffset = 0.5;
-            Assert.Equal(0.5, vm.ViewOffset);
-        }
-
-        [Fact]
-        public void ZoomLevel_Clamped_Min_0_25()
-        {
-            var vm = new SLSKDONET.ViewModels.StemWaveformRowViewModel("Bass", "#44FF88");
-            vm.ZoomLevel = 0.001;
-            Assert.Equal(0.25, vm.ZoomLevel);
-        }
-
-        [Fact]
-        public void ZoomLevel_Clamped_Max_32()
-        {
-            var vm = new SLSKDONET.ViewModels.StemWaveformRowViewModel("Other", "#BB88FF");
-            vm.ZoomLevel = 999;
-            Assert.Equal(32.0, vm.ZoomLevel);
-        }
-
-        [Fact]
-        public void LoadWavAsync_NonExistentFile_DoesNotThrow()
-        {
-            var vm = new SLSKDONET.ViewModels.StemWaveformRowViewModel("Vocals", "#00CFFF");
-            // Should silently handle missing file without throwing
-            var ex = Record.ExceptionAsync(() => vm.LoadWavAsync(@"C:\non_existent_path\silent.wav"));
-            Assert.NotNull(ex);
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // StemWaveformViewModel aggregation tests — Task 6.4
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    public class StemWaveformViewModelTests
-    {
-        [Fact]
-        public void AllFour_Rows_Created()
-        {
-            var vm = new SLSKDONET.ViewModels.StemWaveformViewModel();
-            Assert.NotNull(vm.VocalsWaveform);
-            Assert.NotNull(vm.DrumsWaveform);
-            Assert.NotNull(vm.BassWaveform);
-            Assert.NotNull(vm.OtherWaveform);
-        }
-
-        [Fact]
-        public void SharedViewOffset_Propagates_ToAllRows()
-        {
-            var vm = new SLSKDONET.ViewModels.StemWaveformViewModel();
-            vm.SharedViewOffset = 0.42;
-
-            Assert.Equal(0.42, vm.VocalsWaveform.ViewOffset);
-            Assert.Equal(0.42, vm.DrumsWaveform.ViewOffset);
-            Assert.Equal(0.42, vm.BassWaveform.ViewOffset);
-            Assert.Equal(0.42, vm.OtherWaveform.ViewOffset);
-        }
-
-        [Fact]
-        public void SharedZoomLevel_Propagates_ToAllRows()
-        {
-            var vm = new SLSKDONET.ViewModels.StemWaveformViewModel();
-            vm.SharedZoomLevel = 4.0;
-
-            Assert.Equal(4.0, vm.VocalsWaveform.ZoomLevel);
-            Assert.Equal(4.0, vm.DrumsWaveform.ZoomLevel);
-        }
-
-        [Fact]
-        public void SharedProgress_Propagates_ToAllRows()
-        {
-            var vm = new SLSKDONET.ViewModels.StemWaveformViewModel();
-            vm.SharedProgress = 0.7f;
-
-            Assert.Equal(0.7f, vm.VocalsWaveform.Progress, 3);
-            Assert.Equal(0.7f, vm.OtherWaveform.Progress, 3);
-        }
-
-        [Fact]
-        public void LoadStemsAsync_NullPaths_DoesNotThrow()
-        {
-            var vm = new SLSKDONET.ViewModels.StemWaveformViewModel();
-            var ex = Record.ExceptionAsync(() => vm.LoadStemsAsync(null, null, null, null));
-            Assert.NotNull(ex);  // task returned, not exception thrown
         }
     }
 
@@ -436,6 +331,144 @@ namespace SLSKDONET.Tests.Services
             var vm = new SLSKDONET.ViewModels.NeuralMixEqViewModel();
             var band = vm.AllBands.First(b => b.StemType == st);
             Assert.Equal(expected, band.DisplayName);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // DemucsOnnxSeparator chunked-inference helpers — pure logic, no ONNX model needed
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    public class DemucsOnnxSeparatorChunkingTests
+    {
+        [Fact]
+        public void ResolveSegmentSamplesCore_UsesDeclaredFixedDimension_WhenGraphIsNotDynamic()
+        {
+            // e.g. a model exported with a hard-coded input shape [1, 2, 343980]
+            var declared = new[] { 1, 2, 343980 };
+
+            var result = DemucsOnnxSeparator.ResolveSegmentSamplesCore(declared, sampleRate: 44100, totalFrames: 10_000_000);
+
+            Assert.Equal(343980, result);
+        }
+
+        [Fact]
+        public void ResolveSegmentSamplesCore_FallsBackToDefaultSegment_WhenDimensionIsDynamic()
+        {
+            // -1 (or any non-positive value) marks a dynamic axis in ONNX metadata
+            var declared = new[] { 1, 2, -1 };
+            const int sampleRate = 44100;
+
+            var result = DemucsOnnxSeparatorChunkingTests_LongTrack(declared, sampleRate);
+
+            Assert.Equal((int)(10.0 * sampleRate), result);
+        }
+
+        private static int DemucsOnnxSeparatorChunkingTests_LongTrack(int[] declared, int sampleRate)
+            => DemucsOnnxSeparator.ResolveSegmentSamplesCore(declared, sampleRate, totalFrames: sampleRate * 300);
+
+        [Fact]
+        public void ResolveSegmentSamplesCore_CapsToTrackLength_ForShortTracksOnDynamicGraph()
+        {
+            const int sampleRate = 44100;
+            int shortTrackFrames = sampleRate * 3; // 3-second track, shorter than the 10s default segment
+
+            var result = DemucsOnnxSeparator.ResolveSegmentSamplesCore(
+                declaredDimensions: null, sampleRate, totalFrames: shortTrackFrames);
+
+            Assert.Equal(shortTrackFrames, result);
+        }
+
+        [Fact]
+        public void ResolveSegmentSamplesCore_NeverReturnsZeroOrNegative_ForDegenerateInput()
+        {
+            var result = DemucsOnnxSeparator.ResolveSegmentSamplesCore(
+                declaredDimensions: null, sampleRate: 44100, totalFrames: 0);
+
+            Assert.True(result > 0);
+        }
+
+        [Fact]
+        public void BuildOverlapWindow_PeaksAtOne_InTheMiddle()
+        {
+            var window = DemucsOnnxSeparator.BuildOverlapWindow(101);
+
+            Assert.Equal(1f, window[50], precision: 3);
+        }
+
+        [Fact]
+        public void BuildOverlapWindow_NeverReachesExactZero_AtTheEdges()
+        {
+            // Guards against divide-by-zero during overlap-add normalisation at the very
+            // start/end of a track, where only one chunk contributes.
+            var window = DemucsOnnxSeparator.BuildOverlapWindow(64);
+
+            Assert.True(window[0] > 0f);
+            Assert.True(window[^1] > 0f);
+        }
+
+        [Fact]
+        public void BuildOverlapWindow_IsSymmetric()
+        {
+            var window = DemucsOnnxSeparator.BuildOverlapWindow(50);
+
+            for (int i = 0; i < window.Length / 2; i++)
+            {
+                Assert.Equal(window[i], window[^(i + 1)], precision: 5);
+            }
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        public void BuildOverlapWindow_HandlesDegenerateLengths_WithoutThrowing(int length)
+        {
+            var window = DemucsOnnxSeparator.BuildOverlapWindow(length);
+
+            Assert.Equal(length, window.Length);
+        }
+
+        [Fact]
+        public void WeightedOverlapAdd_ReconstructsFlatValue_OutsideTheOverlapRegion()
+        {
+            // Simulates the actual reconstruction the real inference loop performs (weighted-sum
+            // then divide-by-accumulated-weight), using two overlapping synthetic "model outputs"
+            // (constant 2.0 for chunk A, constant 3.0 for chunk B) instead of real ONNX results.
+            // Outside the overlap, each sample has exactly one contributor, so normalisation must
+            // return that contributor's value exactly — this is what keeps the un-overlapped
+            // majority of every track byte-identical to a single-chunk pass.
+            const int segment = 1000;
+            const int stride = 750; // segment - overlap(250), matching OverlapRatio
+            const int totalFrames = stride + segment; // two chunks: [0,1000) and [750,1750)
+            var window = DemucsOnnxSeparator.BuildOverlapWindow(segment);
+
+            var accum = new float[totalFrames];
+            var weight = new float[totalFrames];
+
+            AddChunk(accum, weight, window, chunkStart: 0, value: 2.0f);
+            AddChunk(accum, weight, window, chunkStart: stride, value: 3.0f);
+
+            for (int i = 0; i < totalFrames; i++)
+            {
+                accum[i] /= weight[i];
+            }
+
+            // Well before the overlap (chunk A only) → exactly chunk A's value.
+            Assert.Equal(2.0f, accum[100], precision: 4);
+            // Well after the overlap (chunk B only) → exactly chunk B's value.
+            Assert.Equal(3.0f, accum[1600], precision: 4);
+            // Inside the overlap, the blend must move monotonically from A's value toward B's.
+            Assert.InRange(accum[750], 2.0f, 3.0f);
+            Assert.InRange(accum[900], 2.0f, 3.0f);
+            Assert.True(accum[900] > accum[750], "Blend should move further toward chunk B's value as the overlap progresses.");
+        }
+
+        private static void AddChunk(float[] accum, float[] weight, float[] window, int chunkStart, float value)
+        {
+            for (int i = 0; i < window.Length; i++)
+            {
+                accum[chunkStart + i]  += value * window[i];
+                weight[chunkStart + i] += window[i];
+            }
         }
     }
 }

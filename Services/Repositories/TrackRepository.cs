@@ -196,10 +196,47 @@ public class TrackRepository : ITrackRepository
         query = ApplyFilters(query, filter, downloadedOnly, hashFilter, camelotKeyFilter);
         query = ApplyPlaylistTrackSort(query, sortColumn, sortDescending);
 
-        return await query
+        var results = await query
             .Skip(skip)
             .Take(take)
             .ToListAsync();
+
+        await AttachCuePointCountsAsync(context, results);
+
+        return results;
+    }
+
+    /// <summary>
+    /// Populates <see cref="PlaylistTrackEntity.CuePointCount"/> from the real per-cue-point
+    /// <c>CuePoints</c> table (which links by <c>TrackUniqueHash</c>, not a proper FK, so it
+    /// can't be an EF <c>.Include()</c>). The legacy <c>TechnicalDetails</c>/<c>CuePointsJson</c>
+    /// blob is no longer written by the current cue-generation pipeline, so workstation-readiness
+    /// checks need this real count instead.
+    /// </summary>
+    private static async Task AttachCuePointCountsAsync(AppDbContext context, List<PlaylistTrackEntity> tracks)
+    {
+        var hashes = tracks
+            .Select(t => t.TrackUniqueHash)
+            .Where(h => !string.IsNullOrEmpty(h))
+            .Distinct()
+            .ToList();
+
+        if (hashes.Count == 0) return;
+
+        var counts = await context.CuePoints
+            .AsNoTracking()
+            .Where(cp => hashes.Contains(cp.TrackUniqueHash))
+            .GroupBy(cp => cp.TrackUniqueHash)
+            .Select(g => new { Hash = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Hash, x => x.Count);
+
+        foreach (var track in tracks)
+        {
+            if (counts.TryGetValue(track.TrackUniqueHash, out var count))
+            {
+                track.CuePointCount = count;
+            }
+        }
     }
 
     private static IQueryable<PlaylistTrackEntity> ApplyPlaylistTrackSort(IQueryable<PlaylistTrackEntity> query, TrackSortColumn sortColumn, bool descending)
@@ -1173,7 +1210,7 @@ public class TrackRepository : ITrackRepository
     }
 
 
-    private void ApplyMetadata(object entity, TrackEnrichmentResult result)
+    internal void ApplyMetadata(object entity, TrackEnrichmentResult result)
     {
         // Reflection-based helper or manual mapping for shared properties
         if (entity is LibraryEntryEntity le)
@@ -1191,11 +1228,25 @@ public class TrackRepository : ITrackRepository
             if (!string.IsNullOrEmpty(result.ISRC)) le.ISRC = result.ISRC;
             if (!string.IsNullOrEmpty(result.MusicBrainzId)) le.MusicBrainzId = result.MusicBrainzId;
             if (!string.IsNullOrEmpty(result.AlbumArtUrl)) le.AlbumArtUrl = result.AlbumArtUrl;
-            if (result.Bpm > 0) le.BPM = result.Bpm;
-            if (result.Energy > 0) le.Energy = result.Energy;
-            if (result.Danceability > 0) le.Danceability = result.Danceability;
-            if (result.Valence > 0) le.Valence = result.Valence;
-            if (!string.IsNullOrEmpty(result.MusicalKey)) le.MusicalKey = result.MusicalKey;
+            // BPM/Key: never overwrite the analysis-owned primary field — DSP analysis and
+            // metadata enrichment are both valid sources kept side by side. The external value
+            // is still captured into the Spotify* side-channel for provenance, and only promoted
+            // into the primary field if analysis hasn't populated it yet (fill-if-empty).
+            if (result.Bpm > 0)
+            {
+                le.SpotifyBPM = result.Bpm;
+                if (le.BPM is null or <= 0) le.BPM = result.Bpm;
+            }
+            if (!string.IsNullOrEmpty(result.MusicalKey))
+            {
+                le.SpotifyKey = result.MusicalKey;
+                if (string.IsNullOrEmpty(le.MusicalKey)) le.MusicalKey = result.MusicalKey;
+            }
+            // Energy/Danceability/Valence: no side-channel columns exist yet. Fill-if-empty
+            // only, so a genuine DSP analysis value is never clobbered by metadata enrichment.
+            if (result.Energy > 0 && (le.Energy is null or <= 0)) le.Energy = result.Energy;
+            if (result.Danceability > 0 && (le.Danceability is null or <= 0)) le.Danceability = result.Danceability;
+            if (result.Valence > 0 && (le.Valence is null or <= 0)) le.Valence = result.Valence;
             if (result.Genres?.Any() == true) le.Genres = string.Join(", ", result.Genres);
             if (!string.IsNullOrEmpty(result.DetectedSubGenre)) le.DetectedSubGenre = result.DetectedSubGenre;
             if (result.SubGenreConfidence > 0) le.SubGenreConfidence = result.SubGenreConfidence;
@@ -1218,11 +1269,21 @@ public class TrackRepository : ITrackRepository
             if (!string.IsNullOrEmpty(result.ISRC)) pt.ISRC = result.ISRC;
             if (!string.IsNullOrEmpty(result.MusicBrainzId)) pt.MusicBrainzId = result.MusicBrainzId;
             if (!string.IsNullOrEmpty(result.AlbumArtUrl)) pt.AlbumArtUrl = result.AlbumArtUrl;
-            if (result.Bpm > 0) pt.BPM = result.Bpm;
-            if (result.Energy > 0) pt.Energy = result.Energy;
-            if (result.Danceability > 0) pt.Danceability = result.Danceability;
-            if (result.Valence > 0) pt.Valence = result.Valence;
-            if (!string.IsNullOrEmpty(result.MusicalKey)) pt.MusicalKey = result.MusicalKey;
+            // BPM/Key/Energy/Danceability/Valence: see the LibraryEntryEntity branch above for
+            // the rationale — never overwrite analysis-owned fields, keep both sources side by side.
+            if (result.Bpm > 0)
+            {
+                pt.SpotifyBPM = result.Bpm;
+                if (pt.BPM is null or <= 0) pt.BPM = result.Bpm;
+            }
+            if (!string.IsNullOrEmpty(result.MusicalKey))
+            {
+                pt.SpotifyKey = result.MusicalKey;
+                if (string.IsNullOrEmpty(pt.MusicalKey)) pt.MusicalKey = result.MusicalKey;
+            }
+            if (result.Energy > 0 && (pt.Energy is null or <= 0)) pt.Energy = result.Energy;
+            if (result.Danceability > 0 && (pt.Danceability is null or <= 0)) pt.Danceability = result.Danceability;
+            if (result.Valence > 0 && (pt.Valence is null or <= 0)) pt.Valence = result.Valence;
             if (result.Genres?.Any() == true) pt.Genres = string.Join(", ", result.Genres);
             if (!string.IsNullOrEmpty(result.DetectedSubGenre)) pt.DetectedSubGenre = result.DetectedSubGenre;
             if (result.ReleaseDate.HasValue) pt.ReleaseDate = result.ReleaseDate;
@@ -1244,11 +1305,21 @@ public class TrackRepository : ITrackRepository
             if (!string.IsNullOrEmpty(result.ISRC)) tr.ISRC = result.ISRC;
             if (!string.IsNullOrEmpty(result.MusicBrainzId)) tr.MusicBrainzId = result.MusicBrainzId;
             if (!string.IsNullOrEmpty(result.AlbumArtUrl)) tr.AlbumArtUrl = result.AlbumArtUrl;
-            if (result.Bpm > 0) tr.BPM = result.Bpm;
-            if (result.Energy > 0) tr.Energy = result.Energy;
-            if (result.Danceability > 0) tr.Danceability = result.Danceability;
-            if (result.Valence > 0) tr.Valence = result.Valence;
-            if (!string.IsNullOrEmpty(result.MusicalKey)) tr.MusicalKey = result.MusicalKey;
+            // BPM/Key/Energy/Danceability/Valence: see the LibraryEntryEntity branch above for
+            // the rationale — never overwrite analysis-owned fields, keep both sources side by side.
+            if (result.Bpm > 0)
+            {
+                tr.SpotifyBPM = result.Bpm;
+                if (tr.BPM is null or <= 0) tr.BPM = result.Bpm;
+            }
+            if (!string.IsNullOrEmpty(result.MusicalKey))
+            {
+                tr.SpotifyKey = result.MusicalKey;
+                if (string.IsNullOrEmpty(tr.MusicalKey)) tr.MusicalKey = result.MusicalKey;
+            }
+            if (result.Energy > 0 && (tr.Energy is null or <= 0)) tr.Energy = result.Energy;
+            if (result.Danceability > 0 && (tr.Danceability is null or <= 0)) tr.Danceability = result.Danceability;
+            if (result.Valence > 0 && (tr.Valence is null or <= 0)) tr.Valence = result.Valence;
             if (result.Genres?.Any() == true) tr.Genres = string.Join(", ", result.Genres);
             if (!string.IsNullOrEmpty(result.DetectedSubGenre)) tr.DetectedSubGenre = result.DetectedSubGenre;
             if (result.ReleaseDate.HasValue) tr.ReleaseDate = result.ReleaseDate;

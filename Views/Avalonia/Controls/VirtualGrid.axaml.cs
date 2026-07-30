@@ -621,21 +621,25 @@ namespace SLSKDONET.Views.Avalonia.Controls
         {
             if (PartItemsRepeater == null) return;
 
-            int count = GetItemsCount();
-            for (int i = 0; i < count; i++)
+            // Only touch currently-realized (on-screen) rows, not the full backing collection —
+            // on a large/virtualized library (e.g. 50k tracks) the old approach looped the entire
+            // item count on every selection change and every page load while scrolling, doing a
+            // synchronous UI-thread pass over tens of thousands of indices whose elements were
+            // virtualized away anyway. ItemsRepeater.Children only ever contains the handful of
+            // rows actually materialized on screen. Newly-realized rows already get their initial
+            // state set correctly in OnElementPrepared; this just refreshes existing ones.
+            foreach (var child in PartItemsRepeater.Children)
             {
-                var element = PartItemsRepeater.TryGetElement(i);
-                if (element is Control control)
-                {
-                    var item = GetItemAt(i);
-                    if (item != null)
-                    {
-                        bool isSelected = _selectedItems.Contains(item);
-                        bool isFocused = _focusedIndex == i;
-                        control.Classes.Set("selected", isSelected);
-                        control.Classes.Set("focused", isFocused);
-                    }
-                }
+                if (child is not Control control) continue;
+
+                var item = control.DataContext;
+                if (item == null) continue;
+
+                int index = PartItemsRepeater.GetElementIndex(control);
+                bool isSelected = _selectedItems.Contains(item);
+                bool isFocused = index >= 0 && _focusedIndex == index;
+                control.Classes.Set("selected", isSelected);
+                control.Classes.Set("focused", isFocused);
             }
         }
 

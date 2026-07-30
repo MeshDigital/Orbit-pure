@@ -55,6 +55,42 @@ public class EnergyAnalysisServiceTests
     }
 
     [Fact]
+    public void ComputeRawEnergyCurveFromPcm_EmptyBuffer_ReturnsEmpty()
+    {
+        var curve = _service.ComputeRawEnergyCurveFromPcm(System.Array.Empty<float>(), sampleRate: 44100, channels: 2);
+
+        Assert.Empty(curve);
+    }
+
+    [Fact]
+    public void ComputeRawEnergyCurveFromPcm_MonoBuffer_ProducesOneWindowPerSecond()
+    {
+        // sampleRate=4, channels=1 → 4 samples per one-second window. Two windows: a quiet one
+        // (amplitude 0.1) followed by a loud one (amplitude 0.9) — after normalization the quiet
+        // window becomes the curve's floor (0) and the loud window becomes its ceiling (1).
+        var samples = new[] { 0.1f, 0.1f, 0.1f, 0.1f, 0.9f, 0.9f, 0.9f, 0.9f };
+
+        var curve = _service.ComputeRawEnergyCurveFromPcm(samples, sampleRate: 4, channels: 1);
+
+        Assert.Equal(2, curve.Count);
+        Assert.Equal(0f, curve[0], 3);
+        Assert.Equal(1f, curve[1], 3);
+    }
+
+    [Fact]
+    public void ComputeRawEnergyCurveFromPcm_StereoInterleavedBuffer_DoesNotThrowAndWindowsCorrectly()
+    {
+        // sampleRate=2, channels=2 → 4 interleaved samples per one-second window.
+        var samples = new[] { 0.2f, 0.2f, 0.2f, 0.2f, 0.6f, 0.6f, 0.6f, 0.6f };
+
+        var curve = _service.ComputeRawEnergyCurveFromPcm(samples, sampleRate: 2, channels: 2);
+
+        Assert.Equal(2, curve.Count);
+        Assert.Equal(0f, curve[0], 3);
+        Assert.Equal(1f, curve[1], 3);
+    }
+
+    [Fact]
     public void TrackPhraseEntity_PhraseEnergy_AliasesEnergyLevel()
     {
         var phrase = new TrackPhraseEntity { EnergyLevel = 0.72f };

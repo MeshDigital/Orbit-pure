@@ -26,8 +26,11 @@ public sealed class StemChannelViewModel : ReactiveObject
         get => _gainDb;
         set
         {
-            this.RaiseAndSetIfChanged(ref _gainDb, value);
-            _mixer.SetGain(_stemType, value);
+            // Clamp here too (not just in StemMixerService.SetGain) so the bound/displayed
+            // value never disagrees with the gain actually applied to the audio engine.
+            float clamped = Math.Clamp(value, -60f, 12f);
+            this.RaiseAndSetIfChanged(ref _gainDb, clamped);
+            _mixer.SetGain(_stemType, clamped);
         }
     }
 
@@ -39,8 +42,9 @@ public sealed class StemChannelViewModel : ReactiveObject
         get => _pan;
         set
         {
-            this.RaiseAndSetIfChanged(ref _pan, value);
-            _mixer.SetPan(_stemType, value);
+            float clamped = Math.Clamp(value, -1f, 1f);
+            this.RaiseAndSetIfChanged(ref _pan, clamped);
+            _mixer.SetPan(_stemType, clamped);
         }
     }
 

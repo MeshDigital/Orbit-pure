@@ -6,13 +6,14 @@
              mc:Ignorable="d" d:DesignWidth="300" d:DesignHeight="600"
              x:Class="SLSKDONET.Views.Avalonia.Controls.SearchInspector"
              x:DataType="vm:AnalyzedSearchResultViewModel">
+    <Border Background="#1A1B1C">
     <ScrollViewer Padding="20">
         <StackPanel Spacing="20">
             <!-- Header Section -->
             <StackPanel Spacing="8">
                 <TextBlock Text="SEARCH RESULT" FontSize="10" FontWeight="Bold" Foreground="#888" LetterSpacing="1"/>
-                <TextBlock Text="{Binding ArtistName}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap"/>
-                <TextBlock Text="{Binding TrackTitle}" FontSize="24" FontWeight="ExtraBold" Foreground="#1DB954" TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding ArtistName}" FontSize="18" FontWeight="Light" Foreground="#AAA" TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding TrackTitle}" FontSize="24" FontWeight="Bold" Foreground="White" TextWrapping="Wrap"/>
             </StackPanel>
 
             <Separator Background="#333"/>
@@ -93,4 +94,5 @@
 
         </StackPanel>
     </ScrollViewer>
+    </Border>
 </UserControl>

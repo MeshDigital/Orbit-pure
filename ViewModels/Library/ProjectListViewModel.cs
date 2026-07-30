@@ -269,8 +269,8 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         RenameFolderCommand = new AsyncRelayCommand<PlaylistTreeFolderNodeViewModel>(ExecuteRenameFolderAsync);
         DeleteFolderCommand = new AsyncRelayCommand<PlaylistTreeFolderNodeViewModel>(ExecuteDeleteFolderAsync);
 
-        FilteredProjectCards.CollectionChanged += (_, _) => RebuildTree();
-        AllFolders.CollectionChanged += (_, _) => RebuildTree();
+        FilteredProjectCards.CollectionChanged += (_, _) => ScheduleRebuildTree();
+        AllFolders.CollectionChanged += (_, _) => ScheduleRebuildTree();
 
         // Subscribe to auth changes
         _authChangedHandler = (s, authenticated) => 
@@ -282,9 +282,18 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
 
 
         // Initial auth check
-        _ = Task.Run(async () => 
+        _ = Task.Run(async () =>
         {
-            IsSpotifyAuthenticated = await _spotifyAuthService.IsAuthenticatedAsync();
+            try
+            {
+                IsSpotifyAuthenticated = await _spotifyAuthService.IsAuthenticatedAsync();
+            }
+            catch (Exception ex)
+            {
+                // Unobserved otherwise — a failure here would silently leave
+                // ImportLikedSongsCommand's enabled state stuck at its default with no diagnostic.
+                _logger.LogWarning(ex, "Initial Spotify authentication check failed");
+            }
         });
 
         // Subscribe to events
@@ -317,6 +326,8 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
             {
                 _spotifyAuthService.AuthenticationChanged -= _authChangedHandler;
             }
+
+            foreach (var card in FilteredProjectCards) card.Dispose();
         }
 
         _isDisposed = true;
@@ -437,6 +448,10 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                     (p.SourceType?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
 
             FilteredProjects.Clear();
+
+            // Detach each discarded card from its (long-lived) PlaylistJob before clearing, or the
+            // subscription leaks — this rebuild runs on every throttled search keystroke.
+            foreach (var oldCard in FilteredProjectCards) oldCard.Dispose();
             FilteredProjectCards.Clear();
 
             foreach (var p in filtered)
@@ -513,6 +528,24 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         }
 
         return null;
+    }
+
+    private bool _rebuildTreeScheduled;
+
+    /// <summary>
+    /// Coalesces bursts of CollectionChanged events (e.g. the chunked population loop in
+    /// RefreshFilteredProjects, which adds projects one at a time) into a single RebuildTree call
+    /// per burst instead of one full O(folders+cards) rebuild per individual add.
+    /// </summary>
+    private void ScheduleRebuildTree()
+    {
+        if (_rebuildTreeScheduled) return;
+        _rebuildTreeScheduled = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _rebuildTreeScheduled = false;
+            RebuildTree();
+        }, DispatcherPriority.Background);
     }
 
     /// <summary>
@@ -802,6 +835,8 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     {
         _logger.LogInformation("[UI TRACE] OnPlaylistAdded event received for job {JobId}. Source: {SourceType}", job.Id, job.SourceType);
 
+        try
+        {
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             var existingProject = AllProjects.FirstOrDefault(j => j.Id == job.Id);
@@ -842,6 +877,14 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
 
             _logger.LogInformation("Project '{Title}' added to list", job.SourceTitle);
         });
+        }
+        catch (Exception ex)
+        {
+            // Async void — an unobserved exception here (e.g. from constructing the new card's
+            // artwork/mosaic pipeline) would otherwise be unhandled and can crash the app instead
+            // of just failing to add this one project to the visible list.
+            _logger.LogError(ex, "Failed to handle OnPlaylistAdded for job {JobId}", job.Id);
+        }
     }
 
     private async void OnProjectUpdated(object? sender, Guid jobId)
@@ -880,6 +923,8 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     {
         _logger.LogInformation("OnProjectDeleted event received for job {JobId}", projectId);
 
+        try
+        {
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             var jobToRemove = AllProjects.FirstOrDefault(p => p.Id == projectId);
@@ -898,6 +943,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                 if (cardToRemove != null)
                 {
                     FilteredProjectCards.Remove(cardToRemove);
+                    cardToRemove.Dispose();
                 }
 
                 // Auto-select next project if deleted one was selected
@@ -907,6 +953,11 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                 }
             }
         });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to handle OnProjectDeleted for job {JobId}", projectId);
+        }
     }
 
 

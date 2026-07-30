@@ -236,45 +236,8 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Spacing="8" Margin="{StaticResource WsMarginHeaderCenter}" VerticalAlignment="Center" Orientation="Horizontal">
-                    <!-- Transport Group -->
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <Button Classes="secondary" Command="{Binding PlayPauseAllCommand}" ToolTip.Tip="Play or pause timeline playback">
-                            <PathIcon Data="{StaticResource play_regular}" Width="12" Height="12"/>
-                        </Button>
-                        <Button Classes="secondary" Command="{Binding StopAllCommand}" ToolTip.Tip="Stop playback and return to cue">
-                            <PathIcon Data="{StaticResource dismiss_regular}" Width="12" Height="12"/>
-                        </Button>
-                    </StackPanel>
-
-                    <Border Width="1" Background="#3A3A3A" Margin="6,2" VerticalAlignment="Stretch"/>
-
-                    <!-- BPM Group -->
-                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                        <TextBox Width="60" Height="28" Padding="4,0"
-                                 Text="{Binding MasterBpm, Mode=TwoWay, StringFormat='{}{0:F1}'}"
-                                 HorizontalContentAlignment="Center"
-                                 VerticalContentAlignment="Center"
-                                 FontSize="12"
-                                 FontWeight="Bold"
-                                 Foreground="#E5EEF8"
-                                 Background="#1A2430"
-                                 BorderBrush="#314557"
-                                 BorderThickness="1"
-                                 CornerRadius="6"
-                                 ToolTip.Tip="Master BPM — edit directly or use Tap Tempo"/>
-                        <Button Classes="secondary" Command="{Binding TapTempoCommand}" Height="28" ToolTip.Tip="Tap tempo (4+ clicks)">Tap</Button>
-                    </StackPanel>
-
-                    <Border Width="1" Background="#3A3A3A" Margin="6,2" VerticalAlignment="Stretch"/>
-
-                    <!-- Grid Settings -->
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <ToggleButton Classes="header-toggle" Height="28" Padding="8,0" IsChecked="{Binding IsSnapEnabled, Mode=TwoWay}" ToolTip.Tip="Snap playhead to beat grid">SNAP</ToggleButton>
-                        <ToggleButton Classes="header-toggle" Height="28" Padding="8,0" IsChecked="{Binding IsQuantizeEnabled, Mode=TwoWay}" ToolTip.Tip="Quantize triggers to beat boundaries">QTZ</ToggleButton>
-                        <ToggleButton Classes="header-toggle" Height="28" Padding="8,0" IsChecked="{Binding IsMetronomeEnabled, Mode=TwoWay}" ToolTip.Tip="Metronome audio click">MET</ToggleButton>
-                    </StackPanel>
-
-                    <Border Width="1" Background="#3A3A3A" Margin="6,2" VerticalAlignment="Stretch"/>
+                    <!-- Transport, Master BPM/Tap, and Snap/Quantize/Metronome all live in MixerCenter
+                         (bottom bar) now — this header used to duplicate every one of those controls. -->
 
                     <!-- Viewport Navigation (Zoom/Pan) -->
                     <StackPanel Orientation="Horizontal" Spacing="4">
@@ -959,21 +922,6 @@
                             </WrapPanel>
                         </StackPanel>
 
-                        <StackPanel Spacing="8" IsVisible="{Binding IsWaveformMode}">
-                            <TextBlock Text="STEM RACK" FontSize="{StaticResource WsFontSm}" FontWeight="SemiBold" Foreground="{StaticResource WsTextSecondaryReadable}"/>
-                            <Border Classes="ws-chip"><TextBlock Text="{Binding FocusedDeck.SectionJumpSummary, TargetNullValue='Phrase-aware jumps appear after cue prep.'}" FontSize="{StaticResource WsFontSm}" Foreground="#8EC8FF" TextWrapping="Wrap"/></Border>
-                            <WrapPanel Orientation="Horizontal" ItemHeight="28">
-                                <Button Classes="secondary" Command="{Binding FocusedDeck.ToggleVocalsCommand}" IsEnabled="{Binding FocusedDeck.IsLoaded}">Vocals</Button>
-                                <Button Classes="secondary" Margin="6,0,0,0" Command="{Binding FocusedDeck.ToggleDrumsCommand}" IsEnabled="{Binding FocusedDeck.IsLoaded}">Drums</Button>
-                                <Button Classes="secondary" Margin="6,0,0,0" Command="{Binding FocusedDeck.ToggleBassCommand}" IsEnabled="{Binding FocusedDeck.IsLoaded}">Bass</Button>
-                                <Button Classes="secondary" Margin="6,0,0,0" Command="{Binding FocusedDeck.ToggleOtherCommand}" IsEnabled="{Binding FocusedDeck.IsLoaded}">Other</Button>
-                            </WrapPanel>
-                            <WrapPanel Orientation="Horizontal" ItemHeight="28">
-                                <Button Classes="secondary" Command="{Binding FocusedDeck.ToggleInstrumentalCommand}" IsEnabled="{Binding CanUseFocusedDeckLaneActions}" ToolTip.Tip="{Binding StemsLaneActionHint}">Instrumental</Button>
-                                <Button Classes="secondary" Margin="6,0,0,0" Command="{Binding FocusedDeck.ToggleDrumsOnlyCommand}" IsEnabled="{Binding CanUseFocusedDeckLaneActions}" ToolTip.Tip="{Binding StemsLaneActionHint}">Drums Only</Button>
-                            </WrapPanel>
-                            <Button Classes="secondary" Command="{Binding FocusedDeck.SeparateStemsCommand}" IsEnabled="{Binding FocusedDeck.IsLoaded}">Separate Stems</Button>
-                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </Border>

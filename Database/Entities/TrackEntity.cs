@@ -300,6 +300,16 @@ public class PlaylistTrackEntity
     // Navigation Property for Lazy Loading
     public TrackTechnicalEntity? TechnicalDetails { get; set; }
 
+    /// <summary>
+    /// Number of rows in the real per-cue-point <c>CuePoints</c> table for this track's hash.
+    /// Not a DB column — populated by a batched follow-up query in <c>TrackRepository</c>, since
+    /// <c>CuePoints</c> links by <see cref="TrackUniqueHash"/> rather than a proper FK relationship.
+    /// The legacy <see cref="TechnicalDetails"/>/<c>CuePointsJson</c> blob is no longer written by
+    /// the current cue-generation pipeline, so eligibility checks must use this instead.
+    /// </summary>
+    [NotMapped]
+    public int CuePointCount { get; set; }
+
     public string? ArtistImageUrl { get; set; }
     public string? Genres { get; set; }
     public int? Popularity { get; set; }
@@ -484,6 +494,11 @@ public class LibraryEntryEntity
     public AnalysisStatus AnalysisStatus { get; set; } = AnalysisStatus.None;
     public string? PrimaryGenre { get; set; } // Phase 10
     public string? CuePointsJson { get; set; } // Phase 10
+
+    /// <summary>Not a DB column — see <see cref="PlaylistTrackEntity.CuePointCount"/>.</summary>
+    [NotMapped]
+    public int CuePointCount { get; set; }
+
     public string? MoodTag { get; set; }
 
     // Phase 12.7: Style Classification

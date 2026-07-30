@@ -209,8 +209,17 @@ public class LibraryService : ILibraryService
 
             _logger.LogInformation("Found {Count} tracks missing from LibraryEntry index. Backfilling...", missingTracks.Count);
 
-            // 4. Create and save missing entries
+            // 4. Create and save missing entries.
+            // These tracks were already proven absent from LibraryEntries above (existingHashes),
+            // so — unlike the general-purpose SaveOrUpdateLibraryEntryAsync — there's no need for
+            // each one to redundantly re-check "does this already exist" via its own DB round-trip.
+            // Build every entry against one shared context and commit once at the end instead of
+            // once per track; on a large backfill (e.g. after a big import) this turns thousands of
+            // sequential find+save round-trips into a single batched insert.
             int addedCount = 0;
+            using var db = new AppDbContext();
+            var pendingEntries = new List<(PlaylistTrackEntity Track, string Hash)>();
+
             foreach (var track in missingTracks)
             {
                 // Basic check to ensure file actually exists before indexing
@@ -284,26 +293,38 @@ public class LibraryService : ILibraryService
                     track.ResolvedFilePath,
                     DateTime.UtcNow));
 
-                await SaveOrUpdateLibraryEntryAsync(entry);
-
-                await LogIngestionLifecycleAsync(
-                    track.PlaylistId,
-                    "ingestion_completed",
-                    new
-                    {
-                        trackHash = hash,
-                        playlistTrackId = track.Id,
-                        filePath = track.ResolvedFilePath,
-                        completedAtUtc = DateTime.UtcNow,
-                        source = "LibraryService.SyncLibraryEntriesFromTracksAsync"
-                    });
-
-                _eventBus.Publish(new FileIngestionCompletedEvent(
-                    hash,
-                    track.Id,
-                    track.ResolvedFilePath,
-                    DateTime.UtcNow));
+                var entryEntity = LibraryEntryToEntity(entry);
+                entryEntity.LastUsedAt = DateTime.UtcNow;
+                db.LibraryEntries.Add(entryEntity);
+                pendingEntries.Add((track, hash));
                 addedCount++;
+            }
+
+            if (pendingEntries.Count > 0)
+            {
+                await db.SaveChangesAsync();
+                _cache.InvalidateGlobalLibrary();
+
+                foreach (var (track, hash) in pendingEntries)
+                {
+                    await LogIngestionLifecycleAsync(
+                        track.PlaylistId,
+                        "ingestion_completed",
+                        new
+                        {
+                            trackHash = hash,
+                            playlistTrackId = track.Id,
+                            filePath = track.ResolvedFilePath,
+                            completedAtUtc = DateTime.UtcNow,
+                            source = "LibraryService.SyncLibraryEntriesFromTracksAsync"
+                        });
+
+                    _eventBus.Publish(new FileIngestionCompletedEvent(
+                        hash,
+                        track.Id,
+                        track.ResolvedFilePath,
+                        DateTime.UtcNow));
+                }
             }
 
             _logger.LogInformation("Library Synchronization Completed. Added {Count} new entries.", addedCount);
@@ -1269,6 +1290,7 @@ public class LibraryService : ILibraryService
             CuePointsJson = !string.IsNullOrWhiteSpace(entity.TechnicalDetails?.CuePointsJson)
                 ? entity.TechnicalDetails!.CuePointsJson
                 : entity.CuePointsJson,
+            CuePointCount = entity.CuePointCount,
             Energy = entity.Energy > 0 ? entity.Energy : (entity.AudioFeatures?.Energy > 0 ? (double?)entity.AudioFeatures.Energy : null),
             Danceability = entity.Danceability > 0 ? entity.Danceability : (entity.AudioFeatures?.Danceability > 0 ? (double?)entity.AudioFeatures.Danceability : null),
             Valence = entity.Valence > 0 ? entity.Valence : (entity.AudioFeatures?.Valence > 0 ? (double?)entity.AudioFeatures.Valence : null),
@@ -1647,7 +1669,6 @@ public class LibraryService : ILibraryService
         // Dual-Truth
         entity.SpotifyBPM = entry.SpotifyBPM;
         entity.SpotifyKey = entry.SpotifyKey;
-        entity.ManualBPM = entry.ManualBPM;
         entity.ManualBPM = entry.ManualBPM;
         entity.ManualKey = entry.ManualKey;
         

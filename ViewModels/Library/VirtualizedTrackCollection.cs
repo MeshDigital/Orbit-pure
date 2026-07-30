@@ -91,7 +91,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     private void DispatchToViewModel(string globalId, Action<PlaylistTrackViewModel> action)
     {
         if (string.IsNullOrEmpty(globalId)) return;
-        if (_viewModelCache.TryGetValue(globalId, out var vm))
+        if (_viewModelCache.TryGetValue(globalId, out var vm) && !vm.IsPlaceholder)
         {
             action(vm);
         }
@@ -129,37 +129,29 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         {
             // Load item on demand if not already loaded
             if (index < 0 || index >= _count) throw new ArgumentOutOfRangeException(nameof(index));
-            
-            // Check if item is already loaded
-            if (index < _loadedItems.Count)
+
+            // Check if item is already loaded. The `is { }` pattern also catches the case where
+            // LoadPageAsync's capacity-padding loop left a raw `null!` placeholder at this index
+            // (a page further ahead loaded first, leaving this one's slot un-filled) — that used
+            // to leak straight out of the indexer as a real null.
+            if (index < _loadedItems.Count && _loadedItems[index] is { } loaded)
             {
-                return _loadedItems[index];
+                return loaded;
             }
-            
-            // Load the page containing this index
+
+            // Cache miss: never block the calling thread. Avalonia's virtualizing panel calls this
+            // indexer during its layout pass, so a blocking wait here used to be able to freeze the
+            // whole UI thread while a page loaded (see project_codebase_improvement_backlog.md).
+            // Kick the page load off in the background and return the shared placeholder
+            // immediately — LoadPageAsync already posts a CollectionChanged (Replace) once the
+            // real data arrives, which backfills the row through the normal binding/notification
+            // path instead of this call ever waiting for it.
             var pageIndex = index / _pageSize;
+            _ = LoadPageAsync(pageIndex).ContinueWith(
+                t => _logger.LogError(t.Exception, "[VirtualizedTrackCollection] Background load of page {Page} failed", pageIndex),
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
 
-            // Blocking the calling thread (usually the UI thread, via Avalonia's virtualizing
-            // panel) here is a real known issue — see project_codebase_improvement_backlog.md.
-            // A full fix means letting this return early and backfilling via the CollectionChanged
-            // this class already posts once the page loads, but several callers (e.g.
-            // LibraryPlaylistTrackSurface.axaml.cs) dereference this indexer's result without a
-            // null check, so relaxing the "never returns null" contract needs a full caller audit
-            // first. Bounding the wait at least prevents a slow/stuck DB call from hanging the UI
-            // indefinitely — a normal page fetch is single-digit milliseconds, so this timeout
-            // should never be hit in practice.
-            if (!LoadPageAsync(pageIndex).Wait(TimeSpan.FromSeconds(10)))
-            {
-                _logger.LogWarning("[VirtualizedTrackCollection] Page {Page} load timed out after 10s", pageIndex);
-            }
-
-            // Return the item if it was loaded
-            if (index < _loadedItems.Count)
-            {
-                return _loadedItems[index];
-            }
-
-            throw new InvalidOperationException($"Failed to load item at index {index}");
+            return PlaylistTrackViewModel.Placeholder;
         }
         set
         {
@@ -216,9 +208,16 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     public void Add(PlaylistTrackViewModel item) => throw new NotSupportedException();
     public void Clear() => throw new NotSupportedException();
     public bool Contains(PlaylistTrackViewModel item) => _loadedItems.Contains(item);
-    public void CopyTo(PlaylistTrackViewModel[] array, int arrayIndex) 
-    { 
-        _loadedItems.CopyTo(array, arrayIndex);
+    public void CopyTo(PlaylistTrackViewModel[] array, int arrayIndex)
+    {
+        // Route through the indexer (not a raw _loadedItems.CopyTo) so that callers who build a
+        // List<T> from this collection — which allocates array.Length == Count, i.e. the full DB
+        // total, not just what's loaded — get the placeholder for any not-yet-loaded slot instead
+        // of a raw null default(T). Previously this leaked nulls into e.g. FilteredTracks.ToList().
+        for (int i = 0; i < Count; i++)
+        {
+            array[arrayIndex + i] = this[i];
+        }
     }
     public IEnumerator<PlaylistTrackViewModel> GetEnumerator()
     {
@@ -232,7 +231,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
 
     public bool HasMoreItems => _count == -1 || _loadedItems.Count < _count;
 
-    private async Task LoadPageAsync(int pageIndex)
+    internal async Task LoadPageAsync(int pageIndex)
     {
         if (_pendingPages.Contains(pageIndex) || _pages.ContainsKey(pageIndex)) return;
         

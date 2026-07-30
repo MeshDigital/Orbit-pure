@@ -89,6 +89,42 @@ public sealed class EnergyAnalysisService
     }
 
     /// <summary>
+    /// Computes the normalized per-second RMS energy curve from an already-decoded interleaved
+    /// PCM buffer. Prefer this over <see cref="ComputeRawEnergyCurveAsync"/> whenever the caller
+    /// has already decoded the file (e.g. <c>AudioAnalysisService</c> also needs the same PCM
+    /// buffer for drop-signal detection) — this avoids a second full-file decode of the same audio.
+    /// </summary>
+    public IReadOnlyList<float> ComputeRawEnergyCurveFromPcm(float[] interleavedSamples, int sampleRate, int channels)
+    {
+        if (interleavedSamples.Length == 0)
+            return Array.Empty<float>();
+
+        int samplesPerWindow = Math.Max(1, sampleRate) * Math.Max(1, channels);
+        var windows = new List<float>();
+
+        for (int offset = 0; offset < interleavedSamples.Length; offset += samplesPerWindow)
+        {
+            int count = Math.Min(samplesPerWindow, interleavedSamples.Length - offset);
+            double sumSquares = 0d;
+            for (int i = 0; i < count; i++)
+            {
+                double v = interleavedSamples[offset + i];
+                sumSquares += v * v;
+            }
+
+            windows.Add(count > 0 ? (float)Math.Sqrt(sumSquares / count) : 0f);
+        }
+
+        if (windows.Count == 0)
+            return Array.Empty<float>();
+
+        var sanitized = windows
+            .Select(v => float.IsNaN(v) || float.IsInfinity(v) ? 0f : v)
+            .ToArray();
+        return Normalize(sanitized);
+    }
+
+    /// <summary>
     /// Computes a normalized energy profile directly from an audio file using RMS windows.
     /// This is a fallback path for analysis stages where a persisted energy curve is not yet available.
     /// </summary>

@@ -658,7 +658,6 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     public System.Windows.Input.ICommand CopyToFolderCommand { get; }
     public System.Windows.Input.ICommand BulkRetryCommand { get; }
     public System.Windows.Input.ICommand BulkCancelCommand { get; }
-    public System.Windows.Input.ICommand BulkReEnrichCommand { get; }
     public System.Windows.Input.ICommand BulkExportCsvCommand { get; }
     
     // Phase 18: Sonic Match - Find Similar Vibe
@@ -695,8 +694,10 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         SelectAllTracksCommand = ReactiveCommand.Create(() => 
         {
             // Update IsSelected property to reflect selection visually
-            // Only select what's currently filtered and visible
-            var tracks = FilteredTracks.ToList();
+            // Only select what's currently filtered and visible. Excludes placeholders (rows not
+            // yet loaded from the DB on a large/virtualized library) — Select All acts on the
+            // currently-loaded subset rather than force-loading everything.
+            var tracks = FilteredTracks.ToList().Where(t => !t.IsPlaceholder).ToList();
             
             // Batch the collection update
             _selectedTracks.CollectionChanged -= OnSelectionChanged;
@@ -745,7 +746,6 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         BulkRetryCommand = ReactiveCommand.CreateFromTask(ExecuteBulkRetryAsync);
         CopyToFolderCommand = ReactiveCommand.CreateFromTask(ExecuteCopyToFolderAsync);
         BulkCancelCommand = ReactiveCommand.CreateFromTask(ExecuteBulkCancelAsync);
-        BulkReEnrichCommand = ReactiveCommand.CreateFromTask(ExecuteBulkReEnrichAsync);
         BulkExportCsvCommand = ReactiveCommand.CreateFromTask(ExecuteBulkExportCsvAsync);
         
         // Phase 18: Find Similar - triggers sonic match search
@@ -1016,41 +1016,6 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     /// Optimized with batch updates for virtualization performance.
     /// </summary>
 
-    private async Task SeparateStemsAsync(PlaylistTrack? singleTrack)
-    {
-        // If single track provided (context menu on item), use it.
-        // If null (toolbar button), use selection.
-        var tracksToProcess = new System.Collections.Generic.List<PlaylistTrackViewModel>();
-        
-        if (singleTrack != null)
-        {
-            // Find the VM for this track
-            var vm = FilteredTracks.FirstOrDefault(t => t.Model == singleTrack);
-            if (vm != null) tracksToProcess.Add(vm);
-        }
-        else if (SelectedTracks != null && SelectedTracks.Any())
-        {
-            tracksToProcess.AddRange(SelectedTracks);
-        }
-
-        if (!tracksToProcess.Any()) return;
-
-        // Use Bulk Coordinator if available? 
-        // Current SeparateStemsCommand implementation in PlaylistTrackViewModel calls SeparateStems() -> void
-        // which triggers a background task/event.
-        // So we can just call Execute on them.
-        
-        foreach (var track in tracksToProcess)
-        {
-            if (track.SeparateStemsCommand.CanExecute(null))
-            {
-                track.SeparateStemsCommand.Execute(null);
-            }
-        }
-        
-        await Task.CompletedTask;
-    }
-
     private void ExecuteFindSimilar(PlaylistTrackViewModel? track)
     {
         _logger.LogInformation("Find Similar requested for {Artist} - {Title}", track?.Model?.Artist ?? "Unknown", track?.Model?.Title ?? "Unknown");
@@ -1279,7 +1244,25 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         HasMultiSelection = count > 1;
         SelectedCountText = $"{count} tracks selected";
         this.RaisePropertyChanged(nameof(LeadSelectedTrack));
-        UpdateHarmonicHighlights();
+        ScheduleUpdateHarmonicHighlights();
+    }
+
+    private bool _harmonicHighlightsScheduled;
+
+    /// <summary>
+    /// Coalesces bursts of selection changes (e.g. holding Shift+Down to extend a range
+    /// selection, which fires one UpdateSelectionState per key-repeat) into a single full-collection
+    /// harmonic-highlight recompute per burst instead of one per selection change.
+    /// </summary>
+    private void ScheduleUpdateHarmonicHighlights()
+    {
+        if (_harmonicHighlightsScheduled) return;
+        _harmonicHighlightsScheduled = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _harmonicHighlightsScheduled = false;
+            UpdateHarmonicHighlights();
+        }, DispatcherPriority.Background);
     }
 
     /// <summary>
@@ -1465,25 +1448,13 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         SelectedTracks.Clear();
     }
 
-    private async Task ExecuteBulkReEnrichAsync()
-    {
-        var selectedTracks = SelectedTracks.ToList();
-        if (!selectedTracks.Any()) return;
-
-        if (_bulkCoordinator.IsRunning) return;
-
-        // Enrichment has been removed.
-
-        SelectedTracks.Clear();
-    }
-
     private async Task ExecuteBulkExportCsvAsync()
     {
         try
         {
             var tracksToExport = SelectedTracks.Any()
                 ? SelectedTracks.ToList()
-                : FilteredTracks.ToList();
+                : FilteredTracks.ToList().Where(t => !t.IsPlaceholder).ToList();
 
             if (!tracksToExport.Any())
             {

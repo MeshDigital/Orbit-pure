@@ -126,7 +126,7 @@ public class DashboardService
                 .GroupBy(g => g)
                 .Select(g => new { Genre = g.Key, Count = g.Count() })
                 .OrderByDescending(g => g.Count)
-                .Take(5)
+                .Take(8)
                 .ToList();
                 
             health.TopGenresJson = System.Text.Json.JsonSerializer.Serialize(genreCounts);
@@ -230,6 +230,23 @@ public class DashboardService
                 // Dynamically fetch counts to ensure dashboard is 100% accurate
                 model.SuccessfulCount = await context.PlaylistTracks.CountAsync(t => t.PlaylistId == entity.Id && t.Status == TrackStatus.Downloaded);
                 model.TotalTracks = await context.PlaylistTracks.CountAsync(t => t.PlaylistId == entity.Id);
+
+                // Most playlists have no dedicated cover (AlbumArtUrl), only their tracks do —
+                // fetch a few distinct track art URLs so the dashboard card can build a mosaic.
+                if (string.IsNullOrEmpty(model.AlbumArtUrl))
+                {
+                    var trackArtUrls = await context.PlaylistTracks
+                        .Where(t => t.PlaylistId == entity.Id && t.AlbumArtUrl != null && t.AlbumArtUrl != "")
+                        .Select(t => t.AlbumArtUrl)
+                        .Distinct()
+                        .Take(4)
+                        .ToListAsync();
+
+                    model.PlaylistTracks = trackArtUrls
+                        .Select(url => new PlaylistTrack { PlaylistId = entity.Id, AlbumArtUrl = url })
+                        .ToList();
+                }
+
                 models.Add(model);
             }
 
@@ -336,7 +353,15 @@ public class DashboardService
             using var context = new AppDbContext();
 
             var totalCount = await context.LibraryEntries.CountAsync();
-            var analyzedCount = await context.AudioFeatures.CountAsync(f => f.Bpm > 0);
+
+            // AudioFeatures rows for tracks that have since been removed/replaced are never
+            // cleaned up on delete (no cascading delete configured), so filtering to only rows
+            // whose hash still exists in LibraryEntries keeps "analyzed" from exceeding the
+            // actual current library size (it used to: 3167 analyzed vs. 1424 real tracks).
+            var liveFeatures = context.AudioFeatures
+                .Where(f => context.LibraryEntries.Any(le => le.UniqueHash == f.TrackUniqueHash));
+
+            var analyzedCount = await liveFeatures.CountAsync(f => f.Bpm > 0);
 
             var flacCount = await context.LibraryEntries.CountAsync(e =>
                 e.Format != null && (e.Format.ToUpper() == "FLAC" || e.Format.ToUpper() == "WAV" || e.Format.ToUpper() == "AIFF"));
@@ -344,13 +369,13 @@ public class DashboardService
                 e.Bitrate >= 300 && e.Format != null && e.Format.ToUpper() != "FLAC" && e.Format.ToUpper() != "WAV" && e.Format.ToUpper() != "AIFF");
             var lowQualityCount = Math.Max(0, totalCount - flacCount - mp3HqCount);
 
-            var keyCounts = await context.AudioFeatures
+            var keyCounts = await liveFeatures
                 .Where(f => f.CamelotKey != null && f.CamelotKey != string.Empty)
                 .GroupBy(f => f.CamelotKey)
                 .Select(g => new { Key = g.Key, Count = g.Count() })
                 .ToListAsync();
 
-            var energyValues = await context.AudioFeatures
+            var energyValues = await liveFeatures
                 .Where(f => f.Bpm > 0 && f.Energy > 0)
                 .Select(f => (double)f.Energy)
                 .ToListAsync();

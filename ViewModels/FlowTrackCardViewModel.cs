@@ -93,6 +93,14 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
     public string PrimaryTransitionReason => Bridge?.ReasonSummary ?? string.Empty;
     public bool HasPrimaryTransitionReason => !string.IsNullOrWhiteSpace(PrimaryTransitionReason);
 
+    /// <summary>True while this card's bridge-to-next transition is playing a live crossfade preview.</summary>
+    private bool _isPreviewingTransition;
+    public bool IsPreviewingTransition
+    {
+        get => _isPreviewingTransition;
+        set => this.RaiseAndSetIfChanged(ref _isPreviewingTransition, value);
+    }
+
     // -- Commands --------------------------------------------------------------
 
     public ReactiveCommand<Unit, Unit> MoveLeftCommand  { get; }
@@ -100,6 +108,7 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
     public ReactiveCommand<Unit, Unit> RemoveCommand    { get; }
     public ReactiveCommand<Unit, Unit> FindBridgeToNextCommand { get; }
     public ReactiveCommand<Unit, Unit> SelectTransitionInspectorCommand { get; }
+    public ReactiveCommand<Unit, Unit> PreviewTransitionCommand { get; }
 
     // -- Constructor -----------------------------------------------------------
 
@@ -109,7 +118,8 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         Action onMoveRight,
         Action onRemove,
         Action<string>? onFindBridgeToNext = null,
-        Action<string>? onSelectTransitionInspector = null)
+        Action<string>? onSelectTransitionInspector = null,
+        Func<string, System.Threading.Tasks.Task>? onPreviewTransition = null)
     {
         Model           = track;
         Artist          = track.Artist  ?? "Unknown Artist";
@@ -135,6 +145,8 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         RemoveCommand    = ReactiveCommand.Create(onRemove);
         FindBridgeToNextCommand = ReactiveCommand.Create(() => onFindBridgeToNext?.Invoke(TrackHash));
         SelectTransitionInspectorCommand = ReactiveCommand.Create(() => onSelectTransitionInspector?.Invoke(TrackHash));
+        PreviewTransitionCommand = ReactiveCommand.CreateFromTask(() =>
+            onPreviewTransition?.Invoke(TrackHash) ?? System.Threading.Tasks.Task.CompletedTask);
     }
 
     // -- Helpers ---------------------------------------------------------------

@@ -34,6 +34,8 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     private readonly INotificationService _notificationService;
     private readonly IEventBus _eventBus;
     private readonly SearchViewModel _searchViewModel;
+    private readonly ArtworkCacheService _artworkCacheService;
+    private readonly PlaylistMosaicService _mosaicService;
     private IDisposable? _eventSubscription;
     private PropertyChangedEventHandler? _connectionChangedHandler;
     private bool _isDisposed;
@@ -116,9 +118,31 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ViewPlaylistCommand { get; }
     public ICommand UpgradeBronzeCommand { get; }
     public ICommand RunMissionCommand { get; }
+    public ICommand SelectGenreCommand { get; }
+    public ICommand SelectDiscoverTabCommand { get; }
+
+    private string _selectedDiscoverTab = "RecentlyAdded";
+    public string SelectedDiscoverTab
+    {
+        get => _selectedDiscoverTab;
+        set
+        {
+            if (SetProperty(ref _selectedDiscoverTab, value))
+            {
+                OnPropertyChanged(nameof(IsRecentlyAddedTabActive));
+                OnPropertyChanged(nameof(IsDownloadedTabActive));
+                OnPropertyChanged(nameof(IsForYouTabActive));
+            }
+        }
+    }
+
+    public bool IsRecentlyAddedTabActive => SelectedDiscoverTab == "RecentlyAdded";
+    public bool IsDownloadedTabActive => SelectedDiscoverTab == "Downloaded";
+    public bool IsForYouTabActive => SelectedDiscoverTab == "ForYou";
 
 
     public ObservableCollection<GenrePlanetViewModel> TopGenres { get; } = new();
+    public bool HasTopGenres => TopGenres.Count > 0;
 
     private DashboardSnapshot _currentSnapshot = new();
 
@@ -190,12 +214,16 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         INotificationService notificationService,
         IEventBus eventBus,
         LibraryViewModel libraryViewModel,
-        SearchViewModel searchViewModel)
+        SearchViewModel searchViewModel,
+        ArtworkCacheService artworkCacheService,
+        PlaylistMosaicService mosaicService)
     {
         _logger = logger;
         _dashboardService = dashboardService;
         _navigationService = navigationService;
         _connectionViewModel = connectionViewModel;
+        _artworkCacheService = artworkCacheService;
+        _mosaicService = mosaicService;
         _databaseService = databaseService;
         _spotifyAuth = spotifyAuth;
         _spotifyEnrichment = spotifyEnrichment;
@@ -248,6 +276,11 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         ClearDeadLettersCommand = new AsyncRelayCommand(ClearDeadLettersAsync);
         UpgradeBronzeCommand = new RelayCommand(() => _navigationService.NavigateTo("Library"));
         RunMissionCommand = new AsyncRelayCommand<MissionOperation>(ExecuteRunMissionAsync);
+        SelectGenreCommand = new RelayCommand<GenrePlanetViewModel>(ExecuteSelectGenre);
+        SelectDiscoverTabCommand = new RelayCommand<string>(tab =>
+        {
+            if (!string.IsNullOrEmpty(tab)) SelectedDiscoverTab = tab;
+        });
 
 
         _connectionChangedHandler = (s, e) =>
@@ -400,6 +433,8 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
             // Phase 3A (Transparency): Inject real Journal Health data (Recovery Status)
             if (LibraryHealth != null)
             {
+                UpdateTopGenres(LibraryHealth.TopGenresJson);
+
                 var journalStats = await _crashJournal.GetSystemHealthAsync();
                 
                 if (journalStats.DeadLetterCount > 0)
@@ -454,9 +489,9 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             var recent = await _dashboardService.GetRecentPlaylistsAsync(10); // Show more for horizontal scroll
-            
+
             // Map to ViewModels on background thread
-            var viewModels = recent.Select(p => new PlaylistCardViewModel(p)).ToList();
+            var viewModels = recent.Select(p => new PlaylistCardViewModel(p, _artworkCacheService, _mosaicService)).ToList();
 
             Dispatcher.UIThread.Post(() =>
             {
@@ -476,7 +511,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             var downloads = await _dashboardService.GetRecentDownloadedTracksAsync(8);
-            var cards = downloads.Select(track => new RecentDownloadedTrackCardViewModel(track)).ToList();
+            var cards = downloads.Select(track => new RecentDownloadedTrackCardViewModel(track, _artworkCacheService)).ToList();
 
             Dispatcher.UIThread.Post(() =>
             {
@@ -518,6 +553,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
                 {
                     track.InLibrary = await _databaseService.FindLibraryEntryAsync(track.ISRC) != null;
                 }
+                track.Artwork = new ArtworkProxy(_artworkCacheService, track.ImageUrl);
             }
 
             Dispatcher.UIThread.Post(() =>
@@ -540,6 +576,18 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     {
         if (card == null) return;
         _libraryViewModel.SelectedProject = card.Model;
+        _navigationService.NavigateTo("Library");
+    }
+
+    /// <summary>
+    /// Genre Galaxy planet clicked — jumps to the Library so the user can explore that genre's
+    /// tracks. Doesn't auto-apply a style filter: the free-text genres shown here (from track
+    /// metadata, e.g. "drum and bass") are a different vocabulary from the Library's curated
+    /// StyleFilterItem list (e.g. "Neurofunk"), so there's no reliable 1:1 match to pre-select.
+    /// </summary>
+    private void ExecuteSelectGenre(GenrePlanetViewModel? genre)
+    {
+        if (genre == null) return;
         _navigationService.NavigateTo("Library");
     }
 
@@ -656,10 +704,11 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
             if (genres == null) return;
 
             TopGenres.Clear();
-            foreach (var g in genres)
+            for (int i = 0; i < genres.Count; i++)
             {
-                TopGenres.Add(new GenrePlanetViewModel { Name = g.Genre, Count = g.Count });
+                TopGenres.Add(new GenrePlanetViewModel { Name = genres[i].Genre, Count = genres[i].Count, Color = GenrePlanetViewModel.PaletteColor(i) });
             }
+            OnPropertyChanged(nameof(HasTopGenres));
         }
         catch (Exception ex)
         {
@@ -689,20 +738,34 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
 
 public class GenrePlanetViewModel
 {
+    /// <summary>Vibrant, high-contrast palette cycled by rank so each genre reads as its own
+    /// "planet" instead of every orb being an identical shade of blue.</summary>
+    private static readonly string[] Palette =
+    {
+        "#00D9FF", "#A855F7", "#F43F5E", "#22C55E", "#FBBF24",
+        "#EC4899", "#3B82F6", "#F97316", "#14B8A6", "#8B5CF6",
+    };
+
+    public static string PaletteColor(int index) => Palette[((index % Palette.Length) + Palette.Length) % Palette.Length];
+
     public string Name { get; set; } = string.Empty;
     public int Count { get; set; }
     public double Size => 40 + (Math.Min(Count, 100) * 0.5);
-    public string Color => "#00A3FF"; // Could be dynamic based on purity later
+    public string Color { get; set; } = Palette[0];
 }
 
 public class RecentDownloadedTrackCardViewModel
 {
     private readonly PlaylistTrack _track;
 
-    public RecentDownloadedTrackCardViewModel(PlaylistTrack track)
+    public RecentDownloadedTrackCardViewModel(PlaylistTrack track, ArtworkCacheService? artworkCacheService = null)
     {
         _track = track;
+        Artwork = artworkCacheService != null ? new ArtworkProxy(artworkCacheService, track.AlbumArtUrl) : null;
     }
+
+    /// <summary>Lazily loads the track's art from its (typically remote) URL on first access.</summary>
+    public ArtworkProxy? Artwork { get; }
 
     public string Title => string.IsNullOrWhiteSpace(_track.Title) ? "Unknown Title" : _track.Title;
     public string Artist => string.IsNullOrWhiteSpace(_track.Artist) ? "Unknown Artist" : _track.Artist;

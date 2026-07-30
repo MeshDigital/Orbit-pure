@@ -128,45 +128,48 @@
                            TextTrimming="CharacterEllipsis"
                            TextAlignment="Center"
                            IsVisible="{Binding IsLoading, Converter={StaticResource BoolInverseConverter}}"/>
-                <Border Background="#181A1F"
-                        BorderBrush="#2B3240"
-                        BorderThickness="1"
-                        CornerRadius="6"
-                        Padding="10,6"
-                        IsVisible="{Binding IsLoading, Converter={StaticResource BoolInverseConverter}}">
-                    <StackPanel Spacing="6">
-                        <TextBlock Text="{Binding CurrentTrackContextSummary}"
-                                   FontSize="11"
-                                   Foreground="#AFC6DD"
-                                   TextWrapping="Wrap"
-                                   TextAlignment="Center"/>
-                        <TextBlock Text="{Binding CurrentTrackWorkflowHint}"
-                                   FontSize="10"
-                                   Foreground="#8FD6A8"
-                                   TextWrapping="Wrap"
-                                   TextAlignment="Center"/>
-                        <TextBlock Text="{Binding CurrentTrackWorkstationPrepSummary}"
-                                   FontSize="10"
-                                   Foreground="#D9C7FF"
-                                   TextWrapping="Wrap"
-                                   TextAlignment="Center"/>
-                        <TextBlock Text="{Binding CurrentTrackRoutingSummary}"
-                                   FontSize="10"
-                                   Foreground="#8FD6A8"
-                                   TextWrapping="Wrap"
-                                   TextAlignment="Center"/>
-                        <TextBlock Text="{Binding CurrentTrackTransitionPlanSummary}"
-                                   FontSize="10"
-                                   Foreground="#FFD58A"
-                                   TextWrapping="Wrap"
-                                   TextAlignment="Center"/>
-                        <TextBlock Text="{Binding AnalysisLaneSummary}"
-                                   FontSize="10"
-                                   Foreground="#9EEFFF"
-                                   TextWrapping="Wrap"
-                                   TextAlignment="Center"/>
-                    </StackPanel>
-                </Border>
+                <TextBlock Text="{Binding CurrentTrackContextSummary}"
+                           FontSize="11"
+                           Foreground="#AFC6DD"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"
+                           IsVisible="{Binding IsLoading, Converter={StaticResource BoolInverseConverter}}"/>
+
+                <!-- Workflow/routing/transition detail is useful but verbose — collapsed by
+                     default so the sidebar reads as "now playing", not a wall of text. -->
+                <Expander Header="Track Details" IsExpanded="False" Padding="0" Margin="0"
+                          HorizontalAlignment="Stretch"
+                          IsVisible="{Binding IsLoading, Converter={StaticResource BoolInverseConverter}}">
+                    <Border Background="#181A1F"
+                            BorderBrush="#2B3240"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="10,8"
+                            Margin="0,6,0,0">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="{Binding CurrentTrackWorkflowHint}"
+                                       FontSize="10"
+                                       Foreground="#8FD6A8"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding CurrentTrackWorkstationPrepSummary}"
+                                       FontSize="10"
+                                       Foreground="#D9C7FF"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding CurrentTrackRoutingSummary}"
+                                       FontSize="10"
+                                       Foreground="#8FD6A8"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding CurrentTrackTransitionPlanSummary}"
+                                       FontSize="10"
+                                       Foreground="#FFD58A"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding AnalysisLaneSummary}"
+                                       FontSize="10"
+                                       Foreground="#9EEFFF"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
+                </Expander>
                 <WrapPanel HorizontalAlignment="Center" ItemHeight="24" Margin="0,0,0,2">
                     <Border Background="#1F2933" BorderBrush="#324556" BorderThickness="1" CornerRadius="999" Padding="8,3">
                         <TextBlock Text="{Binding CurrentTrackStatusBadge}" FontSize="9" FontWeight="SemiBold" Foreground="#D9EEFF"/>
