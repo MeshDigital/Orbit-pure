@@ -20,7 +20,7 @@ public class SidebarViewModelSyncTests
         var rightPanel = new RightPanelService();
         var playerVm = CreateUninitializedPlayerVm();
         var similarVm = CreateSimilarTracksVm();
-        using var sut = new SidebarViewModel(rightPanel, playerVm, similarVm);
+        using var sut = new SidebarViewModel(rightPanel, playerVm, similarVm, CreateUninitializedNotificationCenter());
 
         rightPanel.OpenPanel(playerVm, "NOW PLAYING", "🎵");
 
@@ -34,7 +34,7 @@ public class SidebarViewModelSyncTests
         var rightPanel = new RightPanelService();
         var playerVm = CreateUninitializedPlayerVm();
         var similarVm = CreateSimilarTracksVm();
-        using var sut = new SidebarViewModel(rightPanel, playerVm, similarVm);
+        using var sut = new SidebarViewModel(rightPanel, playerVm, similarVm, CreateUninitializedNotificationCenter());
 
         var inspectorTrack = new PlaylistTrackViewModel(new PlaylistTrack
         {
@@ -128,7 +128,7 @@ public class SidebarViewModelSyncTests
         var rightPanel = new RightPanelService();
         var playerVm = CreateUninitializedPlayerVm();
         var similarVm = CreateSimilarTracksVm();
-        using var sut = new SidebarViewModel(rightPanel, playerVm, similarVm);
+        using var sut = new SidebarViewModel(rightPanel, playerVm, similarVm, CreateUninitializedNotificationCenter());
 
         var selected = CreateTrack("wrapper-selected-hash", "Wrapper Artist", "Wrapper Track");
         var libraryVm = CreateLibraryVmWithTracks(selected: selected);
@@ -148,6 +148,9 @@ public class SidebarViewModelSyncTests
 
     private static PlayerViewModel CreateUninitializedPlayerVm()
         => (PlayerViewModel)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(PlayerViewModel));
+
+    private static NotificationCenterService CreateUninitializedNotificationCenter()
+        => (NotificationCenterService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(NotificationCenterService));
 
     private static LibraryViewModel CreateUninitializedLibraryVm()
         => (LibraryViewModel)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(LibraryViewModel));

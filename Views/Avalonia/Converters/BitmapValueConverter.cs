@@ -24,6 +24,20 @@ public class BitmapValueConverter : IValueConverter
                 // Ignore errors, return null (fallback to placeholder)
             }
         }
+
+        if (value is byte[] { Length: > 0 } bytes)
+        {
+            try
+            {
+                using var stream = new System.IO.MemoryStream(bytes);
+                return new Bitmap(stream);
+            }
+            catch
+            {
+                // Ignore errors (e.g. malformed/unsupported image bytes), return null
+            }
+        }
+
         return null;
     }
 

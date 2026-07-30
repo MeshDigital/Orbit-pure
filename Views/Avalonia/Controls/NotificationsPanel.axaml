@@ -1,0 +1,71 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:models="clr-namespace:SLSKDONET.Models"
+             xmlns:svc="clr-namespace:SLSKDONET.Services"
+             mc:Ignorable="d" d:DesignWidth="320" d:DesignHeight="600"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.NotificationsPanel"
+             x:DataType="svc:NotificationCenterService">
+
+    <UserControl.Styles>
+        <Style Selector="Border.notif">
+            <Setter Property="Background" Value="{DynamicResource BrushBg2}"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="Margin" Value="0,2"/>
+        </Style>
+        <Style Selector="Border.notif.unread">
+            <Setter Property="BorderBrush" Value="{DynamicResource BrushAccent}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style Selector="Border.notif:pointerover">
+            <Setter Property="Background" Value="{DynamicResource BrushBg3}"/>
+        </Style>
+    </UserControl.Styles>
+
+    <DockPanel Margin="12">
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
+            <TextBlock Grid.Column="0" Text="Notifications" FontSize="15" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" Classes="secondary" Content="Mark all read" FontSize="10" Padding="8,4" Margin="0,0,6,0"
+                    Command="{Binding MarkAllReadCommand}"/>
+            <Button Grid.Column="2" Classes="secondary" Content="Clear" FontSize="10" Padding="8,4"
+                    Command="{Binding ClearCommand}"/>
+        </Grid>
+
+        <Border DockPanel.Dock="Top" Padding="24,32" IsVisible="{Binding !Notifications.Count}">
+            <StackPanel HorizontalAlignment="Center" Spacing="8">
+                <TextBlock Text="🔔" FontSize="28" HorizontalAlignment="Center" Opacity="0.4"/>
+                <TextBlock Text="Nothing yet" FontSize="12" Foreground="{DynamicResource BrushText2}" HorizontalAlignment="Center"/>
+                <TextBlock Text="Completed downloads, chat messages, and room replies will show up here."
+                           FontSize="10" Foreground="{DynamicResource BrushTextDisabled}" TextWrapping="Wrap"
+                           HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="220"/>
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer IsVisible="{Binding Notifications.Count}">
+            <ItemsControl ItemsSource="{Binding Notifications}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="models:NotificationItem">
+                        <Border Classes="notif" Classes.unread="{Binding !IsRead}">
+                            <Button Background="Transparent" BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch"
+                                    Command="{Binding $parent[UserControl].DataContext.OpenCommand}"
+                                    CommandParameter="{Binding}"
+                                    ToolTip.Tip="{Binding NavigationUsername, StringFormat='Open conversation with {0}', TargetNullValue=''}">
+                                <Grid ColumnDefinitions="Auto,*">
+                                    <TextBlock Grid.Column="0" Text="{Binding KindIcon}" FontSize="16" Margin="0,0,8,0" VerticalAlignment="Top"/>
+                                    <StackPanel Grid.Column="1" Spacing="2">
+                                        <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="White" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding Detail}" FontSize="11" Foreground="{DynamicResource BrushText1}"
+                                                   TextWrapping="Wrap" IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                        <TextBlock Text="{Binding TimestampUtc, StringFormat='{}{0:HH:mm}'}" FontSize="9" Foreground="{DynamicResource BrushText2}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Button>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

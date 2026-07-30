@@ -1,0 +1,372 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:svc="clr-namespace:SLSKDONET.Services"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="800"
+             x:Class="SLSKDONET.Views.Avalonia.UsersPage"
+             x:DataType="vm:UsersViewModel"
+             Background="{DynamicResource BrushBg1}" Foreground="White">
+
+    <UserControl.Styles>
+        <Style Selector="Border.row">
+            <Setter Property="Background" Value="{DynamicResource BrushBg2}"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="Margin" Value="0,2"/>
+        </Style>
+        <Style Selector="Border.row:pointerover">
+            <Setter Property="Background" Value="{DynamicResource BrushBg3}"/>
+        </Style>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="{DynamicResource BrushAccent}"/>
+            <Setter Property="Foreground" Value="Black"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="14,7"/>
+        </Style>
+        <Style Selector="Button.secondary">
+            <Setter Property="Background" Value="{DynamicResource BrushBg2}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BrushAccent}"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BrushAccent}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- ── Header ─────────────────────────────────────────────────── -->
+        <Border Grid.Row="0"
+                Background="{DynamicResource BrushBg0}"
+                BorderBrush="{DynamicResource BrushBorder1}"
+                BorderThickness="0,0,0,1"
+                Padding="20,14">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <TextBlock Text="👥" FontSize="22" VerticalAlignment="Center"/>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="Users &amp; Contacts" FontSize="18" FontWeight="Bold" Foreground="White"/>
+                        <TextBlock Text="Everyone you've downloaded from · browse shares · presence · chat" FontSize="12" Foreground="{DynamicResource BrushText1}"/>
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <TextBlock Text="My status" FontSize="11" Foreground="{DynamicResource BrushText2}" VerticalAlignment="Center"/>
+                        <ComboBox ItemsSource="{Binding MyStatusOptions}" SelectedItem="{Binding MyStatus, Mode=TwoWay}"
+                                  FontSize="11" Padding="8,4" Background="{DynamicResource BrushBg2}"/>
+                    </StackPanel>
+                    <ToggleButton Classes="secondary" Content="Contacts" IsChecked="{Binding !IsRoomsPaneActive}"/>
+                    <ToggleButton Classes="secondary" Content="Rooms" IsChecked="{Binding IsRoomsPaneActive}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ── Contacts pane ──────────────────────────────────────────── -->
+        <Grid Grid.Row="1" ColumnDefinitions="360,*" IsVisible="{Binding !IsRoomsPaneActive}" Margin="16">
+
+            <!-- Row list -->
+            <DockPanel Grid.Column="0" Margin="0,0,12,0">
+                <Border DockPanel.Dock="Top" Classes="row" Margin="0,0,0,10">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Start a new chat" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource BrushText2}"/>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBox Grid.Column="0" Text="{Binding NewChatUsername, Mode=TwoWay}" Watermark="Soulseek username…"
+                                     Background="{DynamicResource BrushBg3}" BorderThickness="1" BorderBrush="{DynamicResource BrushBorder2}"
+                                     CornerRadius="6" Padding="10,6" Foreground="White" CaretBrush="White">
+                                <TextBox.KeyBindings>
+                                    <KeyBinding Gesture="Enter" Command="{Binding StartNewChatCommand}"/>
+                                </TextBox.KeyBindings>
+                            </TextBox>
+                            <Button Grid.Column="1" Classes="primary" Content="Chat" Margin="6,0,0,0" Command="{Binding StartNewChatCommand}"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock DockPanel.Dock="Top" Text="Conversations" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource BrushText2}"
+                           Margin="0,0,0,4" IsVisible="{Binding Conversations.Count}"/>
+                <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Conversations}" Margin="0,0,0,10">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="vm:ConversationRowViewModel">
+                            <Border Classes="row">
+                                <Button Background="Transparent" BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch"
+                                        Command="{Binding $parent[UserControl].DataContext.OpenProfileCommand}"
+                                        CommandParameter="{Binding Username}">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Grid.Column="0" Spacing="2">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Ellipse Width="7" Height="7" Fill="{DynamicResource BrushAccent}" IsVisible="{Binding IsUnread}" VerticalAlignment="Center"/>
+                                                <TextBlock Text="{Binding Username}" FontWeight="SemiBold" Foreground="White"/>
+                                            </StackPanel>
+                                            <TextBlock Text="{Binding LastMessage}" FontSize="11" Foreground="{DynamicResource BrushText1}"
+                                                       TextTrimming="CharacterEllipsis" MaxWidth="260"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding LastMessageUtc, StringFormat='{}{0:MMM d}'}"
+                                                   FontSize="10" Foreground="{DynamicResource BrushText2}" VerticalAlignment="Top"/>
+                                    </Grid>
+                                </Button>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock DockPanel.Dock="Top" Text="All contacts" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource BrushText2}" Margin="0,0,0,4"/>
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                    <TextBox Grid.Column="0" Text="{Binding FilterText, Mode=TwoWay}" Watermark="Search users…"
+                             Background="{DynamicResource BrushBg2}" BorderThickness="1" BorderBrush="{DynamicResource BrushBorder2}"
+                             CornerRadius="6" Padding="10,6" Foreground="White" CaretBrush="White"/>
+                    <Button Grid.Column="1" Classes="secondary" Content="⟲" Margin="6,0,0,0" Command="{Binding RefreshCommand}" ToolTip.Tip="Refresh"/>
+                </Grid>
+
+                <ScrollViewer>
+                    <ItemsControl ItemsSource="{Binding Rows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="vm:UserRowViewModel">
+                                <Border Classes="row">
+                                    <Button Background="Transparent" BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch"
+                                            Command="{Binding $parent[UserControl].DataContext.OpenProfileCommand}"
+                                            CommandParameter="{Binding Username}">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <StackPanel Grid.Column="0" Spacing="2">
+                                                <TextBlock Text="{Binding Username}" FontWeight="SemiBold" Foreground="White"/>
+                                                <TextBlock FontSize="11" Foreground="{DynamicResource BrushText1}">
+                                                    <Run Text="{Binding TotalDownloads}"/>
+                                                    <Run Text=" downloads"/>
+                                                </TextBlock>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                <TextBlock Text="★" Foreground="{DynamicResource BrushWarning}" IsVisible="{Binding IsFriend}" ToolTip.Tip="Friend"/>
+                                                <TextBlock Text="📌" IsVisible="{Binding IsPinned}" ToolTip.Tip="Pinned"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Button>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+
+            <!-- Profile detail -->
+            <Border Grid.Column="1" Background="{DynamicResource BrushBg0}" BorderBrush="{DynamicResource BrushBorder1}" BorderThickness="1" CornerRadius="10" Padding="16">
+                <Grid>
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" IsVisible="{Binding SelectedProfile, Converter={x:Static ObjectConverters.IsNull}}">
+                        <TextBlock Text="👤" FontSize="32" HorizontalAlignment="Center" Opacity="0.4"/>
+                        <TextBlock Text="Select a user to view their profile" FontSize="13" Foreground="{DynamicResource BrushText2}"/>
+                    </StackPanel>
+
+                    <Grid RowDefinitions="Auto,*" IsVisible="{Binding SelectedProfile, Converter={x:Static ObjectConverters.IsNotNull}}">
+                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
+                                <TextBlock Text="{Binding SelectedProfile.Username}" FontSize="18" FontWeight="Bold"/>
+                                <Border CornerRadius="10" Padding="8,2" Background="{DynamicResource BrushBg2}">
+                                    <TextBlock Text="{Binding SelectedProfile.Presence}" FontSize="11" Foreground="{DynamicResource BrushAccent}"/>
+                                </Border>
+                            </StackPanel>
+                            <Button Grid.Column="1" Classes="secondary" Content="✕ Close" Command="{Binding CloseProfileCommand}"/>
+                        </Grid>
+
+                        <TabControl Grid.Row="1">
+                            <TabItem Header="Overview">
+                                <StackPanel Spacing="8" Margin="0,10,0,0">
+                                    <Image Source="{Binding SelectedProfile.Info.Picture, Converter={StaticResource BitmapValueConverter}}"
+                                           IsVisible="{Binding SelectedProfile.Info.HasPicture}"
+                                           Width="96" Height="96" HorizontalAlignment="Left" Stretch="UniformToFill"/>
+                                    <TextBlock Text="{Binding SelectedProfile.Info.Description}" TextWrapping="Wrap" Foreground="{DynamicResource BrushText1}"/>
+                                    <TextBlock Foreground="{DynamicResource BrushText1}">
+                                        <Run Text="Upload slots: "/><Run Text="{Binding SelectedProfile.Info.UploadSlots}"/>
+                                        <Run Text=" · Queue length: "/><Run Text="{Binding SelectedProfile.Info.QueueLength}"/>
+                                    </TextBlock>
+                                    <TextBlock Foreground="{DynamicResource BrushText1}" IsVisible="{Binding SelectedProfile.WatchSnapshot, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                        <Run Text="Speed: "/><Run Text="{Binding SelectedProfile.WatchSnapshot.AverageSpeed, StringFormat='{}{0:N0} B/s'}"/>
+                                        <Run Text=" · Shares: "/><Run Text="{Binding SelectedProfile.WatchSnapshot.FileCount}"/><Run Text=" files in "/><Run Text="{Binding SelectedProfile.WatchSnapshot.DirectoryCount}"/><Run Text=" folders"/>
+                                        <Run Text=" · Country: "/><Run Text="{Binding SelectedProfile.WatchSnapshot.CountryCode}"/>
+                                    </TextBlock>
+                                    <TextBlock Foreground="{DynamicResource BrushText1}" IsVisible="{Binding SelectedProfile.ReliabilitySnapshot, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                        <Run Text="Search candidates: "/><Run Text="{Binding SelectedProfile.ReliabilitySnapshot.Value.SearchCandidates}"/>
+                                        <Run Text=" · Completions: "/><Run Text="{Binding SelectedProfile.ReliabilitySnapshot.Value.DownloadCompletions}"/>
+                                        <Run Text=" · Failures: "/><Run Text="{Binding SelectedProfile.ReliabilitySnapshot.Value.DownloadFailures}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </TabItem>
+
+                            <TabItem Header="Browse Shares">
+                                <Grid RowDefinitions="Auto,*" Margin="0,10,0,0">
+                                    <TextBlock Grid.Row="0" Text="{Binding SelectedProfile.Browser.StatusText}" Foreground="{DynamicResource BrushText2}" Margin="0,0,0,6"/>
+                                    <TreeView Grid.Row="1" ItemsSource="{Binding SelectedProfile.Browser.RootNodes}"
+                                              SelectedItem="{Binding SelectedProfile.Browser.SelectedNode, Mode=TwoWay}"
+                                              Background="Transparent">
+                                        <TreeView.ItemTemplate>
+                                            <TreeDataTemplate ItemsSource="{ReflectionBinding Children}">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <TextBlock Text="{ReflectionBinding Icon}"/>
+                                                    <TextBlock Text="{ReflectionBinding DisplayName}" Foreground="White"/>
+                                                </StackPanel>
+                                            </TreeDataTemplate>
+                                        </TreeView.ItemTemplate>
+                                    </TreeView>
+                                    <StackPanel Grid.Row="1" VerticalAlignment="Bottom" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                                        <Button Classes="primary" Content="⬇ Queue Selected" Command="{Binding SelectedProfile.Browser.QueueSelectedCommand}"/>
+                                        <Button Classes="secondary" Content="📦 Queue All" Command="{Binding SelectedProfile.Browser.QueueAllCommand}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </TabItem>
+
+                            <TabItem Header="Download History">
+                                <ScrollViewer Margin="0,10,0,0">
+                                    <ItemsControl ItemsSource="{Binding SelectedProfile.DownloadHistory}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Classes="row">
+                                                    <Grid ColumnDefinitions="*,Auto">
+                                                        <StackPanel Grid.Column="0">
+                                                            <TextBlock FontWeight="SemiBold">
+                                                                <Run Text="{Binding Artist}"/><Run Text=" — "/><Run Text="{Binding Title}"/>
+                                                            </TextBlock>
+                                                            <TextBlock FontSize="11" Foreground="{DynamicResource BrushText2}">
+                                                                <Run Text="{Binding DownloadedFormat}"/><Run Text=" · "/><Run Text="{Binding FinalState}"/>
+                                                            </TextBlock>
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="1" Text="{Binding RecordedAt, StringFormat='{}{0:yyyy-MM-dd}'}" Foreground="{DynamicResource BrushText2}" FontSize="11"/>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </TabItem>
+
+                            <TabItem Header="Chat">
+                                <Grid RowDefinitions="*,Auto,Auto" Margin="0,10,0,0">
+                                    <controls:MessageThreadView Grid.Row="0" Messages="{Binding SelectedProfile.Messages}"/>
+                                    <TextBlock Grid.Row="1" Text="{Binding SelectedProfile.ImageSendError}" FontSize="10" Foreground="{DynamicResource BrushError}"
+                                               TextWrapping="Wrap" IsVisible="{Binding SelectedProfile.ImageSendError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                    <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0">
+                                        <Button Grid.Column="0" Classes="secondary" Content="🖼️" Margin="0,0,6,0" ToolTip.Tip="Send an image"
+                                                Command="{Binding SelectedProfile.SendImageCommand}"/>
+                                        <TextBox Grid.Column="1" Text="{Binding SelectedProfile.MessageInput, Mode=TwoWay}" Watermark="Type a message…"
+                                                 Background="{DynamicResource BrushBg2}" BorderThickness="1" BorderBrush="{DynamicResource BrushBorder2}"
+                                                 CornerRadius="6" Padding="10,6" Foreground="White" CaretBrush="White"/>
+                                        <Button Grid.Column="2" Classes="primary" Content="Send" Margin="8,0,0,0" Command="{Binding SelectedProfile.SendMessageCommand}"/>
+                                    </Grid>
+                                </Grid>
+                            </TabItem>
+                        </TabControl>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- ── Rooms pane ─────────────────────────────────────────────── -->
+        <Grid Grid.Row="1" ColumnDefinitions="320,*" IsVisible="{Binding IsRoomsPaneActive}" Margin="16">
+
+            <DockPanel Grid.Column="0" Margin="0,0,12,0">
+                <Border DockPanel.Dock="Top" Classes="row" Margin="0,0,0,10">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Join or create a room" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource BrushText2}"/>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBox Grid.Column="0" Text="{Binding Rooms.NewRoomName, Mode=TwoWay}" Watermark="Room name…"
+                                     Background="{DynamicResource BrushBg3}" BorderThickness="1" BorderBrush="{DynamicResource BrushBorder2}"
+                                     CornerRadius="6" Padding="10,6" Foreground="White" CaretBrush="White">
+                                <TextBox.KeyBindings>
+                                    <KeyBinding Gesture="Enter" Command="{Binding Rooms.CreateOrJoinRoomCommand}"/>
+                                </TextBox.KeyBindings>
+                            </TextBox>
+                            <Button Grid.Column="1" Classes="primary" Content="Go" Margin="6,0,0,0" Command="{Binding Rooms.CreateOrJoinRoomCommand}"/>
+                        </Grid>
+                        <CheckBox Content="Private room" IsChecked="{Binding Rooms.CreateNewRoomAsPrivate, Mode=TwoWay}" FontSize="11" Foreground="{DynamicResource BrushText2}"/>
+                        <TextBlock Text="Joining…" FontSize="10" Foreground="{DynamicResource BrushAccent}" IsVisible="{Binding Rooms.IsJoining}"/>
+                        <TextBlock Text="{Binding Rooms.JoinStatusMessage}" FontSize="10" Foreground="{DynamicResource BrushError}"
+                                   TextWrapping="Wrap" IsVisible="{Binding Rooms.HasJoinStatusMessage}"/>
+                        <TextBlock Text="A room that doesn't exist yet is created the moment you join it." FontSize="10" Foreground="{DynamicResource BrushText2}" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <Button DockPanel.Dock="Top" Classes="secondary" Content="⟲ Refresh Room List" Margin="0,0,0,8"
+                        Command="{Binding Rooms.RefreshRoomListCommand}"/>
+
+                <TextBlock DockPanel.Dock="Top" Text="Joined" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource BrushText2}" Margin="0,0,0,4"/>
+                <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Rooms.JoinedRooms}" Margin="0,0,0,10">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="vm:RoomViewModel">
+                            <Border Classes="row">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <Button Grid.Column="0" Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Left"
+                                            Command="{Binding $parent[UserControl].DataContext.Rooms.JoinRoomCommand}"
+                                            CommandParameter="{Binding RoomName}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Ellipse Width="7" Height="7" Fill="{DynamicResource BrushAccent}" IsVisible="{Binding HasUnread}" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding RoomName}" Foreground="White"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Grid.Column="1" Classes="secondary" Content="Leave" FontSize="10" Padding="6,2"
+                                            Command="{Binding $parent[UserControl].DataContext.Rooms.LeaveRoomCommand}"
+                                            CommandParameter="{Binding}"/>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*" Margin="0,0,0,4">
+                    <TextBlock Grid.Column="0" Text="Available" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource BrushText2}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBox Grid.Column="1" Text="{Binding Rooms.RoomFilterText, Mode=TwoWay}" Watermark="Filter rooms…"
+                             Background="{DynamicResource BrushBg2}" BorderThickness="1" BorderBrush="{DynamicResource BrushBorder2}"
+                             CornerRadius="6" Padding="8,4" FontSize="11" Foreground="White" CaretBrush="White"/>
+                </Grid>
+                <ScrollViewer>
+                    <ItemsControl ItemsSource="{Binding Rooms.AvailableRooms}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="svc:RoomSummary">
+                                <Border Classes="row">
+                                    <Button Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch"
+                                            Command="{Binding $parent[UserControl].DataContext.Rooms.JoinRoomCommand}"
+                                            CommandParameter="{Binding Name}">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Grid.Column="0" Text="{Binding Name}" Foreground="White"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding UserCount}" Foreground="{DynamicResource BrushText2}"/>
+                                        </Grid>
+                                    </Button>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+
+            <Border Grid.Column="1" Background="{DynamicResource BrushBg0}" BorderBrush="{DynamicResource BrushBorder1}" BorderThickness="1" CornerRadius="10" Padding="16">
+                <Grid>
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" IsVisible="{Binding Rooms.SelectedRoom, Converter={x:Static ObjectConverters.IsNull}}">
+                        <TextBlock Text="💬" FontSize="32" HorizontalAlignment="Center" Opacity="0.4"/>
+                        <TextBlock Text="Join a room to start chatting" FontSize="13" Foreground="{DynamicResource BrushText2}"/>
+                    </StackPanel>
+
+                    <Grid RowDefinitions="Auto,*,Auto,Auto" IsVisible="{Binding Rooms.SelectedRoom, Converter={x:Static ObjectConverters.IsNotNull}}">
+                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+                            <TextBlock Grid.Column="0" Text="{Binding Rooms.SelectedRoom.RoomName}" FontSize="16" FontWeight="Bold"/>
+                            <TextBlock Grid.Column="1" Foreground="{DynamicResource BrushText2}">
+                                <Run Text="{Binding Rooms.SelectedRoom.Members.Count}"/><Run Text=" members"/>
+                            </TextBlock>
+                        </Grid>
+
+                        <controls:MessageThreadView Grid.Row="1" Messages="{Binding Rooms.SelectedRoom.Messages}"/>
+
+                        <TextBlock Grid.Row="2" Text="{Binding Rooms.SelectedRoom.ImageSendError}" FontSize="10" Foreground="{DynamicResource BrushError}"
+                                   TextWrapping="Wrap" IsVisible="{Binding Rooms.SelectedRoom.ImageSendError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0">
+                            <Button Grid.Column="0" Classes="secondary" Content="🖼️" Margin="0,0,6,0" ToolTip.Tip="Send an image to the room"
+                                    Command="{Binding Rooms.SelectedRoom.SendImageCommand}"/>
+                            <TextBox Grid.Column="1" Text="{Binding Rooms.SelectedRoom.MessageInput, Mode=TwoWay}" Watermark="Message the room…"
+                                     Background="{DynamicResource BrushBg2}" BorderThickness="1" BorderBrush="{DynamicResource BrushBorder2}"
+                                     CornerRadius="6" Padding="10,6" Foreground="White" CaretBrush="White"/>
+                            <Button Grid.Column="2" Classes="primary" Content="Send" Margin="8,0,0,0" Command="{Binding Rooms.SelectedRoom.SendMessageCommand}"/>
+                        </Grid>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

@@ -46,4 +46,54 @@ public class CommentTracklistParserTests
         Assert.Equal("Artist Two", result[1].Artist);
         Assert.Equal("Second Song", result[1].Title);
     }
+
+    private const string Sample1001Tracklist = """
+    Kanine @ Summer Essentials Vol. 8 2026-06-29
+
+    [00:00] Kanine ft. Poppy Basckomb - Wide Awake [UKF]
+    [01:40] Metrik - Fatso [HOSPITAL]
+    [02:30] Sub Focus ft. Fireboy DML & IRAH - Original Don [POSITIVA]
+    w/ Synergy ft. RIENK - Stay [UKF]
+    [10:50] KETTAMA - Comes and Goes (Soldat D&B Edit)
+
+    Please set a backlink to keep the tracklist up-to-date: https://1001.tl/2r76u8p1
+    """;
+
+    [Fact]
+    public void Parse_WithOutTitle_DetectsHeaderLineAsPlaylistTitle()
+    {
+        var tracks = CommentTracklistParser.Parse(Sample1001Tracklist, out var detectedTitle);
+
+        Assert.Equal("Kanine @ Summer Essentials Vol. 8 2026-06-29", detectedTitle);
+        Assert.NotEmpty(tracks);
+    }
+
+    [Fact]
+    public void Parse_IgnoresTrailingBacklinkLine()
+    {
+        var tracks = CommentTracklistParser.Parse(Sample1001Tracklist, out _);
+
+        Assert.DoesNotContain(tracks, t =>
+            t.Artist.Contains("backlink", System.StringComparison.OrdinalIgnoreCase) ||
+            t.Title.Contains("backlink", System.StringComparison.OrdinalIgnoreCase) ||
+            t.Title.Contains("1001.tl", System.StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Parse_ExtractsExpectedTrackCountAndMixMarkerTrack()
+    {
+        var tracks = CommentTracklistParser.Parse(Sample1001Tracklist, out _);
+
+        Assert.Equal(5, tracks.Count);
+        Assert.Contains(tracks, t => t.Artist.Contains("Synergy") && t.Title.Contains("Stay"));
+    }
+
+    [Fact]
+    public void Parse_NoLeadingHeaderLine_DetectedTitleIsNull()
+    {
+        var tracks = CommentTracklistParser.Parse("Artist One - Title One\nArtist Two - Title Two", out var detectedTitle);
+
+        Assert.Null(detectedTitle);
+        Assert.Equal(2, tracks.Count);
+    }
 }

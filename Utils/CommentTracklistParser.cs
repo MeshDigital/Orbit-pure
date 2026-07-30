@@ -42,7 +42,9 @@ public static class CommentTracklistParser
         "tracklist actions",
         "export to spotify",
         "add a (live) video",
-        "like this tracklist"
+        "like this tracklist",
+        "please set a backlink",
+        "keep the tracklist up-to-date"
     };
 
     /// <summary>
@@ -50,8 +52,21 @@ public static class CommentTracklistParser
     /// </summary>
     /// <param name="rawText">Raw text containing tracklist (e.g., from YouTube comment)</param>
     /// <returns>List of parsed tracks</returns>
-    public static List<SearchQuery> Parse(string rawText)
+    public static List<SearchQuery> Parse(string rawText) => Parse(rawText, out _);
+
+    /// <summary>
+    /// Parse raw tracklist text into SearchQuery objects, also reporting a detected playlist title.
+    /// </summary>
+    /// <param name="rawText">Raw text containing tracklist (e.g., from a 1001Tracklists paste)</param>
+    /// <param name="detectedTitle">
+    /// The first line of the pasted text, if present and not itself parsed as a track — 1001Tracklists
+    /// and similar sources conventionally open with a "DJ @ Event Name Date" header line above the
+    /// track entries. Null if the input has no such leading non-track line.
+    /// </param>
+    public static List<SearchQuery> Parse(string rawText, out string? detectedTitle)
     {
+        detectedTitle = null;
+
         if (string.IsNullOrWhiteSpace(rawText))
             return new List<SearchQuery>();
 
@@ -64,6 +79,7 @@ public static class CommentTracklistParser
         var lines = rawText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
         var previousTrackKey = string.Empty;
         bool previousLineWasTimestamp = false;
+        bool sawAnyNonBlankLine = false;
 
         foreach (var line in lines)
         {
@@ -75,6 +91,7 @@ public static class CommentTracklistParser
             if (IsTimestampOnly(original))
             {
                 previousLineWasTimestamp = true;
+                sawAnyNonBlankLine = true;
                 continue;
             }
 
@@ -84,6 +101,7 @@ public static class CommentTracklistParser
             if (IsJunkLine(cleaned) || string.IsNullOrWhiteSpace(cleaned))
             {
                 previousLineWasTimestamp = false;
+                sawAnyNonBlankLine = true;
                 continue;
             }
 
@@ -92,8 +110,19 @@ public static class CommentTracklistParser
             bool hasSeparator = HasArtistTitleSeparator(cleaned);
             bool isTrackCandidate = hasSeparator || hadLeadingTimestamp || previousLineWasTimestamp;
             previousLineWasTimestamp = false;
+
             if (!isTrackCandidate)
+            {
+                // The very first non-blank, non-junk, non-track line is almost always the
+                // pasted source's own title/header (e.g. "Kanine @ Summer Essentials Vol. 8 2026-06-29").
+                if (detectedTitle is null && !sawAnyNonBlankLine)
+                    detectedTitle = original;
+
+                sawAnyNonBlankLine = true;
                 continue;
+            }
+
+            sawAnyNonBlankLine = true;
 
             var (artist, title) = hasSeparator
                 ? SplitArtistTitle(cleaned)
@@ -147,9 +176,13 @@ public static class CommentTracklistParser
             return true;
 
         var lowerLine = line.ToLowerInvariant();
-        
+
         // Check for junk keywords
         if (JunkKeywords.Any(keyword => lowerLine.Contains(keyword.ToLowerInvariant())))
+            return true;
+
+        // A bare URL (e.g. a "keep this tracklist up-to-date" backlink) is never a track title.
+        if (lowerLine.Contains("http://") || lowerLine.Contains("https://"))
             return true;
         
         // Filter lines that are just track numbers or tiny counters.

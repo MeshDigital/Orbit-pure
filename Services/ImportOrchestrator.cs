@@ -197,6 +197,7 @@ public class ImportOrchestrator
                 }
 
                 string sourceTitle = provider.Name;
+                string sourceType = provider.Name;
                 var incomingTracks = new System.Collections.Generic.List<PlaylistTrack>();
 
                 // Stream all incoming tracks from the provider
@@ -204,6 +205,9 @@ public class ImportOrchestrator
                 {
                     if (!string.IsNullOrEmpty(batch.SourceTitle) && sourceTitle == provider.Name)
                         sourceTitle = batch.SourceTitle;
+
+                    if (!string.IsNullOrEmpty(batch.SourceType) && sourceType == provider.Name)
+                        sourceType = batch.SourceType;
 
                     foreach (var t in batch.Tracks)
                     {
@@ -314,7 +318,7 @@ public class ImportOrchestrator
                     Id = newJobId,
                     SourceUrl = normalizedInput,
                     SourceTitle = sourceTitle,
-                    SourceType = provider.Name,
+                    SourceType = sourceType,
                     PlaylistTracks = tracksToQueue,
                     CreatedAt = existingJob?.CreatedAt ?? DateTime.UtcNow,
                     DateUpdated = DateTime.UtcNow
@@ -423,15 +427,23 @@ public class ImportOrchestrator
             {
                  if (ct.IsCancellationRequested) break;
 
-                 // Update Title from first batch if generic
+                 // Update Title/Type from the first batch that reports something more specific than the provider's own name
                  if (!string.IsNullOrEmpty(batch.SourceTitle) && _previewViewModel.SourceTitle == provider.Name)
                  {
-                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => 
+                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                      {
                          _previewViewModel.SourceTitle = batch.SourceTitle;
                      });
                  }
-                 
+
+                 if (!string.IsNullOrEmpty(batch.SourceType) && _previewViewModel.SourceType == provider.Name)
+                 {
+                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                     {
+                         _previewViewModel.SourceType = batch.SourceType;
+                     });
+                 }
+
                  await _previewViewModel.AddTracksToPreviewAsync(batch.Tracks);
             }
         }

@@ -46,6 +46,10 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
     private readonly AppConfig _config;
     private readonly IEventBus _eventBus;
     private readonly FrequentSourceService? _frequentSourceService;
+    private readonly ShareIndexService _shareIndex;
+    private readonly ChatAttachmentService _chatAttachments;
+    private const int MaxConcurrentUploads = 10;
+    private int _activeUploadCount;
     private readonly SemaphoreSlim _connectLock = new(1, 1);
     public bool IsConnected => _client?.State.HasFlag(SoulseekClientStates.Connected) == true && 
                               !_client.State.HasFlag(SoulseekClientStates.Disconnecting);
@@ -55,6 +59,10 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
     
     public event EventHandler<DownloadProgressEventArgs>? DownloadProgressChanged;
     public event EventHandler<DownloadCompletedEventArgs>? DownloadCompleted;
+    public event EventHandler<UserStatusChangedEventArgs>? UserStatusChanged;
+    public event EventHandler<PrivateMessageReceivedEventArgs>? PrivateMessageReceived;
+    public event EventHandler<RoomMessageReceivedEventArgs>? RoomMessageReceived;
+    public event EventHandler<RoomMembershipChangedEventArgs>? RoomMembershipChanged;
 
     // Rate Limiting
     private readonly SemaphoreSlim _rateLimitLock = new(1, 1);
@@ -82,16 +90,23 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
         "DiagnosticGenerated",
         "KickedFromServer",
         "ExcludedSearchPhrasesReceived",
-        "GlobalMessageReceived"
+        "GlobalMessageReceived",
+        "UserStatusChanged",
+        "PrivateMessageReceived",
+        "RoomMessageReceived",
+        "RoomJoined",
+        "RoomLeft"
     };
 
-    public SoulseekAdapter(ILogger<SoulseekAdapter> logger, AppConfig config, Network.ProtocolHardeningService hardeningService, IEventBus eventBus, INetworkHealthService healthService, FrequentSourceService? frequentSourceService = null)
+    public SoulseekAdapter(ILogger<SoulseekAdapter> logger, AppConfig config, Network.ProtocolHardeningService hardeningService, IEventBus eventBus, INetworkHealthService healthService, ShareIndexService shareIndex, ChatAttachmentService chatAttachments, FrequentSourceService? frequentSourceService = null)
     {
         _logger = logger;
         _config = config;
         _hardeningService = hardeningService;
         _eventBus = eventBus;
         _healthService = healthService;
+        _shareIndex = shareIndex;
+        _chatAttachments = chatAttachments;
         _frequentSourceService = frequentSourceService;
     }
 
@@ -350,7 +365,98 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
             // Under concurrent searches, callback payloads can be interleaved across active queries,
             // causing false "no results" decisions in discovery despite valid candidates existing.
             maximumConcurrentSearches: 1,
-            maximumConcurrentDownloads: Math.Clamp(_config.MaxConcurrentDownloads, 1, 10));
+            maximumConcurrentDownloads: Math.Clamp(_config.MaxConcurrentDownloads, 1, 10),
+            maximumConcurrentUploads: MaxConcurrentUploads,
+            searchResponseResolver: ResolveSearchResponseAsync,
+            browseResponseResolver: ResolveBrowseResponseAsync,
+            directoryContentsResolver: ResolveDirectoryContentsAsync,
+            userInfoResolver: ResolveUserInfoAsync,
+            enqueueDownload: HandleEnqueueDownloadAsync,
+            placeInQueueResolver: ResolvePlaceInQueueAsync);
+    }
+
+    // ── Serving: answer incoming browse/search/download requests from peers ──────────────
+    // Everything here answers from ShareIndexService only — never from a peer-supplied path
+    // directly — so an incoming request can only ever resolve to a file we chose to share.
+
+    private Task<SearchResponse> ResolveSearchResponseAsync(string username, int token, Soulseek.SearchQuery query)
+    {
+        var matches = _shareIndex.Search(query);
+        if (matches.Count == 0)
+            return Task.FromResult<SearchResponse>(null!);
+
+        var hasFreeSlot = Volatile.Read(ref _activeUploadCount) < MaxConcurrentUploads;
+        var files = matches.Select(m => ShareIndexService.BuildFile(m.VirtualPath, m.Entry, basenameOnly: false));
+        var response = new SearchResponse(
+            _client?.Username ?? username,
+            token,
+            hasFreeSlot,
+            uploadSpeed: 0,
+            queueLength: 0,
+            files,
+            Enumerable.Empty<Soulseek.File>());
+
+        return Task.FromResult(response);
+    }
+
+    private Task<BrowseResponse> ResolveBrowseResponseAsync(string username, IPEndPoint endpoint)
+    {
+        var directories = _shareIndex.GetAllDirectories();
+        return Task.FromResult(new BrowseResponse(directories, Enumerable.Empty<Soulseek.Directory>()));
+    }
+
+    private Task<IEnumerable<Soulseek.Directory>> ResolveDirectoryContentsAsync(string username, IPEndPoint endpoint, int token, string directoryName)
+    {
+        var directory = _shareIndex.GetDirectory(directoryName);
+        IEnumerable<Soulseek.Directory> result = directory is not null ? new[] { directory } : null!;
+        return Task.FromResult(result);
+    }
+
+    private Task<UserInfo> ResolveUserInfoAsync(string username, IPEndPoint endpoint)
+    {
+        var hasFreeSlot = Volatile.Read(ref _activeUploadCount) < MaxConcurrentUploads;
+        return Task.FromResult(new UserInfo("ORBIT", MaxConcurrentUploads, 0, hasFreeSlot, Array.Empty<byte>()));
+    }
+
+    private Task<int?> ResolvePlaceInQueueAsync(string username, IPEndPoint endpoint, string filename)
+        => Task.FromResult<int?>(0);
+
+    private Task HandleEnqueueDownloadAsync(string username, IPEndPoint endpoint, string filename)
+    {
+        if (_shareIndex.TryGetEntry(filename, out var shareEntry) && shareEntry is not null)
+        {
+            _ = UploadSharedFileAsync(username, filename, shareEntry);
+            return Task.CompletedTask;
+        }
+
+        if (_chatAttachments.TryAuthorize(filename, username, out var attachmentEntry) && attachmentEntry is not null)
+        {
+            _ = UploadSharedFileAsync(username, filename, attachmentEntry);
+            return Task.CompletedTask;
+        }
+
+        throw new DownloadEnqueueException("File not shared.");
+    }
+
+    private async Task UploadSharedFileAsync(string username, string virtualFilename, ShareIndexEntry entry)
+    {
+        if (_client == null)
+            return;
+
+        Interlocked.Increment(ref _activeUploadCount);
+        try
+        {
+            await _client.UploadAsync(username, virtualFilename, entry.LocalPath, cancellationToken: CancellationToken.None);
+            _logger.LogInformation("Uploaded {File} to {Username}", virtualFilename, username);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Upload of {File} to {Username} failed", virtualFilename, username);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _activeUploadCount);
+        }
     }
 
     private SoulseekClientOptionsPatch CreateRuntimeNetworkOptionsPatch(RuntimeNetworkConfigSnapshot runtime)
@@ -653,7 +759,63 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 });
             };
 
-            _logger.LogInformation("Connecting to Soulseek as {Username} on {Server}:{Port}...", 
+            // Social: presence, 1:1 chat, room events — mirror the guard/dispatch pattern above.
+            client.UserStatusChanged += (sender, args) =>
+            {
+                if (!ReferenceEquals(sender, _client)) return;
+
+                QueueLibraryCallback("UserStatusChanged", () =>
+                {
+                    UserStatusChanged?.Invoke(this, new UserStatusChangedEventArgs(
+                        args.Username, MapPresence(args.Presence), args.IsPrivileged));
+                });
+            };
+
+            client.PrivateMessageReceived += (sender, args) =>
+            {
+                if (!ReferenceEquals(sender, _client)) return;
+
+                QueueLibraryCallback("PrivateMessageReceived", () =>
+                {
+                    PrivateMessageReceived?.Invoke(this, new PrivateMessageReceivedEventArgs(
+                        args.Id, args.Username, args.Message, args.Timestamp, args.Replayed));
+                });
+            };
+
+            client.RoomMessageReceived += (sender, args) =>
+            {
+                if (!ReferenceEquals(sender, _client)) return;
+
+                QueueLibraryCallback("RoomMessageReceived", () =>
+                {
+                    RoomMessageReceived?.Invoke(this, new RoomMessageReceivedEventArgs(
+                        args.RoomName, args.Username, args.Message, DateTime.UtcNow));
+                });
+            };
+
+            client.RoomJoined += (sender, args) =>
+            {
+                if (!ReferenceEquals(sender, _client)) return;
+
+                QueueLibraryCallback("RoomJoined", () =>
+                {
+                    RoomMembershipChanged?.Invoke(this, new RoomMembershipChangedEventArgs(
+                        args.RoomName, args.Username, joined: true));
+                });
+            };
+
+            client.RoomLeft += (sender, args) =>
+            {
+                if (!ReferenceEquals(sender, _client)) return;
+
+                QueueLibraryCallback("RoomLeft", () =>
+                {
+                    RoomMembershipChanged?.Invoke(this, new RoomMembershipChangedEventArgs(
+                        args.RoomName, args.Username, joined: false));
+                });
+            };
+
+            _logger.LogInformation("Connecting to Soulseek as {Username} on {Server}:{Port}...",
                 _config.Username, _config.SoulseekServer, _config.SoulseekPort);
             
             await client.ConnectAsync(
@@ -2056,6 +2218,199 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
             _logger.LogError(ex, "Failed to browse user shares for {Username}: {Message}", username, ex.Message);
             return Enumerable.Empty<Track>();
         }
+    }
+
+    // ── Social: presence ─────────────────────────────────────────────────
+
+    public async Task<UserWatchSnapshot> WatchUserAsync(string username, CancellationToken ct = default)
+    {
+        if (_client == null || !_client.State.HasFlag(SoulseekClientStates.Connected))
+            throw new InvalidOperationException("Not connected to Soulseek");
+
+        try
+        {
+            var data = await _client.WatchUserAsync(username, cancellationToken: ct);
+            return new UserWatchSnapshot(
+                data.Username,
+                MapPresence(data.Status),
+                data.AverageSpeed,
+                data.DirectoryCount,
+                data.FileCount,
+                data.SlotsFree,
+                data.UploadCount,
+                data.CountryCode);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to watch user {Username}: {Message}", username, ex.Message);
+            return new UserWatchSnapshot(username, UserPresenceState.Unknown, 0, 0, 0, null, 0, null);
+        }
+    }
+
+    public async Task SetStatusAsync(UserPresenceState status, CancellationToken ct = default)
+    {
+        if (_client == null || !_client.State.HasFlag(SoulseekClientStates.Connected))
+            throw new InvalidOperationException("Not connected to Soulseek");
+
+        try
+        {
+            await _client.SetStatusAsync(MapPresenceToLibrary(status), cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to set own status to {Status}: {Message}", status, ex.Message);
+        }
+    }
+
+    public async Task UnwatchUserAsync(string username, CancellationToken ct = default)
+    {
+        if (_client == null || !_client.State.HasFlag(SoulseekClientStates.Connected))
+            return;
+
+        try
+        {
+            await _client.UnwatchUserAsync(username, cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to unwatch user {Username}: {Message}", username, ex.Message);
+        }
+    }
+
+    public async Task<UserStatusSnapshot> GetUserStatusAsync(string username, CancellationToken ct = default)
+    {
+        if (_client == null || !_client.State.HasFlag(SoulseekClientStates.Connected))
+            throw new InvalidOperationException("Not connected to Soulseek");
+
+        try
+        {
+            var status = await _client.GetUserStatusAsync(username, cancellationToken: ct);
+            return new UserStatusSnapshot(status.Username, MapPresence(status.Presence), status.IsPrivileged);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get status for {Username}: {Message}", username, ex.Message);
+            return new UserStatusSnapshot(username, UserPresenceState.Unknown, false);
+        }
+    }
+
+    public async Task<UserProfileSnapshot> GetUserInfoAsync(string username, CancellationToken ct = default)
+    {
+        if (_client == null || !_client.State.HasFlag(SoulseekClientStates.Connected))
+            throw new InvalidOperationException("Not connected to Soulseek");
+
+        try
+        {
+            var info = await _client.GetUserInfoAsync(username, cancellationToken: ct);
+            return new UserProfileSnapshot(
+                username,
+                info.Description,
+                info.HasPicture,
+                info.Picture,
+                info.HasFreeUploadSlot,
+                info.UploadSlots,
+                info.QueueLength);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get user info for {Username}: {Message}", username, ex.Message);
+            return new UserProfileSnapshot(username, null, false, null, false, 0, 0);
+        }
+    }
+
+    private static UserPresenceState MapPresence(UserPresence presence) => presence switch
+    {
+        UserPresence.Online => UserPresenceState.Online,
+        UserPresence.Away => UserPresenceState.Away,
+        UserPresence.Offline => UserPresenceState.Offline,
+        _ => UserPresenceState.Unknown
+    };
+
+    private static UserPresence MapPresenceToLibrary(UserPresenceState state) => state switch
+    {
+        UserPresenceState.Online => UserPresence.Online,
+        UserPresenceState.Away => UserPresence.Away,
+        UserPresenceState.Offline => UserPresence.Offline,
+        _ => UserPresence.Online
+    };
+
+    // ── Social: 1:1 chat ─────────────────────────────────────────────────
+
+    public async Task SendPrivateMessageAsync(string username, string message, CancellationToken ct = default)
+    {
+        if (_client == null || !_client.State.HasFlag(SoulseekClientStates.Connected))
+            throw new InvalidOperationException("Not connected to Soulseek");
+
+        await _client.SendPrivateMessageAsync(username, message, cancellationToken: ct);
+    }
+
+    // ── Social: rooms ────────────────────────────────────────────────────
+
+    public async Task<IReadOnlyList<RoomSummary>> GetRoomListAsync(CancellationToken ct = default)
+    {
+        if (_client == null || !_client.State.HasFlag(SoulseekClientStates.Connected))
+            throw new InvalidOperationException("Not connected to Soulseek");
+
+        try
+        {
+            var roomList = await _client.GetRoomListAsync(cancellationToken: ct);
+            return roomList.Public.Select(r => new RoomSummary(r.Name, r.UserCount, IsPrivate: false))
+                .Concat(roomList.Private.Select(r => new RoomSummary(r.Name, r.UserCount, IsPrivate: true)))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get room list: {Message}", ex.Message);
+            return Array.Empty<RoomSummary>();
+        }
+    }
+
+    public async Task<RoomSnapshot> JoinRoomAsync(string roomName, bool isPrivate = false, CancellationToken ct = default)
+    {
+        if (_client == null || !_client.State.HasFlag(SoulseekClientStates.Connected))
+            throw new InvalidOperationException("Not connected to Soulseek");
+
+        try
+        {
+            var room = await _client.JoinRoomAsync(roomName, isPrivate, cancellationToken: ct);
+            var members = (room.Users ?? Enumerable.Empty<UserData>())
+                .Select(u => new RoomMemberSnapshot(u.Username, MapPresence(u.Status), u.AverageSpeed, u.FileCount, u.DirectoryCount, u.SlotsFree))
+                .ToList();
+            return new RoomSnapshot(room.Name, room.IsPrivate, room.Owner, members);
+        }
+        catch (RoomJoinForbiddenException ex)
+        {
+            _logger.LogWarning(ex, "Server rejected join request for room {RoomName}", roomName);
+            throw new InvalidOperationException($"The server rejected joining \"{roomName}\" — some rooms require sharing files or meeting other conditions.", ex);
+        }
+        catch (Exception ex) when (ex is TimeoutException or NoResponseException)
+        {
+            _logger.LogWarning(ex, "Join room {RoomName} timed out / no response", roomName);
+            throw new InvalidOperationException($"Joining \"{roomName}\" timed out — the room may be very large or the server may be slow to respond.", ex);
+        }
+    }
+
+    public async Task LeaveRoomAsync(string roomName, CancellationToken ct = default)
+    {
+        if (_client == null || !_client.State.HasFlag(SoulseekClientStates.Connected))
+            return;
+
+        try
+        {
+            await _client.LeaveRoomAsync(roomName, cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to leave room {RoomName}: {Message}", roomName, ex.Message);
+        }
+    }
+
+    public async Task SendRoomMessageAsync(string roomName, string message, CancellationToken ct = default)
+    {
+        if (_client == null || !_client.State.HasFlag(SoulseekClientStates.Connected))
+            throw new InvalidOperationException("Not connected to Soulseek");
+
+        await _client.SendRoomMessageAsync(roomName, message, cancellationToken: ct);
     }
 
     /// <summary>

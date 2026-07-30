@@ -34,6 +34,7 @@ public class DownloadDiscoveryService
     private readonly PeerReliabilityService _peerReliability;
     private readonly INetworkHealthService _healthService;
     private readonly SLSKDONET.Services.Diagnostics.ITrackAuditLogger _auditLogger;
+    private readonly DatabaseService _databaseService;
 
     public DownloadDiscoveryService(
         ILogger<DownloadDiscoveryService> logger,
@@ -46,7 +47,8 @@ public class DownloadDiscoveryService
         Network.ProtocolHardeningService hardeningService,
         PeerReliabilityService peerReliability,
         INetworkHealthService healthService,
-        SLSKDONET.Services.Diagnostics.ITrackAuditLogger auditLogger)
+        SLSKDONET.Services.Diagnostics.ITrackAuditLogger auditLogger,
+        DatabaseService databaseService)
     {
         _logger = logger;
         _searchOrchestrator = searchOrchestrator;
@@ -59,6 +61,7 @@ public class DownloadDiscoveryService
         _peerReliability = peerReliability;
         _healthService = healthService;
         _auditLogger = auditLogger;
+        _databaseService = databaseService;
 
         var minLane = Math.Clamp(_config.MinAdaptiveSearchLanes, 1, 8);
         var maxLane = Math.Clamp(_config.MaxAdaptiveSearchLanes, minLane, 8);
@@ -112,6 +115,19 @@ public class DownloadDiscoveryService
         var trackHash = track.TrackUniqueHash;
         _auditLogger.Log(trackHash, $"[Search] Initiating discovery flow for track: {track.Artist} - {track.Title} | Correlation ID: {operationCorrelationId}");
 
+        // Social: a peer who already successfully delivered this exact track before is a proven
+        // source — look this up once per discovery call (not per-candidate) and use it as a
+        // ranking bonus in EvaluatePendingCandidatesAsync below.
+        string? knownGoodPeer = null;
+        try
+        {
+            knownGoodPeer = await _databaseService.GetLastSuccessfulPeerForTrackAsync(trackHash);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to look up known-good peer for track {TrackHash}", trackHash);
+        }
+
         // Global discovery timeout: if all tiers combined take > 90s, abort cleanly.
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(45)); // Global discovery timeout: 45s (was 120s causing slowness)
@@ -156,7 +172,7 @@ public class DownloadDiscoveryService
                     var hardenedHedgeQuery = _hardeningService.NormalizeSearchQuery(hedgeRawQuery);
 
                     using var hedgeCts = CancellationTokenSource.CreateLinkedTokenSource(timedCt);
-                    var flacTask = PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, flacLog, operationCorrelationId, globalSeenCandidates, forceMp3: false);
+                    var flacTask = PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, flacLog, operationCorrelationId, globalSeenCandidates, forceMp3: false, knownGoodPeer: knownGoodPeer);
                     var hedgeTask = Task.Run(async () =>
                     {
                         try
@@ -170,7 +186,7 @@ public class DownloadDiscoveryService
                                 return new DiscoveryResult(null, hedgeLog);
                             }
                             _logger.LogInformation("[TIER MP3-Hedge] MP3 search: '{Query}' for {Title}", hardenedHedgeQuery, track.Title);
-                            return await PerformSearchTierAsync(track, hardenedHedgeQuery, "MP3-Hedge", hedgeCts.Token, blacklistedUsers, hedgeLog, operationCorrelationId, globalSeenCandidates, forceMp3: true);
+                            return await PerformSearchTierAsync(track, hardenedHedgeQuery, "MP3-Hedge", hedgeCts.Token, blacklistedUsers, hedgeLog, operationCorrelationId, globalSeenCandidates, forceMp3: true, knownGoodPeer: knownGoodPeer);
                         }
                         catch (OperationCanceledException)
                         {
@@ -196,7 +212,7 @@ public class DownloadDiscoveryService
                 }
 
                 _logger.LogInformation("Discovery Tier {Tier} (Lossless) for: {Query}", tierNames[i], hardenedQuery);
-                var result = await PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, log, operationCorrelationId, globalSeenCandidates, forceMp3: false);
+                var result = await PerformSearchTierAsync(track, hardenedQuery, tierNames[i], timedCt, blacklistedUsers, log, operationCorrelationId, globalSeenCandidates, forceMp3: false, knownGoodPeer: knownGoodPeer);
 
                 if (result.BestMatch != null)
                 {
@@ -229,7 +245,7 @@ public class DownloadDiscoveryService
                 else
                 {
                     _logger.LogInformation("[TIER MP3-Fallback] MP3 search: '{Query}' for {Title}", hardenedFallbackQuery, track.Title);
-                    var fallbackResult = await PerformSearchTierAsync(track, hardenedFallbackQuery, "MP3-Fallback", timedCt, blacklistedUsers, log, operationCorrelationId, globalSeenCandidates, forceMp3: true);
+                    var fallbackResult = await PerformSearchTierAsync(track, hardenedFallbackQuery, "MP3-Fallback", timedCt, blacklistedUsers, log, operationCorrelationId, globalSeenCandidates, forceMp3: true, knownGoodPeer: knownGoodPeer);
                     if (fallbackResult.BestMatch != null)
                     {
                         _logger.LogInformation("✅ MP3 Fallback SUCCESS for {Title}.", track.Title);
@@ -353,7 +369,7 @@ public class DownloadDiscoveryService
         return "Network degraded; tuning lanes conservatively";
     }
 
-    private async Task<DiscoveryResult> PerformSearchTierAsync(PlaylistTrack track, string query, string tierName, CancellationToken ct, HashSet<string>? blacklistedUsers, SearchAttemptLog log, string correlationId, ConcurrentDictionary<string, byte> globalSeenCandidates, bool forceMp3 = false)
+    private async Task<DiscoveryResult> PerformSearchTierAsync(PlaylistTrack track, string query, string tierName, CancellationToken ct, HashSet<string>? blacklistedUsers, SearchAttemptLog log, string correlationId, ConcurrentDictionary<string, byte> globalSeenCandidates, bool forceMp3 = false, string? knownGoodPeer = null)
     {
         void PublishStatus(string message, bool isError = false)
             => _eventBus.Publish(new Events.TrackDetailedStatusEvent(track.TrackUniqueHash, message, isError, correlationId));
@@ -531,7 +547,9 @@ public class DownloadDiscoveryService
                         fitScore,
                         reliability,
                         queueLength,
-                        hasFreeUploadSlot: searchTrack.HasFreeUploadSlot);
+                        hasFreeUploadSlot: searchTrack.HasFreeUploadSlot,
+                        isKnownGoodPeerForTrack: knownGoodPeer != null &&
+                            string.Equals(searchTrack.Username, knownGoodPeer, StringComparison.OrdinalIgnoreCase));
                     EnsureBlendTelemetryMetadata(searchTrack, scored.Score, fitScore, reliability, score);
 
                     searchTrack.ScoreBreakdown = BuildCompositeScoreBreakdown(

@@ -207,6 +207,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 _navigationService.NavigateTo("Workstation");
             })));
 
+        _disposables.Add(_eventBus.GetEvent<OpenConversationRequestedEvent>()
+            .Subscribe(evt => Dispatcher.UIThread.Post(() => HandleOpenConversationRequested(evt))));
+
         // Initialize commands
         NavigateHomeCommand = new RelayCommand(NavigateToHome); // Phase 6D
         NavigateSearchCommand = new RelayCommand(NavigateToSearch);
@@ -221,6 +224,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateTimelineCommand = new RelayCommand(NavigateToTimeline);
         NavigateStemsCommand = new RelayCommand(NavigateToStems);
         NavigateCueForgeCommand = new RelayCommand(NavigateToCueForge);
+        NavigateUsersCommand = new RelayCommand(NavigateToUsers);
         PlayPauseCommand = new RelayCommand(() => PlayerViewModel.TogglePlayPauseCommand.Execute(null));
         FocusSearchCommand = new RelayCommand(FocusSearch);
         ToggleNavigationCommand = new RelayCommand(() => 
@@ -411,7 +415,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("Workstation", typeof(Avalonia.WorkstationPage));
         _navigationService.RegisterPage("Stems", typeof(Avalonia.StemsPage));
         _navigationService.RegisterPage("CueForge", typeof(Avalonia.CueForgePagee));
-        
+        _navigationService.RegisterPage("Users", typeof(Avalonia.UsersPage));
+
         // Subscribe to navigation events
         _navigationService.Navigated += OnNavigated;
 
@@ -790,6 +795,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsSettingsOverlayActive => CurrentPageType == PageType.Settings;
     public bool IsWorkstationOverlayActive => IsCreativeOverlayPage(CurrentPageType);
     public bool IsCueForgeOverlayActive => CurrentPageType == PageType.CueForge;
+    public bool IsUsersOverlayActive => CurrentPageType == PageType.Users;
 
     private static readonly string[] NavigationOverlayPropertyNames =
     [
@@ -805,7 +811,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         nameof(IsPlayerOverlayActive),
         nameof(IsSettingsOverlayActive),
         nameof(IsWorkstationOverlayActive),
-        nameof(IsCueForgeOverlayActive)
+        nameof(IsCueForgeOverlayActive),
+        nameof(IsUsersOverlayActive)
     ];
 
     public static PageType ResolvePageType(Type? pageType, PageType fallback)
@@ -825,6 +832,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         if (typeof(Avalonia.SettingsPage).IsAssignableFrom(pageType)) return PageType.Settings;
         if (typeof(Avalonia.WorkstationPage).IsAssignableFrom(pageType)) return PageType.Workstation;
         if (pageType.Name.Contains("StemsPage", StringComparison.Ordinal)) return PageType.Stems;
+        if (typeof(Avalonia.UsersPage).IsAssignableFrom(pageType)) return PageType.Users;
 
         return fallback;
     }
@@ -1040,6 +1048,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateTimelineCommand { get; }
     public ICommand NavigateStemsCommand { get; }
     public ICommand NavigateCueForgeCommand { get; }
+    public ICommand NavigateUsersCommand { get; }
     public ICommand PlayPauseCommand { get; }
     public ICommand FocusSearchCommand { get; }
     public ICommand ToggleNavigationCommand { get; }
@@ -1198,6 +1207,32 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void NavigateToCueForge()
     {
         _navigationService.NavigateTo("CueForge");
+    }
+
+    private void NavigateToUsers()
+    {
+        _navigationService.NavigateTo("Users");
+    }
+
+    /// <summary>
+    /// Handles a click on a chat/room notification: navigates to the Users page and asks its
+    /// (cached, per-instance-persistent) ViewModel to jump straight to that conversation or room.
+    /// </summary>
+    private async void HandleOpenConversationRequested(OpenConversationRequestedEvent evt)
+    {
+        NavigateToUsers();
+
+        if (_navigationService.CurrentPage is Control { DataContext: UsersViewModel usersVm })
+        {
+            try
+            {
+                await usersVm.OpenConversationFromNotificationAsync(evt.Username, evt.RoomName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to open conversation from notification (Username={Username}, RoomName={RoomName})", evt.Username, evt.RoomName);
+            }
+        }
     }
 
     private void UpdateFontSizeResources()

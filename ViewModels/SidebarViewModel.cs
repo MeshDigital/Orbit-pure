@@ -40,18 +40,24 @@ namespace SLSKDONET.ViewModels
         // Close command (ICommand — bindable in AXAML)
         public ReactiveCommand<Unit, Unit> CloseCommand { get; }
 
+        // Notifications (bell/side panel)
+        public ReactiveCommand<Unit, Unit> OpenNotificationsCommand { get; }
+
         // Sub-panel view models for the Player and Similarity tabs
         public PlayerViewModel       PlayerVm       { get; }
         public SimilarTracksViewModel SimilarTracksVm { get; }
+        public NotificationCenterService NotificationCenter { get; }
 
         public SidebarViewModel(
             IRightPanelService rightPanelService,
             PlayerViewModel playerVm,
-            SimilarTracksViewModel similarTracksVm)
+            SimilarTracksViewModel similarTracksVm,
+            NotificationCenterService notificationCenter)
         {
             _rightPanelService = rightPanelService;
             PlayerVm           = playerVm;
             SimilarTracksVm    = similarTracksVm;
+            NotificationCenter = notificationCenter;
 
             // Mirror RightPanelService reactive properties
             this.WhenAnyValue(x => x._rightPanelService.CurrentPanelVm)
@@ -134,6 +140,11 @@ namespace SLSKDONET.ViewModels
                 _rightPanelService.OpenPanel(SimilarTracksVm, "SIMILAR TRACKS", "🔗");
             });
             CloseCommand = ReactiveCommand.Create(() => _rightPanelService.ClosePanel());
+
+            OpenNotificationsCommand = ReactiveCommand.Create(() =>
+            {
+                _rightPanelService.OpenPanel(NotificationCenter, "NOTIFICATIONS", "🔔");
+            });
         }
 
         public object? CurrentContent => _rightPanelService.CurrentPanelVm;

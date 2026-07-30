@@ -9,6 +9,7 @@
          xmlns:vmCore="clr-namespace:SLSKDONET.ViewModels"
          xmlns:vmDownloads="clr-namespace:SLSKDONET.ViewModels.Downloads"
          xmlns:vmDiag="clr-namespace:SLSKDONET.ViewModels.Diagnostics"
+         xmlns:svc="clr-namespace:SLSKDONET.Services"
         mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="900"
         x:Class="SLSKDONET.Views.Avalonia.MainWindow"
         x:DataType="vm:MainViewModel"
@@ -171,6 +172,25 @@
                         <TextBlock Text="{Binding AnalysisQueueCount}" Foreground="#C586C0" FontWeight="Bold" FontSize="12" VerticalAlignment="Center"/>
                     </StackPanel>
                     <Rectangle Width="1" Height="16" Fill="#333"/>
+                    <Button Command="{Binding Sidebar.OpenNotificationsCommand}"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Padding="6,4"
+                            ToolTip.Tip="Notifications — downloads, messages, room replies">
+                        <Grid>
+                            <TextBlock Text="🔔" FontSize="14" Foreground="#A0A0A0"/>
+                            <Border IsVisible="{Binding Sidebar.NotificationCenter.UnreadCount}"
+                                    Background="#F44336" CornerRadius="8"
+                                    Padding="4,0" MinWidth="16" Height="14"
+                                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                                    Margin="0,-4,-6,0">
+                                <TextBlock Text="{Binding Sidebar.NotificationCenter.UnreadCount}"
+                                           FontSize="9" FontWeight="Bold" Foreground="White"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </Grid>
+                    </Button>
+                    <Rectangle Width="1" Height="16" Fill="#333"/>
                     <Button Command="{Binding NavigateSettingsCommand}"
                             Background="Transparent"
                             BorderThickness="0"
@@ -286,21 +306,21 @@
                                     </StackPanel>
                                 </Button>
 
+                                <Button Classes="nav" Command="{Binding NavigateUsersCommand}"
+                                        ToolTip.Tip="Users &amp; Contacts"
+                                        Classes.selected="{Binding IsUsersOverlayActive}">
+                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
+                                        <TextBlock Text="👥" FontSize="16"/>
+                                        <TextBlock Text="Users" FontSize="14"/>
+                                    </StackPanel>
+                                </Button>
+
                                 <Button Classes="nav" Command="{Binding NavigateAnalysisCommand}"
                                         ToolTip.Tip="Analysis Pipeline"
                                         Classes.selected="{Binding IsAnalysisOverlayActive}">
                                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
                                         <TextBlock Text="🔬" FontSize="16"/>
                                         <TextBlock Text="Analysis" FontSize="14"/>
-                                    </StackPanel>
-                                </Button>
-
-                                <Button Classes="nav" Command="{Binding NavigateWorkstationCommand}"
-                                        ToolTip.Tip="Workstation"
-                                        Classes.selected="{Binding IsWorkstationOverlayActive}">
-                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
-                                        <TextBlock Text="🎛️" FontSize="16"/>
-                                        <TextBlock Text="Workstation" FontSize="14"/>
                                     </StackPanel>
                                 </Button>
 
@@ -371,6 +391,25 @@
 
                             <!-- Tabbed workstation panel — full height, no player -->
                             <TabControl Grid.Row="1">
+                                <TabControl.Styles>
+                                    <Style Selector="TabItem">
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Setter Property="Foreground" Value="#888"/>
+                                        <Setter Property="FontSize" Value="11"/>
+                                        <Setter Property="FontWeight" Value="Bold"/>
+                                        <Setter Property="Padding" Value="16,10"/>
+                                        <Setter Property="BorderThickness" Value="0,0,0,2"/>
+                                        <Setter Property="BorderBrush" Value="Transparent"/>
+                                    </Style>
+                                    <Style Selector="TabItem:selected">
+                                        <Setter Property="Foreground" Value="White"/>
+                                        <Setter Property="BorderBrush" Value="#4EC9B0"/>
+                                    </Style>
+                                    <Style Selector="TabItem:pointerover">
+                                        <Setter Property="Foreground" Value="#AAA"/>
+                                        <Setter Property="Background" Value="#0DFFFFFF"/>
+                                    </Style>
+                                </TabControl.Styles>
 
                                 <TabItem Header="Inspector">
                                     <ContentControl Content="{Binding Sidebar.CurrentContent}">
@@ -399,6 +438,9 @@
                                             </DataTemplate>
                                             <DataTemplate DataType="vmDiag:BlackBoxTerminalViewModel">
                                                 <controls:BlackBoxTerminal/>
+                                            </DataTemplate>
+                                            <DataTemplate DataType="svc:NotificationCenterService">
+                                                <controls:NotificationsPanel/>
                                             </DataTemplate>
                                         </ContentControl.DataTemplates>
                                     </ContentControl>
@@ -626,6 +668,9 @@
                         </DataTemplate>
                         <DataTemplate DataType="vmDiag:BlackBoxTerminalViewModel">
                             <controls:BlackBoxTerminal/>
+                        </DataTemplate>
+                        <DataTemplate DataType="svc:NotificationCenterService">
+                            <controls:NotificationsPanel/>
                         </DataTemplate>
                     </ContentControl.DataTemplates>
                 </ContentControl>

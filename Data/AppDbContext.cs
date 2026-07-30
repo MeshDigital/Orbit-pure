@@ -45,6 +45,8 @@ public class AppDbContext : DbContext
     public DbSet<Entities.CuePointEntity> CuePoints { get; set; } // Phase 17+: Auto-generated structural cue points
     public DbSet<FrequentSource> FrequentSources { get; set; }
     public DbSet<PrefetchQueueItem> PrefetchQueueItems { get; set; }
+    public DbSet<Entities.PrivateMessageEntity> PrivateMessages { get; set; } // Social: 1:1 Soulseek chat
+    public DbSet<Entities.RoomMessageEntity> RoomMessages { get; set; } // Social: Soulseek chat rooms
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {

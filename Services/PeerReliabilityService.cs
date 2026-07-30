@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using SLSKDONET.Data.Entities;
@@ -120,6 +121,26 @@ public sealed class PeerReliabilityService
             StallRatio: Math.Clamp(stallRatio, 0.0, 1.0));
     }
 
+    /// <summary>Per-peer aggregate stats, for the Users/Contacts page and per-user profile Overview tab.</summary>
+    public PeerUserSnapshot? GetSnapshot(string? username)
+    {
+        if (string.IsNullOrWhiteSpace(username) || !_peers.TryGetValue(username, out var peer))
+            return null;
+
+        return new PeerUserSnapshot(
+            username,
+            Interlocked.Read(ref peer.SearchCandidates),
+            Interlocked.Read(ref peer.DownloadStarts),
+            Interlocked.Read(ref peer.DownloadCompletions),
+            Interlocked.Read(ref peer.DownloadFailures),
+            Interlocked.Read(ref peer.StallFailures),
+            Interlocked.Read(ref peer.BytesTransferred),
+            new DateTime(Interlocked.Read(ref peer.LastSeenTicks), DateTimeKind.Utc));
+    }
+
+    /// <summary>Every username this service has ever tracked stats for — the row source for the Users/Contacts page.</summary>
+    public IReadOnlyList<string> GetKnownUsernames() => _peers.Keys.ToList();
+
     private PeerStats GetOrCreate(string username) => _peers.GetOrAdd(username, static _ => new PeerStats());
 
     private void LoadFromDatabase()
@@ -193,3 +214,13 @@ public readonly record struct PeerGlobalSnapshot(
     long TotalStalls,
     double CompletionRatio,
     double StallRatio);
+
+public readonly record struct PeerUserSnapshot(
+    string Username,
+    long SearchCandidates,
+    long DownloadStarts,
+    long DownloadCompletions,
+    long DownloadFailures,
+    long StallFailures,
+    long BytesTransferred,
+    DateTime LastSeenUtc);

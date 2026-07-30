@@ -2379,7 +2379,179 @@ public class DatabaseService
             row.DropTimestamp = features.DropTimeSeconds;
         }
     }
+
+    // ── Social: per-user download history ──────────────────────────────────────
+
+    /// <summary>Download history entries for a specific Soulseek peer, newest first.</summary>
+    public async Task<List<Data.Entities.DownloadHistoryEntity>> GetDownloadHistoryForUserAsync(string username, int limit = 200)
+    {
+        using var context = new AppDbContext();
+        return await context.DownloadHistory
+            .Where(x => x.PeerUsername == username)
+            .OrderByDescending(x => x.RecordedAt)
+            .Take(limit)
+            .ToListAsync()
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Per-peer download counts/last-seen, grouped from DownloadHistory — the row source for the Users/Contacts page.</summary>
+    public async Task<List<UserDownloadSummary>> GetDownloadedUsersSummaryAsync()
+    {
+        using var context = new AppDbContext();
+        return await context.DownloadHistory
+            .Where(x => x.PeerUsername != null)
+            .GroupBy(x => x.PeerUsername!)
+            .Select(g => new UserDownloadSummary(
+                g.Key,
+                g.Count(),
+                g.Count(x => x.FinalState == "Completed"),
+                g.Max(x => x.RecordedAt)))
+            .ToListAsync()
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The most recent peer who successfully delivered this exact track — used by
+    /// DownloadDiscoveryService to give a proven-source ranking bonus on redownload.
+    /// </summary>
+    public async Task<string?> GetLastSuccessfulPeerForTrackAsync(string trackHash)
+    {
+        using var context = new AppDbContext();
+        return await context.DownloadHistory
+            .Where(x => x.TrackHash == trackHash && x.FinalState == "Completed" && x.PeerUsername != null)
+            .OrderByDescending(x => x.RecordedAt)
+            .Select(x => x.PeerUsername)
+            .FirstOrDefaultAsync()
+            .ConfigureAwait(false);
+    }
+
+    // ── Social: 1:1 private messages ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Persists a private message. Dedupes incoming (replayed) messages via the unique index on
+    /// SoulseekMessageId — a re-insert throws a constraint violation, treated as a no-op.
+    /// </summary>
+    public async Task RecordPrivateMessageAsync(Data.Entities.PrivateMessageEntity entity)
+    {
+        await _writeSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            context.PrivateMessages.Add(entity);
+            await context.SaveChangesAsync().ConfigureAwait(false);
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogDebug(ex, "[PrivateMessage] Duplicate/replayed message {SoulseekMessageId} from {Peer} ignored", entity.SoulseekMessageId, entity.PeerUsername);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[PrivateMessage] Failed to record message from {Peer}", entity.PeerUsername);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>Full conversation with one peer, oldest first (ready to render top-to-bottom).</summary>
+    public async Task<List<Data.Entities.PrivateMessageEntity>> GetConversationAsync(string peerUsername, int limit = 500)
+    {
+        using var context = new AppDbContext();
+        return await context.PrivateMessages
+            .Where(x => x.PeerUsername == peerUsername)
+            .OrderByDescending(x => x.TimestampUtc)
+            .Take(limit)
+            .OrderBy(x => x.TimestampUtc)
+            .ToListAsync()
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Distinct peers with any message history, most recently active first — powers the conversation list panel.</summary>
+    public async Task<List<string>> GetConversationPeersAsync()
+    {
+        using var context = new AppDbContext();
+        return await context.PrivateMessages
+            .GroupBy(x => x.PeerUsername)
+            .Select(g => new { Username = g.Key, LastMessageAt = g.Max(x => x.TimestampUtc) })
+            .OrderByDescending(x => x.LastMessageAt)
+            .Select(x => x.Username)
+            .ToListAsync()
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Recent 1:1 conversations with a last-message preview, most recently active first — the data
+    /// source for the Users page's "Conversations" section (distinct from the full "everyone you've
+    /// downloaded from" row list). Grouped client-side: private message history is small enough that
+    /// pulling the last ~2000 rows and grouping in memory is simpler than a database-specific
+    /// "greatest-n-per-group" query, and avoids EF translation issues with First() inside GroupBy.
+    /// </summary>
+    public async Task<List<ConversationSummary>> GetRecentConversationsAsync()
+    {
+        using var context = new AppDbContext();
+        var recentMessages = await context.PrivateMessages
+            .OrderByDescending(x => x.TimestampUtc)
+            .Take(2000)
+            .ToListAsync()
+            .ConfigureAwait(false);
+
+        return recentMessages
+            .GroupBy(x => x.PeerUsername, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First()) // already ordered by TimestampUtc desc, so first = most recent per peer
+            .OrderByDescending(x => x.TimestampUtc)
+            .Select(x => new ConversationSummary(x.PeerUsername, x.Message, x.TimestampUtc, x.IsOutgoing))
+            .ToList();
+    }
+
+    // ── Social: chat rooms ────────────────────────────────────────────────────────
+
+    public async Task RecordRoomMessageAsync(Data.Entities.RoomMessageEntity entity)
+    {
+        await _writeSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            context.RoomMessages.Add(entity);
+            await context.SaveChangesAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[RoomMessage] Failed to record message in {RoomName}", entity.RoomName);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>Message history for one room, oldest first (ready to render top-to-bottom).</summary>
+    public async Task<List<Data.Entities.RoomMessageEntity>> GetRoomHistoryAsync(string roomName, int limit = 500)
+    {
+        using var context = new AppDbContext();
+        return await context.RoomMessages
+            .Where(x => x.RoomName == roomName)
+            .OrderByDescending(x => x.TimestampUtc)
+            .Take(limit)
+            .OrderBy(x => x.TimestampUtc)
+            .ToListAsync()
+            .ConfigureAwait(false);
+    }
 }
+
+/// <summary>Per-peer download counts/last-seen, grouped from DownloadHistory.</summary>
+public readonly record struct UserDownloadSummary(
+    string Username,
+    int TotalDownloads,
+    int CompletedDownloads,
+    DateTime LastDownloadedAtUtc);
+
+/// <summary>A 1:1 conversation's most recent message — powers the Users page's Conversations list.</summary>
+public readonly record struct ConversationSummary(
+    string Username,
+    string LastMessage,
+    DateTime LastMessageUtc,
+    bool LastMessageWasOutgoing);
 
 
 

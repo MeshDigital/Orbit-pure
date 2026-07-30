@@ -1,0 +1,85 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="360" d:DesignHeight="480"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.MessageThreadView"
+             x:Name="Root">
+
+    <UserControl.Styles>
+        <Style Selector="Border.bubble">
+            <Setter Property="Background" Value="{DynamicResource BrushBg2}"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+        </Style>
+        <Style Selector="Border.bubble.outgoing">
+            <Setter Property="Background" Value="{DynamicResource BrushAccentSubtle}"/>
+            <Setter Property="HorizontalAlignment" Value="Right"/>
+        </Style>
+        <Style Selector="Button.attachment">
+            <Setter Property="Background" Value="{DynamicResource BrushBg3}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BrushAccent}"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+    </UserControl.Styles>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <ItemsControl ItemsSource="{Binding #Root.Messages}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Spacing="6"/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:ChatMessageViewModel">
+                    <Border Classes="bubble" Classes.outgoing="{Binding IsOutgoing}"
+                            MaxWidth="280"
+                            CornerRadius="10"
+                            Padding="10,6"
+                            Margin="4,0">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="{Binding SenderUsername}"
+                                       FontSize="10" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource BrushText2}"
+                                       IsVisible="{Binding !IsOutgoing}"/>
+
+                            <!-- Plain text message -->
+                            <TextBlock Text="{Binding Message}"
+                                       FontSize="13" Foreground="White"
+                                       TextWrapping="Wrap"
+                                       IsVisible="{Binding !IsImageOffer}"/>
+
+                            <!-- Image attachment -->
+                            <StackPanel Spacing="4" IsVisible="{Binding IsImageOffer}">
+                                <Image Source="{Binding Image}" MaxWidth="240" MaxHeight="240"
+                                       Stretch="Uniform" HorizontalAlignment="Left"
+                                       IsVisible="{Binding Image, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+                                <Button Classes="attachment" Padding="8,5"
+                                        IsVisible="{Binding Image, Converter={x:Static ObjectConverters.IsNull}}"
+                                        Command="{Binding LoadImageCommand}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock Text="🖼️" FontSize="13"/>
+                                        <TextBlock FontSize="11" VerticalAlignment="Center">
+                                            <Run Text="{Binding ImageFileName}"/>
+                                            <Run Text=" ("/><Run Text="{Binding ImageSizeDisplay}"/><Run Text=")"/>
+                                        </TextBlock>
+                                        <TextBlock Text="Loading…" FontSize="11" VerticalAlignment="Center" IsVisible="{Binding IsLoadingImage}"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <TextBlock Text="{Binding ImageError}" FontSize="10" Foreground="{DynamicResource BrushError}"
+                                           IsVisible="{Binding ImageError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                            </StackPanel>
+
+                            <TextBlock Text="{Binding TimestampUtc, StringFormat='{}{0:HH:mm}'}"
+                                       FontSize="9" Foreground="{DynamicResource BrushText2}"
+                                       HorizontalAlignment="Right"/>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </ScrollViewer>
+</UserControl>

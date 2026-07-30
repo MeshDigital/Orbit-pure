@@ -48,7 +48,7 @@ public class TracklistImportProvider : IStreamingImportProvider
                 rawText.Length, 
                 rawText.Split('\n').Length);
 
-            var tracks = Utils.CommentTracklistParser.Parse(rawText);
+            var tracks = Utils.CommentTracklistParser.Parse(rawText, out var detectedTitle);
 
             if (!tracks.Any())
             {
@@ -59,12 +59,16 @@ public class TracklistImportProvider : IStreamingImportProvider
                 });
             }
 
-            _logger.LogInformation("Successfully parsed {Count} tracks from pasted text", tracks.Count);
+            var sourceType = DetectSpecificSourceType(rawText);
+            _logger.LogInformation("Successfully parsed {Count} tracks from pasted text (detected title: {Title}, source: {Source})", tracks.Count, detectedTitle ?? "(none)", sourceType ?? Name);
 
             return Task.FromResult(new ImportResult
             {
                 Success = true,
-                SourceTitle = $"Pasted Tracklist ({DateTime.Now:yyyy-MM-dd HH:mm})",
+                SourceTitle = !string.IsNullOrWhiteSpace(detectedTitle)
+                    ? detectedTitle
+                    : $"Pasted Tracklist ({DateTime.Now:yyyy-MM-dd HH:mm})",
+                SourceType = sourceType,
                 Tracks = tracks
             });
         }
@@ -88,6 +92,7 @@ public class TracklistImportProvider : IStreamingImportProvider
             {
                 Tracks = result.Tracks,
                 SourceTitle = result.SourceTitle,
+                SourceType = result.SourceType,
                 TotalEstimated = result.Tracks.Count
             };
             _logger.LogInformation("ImportStreamAsync completed: yielded {Count} tracks from pasted tracklist", result.Tracks.Count);
@@ -96,5 +101,21 @@ public class TracklistImportProvider : IStreamingImportProvider
         {
             _logger.LogWarning("ImportStreamAsync: no tracks yielded — {Error}", result.ErrorMessage);
         }
+    }
+
+    /// <summary>
+    /// Pasted text carries no explicit source metadata, but well-known tracklist sites leave
+    /// identifiable fingerprints (e.g. 1001Tracklists' own backlink) — detect these so the
+    /// library can show a more specific badge than the generic "Pasted Tracklist".
+    /// </summary>
+    private static string? DetectSpecificSourceType(string rawText)
+    {
+        if (rawText.Contains("1001tracklists.com", StringComparison.OrdinalIgnoreCase) ||
+            rawText.Contains("1001.tl", StringComparison.OrdinalIgnoreCase))
+        {
+            return "1001Tracklists";
+        }
+
+        return null;
     }
 }

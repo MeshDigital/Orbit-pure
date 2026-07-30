@@ -92,6 +92,31 @@ public class ImportProviderCanHandleTests
         Assert.False(result.Success);
     }
 
+    [Theory]
+    [InlineData("Please set a backlink to keep the tracklist up-to-date: https://1001.tl/2r76u8p1\nArtist A - Title One\nArtist B - Title Two")]
+    [InlineData("Check it out on 1001tracklists.com\nArtist A - Title One\nArtist B - Title Two")]
+    public async Task TracklistProvider_ImportAsync_Detects1001TracklistsSource(string input)
+    {
+        var provider = new TracklistImportProvider(NullLogger<TracklistImportProvider>.Instance);
+
+        var result = await provider.ImportAsync(input);
+
+        Assert.True(result.Success);
+        Assert.Equal("1001Tracklists", result.SourceType);
+    }
+
+    [Fact]
+    public async Task TracklistProvider_ImportAsync_NoKnownSiteFingerprint_LeavesSourceTypeNull()
+    {
+        var provider = new TracklistImportProvider(NullLogger<TracklistImportProvider>.Instance);
+        const string input = "Bicep - Glue\nAphex Twin - Windowlicker";
+
+        var result = await provider.ImportAsync(input);
+
+        Assert.True(result.Success);
+        Assert.Null(result.SourceType);
+    }
+
     // ── SpotifyImportProvider.CanHandle ────────────────────────────────────
 
     [Theory]

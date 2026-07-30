@@ -71,6 +71,8 @@ public class PlaylistJob : INotifyPropertyChanged
         "CSV" => "📄",
         "Local" => "📁",
         "User" => "👤",
+        "1001Tracklists" => "🎚️",
+        "Pasted Tracklist" => "📋",
         _ => "🎵"
     };
 

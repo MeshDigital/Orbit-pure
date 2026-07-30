@@ -2630,6 +2630,45 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 20. Social: Private Messages + Room Messages
+            if (!TableExists("PrivateMessages"))
+            {
+                _logger.LogInformation("Patching Schema: Creating PrivateMessages table...");
+                command.CommandText = @"
+                    CREATE TABLE ""PrivateMessages"" (
+                        ""Id""                TEXT NOT NULL CONSTRAINT ""PK_PrivateMessages"" PRIMARY KEY,
+                        ""SoulseekMessageId""  INTEGER NULL,
+                        ""PeerUsername""      TEXT NOT NULL,
+                        ""IsOutgoing""        INTEGER NOT NULL,
+                        ""Message""           TEXT NOT NULL,
+                        ""TimestampUtc""      TEXT NOT NULL,
+                        ""WasReplayed""       INTEGER NOT NULL DEFAULT 0
+                    );
+                    CREATE UNIQUE INDEX ""IX_PrivateMessages_SoulseekMessageId"" ON ""PrivateMessages"" (""SoulseekMessageId"") WHERE ""SoulseekMessageId"" IS NOT NULL;
+                    CREATE INDEX ""IX_PrivateMessages_PeerUsername"" ON ""PrivateMessages"" (""PeerUsername"", ""TimestampUtc"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ PrivateMessages table created.");
+            }
+
+            if (!TableExists("RoomMessages"))
+            {
+                _logger.LogInformation("Patching Schema: Creating RoomMessages table...");
+                command.CommandText = @"
+                    CREATE TABLE ""RoomMessages"" (
+                        ""Id""            TEXT NOT NULL CONSTRAINT ""PK_RoomMessages"" PRIMARY KEY,
+                        ""RoomName""      TEXT NOT NULL,
+                        ""Username""      TEXT NOT NULL,
+                        ""Message""       TEXT NOT NULL,
+                        ""TimestampUtc""  TEXT NOT NULL,
+                        ""IsOutgoing""    INTEGER NOT NULL DEFAULT 0
+                    );
+                    CREATE INDEX ""IX_RoomMessages_RoomName"" ON ""RoomMessages"" (""RoomName"", ""TimestampUtc"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ RoomMessages table created.");
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

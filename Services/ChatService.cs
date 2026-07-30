@@ -1,0 +1,102 @@
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using SLSKDONET.Data.Entities;
+using SLSKDONET.Models;
+
+namespace SLSKDONET.Services;
+
+/// <summary>
+/// Owns 1:1 Soulseek private messaging: persists incoming/outgoing messages and republishes
+/// them on the app event bus. Deliberately separate from <see cref="RoomChatService"/> and
+/// <see cref="UserPresenceWatchService"/> — three independently-lifecycled concerns with
+/// different persistence needs, matching the codebase's existing small-focused-service
+/// convention (PeerReliabilityService, FrequentSourceService) rather than one god-service.
+/// </summary>
+public sealed class ChatService
+{
+    private readonly ISoulseekAdapter _adapter;
+    private readonly DatabaseService _databaseService;
+    private readonly IEventBus _eventBus;
+    private readonly ILogger<ChatService> _logger;
+
+    // Guards against re-publishing a server-replayed message that arrives again after a
+    // reconnect while a conversation thread is already open and displaying it. The DB's unique
+    // index on SoulseekMessageId already prevents a duplicate row, but that write is effectively
+    // fire-and-forget relative to this in-memory publish, so a separate guard is needed here too.
+    private readonly ConcurrentDictionary<int, byte> _seenIncomingMessageIds = new();
+
+    public ChatService(ISoulseekAdapter adapter, DatabaseService databaseService, IEventBus eventBus, ILogger<ChatService> logger)
+    {
+        _adapter = adapter;
+        _databaseService = databaseService;
+        _eventBus = eventBus;
+        _logger = logger;
+
+        _adapter.PrivateMessageReceived += OnPrivateMessageReceived;
+    }
+
+    public async Task SendMessageAsync(string username, string message)
+    {
+        await _adapter.SendPrivateMessageAsync(username, message).ConfigureAwait(false);
+
+        var entity = new PrivateMessageEntity
+        {
+            PeerUsername = username,
+            IsOutgoing = true,
+            Message = message,
+            TimestampUtc = DateTime.UtcNow,
+        };
+
+        // The library doesn't echo your own sent messages back through PrivateMessageReceived,
+        // so the outgoing copy is persisted and published here, immediately.
+        await _databaseService.RecordPrivateMessageAsync(entity).ConfigureAwait(false);
+        _eventBus.Publish(new PrivateMessageReceivedEvent(username, message, entity.TimestampUtc, IsOutgoing: true));
+    }
+
+    public Task<List<PrivateMessageEntity>> GetConversationAsync(string peerUsername, int limit = 500)
+        => _databaseService.GetConversationAsync(peerUsername, limit);
+
+    public Task<List<string>> GetConversationPeersAsync()
+        => _databaseService.GetConversationPeersAsync();
+
+    public Task<List<ConversationSummary>> GetRecentConversationsAsync()
+        => _databaseService.GetRecentConversationsAsync();
+
+    private void OnPrivateMessageReceived(object? sender, PrivateMessageReceivedEventArgs e)
+    {
+        if (!_seenIncomingMessageIds.TryAdd(e.Id, 0))
+        {
+            _logger.LogDebug("[Chat] Ignoring duplicate/replayed message {Id} from {Username}", e.Id, e.Username);
+            return;
+        }
+
+        _ = PersistAndPublishAsync(e);
+    }
+
+    private async Task PersistAndPublishAsync(PrivateMessageReceivedEventArgs e)
+    {
+        try
+        {
+            var entity = new PrivateMessageEntity
+            {
+                SoulseekMessageId = e.Id,
+                PeerUsername = e.Username,
+                IsOutgoing = false,
+                Message = e.Message,
+                TimestampUtc = e.TimestampUtc,
+                WasReplayed = e.Replayed,
+            };
+
+            await _databaseService.RecordPrivateMessageAsync(entity).ConfigureAwait(false);
+            _eventBus.Publish(new PrivateMessageReceivedEvent(e.Username, e.Message, e.TimestampUtc, IsOutgoing: false));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Chat] Failed to persist/publish incoming message from {Username}", e.Username);
+        }
+    }
+}

@@ -423,6 +423,8 @@ public partial class App : Application
 
         // Services
         services.AddSingleton<INetworkHealthService, NetworkHealthService>();
+        services.AddSingleton<ShareIndexService>();
+        services.AddSingleton<ChatAttachmentService>();
         services.AddSingleton<SoulseekAdapter>();
         services.AddSingleton<ISoulseekAdapter>(sp => sp.GetRequiredService<SoulseekAdapter>());
         // Phase B: Connection lifecycle state machine
@@ -558,6 +560,7 @@ public partial class App : Application
         // Global Shell Services
         services.AddSingleton<IRightPanelService, RightPanelService>();
         services.AddSingleton<SimilarTracksViewModel>();
+        services.AddSingleton<NotificationCenterService>();
         services.AddSingleton<SidebarViewModel>();
 
         // ViewModels
@@ -565,7 +568,19 @@ public partial class App : Application
         // Lazy<MainViewModel> breaks the circular dependency: MainViewModel → GlobalHotkeyService → KeyboardEventRouter → MainViewModel
         services.AddSingleton(sp => new Lazy<MainViewModel>(sp.GetRequiredService<MainViewModel>));
         services.AddSingleton<SearchViewModel>();
-        services.AddSingleton<UserCollectionViewModel>();
+        // Transient (not singleton): a per-profile Users/Contacts page needs its own fresh browse
+        // instance per opened profile. SearchViewModel is itself a singleton, so it still captures
+        // exactly one UserCollectionViewModel instance at its own one-time construction — the
+        // existing Search-page browse overlay's behavior is unchanged by this.
+        services.AddTransient<UserCollectionViewModel>();
+
+        // Social: presence, 1:1 chat, chat rooms
+        services.AddSingleton<UserPresenceWatchService>();
+        services.AddSingleton<ChatService>();
+        services.AddSingleton<RoomChatService>();
+        services.AddTransient<UsersViewModel>();
+        services.AddTransient<UserProfileViewModel>();
+        services.AddTransient<RoomsViewModel>();
         services.AddSingleton<SearchFilterViewModel>(); // [FIX] Added missing registration
         services.AddSingleton<ConnectionViewModel>();
         services.AddSingleton<AiEngineService>();
@@ -621,6 +636,7 @@ public partial class App : Application
         services.AddSingleton<ViewModels.AnalysisPageViewModel>();
         services.AddTransient<Views.Avalonia.StemsPage>();
         services.AddTransient<Views.Avalonia.WorkstationPage>();
+        services.AddTransient<Views.Avalonia.UsersPage>();
         services.AddTransient<Views.Avalonia.CueForgePagee>();
         services.AddSingleton<Services.ICuePointService, Services.CuePointService>();
         services.AddSingleton<Services.Audio.StemPreferenceService>();

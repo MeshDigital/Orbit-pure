@@ -46,8 +46,11 @@
                            MaxWidth="140"
                            TextTrimming="CharacterEllipsis"
                            VerticalAlignment="Center"/>
-                <Border Background="#252528" CornerRadius="4" Padding="4,1" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding Model.SourceType}" FontSize="8" Foreground="#8FA7C0" FontWeight="SemiBold"/>
+                <Border Background="#252528" CornerRadius="4" Padding="4,1" VerticalAlignment="Center" ToolTip.Tip="{Binding Model.SourceType}">
+                    <StackPanel Orientation="Horizontal" Spacing="3">
+                        <TextBlock Text="{Binding Model.SourceIcon}" FontSize="8"/>
+                        <TextBlock Text="{Binding Model.SourceType}" FontSize="8" Foreground="#8FA7C0" FontWeight="SemiBold"/>
+                    </StackPanel>
                 </Border>
             </StackPanel>
 
@@ -91,6 +94,12 @@
                     Command="{Binding $parent[views:LibraryPage].DataContext.DownloadAlbumCommand}"
                     CommandParameter="{Binding Model}">
                  <TextBlock Text="⬇️" FontSize="12"/>
+            </Button>
+            <Button Classes="icon-btn" ToolTip.Tip="Sync — check the source for newly added tracks" Padding="4" Background="Transparent" BorderThickness="0"
+                    IsVisible="{Binding Model.SourceUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                    Command="{Binding $parent[views:LibraryPage].DataContext.SyncProjectCommand}"
+                    CommandParameter="{Binding Model}">
+                 <TextBlock Text="🔄" FontSize="12"/>
             </Button>
         </StackPanel>
     </Grid>

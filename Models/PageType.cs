@@ -16,5 +16,6 @@ public enum PageType
     Timeline,
     Stems,
     Workstation,
-    CueForge
+    CueForge,
+    Users
 }

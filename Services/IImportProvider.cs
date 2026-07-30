@@ -53,4 +53,11 @@ public class ImportBatchResult
     public required List<SearchQuery> Tracks { get; set; }
     public string SourceTitle { get; set; } = string.Empty;
     public int TotalEstimated { get; set; }
+
+    /// <summary>
+    /// Optional, more specific source label than the provider's own <see cref="IImportProvider.Name"/>
+    /// (e.g. a "Pasted Tracklist" provider detecting the paste actually came from 1001Tracklists).
+    /// Null means "use the provider's own name" — most providers never set this.
+    /// </summary>
+    public string? SourceType { get; set; }
 }

@@ -34,7 +34,10 @@
         <!-- Header -->
         <Border Grid.Row="0" Background="#252526" Padding="24,20" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
             <StackPanel Spacing="8">
-                <TextBlock Text="{Binding SourceTitle}" FontSize="24" FontWeight="Bold" Foreground="White"/>
+                <TextBox Classes="clean-grid-edit" Text="{Binding SourceTitle, Mode=TwoWay}"
+                         FontSize="24" FontWeight="Bold" Foreground="White"
+                         HorizontalAlignment="Left" MinWidth="200"
+                         ToolTip.Tip="Click to rename this playlist before importing"/>
                 <StackPanel Orientation="Horizontal" Spacing="12">
                     <TextBlock Text="{Binding SourceType}" FontSize="13" Foreground="#A0A0A0"/>
                     <TextBlock Text="•" FontSize="13" Foreground="#666"/>
