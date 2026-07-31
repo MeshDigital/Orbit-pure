@@ -227,12 +227,14 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateUsersCommand = new RelayCommand(NavigateToUsers);
         PlayPauseCommand = new RelayCommand(() => PlayerViewModel.TogglePlayPauseCommand.Execute(null));
         FocusSearchCommand = new RelayCommand(FocusSearch);
-        ToggleNavigationCommand = new RelayCommand(() => 
+        ToggleNavigationCommand = new RelayCommand(() =>
         {
             if (!IsNavigationMini && !IsNavigationCollapsed)
             {
+                _lastExpandedNavSidebarWidth = NavSidebarWidth;
                 IsNavigationMini = true;
                 IsNavigationCollapsed = false;
+                NavSidebarWidth = MiniNavSidebarWidth;
             }
             else if (IsNavigationMini)
             {
@@ -243,6 +245,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             {
                 IsNavigationMini = false;
                 IsNavigationCollapsed = false;
+                NavSidebarWidth = _lastExpandedNavSidebarWidth;
             }
         });
         TogglePlayerCommand = new RelayCommand(() =>
@@ -514,6 +517,17 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         get => _isNavigationMini;
         set => SetProperty(ref _isNavigationMini, value);
+    }
+
+    private const double MiniNavSidebarWidth = 56;
+    private double _lastExpandedNavSidebarWidth = 200;
+
+    /// <summary>User-drag-resizable width of the left nav sidebar; the mini/expanded toggle also drives this.</summary>
+    private double _navSidebarWidth = 200;
+    public double NavSidebarWidth
+    {
+        get => _navSidebarWidth;
+        set => SetProperty(ref _navSidebarWidth, value);
     }
 
     private bool _isZenMode;

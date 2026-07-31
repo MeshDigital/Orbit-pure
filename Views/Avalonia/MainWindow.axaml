@@ -51,7 +51,9 @@
         
         <!-- Navigation Sidebar Styles -->
         <Style Selector="Border.nav-sidebar">
-            <Setter Property="Width" Value="220"/>
+            <!-- Width is user-drag-resizable via the GridSplitter next to it — bound to
+                 NavSidebarWidth on the element itself (Views/Avalonia/MainWindow.axaml),
+                 which takes precedence over this style. Only the transition lives here. -->
             <Setter Property="Background" Value="{StaticResource DeepBackgroundBrush}"/>
             <Setter Property="Transitions">
                 <Transitions>
@@ -59,9 +61,6 @@
                     <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
                 </Transitions>
             </Setter>
-        </Style>
-        <Style Selector="Border.nav-sidebar.mini">
-            <Setter Property="Width" Value="56"/>
         </Style>
         <Style Selector="Border.nav-sidebar.mini TextBlock:nth-child(2)">
             <Setter Property="Opacity" Value="0"/>
@@ -202,22 +201,25 @@
             </Grid>
         </Border>
 
-        <!-- Main Content Area with Sidebars — Epic 12 #110 Five-Column Layout -->
+        <!-- Main Content Area with Sidebars — Epic 12 #110 Six-Column Layout -->
         <!-- ColumnDefinitions:
-             0 = Nav sidebar (Auto / 56-220px)
-             1 = Content + Inspector SplitView (*)
-             2 = GridSplitter (4px) for Timeline
-             3 = Timeline panel (toggleable, min 160px)
-             4 = GridSplitter (4px) for Overlays
-             5 = Overlays panel (toggleable, min 140px)
+             0 = Nav sidebar (user-drag-resizable, 56-320px)
+             1 = GridSplitter (4px) for Nav sidebar
+             2 = Content + Inspector SplitView (*)
+             3 = GridSplitter (4px) for Timeline
+             4 = Timeline panel (toggleable, min 160px)
+             5 = GridSplitter (4px) for Overlays
+             6 = Overlays panel (toggleable, min 140px)
         -->
         <Grid Grid.Row="1" x:Name="MainLayoutGrid"
-              ColumnDefinitions="Auto,*,4,Auto,4,Auto">
+              ColumnDefinitions="Auto,4,*,4,Auto,4,Auto">
             
             <!-- Left Navigation Sidebar -->
-            <Border Grid.Column="0" 
-                    Background="{StaticResource DeepBackgroundBrush}" 
-                    BorderBrush="{StaticResource BorderBrush}" 
+            <Border Grid.Column="0"
+                    Width="{Binding NavSidebarWidth, Mode=TwoWay}"
+                    MinWidth="56" MaxWidth="320"
+                    Background="{StaticResource DeepBackgroundBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
                     Classes="nav-sidebar"
                     Classes.mini="{Binding IsNavigationMini}">
                 <Border.ContextMenu>
@@ -368,9 +370,17 @@
                 </ScrollViewer>
             </Border>
 
+            <!-- GridSplitter: Nav sidebar ↔ Content (col 1) -->
+            <GridSplitter Grid.Column="1"
+                          Background="#3C3C3C"
+                          HorizontalAlignment="Stretch"
+                          ResizeDirection="Columns"
+                          ShowsPreview="True"
+                          ToolTip.Tip="Drag to resize navigation sidebar"/>
+
             <!-- Center Content Area with Global Contextual Sidebar -->
             <SplitView x:Name="ShellSplitView"
-                       Grid.Column="1"
+                       Grid.Column="2"
                        IsPaneOpen="{Binding IsGlobalSidebarOpen}"
                        DisplayMode="Inline"
                        PanePlacement="Right"
@@ -490,8 +500,8 @@
                 </Grid>
             </SplitView>
 
-            <!-- GridSplitter: Content ↔ Timeline (col 2) — Epic 12 #110 -->
-            <GridSplitter Grid.Column="2"
+            <!-- GridSplitter: Content ↔ Timeline (col 3) — Epic 12 #110 -->
+            <GridSplitter Grid.Column="3"
                           IsVisible="{Binding IsTimelinePanelOpen}"
                           Background="#3C3C3C"
                           HorizontalAlignment="Stretch"
@@ -499,8 +509,8 @@
                           ShowsPreview="True"
                           ToolTip.Tip="Drag to resize Timeline panel"/>
 
-            <!-- Timeline Panel (col 3) — Epic 12 #110 -->
-            <Border Grid.Column="3"
+            <!-- Timeline Panel (col 4) — Epic 12 #110 -->
+            <Border Grid.Column="4"
                     IsVisible="{Binding IsTimelinePanelOpen}"
                     Width="{Binding TimelinePanelWidth}"
                     MinWidth="160"
@@ -528,8 +538,8 @@
                 </Grid>
             </Border>
 
-            <!-- GridSplitter: Timeline ↔ Overlays (col 4) — Epic 12 #110 -->
-            <GridSplitter Grid.Column="4"
+            <!-- GridSplitter: Timeline ↔ Overlays (col 5) — Epic 12 #110 -->
+            <GridSplitter Grid.Column="5"
                           IsVisible="{Binding IsOverlaysPanelOpen}"
                           Background="#3C3C3C"
                           HorizontalAlignment="Stretch"
@@ -537,8 +547,8 @@
                           ShowsPreview="True"
                           ToolTip.Tip="Drag to resize Overlays panel"/>
 
-            <!-- Overlays / Visual Engine Panel (col 5) — Epic 12 #110 -->
-            <Border Grid.Column="5"
+            <!-- Overlays / Visual Engine Panel (col 6) — Epic 12 #110 -->
+            <Border Grid.Column="6"
                     IsVisible="{Binding IsOverlaysPanelOpen}"
                     Width="{Binding OverlaysPanelWidth}"
                     MinWidth="140"

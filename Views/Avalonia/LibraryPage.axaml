@@ -76,10 +76,11 @@
     </UserControl.KeyBindings>
 
     <Panel>
-    <Grid ColumnDefinitions="Auto,*">
-        <!-- LEFT PANE: Collapsible Playlist Navigation -->
-        <Border Grid.Column="0" 
-                Width="{Binding IsNavigationCollapsed, Converter={StaticResource BoolToWidthConverter}, ConverterParameter='60,300'}"
+    <Grid ColumnDefinitions="Auto,4,*">
+        <!-- LEFT PANE: Collapsible, user-drag-resizable Playlist Navigation -->
+        <Border Grid.Column="0"
+                Width="{Binding LibraryNavPanelWidth, Mode=TwoWay}"
+                MinWidth="60" MaxWidth="560"
                 Background="#1A1A1D" BorderBrush="#2A2A2E" BorderThickness="0,0,1,0">
                 <interactivity:Interaction.Behaviors>
                     <ia:EventTriggerBehavior EventName="PointerEntered">
@@ -387,8 +388,15 @@
                 </Grid>
             </Border>
 
+        <GridSplitter Grid.Column="1"
+                      Background="#2A2A2E"
+                      HorizontalAlignment="Stretch"
+                      ResizeDirection="Columns"
+                      ShowsPreview="True"
+                      ToolTip.Tip="Drag to resize the playlist panel"/>
+
         <!-- MAIN CONTENT AREA -->
-        <ContentControl Grid.Column="1" Content="{Binding Tracks}">
+        <ContentControl Grid.Column="2" Content="{Binding Tracks}">
             <ContentControl.DataTemplates>
                 <DataTemplate DataType="vm:Library.TrackListViewModel">
                     <Grid>

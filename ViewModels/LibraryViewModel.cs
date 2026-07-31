@@ -166,6 +166,17 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         set { SetProperty(ref _isNavigationCollapsed, value); }
     }
 
+    private const double CollapsedNavPanelWidth = 60;
+    private double _lastExpandedNavPanelWidth = 340;
+
+    /// <summary>User-drag-resizable width of the playlist navigation panel (All Tracks/Liked Songs/Folders/Projects).</summary>
+    private double _libraryNavPanelWidth = 340;
+    public double LibraryNavPanelWidth
+    {
+        get => _libraryNavPanelWidth;
+        set { SetProperty(ref _libraryNavPanelWidth, value); }
+    }
+
     public double LibrarySmartInsertMinConfidence
     {
         get => Intelligence.LibrarySmartInsertMinConfidence;

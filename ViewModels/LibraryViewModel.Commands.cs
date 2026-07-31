@@ -184,6 +184,11 @@ public partial class LibraryViewModel
         if (willCollapse)
         {
             RegisterManualNavigationCollapse();
+            CollapseNavPanelWidth();
+        }
+        else
+        {
+            ExpandNavPanelWidth();
         }
     }
 
@@ -195,6 +200,7 @@ public partial class LibraryViewModel
         }
 
         IsNavigationCollapsed = false;
+        ExpandNavPanelWidth();
     }
 
     private void ExecuteHoverCollapseNavigation()
@@ -205,6 +211,23 @@ public partial class LibraryViewModel
         }
 
         IsNavigationCollapsed = true;
+        CollapseNavPanelWidth();
+    }
+
+    /// <summary>Remembers the user's drag-resized width before snapping to the collapsed rail width.</summary>
+    private void CollapseNavPanelWidth()
+    {
+        if (LibraryNavPanelWidth > CollapsedNavPanelWidth)
+        {
+            _lastExpandedNavPanelWidth = LibraryNavPanelWidth;
+        }
+
+        LibraryNavPanelWidth = CollapsedNavPanelWidth;
+    }
+
+    private void ExpandNavPanelWidth()
+    {
+        LibraryNavPanelWidth = _lastExpandedNavPanelWidth;
     }
 
     private async Task PersistNavigationCollapsedStateAsync()
