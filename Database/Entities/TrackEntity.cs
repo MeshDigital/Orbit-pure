@@ -318,6 +318,12 @@ public class PlaylistTrackEntity
     public string? Label { get; set; }
     public string? Comments { get; set; }
 
+    /// <summary>
+    /// Track-level colour tag (hex, e.g. "#FF0000"), independent of any cue colours.
+    /// Written to the Rekordbox XML export's TRACK Colour attribute when set.
+    /// </summary>
+    public string? ColorTag { get; set; }
+
     // Musical Intelligence
     public string? MusicalKey { get; set; }
     public double? BPM { get; set; }

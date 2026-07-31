@@ -53,10 +53,15 @@ public class RekordboxTrack
     public int Rating { get; set; }
 
     /// <summary>
-    /// Free-text comment written to the Rekordbox Comments field.
-    /// Used to embed Camelot key + energy label for MIK-compatible tagging.
+    /// The user's free-text comment, written verbatim to the Rekordbox Comments field.
     /// </summary>
     public string Comments { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Track-level colour tag (hex, e.g. "#FF0000"), independent of any cue colours.
+    /// Null/empty omits the Colour attribute entirely rather than writing a placeholder.
+    /// </summary>
+    public string? Colour { get; set; }
 
     /// <summary>
     /// Cue points for Rekordbox export.

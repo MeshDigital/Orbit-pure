@@ -47,16 +47,17 @@ public sealed class UsbExportOrchestrator
         string destinationRoot,
         ExportMode mode,
         IProgress<ExportProgress>? progress = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Guid? folderId = null)
     {
         _logger.LogInformation(
             "Starting {Mode} export of '{Playlist}' ({Count} tracks) → {Dest}",
             mode, playlistName, tracks.Count, destinationRoot);
 
         if (mode == ExportMode.FilesAndXml)
-            await ExportFilesAndXmlAsync(playlistName, tracks, destinationRoot, progress, ct);
+            await ExportFilesAndXmlAsync(playlistName, tracks, destinationRoot, progress, ct, folderId);
         else
-            await ExportXmlOnlyAsync(playlistName, tracks, destinationRoot, progress, ct);
+            await ExportXmlOnlyAsync(playlistName, tracks, destinationRoot, progress, ct, folderId);
     }
 
     // ─── FilesAndXml ─────────────────────────────────────────────────────────
@@ -66,7 +67,8 @@ public sealed class UsbExportOrchestrator
         IReadOnlyList<PlaylistTrack> tracks,
         string usbRoot,
         IProgress<ExportProgress>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        Guid? folderId = null)
     {
         string audioDir = Path.Combine(usbRoot, "OrbitAudio", Sanitize(playlistName));
         Directory.CreateDirectory(audioDir);
@@ -107,7 +109,7 @@ public sealed class UsbExportOrchestrator
         var xmlPath = Path.Combine(pioneerDir, "rekordbox.xml");
 
         progress?.Report(new(tracks.Count, copied, skipped, "Writing rekordbox.xml…", false));
-        await _exportService.ExportToRekordboxXmlAsync(playlistName, tracks, xmlPath, pathMap);
+        await _exportService.ExportToRekordboxXmlAsync(playlistName, tracks, xmlPath, pathMap, folderId);
 
         progress?.Report(new(tracks.Count, copied, skipped, "Done", true));
         _logger.LogInformation(
@@ -122,11 +124,12 @@ public sealed class UsbExportOrchestrator
         IReadOnlyList<PlaylistTrack> tracks,
         string xmlFilePath,
         IProgress<ExportProgress>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        Guid? folderId = null)
     {
         ct.ThrowIfCancellationRequested();
         progress?.Report(new(tracks.Count, 0, 0, "Writing rekordbox.xml…", false));
-        await _exportService.ExportToRekordboxXmlAsync(playlistName, tracks, xmlFilePath);
+        await _exportService.ExportToRekordboxXmlAsync(playlistName, tracks, xmlFilePath, folderId: folderId);
         progress?.Report(new(tracks.Count, tracks.Count, 0, "Done", true));
     }
 

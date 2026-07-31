@@ -23,20 +23,7 @@ public static class GuidGenerator
 
         // Use MD5 as per RFC 4122 for UUID v3 (or SHA1 for v5, but MD5 is standard for simple deterministic GUIDs in .NET usually)
         // Here we implement a variant of UUID v5 (SHA-1) for better collision resistance than MD5.
-        
-        // 1. Concatenate Namespace + Name
-        var nsBytes = UrlNamespace.ToByteArray();
-        SwapByteOrder(nsBytes); // .NET is little-endian, RFC 4122 is big-endian
-        
-        var nameBytes = Encoding.UTF8.GetBytes(url);
-        
-        var data = new byte[nsBytes.Length + nameBytes.Length];
-        Buffer.BlockCopy(nsBytes, 0, data, 0, nsBytes.Length);
-        Buffer.BlockCopy(nameBytes, 0, data, nsBytes.Length, nameBytes.Length);
-
-        // 2. Hash
-        using var algorithm = SHA1.Create();
-        var hash = algorithm.ComputeHash(data);
+        var hash = ComputeSeededHash(url);
 
         // 3. Truncate to 16 bytes
         var newGuid = new byte[16];
@@ -50,6 +37,39 @@ public static class GuidGenerator
         SwapByteOrder(newGuid);
 
         return new Guid(newGuid);
+    }
+
+    /// <summary>
+    /// Creates a deterministic, stable, non-negative 31-bit integer ID from a seed string
+    /// (e.g. a TrackUniqueHash) — for consumers needing a plain int rather than a GUID, such as
+    /// the Rekordbox XML TrackID, which must stay stable across separate export runs of the
+    /// same track.
+    /// </summary>
+    public static int CreateStableIntFromSeed(string seed)
+    {
+        if (string.IsNullOrEmpty(seed)) return 0;
+
+        var hash = ComputeSeededHash(seed);
+        int value = (hash[0] << 24) | (hash[1] << 16) | (hash[2] << 8) | hash[3];
+        return value & 0x7FFFFFFF; // mask sign bit — always non-negative
+    }
+
+    /// <summary>Shared SHA-1 hash of the namespace + seed, used by both ID generators above.</summary>
+    private static byte[] ComputeSeededHash(string seed)
+    {
+        // 1. Concatenate Namespace + Name
+        var nsBytes = UrlNamespace.ToByteArray();
+        SwapByteOrder(nsBytes); // .NET is little-endian, RFC 4122 is big-endian
+
+        var nameBytes = Encoding.UTF8.GetBytes(seed);
+
+        var data = new byte[nsBytes.Length + nameBytes.Length];
+        Buffer.BlockCopy(nsBytes, 0, data, 0, nsBytes.Length);
+        Buffer.BlockCopy(nameBytes, 0, data, nsBytes.Length, nameBytes.Length);
+
+        // 2. Hash
+        using var algorithm = SHA1.Create();
+        return algorithm.ComputeHash(data);
     }
 
     // Helper to handle endianness differences

@@ -1742,7 +1742,7 @@ public partial class LibraryViewModel
                 await _exportOrchestrator.ExportAsync(
                     project.SourceTitle, tracks, folder,
                     Services.Export.ExportMode.FilesAndXml,
-                    progressHandler);
+                    progressHandler, folderId: project.FolderId);
 
                 int skipped = tracks.Count(t =>
                     string.IsNullOrEmpty(t.ResolvedFilePath) || !System.IO.File.Exists(t.ResolvedFilePath));
@@ -1761,7 +1761,7 @@ public partial class LibraryViewModel
                 _notificationService.Show("Exporting", $"Saving '{project.SourceTitle}' to Rekordbox XML…", NotificationType.Information);
                 await _exportOrchestrator.ExportAsync(
                     project.SourceTitle, tracks, path,
-                    Services.Export.ExportMode.XmlOnly);
+                    Services.Export.ExportMode.XmlOnly, folderId: project.FolderId);
                 _notificationService.Show("Export Successful",
                     $"Playlist exported to {Path.GetFileName(path)}", NotificationType.Success);
             }

@@ -1523,6 +1523,12 @@ public class SchemaMigratorService
                 command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""Comments"" TEXT NULL;";
                 await command.ExecuteNonQueryAsync();
             }
+            if (!ColumnExists("PlaylistTracks", "ColorTag"))
+            {
+                _logger.LogInformation("Patching Schema: Adding ColorTag to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""ColorTag"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
             if (!ColumnExists("PlaylistTracks", "IsPrepared"))
             {
                 _logger.LogInformation("Patching Schema: Adding IsPrepared to PlaylistTracks...");

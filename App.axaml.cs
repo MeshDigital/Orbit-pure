@@ -662,7 +662,6 @@ public partial class App : Application
         services.AddSingleton<SLSKDONET.ViewModels.Workstation.WorkstationViewModel>();
         services.AddSingleton<SLSKDONET.ViewModels.Workstation.CueEditorViewModel>();
         services.AddSingleton<SLSKDONET.ViewModels.CueForgeViewModel>();
-        services.AddSingleton<SLSKDONET.ViewModels.CurationWorkstationViewModel>();
         services.AddSingleton<SLSKDONET.Engine.Analysis.AnalysisPipeline>(sp =>
             new SLSKDONET.Engine.Analysis.AnalysisPipeline(
                 sp.GetRequiredService<SLSKDONET.Services.AudioAnalysis.AudioIngestionPipeline>(),

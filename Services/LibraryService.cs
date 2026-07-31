@@ -1296,6 +1296,7 @@ public class LibraryService : ILibraryService
             Valence = entity.Valence > 0 ? entity.Valence : (entity.AudioFeatures?.Valence > 0 ? (double?)entity.AudioFeatures.Valence : null),
             Label = entity.Label,
             Comments = entity.Comments,
+            ColorTag = entity.ColorTag,
             MoodTag = !string.IsNullOrEmpty(entity.MoodTag) ? entity.MoodTag : entity.AudioFeatures?.MoodTag,
             PrimaryGenre = entity.PrimaryGenre,
 
@@ -1406,6 +1407,7 @@ public class LibraryService : ILibraryService
             Valence = track.Valence,
             Label = track.Label,
             Comments = track.Comments,
+            ColorTag = track.ColorTag,
             MoodTag = track.MoodTag,
             PrimaryGenre = track.PrimaryGenre,
             AnalysisOffset = track.AnalysisOffset,

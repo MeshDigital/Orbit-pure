@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using Microsoft.EntityFrameworkCore;
@@ -10,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
+using SLSKDONET.Services.Library.Rekordbox;
 using SLSKDONET.Services.Models.Export;
 
 namespace SLSKDONET.Services.Library;
@@ -32,11 +35,17 @@ public class PlaylistExportService
     /// When supplied (USB/folder export) the XML Location attribute uses the
     /// destination path instead of the original local path.
     /// </param>
+    /// <param name="folderId">
+    /// Optional playlist-folder ID (<see cref="PlaylistFolder"/>) the playlist belongs to.
+    /// When supplied, the exported &lt;PLAYLISTS&gt; tree mirrors the real folder chain up to
+    /// ROOT instead of placing the playlist directly under ROOT.
+    /// </param>
     public async Task ExportToRekordboxXmlAsync(
         string playlistName,
         IEnumerable<PlaylistTrack> tracks,
         string targetPath,
-        IReadOnlyDictionary<string, string>? pathMap = null)
+        IReadOnlyDictionary<string, string>? pathMap = null,
+        Guid? folderId = null)
     {
         try
         {
@@ -54,13 +63,15 @@ public class PlaylistExportService
                 .Select(g => g.First())
                 .ToList();
 
-            // Pre-load all cue points for tracks in this export in one query
+            // Pre-load all cue points + beatgrid data + playlist folders in one DB context.
             var hashes = trackList.Select(t => t.TrackUniqueHash).Where(h => !string.IsNullOrEmpty(h)).Distinct().ToList();
             Dictionary<string, List<CuePointEntity>> cuesByHash = new(StringComparer.Ordinal);
+            Dictionary<string, AudioFeaturesEntity> beatDataByHash = new(StringComparer.Ordinal);
+
+            await using var db = await _dbFactory.CreateDbContextAsync();
 
             if (hashes.Count > 0)
             {
-                await using var db = await _dbFactory.CreateDbContextAsync();
                 var cues = await db.CuePoints
                     .AsNoTracking()
                     .Where(c => hashes.Contains(c.TrackUniqueHash))
@@ -76,6 +87,17 @@ public class PlaylistExportService
                     }
                     bucket.Add(cue);
                 }
+
+                var beatData = await db.AudioFeatures
+                    .AsNoTracking()
+                    .Where(a => hashes.Contains(a.TrackUniqueHash))
+                    .ToListAsync();
+
+                foreach (var features in beatData)
+                {
+                    // First match wins if a hash somehow has more than one row (shouldn't happen).
+                    beatDataByHash.TryAdd(features.TrackUniqueHash, features);
+                }
             }
 
             // Build parallel lists so cue look-up stays correct even when some tracks
@@ -83,7 +105,7 @@ public class PlaylistExportService
             // index-mismatch bug that occurs when iterating rbTracks by index into trackList.
             var rbTracks = new List<RekordboxTrack>();
             var rbSources = new List<PlaylistTrack>();
-            int trackId = 1;
+            var usedTrackIds = new HashSet<int>();
 
             foreach (var track in trackList)
             {
@@ -96,23 +118,11 @@ public class PlaylistExportService
                     continue;
 
                 var fileInfo = new FileInfo(effectivePath);
-                // Map energy (0-1 Spotify scale or ManualEnergy 1-10) → Rekordbox 0-255 Rating
-                int energyStars = 0;
-                if (track.ManualEnergy.HasValue)
-                    energyStars = Math.Clamp((int)Math.Round(track.ManualEnergy.Value / 2.0), 1, 5);
-                else if (track.Energy.HasValue && track.Energy.Value > 0)
-                    energyStars = Math.Clamp((int)Math.Ceiling(track.Energy.Value * 5), 1, 5);
-                int rbRating = energyStars > 0 ? energyStars * 51 : 0;
-
-                // Comments: embed Camelot key + energy label for MIK-compatible tagging
-                string camelotKey = track.MusicalKey ?? "";
-                string energyLabel = energyStars > 0 ? $" Energy:{track.ManualEnergy ?? (int)Math.Round(track.Energy.GetValueOrDefault() * 10)}" : "";
-                string comments = string.IsNullOrEmpty(camelotKey) ? energyLabel.TrimStart()
-                    : $"{camelotKey}{energyLabel}";
+                var trackId = ResolveStableTrackId(track, effectivePath, usedTrackIds);
 
                 var rbTrack = new RekordboxTrack
                 {
-                    TrackID = trackId++,
+                    TrackID = trackId,
                     Name = track.Title ?? "Unknown Title",
                     Artist = track.Artist ?? "Unknown Artist",
                     Album = track.Album ?? "Unknown Album",
@@ -123,13 +133,16 @@ public class PlaylistExportService
                     BitRate = track.Bitrate ?? 0,
                     AverageBpm = track.BPM ?? 0,
                     Tonality = track.MusicalKey ?? "",
-                    Location = "file://localhost/" + effectivePath.Replace("\\", "/"),
-                    Rating = rbRating,
-                    Comments = comments,
+                    Location = BuildLocationUri(effectivePath),
+                    Rating = Math.Clamp(track.Rating, 0, 5) * 51,
+                    Comments = track.Comments ?? "",
+                    Colour = track.ColorTag,
                 };
                 rbTracks.Add(rbTrack);
                 rbSources.Add(track);
             }
+
+            var playlistsElement = await BuildPlaylistsElementAsync(folderId, playlistName, rbTracks, db);
 
             var doc = new XDocument(
                 new XDeclaration("1.0", "UTF-8", null),
@@ -146,23 +159,13 @@ public class PlaylistExportService
                             var srcTrack = rbSources[idx];
                             var hash = srcTrack.TrackUniqueHash ?? string.Empty;
                             var cues = cuesByHash.TryGetValue(hash, out var list) ? list : new List<CuePointEntity>();
+                            var beatData = beatDataByHash.TryGetValue(hash, out var features) ? features : null;
                             var bpm = t.AverageBpm;
 
-                            return BuildTrackElement(t, cues, srcTrack, bpm);
+                            return BuildTrackElement(t, cues, srcTrack, bpm, beatData);
                         })
                     ),
-                    new XElement("PLAYLISTS",
-                        new XElement("NODE",
-                            new XAttribute("Type", "0"),
-                            new XAttribute("Name", "ROOT"),
-                            new XElement("NODE",
-                                new XAttribute("Name", playlistName),
-                                new XAttribute("Type", "1"),
-                                new XAttribute("Entries", rbTracks.Count),
-                                rbTracks.Select(t => new XElement("TRACK", new XAttribute("Key", t.TrackID)))
-                            )
-                        )
-                    )
+                    playlistsElement
                 )
             );
 
@@ -176,11 +179,117 @@ public class PlaylistExportService
         }
     }
 
+    /// <summary>
+    /// Builds the &lt;PLAYLISTS&gt; element, nesting the playlist under real &lt;NODE Type="0"&gt;
+    /// folder wrappers when <paramref name="folderId"/> is supplied — otherwise (or if the folder
+    /// chain can't be resolved) falls back to today's flat placement directly under ROOT.
+    /// </summary>
+    private async Task<XElement> BuildPlaylistsElementAsync(
+        Guid? folderId, string playlistName, List<RekordboxTrack> rbTracks, AppDbContext db)
+    {
+        var playlistNode = new XElement("NODE",
+            new XAttribute("Name", playlistName),
+            new XAttribute("Type", "1"),
+            new XAttribute("Entries", rbTracks.Count),
+            rbTracks.Select(t => new XElement("TRACK", new XAttribute("Key", t.TrackID))));
+
+        if (folderId is null)
+        {
+            return new XElement("PLAYLISTS",
+                new XElement("NODE", new XAttribute("Type", "0"), new XAttribute("Name", "ROOT"), playlistNode));
+        }
+
+        List<PlaylistFolderEntity> allFolders;
+        try
+        {
+            allFolders = await db.PlaylistFolders.AsNoTracking().ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Rekordbox export: failed to load playlist folders for '{PlaylistName}' — falling back to flat placement under ROOT.", playlistName);
+            return new XElement("PLAYLISTS",
+                new XElement("NODE", new XAttribute("Type", "0"), new XAttribute("Name", "ROOT"), playlistNode));
+        }
+
+        var foldersById = allFolders.ToDictionary(f => f.Id);
+
+        // Walk folderId → ParentFolderId → ... → null, collecting names leaf-to-root.
+        // Guard against a dangling/missing folder and against a pathological parent cycle —
+        // neither should exist today, but this must degrade gracefully, not throw or hang.
+        var chainLeafToRoot = new List<string>();
+        var visited = new HashSet<Guid>();
+        var currentId = folderId;
+        const int maxDepth = 64;
+
+        while (currentId is Guid id && chainLeafToRoot.Count < maxDepth)
+        {
+            if (!visited.Add(id))
+            {
+                _logger.LogWarning("Rekordbox export: cyclic playlist folder chain detected starting at {FolderId} for '{PlaylistName}' — truncating.", folderId, playlistName);
+                break;
+            }
+
+            if (!foldersById.TryGetValue(id, out var folder))
+            {
+                _logger.LogWarning("Rekordbox export: playlist folder {FolderId} referenced by '{PlaylistName}' no longer exists — placing flat under ROOT.", id, playlistName);
+                chainLeafToRoot.Clear();
+                break;
+            }
+
+            chainLeafToRoot.Add(folder.Name);
+            currentId = folder.ParentFolderId;
+        }
+
+        XElement node = playlistNode;
+        for (int i = 0; i < chainLeafToRoot.Count; i++)
+        {
+            node = new XElement("NODE",
+                new XAttribute("Type", "0"),
+                new XAttribute("Name", chainLeafToRoot[i]),
+                node);
+        }
+
+        return new XElement("PLAYLISTS",
+            new XElement("NODE", new XAttribute("Type", "0"), new XAttribute("Name", "ROOT"), node));
+    }
+
+    /// <summary>
+    /// Resolves a deterministic Rekordbox TrackID for <paramref name="track"/> so the same track
+    /// gets the same ID across separate export runs (enables re-importing an updated XML without
+    /// Rekordbox treating every track as brand new). Falls back through TrackUniqueHash → resolved
+    /// file path → track Guid, and guards against the astronomically unlikely case of a 31-bit hash
+    /// collision within a single export by deterministically bumping to the next free ID.
+    /// </summary>
+    private int ResolveStableTrackId(PlaylistTrack track, string effectivePath, HashSet<int> usedTrackIds)
+    {
+        var seed = !string.IsNullOrEmpty(track.TrackUniqueHash)
+            ? track.TrackUniqueHash
+            : !string.IsNullOrEmpty(effectivePath)
+                ? effectivePath
+                : track.Id.ToString();
+
+        var trackId = Utils.GuidGenerator.CreateStableIntFromSeed(seed);
+        if (trackId == 0) trackId = 1; // 0 is reserved/falsy-looking; never emit it
+
+        if (usedTrackIds.Contains(trackId))
+        {
+            var original = trackId;
+            while (usedTrackIds.Contains(trackId))
+                trackId++;
+            _logger.LogWarning(
+                "Rekordbox export: TrackID collision for '{Title}' (seed hash {Original}) — reassigned to {NewId}.",
+                track.Title, original, trackId);
+        }
+
+        usedTrackIds.Add(trackId);
+        return trackId;
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     // XML node builders
     // ──────────────────────────────────────────────────────────────────────
 
-    private static XElement BuildTrackElement(RekordboxTrack t, List<CuePointEntity> dbCues, PlaylistTrack? src, double bpm)
+    private XElement BuildTrackElement(RekordboxTrack t, List<CuePointEntity> dbCues, PlaylistTrack? src, double bpm, AudioFeaturesEntity? beatData)
     {
         var trackElem = new XElement("TRACK",
             new XAttribute("TrackID", t.TrackID),
@@ -194,62 +303,104 @@ public class PlaylistExportService
             new XAttribute("DateAdded", t.DateAdded),
             new XAttribute("BitRate", t.BitRate),
             new XAttribute("SampleRate", t.SampleRate),
-            new XAttribute("AverageBpm", t.AverageBpm.ToString("F2")),
+            new XAttribute("AverageBpm", t.AverageBpm.ToString("F2", CultureInfo.InvariantCulture)),
             new XAttribute("Tonality", t.Tonality),
             new XAttribute("Location", t.Location),
             new XAttribute("Rating", t.Rating),
             new XAttribute("Comments", t.Comments)
         );
 
-        // TEMPO node — one grid anchor at the beginning of the track
-        if (bpm > 0)
+        // Track-level colour tag — omitted entirely when unset (no UI to set it yet; this is
+        // forward-compatible plumbing only). Rekordbox's Colour attribute has no "#" prefix.
+        if (!string.IsNullOrWhiteSpace(t.Colour))
+        {
+            trackElem.Add(new XAttribute("Colour", t.Colour.TrimStart('#')));
+        }
+
+        // TEMPO node(s) — derived from the track's real beat grid when available (multiple
+        // anchors for a track with genuine tempo drift), otherwise a single anchor at the real
+        // downbeat offset. Falls back to a single anchor at 0.000 when no beatgrid data exists.
+        var beatTimestamps = ParseBeatGridJson(beatData?.BeatGridJson, t.Name);
+        var downbeatOffset = beatData?.DownbeatOffsetSeconds ?? 0.0;
+        var anchors = TempoGridDeriver.DeriveAnchors(beatTimestamps, downbeatOffset, bpm, beatData?.BpmStability);
+
+        foreach (var anchor in anchors)
         {
             trackElem.Add(new XElement("TEMPO",
-                new XAttribute("Inizio", "0.000"),
-                new XAttribute("Bpm", bpm.ToString("F2")),
+                new XAttribute("Inizio", anchor.InizioSeconds.ToString("F3", CultureInfo.InvariantCulture)),
+                new XAttribute("Bpm", anchor.Bpm.ToString("F2", CultureInfo.InvariantCulture)),
                 new XAttribute("Metro", "4/4"),
                 new XAttribute("Battito", "1")
             ));
         }
 
         // Merge DB cue points + user cues from CuePointsJson
-        var allCues = BuildCueList(dbCues, src?.CuePointsJson);
+        var allCues = BuildCueList(dbCues, src?.CuePointsJson, t.Name);
 
         // Separate loops from point cues — loops get Type=4 with End attribute, point cues get Type=0
         var pointCues = allCues.Where(c => !c.IsLoop).ToList();
         var loopCues  = allCues.Where(c => c.IsLoop).ToList();
 
-        // Assign Rekordbox pad numbers for point cues: use SlotIndex when set (0-7), else -1 (memory cue)
+        // Reserve every pad explicitly claimed by a loop OR a point cue first, so auto-assignment
+        // (below) can never clobber a pad another cue/loop deliberately set via its own SlotIndex.
+        var reservedPads = new HashSet<int>(
+            allCues.Where(c => c.SlotIndex is >= 0 and <= 7).Select(c => c.SlotIndex));
+
+        // Assign Rekordbox pad numbers for point cues: use SlotIndex when set (0-7), else next
+        // free pad, else -1 (memory cue only, once all 8 pads are taken).
         int nextFreePad = 0;
+        int NextAvailablePad()
+        {
+            while (nextFreePad < 8 && reservedPads.Contains(nextFreePad))
+                nextFreePad++;
+            return nextFreePad < 8 ? nextFreePad++ : -1;
+        }
+
         foreach (var cue in pointCues.Take(32))
         {
-            var (r, g, b) = HexToRgb(cue.Color);
-            int num;
-            if (cue.SlotIndex >= 0 && cue.SlotIndex <= 7)
-                num = cue.SlotIndex;
-            else
-                num = nextFreePad < 8 ? nextFreePad++ : -1;
+            var (r, g, b) = HexToRgb(cue.Color, t.Name);
+            int num = cue.SlotIndex is >= 0 and <= 7 ? cue.SlotIndex : NextAvailablePad();
+
             trackElem.Add(new XElement("POSITION_MARK",
                 new XAttribute("Name", cue.Name),
                 new XAttribute("Type", "0"),
-                new XAttribute("Start", cue.Timestamp.ToString("F3")),
+                new XAttribute("Start", cue.Timestamp.ToString("F3", CultureInfo.InvariantCulture)),
                 new XAttribute("Num", num),
                 new XAttribute("Red", r),
                 new XAttribute("Green", g),
                 new XAttribute("Blue", b)
             ));
+
+            // A cue occupying a hot-cue pad also gets a memory-cue duplicate at the same
+            // position, so it stays visible on Rekordbox's memory-cue strip even if the pad
+            // is later overwritten on the hardware.
+            if (num >= 0)
+            {
+                trackElem.Add(new XElement("POSITION_MARK",
+                    new XAttribute("Name", cue.Name),
+                    new XAttribute("Type", "0"),
+                    new XAttribute("Start", cue.Timestamp.ToString("F3", CultureInfo.InvariantCulture)),
+                    new XAttribute("Num", "-1"),
+                    new XAttribute("Red", r),
+                    new XAttribute("Green", g),
+                    new XAttribute("Blue", b)
+                ));
+            }
         }
 
-        // Loop cues: Type=4, Num=-1, Start + End attributes (Rekordbox format)
+        // Loop cues: Type=4, Start + End attributes (Rekordbox format). Num honors an explicit
+        // SlotIndex (0-7) as a hot loop; otherwise -1 (memory loop). No auto-assignment for
+        // un-slotted loops — only an explicitly-set slot is honored.
         foreach (var loop in loopCues)
         {
-            var (r, g, b) = HexToRgb(loop.Color);
+            var (r, g, b) = HexToRgb(loop.Color, t.Name);
+            int loopNum = loop.SlotIndex is >= 0 and <= 7 ? loop.SlotIndex : -1;
             trackElem.Add(new XElement("POSITION_MARK",
                 new XAttribute("Name", loop.Name),
                 new XAttribute("Type", "4"),
-                new XAttribute("Start", loop.Timestamp.ToString("F3")),
-                new XAttribute("End", loop.LoopEndSeconds.ToString("F3")),
-                new XAttribute("Num", "-1"),
+                new XAttribute("Start", loop.Timestamp.ToString("F3", CultureInfo.InvariantCulture)),
+                new XAttribute("End", loop.LoopEndSeconds.ToString("F3", CultureInfo.InvariantCulture)),
+                new XAttribute("Num", loopNum),
                 new XAttribute("Red", r),
                 new XAttribute("Green", g),
                 new XAttribute("Blue", b)
@@ -260,12 +411,32 @@ public class PlaylistExportService
     }
 
     /// <summary>
+    /// Parses a track's serialized beat-tick array (<see cref="AudioFeaturesEntity.BeatGridJson"/>),
+    /// logging a warning and returning an empty grid (safe single-anchor fallback) if malformed.
+    /// </summary>
+    private List<double> ParseBeatGridJson(string? beatGridJson, string trackName)
+    {
+        if (string.IsNullOrWhiteSpace(beatGridJson))
+            return new List<double>();
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<double>>(beatGridJson) ?? new List<double>();
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "Rekordbox export: malformed BeatGridJson for '{Track}' — falling back to a single TEMPO anchor.", trackName);
+            return new List<double>();
+        }
+    }
+
+    /// <summary>
     /// Merges DB-stored <see cref="CuePointEntity"/> rows with user-placed
     /// <see cref="OrbitCue"/> objects serialised in <paramref name="cuePointsJson"/>.
     /// DB cues come first (auto-generated structural cues); user cues follow.
     /// Deduplicates by timestamp within a 50 ms window.
     /// </summary>
-    private static List<OrbitCue> BuildCueList(List<CuePointEntity> dbCues, string? cuePointsJson)
+    private List<OrbitCue> BuildCueList(List<CuePointEntity> dbCues, string? cuePointsJson, string trackName)
     {
         var result = new List<OrbitCue>();
 
@@ -300,9 +471,9 @@ public class PlaylistExportService
                     }
                 }
             }
-            catch
+            catch (JsonException ex)
             {
-                // Malformed JSON — ignore user cues for this track
+                _logger.LogWarning(ex, "Rekordbox export: malformed CuePointsJson for '{Track}' — user-placed cues for this track were dropped (auto-generated cues are unaffected).", trackName);
             }
         }
 
@@ -310,13 +481,40 @@ public class PlaylistExportService
     }
 
     // ──────────────────────────────────────────────────────────────────────
+    // Location URI helper
+    // ──────────────────────────────────────────────────────────────────────
+
+    // Matches a Windows drive-letter segment (e.g. "C:") so it can be preserved verbatim —
+    // Uri.EscapeDataString would otherwise turn the colon into %3A and corrupt the path.
+    private static readonly Regex DriveLetterSegmentRegex = new(@"^[A-Za-z]:$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Builds a Rekordbox-compatible file:// URI, percent-encoding each path segment
+    /// independently (so literal "/" separators aren't escaped) while preserving a
+    /// Windows drive letter's colon verbatim.
+    /// </summary>
+    private static string BuildLocationUri(string path)
+    {
+        var normalized = path.Replace('\\', '/').TrimStart('/');
+        var segments = normalized.Split('/');
+        var escaped = segments.Select(seg =>
+            DriveLetterSegmentRegex.IsMatch(seg) ? seg : Uri.EscapeDataString(seg));
+        return "file://localhost/" + string.Join("/", escaped);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
     // Color helper
     // ──────────────────────────────────────────────────────────────────────
 
-    private static (int R, int G, int B) HexToRgb(string hex)
+    private (int R, int G, int B) HexToRgb(string hex, string trackName)
     {
+        var original = hex;
         hex = hex.TrimStart('#');
-        if (hex.Length != 6) return (255, 255, 255);
+        if (hex.Length != 6)
+        {
+            _logger.LogWarning("Rekordbox export: malformed cue colour '{Hex}' for '{Track}' — using white as a fallback.", original, trackName);
+            return (255, 255, 255);
+        }
         try
         {
             int r = Convert.ToInt32(hex[..2], 16);
@@ -324,8 +522,9 @@ public class PlaylistExportService
             int b = Convert.ToInt32(hex[4..6], 16);
             return (r, g, b);
         }
-        catch
+        catch (Exception ex) when (ex is FormatException or OverflowException)
         {
+            _logger.LogWarning(ex, "Rekordbox export: malformed cue colour '{Hex}' for '{Track}' — using white as a fallback.", original, trackName);
             return (255, 255, 255);
         }
     }
@@ -367,52 +566,4 @@ public class PlaylistExportService
         }
     }
 
-    /// <summary>
-    /// Phase 12: Enhanced CSV Export with Forensic Metrics
-    /// </summary>
-    public async Task ExportToCsvWithForensicsAsync(string playlistName, IEnumerable<LibraryEntryEntity> entries, string targetPath)
-    {
-        try
-        {
-            _logger.LogInformation("Exporting playlist '{PlaylistName}' to CSV with forensics: {Path}", playlistName, targetPath);
-
-            var csvLines = new List<string>
-            {
-                // Phase 12: Enhanced CSV headers with forensic data
-                "Title,Artist,Album,Genre,BPM,Key,Bitrate,Duration,FilePath,AddedAt,IsTranscoded"
-            };
-
-            foreach (var entry in entries)
-            {
-                // Escape commas and quotes in CSV fields
-                string EscapeCsvField(string? field) =>
-                    field?.Replace("\"", "\"\"").Replace(",", ";") ?? "";
-
-                var line = string.Join(",", new[]
-                {
-                    $"\"{EscapeCsvField(entry.Title)}\"",
-                    $"\"{EscapeCsvField(entry.Artist)}\"",
-                    $"\"{EscapeCsvField(entry.Album)}\"",
-                    $"\"{EscapeCsvField(entry.Genres)}\"",
-                    entry.BPM?.ToString() ?? "",
-                    $"\"{EscapeCsvField(entry.MusicalKey)}\"",
-                    entry.Bitrate.ToString(),
-                    entry.DurationSeconds?.ToString() ?? "",
-                    $"\"{EscapeCsvField(entry.FilePath)}\"",
-                    entry.AddedAt.ToString("yyyy-MM-dd HH:mm:ss"),
-                    entry.IsTranscoded?.ToString() ?? "false"
-                });
-
-                csvLines.Add(line);
-            }
-
-            await File.WriteAllLinesAsync(targetPath, csvLines);
-            _logger.LogInformation("CSV export with forensics completed successfully. Exported {Count} tracks.", entries.Count());
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to export playlist to CSV with forensics");
-            throw;
-        }
-    }
 }

@@ -3575,7 +3575,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
                 $"{safeName}-rekordbox-{DateTime.Now:yyyyMMdd-HHmmss}.xml");
 
-            await _playlistExporter.ExportToRekordboxXmlAsync(playlist.SourceTitle, ordered, outputPath);
+            await _playlistExporter.ExportToRekordboxXmlAsync(playlist.SourceTitle, ordered, outputPath, folderId: playlist.FolderId);
 
             AnalysisStatusText = $"Rekordbox XML exported with cues → {outputPath}";
         }
