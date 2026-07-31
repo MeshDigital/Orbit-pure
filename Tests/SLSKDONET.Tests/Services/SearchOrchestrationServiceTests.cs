@@ -44,8 +44,9 @@ public class SearchOrchestrationServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
-            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token) =>
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
+            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token, SearchScopeKind _) =>
             {
                 invocationCount++;
                 return StreamCandidates(Array.Empty<Track>(), token);
@@ -136,8 +137,9 @@ public class SearchOrchestrationServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
-            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token) =>
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
+            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token, SearchScopeKind _) =>
                 StreamCandidates(candidates, token));
 
         var safety = new Mock<ISafetyFilterService>();
@@ -213,8 +215,9 @@ public class SearchOrchestrationServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
-            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token) =>
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
+            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token, SearchScopeKind _) =>
             {
                 invocationCount++;
                 var firstVariationTrack = new Track
@@ -292,8 +295,9 @@ public class SearchOrchestrationServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
-            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token) =>
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
+            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token, SearchScopeKind _) =>
             {
                 invocationCount++;
                 var strictWinner = new Track
@@ -373,8 +377,9 @@ public class SearchOrchestrationServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
-            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token) =>
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
+            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token, SearchScopeKind _) =>
             {
                 invocationCount++;
                 return invocationCount switch
@@ -464,8 +469,9 @@ public class SearchOrchestrationServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
-            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token) =>
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
+            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token, SearchScopeKind _) =>
             {
                 invocationCount++;
                 return invocationCount switch
@@ -549,8 +555,9 @@ public class SearchOrchestrationServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
-            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token) =>
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
+            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token, SearchScopeKind _) =>
                 StreamCandidates(new[]
                 {
                     new Track
@@ -652,8 +659,9 @@ public class SearchOrchestrationServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
-            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token) =>
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
+            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token, SearchScopeKind _) =>
             {
                 invocationCount++;
                 return invocationCount switch
@@ -751,8 +759,9 @@ public class SearchOrchestrationServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
-            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token)
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
+            .Returns((string _, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token, SearchScopeKind _)
                 => StreamThrows(new SearchLimitExceededException("cap reached", 10000, 50000), token));
 
         var safety = new Mock<ISafetyFilterService>();

@@ -653,8 +653,9 @@ public class SoulseekSearchHelperTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
-            .Callback<string, IEnumerable<string>?, (int? Min, int? Max), DownloadMode, SearchExecutionProfile?, CancellationToken>((_, formats, _, _, _, _) =>
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
+            .Callback<string, IEnumerable<string>?, (int? Min, int? Max), DownloadMode, SearchExecutionProfile?, CancellationToken, SearchScopeKind>((_, formats, _, _, _, _, _) =>
             {
                 observedFormats = formats;
             })

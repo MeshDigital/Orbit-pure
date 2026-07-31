@@ -123,6 +123,16 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
     private static int GetEffectiveListenPort(int configuredListenPort)
         => Math.Clamp(configuredListenPort, 1_024, 65_535);
 
+    // Was hardcoded to Math.Clamp(_config.MaxConcurrentDownloads, 1, 10) — silently overriding
+    // any user setting above 10 even though the Settings/Downloads-page slider allows up to 20
+    // and DownloadManager's own app-level semaphore allows up to 50. Soulseek.NET has no inherent
+    // limit here (library default is int.MaxValue) — 10 was an ORBIT-side ceiling that just never
+    // got raised to match the UI. This value is fixed for the lifetime of the connection —
+    // SoulseekClientOptionsPatch (used for live reconfiguration) does not include
+    // MaximumConcurrentDownloads, so a change here only takes full effect after reconnecting.
+    private int GetEffectiveMaxConcurrentDownloads()
+        => Math.Clamp(_config.MaxConcurrentDownloads, 1, 50);
+
     private void RefillSearchTokens(int capacity, int refillIntervalMs)
     {
         var now = DateTime.UtcNow;
@@ -365,7 +375,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
             // Under concurrent searches, callback payloads can be interleaved across active queries,
             // causing false "no results" decisions in discovery despite valid candidates existing.
             maximumConcurrentSearches: 1,
-            maximumConcurrentDownloads: Math.Clamp(_config.MaxConcurrentDownloads, 1, 10),
+            maximumConcurrentDownloads: GetEffectiveMaxConcurrentDownloads(),
             maximumConcurrentUploads: MaxConcurrentUploads,
             searchResponseResolver: ResolveSearchResponseAsync,
             browseResponseResolver: ResolveBrowseResponseAsync,
@@ -616,7 +626,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 effectiveMessageTimeout,
                 runtime.ListenPort,
                 1,
-                Math.Clamp(_config.MaxConcurrentDownloads, 1, 10));
+                GetEffectiveMaxConcurrentDownloads());
             
             // Subscribe to state changes BEFORE connecting to catch early login states
             client.StateChanged += (sender, args) =>
@@ -1019,17 +1029,6 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
         }
     }
 
-    public async Task<int> SearchAsync(
-        string query,
-        IEnumerable<string>? formatFilter,
-        (int? Min, int? Max) bitrateFilter,
-        DownloadMode mode, // Add DownloadMode parameter
-        Action<IEnumerable<Track>> onTracksFound,
-        CancellationToken ct = default)
-    {
-        return await SearchCoreAsync(query, formatFilter, bitrateFilter, mode, onTracksFound, null, null, ct);
-    }
-
     private async Task<int> SearchCoreAsync(
         string query,
         IEnumerable<string>? formatFilter,
@@ -1038,7 +1037,8 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
         Action<IEnumerable<Track>> onTracksFound,
         SearchExecutionProfile? executionProfile,
         Action<SearchLimitExceededException>? onLimitExceeded,
-        CancellationToken ct)
+        CancellationToken ct,
+        Soulseek.SearchScope? scope = null)
     {
         using var searchLifetimeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var effectiveCt = searchLifetimeCts.Token;
@@ -1081,6 +1081,12 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
         var filteredByDedup = 0;
         var pendingCallbacks = 0;
         var searchDispatchCompleted = 0;
+        // Protocol-level telemetry: raw peer response count (before any per-file filtering) and
+        // the terminal search state, both sourced from the library's own SearchOptions callbacks
+        // rather than inferred from our own counters — tells us whether "0 results" means "0 peers
+        // replied" vs "peers replied but every file got filtered" vs "the search was cancelled/errored".
+        var peersResponded = 0;
+        var finalSearchState = Soulseek.SearchStates.None;
         var callbackDrainTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var hardCapTriggered = 0;
         var formatSet = formatFilter?.Select(f => f.ToLowerInvariant()).ToHashSet() ?? new HashSet<string>();
@@ -1160,14 +1166,20 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     Math.Max(1, executionProfile.EffectiveVariationCap),
                     Math.Max(0, executionProfile.AdditionalThrottleDelayMs)));
             }
+            var maxPeerQueueLength = Math.Max(0, _config.MaxPeerQueueLength);
             var options = new SearchOptions(
                 searchTimeout: Math.Max(5000, _config.SearchTimeout),
                 responseLimit: Math.Max(20, responseLimit),
                 filterResponses: true,
                 minimumResponseFileCount: 1,
-                maximumPeerQueueLength: Math.Max(0, _config.MaxPeerQueueLength),
+                maximumPeerQueueLength: maxPeerQueueLength,
                 fileLimit: Math.Max(20, fileLimit),
                 removeSingleCharacterSearchTerms: true,
+                // Reject a whole response up front when its queue is already past our ceiling —
+                // every file in it would fail the same per-file queue check in fileFilter below,
+                // so this just avoids iterating them one by one.
+                responseFilter: response =>
+                    maxPeerQueueLength <= 0 || response.QueueLength <= maxPeerQueueLength,
                 fileFilter: file =>
                 {
                     var decision = SearchFilterPolicy.EvaluateFile(
@@ -1177,7 +1189,9 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
                         _config.PreferredMaxSampleRate,
                         excludedPhraseSet);
                     return decision.IsAccepted;
-                }
+                },
+                responseReceived: _ => Interlocked.Increment(ref peersResponded),
+                stateChanged: args => finalSearchState = args.Search.State
             );
 
             // The SearchAsync method in the library (or wrapper) seems to handle the waiting internally 
@@ -1336,6 +1350,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
                         }
                     }
                 },
+                scope: scope ?? Soulseek.SearchScope.Network,
                 options: options,
                 cancellationToken: effectiveCt
             );
@@ -1385,10 +1400,11 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
             }
 
             _logger.LogInformation(
-                "Search completed: {ResultCount} results from {TotalFiles} files " +
+                "Search completed ({State}): {ResultCount} results from {TotalFiles} files, {PeersResponded} peers responded " +
                 "(filtered: {FormatFiltered} format, {BitrateFiltered} bitrate, {SampleRateFiltered} sample-rate, " +
                 "{QueueFiltered} queue, {DedupFiltered} dedup)",
-                finalResultCount, finalTotalFilesReceived, finalFilteredByFormat, finalFilteredByBitrate,
+                finalSearchState, finalResultCount, finalTotalFilesReceived, Volatile.Read(ref peersResponded),
+                finalFilteredByFormat, finalFilteredByBitrate,
                 finalFilteredBySampleRate, finalFilteredByQueue, finalFilteredByDedup);
 
             _healthService.RecordSearchFiltering(
@@ -1512,7 +1528,8 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
         (int? Min, int? Max) bitrateFilter,
         DownloadMode mode,
         SearchExecutionProfile? executionProfile = null,
-        [EnumeratorCancellation] CancellationToken ct = default)
+        [EnumeratorCancellation] CancellationToken ct = default,
+        SearchScopeKind scopeKind = SearchScopeKind.Network)
     {
         var channel = System.Threading.Channels.Channel.CreateUnbounded<Track>();
         var searchCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -1537,7 +1554,8 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     capException = ex;
                     searchCts.Cancel();
                 },
-                searchCts.Token);
+                searchCts.Token,
+                scope: scopeKind == SearchScopeKind.Wishlist ? Soulseek.SearchScope.Wishlist : null);
             }
             catch (OperationCanceledException) when (capException != null)
             {
@@ -1582,136 +1600,42 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
             throw capException;
     }
 
-    /// <summary>
-    /// Progressive search strategy: Tries multiple search queries with increasing leniency.
-    /// 1. Strict: "Artist - Title" (exact match expected)
-    /// 2. Relaxed: "Artist Title" (keyword-based)
-    /// 3. Album: Album-based search (fallback)
-    /// Returns results from the first successful strategy.
-    /// </summary>
-    public async Task<int> ProgressiveSearchAsync(
-        string artist,
-        string title,
-        string? album,
+    public async Task<List<Track>> SearchUserForTrackAsync(
+        string username,
+        string query,
         IEnumerable<string>? formatFilter,
         (int? Min, int? Max) bitrateFilter,
-        Action<IEnumerable<Track>> onTracksFound,
+        int timeoutMs,
         CancellationToken ct = default)
     {
-        if (_client == null)
+        var results = new List<Track>();
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(query))
         {
-            throw new InvalidOperationException("Not connected to Soulseek");
+            return results;
         }
 
-        var maxAttempts = _config.MaxSearchAttempts;
-        _logger.LogInformation("Starting progressive search: {Artist} - {Title} (album: {Album})", artist, title, album ?? "unknown");
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromMilliseconds(Math.Max(500, timeoutMs)));
 
-        // Strategy 1: Strict search "Artist - Title"
-        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        try
         {
-            if (ct.IsCancellationRequested)
-                return 0;
-
-            try
-            {
-                var strictQuery = $"{artist} - {title}";
-                _logger.LogInformation("Attempt {Attempt}/{Max}: Strict search: {Query}", attempt, maxAttempts, strictQuery);
-                
-                var resultCount = await SearchAsync(
-                    strictQuery,
-                    formatFilter,
-                    bitrateFilter,
-                    DownloadMode.Normal,
-                    onTracksFound,
-                    ct);
-                
-                if (resultCount > 0)
-                {
-                    _logger.LogInformation("Progressive search succeeded with strict query after {Attempt} attempt(s)", attempt);
-                    return resultCount;
-                }
-
-                if (attempt < maxAttempts)
-                    await Task.Delay(Math.Max(50, _config.SearchThrottleDelayMs), ct); // Brief delay before retry
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Strict search attempt {Attempt} failed", attempt);
-            }
+            await SearchCoreAsync(
+                query,
+                formatFilter,
+                bitrateFilter,
+                DownloadMode.Normal,
+                onTracksFound: tracks => results.AddRange(tracks),
+                executionProfile: null,
+                onLimitExceeded: null,
+                timeoutCts.Token,
+                scope: Soulseek.SearchScope.User(new[] { username }));
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // Targeted timeout — normal when the known-good peer no longer has the file or is slow.
         }
 
-        // Strategy 2: Relaxed search "Artist Title"
-        for (int attempt = 1; attempt <= maxAttempts; attempt++)
-        {
-            if (ct.IsCancellationRequested)
-                return 0;
-
-            try
-            {
-                var relaxedQuery = $"{artist} {title}";
-                _logger.LogInformation("Attempt {Attempt}/{Max}: Relaxed search: {Query}", attempt, maxAttempts, relaxedQuery);
-                
-                var resultCount = await SearchAsync(
-                    relaxedQuery,
-                    formatFilter,
-                    bitrateFilter,
-                    DownloadMode.Normal,
-                    onTracksFound,
-                    ct);
-                
-                if (resultCount > 0)
-                {
-                    _logger.LogInformation("Progressive search succeeded with relaxed query after {Attempt} attempt(s)", attempt);
-                    return resultCount;
-                }
-
-                if (attempt < maxAttempts)
-                    await Task.Delay(Math.Max(50, _config.SearchThrottleDelayMs), ct); // Brief delay before retry
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Relaxed search attempt {Attempt} failed", attempt);
-            }
-        }
-
-        // Strategy 3: Album search (fallback)
-        if (!string.IsNullOrEmpty(album))
-        {
-            for (int attempt = 1; attempt <= maxAttempts; attempt++)
-            {
-                if (ct.IsCancellationRequested)
-                    return 0;
-
-                try
-                {
-                    _logger.LogInformation("Attempt {Attempt}/{Max}: Album search: {Query}", attempt, maxAttempts, album);
-                    
-                    var resultCount = await SearchAsync(
-                        album,
-                        formatFilter,
-                        bitrateFilter,
-                        DownloadMode.Album,
-                        onTracksFound,
-                        ct);
-                    
-                    if (resultCount > 0)
-                    {
-                        _logger.LogInformation("Progressive search succeeded with album search after {Attempt} attempt(s)", attempt);
-                        return resultCount;
-                    }
-
-                    if (attempt < maxAttempts)
-                        await Task.Delay(Math.Max(50, _config.SearchThrottleDelayMs), ct); // Brief delay before retry
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Album search attempt {Attempt} failed", attempt);
-                }
-            }
-        }
-
-        _logger.LogWarning("Progressive search exhausted all strategies for {Artist} - {Title}", artist, title);
-        return 0;
+        return results;
     }
 
     private Track ParseTrackFromFile(Soulseek.File file, Soulseek.SearchResponse response)

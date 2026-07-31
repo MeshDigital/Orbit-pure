@@ -83,6 +83,16 @@ public class SearchOrchestrationService
     private int _activeSearchCount = 0;
     public int GetActiveSearchCount() => _activeSearchCount;
 
+    /// <summary>Passthrough to the adapter's targeted single-peer search (SearchScope.User).</summary>
+    public Task<List<Track>> SearchUserForTrackAsync(
+        string username,
+        string query,
+        IEnumerable<string>? formatFilter,
+        (int? Min, int? Max) bitrateFilter,
+        int timeoutMs,
+        CancellationToken ct = default)
+        => _soulseek.SearchUserForTrackAsync(username, query, formatFilter, bitrateFilter, timeoutMs, ct);
+
     /// <summary>
     /// Execute a search with the given parameters and stream ranked results.
     /// </summary>

@@ -74,7 +74,8 @@ public class AutoSearchService
     /// </summary>
     public async Task<(Track? BestMatch, AutoSearchDiagnostics Diagnostics)> FindBestMatchAsync(
         PlaylistTrack track,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool isBackgroundScan = false)
     {
         if (!_config.EnableAutoDownloadStrictMode)
         {
@@ -112,7 +113,7 @@ public class AutoSearchService
             }
 
             // Phase 1: Exact-first pipeline
-            var exactResult = await SearchExactFilenameAsync(track, normalizedQuery, ct);
+            var exactResult = await SearchExactFilenameAsync(track, normalizedQuery, ct, isBackgroundScan);
             if (exactResult.BestMatch != null)
             {
                 diag.MatchType = "exact";
@@ -136,7 +137,7 @@ public class AutoSearchService
             diag.ExactFilenameElapsedMs = (int)(DateTime.UtcNow - diag.StartedAtUtc).TotalMilliseconds;
 
             // Phase 2: Filtered template search if exact failed
-            var templateResult = await SearchFilteredTemplateAsync(track, normalizedQuery, ct);
+            var templateResult = await SearchFilteredTemplateAsync(track, normalizedQuery, ct, isBackgroundScan);
             if (templateResult.BestMatch != null)
             {
                 diag.MatchType = "filtered_template";
@@ -199,7 +200,8 @@ public class AutoSearchService
     private async Task<SearchResult> SearchExactFilenameAsync(
         PlaylistTrack track,
         string normalizedQuery,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool isBackgroundScan = false)
     {
         if (ct.IsCancellationRequested)
         {
@@ -227,7 +229,8 @@ public class AutoSearchService
                 allowedFormats,
                 minBitrate,
                 maxCandidates,
-                initialCts.Token))
+                initialCts.Token,
+                isBackgroundScan))
             {
                 candidates.Add(candidate);
             }
@@ -253,7 +256,8 @@ public class AutoSearchService
     private async Task<SearchResult> SearchFilteredTemplateAsync(
         PlaylistTrack track,
         string normalizedQuery,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool isBackgroundScan = false)
     {
         if (ct.IsCancellationRequested)
         {
@@ -283,7 +287,8 @@ public class AutoSearchService
                     allowedFormats,
                     minBitrate,
                     maxCandidates,
-                    extendedCts.Token))
+                    extendedCts.Token,
+                    isBackgroundScan))
                 {
                     var key = BuildCandidateKey(candidate);
                     if (!deduped.ContainsKey(key))

@@ -128,6 +128,19 @@ public class DownloadDiscoveryService
             _logger.LogDebug(ex, "Failed to look up known-good peer for track {TrackHash}", trackHash);
         }
 
+        // Fast path: a peer with a proven track record on this exact file is worth a quick,
+        // targeted SearchScope.User probe before paying for the full tiered network cascade.
+        // Any miss (offline, no longer sharing it, low-confidence match) falls through unchanged.
+        if (!string.IsNullOrWhiteSpace(knownGoodPeer))
+        {
+            var targetedResult = await TryTargetedKnownGoodPeerSearchAsync(track, knownGoodPeer!, ct);
+            if (targetedResult?.BestMatch != null)
+            {
+                _auditLogger.Log(trackHash, $"[Search] SUCCESS (Targeted): Known-good-peer match found without full network search. Peer: {targetedResult.BestMatch.Username} | Score: {targetedResult.BestMatch.CurrentRank:F1}/100 | File: {targetedResult.BestMatch.Filename}");
+                return targetedResult;
+            }
+        }
+
         // Global discovery timeout: if all tiers combined take > 90s, abort cleanly.
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(45)); // Global discovery timeout: 45s (was 120s causing slowness)
@@ -277,6 +290,84 @@ public class DownloadDiscoveryService
         finally
         {
             ReleaseDiscoveryLane();
+        }
+    }
+
+    private async Task<DiscoveryResult?> TryTargetedKnownGoodPeerSearchAsync(PlaylistTrack track, string knownGoodPeer, CancellationToken ct)
+    {
+        try
+        {
+            var query = _hardeningService.NormalizeSearchQuery($"{track.Artist} {track.Title}".Trim());
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                return null;
+            }
+
+            var formatsList = !string.IsNullOrEmpty(track.PreferredFormats)
+                ? track.PreferredFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()
+                : _config.PreferredFormats?.ToList() ?? new List<string> { "flac" };
+            if (!formatsList.Any())
+            {
+                formatsList.Add("flac");
+            }
+
+            var minBitrate = track.MinBitrateOverride ?? _config.PreferredMinBitrate;
+            var candidates = await _searchOrchestrator.SearchUserForTrackAsync(
+                knownGoodPeer, query, formatsList, (minBitrate, null), timeoutMs: 6000, ct);
+
+            if (candidates.Count == 0)
+            {
+                return null;
+            }
+
+            var targetMetadata = new InputParsers.TargetMetadata(
+                track.Artist,
+                track.Title,
+                track.Album,
+                track.CanonicalDuration.HasValue ? Math.Max(0, track.CanonicalDuration.Value / 1000) : null);
+            var allowLossy = formatsList.Contains("mp3", StringComparer.OrdinalIgnoreCase);
+
+            Track? best = null;
+            double bestFitScore = 0;
+            foreach (var candidate in candidates)
+            {
+                _safetyFilter.EvaluateSafety(candidate, query, allowLossy, _config.SearchPolicy);
+                if (candidate.IsFlagged)
+                {
+                    continue;
+                }
+
+                var fitScore = SearchCandidateFitScorer.CalculateScore(candidate, targetMetadata, formatsList, minBitrate, _config.SearchLengthToleranceSeconds);
+                if (best == null || fitScore > bestFitScore)
+                {
+                    best = candidate;
+                    bestFitScore = fitScore;
+                }
+            }
+
+            // High confidence bar: this is a shortcut around the full cascade, so only take it
+            // when the fit is strong. Anything softer falls through to the normal tiered search.
+            if (best == null || bestFitScore < 75)
+            {
+                return null;
+            }
+
+            var reliability = _peerReliability.GetReliabilityScore(best.Username);
+            best.CurrentRank = SearchCandidateRankingPolicy.CalculateFinalScore(
+                matchScore: 90,
+                fitScore: bestFitScore,
+                reliability: reliability,
+                queueLength: Math.Max(0, best.QueueLength),
+                hasFreeUploadSlot: best.HasFreeUploadSlot,
+                isKnownGoodPeerForTrack: true);
+            best.MatchReason = "Known-good-peer targeted search (SearchScope.User)";
+
+            return new DiscoveryResult(best, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Targeted known-good-peer search failed for {TrackHash}; falling back to full discovery.", track.TrackUniqueHash);
+            return null;
         }
     }
 

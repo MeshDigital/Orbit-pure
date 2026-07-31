@@ -40,7 +40,8 @@ public class AutoSearchServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
             .Returns(EmptyStream());
 
         // Default config: feature enabled, conservative timeouts
@@ -96,7 +97,8 @@ public class AutoSearchServiceTests
             It.IsAny<(int? Min, int? Max)>(),
             It.IsAny<DownloadMode>(),
             It.IsAny<SearchExecutionProfile?>(),
-            It.IsAny<CancellationToken>()),
+            It.IsAny<CancellationToken>(),
+            It.IsAny<SearchScopeKind>()),
             Times.Never);
     }
 
@@ -161,7 +163,8 @@ public class AutoSearchServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
             .Returns(StreamFrom(
                 new Track
                 {
@@ -203,7 +206,8 @@ public class AutoSearchServiceTests
             It.IsAny<(int? Min, int? Max)>(),
             It.IsAny<DownloadMode>(),
             It.IsAny<SearchExecutionProfile?>(),
-            It.IsAny<CancellationToken>()),
+            It.IsAny<CancellationToken>(),
+            It.IsAny<SearchScopeKind>()),
             Times.AtLeastOnce);
     }
 
@@ -226,7 +230,8 @@ public class AutoSearchServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
             .Returns(() =>
             {
                 callCount++;
@@ -295,7 +300,8 @@ public class AutoSearchServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
             .Returns(StreamFrom(
                 new Track
                 {
@@ -338,8 +344,9 @@ public class AutoSearchServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
-            .Callback<string, IEnumerable<string>?, (int? Min, int? Max), DownloadMode, SearchExecutionProfile?, CancellationToken>((_, formats, _, _, _, _) =>
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
+            .Callback<string, IEnumerable<string>?, (int? Min, int? Max), DownloadMode, SearchExecutionProfile?, CancellationToken, SearchScopeKind>((_, formats, _, _, _, _, _) =>
             {
                 observedFormats = formats;
             })
@@ -389,8 +396,9 @@ public class AutoSearchServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
-            .Callback<string, IEnumerable<string>?, (int? Min, int? Max), DownloadMode, SearchExecutionProfile?, CancellationToken>((_, formats, _, _, _, _) =>
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
+            .Callback<string, IEnumerable<string>?, (int? Min, int? Max), DownloadMode, SearchExecutionProfile?, CancellationToken, SearchScopeKind>((_, formats, _, _, _, _, _) =>
             {
                 observedFormats = formats;
             })
@@ -439,8 +447,9 @@ public class AutoSearchServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
-            .Callback<string, IEnumerable<string>?, (int? Min, int? Max), DownloadMode, SearchExecutionProfile?, CancellationToken>((_, formats, _, _, _, _) =>
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
+            .Callback<string, IEnumerable<string>?, (int? Min, int? Max), DownloadMode, SearchExecutionProfile?, CancellationToken, SearchScopeKind>((_, formats, _, _, _, _, _) =>
             {
                 observedFormats = formats;
             })
@@ -490,8 +499,9 @@ public class AutoSearchServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
-            .Callback<string, IEnumerable<string>?, (int? Min, int? Max), DownloadMode, SearchExecutionProfile?, CancellationToken>((_, formats, _, _, _, _) =>
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
+            .Callback<string, IEnumerable<string>?, (int? Min, int? Max), DownloadMode, SearchExecutionProfile?, CancellationToken, SearchScopeKind>((_, formats, _, _, _, _, _) =>
             {
                 observedFormats = formats;
             })
@@ -541,7 +551,8 @@ public class AutoSearchServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
             .Returns(StreamFrom(
                 new Track
                 {
@@ -581,7 +592,8 @@ public class AutoSearchServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
             .Returns(StreamFrom(
                 new Track
                 {
@@ -622,7 +634,8 @@ public class AutoSearchServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
             .Returns(StreamFrom(
                 new Track
                 {
@@ -658,7 +671,8 @@ public class AutoSearchServiceTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
             .Returns(StreamFrom(
                 new Track
                 {
@@ -834,7 +848,8 @@ public class AutoSearchServiceTests
             "SearchExactFilenameAsync",
             track,
             "the beatles hey jude",
-            CancellationToken.None);
+            CancellationToken.None,
+            false);
 
         Assert.Null(result.BestMatch);
         Assert.Equal(0, result.CandidatesCount);
@@ -856,7 +871,8 @@ public class AutoSearchServiceTests
             "SearchFilteredTemplateAsync",
             track,
             "pink floyd time",
-            CancellationToken.None);
+            CancellationToken.None,
+            false);
 
         Assert.Null(result.BestMatch);
         Assert.Equal(0, result.CandidatesCount);
@@ -880,13 +896,15 @@ public class AutoSearchServiceTests
             "SearchExactFilenameAsync",
             track,
             "test track",
-            cts.Token);
+            cts.Token,
+            false);
 
         var filteredResult = await InvokePrivateAsync<AutoSearchService.SearchResult>(
             "SearchFilteredTemplateAsync",
             track,
             "test track",
-            cts.Token);
+            cts.Token,
+            false);
 
         Assert.Null(exactResult.BestMatch);
         Assert.Null(filteredResult.BestMatch);

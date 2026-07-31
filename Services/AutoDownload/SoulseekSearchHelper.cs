@@ -108,7 +108,8 @@ public class SoulseekSearchHelper
         List<string> allowedFormats,
         int minBitrate,
         int maxCandidates,
-        [EnumeratorCancellation] CancellationToken ct = default)
+        [EnumeratorCancellation] CancellationToken ct = default,
+        bool preferWishlistScope = false)
     {
         var normalizedAllowedFormats = allowedFormats
             .Where(fmt => !string.IsNullOrWhiteSpace(fmt))
@@ -124,7 +125,8 @@ public class SoulseekSearchHelper
             (minBitrate > 0 ? minBitrate : null, null),
             DownloadMode.Normal,
             null,
-            ct))
+            ct,
+            preferWishlistScope ? SearchScopeKind.Wishlist : SearchScopeKind.Network))
         {
             yield return candidate;
             emitted++;

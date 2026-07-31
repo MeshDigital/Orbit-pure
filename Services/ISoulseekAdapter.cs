@@ -15,20 +15,26 @@ public interface ISoulseekAdapter
     Task DisconnectAsync();
     void Disconnect();
     Task RefreshShareStateAsync(CancellationToken ct = default);
-    Task<int> SearchAsync(
-        string query,
-        IEnumerable<string>? formatFilter,
-        (int? Min, int? Max) bitrateFilter,
-        DownloadMode mode,
-        Action<IEnumerable<Track>> onTracksFound,
-        CancellationToken ct = default);
-
     IAsyncEnumerable<Track> StreamResultsAsync(
         string query,
         IEnumerable<string>? formatFilter,
         (int? Min, int? Max) bitrateFilter,
         DownloadMode mode,
         SearchExecutionProfile? executionProfile = null,
+        CancellationToken ct = default,
+        SearchScopeKind scopeKind = SearchScopeKind.Network);
+
+    /// <summary>
+    /// Targeted, short-timeout search scoped to a single known peer (Soulseek protocol's
+    /// SearchScope.User) — used to fast-path re-downloads/upgrades of tracks with a known-good
+    /// source without paying the cost of a full network-wide search first.
+    /// </summary>
+    Task<List<Track>> SearchUserForTrackAsync(
+        string username,
+        string query,
+        IEnumerable<string>? formatFilter,
+        (int? Min, int? Max) bitrateFilter,
+        int timeoutMs,
         CancellationToken ct = default);
 
     Task<bool> DownloadAsync(
@@ -40,15 +46,6 @@ public interface ISoulseekAdapter
         Action<TransferLifecycleUpdate>? lifecycleUpdate = null,
         CancellationToken ct = default,
         long startOffset = 0);
-
-    Task<int> ProgressiveSearchAsync(
-        string artist,
-        string title,
-        string? album,
-        IEnumerable<string>? formatFilter,
-        (int? Min, int? Max) bitrateFilter,
-        Action<IEnumerable<Track>> onTracksFound,
-        CancellationToken ct = default);
 
     Task<IEnumerable<Track>> GetUserSharesAsync(
         string username,

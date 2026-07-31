@@ -124,8 +124,10 @@ public class GhostAcquisitionOrchestrator : BackgroundService
 
                         _logger.LogInformation("Attempting ghost acquisition for: {Artist} - {Title}", track.Artist, track.Title);
 
-                        // Find best match using AutoSearchService
-                        var (bestMatch, diagnostics) = await _autoSearchService.FindBestMatchAsync(track, stoppingToken);
+                        // Find best match using AutoSearchService. Background ghost acquisition has
+                        // no interactive user waiting — use SearchScope.Wishlist (the protocol's own
+                        // low-priority scope, gentler server-side rate limiting) rather than Network.
+                        var (bestMatch, diagnostics) = await _autoSearchService.FindBestMatchAsync(track, stoppingToken, isBackgroundScan: true);
 
                         if (bestMatch != null)
                         {

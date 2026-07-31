@@ -153,8 +153,9 @@ public class SearchViewModelTests
                 It.IsAny<(int? Min, int? Max)>(),
                 It.IsAny<DownloadMode>(),
                 It.IsAny<SearchExecutionProfile?>(),
-                It.IsAny<CancellationToken>()))
-            .Returns((string query, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token)
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SearchScopeKind>()))
+            .Returns((string query, IEnumerable<string> _, (int? Min, int? Max) _, DownloadMode _, SearchExecutionProfile? _, CancellationToken token, SearchScopeKind _)
                 => streamFactory(query, token));
 
         var safety = new Mock<ISafetyFilterService>();

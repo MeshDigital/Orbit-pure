@@ -19,3 +19,14 @@ public enum RankingPreset
     // Prioritizes fastest downloads (low size, high share count, lowest duration)
     FastestDownload
 }
+
+/// <summary>
+/// Maps to the Soulseek protocol's own SearchScope. Wishlist is the protocol's purpose-built
+/// low-priority scope for unattended background searches (server-side gentler rate limiting);
+/// only use it where nobody is actively waiting on the result.
+/// </summary>
+public enum SearchScopeKind
+{
+    Network,
+    Wishlist
+}

@@ -376,10 +376,21 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             // Adjust semaphore count dynamically
             if (diff > 0)
             {
-                try 
+                try
                 {
                     _downloadSemaphore.Release(diff);
                     _logger.LogInformation("ðŸš€ Increased concurrent download limit to {Count}", value);
+
+                    // Soulseek.NET fixes MaximumConcurrentDownloads for the lifetime of the client
+                    // connection (SoulseekClientOptionsPatch, used for all other live reconfiguration,
+                    // deliberately excludes it) — this app-level semaphore change is immediate, but the
+                    // actual number of simultaneous protocol-level transfers won't reach the new ceiling
+                    // until the next Soulseek reconnect.
+                    if (_soulseek.IsConnected)
+                    {
+                        _logger.LogInformation(
+                            "Note: the higher concurrent-download limit will only reach its full effect at the protocol level after the next Soulseek reconnect.");
+                    }
                 }
                 catch (SemaphoreFullException) 
                 {
