@@ -101,6 +101,12 @@
                     CommandParameter="{Binding Model}">
                  <TextBlock Text="🔄" FontSize="12"/>
             </Button>
+            <Button Classes="icon-btn" ToolTip.Tip="Open Source Link" Padding="4" Background="Transparent" BorderThickness="0"
+                    IsVisible="{Binding Model.SourceUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                    Command="{Binding $parent[views:LibraryPage].DataContext.OpenSourceUrlCommand}"
+                    CommandParameter="{Binding Model}">
+                 <TextBlock Text="🔗" FontSize="12"/>
+            </Button>
         </StackPanel>
     </Grid>
 </UserControl>

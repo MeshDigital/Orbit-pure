@@ -96,4 +96,59 @@ public class CommentTracklistParserTests
         Assert.Null(detectedTitle);
         Assert.Equal(2, tracks.Count);
     }
+
+    [Fact]
+    public void Parse_DetectsBacklinkUrl()
+    {
+        CommentTracklistParser.Parse(Sample1001Tracklist, out _, out var detectedSourceUrl);
+
+        Assert.Equal("https://1001.tl/2r76u8p1", detectedSourceUrl);
+    }
+
+    [Fact]
+    public void Parse_NoUrlInInput_DetectedSourceUrlIsNull()
+    {
+        CommentTracklistParser.Parse("Artist One - Title One\nArtist Two - Title Two", out _, out var detectedSourceUrl);
+
+        Assert.Null(detectedSourceUrl);
+    }
+
+    [Fact]
+    public void Parse_FiltersUnidentifiedIdTracks()
+    {
+        var input = """
+        [00:00] Friction - ID
+        [01:44] Missy Elliott - Get UR Freak On (SKIYE Remix)
+        [11:40] ID - ID
+        [12:32] SOTA - Poison
+        """;
+
+        var tracks = CommentTracklistParser.Parse(input);
+
+        Assert.Equal(2, tracks.Count);
+        Assert.DoesNotContain(tracks, t => t.Title.Equals("ID", System.StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(tracks, t => t.Artist.Contains("Missy Elliott"));
+        Assert.Contains(tracks, t => t.Artist.Contains("SOTA"));
+    }
+
+    [Fact]
+    public void Parse_HeaderLineContainsHyphen_StillDetectedAsTitleNotTrack()
+    {
+        // Regression: a header like "Friction - Elevate: Live 005 2026-07-16" contains a "-"
+        // separator, so on its own it looks exactly like a track line. It must still be detected
+        // as the header (not parsed as a bogus "Friction" / "Elevate: Live 005..." track) because
+        // every real track in this paste carries a timestamp and the header line does not.
+        var input = """
+        Friction - Elevate: Live 005 2026-07-16
+
+        [00:00] Friction - ID
+        [01:44] Missy Elliott - Get UR Freak On (SKIYE Remix)
+        """;
+
+        var tracks = CommentTracklistParser.Parse(input, out var detectedTitle);
+
+        Assert.Equal("Friction - Elevate: Live 005 2026-07-16", detectedTitle);
+        Assert.Single(tracks);
+        Assert.Contains(tracks, t => t.Artist.Contains("Missy Elliott"));
+    }
 }

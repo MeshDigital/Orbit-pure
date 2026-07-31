@@ -60,4 +60,10 @@ public class ImportBatchResult
     /// Null means "use the provider's own name" — most providers never set this.
     /// </summary>
     public string? SourceType { get; set; }
+
+    /// <summary>
+    /// A URL identifying the original source (e.g. a 1001Tracklists backlink found inside a
+    /// pasted tracklist), so the user can navigate back to it later. Null when none was found.
+    /// </summary>
+    public string? SourceUrl { get; set; }
 }

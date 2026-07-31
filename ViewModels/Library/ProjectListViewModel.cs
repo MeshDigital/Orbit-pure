@@ -196,6 +196,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand LoadAllTracksCommand { get; }
     public System.Windows.Input.ICommand ImportLikedSongsCommand { get; }
     public System.Windows.Input.ICommand SyncProjectCommand { get; }
+    public System.Windows.Input.ICommand OpenSourceUrlCommand { get; }
     public System.Windows.Input.ICommand GenerateCuesCommand { get; }
     public System.Windows.Input.ICommand ExportProjectCommand { get; }
 
@@ -261,6 +262,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         LoadAllTracksCommand = new RelayCommand(() => SelectedProject = _allTracksJob);
         ImportLikedSongsCommand = new AsyncRelayCommand(ExecuteImportLikedSongsAsync, () => IsSpotifyAuthenticated);
         SyncProjectCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteSyncProjectAsync);
+        OpenSourceUrlCommand = new RelayCommand<PlaylistJob>(ExecuteOpenSourceUrl);
         GenerateCuesCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteGenerateCuesAsync);
         ExportProjectCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteExportProjectAsync);
 
@@ -785,6 +787,22 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         {
             _logger.LogError(ex, "Failed to sync project");
             _notificationService.Show("Sync Error", $"Failed to sync: {ex.Message}", Views.NotificationType.Error);
+        }
+    }
+
+    /// <summary>Opens the playlist's original source page (e.g. a 1001Tracklists backlink) in the default browser.</summary>
+    private void ExecuteOpenSourceUrl(PlaylistJob? job)
+    {
+        if (job == null || string.IsNullOrWhiteSpace(job.SourceUrl)) return;
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(job.SourceUrl) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to open source URL {Url}", job.SourceUrl);
+            _notificationService.Show("Open Link Error", $"Could not open link: {ex.Message}", Views.NotificationType.Error);
         }
     }
 

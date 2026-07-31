@@ -24,6 +24,10 @@ public static class CommentTracklistParser
     private static readonly Regex TrailingLabelRegex = new(@"\s+[A-Z0-9][A-Z0-9 '&/().-]{1,40}$", RegexOptions.Compiled);
     private static readonly Regex TrailingBracketLabelRegex = new(@"\s+\[[A-Z0-9][A-Z0-9 '&/().-]{1,40}\]$", RegexOptions.Compiled);
     private static readonly Regex LeadingMixMarkerRegex = new(@"^\s*w\/?\s+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // 1001Tracklists (and similar sites) end the paste with a "keep this tracklist up-to-date"
+    // backlink — capture it so it can be stored on the playlist for later reference.
+    private static readonly Regex UrlRegex = new(@"https?://\S+", RegexOptions.Compiled);
     
     // Keywords that indicate junk lines
     private static readonly string[] JunkKeywords =
@@ -63,9 +67,28 @@ public static class CommentTracklistParser
     /// and similar sources conventionally open with a "DJ @ Event Name Date" header line above the
     /// track entries. Null if the input has no such leading non-track line.
     /// </param>
-    public static List<SearchQuery> Parse(string rawText, out string? detectedTitle)
+    public static List<SearchQuery> Parse(string rawText, out string? detectedTitle) =>
+        Parse(rawText, out detectedTitle, out _);
+
+    /// <summary>
+    /// Parse raw tracklist text into SearchQuery objects, also reporting a detected playlist title
+    /// and a detected source URL (e.g. a 1001Tracklists backlink).
+    /// </summary>
+    /// <param name="rawText">Raw text containing tracklist (e.g., from a 1001Tracklists paste)</param>
+    /// <param name="detectedTitle">
+    /// The first line of the pasted text, if present and not itself parsed as a track — 1001Tracklists
+    /// and similar sources conventionally open with a "DJ @ Event Name Date" header line above the
+    /// track entries. Null if the input has no such leading non-track line.
+    /// </param>
+    /// <param name="detectedSourceUrl">
+    /// The first URL found anywhere in the pasted text (e.g. 1001Tracklists' own "keep this
+    /// tracklist up-to-date" backlink) so the caller can persist it for later reference. Null if
+    /// the input contains no URL.
+    /// </param>
+    public static List<SearchQuery> Parse(string rawText, out string? detectedTitle, out string? detectedSourceUrl)
     {
         detectedTitle = null;
+        detectedSourceUrl = null;
 
         if (string.IsNullOrWhiteSpace(rawText))
             return new List<SearchQuery>();
@@ -77,6 +100,17 @@ public static class CommentTracklistParser
 
         var tracks = new List<SearchQuery>();
         var lines = rawText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+
+        // A paste that uses timestamps anywhere is almost certainly a timed tracklist (1001Tracklists,
+        // YouTube comment, etc.) where every real track line carries a timestamp. That lets us tell a
+        // header line like "Friction - Elevate: Live 005 2026-07-16" (no timestamp, but still contains
+        // a "-" separator) apart from an actual track — see the first-line check below.
+        bool inputHasAnyTimestampSignal = lines.Any(l =>
+        {
+            var trimmed = (l ?? string.Empty).Trim();
+            return LeadingTimestampPrefixRegex.IsMatch(trimmed) || TimestampOnlyRegex.IsMatch(trimmed);
+        });
+
         var previousTrackKey = string.Empty;
         bool previousLineWasTimestamp = false;
         bool sawAnyNonBlankLine = false;
@@ -86,6 +120,13 @@ public static class CommentTracklistParser
             var original = (line ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(original))
                 continue;
+
+            if (detectedSourceUrl is null)
+            {
+                var urlMatch = UrlRegex.Match(original);
+                if (urlMatch.Success)
+                    detectedSourceUrl = urlMatch.Value.TrimEnd('.', ',', ')', ']');
+            }
 
             // In 1001Tracklists blocks, a timestamp line is often followed by "Artist - Title ...".
             if (IsTimestampOnly(original))
@@ -108,7 +149,15 @@ public static class CommentTracklistParser
             // Strong signal: explicit artist/title separator.
             // Also accept title-only lines when they carry a leading timestamp prefix.
             bool hasSeparator = HasArtistTitleSeparator(cleaned);
-            bool isTrackCandidate = hasSeparator || hadLeadingTimestamp || previousLineWasTimestamp;
+            bool hasTimestampSignal = hadLeadingTimestamp || previousLineWasTimestamp;
+            bool isTrackCandidate = hasSeparator || hasTimestampSignal;
+
+            // The very first content line of a timestamped paste is the header/title even when it
+            // contains a "-" separator (e.g. "Friction - Elevate: Live 005 2026-07-16") — real tracks
+            // in this format always carry a timestamp, so a timestamp-less first line never is one.
+            if (isTrackCandidate && !sawAnyNonBlankLine && inputHasAnyTimestampSignal && !hasTimestampSignal)
+                isTrackCandidate = false;
+
             previousLineWasTimestamp = false;
 
             if (!isTrackCandidate)
@@ -133,6 +182,12 @@ public static class CommentTracklistParser
                 : (string.Empty, cleaned);
 
             if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(title))
+                continue;
+
+            // "ID" is DJ-tracklist shorthand for an unidentified track — there's nothing to search
+            // for, so drop it rather than queuing a doomed download (covers both "Artist - ID" and
+            // "ID - ID").
+            if (title.Trim().Equals("ID", StringComparison.OrdinalIgnoreCase))
                 continue;
 
             var key = $"{artist.Trim().ToLowerInvariant()}|{title.Trim().ToLowerInvariant()}";
@@ -193,8 +248,9 @@ public static class CommentTracklistParser
         if (lowerLine.Trim() == "w/" || lowerLine.Trim() == "w")
             return true;
 
-        // Keep "ID - ID" track placeholders (they are valid unknown entries),
-        // but filter standalone "id" tags.
+        // A bare "id" line (no separator at all) is junk on its own; "Artist - ID" /
+        // "ID - ID" lines are filtered later, once split, since they still need to run
+        // through the artist/title separator logic first.
         if (lowerLine.Trim() == "id")
             return true;
         

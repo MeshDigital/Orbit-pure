@@ -444,6 +444,14 @@ public class ImportOrchestrator
                      });
                  }
 
+                 if (!string.IsNullOrEmpty(batch.SourceUrl))
+                 {
+                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                     {
+                         _previewViewModel.UpdateSourceUrl(batch.SourceUrl!);
+                     });
+                 }
+
                  await _previewViewModel.AddTracksToPreviewAsync(batch.Tracks);
             }
         }

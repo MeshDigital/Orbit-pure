@@ -37,4 +37,10 @@ public class ImportResult
     /// Type of import source (e.g., "Spotify", "CSV", "Pasted Tracklist").
     /// </summary>
     public string? SourceType { get; set; }
+
+    /// <summary>
+    /// A URL identifying the original source (e.g. a 1001Tracklists backlink found inside a
+    /// pasted tracklist), so the user can navigate back to it later. Null when none was found.
+    /// </summary>
+    public string? SourceUrl { get; set; }
 }

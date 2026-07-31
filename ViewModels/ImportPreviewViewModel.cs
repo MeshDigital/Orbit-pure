@@ -282,6 +282,25 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     private string? _sourceUrl;
     private bool _isMergeTargetLoading;
 
+    /// <summary>
+    /// URL identifying the original source, persisted onto the created <see cref="PlaylistJob"/>.
+    /// Initially set from the raw import input; providers that detect a more specific URL inside
+    /// their content (e.g. a 1001Tracklists backlink found inside a pasted tracklist) can override
+    /// it post-hoc via <see cref="UpdateSourceUrl"/> once parsing completes.
+    /// </summary>
+    public string? SourceUrl
+    {
+        get => _sourceUrl;
+        private set { _sourceUrl = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>Overrides the source URL with a more specific one detected during streaming.</summary>
+    public void UpdateSourceUrl(string sourceUrl)
+    {
+        if (!string.IsNullOrWhiteSpace(sourceUrl))
+            SourceUrl = sourceUrl;
+    }
+
     public ObservableCollection<MergeTargetOptionViewModel> MergeTargets { get; } = new();
 
     private MergeTargetOptionViewModel? _selectedMergeTarget;
