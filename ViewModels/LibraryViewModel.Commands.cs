@@ -56,6 +56,7 @@ public partial class LibraryViewModel
     public ICommand LoadDeletedProjectsCommand { get; set; } = null!;
     public ICommand RestoreProjectCommand { get; set; } = null!;
     public ICommand CloseRemovalHistoryCommand { get; set; } = null!;
+    public ICommand CloseImportHistoryCommand { get; set; } = null!;
     public ICommand SyncProjectCommand { get; set; } = null!;
     public ICommand ExportPlaylistCommand { get; set; } = null!;
     public ICommand ExportPlaylistM3uCommand { get; set; } = null!;
@@ -130,6 +131,7 @@ public partial class LibraryViewModel
         LoadDeletedProjectsCommand = new AsyncRelayCommand(ExecuteLoadDeletedProjectsAsync);
         RestoreProjectCommand = new AsyncRelayCommand<object>(ExecuteRestoreProjectAsync);
         CloseRemovalHistoryCommand = new RelayCommand(() => IsRemovalHistoryVisible = false);
+        CloseImportHistoryCommand = new RelayCommand(() => IsImportHistoryVisible = false);
         ExportPlaylistCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistAsync);
         ExportPlaylistM3uCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistM3uAsync);
 
@@ -320,7 +322,7 @@ public partial class LibraryViewModel
     private async Task ExecuteViewHistoryAsync()
     {
         await _importHistoryViewModel.LoadHistoryAsync();
-        _navigationService.NavigateTo(PageType.Import);
+        IsImportHistoryVisible = true;
     }
 
     private async Task ExecutePlayTrackAsync(object? param)

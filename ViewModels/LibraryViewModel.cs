@@ -67,6 +67,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     public Library.SmartPlaylistViewModel SmartPlaylists { get; }
     public System.Collections.ObjectModel.ObservableCollection<ColumnDefinition> AvailableColumns { get; } = new();
     public LibrarySourcesViewModel LibrarySourcesViewModel { get; }
+    public ImportHistoryViewModel ImportHistoryViewModel => _importHistoryViewModel;
     public LibraryDoubleInspectorViewModel DoubleInspector { get; }
     public LibraryTrackInspectorViewModel TrackInspector { get; }
     public PlaylistIntelligenceViewModel Intelligence { get; }
@@ -456,6 +457,13 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     {
         get => _isRemovalHistoryVisible;
         set { SetProperty(ref _isRemovalHistoryVisible, value); }
+    }
+
+    private bool _isImportHistoryVisible;
+    public bool IsImportHistoryVisible
+    {
+        get => _isImportHistoryVisible;
+        set { SetProperty(ref _isImportHistoryVisible, value); }
     }
 
     private bool _isOrphanedTracksVisible;

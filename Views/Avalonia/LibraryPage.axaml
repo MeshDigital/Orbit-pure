@@ -73,6 +73,12 @@
         
         <!-- Ctrl+Alt+N: Toggle Library Navigation -->
         <KeyBinding Gesture="Ctrl+Alt+N" Command="{Binding ToggleNavigationCommand}"/>
+
+        <!-- Tools menu shortcuts — these must match the InputGesture text shown on each MenuItem below -->
+        <KeyBinding Gesture="Ctrl+H" Command="{Binding ViewHistoryCommand}"/>
+        <KeyBinding Gesture="Ctrl+OemComma" Command="{Binding OpenSourcesCommand}"/>
+        <KeyBinding Gesture="Ctrl+Shift+N" Command="{Binding SmartPlaylists.CreateCustomSmartPlaylistCommand}"/>
+        <KeyBinding Gesture="Ctrl+E" Command="{Binding ExportMonthlyDropCommand}"/>
     </UserControl.KeyBindings>
 
     <Panel>
@@ -133,7 +139,7 @@
                                                ToolTip.Tip="Restore a playlist you removed from the list">
                                          <MenuItem.Icon><TextBlock Text="🗑️"/></MenuItem.Icon>
                                      </MenuItem>
-                                     <MenuItem Header="New Smart Crate (Genre/Mood)" Command="{Binding CreateSmartPlaylistCommand}" InputGesture="Ctrl+N"
+                                     <MenuItem Header="New Smart Crate (Genre/Mood)" Command="{Binding CreateSmartPlaylistCommand}"
                                                ToolTip.Tip="Rule-based playlist: sub-genre, mood, BPM/energy range">
                                          <MenuItem.Icon><TextBlock Text="⚡"/></MenuItem.Icon>
                                      </MenuItem>
@@ -568,6 +574,70 @@
                                                 Background="#1AFFFFFF" Foreground="#2DB5FF" BorderThickness="0"
                                                 Command="{Binding $parent[UserControl].DataContext.RestoreProjectCommand}"
                                                 CommandParameter="{Binding}"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+    </Border>
+
+    <!-- Manage Library Sources overlay -->
+    <Border IsVisible="{Binding IsSourcesOpen}" Background="#CC000000">
+        <Grid HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="600">
+            <views:LibrarySourcesView DataContext="{Binding LibrarySourcesViewModel}"/>
+            <Button HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,8,0"
+                    Command="{Binding OpenSourcesCommand}" CommandParameter="Close"
+                    Background="Transparent" BorderThickness="0" Padding="8,4">
+                <TextBlock Text="✕" FontSize="14" Foreground="#AAA"/>
+            </Button>
+        </Grid>
+    </Border>
+
+    <!-- Import History overlay -->
+    <Border IsVisible="{Binding IsImportHistoryVisible}" Background="#CC000000">
+        <Border Width="520" MaxHeight="560" HorizontalAlignment="Center" VerticalAlignment="Center"
+                Background="#252526" CornerRadius="10" BorderBrush="#3E3E42" BorderThickness="1">
+            <Grid RowDefinitions="Auto,Auto,*">
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="20,16,12,12">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="📜" FontSize="18"/>
+                        <TextBlock Text="Import History" FontSize="15" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Command="{Binding CloseImportHistoryCommand}" Background="Transparent" BorderThickness="0" Padding="8,4">
+                        <TextBlock Text="✕" FontSize="14" Foreground="#AAA"/>
+                    </Button>
+                </Grid>
+
+                <Border Grid.Row="1" Height="1" Background="#3E3E42"/>
+
+                <StackPanel Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" Margin="20,40"
+                            IsVisible="{Binding !ImportHistoryViewModel.ImportHistory.Count}">
+                    <TextBlock Text="Nothing here yet" FontSize="13" Foreground="#888" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Playlists you've imported show up here so you can re-run a download pass on them." FontSize="11" Foreground="#666"
+                               TextWrapping="Wrap" TextAlignment="Center" MaxWidth="340"/>
+                </StackPanel>
+
+                <ScrollViewer Grid.Row="2" MaxHeight="440" IsVisible="{Binding ImportHistoryViewModel.ImportHistory.Count}">
+                    <ItemsControl ItemsSource="{Binding ImportHistoryViewModel.ImportHistory}" Margin="12,8">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="models:PlaylistJob">
+                                <Border Background="#2D2D30" CornerRadius="6" Padding="12,10" Margin="0,4">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <TextBlock Grid.Column="0" Text="{Binding SourceIcon}" FontSize="16" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding SourceTitle}" FontWeight="SemiBold" Foreground="White" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock FontSize="11" Foreground="#888">
+                                                <Run Text="{Binding TotalTracks}"/><Run Text=" tracks · imported "/><Run Text="{Binding CreatedAt, StringFormat='{}{0:yyyy-MM-dd}'}"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Content="Re-Import" Padding="10,5" FontSize="11" CornerRadius="6"
+                                                Background="#1AFFFFFF" Foreground="#2DB5FF" BorderThickness="0"
+                                                Command="{Binding $parent[UserControl].DataContext.ImportHistoryViewModel.ReImportCommand}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="Re-queue missing/failed tracks from this playlist"/>
                                     </Grid>
                                 </Border>
                             </DataTemplate>
