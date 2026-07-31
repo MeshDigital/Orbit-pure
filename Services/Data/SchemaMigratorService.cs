@@ -1317,6 +1317,12 @@ public class SchemaMigratorService
                     command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""Comments"" TEXT NULL;";
                     await command.ExecuteNonQueryAsync();
                 }
+                if (!ColumnExists("Tracks", "ColorTag"))
+                {
+                    _logger.LogInformation("Patching Schema: Adding ColorTag to Tracks...");
+                    command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""ColorTag"" TEXT NULL;";
+                    await command.ExecuteNonQueryAsync();
+                }
                 if (!ColumnExists("Tracks", "DropTimestamp"))
                 {
                     _logger.LogInformation("Patching Schema: Adding DropTimestamp to Tracks...");
@@ -1590,6 +1596,12 @@ public class SchemaMigratorService
             {
                 _logger.LogInformation("Patching Schema: Adding Comments to LibraryEntries...");
                 command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""Comments"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("LibraryEntries", "ColorTag"))
+            {
+                _logger.LogInformation("Patching Schema: Adding ColorTag to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""ColorTag"" TEXT NULL;";
                 await command.ExecuteNonQueryAsync();
             }
             if (!ColumnExists("LibraryEntries", "EnergyRatio"))

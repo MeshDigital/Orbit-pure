@@ -1068,6 +1068,22 @@ public class LibraryService : ILibraryService
         }
     }
 
+    public async Task UpdateColorTagAsync(string trackHash, string? colorTag)
+    {
+        try
+        {
+            await _databaseService.UpdateColorTagAsync(trackHash, colorTag).ConfigureAwait(false);
+            _logger.LogDebug("Updated colour tag globally for hash {Hash}: {ColorTag}", trackHash, colorTag ?? "(none)");
+
+            // Invalidate cache
+            _cache.InvalidateGlobalLibrary();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update global colour tag for {Hash}", trackHash);
+        }
+    }
+
     public async Task SavePlaylistTracksAsync(List<PlaylistTrack> tracks)
     {
         try

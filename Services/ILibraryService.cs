@@ -277,6 +277,7 @@ public interface ILibraryService
     /// </summary>
     Task UpdateLikeStatusAsync(string trackHash, bool isLiked);
     Task UpdateRatingAsync(string trackHash, int rating);
+    Task UpdateColorTagAsync(string trackHash, string? colorTag);
 
     /// <summary>
     /// Searches tracks across all playlists.

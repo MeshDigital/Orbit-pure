@@ -627,6 +627,11 @@ public class DatabaseService
         await _trackRepository.UpdateRatingAsync(trackHash, rating);
     }
 
+    public async Task UpdateColorTagAsync(string trackHash, string? colorTag)
+    {
+        await _trackRepository.UpdateColorTagAsync(trackHash, colorTag);
+    }
+
     public async Task<List<PlaylistTrackEntity>> LoadPlaylistTracksAsync(Guid jobId)
     {
         return await _trackRepository.LoadPlaylistTracksAsync(jobId);

@@ -999,6 +999,28 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         }
     }
 
+    /// <summary>
+    /// Track-level colour tag (hex, e.g. "#FF0000"), independent of any cue colours.
+    /// Flows through to the Rekordbox XML export's Colour attribute.
+    /// </summary>
+    public string? ColorTag
+    {
+        get => Model.ColorTag;
+        set
+        {
+            if (Model.ColorTag != value)
+            {
+                Model.ColorTag = value;
+                OnPropertyChanged();
+
+                if (_libraryService != null)
+                {
+                    _ = _libraryService.UpdateColorTagAsync(GlobalId, value);
+                }
+            }
+        }
+    }
+
     public bool IsLiked
     {
         get => Model.IsLiked;

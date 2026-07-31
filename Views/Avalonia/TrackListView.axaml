@@ -345,6 +345,38 @@
                          <MenuItem.Icon><TextBlock Text="🎯" FontSize="12"/></MenuItem.Icon>
                     </MenuItem>
                     <Separator/>
+                    <MenuItem Header="Set Colour">
+                        <MenuItem.Icon><TextBlock Text="🎨" FontSize="12"/></MenuItem.Icon>
+                        <MenuItem Header="Pink" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#F870AC">
+                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#F870AC"/></MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="Red" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#FF0000">
+                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#FF0000"/></MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="Orange" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#FFA500">
+                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#FFA500"/></MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="Yellow" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#FFFF00">
+                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#FFFF00"/></MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="Green" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#00FF00">
+                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#00FF00"/></MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="Aqua" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#25FDE9">
+                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#25FDE9"/></MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="Blue" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#0000FF">
+                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#0000FF"/></MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="Purple" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#660099">
+                            <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#660099"/></MenuItem.Icon>
+                        </MenuItem>
+                        <Separator/>
+                        <MenuItem Header="Clear Colour" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="">
+                            <MenuItem.Icon><TextBlock Text="✖️" FontSize="12"/></MenuItem.Icon>
+                        </MenuItem>
+                    </MenuItem>
+                    <Separator/>
                     <MenuItem Header="Remove Track" Command="{Binding Operations.RemoveTrackCommand}" InputGesture="Delete">
                          <MenuItem.Icon><TextBlock Text="🗑️" FontSize="12" Foreground="#FF5252"/></MenuItem.Icon>
                     </MenuItem>

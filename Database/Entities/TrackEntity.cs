@@ -71,6 +71,9 @@ public class TrackEntity
     public string? Label { get; set; }
     public string? Comments { get; set; }
 
+    /// <summary>Track-level colour tag (hex, e.g. "#FF0000"), independent of any cue colours.</summary>
+    public string? ColorTag { get; set; }
+
     // Phase 0.1: Musical Intelligence & Antigravity
     public string? MusicalKey { get; set; } // e.g. "8A"
     public double? BPM { get; set; } // e.g. 128.0
@@ -468,6 +471,9 @@ public class LibraryEntryEntity
     public DateTime? ReleaseDate { get; set; }
     public string? Label { get; set; }
     public string? Comments { get; set; }
+
+    /// <summary>Track-level colour tag (hex, e.g. "#FF0000"), independent of any cue colours.</summary>
+    public string? ColorTag { get; set; }
 
     // Musical Intelligence
     public string? MusicalKey { get; set; }

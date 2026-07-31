@@ -51,6 +51,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand AnalyseTrackCommand { get; }
     public System.Windows.Input.ICommand OpenAuditLogCommand { get; }
     public System.Windows.Input.ICommand OpenInCueForgeCommand { get; }
+    public System.Windows.Input.ICommand SetColorTagCommand { get; }
 
     // Phase 10.5: Dependency Warning Property
     public bool AreDependenciesHealthy => _dependencyHealthService.IsHealthy;
@@ -110,6 +111,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         AnalyseTrackCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteAnalyseTrack);
         OpenAuditLogCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteOpenAuditLog);
         OpenInCueForgeCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteOpenInCueForge);
+        SetColorTagCommand = new RelayCommand<string>(ExecuteSetColorTag);
     }
 
     public void SetMainViewModel(MainViewModel mainViewModel)
@@ -197,6 +199,32 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     }
 
     private LibraryViewModel? LibraryViewModel => _mainViewModel?.LibraryViewModel;
+
+    /// <summary>
+    /// Applies a colour tag (Rekordbox-style hex, or null to clear) to every currently
+    /// selected track, falling back to the lead-selected track when nothing is multi-selected.
+    /// </summary>
+    private void ExecuteSetColorTag(string? colorHex)
+    {
+        // XAML CommandParameter can't carry a literal null, so "Clear" swatches pass "" instead.
+        if (colorHex == string.Empty) colorHex = null;
+
+        var selected = LibraryViewModel?.Tracks.SelectedTracks?.ToList();
+        var targets = selected != null && selected.Count > 0
+            ? selected
+            : LibraryViewModel?.Tracks.LeadSelectedTrack is { } lead
+                ? new System.Collections.Generic.List<PlaylistTrackViewModel> { lead }
+                : new System.Collections.Generic.List<PlaylistTrackViewModel>();
+
+        if (targets.Count == 0) return;
+
+        foreach (var track in targets)
+        {
+            track.ColorTag = colorHex;
+        }
+
+        _logger.LogInformation("Set colour tag '{Colour}' on {Count} track(s)", colorHex ?? "(none)", targets.Count);
+    }
 
     private void ExecutePlayTrack(PlaylistTrackViewModel? track)
     {

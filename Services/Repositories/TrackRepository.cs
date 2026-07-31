@@ -1209,6 +1209,45 @@ public class TrackRepository : ITrackRepository
         }
     }
 
+    public async Task UpdateColorTagAsync(string trackHash, string? colorTag)
+    {
+        await _writeSemaphore.WaitAsync();
+        try
+        {
+            using var context = new AppDbContext();
+
+            // 1. Update LibraryEntry
+            var entry = await context.LibraryEntries.FindAsync(trackHash);
+            if (entry != null)
+            {
+                entry.ColorTag = colorTag;
+            }
+
+            // 2. Update Master Track record
+            var tr = await context.Tracks.FindAsync(trackHash);
+            if (tr != null)
+            {
+                tr.ColorTag = colorTag;
+            }
+
+            // 3. Update all PlaylistTracks
+            var tracks = await context.PlaylistTracks
+                .Where(t => t.TrackUniqueHash == trackHash)
+                .ToListAsync();
+
+            foreach (var t in tracks)
+            {
+                t.ColorTag = colorTag;
+            }
+
+            await context.SaveChangesAsync();
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
 
     internal void ApplyMetadata(object entity, TrackEnrichmentResult result)
     {
