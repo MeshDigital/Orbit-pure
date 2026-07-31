@@ -27,6 +27,7 @@ public class PostDownloadSpectralScanServiceTests : IDisposable
     private readonly Mock<ITrackAuditLogger> _auditMock = new();
     private readonly Mock<IEventBus> _eventBusMock = new();
     private readonly Subject<TrackStateChangedEvent> _stateSubject = new();
+    private readonly SLSKDONET.Configuration.AppConfig _config = new() { EnableVbrFraudDetection = true };
 
     // DatabaseService has no virtual methods so we use GetUninitializedObject to
     // construct an instance without invoking its real constructor.
@@ -46,7 +47,8 @@ public class PostDownloadSpectralScanServiceTests : IDisposable
             DbStub,
             _eventBusMock.Object,
             NullLogger<PostDownloadSpectralScanService>.Instance,
-            _auditMock.Object);
+            _auditMock.Object,
+            _config);
 
     // ── state gate ────────────────────────────────────────────────────────────
     // These tests are accurate: only Completed events invoke ScanAsync.
@@ -78,6 +80,20 @@ public class PostDownloadSpectralScanServiceTests : IDisposable
 
         _stateSubject.OnNext(new TrackStateChangedEvent("hash", Guid.NewGuid(), PlaylistTrackState.Completed));
         await Task.Delay(100);
+
+        _integrityMock.Verify(s => s.AnalyseAsync(It.IsAny<string>(), default), Times.Never);
+    }
+
+    // ── config gate ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task DisabledByConfig_CompletedEvent_DoesNotTriggerAnalysis()
+    {
+        _config.EnableVbrFraudDetection = false;
+        using var sut = CreateSut();
+
+        _stateSubject.OnNext(new TrackStateChangedEvent("hash", Guid.NewGuid(), PlaylistTrackState.Completed));
+        await Task.Delay(50);
 
         _integrityMock.Verify(s => s.AnalyseAsync(It.IsAny<string>(), default), Times.Never);
     }

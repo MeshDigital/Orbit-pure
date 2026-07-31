@@ -25,6 +25,10 @@ namespace SLSKDONET.Services;
 /// The analysis runs on a dedicated background thread so it never blocks the UI or
 /// the download engine.  Each file gets at most one scan per application session
 /// (tracked via a concurrent dictionary to avoid redundant work on retries).
+///
+/// Gated by AppConfig.EnableVbrFraudDetection ("VBR Fraud Detection" in Settings) —
+/// when off, scans are skipped entirely rather than run-and-discarded, since the FFT
+/// analysis is a full audio decode plus multi-frame spectral pass per file.
 /// </summary>
 public sealed class PostDownloadSpectralScanService : IDisposable
 {
@@ -40,6 +44,7 @@ public sealed class PostDownloadSpectralScanService : IDisposable
     private readonly IEventBus _eventBus;
     private readonly ILogger<PostDownloadSpectralScanService> _logger;
     private readonly SLSKDONET.Services.Diagnostics.ITrackAuditLogger _auditLogger;
+    private readonly Configuration.AppConfig _config;
     private readonly System.Reactive.Disposables.CompositeDisposable _disposables = new();
 
     public PostDownloadSpectralScanService(
@@ -47,13 +52,15 @@ public sealed class PostDownloadSpectralScanService : IDisposable
         DatabaseService databaseService,
         IEventBus eventBus,
         ILogger<PostDownloadSpectralScanService> logger,
-        SLSKDONET.Services.Diagnostics.ITrackAuditLogger auditLogger)
+        SLSKDONET.Services.Diagnostics.ITrackAuditLogger auditLogger,
+        Configuration.AppConfig config)
     {
         _integrityService = integrityService;
         _databaseService = databaseService;
         _eventBus = eventBus;
         _logger = logger;
         _auditLogger = auditLogger;
+        _config = config;
 
         // Subscribe to download-completion events.  Fire-and-forget: the analysis is
         // CPU-intensive and runs on a dedicated thread pool thread.
@@ -70,6 +77,11 @@ public sealed class PostDownloadSpectralScanService : IDisposable
 
     private async Task ScanAsync(TrackStateChangedEvent evt)
     {
+        if (!_config.EnableVbrFraudDetection)
+        {
+            return;
+        }
+
         try
         {
             // Resolve the PlaylistTrackEntity using the track hash + project ID.

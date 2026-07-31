@@ -11,7 +11,6 @@ namespace SLSKDONET.Services;
 public interface ISafetyFilterService
 {
     bool IsSafe(Track candidate, string query, int? targetDurationSeconds = null);
-    bool IsUpscaled(PlaylistTrack track);
     SafetyCheckResult EvaluateCandidate(Track candidate, string query, int? targetDuration = null, bool allowLossy = false, SearchPolicy? policy = null);
     void EvaluateSafety(Track track, string query, bool allowLossy = false, SearchPolicy? policy = null);
 }
@@ -227,43 +226,6 @@ public class SafetyFilterService : ISafetyFilterService
 
         if (item.Username != null && _config.BlacklistedUsers.Contains(item.Username))
         {
-            return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Checks if a search result candidate represents a potentially upscaled or fake file.
-    /// Note: Search results usually don't have frequency data yet.
-    /// This method is primarily for analyzing downloaded tracks (`PlaylistTrack`).
-    /// </summary>
-    public bool IsUpscaled(PlaylistTrack track)
-    {
-        // Require Frequency Cutoff data to make a determination
-        if (!track.FrequencyCutoff.HasValue) return false;
-
-        var cutoff = track.FrequencyCutoff.Value;
-        var bitrate = track.Bitrate;
-
-        // 1. Fake 320kbps / FLAC check
-        // Real 320kbps MP3s usually cutoff around 20kHz or 20.5kHz.
-        // 192kbps cuts off around 18-19kHz.
-        // 128kbps cuts off around 16-17kHz.
-        
-           // 2. Strict Gold Standard: Fake FLAC check
-           // Real FLACs should preserve energy well beyond 20kHz. If they shelf early,
-           // treat as likely upscaled lossy source.
-           if ((track.Format?.Equals("flac", StringComparison.OrdinalIgnoreCase) ?? false) && cutoff < 20000)
-        {
-               _logger.LogWarning("🛑 Forensic Failure: Strict 20kHz FLAC gate failed for {Track}. Cutoff: {Cutoff}Hz. Marking as fake.", track.Title, cutoff);
-             return true; 
-        }
-
-        // 3. High Quality MP3 upscale check
-        if (bitrate >= 256 && cutoff < 16100)
-        {
-            _logger.LogWarning("Potential High-Quality MP3 upscale detected: {Track} claims {Bitrate}kbps but cutoff is {Cutoff}Hz", track.Title, bitrate, cutoff);
             return true;
         }
 

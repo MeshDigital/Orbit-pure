@@ -59,53 +59,6 @@ public class SafetyFilterTests
         Assert.True(_service.IsSafe(track, "Test Query", 300));
     }
 
-    // ── IsUpscaled ────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void IsUpscaled_ReturnsFalse_WhenNoFrequencyCutoff()
-    {
-        var track = new PlaylistTrack { Format = "flac", Bitrate = 1000, FrequencyCutoff = null };
-        Assert.False(_service.IsUpscaled(track));
-    }
-
-    [Fact]
-    public void IsUpscaled_ReturnsTrue_WhenFlacCutoffBelow20kHz()
-    {
-        // FLAC with 16kHz cutoff is almost certainly a fake/upscaled file.
-        var track = new PlaylistTrack { Format = "flac", Bitrate = 1000, FrequencyCutoff = 16000 };
-        Assert.True(_service.IsUpscaled(track));
-    }
-
-    [Fact]
-    public void IsUpscaled_ReturnsFalse_WhenFlacCutoffAbove20kHz()
-    {
-        var track = new PlaylistTrack { Format = "flac", Bitrate = 1000, FrequencyCutoff = 22000 };
-        Assert.False(_service.IsUpscaled(track));
-    }
-
-    [Fact]
-    public void IsUpscaled_ReturnsTrue_WhenHighBitrateButLowCutoff()
-    {
-        // 320kbps claiming quality but spectral cutoff at 15kHz — upscale indicator.
-        var track = new PlaylistTrack { Format = "mp3", Bitrate = 320, FrequencyCutoff = 15000 };
-        Assert.True(_service.IsUpscaled(track));
-    }
-
-    [Fact]
-    public void IsUpscaled_ReturnsFalse_WhenHighBitrateAndHighCutoff()
-    {
-        // Legitimate 320kbps — cutoff above 16.1kHz threshold.
-        var track = new PlaylistTrack { Format = "mp3", Bitrate = 320, FrequencyCutoff = 20000 };
-        Assert.False(_service.IsUpscaled(track));
-    }
-
-    [Fact]
-    public void IsUpscaled_ReturnsFalse_WhenLowBitrateAndLowCutoff()
-    {
-        // 128kbps with low cutoff is expected — not an upscale, just a bad file.
-        var track = new PlaylistTrack { Format = "mp3", Bitrate = 128, FrequencyCutoff = 14000 };
-        Assert.False(_service.IsUpscaled(track));
-    }
 
     // ── Size heuristic ────────────────────────────────────────────────────────
 

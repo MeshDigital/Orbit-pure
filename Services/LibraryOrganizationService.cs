@@ -14,18 +14,15 @@ public class LibraryOrganizationService
 {
     private readonly AppConfig _config;
     private readonly ILogger<LibraryOrganizationService> _logger;
-    private readonly IAudioIntegrityService _integrityService;
     private readonly ILibraryService _libraryService;
-    
+
     public LibraryOrganizationService(
-        AppConfig config, 
+        AppConfig config,
         ILogger<LibraryOrganizationService> logger,
-        IAudioIntegrityService integrityService,
         ILibraryService libraryService)
     {
         _config = config;
         _logger = logger;
-        _integrityService = integrityService;
         _libraryService = libraryService;
     }
     
@@ -73,23 +70,10 @@ public class LibraryOrganizationService
                 _logger.LogWarning("Source file not found, returning target path anyway: {Path}", downloadedPath);
             }
             
-            // Phase 10: Spectral FLAC auditing - Check integrity after organization
-            try
-            {
-                var isTranscoded = await IsTranscodedFlacAsync(targetPath);
-                if (isTranscoded)
-                {
-                    // For now, we'll mark the file but can't update LibraryEntry without title
-                    // This will be handled by a background scan later
-                    _logger.LogWarning("⚠️ Forensic verdict: {File} detected as transcoded FLAC", Path.GetFileName(targetPath));
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to perform spectral audit on organized file: {Path}", targetPath);
-                // Don't fail the organization process for audit failures
-            }
-            
+            // Spectral FLAC auditing now happens once, post-download, in PostDownloadSpectralScanService
+            // (gated by AppConfig.EnableVbrFraudDetection) — running it again here would decode and
+            // FFT-analyze the same file a second time for no additional persisted effect.
+
             return targetPath;
         }
         catch (Exception ex)
@@ -145,26 +129,5 @@ public class LibraryOrganizationService
         using var sha256 = System.Security.Cryptography.SHA256.Create();
         var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(key));
         return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
-    }
-
-    /// <summary>
-    /// Phase 10: Performs spectral audit on FLAC files to detect transcodes.
-    /// Uses FFT analysis to check for energy above 16kHz, indicating possible lossy source.
-    /// </summary>
-    public async Task<bool> IsTranscodedFlacAsync(string filePath)
-    {
-        if (!filePath.EndsWith(".flac", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        try
-        {
-            var result = await _integrityService.AnalyseAsync(filePath);
-            return !result.IsGenuineLossless;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to analyze spectral integrity for {File}", filePath);
-            return false; // Assume not transcoded if analysis fails
-        }
     }
 }
