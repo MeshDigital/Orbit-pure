@@ -629,6 +629,12 @@
                             <MenuItem Header="Retry" Command="{Binding Track.RetryCommand}"/>
                             <MenuItem Header="Reveal" Command="{Binding Track.RevealFileCommand}"/>
                             <MenuItem Header="Cancel" Command="{Binding Track.CancelCommand}"/>
+                            <Separator/>
+                            <MenuItem Header="View Search &amp; Download History" Command="{Binding Track.OpenAuditLogCommand}">
+                                <MenuItem.Icon>
+                                    <TextBlock Text="📝" FontSize="12"/>
+                                </MenuItem.Icon>
+                            </MenuItem>
                         </MenuItem>
                     </Menu>
 
@@ -1015,25 +1021,36 @@
                          history — now lives here instead of being scattered across tab-hunting. -->
                     <Grid RowDefinitions="Auto,Auto,Auto,*">
                     <Border Grid.Row="0" Classes="hubHeader" Padding="18,14">
-                        <Grid ColumnDefinitions="Auto,Auto,*,Auto">
-                            <TextBlock Grid.Column="0" Text="Downloads" FontSize="20" FontWeight="SemiBold" Foreground="#F1F7FB"/>
-                            <Border Grid.Column="1" Background="#1C2A22" BorderBrush="#2E7049" BorderThickness="1" CornerRadius="999" Padding="10,3" VerticalAlignment="Center" Margin="10,0,0,0">
-                                <TextBlock Text="{Binding ActiveCount, StringFormat='{}{0} active'}" Foreground="#9DE7BD" FontSize="11" FontWeight="Bold"/>
-                            </Border>
-                            <TextBox Grid.Column="3"
-                                     Width="260"
-                                     Text="{Binding SearchText, Mode=TwoWay}"
-                                     Watermark="Filter downloads..."
-                                     Background="#202124"
-                                     BorderBrush="#343436"
-                                     BorderThickness="1"
-                                     CornerRadius="6"
-                                     Margin="10,0,0,0">
-                                <TextBox.InnerLeftContent>
-                                    <PathIcon Data="{StaticResource search_regular}" Width="13" Height="13" Margin="10,0,0,0" Opacity="0.5"/>
-                                </TextBox.InnerLeftContent>
-                            </TextBox>
-                        </Grid>
+                        <StackPanel Spacing="10">
+                            <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                                <TextBlock Grid.Column="0" Text="Downloads" FontSize="20" FontWeight="SemiBold" Foreground="#F1F7FB"/>
+                                <Border Grid.Column="1" Background="#1C2A22" BorderBrush="#2E7049" BorderThickness="1" CornerRadius="999" Padding="10,3" VerticalAlignment="Center" Margin="10,0,0,0">
+                                    <TextBlock Text="{Binding ActiveCount, StringFormat='{}{0} active'}" Foreground="#9DE7BD" FontSize="11" FontWeight="Bold"/>
+                                </Border>
+                                <TextBox Grid.Column="3"
+                                         Width="260"
+                                         Text="{Binding SearchText, Mode=TwoWay}"
+                                         Watermark="Filter downloads..."
+                                         Background="#202124"
+                                         BorderBrush="#343436"
+                                         BorderThickness="1"
+                                         CornerRadius="6"
+                                         Margin="10,0,0,0">
+                                    <TextBox.InnerLeftContent>
+                                        <PathIcon Data="{StaticResource search_regular}" Width="13" Height="13" Margin="10,0,0,0" Opacity="0.5"/>
+                                    </TextBox.InnerLeftContent>
+                                </TextBox>
+                            </Grid>
+
+                            <!-- Quick status filter chips — narrows every section below to just this state -->
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <ToggleButton Classes="sessionChip" Content="All" IsChecked="{Binding RowStatusFilterAll, Mode=TwoWay}"/>
+                                <ToggleButton Classes="sessionChip" Content="Searching" IsChecked="{Binding RowStatusFilterSearching, Mode=TwoWay}"/>
+                                <ToggleButton Classes="sessionChip" Content="Downloading" IsChecked="{Binding RowStatusFilterDownloading, Mode=TwoWay}"/>
+                                <ToggleButton Classes="sessionChip" Content="Failed" IsChecked="{Binding RowStatusFilterFailed, Mode=TwoWay}"/>
+                                <ToggleButton Classes="sessionChip" Content="Completed" IsChecked="{Binding RowStatusFilterCompleted, Mode=TwoWay}"/>
+                            </StackPanel>
+                        </StackPanel>
                     </Border>
 
                     <!-- Global Status Indicator (Info) -->

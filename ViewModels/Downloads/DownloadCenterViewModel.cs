@@ -246,6 +246,65 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         set => this.RaiseAndSetIfChanged(ref _searchText, value);
     }
 
+    // Quick status filter for the Hub view — narrows HubActiveRows/HubAttentionRows/HubCompletedRecentRows
+    // (and the QUEUE BY PLAYLIST groups) to just the selected state, on top of the text search above.
+    private string _rowStatusFilter = "All";
+    public string RowStatusFilter
+    {
+        get => _rowStatusFilter;
+        private set
+        {
+            if (_rowStatusFilter != value)
+            {
+                this.RaiseAndSetIfChanged(ref _rowStatusFilter, value);
+                this.RaisePropertyChanged(nameof(RowStatusFilterAll));
+                this.RaisePropertyChanged(nameof(RowStatusFilterSearching));
+                this.RaisePropertyChanged(nameof(RowStatusFilterDownloading));
+                this.RaisePropertyChanged(nameof(RowStatusFilterFailed));
+                this.RaisePropertyChanged(nameof(RowStatusFilterCompleted));
+            }
+        }
+    }
+
+    public bool RowStatusFilterAll
+    {
+        get => RowStatusFilter == "All";
+        set { if (value) RowStatusFilter = "All"; }
+    }
+
+    public bool RowStatusFilterSearching
+    {
+        get => RowStatusFilter == "Searching";
+        set => RowStatusFilter = value ? "Searching" : "All";
+    }
+
+    public bool RowStatusFilterDownloading
+    {
+        get => RowStatusFilter == "Downloading";
+        set => RowStatusFilter = value ? "Downloading" : "All";
+    }
+
+    public bool RowStatusFilterFailed
+    {
+        get => RowStatusFilter == "Failed";
+        set => RowStatusFilter = value ? "Failed" : "All";
+    }
+
+    public bool RowStatusFilterCompleted
+    {
+        get => RowStatusFilter == "Completed";
+        set => RowStatusFilter = value ? "Completed" : "All";
+    }
+
+    public static bool MatchesRowStatusFilter(UnifiedTrackViewModel track, string filter) => filter switch
+    {
+        "Searching" => track.State == PlaylistTrackState.Searching,
+        "Downloading" => track.State == PlaylistTrackState.Downloading,
+        "Failed" => track.State == PlaylistTrackState.Failed || track.State == PlaylistTrackState.Stalled || track.State == PlaylistTrackState.Cancelled,
+        "Completed" => track.State == PlaylistTrackState.Completed,
+        _ => true,
+    };
+
     private string _sessionFilterMode = "All";
     public string SessionFilterMode
     {
@@ -860,14 +919,17 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             .ThenByDescending(x => x.LastUpdatedUtc);
 
         // Live search filter for hub rows — previously SearchText only filtered the old
-        // session/history tabs, leaving the Hub's filter box decorative.
+        // session/history tabs, leaving the Hub's filter box decorative. RowStatusFilter adds
+        // a second, independent dimension (quick-filter chips) on top of the free-text search.
         var hubSearchFilter = this.WhenAnyValue(x => x.SearchText)
             .Throttle(TimeSpan.FromMilliseconds(250))
             .ObserveOn(RxApp.MainThreadScheduler)
-            .Select<string?, Func<UnifiedTrackViewModel, bool>>(text => track =>
-                string.IsNullOrWhiteSpace(text)
-                || track.TrackTitle.Contains(text, StringComparison.OrdinalIgnoreCase)
-                || track.ArtistName.Contains(text, StringComparison.OrdinalIgnoreCase));
+            .CombineLatest(this.WhenAnyValue(x => x.RowStatusFilter), (text, statusFilter) => (text, statusFilter))
+            .Select<(string? text, string statusFilter), Func<UnifiedTrackViewModel, bool>>(f => track =>
+                (string.IsNullOrWhiteSpace(f.text)
+                    || track.TrackTitle.Contains(f.text, StringComparison.OrdinalIgnoreCase)
+                    || track.ArtistName.Contains(f.text, StringComparison.OrdinalIgnoreCase))
+                && MatchesRowStatusFilter(track, f.statusFilter));
 
         sharedSource
             .Filter(x => !x.IsClearedFromDownloadCenter)

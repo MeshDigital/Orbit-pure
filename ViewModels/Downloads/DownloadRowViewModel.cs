@@ -16,6 +16,7 @@ public enum DownloadRowPriority
 public enum DownloadRowStatus
 {
     Queued,
+    Searching,
     Downloading,
     Verifying,
     Completed,
@@ -179,7 +180,7 @@ public sealed class DownloadRowViewModel : ReactiveObject, IDisposable
         return state switch
         {
             PlaylistTrackState.Pending => DownloadRowStatus.Queued,
-            PlaylistTrackState.Searching => DownloadRowStatus.Queued,
+            PlaylistTrackState.Searching => DownloadRowStatus.Searching,
             PlaylistTrackState.Queued => DownloadRowStatus.Queued,
             PlaylistTrackState.WaitingForConnection => DownloadRowStatus.Queued,
             PlaylistTrackState.Paused => DownloadRowStatus.Queued,
@@ -218,6 +219,7 @@ public sealed class DownloadRowViewModel : ReactiveObject, IDisposable
     {
         return status switch
         {
+            DownloadRowStatus.Searching => "SEARCHING",
             DownloadRowStatus.Downloading => "DOWNLOADING",
             DownloadRowStatus.Verifying => "VERIFYING",
             DownloadRowStatus.Completed => "COMPLETED",
@@ -231,6 +233,7 @@ public sealed class DownloadRowViewModel : ReactiveObject, IDisposable
     {
         return status switch
         {
+            DownloadRowStatus.Searching => "#A855F7",
             DownloadRowStatus.Downloading => "#00BCD4",
             DownloadRowStatus.Verifying => "#4DD0E1",
             DownloadRowStatus.Completed => "#30C97A",
@@ -247,6 +250,7 @@ public sealed class DownloadRowViewModel : ReactiveObject, IDisposable
             DownloadRowStatus.Completed => "Reveal",
             DownloadRowStatus.Failed => "Retry",
             DownloadRowStatus.Cancelled => "Retry",
+            DownloadRowStatus.Searching => "Pause",
             DownloadRowStatus.Downloading => "Pause",
             DownloadRowStatus.Verifying => "Pause",
             _ => "Start",
@@ -260,6 +264,7 @@ public sealed class DownloadRowViewModel : ReactiveObject, IDisposable
             DownloadRowStatus.Completed => track.RevealFileCommand,
             DownloadRowStatus.Failed => track.RetryCommand,
             DownloadRowStatus.Cancelled => track.RetryCommand,
+            DownloadRowStatus.Searching => track.PauseCommand,
             DownloadRowStatus.Downloading => track.PauseCommand,
             DownloadRowStatus.Verifying => track.PauseCommand,
             _ => track.ForceStartCommand,
