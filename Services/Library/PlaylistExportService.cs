@@ -40,6 +40,13 @@ public class PlaylistExportService
     /// When supplied, the exported &lt;PLAYLISTS&gt; tree mirrors the real folder chain up to
     /// ROOT instead of placing the playlist directly under ROOT.
     /// </param>
+    /// <remarks>
+    /// If <paramref name="targetPath"/> already exists and parses as a Rekordbox XML file, this
+    /// merges into it via <see cref="RekordboxXmlMerger"/> instead of overwriting — preserving
+    /// Rating/Colour/Comments/cues a user may have edited directly in Rekordbox since the last
+    /// export, while still refreshing ORBIT-owned data (tempo grid, file metadata, new tracks).
+    /// Falls back to a full overwrite if the existing file can't be parsed as Rekordbox XML.
+    /// </remarks>
     public async Task ExportToRekordboxXmlAsync(
         string playlistName,
         IEnumerable<PlaylistTrack> tracks,
@@ -142,7 +149,8 @@ public class PlaylistExportService
                 rbSources.Add(track);
             }
 
-            var playlistsElement = await BuildPlaylistsElementAsync(folderId, playlistName, rbTracks, db);
+            var folderChainLeafToRoot = await ResolveFolderChainNamesAsync(folderId, playlistName, db);
+            var playlistsElement = BuildPlaylistsElement(playlistName, rbTracks, folderChainLeafToRoot);
 
             var doc = new XDocument(
                 new XDeclaration("1.0", "UTF-8", null),
@@ -169,7 +177,33 @@ public class PlaylistExportService
                 )
             );
 
-            await Task.Run(() => doc.Save(targetPath));
+            var finalDoc = doc;
+            if (File.Exists(targetPath))
+            {
+                try
+                {
+                    var existingDoc = XDocument.Load(targetPath);
+                    if (existingDoc.Root?.Name.LocalName == "DJ_PLAYLISTS" && existingDoc.Root.Element("COLLECTION") != null)
+                    {
+                        var playlistPathChain = new List<string> { "ROOT" };
+                        playlistPathChain.AddRange(Enumerable.Reverse(folderChainLeafToRoot));
+                        playlistPathChain.Add(playlistName);
+
+                        finalDoc = RekordboxXmlMerger.MergeIntoExisting(existingDoc, doc, playlistPathChain, _logger);
+                        _logger.LogInformation("Merged export into existing Rekordbox XML at {Path}", targetPath);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Existing file at {Path} doesn't look like a Rekordbox XML — overwriting with a fresh export.", targetPath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to parse existing file at {Path} for merge — overwriting with a fresh export.", targetPath);
+                }
+            }
+
+            await Task.Run(() => finalDoc.Save(targetPath));
             _logger.LogInformation("Rekordbox XML export completed successfully.");
         }
         catch (Exception ex)
@@ -181,11 +215,11 @@ public class PlaylistExportService
 
     /// <summary>
     /// Builds the &lt;PLAYLISTS&gt; element, nesting the playlist under real &lt;NODE Type="0"&gt;
-    /// folder wrappers when <paramref name="folderId"/> is supplied — otherwise (or if the folder
-    /// chain can't be resolved) falls back to today's flat placement directly under ROOT.
+    /// folder wrappers per <paramref name="chainLeafToRoot"/> (from <see cref="ResolveFolderChainNamesAsync"/>)
+    /// — an empty chain places the playlist directly under ROOT.
     /// </summary>
-    private async Task<XElement> BuildPlaylistsElementAsync(
-        Guid? folderId, string playlistName, List<RekordboxTrack> rbTracks, AppDbContext db)
+    private XElement BuildPlaylistsElement(
+        string playlistName, List<RekordboxTrack> rbTracks, List<string> chainLeafToRoot)
     {
         var playlistNode = new XElement("NODE",
             new XAttribute("Name", playlistName),
@@ -193,11 +227,31 @@ public class PlaylistExportService
             new XAttribute("Entries", rbTracks.Count),
             rbTracks.Select(t => new XElement("TRACK", new XAttribute("Key", t.TrackID))));
 
-        if (folderId is null)
+        XElement node = playlistNode;
+        for (int i = 0; i < chainLeafToRoot.Count; i++)
         {
-            return new XElement("PLAYLISTS",
-                new XElement("NODE", new XAttribute("Type", "0"), new XAttribute("Name", "ROOT"), playlistNode));
+            node = new XElement("NODE",
+                new XAttribute("Type", "0"),
+                new XAttribute("Name", chainLeafToRoot[i]),
+                node);
         }
+
+        return new XElement("PLAYLISTS",
+            new XElement("NODE", new XAttribute("Type", "0"), new XAttribute("Name", "ROOT"), node));
+    }
+
+    /// <summary>
+    /// Walks <paramref name="folderId"/> → ParentFolderId → ... → null, collecting folder names
+    /// leaf-to-root. Returns an empty list (flat placement under ROOT) if <paramref name="folderId"/>
+    /// is null, the folder table can't be read, a folder in the chain no longer exists, or a
+    /// pathological parent cycle is detected — all degrade gracefully rather than throwing.
+    /// Shared by the fresh-build path (<see cref="BuildPlaylistsElementAsync"/>) and the merge
+    /// path, which needs the same root-to-leaf path to locate the matching node in an existing file.
+    /// </summary>
+    private async Task<List<string>> ResolveFolderChainNamesAsync(Guid? folderId, string playlistName, AppDbContext db)
+    {
+        var chainLeafToRoot = new List<string>();
+        if (folderId is null) return chainLeafToRoot;
 
         List<PlaylistFolderEntity> allFolders;
         try
@@ -207,16 +261,13 @@ public class PlaylistExportService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Rekordbox export: failed to load playlist folders for '{PlaylistName}' — falling back to flat placement under ROOT.", playlistName);
-            return new XElement("PLAYLISTS",
-                new XElement("NODE", new XAttribute("Type", "0"), new XAttribute("Name", "ROOT"), playlistNode));
+            return chainLeafToRoot;
         }
 
         var foldersById = allFolders.ToDictionary(f => f.Id);
 
-        // Walk folderId → ParentFolderId → ... → null, collecting names leaf-to-root.
         // Guard against a dangling/missing folder and against a pathological parent cycle —
         // neither should exist today, but this must degrade gracefully, not throw or hang.
-        var chainLeafToRoot = new List<string>();
         var visited = new HashSet<Guid>();
         var currentId = folderId;
         const int maxDepth = 64;
@@ -240,17 +291,7 @@ public class PlaylistExportService
             currentId = folder.ParentFolderId;
         }
 
-        XElement node = playlistNode;
-        for (int i = 0; i < chainLeafToRoot.Count; i++)
-        {
-            node = new XElement("NODE",
-                new XAttribute("Type", "0"),
-                new XAttribute("Name", chainLeafToRoot[i]),
-                node);
-        }
-
-        return new XElement("PLAYLISTS",
-            new XElement("NODE", new XAttribute("Type", "0"), new XAttribute("Name", "ROOT"), node));
+        return chainLeafToRoot;
     }
 
     /// <summary>
