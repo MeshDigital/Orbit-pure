@@ -54,17 +54,23 @@ public sealed class ChatService
         // The library doesn't echo your own sent messages back through PrivateMessageReceived,
         // so the outgoing copy is persisted and published here, immediately.
         await _databaseService.RecordPrivateMessageAsync(entity).ConfigureAwait(false);
-        _eventBus.Publish(new PrivateMessageReceivedEvent(username, message, entity.TimestampUtc, IsOutgoing: true));
+        _eventBus.Publish(new PrivateMessageReceivedEvent(entity.Id, username, message, entity.TimestampUtc, IsOutgoing: true));
     }
 
-    public Task<List<PrivateMessageEntity>> GetConversationAsync(string peerUsername, int limit = 500)
-        => _databaseService.GetConversationAsync(peerUsername, limit);
+    public Task<List<PrivateMessageEntity>> GetConversationAsync(string peerUsername, int limit = 500, DateTime? beforeUtc = null)
+        => _databaseService.GetConversationAsync(peerUsername, limit, beforeUtc);
 
     public Task<List<string>> GetConversationPeersAsync()
         => _databaseService.GetConversationPeersAsync();
 
     public Task<List<ConversationSummary>> GetRecentConversationsAsync()
         => _databaseService.GetRecentConversationsAsync();
+
+    /// <summary>Removes a single message from local history — a local-only action (the Soulseek protocol has no message recall), it never affects what the peer has.</summary>
+    public Task DeleteMessageAsync(Guid id) => _databaseService.DeletePrivateMessageAsync(id);
+
+    /// <summary>Wipes an entire conversation's local history — for spam/gate-bot peers you just want gone.</summary>
+    public Task DeleteConversationAsync(string peerUsername) => _databaseService.DeleteConversationAsync(peerUsername);
 
     private void OnPrivateMessageReceived(object? sender, PrivateMessageReceivedEventArgs e)
     {
@@ -92,7 +98,7 @@ public sealed class ChatService
             };
 
             await _databaseService.RecordPrivateMessageAsync(entity).ConfigureAwait(false);
-            _eventBus.Publish(new PrivateMessageReceivedEvent(e.Username, e.Message, e.TimestampUtc, IsOutgoing: false));
+            _eventBus.Publish(new PrivateMessageReceivedEvent(entity.Id, e.Username, e.Message, e.TimestampUtc, IsOutgoing: false));
         }
         catch (Exception ex)
         {

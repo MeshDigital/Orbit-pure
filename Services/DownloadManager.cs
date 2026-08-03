@@ -154,6 +154,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     // Expose download directory from config
     public string? DownloadDirectory => _config.DownloadDirectory;
 
+    /// <summary>Whether a transfer is currently in flight against this peer — used to gate features that should only react to peers we're actively downloading from (e.g. auto-solving their "reply to unlock" gate-bot challenges).</summary>
+    public bool HasActiveTransferWithPeer(string username) => _activeByUsername.ContainsKey(username);
+
     public int ActiveWorkerSlots => _maxActiveDownloads - _downloadSemaphore.CurrentCount;
     public int TotalWorkerSlots => _maxActiveDownloads;
     public bool SoulseekConnected => _soulseek.IsLoggedIn;
@@ -491,12 +494,20 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 int resetCount = 0;
                 foreach (var cp in zombies.Where(c => c.OperationType == OperationType.Download))
                 {
-                    // Mark the journal entry as dead-letter so it won't trigger again.
-                    await _crashJournal.MarkAsDeadLetterAsync(cp.Id);
-                    // Reset the corresponding PlaylistTrack to Pending so it can be retried.
-                    if (!string.IsNullOrEmpty(cp.TargetPath))
-                        await _databaseService.ResetTrackToMissingByPathAsync(cp.TargetPath);
-                    resetCount++;
+                    try
+                    {
+                        // Mark the journal entry as dead-letter so it won't trigger again.
+                        await _crashJournal.MarkAsDeadLetterAsync(cp.Id);
+                        // Reset the corresponding PlaylistTrack to Pending so it can be retried.
+                        if (!string.IsNullOrEmpty(cp.TargetPath))
+                            await _databaseService.ResetTrackToMissingByPathAsync(cp.TargetPath);
+                        resetCount++;
+                    }
+                    catch (Exception checkpointEx)
+                    {
+                        // One bad checkpoint must not block the rest of the journal from being processed.
+                        _logger.LogError(checkpointEx, "[CrashRecovery] Failed to reset zombie checkpoint {CheckpointId} ({Path}) — skipping.", cp.Id, cp.TargetPath);
+                    }
                 }
                 if (resetCount > 0)
                     _logger.LogWarning("[CrashRecovery] Reset {Count} zombie downloads from previous session", resetCount);

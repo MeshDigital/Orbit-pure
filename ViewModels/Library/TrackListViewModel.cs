@@ -790,6 +790,19 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         // Phase 11.6: Refresh UI when track is added (cloned)
         _disposables.Add(eventBus.GetEvent<TrackAddedEvent>().Subscribe(OnTrackAdded));
 
+        // Refresh when the playlist's contents changed elsewhere (e.g. "Remove from playlist",
+        // or a bulk add landing in a project we're not actively viewing). Was previously only
+        // wired for TrackAddedEvent/TrackMovedEvent, so operations that published
+        // ProjectUpdatedEvent (like the remove-from-playlist flow) silently left the visible
+        // list stale even though the underlying delete had already succeeded. Scoped to the
+        // project actually being viewed so unrelated playlist updates don't reset scroll position.
+        _disposables.Add(eventBus.GetEvent<ProjectUpdatedEvent>().Subscribe(evt =>
+        {
+            var currentProjectId = _mainViewModel?.LibraryViewModel?.SelectedProject?.Id;
+            if (currentProjectId == evt.ProjectId)
+                _refreshRequestSubject.OnNext(System.Reactive.Unit.Default);
+        }));
+
         // Camelot key filter from wheel click (toggle: click same key again to clear)
         _disposables.Add(eventBus.GetEvent<SetCamelotKeyFilterEvent>().Subscribe(evt =>
             CamelotKeyFilter = CamelotKeyFilter == evt.Key ? null : evt.Key));

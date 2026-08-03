@@ -23,6 +23,14 @@ public interface IDialogService
     Task<bool> ConfirmAsync(string title, string message, string confirmLabel = "Yes", string cancelLabel = "No");
 
     /// <summary>
+    /// Shows the "Remove Track" choice dialog — lets the user pick between removing a track
+    /// from just the current playlist (keeping it in the library) or deleting it entirely from
+    /// disk and history. <paramref name="canRemoveFromPlaylist"/> should be false when there's
+    /// no specific playlist in context (e.g. the All Tracks view), which hides that option.
+    /// </summary>
+    Task<Views.Avalonia.Controls.RemoveTrackChoice> ShowRemoveTrackChoiceAsync(string trackLabel, bool canRemoveFromPlaylist, string? playlistName);
+
+    /// <summary>
     /// Shows a simple alert dialog.
     /// </summary>
     Task ShowAlertAsync(string title, string message);

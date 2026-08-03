@@ -68,11 +68,14 @@ public sealed class RoomChatService
         // Mirrors ChatService.SendMessageAsync — the library doesn't echo your own room
         // messages back through RoomMessageReceived, so persist+publish it here directly.
         await _databaseService.RecordRoomMessageAsync(entity).ConfigureAwait(false);
-        _eventBus.Publish(new RoomMessageReceivedEvent(roomName, entity.Username, message, entity.TimestampUtc, IsOutgoing: true));
+        _eventBus.Publish(new RoomMessageReceivedEvent(entity.Id, roomName, entity.Username, message, entity.TimestampUtc, IsOutgoing: true));
     }
 
-    public Task<List<RoomMessageEntity>> GetRoomHistoryAsync(string roomName, int limit = 500)
-        => _databaseService.GetRoomHistoryAsync(roomName, limit);
+    public Task<List<RoomMessageEntity>> GetRoomHistoryAsync(string roomName, int limit = 500, DateTime? beforeUtc = null)
+        => _databaseService.GetRoomHistoryAsync(roomName, limit, beforeUtc);
+
+    /// <summary>Removes a single message from local room history — local-only, the Soulseek protocol has no message recall.</summary>
+    public Task DeleteMessageAsync(Guid id) => _databaseService.DeleteRoomMessageAsync(id);
 
     private void OnRoomMessageReceived(object? sender, RoomMessageReceivedEventArgs e)
     {
@@ -93,7 +96,7 @@ public sealed class RoomChatService
             };
 
             await _databaseService.RecordRoomMessageAsync(entity).ConfigureAwait(false);
-            _eventBus.Publish(new RoomMessageReceivedEvent(e.RoomName, e.Username, e.Message, e.TimestampUtc, IsOutgoing: false));
+            _eventBus.Publish(new RoomMessageReceivedEvent(entity.Id, e.RoomName, e.Username, e.Message, e.TimestampUtc, IsOutgoing: false));
         }
         catch (Exception ex)
         {

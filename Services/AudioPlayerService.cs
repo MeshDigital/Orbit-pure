@@ -2,11 +2,15 @@ using System;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using System.Timers;
+using SLSKDONET.Configuration;
+using SLSKDONET.Services.Audio;
 
 namespace SLSKDONET.Services
 {
     public class AudioPlayerService : IAudioPlayerService, IDisposable
     {
+        private readonly AppConfig _config;
+
         /// <summary>
         /// One decoded/opened audio stream + its output device. Two decks let the engine have
         /// the next track already open and ready (preloaded) while the current one is still
@@ -18,6 +22,8 @@ namespace SLSKDONET.Services
             public IWavePlayer? Output;
             public MeteringSampleProvider? Metering;
             public VariSpeedSampleProvider? VariSpeed;
+            /// <summary>Linear gain applied on top of the master volume for loudness-normalized playback (see <see cref="AppConfig.LoudnessNormalizationEnabled"/>). 1.0 = no adjustment.</summary>
+            public float LoudnessGain = 1f;
 
             public void Dispose()
             {
@@ -77,8 +83,9 @@ namespace SLSKDONET.Services
         /// <see cref="CrossfadeEnabled"/> is true.</summary>
         public double CrossfadeSeconds { get; set; } = 3.0;
 
-        public AudioPlayerService()
+        public AudioPlayerService(AppConfig config)
         {
+            _config = config;
             _isInitialized = true;
             _timer = new System.Timers.Timer(TimerIntervalSeconds * 1000);
             _timer.Elapsed += OnTimerElapsed;
@@ -126,8 +133,8 @@ namespace SLSKDONET.Services
 
             // Equal-power crossfade curve (constant perceived loudness through the overlap,
             // unlike a linear fade which dips in the middle).
-            var currentGain = (float)(_masterVolumeFraction * Math.Cos(t * Math.PI / 2));
-            var nextGain = (float)(_masterVolumeFraction * Math.Sin(t * Math.PI / 2));
+            var currentGain = (float)(_masterVolumeFraction * current.LoudnessGain * Math.Cos(t * Math.PI / 2));
+            var nextGain = (float)(_masterVolumeFraction * _next.LoudnessGain * Math.Sin(t * Math.PI / 2));
 
             if (current.Output != null) current.Output.Volume = currentGain;
             _next.Output.Volume = nextGain;
@@ -169,14 +176,14 @@ namespace SLSKDONET.Services
                 // master level takes effect once the crossfade finishes (see AdvanceCrossfade).
                 if (_current?.Output != null && !_isCrossfading)
                 {
-                    _current.Output.Volume = _masterVolumeFraction;
+                    _current.Output.Volume = _masterVolumeFraction * _current.LoudnessGain;
                 }
             }
         }
 
         public bool IsVisualizerActive { get; set; }
 
-        public void Play(string filePath) => OpenDevice(filePath, autoPlay: true);
+        public void Play(string filePath, double? trackLoudnessLufs = null) => OpenDevice(filePath, autoPlay: true, trackLoudnessLufs);
 
         /// <summary>
         /// Opens the file and initializes the output device without starting playback.
@@ -185,7 +192,7 @@ namespace SLSKDONET.Services
         /// Play()-then-immediately-Pause() sequence still lets a moment of real audio through
         /// the WASAPI buffer before the pause takes effect, which is audible as a brief blip.
         /// </summary>
-        public void LoadWithoutPlaying(string filePath) => OpenDevice(filePath, autoPlay: false);
+        public void LoadWithoutPlaying(string filePath, double? trackLoudnessLufs = null) => OpenDevice(filePath, autoPlay: false, trackLoudnessLufs);
 
         /// <summary>
         /// Opens and initializes the output device for the track that will play next, without
@@ -194,7 +201,7 @@ namespace SLSKDONET.Services
         /// an audible gap. Call this as soon as the next track is known (e.g. right after the
         /// current one starts), well before playback is expected to reach it.
         /// </summary>
-        public void PreloadNext(string filePath)
+        public void PreloadNext(string filePath, double? trackLoudnessLufs = null)
         {
             if (_current == null) return;
             if (_nextFilePath == filePath && _next != null) return; // already preloaded
@@ -203,7 +210,7 @@ namespace SLSKDONET.Services
 
             try
             {
-                var deck = CreateDeck(filePath);
+                var deck = CreateDeck(filePath, trackLoudnessLufs);
                 deck.Output!.Volume = 0f;
                 _next = deck;
                 _nextFilePath = filePath;
@@ -226,14 +233,14 @@ namespace SLSKDONET.Services
             _crossfadeElapsedSeconds = 0;
         }
 
-        private void OpenDevice(string filePath, bool autoPlay)
+        private void OpenDevice(string filePath, bool autoPlay, double? trackLoudnessLufs = null)
         {
             Stop();
 
             try
             {
-                _current = CreateDeck(filePath);
-                _current.Output!.Volume = _masterVolumeFraction;
+                _current = CreateDeck(filePath, trackLoudnessLufs);
+                _current.Output!.Volume = _masterVolumeFraction * _current.LoudnessGain;
                 if (autoPlay) _current.Output.Play();
                 LengthChanged?.Invoke(this, (long)_current.AudioFile!.TotalTime.TotalMilliseconds);
                 PausableChanged?.Invoke(this, EventArgs.Empty);
@@ -245,11 +252,50 @@ namespace SLSKDONET.Services
             }
         }
 
-        private Deck CreateDeck(string filePath)
+        /// <summary>
+        /// Builds an output device honoring the user's configured audio-output mode/device
+        /// (Settings → Advanced → Audio Output — WaveOut/WASAPI-Shared/WASAPI-Exclusive/ASIO),
+        /// falling back to the previous hardcoded WASAPI-Shared behavior if the configured
+        /// device/driver fails to open (e.g. an ASIO driver that's since been uninstalled).
+        /// </summary>
+        private IWavePlayer CreateConfiguredOutputDevice()
+        {
+            var mode = Enum.TryParse<AudioOutputMode>(_config.AudioOutputMode, out var parsed)
+                ? parsed
+                : AudioOutputMode.WasapiShared;
+
+            try
+            {
+                return AudioOutputProvider.CreateDevice(mode, _config.AudioOutputDeviceName);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[AudioPlayerService] Failed to open configured output device ({mode}/{_config.AudioOutputDeviceName ?? "default"}): {ex.Message}. Falling back to WASAPI Shared.");
+                return new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
+            }
+        }
+
+        /// <summary>
+        /// Loudness normalization à la ReplayGain, using each track's already-analyzed integrated
+        /// loudness instead of a separate scan pass. Deliberately attenuation-only (never boosts
+        /// a quiet track above unity gain) — boosting risks clipping since there's no limiter in
+        /// this signal chain, and every other player with this feature defaults the same way.
+        /// </summary>
+        private float ComputeLoudnessGain(double? trackLoudnessLufs)
+        {
+            if (!_config.LoudnessNormalizationEnabled || trackLoudnessLufs is not double lufs)
+                return 1f;
+
+            var gainDb = Math.Min(0.0, _config.LoudnessNormalizationTargetLufs - lufs);
+            return (float)Math.Pow(10.0, gainDb / 20.0);
+        }
+
+        private Deck CreateDeck(string filePath, double? trackLoudnessLufs = null)
         {
             var deck = new Deck
             {
-                AudioFile = new AudioFileReader(filePath)
+                AudioFile = new AudioFileReader(filePath),
+                LoudnessGain = ComputeLoudnessGain(trackLoudnessLufs)
             };
 
             // Set up channel and resampler for pitch (turntable style)
@@ -286,7 +332,7 @@ namespace SLSKDONET.Services
                 }
             };
 
-            deck.Output = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
+            deck.Output = CreateConfiguredOutputDevice();
             deck.Output.Init(deck.Metering);
             deck.Output.PlaybackStopped += (s, e) =>
             {
@@ -315,7 +361,7 @@ namespace SLSKDONET.Services
             if (promoted?.Output == null) return;
 
             _current = promoted;
-            promoted.Output.Volume = _masterVolumeFraction;
+            promoted.Output.Volume = _masterVolumeFraction * promoted.LoudnessGain;
             if (promoted.Output.PlaybackState != PlaybackState.Playing)
             {
                 promoted.Output.Play();

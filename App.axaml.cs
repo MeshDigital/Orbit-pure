@@ -229,8 +229,13 @@ public partial class App : Application
                             };
 
                             desktop.MainWindow = mainWindow;
-                            mainWindow.Show(); 
+                            mainWindow.Show();
                             splashScreen.Close();
+
+                            // Real OS-level notifications (Windows Action Center toasts) need the
+                            // main window's native handle, which only exists after Show().
+                            var toastHandle = mainWindow.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+                            Services.GetRequiredService<WindowsToastService>().Initialize(toastHandle);
                         });
 
                         // --- THE BARRIER: WE ARE NOW DATA-SAFE ---
@@ -243,6 +248,19 @@ public partial class App : Application
                         // Activate post-download spectral scan listener (eager resolve so it
                         // subscribes to TrackStateChangedEvent immediately after the engine starts).
                         _ = Services.GetRequiredService<PostDownloadSpectralScanService>();
+
+                        // Eager-resolve chat/notification services so they start listening for
+                        // incoming Soulseek messages from app launch, not just after the user
+                        // first opens Users & Contacts (these are otherwise only constructed
+                        // on-demand, which meant incoming chat before that point was silently
+                        // dropped — never persisted, never surfaced). PeerVerificationChallengeService
+                        // in particular needs this: its whole purpose is reacting to peer messages
+                        // that arrive during a download, which usually happens before the user has
+                        // any reason to open the Users page.
+                        _ = Services.GetRequiredService<ChatService>();
+                        _ = Services.GetRequiredService<RoomChatService>();
+                        _ = Services.GetRequiredService<NotificationCenterService>();
+                        _ = Services.GetRequiredService<PeerVerificationChallengeService>();
 
                         // Start IHostedService background workers (like BackgroundJobWorker)
                         try
@@ -578,6 +596,8 @@ public partial class App : Application
         services.AddSingleton<UserPresenceWatchService>();
         services.AddSingleton<ChatService>();
         services.AddSingleton<RoomChatService>();
+        services.AddSingleton<PeerVerificationChallengeService>();
+        services.AddSingleton<WindowsToastService>();
         services.AddTransient<UsersViewModel>();
         services.AddTransient<UserProfileViewModel>();
         services.AddTransient<RoomsViewModel>();
@@ -649,7 +669,6 @@ public partial class App : Application
         services.AddSingleton<Services.Audio.IEdmFormerService, Services.Audio.EdmFormerService>();
 
         // ── Auto-cue / phrase detection pipeline ──────────────────────────
-        services.AddSingleton<Services.CueGenerationService>();
         services.AddSingleton<Services.AudioAnalysis.CuePointDetectionService>();
         services.AddSingleton<Services.AudioAnalysis.DnBTransientDetectionService>();
         services.AddSingleton<Services.DnBCueNamingService>();

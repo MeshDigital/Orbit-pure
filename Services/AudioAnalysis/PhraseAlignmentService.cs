@@ -101,6 +101,13 @@ public sealed class PhraseAlignmentService : IPhraseAlignmentService
             ["EDM"] = new("EDM", 32, 16, 32, 16, 16, 32, 32, 0.20d),
             ["TechHouse"] = new("TechHouse", 32, 16, 64, 16, 16, 64, 32, 0.18d),
             ["MelodicTechno"] = new("MelodicTechno", 32, 32, 64, 32, 16, 64, 32, 0.18d),
+            // Plain/peak-time house — shorter builds (8 bars) than EDM's, matching the quicker
+            // filter-sweep/snare-roll convention common in house. Starting point, tune by ear.
+            ["House"] = new("House", 32, 8, 32, 16, 8, 32, 32, 0.20d),
+            // Plain/driving techno, distinct from MelodicTechno — MelodicTechno's 64-bar drop and
+            // 32-bar build suit its longer, more atmospheric arcs; peak-time techno's sections are
+            // typically a bit tighter. Starting point, tune by ear.
+            ["Techno"] = new("Techno", 32, 16, 48, 16, 16, 48, 32, 0.20d),
             ["Pop"] = new("Pop", 8, 8, 16, 8, 8, 16, 8, 0.25d),
             ["DnB"] = new("DnB", 32, 16, 32, 16, 16, 32, 32, 0.20d),
             ["Trap"] = new("Trap", 16, 16, 32, 8, 16, 32, 16, 0.22d)
@@ -322,10 +329,21 @@ public sealed class PhraseAlignmentService : IPhraseAlignmentService
             return Presets["TechHouse"];
         }
 
-        if (normalized.Contains("melodic", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Contains("techn", StringComparison.OrdinalIgnoreCase))
+        if (normalized.Contains("melodic", StringComparison.OrdinalIgnoreCase))
         {
             return Presets["MelodicTechno"];
+        }
+
+        // Any other techno variant (peak-time, driving, industrial, etc.) — distinct from
+        // MelodicTechno above, which only genuinely melodic/atmospheric techno should hit.
+        if (normalized.Contains("techn", StringComparison.OrdinalIgnoreCase))
+        {
+            return Presets["Techno"];
+        }
+
+        if (normalized.Contains("hous", StringComparison.OrdinalIgnoreCase))
+        {
+            return Presets["House"];
         }
 
         if (normalized.Contains("dnb", StringComparison.OrdinalIgnoreCase) ||

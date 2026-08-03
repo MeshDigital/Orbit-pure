@@ -774,6 +774,23 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                     StatusText = "Stopped listening";
                 }
             }
+            catch (Exception ex)
+            {
+                // Any other exception ending the stream must still complete it — otherwise
+                // streamDrainTcs (only ever completed by the stream's own OnCompleted/OnError
+                // callback) never resolves, and the `await streamDrainTcs.Task` below hangs
+                // forever: IsSearching/IsListening stay true, and even Cancel can't recover
+                // since it doesn't observe this specific await. Previously only
+                // OperationCanceledException was handled here, so any other failure (a real
+                // SoulseekException, a ranking bug, a DB error) froze the Search page until
+                // app restart.
+                incomingTrackStream.OnCompleted();
+                _logger.LogError(ex, "Search stream failed");
+                if (_currentSearchSessionId == sessionId)
+                {
+                    StatusText = $"Error: {ex.Message}";
+                }
+            }
             finally
             {
                 if (_currentSearchSessionId == sessionId)

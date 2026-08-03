@@ -10,38 +10,35 @@ using SLSKDONET.Data.Essentia;
 namespace SLSKDONET.Services.AudioAnalysis;
 
 /// <summary>
-/// Detects DJ-relevant cue points from structural analysis and Essentia onset
-/// data, then delegates persistence to <see cref="CueGenerationService"/>.
+/// Runs the structural analysis pass early (right after Essentia/energy-curve extraction) purely
+/// to back-fill the legacy <see cref="AudioFeaturesEntity.DropTimeSeconds"/>/<see cref="AudioFeaturesEntity.DropConfidence"/>
+/// fields — still read as a last-resort fallback by <see cref="Engine.Analysis.AnalysisPipelineResultBuilder"/>
+/// for tracks with no real sub-bass/novelty signals yet.
 ///
-/// Detected cue types (in playback order):
-///   Intro          — always at t=0
-///   Build          — 16 bars before the first detected drop
-///   Drop           — peak energy onset (from StructuralAnalysisEngine)
-///   Breakdown      — first energy valley after the drop
-///   PhraseBoundary — every 32 beats throughout the track
-///   Outro          — last measurable phrase before end of track
+/// Does NOT persist cue points. That used to happen here via the weak <c>Services.CueGenerationService</c>
+/// (a plain RMS-derivative heuristic, no sub-bass/spectral-flux data), and again moments later via
+/// <see cref="AnalyzeTrackStructureJob"/> using the same weak service — two redundant writes of the
+/// same low-quality cue set, which also got read back into Cue Forge's phrase map and silently
+/// outranked the real DSP drop signals. <see cref="AnalyzeTrackStructureJob"/> is now the single
+/// place cues are generated and persisted, via the stronger <see cref="Engine.Cueing.CueGenerationService"/>.
 /// </summary>
 public sealed class CuePointDetectionService
 {
-    private readonly CueGenerationService _cueGenerator;
     private readonly ILogger<CuePointDetectionService> _logger;
 
-    public CuePointDetectionService(
-        CueGenerationService cueGenerator,
-        ILogger<CuePointDetectionService> logger)
+    public CuePointDetectionService(ILogger<CuePointDetectionService> logger)
     {
-        _cueGenerator = cueGenerator;
-        _logger       = logger;
+        _logger = logger;
     }
 
     /// <summary>
-    /// Runs cue point detection for a track and persists the results.
+    /// Runs structural analysis for a track and back-fills legacy drop fields. Cue persistence
+    /// happens later, in <see cref="AnalyzeTrackStructureJob"/>.
     /// </summary>
     /// <param name="trackUniqueHash">Track identity (content hash).</param>
     /// <param name="features">Audio features already stored for the track.</param>
     /// <param name="essentiaOutput">Optional — used to refine onset density if available.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Generated and persisted cue points ordered by timestamp.</returns>
     public async Task<IReadOnlyList<CuePointEntity>> DetectAndPersistAsync(
         string trackUniqueHash,
         AudioFeaturesEntity features,
@@ -71,19 +68,17 @@ public sealed class CuePointDetectionService
         _logger.LogDebug("[CueDetection] {Hash}: {Drops} drops, {Phrases} phrases",
             trackUniqueHash, result.Drops.Count, result.PhraseBoundaries.Count);
 
-        // ── 3. Persist via CueGenerationService ───────────────────────────
-        var cues = await _cueGenerator
-            .GenerateDefaultCuesAsync(trackUniqueHash, result, cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
-
-        // ── 4. Back-fill shortcut fields on AudioFeaturesEntity ───────────
+        // ── 3. Back-fill legacy shortcut fields on AudioFeaturesEntity ─────
+        // Cue persistence happens later, in AnalyzeTrackStructureJob, via the stronger
+        // Engine.Cueing.CueGenerationService — not here (see class doc comment).
         if (result.Drops.Count > 0)
         {
             features.DropTimeSeconds = (float)result.Drops[0].TimestampSeconds;
             features.DropConfidence  = result.Drops[0].Confidence;
         }
 
-        return cues;
+        await Task.CompletedTask;
+        return Array.Empty<CuePointEntity>();
     }
 
     // ──────────────────────────────────── helpers ─────────────────────────

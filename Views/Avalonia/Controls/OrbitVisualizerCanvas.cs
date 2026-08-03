@@ -34,6 +34,12 @@ public sealed class OrbitVisualizerCanvas : Control
     public static readonly StyledProperty<double> EnergyProperty =
         AvaloniaProperty.Register<OrbitVisualizerCanvas, double>(nameof(Energy), 0.5);
 
+    /// <summary>Real beat-synced pulse (0–1), peaking exactly on each beat. Sourced from the
+    /// track's analyzed beat grid when available, or a VU-threshold approximation otherwise —
+    /// see PlayerViewModel.BeatPulse. Replaces the old per-preset ad-hoc VU-threshold guesses.</summary>
+    public static readonly StyledProperty<double> BeatPulseProperty =
+        AvaloniaProperty.Register<OrbitVisualizerCanvas, double>(nameof(BeatPulse), 0.0);
+
     public static readonly StyledProperty<double> BpmProperty =
         AvaloniaProperty.Register<OrbitVisualizerCanvas, double>(nameof(Bpm), 120);
 
@@ -61,6 +67,7 @@ public sealed class OrbitVisualizerCanvas : Control
     public float VuLeft { get => GetValue(VuLeftProperty); set => SetValue(VuLeftProperty, value); }
     public float VuRight { get => GetValue(VuRightProperty); set => SetValue(VuRightProperty, value); }
     public double Energy { get => GetValue(EnergyProperty); set => SetValue(EnergyProperty, value); }
+    public double BeatPulse { get => GetValue(BeatPulseProperty); set => SetValue(BeatPulseProperty, value); }
     public double Bpm { get => GetValue(BpmProperty); set => SetValue(BpmProperty, value); }
     public string? MoodTag { get => GetValue(MoodTagProperty); set => SetValue(MoodTagProperty, value); }
     public bool IsPlaying { get => GetValue(IsPlayingProperty); set => SetValue(IsPlayingProperty, value); }
@@ -125,33 +132,42 @@ public sealed class OrbitVisualizerCanvas : Control
 
     private void OnRenderTick(object? sender, EventArgs e)
     {
-        if (!IsVisible || Bounds.Width < 4 || Bounds.Height < 4)
+        try
         {
-            return;
-        }
-
-        bool hasSpectrum = HasActiveSpectrum(SpectrumData);
-        if (!IsPlaying && !hasSpectrum)
-        {
-            // Keep ambient animation alive at low cadence to avoid UI thread pressure.
-            _idleTickCounter++;
-            if (_idleTickCounter % 10 != 0)
+            if (!IsVisible || Bounds.Width < 4 || Bounds.Height < 4)
             {
                 return;
             }
-        }
-        else
-        {
-            _idleTickCounter = 0;
-        }
 
-        _time += 0.033;
-        UpdateSmoothSpectrum();
-        if (IsPlaying || hasSpectrum)
-        {
-            UpdateParticles();
+            bool hasSpectrum = HasActiveSpectrum(SpectrumData);
+            if (!IsPlaying && !hasSpectrum)
+            {
+                // Keep ambient animation alive at low cadence to avoid UI thread pressure.
+                _idleTickCounter++;
+                if (_idleTickCounter % 10 != 0)
+                {
+                    return;
+                }
+            }
+            else
+            {
+                _idleTickCounter = 0;
+            }
+
+            _time += 0.033;
+            UpdateSmoothSpectrum();
+            if (IsPlaying || hasSpectrum)
+            {
+                UpdateParticles();
+            }
+            InvalidateVisual();
         }
-        InvalidateVisual();
+        catch (Exception ex)
+        {
+            // This timer fires ~20x/sec — a bad frame (NaN metadata, a momentary Skia hiccup)
+            // must never bring down the whole app. Skip the frame instead of crashing.
+            Serilog.Log.Warning(ex, "OrbitVisualizerCanvas: render tick failed — skipping frame");
+        }
     }
 
     private static bool HasActiveSpectrum(float[]? spectrum)
@@ -189,7 +205,17 @@ public sealed class OrbitVisualizerCanvas : Control
         if (EngineMode == VisualizerEngineMode.Ambient)
             effectivePreset = VisualizerPreset.AmbientBreath;
 
-        context.Custom(new VisualizerDrawOperation(bounds, this, effectivePreset, _time));
+        // Snapshot every StyledProperty the draw operation needs here, on the UI thread — see
+        // the comment on VisualizerDrawOperation's fields for why this can't be read lazily
+        // from inside Render(ImmediateDrawingContext), which runs on the render thread.
+        context.Custom(new VisualizerDrawOperation(
+            bounds, this, effectivePreset, _time,
+            energy: (float)Energy,
+            bpm: (float)Bpm,
+            vuLeft: VuLeft,
+            vuRight: VuRight,
+            beatPulse: (float)BeatPulse,
+            albumHue: AlbumHue));
     }
 
     // ── Metadata-Driven Preset Selection ─────────────────────────────────────
@@ -300,18 +326,46 @@ public sealed class OrbitVisualizerCanvas : Control
         private readonly VisualizerPreset _preset;
         private readonly double _time;
 
+        // Avalonia StyledProperty getters call AvaloniaObject.GetValue<T>(), which enforces
+        // UI-thread-only access — but ICustomDrawOperation.Render runs on Avalonia's dedicated
+        // render/compositor thread, not the UI thread. Reading _energy/Bpm/etc. directly
+        // from here throws InvalidOperationException ("Call from invalid thread") on every
+        // single frame. That exception was previously unhandled all the way up through Avalonia's
+        // render thread — which doesn't route through any of .NET's normal exception hooks — and
+        // is the leading suspect for this session's several "clean, silent shutdown, no exception
+        // logged anywhere" crashes. Fix: snapshot every StyledProperty value on the UI thread
+        // (inside the outer Render(DrawingContext) below) and pass plain values in here instead.
+        private readonly float _energy;
+        private readonly float _bpm;
+        private readonly float _vuLeft;
+        private readonly float _vuRight;
+        private readonly float _beatPulse;
+        private readonly float _albumHue;
+
         public Rect Bounds => _bounds;
 
         public VisualizerDrawOperation(
             Rect bounds,
             OrbitVisualizerCanvas canvas,
             VisualizerPreset preset,
-            double time)
+            double time,
+            float energy,
+            float bpm,
+            float vuLeft,
+            float vuRight,
+            float beatPulse,
+            float albumHue)
         {
             _bounds = bounds;
             _canvas = canvas;
             _preset = preset;
             _time = time;
+            _energy = energy;
+            _bpm = bpm;
+            _vuLeft = vuLeft;
+            _vuRight = vuRight;
+            _beatPulse = beatPulse;
+            _albumHue = albumHue;
         }
 
         public bool HitTest(Point p) => false;
@@ -329,21 +383,31 @@ public sealed class OrbitVisualizerCanvas : Control
 
             canvas.Clear(SKColors.Transparent);
 
-            switch (_preset)
+            try
             {
-                case VisualizerPreset.SpectrumBars:  DrawSpectrumBars(canvas, w, h); break;
-                case VisualizerPreset.CircularWave:  DrawCircularWave(canvas, w, h); break;
-                case VisualizerPreset.NeonParticles: DrawNeonParticles(canvas, w, h); break;
-                case VisualizerPreset.Oscilloscope:  DrawOscilloscope(canvas, w, h); break;
-                case VisualizerPreset.StarBurst:     DrawStarBurst(canvas, w, h); break;
-                case VisualizerPreset.PlasmaMesh:    DrawPlasmaMesh(canvas, w, h); break;
-                case VisualizerPreset.AuroraBands:   DrawAuroraBands(canvas, w, h); break;
-                case VisualizerPreset.Waterfall:     DrawWaterfall(canvas, w, h); break;
-                case VisualizerPreset.PhaseScope:    DrawPhaseScope(canvas, w, h); break;
-                case VisualizerPreset.DigitalRain:   DrawDigitalRain(canvas, w, h); break;
-                case VisualizerPreset.RipplePool:    DrawRipplePool(canvas, w, h); break;
-                case VisualizerPreset.AmbientBreath: DrawAmbientBreath(canvas, w, h); break;
-                default:                             DrawSpectrumBars(canvas, w, h); break;
+                switch (_preset)
+                {
+                    case VisualizerPreset.SpectrumBars:  DrawSpectrumBars(canvas, w, h); break;
+                    case VisualizerPreset.CircularWave:  DrawCircularWave(canvas, w, h); break;
+                    case VisualizerPreset.NeonParticles: DrawNeonParticles(canvas, w, h); break;
+                    case VisualizerPreset.Oscilloscope:  DrawOscilloscope(canvas, w, h); break;
+                    case VisualizerPreset.StarBurst:     DrawStarBurst(canvas, w, h); break;
+                    case VisualizerPreset.PlasmaMesh:    DrawPlasmaMesh(canvas, w, h); break;
+                    case VisualizerPreset.AuroraBands:   DrawAuroraBands(canvas, w, h); break;
+                    case VisualizerPreset.Waterfall:     DrawWaterfall(canvas, w, h); break;
+                    case VisualizerPreset.PhaseScope:    DrawPhaseScope(canvas, w, h); break;
+                    case VisualizerPreset.DigitalRain:   DrawDigitalRain(canvas, w, h); break;
+                    case VisualizerPreset.RipplePool:    DrawRipplePool(canvas, w, h); break;
+                    case VisualizerPreset.AmbientBreath: DrawAmbientBreath(canvas, w, h); break;
+                    default:                             DrawSpectrumBars(canvas, w, h); break;
+                }
+            }
+            catch (Exception ex)
+            {
+                // A bad frame (NaN/Infinity metadata reaching a Skia call, a transient GPU
+                // hiccup) must never bring down the whole app — leave this frame blank/partial
+                // instead of throwing out of the render thread.
+                Serilog.Log.Warning(ex, "OrbitVisualizerCanvas: preset draw failed for {Preset} — skipping frame", _preset);
             }
         }
 
@@ -351,7 +415,7 @@ public sealed class OrbitVisualizerCanvas : Control
 
         private SKColor PrimaryColor(float alpha = 1f)
         {
-            float hue = _canvas.AlbumHue >= 0 ? _canvas.AlbumHue : EnergyHue();
+            float hue = _albumHue >= 0 ? _albumHue : EnergyHue();
             var color = SKColor.FromHsv(hue, 0.9f, 1.0f);
             return color.WithAlpha((byte)(alpha * 255));
         }
@@ -359,7 +423,7 @@ public sealed class OrbitVisualizerCanvas : Control
         private float EnergyHue()
         {
             // Low energy = blue (220°), high energy = red (0°/360°)
-            float energy = (float)_canvas.Energy;
+            float energy = (float)_energy;
             return 220f * (1f - energy); // 220→0
         }
 
@@ -388,19 +452,20 @@ public sealed class OrbitVisualizerCanvas : Control
             const int Bars = 64;
             var spectrum = GetSpectrum(Bars);
             float barW = w / Bars;
-            float intensity = (float)_canvas.Energy;
+            float intensity = (float)_energy;
 
             using var paint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
 
+            float beatBoost = 1f + (float)_beatPulse * 0.15f;
             for (int i = 0; i < Bars; i++)
             {
                 float val = Math.Min(spectrum[i] * 8f * (0.5f + intensity), 1f);
-                float barH = h * val;
+                float barH = h * val * beatBoost;
                 float x = i * barW;
 
                 // Color shifts from teal→purple→red as bar height grows
-                float hue = _canvas.AlbumHue >= 0
-                    ? _canvas.AlbumHue + (val * 60f)
+                float hue = _albumHue >= 0
+                    ? _albumHue + (val * 60f)
                     : 180f - (val * 180f);
                 paint.Color = SKColor.FromHsv(hue % 360, 0.8f, 1.0f);
 
@@ -423,7 +488,7 @@ public sealed class OrbitVisualizerCanvas : Control
             var spectrum = GetSpectrum(Points);
             var cx = w / 2; var cy = h / 2;
             float baseR = Math.Min(w, h) * 0.25f;
-            float intensity = (float)_canvas.Energy;
+            float intensity = (float)_energy;
 
             using var paint = new SKPaint
             {
@@ -457,7 +522,7 @@ public sealed class OrbitVisualizerCanvas : Control
 
         private void DrawNeonParticles(SKCanvas canvas, float w, float h)
         {
-            float intensity = (float)_canvas.Energy;
+            float intensity = (float)_energy;
             var color = PrimaryColor();
 
             // Take a snapshot to prevent InvalidOperationException if the UI thread
@@ -492,7 +557,7 @@ public sealed class OrbitVisualizerCanvas : Control
             if (src == null || src.Length < 2) return;
 
             float cy = h / 2;
-            float intensity = (float)_canvas.Energy;
+            float intensity = (float)_energy;
 
             using var paint = new SKPaint
             {
@@ -527,7 +592,7 @@ public sealed class OrbitVisualizerCanvas : Control
             float cx = w / 2; float cy = h / 2;
             float baseR = Math.Min(w, h) * 0.08f;
             float maxR = Math.Min(w, h) * 0.45f;
-            float intensity = (float)_canvas.Energy;
+            float intensity = (float)_energy;
 
             using var paint = new SKPaint { IsAntialias = true, StrokeWidth = 1.5f, Style = SKPaintStyle.Stroke };
 
@@ -536,7 +601,7 @@ public sealed class OrbitVisualizerCanvas : Control
                 float angle = (float)(i * Math.PI * 2 / Spokes) + (float)(_time * 0.3);
                 float r = baseR + spectrum[i] * maxR * (0.4f + intensity * 0.6f);
 
-                float hue = (_canvas.AlbumHue >= 0 ? _canvas.AlbumHue : 0) + (float)i / Spokes * 60f;
+                float hue = (_albumHue >= 0 ? _albumHue : 0) + (float)i / Spokes * 60f;
                 paint.Color = SKColor.FromHsv(hue % 360, 0.8f, 1f, (byte)(spectrum[i] * 200 + 50));
 
                 float x1 = cx + MathF.Cos(angle) * baseR;
@@ -546,7 +611,7 @@ public sealed class OrbitVisualizerCanvas : Control
                 canvas.DrawLine(x1, y1, x2, y2, paint);
             }
 
-            // Centre glow
+            // Centre glow — punches outward on each beat
             using var glow = new SKPaint
             {
                 IsAntialias = true,
@@ -554,7 +619,7 @@ public sealed class OrbitVisualizerCanvas : Control
                 Color = PrimaryColor(0.6f),
                 MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 20),
             };
-            canvas.DrawCircle(cx, cy, baseR * 1.5f, glow);
+            canvas.DrawCircle(cx, cy, baseR * (1.5f + (float)_beatPulse * 0.6f), glow);
         }
 
         // ── 6. Plasma Mesh ────────────────────────────────────────────────────
@@ -562,7 +627,7 @@ public sealed class OrbitVisualizerCanvas : Control
         private void DrawPlasmaMesh(SKCanvas canvas, float w, float h)
         {
             float t = (float)_time;
-            float intensity = (float)_canvas.Energy;
+            float intensity = (float)_energy;
             const int GridStep = 20;
 
             using var paint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
@@ -577,8 +642,8 @@ public sealed class OrbitVisualizerCanvas : Control
                               MathF.Sin(ny * 10 + t * 1.3f) +
                               MathF.Sin((nx + ny) * 8 + t * 0.7f);
 
-                    float hue = _canvas.AlbumHue >= 0
-                        ? (_canvas.AlbumHue + v * 40f) % 360f
+                    float hue = _albumHue >= 0
+                        ? (_albumHue + v * 40f) % 360f
                         : (v + 2f) / 4f * 360f;
                     hue = (hue + 360f) % 360f;
 
@@ -596,7 +661,7 @@ public sealed class OrbitVisualizerCanvas : Control
         {
             float t = (float)_time;
             const int Bands = 6;
-            float intensity = (float)_canvas.Energy;
+            float intensity = (float)_energy;
 
             for (int b = 0; b < Bands; b++)
             {
@@ -640,7 +705,7 @@ public sealed class OrbitVisualizerCanvas : Control
 
             float rowH = h / WaterfallDepth;
             float binW = w / Bins;
-            float hueBase = _canvas.AlbumHue >= 0 ? _canvas.AlbumHue : 220f;
+            float hueBase = _albumHue >= 0 ? _albumHue : 220f;
 
             using var paint = new SKPaint { IsAntialias = false, Style = SKPaintStyle.Fill };
 
@@ -678,8 +743,8 @@ public sealed class OrbitVisualizerCanvas : Control
             canvas.DrawLine(cx, cy - size, cx, cy + size, gridPaint);
 
             // Lissajous trace
-            float L = _canvas.VuLeft;
-            float R = _canvas.VuRight;
+            float L = _vuLeft;
+            float R = _vuRight;
             float m = (L + R) * 0.707f;
             float s = (L - R) * 0.707f;
 
@@ -714,7 +779,7 @@ public sealed class OrbitVisualizerCanvas : Control
         {
             const int ColWidth = 14;
             int cols = (int)(w / ColWidth);
-            float intensity = (float)_canvas.Energy;
+            float intensity = (float)_energy;
 
             // Init columns
             if (_canvas._rainColumns == null || _canvas._rainColumns.Length != cols)
@@ -745,7 +810,7 @@ public sealed class OrbitVisualizerCanvas : Control
                 }
 
                 // Head glyph (bright)
-                float hue = _canvas.AlbumHue >= 0 ? _canvas.AlbumHue : 120f;
+                float hue = _albumHue >= 0 ? _albumHue : 120f;
                 paint.Color = SKColor.FromHsv(hue, 0.2f, 1f);
                 canvas.DrawRect(col.X, col.Y, ColWidth - 1, ColWidth, paint);
 
@@ -764,11 +829,12 @@ public sealed class OrbitVisualizerCanvas : Control
         private void DrawRipplePool(SKCanvas canvas, float w, float h)
         {
             float cx = w / 2; float cy = h / 2;
-            float vu = (_canvas.VuLeft + _canvas.VuRight) / 2f;
             double now = _time;
 
-            // Spawn ripple on beat
-            if (vu > 0.4f && now - _canvas._lastBeatTime > 0.3)
+            // Spawn a ripple on each real beat (BeatPulse peaks at 1.0 exactly on-beat) instead
+            // of guessing from a raw VU threshold — the cooldown just prevents double-spawning
+            // while the pulse is still near its peak.
+            if (_beatPulse > 0.92 && now - _canvas._lastBeatTime > 0.15)
             {
                 _canvas._ripples.Add(new RippleRing { MaxRadius = Math.Min(w, h) * 0.5f });
                 _canvas._lastBeatTime = now;
@@ -779,7 +845,7 @@ public sealed class OrbitVisualizerCanvas : Control
 
             foreach (var ripple in _canvas._ripples.ToList())
             {
-                ripple.Radius += (float)(2.0 + _canvas.Energy * 4.0);
+                ripple.Radius += (float)(2.0 + _energy * 4.0);
                 ripple.Alpha = 1f - ripple.Radius / ripple.MaxRadius;
 
                 if (ripple.Alpha <= 0.01f) { _canvas._ripples.Remove(ripple); continue; }
@@ -811,7 +877,7 @@ public sealed class OrbitVisualizerCanvas : Control
             float maxR = Math.Min(w, h) * 0.4f;
             float r = maxR * (0.5f + breathe * 0.5f);
 
-            float hue = _canvas.AlbumHue >= 0 ? _canvas.AlbumHue : 200f;
+            float hue = _albumHue >= 0 ? _albumHue : 200f;
 
             // Soft radial glow
             using var glowPaint = new SKPaint

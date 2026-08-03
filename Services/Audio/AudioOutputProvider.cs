@@ -32,7 +32,16 @@ public class AudioOutputProvider : IDisposable
 {
     private IWavePlayer? _outputDevice;
     private ISampleProvider? _source;
-    
+
+    // Shared across all device resolution calls (every CreateDeck() on every track load/preload
+    // used to construct a brand-new MMDeviceEnumerator just to look up a device). The enumerator
+    // itself is a stateless COM factory — safe to reuse. Each call still does a fresh
+    // EnumerateAudioEndPoints/GetDefaultAudioEndpoint lookup, so every deck still gets its own
+    // independent MMDevice (and therefore its own AudioClient) — required for concurrent
+    // dual-deck crossfade playback; sharing the resolved MMDevice itself would not be safe, since
+    // WASAPI's IAudioClient can only be Initialize()'d once per device instance.
+    private static readonly Lazy<MMDeviceEnumerator> _sharedEnumerator = new(() => new MMDeviceEnumerator());
+
     public AudioOutputMode CurrentMode { get; private set; } = AudioOutputMode.WasapiShared;
     public bool IsPlaying => _outputDevice?.PlaybackState == PlaybackState.Playing;
     public bool IsPaused => _outputDevice?.PlaybackState == PlaybackState.Paused;
@@ -63,8 +72,7 @@ public class AudioOutputProvider : IDisposable
     /// </summary>
     public static IEnumerable<string> GetWasapiDeviceNames()
     {
-        var enumerator = new MMDeviceEnumerator();
-        var devices = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+        var devices = _sharedEnumerator.Value.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
         return devices.Select(d => d.FriendlyName);
     }
     
@@ -86,12 +94,12 @@ public class AudioOutputProvider : IDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[AudioOutputProvider] Failed to initialize {mode}: {ex.Message}");
-            
+            Serilog.Log.Warning(ex, "[AudioOutputProvider] Failed to initialize {Mode}", mode);
+
             // Fallback to WaveOut if preferred mode fails
             if (mode != AudioOutputMode.WaveOut)
             {
-                Console.WriteLine("[AudioOutputProvider] Falling back to WaveOut...");
+                Serilog.Log.Information("[AudioOutputProvider] Falling back to WaveOut...");
                 CurrentMode = AudioOutputMode.WaveOut;
                 _outputDevice = new WaveOutEvent { DesiredLatency = 100 };
                 _outputDevice.Init(source);
@@ -104,42 +112,49 @@ public class AudioOutputProvider : IDisposable
         }
     }
     
-    private IWavePlayer CreateOutputDevice(AudioOutputMode mode, string? deviceName)
+    private IWavePlayer CreateOutputDevice(AudioOutputMode mode, string? deviceName) => CreateDevice(mode, deviceName);
+
+    /// <summary>
+    /// Builds an output device for the given mode/device selection — a pure factory with no
+    /// dependency on this instance's own lifecycle, so callers that manage their own
+    /// <see cref="IWavePlayer"/> instances (e.g. <see cref="AudioPlayerService"/>'s per-deck
+    /// devices) can honor the user's audio-output settings without duplicating the mode/device
+    /// resolution logic here.
+    /// </summary>
+    public static IWavePlayer CreateDevice(AudioOutputMode mode, string? deviceName)
     {
         return mode switch
         {
             AudioOutputMode.WaveOut => new WaveOutEvent { DesiredLatency = 100, NumberOfBuffers = 3 },
-            
+
             AudioOutputMode.WasapiShared => new WasapiOut(
                 deviceName != null ? GetWasapiDevice(deviceName) : GetDefaultWasapiDevice(),
                 AudioClientShareMode.Shared,
                 useEventSync: true,
                 latency: 50), // 50ms shared mode
-            
+
             AudioOutputMode.WasapiExclusive => new WasapiOut(
                 deviceName != null ? GetWasapiDevice(deviceName) : GetDefaultWasapiDevice(),
                 AudioClientShareMode.Exclusive,
                 useEventSync: true,
                 latency: 10), // 10ms exclusive mode
-            
+
             AudioOutputMode.Asio => CreateAsioDevice(deviceName),
-            
+
             _ => throw new NotSupportedException($"Unsupported audio mode: {mode}")
         };
     }
     
     private static MMDevice GetDefaultWasapiDevice()
     {
-        var enumerator = new MMDeviceEnumerator();
-        return enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        return _sharedEnumerator.Value.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
     }
-    
+
     private static MMDevice GetWasapiDevice(string friendlyName)
     {
-        var enumerator = new MMDeviceEnumerator();
-        var devices = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
-        return devices.FirstOrDefault(d => d.FriendlyName == friendlyName) 
-               ?? enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        var devices = _sharedEnumerator.Value.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+        return devices.FirstOrDefault(d => d.FriendlyName == friendlyName)
+               ?? _sharedEnumerator.Value.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
     }
     
     private static IWavePlayer CreateAsioDevice(string? driverName)
@@ -155,7 +170,7 @@ public class AudioOutputProvider : IDisposable
         
         if (!drivers.Contains(selectedDriver))
         {
-            Console.WriteLine($"[AudioOutputProvider] ASIO driver '{selectedDriver}' not found, using '{drivers.First()}'");
+            Serilog.Log.Warning("[AudioOutputProvider] ASIO driver '{Requested}' not found, using '{Fallback}'", selectedDriver, drivers.First());
             selectedDriver = drivers.First();
         }
         

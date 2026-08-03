@@ -47,6 +47,27 @@ public class DialogService : IDialogService
         });
     }
 
+    public async Task<RemoveTrackChoice> ShowRemoveTrackChoiceAsync(string trackLabel, bool canRemoveFromPlaylist, string? playlistName)
+    {
+        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var dialog = new RemoveTrackDialog(trackLabel, canRemoveFromPlaylist, playlistName);
+            var owner = GetOwnerWindow();
+
+            if (owner != null)
+            {
+                await dialog.ShowDialog(owner);
+            }
+            else
+            {
+                dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                dialog.Show();
+            }
+
+            return dialog.Result;
+        });
+    }
+
     public async Task ShowAlertAsync(string title, string message)
     {
         await Dispatcher.UIThread.InvokeAsync(async () =>

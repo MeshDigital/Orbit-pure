@@ -117,11 +117,13 @@ public class CueGenerationServiceTests
     }
 
     [Fact]
-    public void GenerateCues_DspPath_BreakdownDerivedFromSubBassDropout()
+    public void GenerateCues_DspPath_BreakdownDerivedFromSubBassDropout_WhenNearExpectedBarOffset()
     {
         var service = CreateService();
         double dropTime = 100.0;
-        double dropoutTime = 60.0; // a real dropout candidate well before the drop
+        // Bar-math default breakdown is 8 bars before the (bar-snapped) drop, ~88.5s here.
+        // A dropout landing within 4 bars of that default should override it.
+        double dropoutTime = 84.0;
 
         var analysis = DspAnalysis(subBassReturnSeconds: dropTime);
         analysis.SubBassDropoutTimestamps = new List<double> { dropoutTime };
@@ -129,7 +131,26 @@ public class CueGenerationServiceTests
         var cues = service.GenerateCues("hash", analysis, DownbeatAnchor);
         var breakdown = cues.First(c => c.Label == "Breakdown");
 
-        Assert.InRange(breakdown.TimestampInSeconds, dropoutTime - 10, dropoutTime + 10);
+        Assert.InRange(breakdown.TimestampInSeconds, dropoutTime - 2, dropoutTime + 2);
+    }
+
+    [Fact]
+    public void GenerateCues_DspPath_BreakdownIgnoresDistantDropout_UsesBarMathDefault()
+    {
+        var service = CreateService();
+        double dropTime = 100.0;
+        double distantDropoutTime = 60.0; // ~28 bars before the drop — not the same structural moment
+
+        var analysis = DspAnalysis(subBassReturnSeconds: dropTime);
+        analysis.SubBassDropoutTimestamps = new List<double> { distantDropoutTime };
+
+        var cues = service.GenerateCues("hash", analysis, DownbeatAnchor);
+        var breakdown = cues.First(c => c.Label == "Breakdown");
+
+        // Should fall back to the drop-anchored bar-math default (~8 bars before the drop),
+        // not snap to an unrelated dropout elsewhere in the track.
+        Assert.True(Math.Abs(breakdown.TimestampInSeconds - distantDropoutTime) > 20,
+            "Breakdown snapped to a distant, unrelated dropout instead of the bar-math default.");
     }
 
     // ── Fixtures ─────────────────────────────────────────────────────────────

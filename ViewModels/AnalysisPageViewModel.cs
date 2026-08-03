@@ -753,6 +753,14 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         }
     }
 
+    private string? _libraryLoadErrorMessage;
+    /// <summary>Set when the real library fails to load and the page falls back to demo data, so that fallback is never silent — the sample tracks look identical to real ones otherwise.</summary>
+    public string? LibraryLoadErrorMessage
+    {
+        get => _libraryLoadErrorMessage;
+        private set => this.RaiseAndSetIfChanged(ref _libraryLoadErrorMessage, value);
+    }
+
     public bool IsIdle => ProcessingState == AnalysisProcessingState.Idle;
     public bool IsProcessing => ProcessingState == AnalysisProcessingState.Processing;
     public bool CanStartAnalysis => !IsProcessing && AnalysisQueue.Any(t => t.AnalysisStatus != AnalysisRunStatus.Completed);
@@ -1636,13 +1644,16 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                 AutomixStatusMessage = $"Loaded {existingEntries.Count} valid tracks; skipped {lifecycleMetrics.StaleIndexed} stale index entries.";
             }
 
+            LibraryLoadErrorMessage = null;
             ApplyFilter();
             RefreshComputedState();
         }
-        catch
+        catch (Exception ex)
         {
+            Serilog.Log.Warning(ex, "AnalysisPage: failed to load the real library — falling back to demo data");
             if (LibraryTracks.Count == 0)
             {
+                LibraryLoadErrorMessage = $"Couldn't load your library ({ex.Message}) — showing sample data instead. This is not your real collection.";
                 LoadMockData();
                 ApplyFilter();
                 RefreshComputedState();

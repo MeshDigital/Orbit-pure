@@ -165,12 +165,26 @@ namespace SLSKDONET.ViewModels
 
         /// <summary>Returns true when the queue has no tracks.</summary>
         public bool IsQueueEmpty => !Queue.Any();
-        
+
+        /// <summary>The next couple of tracks after the one currently playing — a glanceable
+        /// "up next" strip that doesn't require opening the full queue panel.</summary>
+        public List<PlaylistTrackViewModel> UpNextPreview =>
+            Queue.Skip(CurrentQueueIndex + 1).Take(2).ToList();
+
+        public bool HasUpNext => CurrentQueueIndex + 1 < Queue.Count;
+
         private int _currentQueueIndex = -1;
         public int CurrentQueueIndex
         {
             get => _currentQueueIndex;
-            set => SetProperty(ref _currentQueueIndex, value);
+            set
+            {
+                if (SetProperty(ref _currentQueueIndex, value))
+                {
+                    OnPropertyChanged(nameof(UpNextPreview));
+                    OnPropertyChanged(nameof(HasUpNext));
+                }
+            }
         }
         
         private PlaylistTrackViewModel? _currentTrack;
@@ -184,6 +198,7 @@ namespace SLSKDONET.ViewModels
                 {
                     AttachCurrentTrackObservers(previousTrack, value);
                     RaiseCurrentTrackSummaryProperties();
+                    ResetAndLoadBeatGrid(value);
                 }
             }
         }
@@ -452,6 +467,24 @@ namespace SLSKDONET.ViewModels
             set => SetProperty(ref _vuRight, value);
         }
 
+        // Real beat-synced visualization pulse (0 → 1, peaking exactly on each beat, decaying
+        // fast between beats). Backed by the track's own analyzed beat grid when available;
+        // falls back to a VU-threshold approximation for unanalyzed tracks so the visualizer
+        // still reacts to something rather than sitting flat. See UpdateBeatPulseFromGrid /
+        // the AudioLevelsChanged subscription in the constructor for the two update paths.
+        private double _beatPulse;
+        public double BeatPulse
+        {
+            get => _beatPulse;
+            private set => SetProperty(ref _beatPulse, value);
+        }
+
+        private double[]? _beatGridSeconds;
+        private string? _beatGridLoadedForHash;
+        private double _elapsedSecondsSinceStart;
+        private double _lastVuBeatTimeSec = double.NegativeInfinity;
+        private const double BeatPulseDecayPerSecond = 9.0; // ~250ms to fall under ~10% — punchy, not flickery
+
 
 
         private double _pitch = 1.0;
@@ -706,6 +739,19 @@ namespace SLSKDONET.ViewModels
                 .Subscribe(e => CurrentTimeStr = TimeSpan.FromMilliseconds(e.EventArgs).ToString(@"m\:ss"))
                 .DisposeWith(_disposables);
 
+            // Separate, faster-sampled subscription to the same event, purely for beat-pulse
+            // timing — the visualizer needs ~25fps granularity, not the 4fps the time label needs.
+            Observable.FromEventPattern<long>(h => _playerService.TimeChanged += h, h => _playerService.TimeChanged -= h)
+                .Sample(TimeSpan.FromMilliseconds(40))
+                .ObserveOn(RxApp.MainThreadScheduler)
+                .Subscribe(e =>
+                {
+                    _elapsedSecondsSinceStart = e.EventArgs / 1000.0;
+                    if (_beatGridSeconds is { Length: > 0 } beats)
+                        UpdateBeatPulseFromGrid(beats, _elapsedSecondsSinceStart);
+                })
+                .DisposeWith(_disposables);
+
             Observable.FromEventPattern<long>(h => _playerService.LengthChanged += h, h => _playerService.LengthChanged -= h)
                 .Subscribe(e => Dispatcher.UIThread.Post(() => 
                 {
@@ -719,10 +765,23 @@ namespace SLSKDONET.ViewModels
             Observable.FromEventPattern<AudioLevelsEventArgs>(h => _playerService.AudioLevelsChanged += h, h => _playerService.AudioLevelsChanged -= h)
                 .Sample(TimeSpan.FromMilliseconds(40)) // 25fps for VU meters - visually smooth but efficient
                 .ObserveOn(RxApp.MainThreadScheduler)
-                .Subscribe(e => 
+                .Subscribe(e =>
                 {
                     VuLeft = e.EventArgs.Left;
                     VuRight = e.EventArgs.Right;
+
+                    // Fallback beat approximation for tracks with no analyzed beat grid yet —
+                    // same decay envelope as the real grid-driven path, just triggered by a VU
+                    // threshold crossing instead of an actual beat timestamp.
+                    if (_beatGridSeconds == null)
+                    {
+                        float vu = (VuLeft + VuRight) / 2f;
+                        if (vu > 0.4f && _elapsedSecondsSinceStart - _lastVuBeatTimeSec > 0.3)
+                            _lastVuBeatTimeSec = _elapsedSecondsSinceStart;
+
+                        double dt = Math.Max(0, _elapsedSecondsSinceStart - _lastVuBeatTimeSec);
+                        BeatPulse = Math.Exp(-dt * BeatPulseDecayPerSecond);
+                    }
                 })
                 .DisposeWith(_disposables);
 
@@ -863,6 +922,8 @@ namespace SLSKDONET.ViewModels
                  DebounceSaveQueue();
              }
              OnPropertyChanged(nameof(IsQueueEmpty));
+             OnPropertyChanged(nameof(UpNextPreview));
+             OnPropertyChanged(nameof(HasUpNext));
         }
 
         private void DebounceSaveQueue()
@@ -1403,7 +1464,7 @@ namespace SLSKDONET.ViewModels
             var filePath = track.Model?.ResolvedFilePath;
             if (!string.IsNullOrEmpty(filePath))
             {
-                PlayTrack(filePath, track.Title ?? "Unknown", track.Artist ?? "Unknown");
+                PlayTrack(filePath, track.Title ?? "Unknown", track.Artist ?? "Unknown", track.Model?.Loudness);
             }
 
             SchedulePreloadNext();
@@ -1448,7 +1509,7 @@ namespace SLSKDONET.ViewModels
                 var path = Queue[idx].Model?.ResolvedFilePath;
                 if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
                 {
-                    _playerService.PreloadNext(path);
+                    _playerService.PreloadNext(path, Queue[idx].Model?.Loudness);
                     _preloadedQueueIndex = idx;
                     return;
                 }
@@ -1935,6 +1996,61 @@ namespace SLSKDONET.ViewModels
             OnPropertyChanged(nameof(CurrentTrackPhraseJumpSummary));
         }
 
+        /// <summary>Clears any previous track's beat grid immediately (so a stale grid never
+        /// drives the new track's visualizer) and kicks off an async load of the new one.</summary>
+        private void ResetAndLoadBeatGrid(PlaylistTrackViewModel? track)
+        {
+            _beatGridSeconds = null;
+            _lastVuBeatTimeSec = double.NegativeInfinity;
+            BeatPulse = 0;
+
+            var hash = track?.Model?.TrackUniqueHash;
+            _beatGridLoadedForHash = hash;
+            if (string.IsNullOrWhiteSpace(hash))
+                return;
+
+            _ = LoadBeatGridAsync(hash);
+        }
+
+        private async System.Threading.Tasks.Task LoadBeatGridAsync(string hash)
+        {
+            try
+            {
+                var features = await _databaseService.GetAudioFeaturesByHashAsync(hash).ConfigureAwait(true);
+
+                // The current track changed again while this was in flight — discard.
+                if (!string.Equals(_beatGridLoadedForHash, hash, StringComparison.Ordinal))
+                    return;
+
+                if (features is null || string.IsNullOrWhiteSpace(features.BeatGridJson) || features.BeatGridJson == "[]")
+                    return;
+
+                var beats = System.Text.Json.JsonSerializer.Deserialize<double[]>(features.BeatGridJson);
+                if (beats is { Length: > 0 })
+                    _beatGridSeconds = beats;
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Warning(ex, "PlayerViewModel: failed to load beat grid for {Hash} — visualizer will fall back to VU-based pulsing", hash);
+            }
+        }
+
+        /// <summary>Real beat-synced pulse: 1.0 exactly at the nearest past beat, decaying
+        /// smoothly afterward. Binary search (not an incrementally-advanced index) so seeking
+        /// backward/forward is handled correctly with no special-casing.</summary>
+        private void UpdateBeatPulseFromGrid(double[] beats, double elapsedSeconds)
+        {
+            int lo = 0, hi = beats.Length - 1;
+            while (lo < hi)
+            {
+                int mid = (lo + hi + 1) / 2;
+                if (beats[mid] <= elapsedSeconds) lo = mid; else hi = mid - 1;
+            }
+
+            double dt = Math.Max(0, elapsedSeconds - beats[lo]);
+            BeatPulse = Math.Exp(-dt * BeatPulseDecayPerSecond);
+        }
+
         // Seek relative by seconds
         private void SeekRelative(double seconds)
         {
@@ -1948,8 +2064,8 @@ namespace SLSKDONET.ViewModels
         }
         
         // Helper to load track
-        public void PlayTrack(string filePath, string title, string artist)
-            => LoadTrackCore(filePath, title, artist, autoPlay: true);
+        public void PlayTrack(string filePath, string title, string artist, double? loudnessLufs = null)
+            => LoadTrackCore(filePath, title, artist, autoPlay: true, loudnessLufs);
 
         /// <summary>
         /// Loads a track "hot and ready" without starting playback — e.g. Cue Forge loading
@@ -1958,10 +2074,10 @@ namespace SLSKDONET.ViewModels
         /// immediately-Pause() sequence still lets a moment of real audio through the WASAPI
         /// buffer before the pause takes effect.
         /// </summary>
-        public void LoadTrackPaused(string filePath, string title, string artist)
-            => LoadTrackCore(filePath, title, artist, autoPlay: false);
+        public void LoadTrackPaused(string filePath, string title, string artist, double? loudnessLufs = null)
+            => LoadTrackCore(filePath, title, artist, autoPlay: false, loudnessLufs);
 
-        private void LoadTrackCore(string filePath, string title, string artist, bool autoPlay)
+        private void LoadTrackCore(string filePath, string title, string artist, bool autoPlay, double? loudnessLufs = null)
         {
             Console.WriteLine($"[PlayerViewModel] LoadTrackCore called with: {filePath} (autoPlay={autoPlay})");
 
@@ -1979,8 +2095,8 @@ namespace SLSKDONET.ViewModels
                 TrackTitle = title;
                 TrackArtist = artist;
 
-                if (autoPlay) _playerService.Play(filePath);
-                else _playerService.LoadWithoutPlaying(filePath);
+                if (autoPlay) _playerService.Play(filePath, loudnessLufs);
+                else _playerService.LoadWithoutPlaying(filePath, loudnessLufs);
                 IsPlaying = autoPlay;
 
                 // Hide loading state

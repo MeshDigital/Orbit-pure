@@ -29,6 +29,10 @@ public partial class BatchTagEditDialog : Window
                 Album = vm.Album,
                 Genre = vm.Genre,
                 Year = vm.Year,
+                Bpm = vm.Bpm,
+                Key = vm.Key,
+                Comments = vm.Comments,
+                Mood = vm.Mood,
                 NewFileName = vm.IsSingleTrack ? vm.NewFileName : null,
             };
             Close(result);

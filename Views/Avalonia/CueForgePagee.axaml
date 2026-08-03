@@ -87,27 +87,34 @@
 
         <!-- Row 0: Track Title Bar -->
         <Border Grid.Row="0" Background="#111118" BorderBrush="#1E1E2E" BorderThickness="0,0,0,1" Padding="16,6">
-            <Grid ColumnDefinitions="Auto,*,Auto">
-                <TextBlock Grid.Column="0" Text="🎯 CUE FORGE" Foreground="#444466" FontSize="10"
-                           FontWeight="Bold" LetterSpacing="2" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="1" Text="{Binding TrackTitle}" Foreground="#C0C0D8"
-                           FontSize="12" FontWeight="SemiBold" Margin="16,0"
-                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding Bpm, StringFormat='{}{0} BPM'}" Foreground="#5577AA" FontSize="11"/>
-                    <TextBlock Text="{Binding TrackDuration, StringFormat='{}{0:F0}s'}" Foreground="#445566" FontSize="11"/>
-                    <Border Background="#1A1A30" BorderBrush="#33335A" BorderThickness="1" CornerRadius="3"
-                            Padding="7,3" IsVisible="{Binding TrackEnergyScore, Converter={x:Static ObjectConverters.IsNotNull}}"
-                            ToolTip.Tip="MIK-compatible energy score (1–10)">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <TextBlock Text="E" Foreground="#555577" FontSize="9" FontWeight="Bold"
-                                       LetterSpacing="1" VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding TrackEnergyScore}" Foreground="#FFD700"
-                                       FontSize="13" FontWeight="Bold" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-            </Grid>
+            <StackPanel>
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <TextBlock Grid.Column="0" Text="🎯 CUE FORGE" Foreground="#444466" FontSize="10"
+                               FontWeight="Bold" LetterSpacing="2" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="{Binding TrackTitle}" Foreground="#C0C0D8"
+                               FontSize="12" FontWeight="SemiBold" Margin="16,0"
+                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Bpm, StringFormat='{}{0} BPM'}" Foreground="#5577AA" FontSize="11"/>
+                        <TextBlock Text="{Binding TrackDuration, StringFormat='{}{0:F0}s'}" Foreground="#445566" FontSize="11"/>
+                        <Border Background="#1A1A30" BorderBrush="#33335A" BorderThickness="1" CornerRadius="3"
+                                Padding="7,3" IsVisible="{Binding TrackEnergyScore, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                ToolTip.Tip="MIK-compatible energy score (1–10)">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="E" Foreground="#555577" FontSize="9" FontWeight="Bold"
+                                           LetterSpacing="1" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding TrackEnergyScore}" Foreground="#FFD700"
+                                           FontSize="13" FontWeight="Bold" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Track load error — cue/feature data failed to load partway through -->
+                <TextBlock Text="{Binding TrackLoadError}" Foreground="#E0BC86" FontSize="11"
+                           TextWrapping="Wrap" Margin="0,4,0,0"
+                           IsVisible="{Binding TrackLoadError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+            </StackPanel>
         </Border>
 
         <!-- Row 1: Command Bar -->

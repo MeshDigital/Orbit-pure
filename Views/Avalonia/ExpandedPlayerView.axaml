@@ -147,6 +147,7 @@
                         VuRight="{Binding VuRight}"
                         Energy="{Binding CurrentTrack.Energy, FallbackValue=0.5}"
                         Bpm="{Binding CurrentTrack.BPM, FallbackValue=120}"
+                        BeatPulse="{Binding BeatPulse}"
                         MoodTag="{Binding CurrentTrack.MoodTag}"
                         IsPlaying="{Binding IsPlaying}"
                         Preset="{Binding CurrentVisualizerPreset}"
@@ -300,10 +301,12 @@
                                Foreground="#AAFFFFFF"
                                VerticalAlignment="Center"
                                Margin="0,0,12,0" />
-                    <Slider Grid.Column="1"
+                    <Slider x:Name="SeekSlider"
+                            Grid.Column="1"
                             Minimum="0" Maximum="1"
-                            Value="{Binding Position}"
-                            VerticalAlignment="Center" />
+                            Value="{Binding Position, Mode=OneWay}"
+                            VerticalAlignment="Center"
+                            PointerReleased="OnSeekSliderPointerReleased" />
                     <TextBlock Grid.Column="2"
                                Text="{Binding TotalTimeStr}"
                                FontSize="12"

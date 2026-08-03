@@ -9,11 +9,14 @@ namespace SLSKDONET.Models;
 
 public record UserPresenceChangedEvent(string Username, UserPresenceState Presence, bool IsPrivileged);
 
-public record PrivateMessageReceivedEvent(string PeerUsername, string Message, DateTime TimestampUtc, bool IsOutgoing);
+public record PrivateMessageReceivedEvent(Guid Id, string PeerUsername, string Message, DateTime TimestampUtc, bool IsOutgoing);
 
-public record RoomMessageReceivedEvent(string RoomName, string Username, string Message, DateTime TimestampUtc, bool IsOutgoing);
+public record RoomMessageReceivedEvent(Guid Id, string RoomName, string Username, string Message, DateTime TimestampUtc, bool IsOutgoing);
 
 public record RoomMembershipChangedEvent(string RoomName, string Username, bool Joined);
 
 /// <summary>Published when the user clicks a chat/room notification — asks the Users page to open that thread.</summary>
 public record OpenConversationRequestedEvent(string? Username, string? RoomName);
+
+/// <summary>Published when a whole 1:1 conversation is cleared, so the Users page can drop it from the Conversations list without a full reload.</summary>
+public record ConversationClearedEvent(string PeerUsername);

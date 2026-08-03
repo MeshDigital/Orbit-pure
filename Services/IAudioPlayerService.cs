@@ -35,14 +35,15 @@ namespace SLSKDONET.Services
         /// <summary>Length of the crossfade overlap, in seconds.</summary>
         double CrossfadeSeconds { get; set; }
 
-        void Play(string uri);
+        /// <param name="trackLoudnessLufs">The track's already-analyzed integrated loudness (LUFS), if known — used for loudness-normalized playback when enabled in Settings. Null plays at unadjusted gain.</param>
+        void Play(string uri, double? trackLoudnessLufs = null);
         /// <summary>Opens and initializes the output device without starting playback.</summary>
-        void LoadWithoutPlaying(string uri);
+        void LoadWithoutPlaying(string uri, double? trackLoudnessLufs = null);
 
         /// <summary>Opens and initializes the output device for the next track ahead of time so
         /// the transition when the current track ends is a near-instant swap (gapless) or a
         /// timed overlap (crossfade) instead of a cold file-open that causes an audible gap.</summary>
-        void PreloadNext(string uri);
+        void PreloadNext(string uri, double? trackLoudnessLufs = null);
 
         /// <summary>Discards any preloaded next track.</summary>
         void CancelPreload();

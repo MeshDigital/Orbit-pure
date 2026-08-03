@@ -1278,7 +1278,7 @@ public class DatabaseService
         if (track == null) return;
 
         track.Status = TrackStatus.Missing;
-        track.ResolvedFilePath = null;
+        track.ResolvedFilePath = string.Empty;
         await context.SaveChangesAsync();
     }
 
@@ -2459,17 +2459,54 @@ public class DatabaseService
         }
     }
 
-    /// <summary>Full conversation with one peer, oldest first (ready to render top-to-bottom).</summary>
-    public async Task<List<Data.Entities.PrivateMessageEntity>> GetConversationAsync(string peerUsername, int limit = 500)
+    /// <summary>
+    /// A page of the conversation with one peer, oldest-first (ready to render top-to-bottom).
+    /// Pass <paramref name="beforeUtc"/> to fetch the page immediately preceding an already-loaded
+    /// message, for "load earlier messages" pagination.
+    /// </summary>
+    public async Task<List<Data.Entities.PrivateMessageEntity>> GetConversationAsync(string peerUsername, int limit = 500, DateTime? beforeUtc = null)
     {
         using var context = new AppDbContext();
-        return await context.PrivateMessages
-            .Where(x => x.PeerUsername == peerUsername)
+        var query = context.PrivateMessages.Where(x => x.PeerUsername == peerUsername);
+        if (beforeUtc.HasValue)
+            query = query.Where(x => x.TimestampUtc < beforeUtc.Value);
+
+        return await query
             .OrderByDescending(x => x.TimestampUtc)
             .Take(limit)
             .OrderBy(x => x.TimestampUtc)
             .ToListAsync()
             .ConfigureAwait(false);
+    }
+
+    /// <summary>Removes one message from local history — local-only, the Soulseek protocol has no message recall.</summary>
+    public async Task DeletePrivateMessageAsync(Guid id)
+    {
+        await _writeSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            await context.PrivateMessages.Where(x => x.Id == id).ExecuteDeleteAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>Wipes an entire 1:1 conversation's local history — e.g. for a spam/gate-bot peer you just want gone.</summary>
+    public async Task DeleteConversationAsync(string peerUsername)
+    {
+        await _writeSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            await context.PrivateMessages.Where(x => x.PeerUsername == peerUsername).ExecuteDeleteAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
     }
 
     /// <summary>Distinct peers with any message history, most recently active first — powers the conversation list panel.</summary>
@@ -2530,17 +2567,38 @@ public class DatabaseService
         }
     }
 
-    /// <summary>Message history for one room, oldest first (ready to render top-to-bottom).</summary>
-    public async Task<List<Data.Entities.RoomMessageEntity>> GetRoomHistoryAsync(string roomName, int limit = 500)
+    /// <summary>
+    /// A page of message history for one room, oldest-first (ready to render top-to-bottom).
+    /// Pass <paramref name="beforeUtc"/> for "load earlier messages" pagination.
+    /// </summary>
+    public async Task<List<Data.Entities.RoomMessageEntity>> GetRoomHistoryAsync(string roomName, int limit = 500, DateTime? beforeUtc = null)
     {
         using var context = new AppDbContext();
-        return await context.RoomMessages
-            .Where(x => x.RoomName == roomName)
+        var query = context.RoomMessages.Where(x => x.RoomName == roomName);
+        if (beforeUtc.HasValue)
+            query = query.Where(x => x.TimestampUtc < beforeUtc.Value);
+
+        return await query
             .OrderByDescending(x => x.TimestampUtc)
             .Take(limit)
             .OrderBy(x => x.TimestampUtc)
             .ToListAsync()
             .ConfigureAwait(false);
+    }
+
+    /// <summary>Removes one message from local room history — local-only, the Soulseek protocol has no message recall.</summary>
+    public async Task DeleteRoomMessageAsync(Guid id)
+    {
+        await _writeSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            await context.RoomMessages.Where(x => x.Id == id).ExecuteDeleteAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
     }
 }
 

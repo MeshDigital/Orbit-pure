@@ -2,6 +2,55 @@
 
 ---
 
+## [0.7.0-beta] — 2026-08-03
+
+### 🎯 Drop/Cue Auto-Generation — real signal routing fix
+
+Cue Forge's "Auto-Generate" placed the Drop cue at a generic, inaccurate position regardless of genre. Root cause: two unrelated classes were both named `CueGenerationService` — a weak one (`Services/CueGenerationService.cs`, plain RMS-derivative heuristic, no sub-bass/spectral-flux awareness) driving the automatic background pipeline, and a strong one (`Engine/Cueing/CueGenerationService.cs`, real 3-path priority: EDMFormer ML → sub-bass/spectral-flux DSP signals → heuristic fallback) that Cue Forge's manual button called. The automatic pipeline bridged its weak per-track sections into `AudioFeaturesEntity.PhraseSegmentsJson` — the same field meant only for genuine EDMFormer ML output — so the strong engine's ML-priority path almost always fired using that laundered weak data instead of ever reaching the real DSP signals, which were being computed and stored every analysis but never used.
+
+- Added `AudioFeaturesEntity.PhraseSegmentsSource` ("EDMFormer" vs "Heuristic") so cue generation's signal-priority gate can tell genuine ML phrase data from the rule-based bridge.
+- Promoted the features→analysis-result bridge into a shared `Engine/Analysis/AnalysisPipelineResultBuilder`, used by both the manual Auto-Generate button and the automatic background pipeline.
+- The automatic pipeline (`AnalyzeTrackStructureJob`) now generates cues through the strong `Engine.Cueing.CueGenerationService` instead of the weak one, which — along with its redundant call from `CuePointDetectionService` — has been deleted as dead code.
+- `GenerateCuesDsp` gained a broadband RMS energy-jump drop candidate (for continuous-bassline genres like techno/tech-house where sub-bass never truly drops out) and genre-aware signal weighting; Build/Breakdown cues are now derived as consistent bar-math offsets from the confirmed drop by default, only overridden when a real detected boundary lands close to that expected position.
+- `PhraseAlignmentService` gained dedicated `House` and `Techno` genre bar-templates (previously any "techno"-flavoured genre string collapsed into the `MelodicTechno` template, and "House" silently fell back to the generic `EDM` template).
+
+Already-analyzed tracks benefit immediately from re-running Auto-Generate (the sub-bass/novelty signals were already stored); new analyses pick up the fix automatically.
+
+#### ✅ Verification
+
+- `dotnet build` clean, `dotnet test` full suite green (aside from a pre-existing, timing-sensitive `BackgroundJobQueueTests` flake under parallel load, confirmed clean in isolation).
+- New/updated targeted coverage: `Tests/SLSKDONET.Tests/Engine/CueGenerationServiceTests.cs`, `Tests/SLSKDONET.Tests/ViewModels/CueForgeAnalysisResultBuilderTests.cs`.
+
+### 🔊 Playback: WASAPI/ASIO output selection + loudness normalization
+
+- `AppConfig`/`ConfigManager` gained persisted `AudioOutputMode`/`AudioOutputDeviceName` (WaveOut / WasapiShared / WasapiExclusive / Asio) and `LoudnessNormalizationEnabled`/`LoudnessNormalizationTargetLufs` (defaults to -14 LUFS, matching Spotify/YouTube's streaming target), wired through `Services/Audio/AudioOutputProvider.cs` and `AudioPlayerService`.
+
+### 💬 Users & Contacts — chat-first profile redesign
+
+- The profile pane now shows chat as the primary surface instead of a buried 4th tab; Overview/Browse Shares/Download History moved into an on-demand slide-out Info drawer.
+- `MessageThreadView` gained real virtualization, avatars with deterministic initials/colors, message grouping with date separators, auto-scroll with a "new messages" indicator, a "load earlier messages" pagination row, and Enter-to-send.
+- Fixed a presence-watch ref-count leak on rapid profile switching (`UserProfileViewModel`/`UserPresenceWatchService`).
+
+### 🗑️ Library: Remove Track dialog + unidentified-track guard
+
+- Right-click "Remove Track" now asks whether to remove from the current playlist only or delete from disk/library entirely, instead of a single ambiguous destructive action.
+- Fixed the removed track not disappearing from the visible list immediately (`TrackListViewModel` wasn't refreshing on `ProjectUpdatedEvent`).
+- Tracks titled "ID" (unidentified, DJ-tracklist convention) are now blocked from being added to any playlist at the shared `LibraryService.AddTracksToProjectAsync` chokepoint.
+
+### 🎨 Sidebar player visualizer restored
+
+- Root-caused and fixed a render-thread crash (`ICustomDrawOperation.Render` reading Avalonia `StyledProperty` getters off the UI thread throws with no trace anywhere) that had silently broken the sidebar visualizer; re-added it with a preset-cycle control.
+
+### 🔔 Notifications & downloads
+
+- Added real OS-level Windows Action Center toasts (`WindowsToastService`) for peer chat, independent of the in-app-only notification popup.
+- Added narrow, safety-gated auto-solving of Soulseek peer "reply with this word to unlock downloads" gate-bot challenges (`PeerVerificationChallengeService`), off any general-purpose auto-responder behavior — only fires for peers with a recent actual download attempt, at most once per peer per session.
+- Added an `[AutoDownload]` strict-mode config block (format/bitrate/match-score/duration-tolerance thresholds, excluded-phrase filtering) for stricter automatic download acceptance.
+
+#### ✅ Verification
+
+- Full solution build clean; full test suite green aside from the known `BackgroundJobQueueTests` flake noted above.
+
 ## [Unreleased] — 2026-05-26
 
 ### 🧩 Library Sidebar Unification (Slice 253-262 Reinforcement-Exception-Governance Artifact Family Completed)

@@ -39,6 +39,9 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     // Cached for this session so fuzzy dedup doesn't reload the full library per track.
     private List<LibraryEntry>? _cachedLibraryEntries;
 
+    // Normalized "artist title" key computed once per library entry, not once per (imported track x entry) pair.
+    private List<(LibraryEntry Entry, string NormalizedKey)>? _normalizedLibraryEntries;
+
     // Background Spotify enrichment — cancelled when a new preview loads.
     private CancellationTokenSource? _enrichmentCts;
 
@@ -197,8 +200,9 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
                 try
                 {
                     _cachedLibraryEntries ??= await _libraryService.LoadAllLibraryEntriesAsync();
+                    var normalizedEntries = await GetNormalizedLibraryEntriesAsync();
                     foreach (var track in tempTracks)
-                        ApplyLibraryDuplicateCheck(track, _cachedLibraryEntries);
+                        ApplyLibraryDuplicateCheck(track, _cachedLibraryEntries, normalizedEntries);
                 }
                 catch (Exception ex)
                 {
@@ -444,9 +448,13 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
                  try
                  {
                      _cachedLibraryEntries ??= await _libraryService.LoadAllLibraryEntriesAsync();
-                     ApplyLibraryDuplicateCheck(track, _cachedLibraryEntries);
+                     var normalizedEntries = await GetNormalizedLibraryEntriesAsync();
+                     ApplyLibraryDuplicateCheck(track, _cachedLibraryEntries, normalizedEntries);
                  }
-                 catch { /* Ignore DB errors during stream */ }
+                 catch (Exception ex)
+                 {
+                     _logger.LogWarning(ex, "Library duplicate-check failed for streamed track '{Title}' — skipping dedup for this track", track.Title);
+                 }
              }
 
              var selectable = new SelectableTrack(track);
@@ -828,7 +836,16 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
             _logger.LogInformation("[IMPORT TRACE] Step 1: Calling HandlePlaylistJobAddedAsync for job {JobId}", job.Id);
 
             // Queue the project to DownloadManager and navigate to Library
-            await HandlePlaylistJobAddedAsync(job);
+            var queued = await HandlePlaylistJobAddedAsync(job);
+            if (!queued)
+            {
+                // HandlePlaylistJobAddedAsync already set StatusMessage/logged the specific
+                // failure — don't fire AddedToLibrary or navigate away as if this succeeded,
+                // which previously left the user looking at an empty Library while the actual
+                // error sat unseen on the screen they'd just been navigated off of.
+                _logger.LogWarning("[IMPORT TRACE] QueueProject failed for job {JobId} — not firing AddedToLibrary", job.Id);
+                return;
+            }
 
             _logger.LogInformation("[IMPORT TRACE] Step 2: HandlePlaylistJobAddedAsync completed, firing AddedToLibrary event");
 
@@ -909,7 +926,8 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     /// Handles the logic when a playlist job is confirmed and added from the preview.
     /// This was moved from MainViewModel to make this component more self-contained.
     /// </summary>
-    public async Task HandlePlaylistJobAddedAsync(PlaylistJob job)
+    /// <returns>False if queueing failed — callers must not treat this as a successful import (no <c>AddedToLibrary</c> event, no navigation) when it returns false.</returns>
+    public async Task<bool> HandlePlaylistJobAddedAsync(PlaylistJob job)
     {
         try
         {
@@ -917,26 +935,28 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
                 job.SourceTitle, job.OriginalTracks.Count);
 
             _logger.LogInformation("[IMPORT TRACE] Calling DownloadManager.QueueProject for job {JobId}", job.Id);
-        
+
             // Queue project through DownloadManager to persist and add to Library.
             await _downloadManager.QueueProject(job);
-            
+
             _logger.LogInformation("QueueProject completed for {JobId}. Job saved to database.", job.Id);
 
             // Small delay to ensure ProjectAdded event handler completes
             // This allows LibraryViewModel.OnProjectAdded to finish adding to AllProjects
             await Task.Delay(200);
-            
+
             _logger.LogInformation("Navigating to Library page to show job {JobId}...", job.Id);
 
             // _navigationService.NavigateTo("Library"); // Handled by ImportOrchestrator via AddedToLibrary event
 
             _logger.LogInformation("Navigation to Library completed.");
+            return true;
         }
         catch (Exception ex)
         {
             StatusMessage = $"Error adding to library: {ex.Message}";
             _logger.LogError(ex, "Failed to handle PlaylistJob addition");
+            return false;
         }
     }
 
@@ -958,11 +978,28 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     private const double WarnDuplicateThreshold = 0.75;
 
     /// <summary>
+    /// Lazily builds (and caches) the normalized "artist title" key for every library entry once
+    /// per import session, instead of re-normalizing every entry for every imported track.
+    /// </summary>
+    private async Task<List<(LibraryEntry Entry, string NormalizedKey)>> GetNormalizedLibraryEntriesAsync()
+    {
+        if (_normalizedLibraryEntries != null)
+            return _normalizedLibraryEntries;
+
+        _cachedLibraryEntries ??= await _libraryService!.LoadAllLibraryEntriesAsync();
+        _normalizedLibraryEntries = _cachedLibraryEntries
+            .Where(e => !string.IsNullOrWhiteSpace(e.Artist) && !string.IsNullOrWhiteSpace(e.Title))
+            .Select(e => (e, StringDistanceUtils.Normalize($"{e.Artist} {e.Title}")))
+            .ToList();
+        return _normalizedLibraryEntries;
+    }
+
+    /// <summary>
     /// Checks a track against the cached library entries using exact hash first, then fuzzy
     /// matching as a fallback.  Sets <see cref="Track.IsInLibrary"/> and/or
     /// <see cref="Track.IsPossibleDuplicate"/> accordingly.
     /// </summary>
-    private static void ApplyLibraryDuplicateCheck(Track track, List<LibraryEntry> allEntries)
+    private static void ApplyLibraryDuplicateCheck(Track track, List<LibraryEntry> allEntries, List<(LibraryEntry Entry, string NormalizedKey)> normalizedEntries)
     {
         // Fast path: exact hash
         var exactEntry = allEntries.FirstOrDefault(e =>
@@ -981,11 +1018,8 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
         LibraryEntry? bestEntry = null;
         double bestScore = 0;
 
-        foreach (var entry in allEntries)
+        foreach (var (entry, candidateKey) in normalizedEntries)
         {
-            if (string.IsNullOrWhiteSpace(entry.Artist) || string.IsNullOrWhiteSpace(entry.Title))
-                continue;
-            var candidateKey = StringDistanceUtils.Normalize($"{entry.Artist} {entry.Title}");
             var score = StringDistanceUtils.GetNormalizedMatchScore(inputKey, candidateKey);
             if (score > bestScore)
             {

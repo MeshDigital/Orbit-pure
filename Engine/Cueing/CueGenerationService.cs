@@ -207,14 +207,24 @@ public sealed class CueGenerationService
         double bar  = 60.0 / bpm * 4;
         double beat = 60.0 / bpm;
 
+        // Genre-aware signal weighting: continuous-bassline genres (techno, tech house) rarely
+        // trigger a literal sub-bass dropout/return — the bass just keeps running — so a sub-bass
+        // return timestamp is a weaker, less-frequent signal there. Lean more on the broadband
+        // energy-jump candidate for those genres, more on sub-bass return where a real breakdown
+        // is the norm (DnB, house). Starting weights, meant to be tuned empirically against real
+        // tracks — not derived from any measured study.
+        bool continuousBassline = IsContinuousBasslineGenre(analysis.Genre);
+        float subBassWeight = continuousBassline ? 0.55f : 0.85f;
+        float energyJumpWeight = continuousBassline ? 0.80f : 0.45f;
+
         // ── 1. Collect and score drop candidates ──────────────────────────
-        // SubBassReturns are the strongest signal. Reinforce with flux novelty.
+        // SubBassReturns are normally the strongest signal. Reinforce with flux novelty.
         var dropCandidates = new List<(double Time, float Score)>();
 
         foreach (var t in analysis.SubBassReturnTimestamps)
         {
             float fluxBonus = SampleFluxAt(analysis.SpectralFluxNovelty, t, duration);
-            dropCandidates.Add((t, 0.7f + 0.3f * fluxBonus));
+            dropCandidates.Add((t, subBassWeight * (0.7f + 0.3f * fluxBonus)));
         }
 
         // Also consider novelty drop signatures not already covered
@@ -223,6 +233,17 @@ public sealed class CueGenerationService
             bool alreadyCovered = dropCandidates.Any(d => Math.Abs(d.Time - dropTs) < bar * 2);
             if (!alreadyCovered)
                 dropCandidates.Add((dropTs, strength * 0.8f));
+        }
+
+        // Broadband RMS energy-jump candidates — catches genres where sub-bass never truly cuts
+        // out (continuous-bassline techno/house), using the already-computed EnergyCurve. Every
+        // genre gets a legitimate drop candidate this way, not just ones with a literal sub-bass
+        // breakdown.
+        foreach (var t in FindEnergyJumpCandidates(analysis.EnergyCurve, duration))
+        {
+            bool alreadyCovered = dropCandidates.Any(d => Math.Abs(d.Time - t) < bar * 2);
+            if (!alreadyCovered)
+                dropCandidates.Add((t, energyJumpWeight * 0.75f));
         }
 
         // Sort by time, deduplicate within 2 bars
@@ -248,32 +269,36 @@ public sealed class CueGenerationService
             : SnapToBar(drop1Time + bar * 32, bpm, downbeatAnchor);
         drop2Time = Math.Min(drop2Time, duration - bar * 8);
 
-        // ── 3. Breakdowns — sub-bass dropout timestamps ───────────────────
-        var dropouts = analysis.SubBassDropoutTimestamps
-            .Select(t => SnapToBar(t, bpm, downbeatAnchor))
-            .OrderBy(t => t)
-            .ToList();
-
-        double brk1Time = dropouts.Where(t => t < drop1Time - bar).OrderByDescending(t => t)
-                               .FirstOrDefault();
-        if (brk1Time <= 0)
-            brk1Time = SnapToBar(drop1Time - bar * 8, bpm, downbeatAnchor);
+        // ── 3. Breakdowns — bar-math from the confirmed drop by default; a real sub-bass
+        // dropout timestamp only overrides that default when it lands close to the expected
+        // position (within 4 bars), so an unrelated dropout elsewhere in the track can't hijack
+        // the placement. This is the drop-anchored architecture: the drop is the one
+        // high-confidence signal, everything else is 4/4 bar-math from it unless a real boundary
+        // confirms a nearby adjustment.
+        double brk1Default = SnapToBar(drop1Time - bar * 8, bpm, downbeatAnchor);
+        double brk1Time = NearestWithinTolerance(analysis.SubBassDropoutTimestamps, brk1Default, bar * 4, bpm, downbeatAnchor)
+                           ?? brk1Default;
         brk1Time = Math.Max(brk1Time, downbeatAnchor + bar * 2);
 
-        double brk2Time = dropouts.Where(t => t > drop1Time && t < drop2Time - bar)
-                               .OrderBy(t => t).FirstOrDefault();
-        if (brk2Time <= 0)
-            brk2Time = SnapToBar(drop1Time + bar * 16, bpm, downbeatAnchor);
+        double brk2Default = SnapToBar(drop1Time + bar * 16, bpm, downbeatAnchor);
+        double brk2Time = NearestWithinTolerance(analysis.SubBassDropoutTimestamps, brk2Default, bar * 4, bpm, downbeatAnchor)
+                           ?? brk2Default;
+        if (brk2Time <= drop1Time) brk2Time = brk2Default;
         brk2Time = Math.Min(brk2Time, drop2Time - bar);
 
-        // ── 4. Builds — from NoveltyDropSignatures or 16 bars before drop ─
-        double build1Time;
+        // ── 4. Build — bar-math from the confirmed drop by default; a real novelty-signature
+        // build-start only overrides that default when it lands close to the expected position.
+        double build1Default = SnapToBar(drop1Time - bar * 16, bpm, downbeatAnchor);
+        double build1Time = build1Default;
         var sig1 = analysis.NoveltyDropSignatures
-            .Where(s => Math.Abs(s.DropSeconds - drop1Time) < bar * 4)
+            .Where(s => Math.Abs(s.DropSeconds - drop1Time) < bar * 4 && s.BuildStartSeconds > 0)
             .OrderByDescending(s => s.Strength).FirstOrDefault();
-        build1Time = sig1.BuildStartSeconds > 0
-            ? SnapToBar(sig1.BuildStartSeconds, bpm, downbeatAnchor)
-            : SnapToBar(drop1Time - bar * 16, bpm, downbeatAnchor);
+        if (sig1.BuildStartSeconds > 0)
+        {
+            double snapped = SnapToBar(sig1.BuildStartSeconds, bpm, downbeatAnchor);
+            if (Math.Abs(snapped - build1Default) < bar * 4)
+                build1Time = snapped;
+        }
         build1Time = Math.Clamp(build1Time, downbeatAnchor + bar, brk1Time - bar);
 
         // ── 5. Intro — first downbeat, adjusted for long DJ intros ────────
@@ -325,6 +350,79 @@ public sealed class CueGenerationService
 
         cues.Sort((a, b) => a.TimestampInSeconds.CompareTo(b.TimestampInSeconds));
         return cues;
+    }
+
+    private static bool IsContinuousBasslineGenre(string? genre)
+    {
+        if (string.IsNullOrWhiteSpace(genre)) return false;
+        var g = genre.ToLowerInvariant();
+        return g.Contains("techno") || g.Contains("tech house") || g.Contains("techhouse");
+    }
+
+    /// <summary>
+    /// Finds points in a broadband RMS energy curve (1s windows) where energy rises sharply
+    /// and holds — not just a single spike — versus the level that preceded it. This is a
+    /// candidate generator, not an authoritative drop decision: it feeds the same scored
+    /// <c>dropCandidates</c> list as the sub-bass/novelty signals in <see cref="GenerateCuesDsp"/>.
+    /// </summary>
+    private static List<double> FindEnergyJumpCandidates(float[] energyCurve, double duration)
+    {
+        var candidates = new List<double>();
+        if (energyCurve.Length < 8 || duration <= 0) return candidates;
+
+        double secPerSample = duration / energyCurve.Length;
+        int precedingWindow = Math.Max(2, (int)Math.Round(4.0 / secPerSample));
+        int sustainWindow = Math.Max(1, (int)Math.Round(2.0 / secPerSample));
+
+        for (int i = precedingWindow; i < energyCurve.Length - sustainWindow; i++)
+        {
+            float precedingAvg = AverageRange(energyCurve, i - precedingWindow, i);
+            if (precedingAvg <= 0f) continue;
+
+            float sustainedAvg = AverageRange(energyCurve, i, i + sustainWindow);
+            if (sustainedAvg > precedingAvg * 1.6f)
+            {
+                candidates.Add(i * secPerSample);
+                i += sustainWindow; // skip past this rise before looking for the next one
+            }
+        }
+
+        return candidates;
+    }
+
+    private static float AverageRange(float[] data, int start, int endExclusive)
+    {
+        start = Math.Max(0, start);
+        endExclusive = Math.Min(data.Length, endExclusive);
+        if (endExclusive <= start) return 0f;
+        float sum = 0f;
+        for (int i = start; i < endExclusive; i++) sum += data[i];
+        return sum / (endExclusive - start);
+    }
+
+    /// <summary>
+    /// Finds the candidate (from a raw, unsnapped timestamp list) closest to <paramref name="expected"/>
+    /// after bar-snapping, or null if none land within <paramref name="tolerance"/>. Used to let a real
+    /// detected boundary override a drop-anchored bar-math default only when it's plausibly the same
+    /// structural moment, not an unrelated event elsewhere in the track.
+    /// </summary>
+    private static double? NearestWithinTolerance(
+        IReadOnlyList<double> candidates, double expected, double tolerance, double bpm, double anchor)
+    {
+        if (candidates.Count == 0) return null;
+        double best = double.NaN;
+        double bestDist = double.MaxValue;
+        foreach (var t in candidates)
+        {
+            double snapped = SnapToBar(t, bpm, anchor);
+            double dist = Math.Abs(snapped - expected);
+            if (dist < tolerance && dist < bestDist)
+            {
+                best = snapped;
+                bestDist = dist;
+            }
+        }
+        return double.IsNaN(best) ? null : best;
     }
 
     private static float SampleFluxAt(float[] fluxCurve, double timeSec, double duration)

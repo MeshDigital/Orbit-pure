@@ -150,112 +150,148 @@
                 </ScrollViewer>
             </DockPanel>
 
-            <!-- Profile detail -->
-            <Border Grid.Column="1" Background="{DynamicResource BrushBg0}" BorderBrush="{DynamicResource BrushBorder1}" BorderThickness="1" CornerRadius="10" Padding="16">
+            <!-- Profile detail — chat is the primary surface; Overview/Browse Shares/Download History live in a secondary slide-out drawer -->
+            <Border Grid.Column="1" Background="{DynamicResource BrushBg0}" BorderBrush="{DynamicResource BrushBorder1}" BorderThickness="1" CornerRadius="10">
                 <Grid>
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" IsVisible="{Binding SelectedProfile, Converter={x:Static ObjectConverters.IsNull}}">
                         <TextBlock Text="👤" FontSize="32" HorizontalAlignment="Center" Opacity="0.4"/>
-                        <TextBlock Text="Select a user to view their profile" FontSize="13" Foreground="{DynamicResource BrushText2}"/>
+                        <TextBlock Text="Select a user to start chatting" FontSize="13" Foreground="{DynamicResource BrushText2}"/>
                     </StackPanel>
 
-                    <Grid RowDefinitions="Auto,*" IsVisible="{Binding SelectedProfile, Converter={x:Static ObjectConverters.IsNotNull}}">
-                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
-                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
-                                <TextBlock Text="{Binding SelectedProfile.Username}" FontSize="18" FontWeight="Bold"/>
-                                <Border CornerRadius="10" Padding="8,2" Background="{DynamicResource BrushBg2}">
-                                    <TextBlock Text="{Binding SelectedProfile.Presence}" FontSize="11" Foreground="{DynamicResource BrushAccent}"/>
-                                </Border>
-                            </StackPanel>
-                            <Button Grid.Column="1" Classes="secondary" Content="✕ Close" Command="{Binding CloseProfileCommand}"/>
-                        </Grid>
+                    <SplitView IsVisible="{Binding SelectedProfile, Converter={x:Static ObjectConverters.IsNotNull}}"
+                               IsPaneOpen="{Binding SelectedProfile.IsInfoPanelOpen}"
+                               DisplayMode="Overlay"
+                               PanePlacement="Right"
+                               OpenPaneLength="320">
+                        <SplitView.Pane>
+                            <Border Background="{DynamicResource BrushBg1}" BorderBrush="{DynamicResource BrushBorder1}" BorderThickness="1,0,0,0">
+                                <Grid RowDefinitions="Auto,*">
+                                    <Border Grid.Row="0" Background="{DynamicResource BrushBg0}" BorderBrush="{DynamicResource BrushBorder1}" BorderThickness="0,0,0,1" Padding="14,10">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Text="PROFILE INFO" FontSize="10" FontWeight="Bold" Foreground="{DynamicResource BrushText2}" LetterSpacing="1" VerticalAlignment="Center"/>
+                                            <Button Grid.Column="1" Classes="secondary" Content="✕" Padding="6,2" Command="{Binding SelectedProfile.ToggleInfoPanelCommand}"/>
+                                        </Grid>
+                                    </Border>
 
-                        <TabControl Grid.Row="1">
-                            <TabItem Header="Overview">
-                                <StackPanel Spacing="8" Margin="0,10,0,0">
-                                    <Image Source="{Binding SelectedProfile.Info.Picture, Converter={StaticResource BitmapValueConverter}}"
-                                           IsVisible="{Binding SelectedProfile.Info.HasPicture}"
-                                           Width="96" Height="96" HorizontalAlignment="Left" Stretch="UniformToFill"/>
-                                    <TextBlock Text="{Binding SelectedProfile.Info.Description}" TextWrapping="Wrap" Foreground="{DynamicResource BrushText1}"/>
-                                    <TextBlock Foreground="{DynamicResource BrushText1}">
-                                        <Run Text="Upload slots: "/><Run Text="{Binding SelectedProfile.Info.UploadSlots}"/>
-                                        <Run Text=" · Queue length: "/><Run Text="{Binding SelectedProfile.Info.QueueLength}"/>
-                                    </TextBlock>
-                                    <TextBlock Foreground="{DynamicResource BrushText1}" IsVisible="{Binding SelectedProfile.WatchSnapshot, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                        <Run Text="Speed: "/><Run Text="{Binding SelectedProfile.WatchSnapshot.AverageSpeed, StringFormat='{}{0:N0} B/s'}"/>
-                                        <Run Text=" · Shares: "/><Run Text="{Binding SelectedProfile.WatchSnapshot.FileCount}"/><Run Text=" files in "/><Run Text="{Binding SelectedProfile.WatchSnapshot.DirectoryCount}"/><Run Text=" folders"/>
-                                        <Run Text=" · Country: "/><Run Text="{Binding SelectedProfile.WatchSnapshot.CountryCode}"/>
-                                    </TextBlock>
-                                    <TextBlock Foreground="{DynamicResource BrushText1}" IsVisible="{Binding SelectedProfile.ReliabilitySnapshot, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                        <Run Text="Search candidates: "/><Run Text="{Binding SelectedProfile.ReliabilitySnapshot.Value.SearchCandidates}"/>
-                                        <Run Text=" · Completions: "/><Run Text="{Binding SelectedProfile.ReliabilitySnapshot.Value.DownloadCompletions}"/>
-                                        <Run Text=" · Failures: "/><Run Text="{Binding SelectedProfile.ReliabilitySnapshot.Value.DownloadFailures}"/>
-                                    </TextBlock>
-                                </StackPanel>
-                            </TabItem>
+                                    <TabControl Grid.Row="1" Margin="10">
+                                        <TabItem Header="Overview">
+                                            <StackPanel Spacing="8" Margin="0,10,0,0">
+                                                <Image Source="{Binding SelectedProfile.Info.Picture, Converter={StaticResource BitmapValueConverter}}"
+                                                       IsVisible="{Binding SelectedProfile.Info.HasPicture}"
+                                                       Width="96" Height="96" HorizontalAlignment="Left" Stretch="UniformToFill"/>
+                                                <TextBlock Text="{Binding SelectedProfile.Info.Description}" TextWrapping="Wrap" Foreground="{DynamicResource BrushText1}"/>
+                                                <TextBlock Foreground="{DynamicResource BrushText1}">
+                                                    <Run Text="Upload slots: "/><Run Text="{Binding SelectedProfile.Info.UploadSlots}"/>
+                                                    <Run Text=" · Queue length: "/><Run Text="{Binding SelectedProfile.Info.QueueLength}"/>
+                                                </TextBlock>
+                                                <TextBlock Foreground="{DynamicResource BrushText1}" IsVisible="{Binding SelectedProfile.WatchSnapshot, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                                    <Run Text="Speed: "/><Run Text="{Binding SelectedProfile.WatchSnapshot.AverageSpeed, StringFormat='{}{0:N0} B/s'}"/>
+                                                    <Run Text=" · Shares: "/><Run Text="{Binding SelectedProfile.WatchSnapshot.FileCount}"/><Run Text=" files in "/><Run Text="{Binding SelectedProfile.WatchSnapshot.DirectoryCount}"/><Run Text=" folders"/>
+                                                    <Run Text=" · Country: "/><Run Text="{Binding SelectedProfile.WatchSnapshot.CountryCode}"/>
+                                                </TextBlock>
+                                                <TextBlock Foreground="{DynamicResource BrushText1}" IsVisible="{Binding SelectedProfile.ReliabilitySnapshot, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                                    <Run Text="Search candidates: "/><Run Text="{Binding SelectedProfile.ReliabilitySnapshot.Value.SearchCandidates}"/>
+                                                    <Run Text=" · Completions: "/><Run Text="{Binding SelectedProfile.ReliabilitySnapshot.Value.DownloadCompletions}"/>
+                                                    <Run Text=" · Failures: "/><Run Text="{Binding SelectedProfile.ReliabilitySnapshot.Value.DownloadFailures}"/>
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </TabItem>
 
-                            <TabItem Header="Browse Shares">
-                                <Grid RowDefinitions="Auto,*" Margin="0,10,0,0">
-                                    <TextBlock Grid.Row="0" Text="{Binding SelectedProfile.Browser.StatusText}" Foreground="{DynamicResource BrushText2}" Margin="0,0,0,6"/>
-                                    <TreeView Grid.Row="1" ItemsSource="{Binding SelectedProfile.Browser.RootNodes}"
-                                              SelectedItem="{Binding SelectedProfile.Browser.SelectedNode, Mode=TwoWay}"
-                                              Background="Transparent">
-                                        <TreeView.ItemTemplate>
-                                            <TreeDataTemplate ItemsSource="{ReflectionBinding Children}">
-                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                    <TextBlock Text="{ReflectionBinding Icon}"/>
-                                                    <TextBlock Text="{ReflectionBinding DisplayName}" Foreground="White"/>
+                                        <TabItem Header="Browse Shares">
+                                            <Grid RowDefinitions="Auto,*" Margin="0,10,0,0">
+                                                <TextBlock Grid.Row="0" Text="{Binding SelectedProfile.Browser.StatusText}" Foreground="{DynamicResource BrushText2}" Margin="0,0,0,6"/>
+                                                <TreeView Grid.Row="1" ItemsSource="{Binding SelectedProfile.Browser.RootNodes}"
+                                                          SelectedItem="{Binding SelectedProfile.Browser.SelectedNode, Mode=TwoWay}"
+                                                          Background="Transparent">
+                                                    <TreeView.ItemTemplate>
+                                                        <TreeDataTemplate ItemsSource="{ReflectionBinding Children}">
+                                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                <TextBlock Text="{ReflectionBinding Icon}"/>
+                                                                <TextBlock Text="{ReflectionBinding DisplayName}" Foreground="White"/>
+                                                            </StackPanel>
+                                                        </TreeDataTemplate>
+                                                    </TreeView.ItemTemplate>
+                                                </TreeView>
+                                                <StackPanel Grid.Row="1" VerticalAlignment="Bottom" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                                                    <Button Classes="primary" Content="⬇ Queue Selected" Command="{Binding SelectedProfile.Browser.QueueSelectedCommand}"/>
+                                                    <Button Classes="secondary" Content="📦 Queue All" Command="{Binding SelectedProfile.Browser.QueueAllCommand}"/>
                                                 </StackPanel>
-                                            </TreeDataTemplate>
-                                        </TreeView.ItemTemplate>
-                                    </TreeView>
-                                    <StackPanel Grid.Row="1" VerticalAlignment="Bottom" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
-                                        <Button Classes="primary" Content="⬇ Queue Selected" Command="{Binding SelectedProfile.Browser.QueueSelectedCommand}"/>
-                                        <Button Classes="secondary" Content="📦 Queue All" Command="{Binding SelectedProfile.Browser.QueueAllCommand}"/>
-                                    </StackPanel>
-                                </Grid>
-                            </TabItem>
+                                            </Grid>
+                                        </TabItem>
 
-                            <TabItem Header="Download History">
-                                <ScrollViewer Margin="0,10,0,0">
-                                    <ItemsControl ItemsSource="{Binding SelectedProfile.DownloadHistory}">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <Border Classes="row">
-                                                    <Grid ColumnDefinitions="*,Auto">
-                                                        <StackPanel Grid.Column="0">
-                                                            <TextBlock FontWeight="SemiBold">
-                                                                <Run Text="{Binding Artist}"/><Run Text=" — "/><Run Text="{Binding Title}"/>
-                                                            </TextBlock>
-                                                            <TextBlock FontSize="11" Foreground="{DynamicResource BrushText2}">
-                                                                <Run Text="{Binding DownloadedFormat}"/><Run Text=" · "/><Run Text="{Binding FinalState}"/>
-                                                            </TextBlock>
-                                                        </StackPanel>
-                                                        <TextBlock Grid.Column="1" Text="{Binding RecordedAt, StringFormat='{}{0:yyyy-MM-dd}'}" Foreground="{DynamicResource BrushText2}" FontSize="11"/>
-                                                    </Grid>
-                                                </Border>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </ScrollViewer>
-                            </TabItem>
-
-                            <TabItem Header="Chat">
-                                <Grid RowDefinitions="*,Auto,Auto" Margin="0,10,0,0">
-                                    <controls:MessageThreadView Grid.Row="0" Messages="{Binding SelectedProfile.Messages}"/>
-                                    <TextBlock Grid.Row="1" Text="{Binding SelectedProfile.ImageSendError}" FontSize="10" Foreground="{DynamicResource BrushError}"
-                                               TextWrapping="Wrap" IsVisible="{Binding SelectedProfile.ImageSendError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                                    <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0">
-                                        <Button Grid.Column="0" Classes="secondary" Content="🖼️" Margin="0,0,6,0" ToolTip.Tip="Send an image"
-                                                Command="{Binding SelectedProfile.SendImageCommand}"/>
-                                        <TextBox Grid.Column="1" Text="{Binding SelectedProfile.MessageInput, Mode=TwoWay}" Watermark="Type a message…"
-                                                 Background="{DynamicResource BrushBg2}" BorderThickness="1" BorderBrush="{DynamicResource BrushBorder2}"
-                                                 CornerRadius="6" Padding="10,6" Foreground="White" CaretBrush="White"/>
-                                        <Button Grid.Column="2" Classes="primary" Content="Send" Margin="8,0,0,0" Command="{Binding SelectedProfile.SendMessageCommand}"/>
-                                    </Grid>
+                                        <TabItem Header="Download History">
+                                            <ScrollViewer Margin="0,10,0,0">
+                                                <ItemsControl ItemsSource="{Binding SelectedProfile.DownloadHistory}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border Classes="row">
+                                                                <Grid ColumnDefinitions="*,Auto">
+                                                                    <StackPanel Grid.Column="0">
+                                                                        <TextBlock FontWeight="SemiBold">
+                                                                            <Run Text="{Binding Artist}"/><Run Text=" — "/><Run Text="{Binding Title}"/>
+                                                                        </TextBlock>
+                                                                        <TextBlock FontSize="11" Foreground="{DynamicResource BrushText2}">
+                                                                            <Run Text="{Binding DownloadedFormat}"/><Run Text=" · "/><Run Text="{Binding FinalState}"/>
+                                                                        </TextBlock>
+                                                                    </StackPanel>
+                                                                    <TextBlock Grid.Column="1" Text="{Binding RecordedAt, StringFormat='{}{0:yyyy-MM-dd}'}" Foreground="{DynamicResource BrushText2}" FontSize="11"/>
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </ScrollViewer>
+                                        </TabItem>
+                                    </TabControl>
                                 </Grid>
-                            </TabItem>
-                        </TabControl>
-                    </Grid>
+                            </Border>
+                        </SplitView.Pane>
+
+                        <!-- Chat — the primary surface for a selected user -->
+                        <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="16">
+                            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,0,0,10">
+                                <Border Grid.Column="0" Width="36" Height="36" CornerRadius="18" VerticalAlignment="Center"
+                                        Background="{Binding SelectedProfile.Username, Converter={StaticResource UsernameToColorConverter}}">
+                                    <TextBlock Text="{Binding SelectedProfile.Username, Converter={StaticResource UsernameToInitialsConverter}}"
+                                               FontSize="13" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" Margin="10,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding SelectedProfile.Username}" FontSize="16" FontWeight="Bold"/>
+                                    <Border CornerRadius="10" Padding="8,2" Background="{DynamicResource BrushBg2}">
+                                        <TextBlock Text="{Binding SelectedProfile.Presence}" FontSize="11" Foreground="{DynamicResource BrushAccent}"/>
+                                    </Border>
+                                </StackPanel>
+                                <Button Grid.Column="2" Classes="secondary" Content="🗑 Clear" Margin="0,0,8,0" ToolTip.Tip="Delete this conversation's local history — e.g. for spam or gate-bot peers"
+                                        Command="{Binding SelectedProfile.ClearConversationCommand}"/>
+                                <Button Grid.Column="3" Classes="secondary" Content="ℹ️ Info" Margin="0,0,8,0" Command="{Binding SelectedProfile.ToggleInfoPanelCommand}"/>
+                                <Button Grid.Column="4" Classes="secondary" Content="✕ Close" Command="{Binding CloseProfileCommand}"/>
+                            </Grid>
+
+                            <controls:MessageThreadView Grid.Row="1"
+                                                         Messages="{Binding SelectedProfile.Messages}"
+                                                         LoadOlderMessagesCommand="{Binding SelectedProfile.LoadOlderMessagesCommand}"
+                                                         IsLoadingOlderMessages="{Binding SelectedProfile.IsLoadingOlderMessages}"
+                                                         HasMoreHistory="{Binding SelectedProfile.HasMoreHistory}"
+                                                         DeleteMessageCommand="{Binding SelectedProfile.DeleteMessageCommand}"/>
+
+                            <TextBlock Grid.Row="2" Text="{Binding SelectedProfile.ImageSendError}" FontSize="10" Foreground="{DynamicResource BrushError}"
+                                       TextWrapping="Wrap" IsVisible="{Binding SelectedProfile.ImageSendError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                            <TextBlock Grid.Row="2" Text="{Binding SelectedProfile.MessageSendError}" FontSize="10" Foreground="{DynamicResource BrushError}"
+                                       TextWrapping="Wrap" IsVisible="{Binding SelectedProfile.MessageSendError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                            <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0">
+                                <Button Grid.Column="0" Classes="secondary" Content="🖼️" Margin="0,0,6,0" ToolTip.Tip="Send an image"
+                                        Command="{Binding SelectedProfile.SendImageCommand}"/>
+                                <TextBox Grid.Column="1" Text="{Binding SelectedProfile.MessageInput, Mode=TwoWay}"
+                                         Watermark="Type a message… (Enter to send, Shift+Enter for a new line)"
+                                         AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"
+                                         Tag="{Binding SelectedProfile.SendMessageCommand}" KeyDown="OnMessageInputKeyDown"
+                                         Background="{DynamicResource BrushBg2}" BorderThickness="1" BorderBrush="{DynamicResource BrushBorder2}"
+                                         CornerRadius="6" Padding="10,6" Foreground="White" CaretBrush="White"/>
+                                <Button Grid.Column="2" Classes="primary" Content="Send" Margin="8,0,0,0" Command="{Binding SelectedProfile.SendMessageCommand}"/>
+                            </Grid>
+                        </Grid>
+                    </SplitView>
                 </Grid>
             </Border>
         </Grid>
@@ -352,14 +388,24 @@
                             </TextBlock>
                         </Grid>
 
-                        <controls:MessageThreadView Grid.Row="1" Messages="{Binding Rooms.SelectedRoom.Messages}"/>
+                        <controls:MessageThreadView Grid.Row="1"
+                                                     Messages="{Binding Rooms.SelectedRoom.Messages}"
+                                                     LoadOlderMessagesCommand="{Binding Rooms.SelectedRoom.LoadOlderMessagesCommand}"
+                                                     IsLoadingOlderMessages="{Binding Rooms.SelectedRoom.IsLoadingOlderMessages}"
+                                                     HasMoreHistory="{Binding Rooms.SelectedRoom.HasMoreHistory}"
+                                                     DeleteMessageCommand="{Binding Rooms.SelectedRoom.DeleteMessageCommand}"/>
 
                         <TextBlock Grid.Row="2" Text="{Binding Rooms.SelectedRoom.ImageSendError}" FontSize="10" Foreground="{DynamicResource BrushError}"
                                    TextWrapping="Wrap" IsVisible="{Binding Rooms.SelectedRoom.ImageSendError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        <TextBlock Grid.Row="2" Text="{Binding Rooms.SelectedRoom.MessageSendError}" FontSize="10" Foreground="{DynamicResource BrushError}"
+                                   TextWrapping="Wrap" IsVisible="{Binding Rooms.SelectedRoom.MessageSendError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                         <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0">
                             <Button Grid.Column="0" Classes="secondary" Content="🖼️" Margin="0,0,6,0" ToolTip.Tip="Send an image to the room"
                                     Command="{Binding Rooms.SelectedRoom.SendImageCommand}"/>
-                            <TextBox Grid.Column="1" Text="{Binding Rooms.SelectedRoom.MessageInput, Mode=TwoWay}" Watermark="Message the room…"
+                            <TextBox Grid.Column="1" Text="{Binding Rooms.SelectedRoom.MessageInput, Mode=TwoWay}"
+                                     Watermark="Message the room… (Enter to send, Shift+Enter for a new line)"
+                                     AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"
+                                     Tag="{Binding Rooms.SelectedRoom.SendMessageCommand}" KeyDown="OnMessageInputKeyDown"
                                      Background="{DynamicResource BrushBg2}" BorderThickness="1" BorderBrush="{DynamicResource BrushBorder2}"
                                      CornerRadius="6" Padding="10,6" Foreground="White" CaretBrush="White"/>
                             <Button Grid.Column="2" Classes="primary" Content="Send" Margin="8,0,0,0" Command="{Binding Rooms.SelectedRoom.SendMessageCommand}"/>

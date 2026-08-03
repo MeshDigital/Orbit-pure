@@ -2687,6 +2687,25 @@ public class SchemaMigratorService
                 _logger.LogInformation("✅ RoomMessages table created.");
             }
 
+            // 21. GetRecentConversationsAsync sorts the whole table by TimestampUtc (not filtered by
+            // peer), which the (PeerUsername, TimestampUtc) composite index above can't serve as a
+            // covering index for — add one keyed on TimestampUtc alone.
+            if (TableExists("PrivateMessages"))
+            {
+                command.CommandText = @"CREATE INDEX IF NOT EXISTS ""IX_PrivateMessages_TimestampUtc"" ON ""PrivateMessages"" (""TimestampUtc"" DESC);";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 22. Distinguishes genuine EDMFormer ML phrase segments from the rule-based
+            // StructuralAnalysisEngine heuristic bridge — both previously shared PhraseSegmentsJson
+            // indistinguishably, letting the heuristic silently outrank the DSP drop-scoring path.
+            if (!ColumnExists("audio_features", "PhraseSegmentsSource"))
+            {
+                _logger.LogInformation("Patching Schema: Adding PhraseSegmentsSource to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""PhraseSegmentsSource"" TEXT NOT NULL DEFAULT '';";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

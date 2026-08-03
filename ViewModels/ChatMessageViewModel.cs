@@ -25,10 +25,45 @@ public sealed class ChatMessageViewModel : ReactiveObject
     private readonly string _remoteUsername;
     private readonly string _imageVirtualPath = string.Empty;
 
+    /// <summary>Underlying PrivateMessageEntity/RoomMessageEntity primary key — needed to delete this specific row.</summary>
+    public Guid Id { get; }
     public string SenderUsername { get; }
     public string Message { get; }
     public DateTime TimestampUtc { get; }
     public bool IsOutgoing { get; }
+
+    private bool _showSenderHeader = true;
+    /// <summary>
+    /// Whether this message starts a new visual group (shows avatar/sender name/full timestamp).
+    /// Set by <see cref="ChatGroupingHelper"/> after messages are loaded/appended, not per-message
+    /// at construction time, since grouping depends on the neighboring messages in the thread.
+    /// </summary>
+    public bool ShowSenderHeader
+    {
+        get => _showSenderHeader;
+        internal set
+        {
+            this.RaiseAndSetIfChanged(ref _showSenderHeader, value);
+            this.RaisePropertyChanged(nameof(ShowIncomingHeader));
+        }
+    }
+
+    /// <summary>Convenience for the view: avatar/sender-name only render for the first message of an incoming group, never for your own outgoing bubbles.</summary>
+    public bool ShowIncomingHeader => ShowSenderHeader && !IsOutgoing;
+
+    private bool _showDateSeparator;
+    public bool ShowDateSeparator
+    {
+        get => _showDateSeparator;
+        internal set => this.RaiseAndSetIfChanged(ref _showDateSeparator, value);
+    }
+
+    private string _dateSeparatorText = string.Empty;
+    public string DateSeparatorText
+    {
+        get => _dateSeparatorText;
+        internal set => this.RaiseAndSetIfChanged(ref _dateSeparatorText, value);
+    }
 
     public bool IsImageOffer { get; }
     public string ImageFileName { get; } = string.Empty;
@@ -67,8 +102,9 @@ public sealed class ChatMessageViewModel : ReactiveObject
     /// (we already hold the file we sent), but always required since a message can't know in
     /// advance whether it carries an image offer.
     /// </param>
-    public ChatMessageViewModel(string senderUsername, string message, DateTime timestampUtc, bool isOutgoing, ChatAttachmentService? attachments = null, string? remoteUsername = null)
+    public ChatMessageViewModel(Guid id, string senderUsername, string message, DateTime timestampUtc, bool isOutgoing, ChatAttachmentService? attachments = null, string? remoteUsername = null)
     {
+        Id = id;
         SenderUsername = senderUsername;
         Message = message;
         TimestampUtc = timestampUtc;

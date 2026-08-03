@@ -28,10 +28,21 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
     private readonly ChatService _chatService;
     private readonly ChatAttachmentService _chatAttachments;
     private readonly IFileInteractionService _fileInteraction;
+    private readonly IDialogService _dialogService;
     private readonly IEventBus _eventBus;
     private readonly ILogger<UserProfileViewModel> _logger;
     private readonly CompositeDisposable _disposables = new();
     private IDisposable? _presenceWatchHandle;
+    private bool _disposed;
+    private bool _browserLoadStarted;
+
+    private const int MessagePageSize = 50;
+
+    // Bounds how large Messages can grow from live incoming/outgoing traffic during a single
+    // long-lived session (a profile left open for days can otherwise accumulate thousands of
+    // rows, degrading ChatGroupingHelper's O(n) full-rescan on every new message). Explicit
+    // "Load earlier" pagination is exempt — that growth is user-initiated and bounded by clicks.
+    private const int MaxLiveMessages = 500;
 
     public UserCollectionViewModel Browser { get; }
     public ObservableCollection<DownloadHistoryEntity> DownloadHistory { get; } = new();
@@ -90,14 +101,47 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
         private set => this.RaiseAndSetIfChanged(ref _isLoading, value);
     }
 
+    private bool _isInfoPanelOpen;
+    /// <summary>Whether the secondary Overview/Browse Shares/Download History drawer is open — chat is the primary surface, this is opt-in.</summary>
+    public bool IsInfoPanelOpen
+    {
+        get => _isInfoPanelOpen;
+        set => this.RaiseAndSetIfChanged(ref _isInfoPanelOpen, value);
+    }
+
+    private bool _isLoadingOlderMessages;
+    public bool IsLoadingOlderMessages
+    {
+        get => _isLoadingOlderMessages;
+        private set => this.RaiseAndSetIfChanged(ref _isLoadingOlderMessages, value);
+    }
+
+    private bool _hasMoreHistory = true;
+    public bool HasMoreHistory
+    {
+        get => _hasMoreHistory;
+        private set => this.RaiseAndSetIfChanged(ref _hasMoreHistory, value);
+    }
+
     public ReactiveCommand<Unit, Unit> SendMessageCommand { get; }
     public ReactiveCommand<Unit, Unit> SendImageCommand { get; }
+    public ReactiveCommand<Unit, Unit> ToggleInfoPanelCommand { get; }
+    public ReactiveCommand<Unit, Unit> LoadOlderMessagesCommand { get; }
+    public ReactiveCommand<ChatMessageViewModel, Unit> DeleteMessageCommand { get; }
+    public ReactiveCommand<Unit, Unit> ClearConversationCommand { get; }
 
     private string? _imageSendError;
     public string? ImageSendError
     {
         get => _imageSendError;
         private set => this.RaiseAndSetIfChanged(ref _imageSendError, value);
+    }
+
+    private string? _messageSendError;
+    public string? MessageSendError
+    {
+        get => _messageSendError;
+        private set => this.RaiseAndSetIfChanged(ref _messageSendError, value);
     }
 
     public UserProfileViewModel(
@@ -107,6 +151,7 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
         ChatService chatService,
         ChatAttachmentService chatAttachments,
         IFileInteractionService fileInteraction,
+        IDialogService dialogService,
         PeerReliabilityService peerReliability,
         IEventBus eventBus,
         UserCollectionViewModel browser,
@@ -118,6 +163,7 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
         _chatService = chatService;
         _chatAttachments = chatAttachments;
         _fileInteraction = fileInteraction;
+        _dialogService = dialogService;
         _eventBus = eventBus;
         _logger = logger;
         Browser = browser;
@@ -125,11 +171,28 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
         var canSend = this.WhenAnyValue(x => x.MessageInput, text => !string.IsNullOrWhiteSpace(text));
         SendMessageCommand = ReactiveCommand.CreateFromTask(SendMessageAsync, canSend);
         SendImageCommand = ReactiveCommand.CreateFromTask(SendImageAsync);
+        ToggleInfoPanelCommand = ReactiveCommand.Create(() =>
+        {
+            IsInfoPanelOpen = !IsInfoPanelOpen;
+            if (IsInfoPanelOpen)
+                _ = EnsureBrowserLoadedAsync();
+        });
+
+        var canLoadOlder = this.WhenAnyValue(x => x.IsLoadingOlderMessages, x => x.HasMoreHistory, (loading, hasMore) => !loading && hasMore);
+        LoadOlderMessagesCommand = ReactiveCommand.CreateFromTask(LoadOlderMessagesAsync, canLoadOlder);
+
+        DeleteMessageCommand = ReactiveCommand.CreateFromTask<ChatMessageViewModel>(DeleteMessageAsync);
+        ClearConversationCommand = ReactiveCommand.CreateFromTask(ClearConversationAsync);
 
         _eventBus.GetEvent<PrivateMessageReceivedEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
             .Where(e => string.Equals(e.PeerUsername, Username, StringComparison.OrdinalIgnoreCase))
-            .Subscribe(e => Messages.Add(new ChatMessageViewModel(e.IsOutgoing ? "You" : e.PeerUsername, e.Message, e.TimestampUtc, e.IsOutgoing, _chatAttachments, Username)))
+            .Subscribe(e =>
+            {
+                Messages.Add(new ChatMessageViewModel(e.Id, e.IsOutgoing ? "You" : e.PeerUsername, e.Message, e.TimestampUtc, e.IsOutgoing, _chatAttachments, Username));
+                ChatGroupingHelper.Apply(Messages);
+                TrimLiveMessagesIfNeeded();
+            })
             .DisposeWith(_disposables);
 
         _eventBus.GetEvent<UserPresenceChangedEvent>()
@@ -147,33 +210,32 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
     {
         Username = username;
         IsLoading = true;
+        HasMoreHistory = false; // avoid a flash of "Load earlier" before the first page has actually loaded
         try
         {
             ReliabilitySnapshot = _peerReliabilityRef.GetSnapshot(username);
 
-            _presenceWatchHandle?.Dispose();
-            var (handle, snapshot) = await _presenceWatch.WatchAsync(username).ConfigureAwait(true);
-            _presenceWatchHandle = handle;
-            WatchSnapshot = snapshot;
-
-            var browseTask = Browser.LoadUserAsync(username);
+            // Chat is the primary surface, and everything it needs (message history, download
+            // history) is local DB data — load and render it first, without waiting on anything
+            // that has to round-trip to the peer over the network. Browse Shares is deliberately
+            // not loaded here at all (see EnsureBrowserLoadedAsync); presence/status/info are
+            // network calls that can be slow or hang against an unresponsive peer, so they're
+            // fetched afterward in the background instead of blocking chat on them (see
+            // LoadPresenceAndInfoAsync below) — the header just updates in place whenever they land.
             var historyTask = _databaseService.GetDownloadHistoryForUserAsync(username);
-            var conversationTask = _chatService.GetConversationAsync(username);
-            var statusTask = SafeGetStatusAsync(username);
-            var infoTask = SafeGetInfoAsync(username);
-
-            await Task.WhenAll(browseTask, historyTask, conversationTask, statusTask, infoTask).ConfigureAwait(true);
+            var conversationTask = _chatService.GetConversationAsync(username, MessagePageSize);
+            await Task.WhenAll(historyTask, conversationTask).ConfigureAwait(true);
 
             DownloadHistory.Clear();
             foreach (var entry in await historyTask)
                 DownloadHistory.Add(entry);
 
+            var conversation = await conversationTask;
             Messages.Clear();
-            foreach (var message in await conversationTask)
-                Messages.Add(new ChatMessageViewModel(message.IsOutgoing ? "You" : username, message.Message, message.TimestampUtc, message.IsOutgoing, _chatAttachments, username));
-
-            Presence = (await statusTask).Presence;
-            Info = await infoTask;
+            foreach (var message in conversation)
+                Messages.Add(new ChatMessageViewModel(message.Id, message.IsOutgoing ? "You" : username, message.Message, message.TimestampUtc, message.IsOutgoing, _chatAttachments, username));
+            ChatGroupingHelper.Apply(Messages);
+            HasMoreHistory = conversation.Count >= MessagePageSize;
         }
         catch (Exception ex)
         {
@@ -182,6 +244,128 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
         finally
         {
             IsLoading = false;
+        }
+
+        _ = LoadPresenceAndInfoAsync(username);
+    }
+
+    private async Task LoadPresenceAndInfoAsync(string username)
+    {
+        try
+        {
+            _presenceWatchHandle?.Dispose();
+            _presenceWatchHandle = null;
+            var (handle, snapshot) = await _presenceWatch.WatchAsync(username).ConfigureAwait(true);
+            if (_disposed)
+            {
+                // The profile was closed/replaced while the watch request was in flight — this
+                // instance's handle would otherwise never be released, permanently leaking the
+                // ref-count for this username (see UserPresenceWatchService.WatchAsync).
+                handle.Dispose();
+                return;
+            }
+            _presenceWatchHandle = handle;
+            WatchSnapshot = snapshot;
+
+            Presence = (await SafeGetStatusAsync(username).ConfigureAwait(true)).Presence;
+            Info = await SafeGetInfoAsync(username).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load presence/status for {Username}", username);
+        }
+    }
+
+    /// <summary>Loads Browse Shares on first demand (opening the Info drawer) rather than eagerly with the rest of the profile — see the comment in <see cref="LoadUserAsync"/>.</summary>
+    private async Task EnsureBrowserLoadedAsync()
+    {
+        if (_browserLoadStarted || string.IsNullOrWhiteSpace(Username))
+            return;
+
+        _browserLoadStarted = true;
+        await Browser.LoadUserAsync(Username).ConfigureAwait(true);
+    }
+
+    /// <summary>Drops the oldest messages once live traffic pushes the collection past <see cref="MaxLiveMessages"/>. Re-opens "Load earlier" since the trimmed rows are still in the DB.</summary>
+    private void TrimLiveMessagesIfNeeded()
+    {
+        if (Messages.Count <= MaxLiveMessages) return;
+
+        var excess = Messages.Count - MaxLiveMessages;
+        for (var i = 0; i < excess; i++)
+            Messages.RemoveAt(0);
+
+        HasMoreHistory = true;
+        ChatGroupingHelper.Apply(Messages);
+    }
+
+    private async Task LoadOlderMessagesAsync()
+    {
+        if (Messages.Count == 0 || string.IsNullOrWhiteSpace(Username))
+            return;
+
+        IsLoadingOlderMessages = true;
+        try
+        {
+            var oldestLoaded = Messages[0].TimestampUtc;
+            var older = await _chatService.GetConversationAsync(Username, MessagePageSize, oldestLoaded).ConfigureAwait(true);
+            HasMoreHistory = older.Count >= MessagePageSize;
+
+            for (var i = older.Count - 1; i >= 0; i--)
+            {
+                var message = older[i];
+                Messages.Insert(0, new ChatMessageViewModel(message.Id, message.IsOutgoing ? "You" : Username, message.Message, message.TimestampUtc, message.IsOutgoing, _chatAttachments, Username));
+            }
+            ChatGroupingHelper.Apply(Messages);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load older messages for {Username}", Username);
+        }
+        finally
+        {
+            IsLoadingOlderMessages = false;
+        }
+    }
+
+    /// <summary>Removes a single message from local history only — the Soulseek protocol has no message recall, so the peer's own copy is unaffected.</summary>
+    private async Task DeleteMessageAsync(ChatMessageViewModel message)
+    {
+        try
+        {
+            await _chatService.DeleteMessageAsync(message.Id).ConfigureAwait(true);
+            Messages.Remove(message);
+            ChatGroupingHelper.Apply(Messages); // group boundaries/date separators may shift once the removed message's neighbors are adjacent
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to delete message {Id}", message.Id);
+        }
+    }
+
+    /// <summary>Wipes the entire local history with this peer — e.g. for a spam/gate-bot conversation you just want gone. Confirmed first since it can't be undone.</summary>
+    private async Task ClearConversationAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Username))
+            return;
+
+        var confirmed = await _dialogService.ConfirmAsync(
+            "Clear Conversation",
+            $"Delete your entire message history with {Username}? This only removes your own local copy — it can't be undone.",
+            confirmLabel: "Delete",
+            cancelLabel: "Cancel").ConfigureAwait(true);
+        if (!confirmed)
+            return;
+
+        try
+        {
+            await _chatService.DeleteConversationAsync(Username).ConfigureAwait(true);
+            Messages.Clear();
+            _eventBus.Publish(new ConversationClearedEvent(Username));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to clear conversation with {Username}", Username);
         }
     }
 
@@ -217,6 +401,7 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
         if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(Username))
             return;
 
+        MessageSendError = null;
         MessageInput = string.Empty;
         try
         {
@@ -225,6 +410,8 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to send message to {Username}", Username);
+            MessageInput = text; // restore the typed text so it isn't silently lost
+            MessageSendError = $"Couldn't send: {ex.Message}";
         }
     }
 
@@ -254,6 +441,7 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
         _presenceWatchHandle?.Dispose();
         _disposables.Dispose();
     }

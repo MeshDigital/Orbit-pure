@@ -61,6 +61,15 @@ public sealed class AnalysisPipelineResult
     /// Empty when the EDMFormer microservice is unavailable; populated otherwise.
     /// </summary>
     public IReadOnlyList<PhraseSegment> PhraseSegments { get; set; } = Array.Empty<PhraseSegment>();
+
+    /// <summary>
+    /// Detected (sub-)genre hint, e.g. "DnB", "TechHouse", "MelodicTechno". Used by
+    /// <see cref="Cueing.CueGenerationService"/>'s DSP path to weight drop-candidate signals —
+    /// continuous-bassline genres (techno, tech house) lean more on the broadband energy-jump
+    /// signal since sub-bass dropout detection assumes a real bass breakdown that those genres
+    /// often don't have.
+    /// </summary>
+    public string? Genre { get; set; }
 }
 
 /// <summary>

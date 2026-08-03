@@ -299,7 +299,11 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     public static bool MatchesRowStatusFilter(UnifiedTrackViewModel track, string filter) => filter switch
     {
         "Searching" => track.State == PlaylistTrackState.Searching,
-        "Downloading" => track.State == PlaylistTrackState.Downloading,
+        // Mirrors IsActive (minus Searching, which has its own chip above) so a track waiting
+        // for a download slot or a peer connection doesn't vanish from every chip except "All".
+        "Downloading" => track.State == PlaylistTrackState.Downloading
+            || track.State == PlaylistTrackState.Queued
+            || track.State == PlaylistTrackState.WaitingForConnection,
         "Failed" => track.State == PlaylistTrackState.Failed || track.State == PlaylistTrackState.Stalled || track.State == PlaylistTrackState.Cancelled,
         "Completed" => track.State == PlaylistTrackState.Completed,
         _ => true,
@@ -925,11 +929,17 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             .Throttle(TimeSpan.FromMilliseconds(250))
             .ObserveOn(RxApp.MainThreadScheduler)
             .CombineLatest(this.WhenAnyValue(x => x.RowStatusFilter), (text, statusFilter) => (text, statusFilter))
-            .Select<(string? text, string statusFilter), Func<UnifiedTrackViewModel, bool>>(f => track =>
-                (string.IsNullOrWhiteSpace(f.text)
-                    || track.TrackTitle.Contains(f.text, StringComparison.OrdinalIgnoreCase)
-                    || track.ArtistName.Contains(f.text, StringComparison.OrdinalIgnoreCase))
-                && MatchesRowStatusFilter(track, f.statusFilter));
+            .Select<(string? text, string statusFilter), Func<UnifiedTrackViewModel, bool>>(f =>
+            {
+                // Accent-insensitive, same rationale as BuildFilter: typing "beyonce" must still
+                // find "Beyoncé" — computed once per filter change, not per track, for efficiency.
+                var normalizedSearch = string.IsNullOrWhiteSpace(f.text) ? null : StripDiacritics(f.text);
+                return track =>
+                    (normalizedSearch == null
+                        || StripDiacritics(track.TrackTitle).Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase)
+                        || StripDiacritics(track.ArtistName).Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase))
+                    && MatchesRowStatusFilter(track, f.statusFilter);
+            });
 
         sharedSource
             .Filter(x => !x.IsClearedFromDownloadCenter)
@@ -1628,8 +1638,24 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     {
         if (string.IsNullOrWhiteSpace(searchText)) return _ => true;
 
-        return vm => vm.TrackTitle.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-                     vm.ArtistName.Contains(searchText, StringComparison.OrdinalIgnoreCase);
+        // Accent-insensitive: typing "beyonce" must still find "Beyoncé" — the track/artist
+        // names routinely carry diacritics that a user's search text won't reproduce.
+        var normalizedSearch = StripDiacritics(searchText);
+
+        return vm => StripDiacritics(vm.TrackTitle).Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase) ||
+                     StripDiacritics(vm.ArtistName).Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static string StripDiacritics(string text)
+    {
+        var normalized = text.Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new System.Text.StringBuilder(normalized.Length);
+        foreach (var c in normalized)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+                sb.Append(c);
+        }
+        return sb.ToString().Normalize(System.Text.NormalizationForm.FormC);
     }
 
     internal static string BuildIngestionDisplayName(string? filePath, string? fallbackHash)

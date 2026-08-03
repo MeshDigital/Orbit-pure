@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
@@ -392,23 +393,47 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         if (track == null) return;
 
         var label = string.IsNullOrWhiteSpace(track.Title) ? track.GlobalId : $"{track.ArtistName} - {track.TrackTitle}";
-        var confirmed = await _dialogService.ConfirmAsync(
-            "Remove Track",
-            $"Remove \"{label}\" from your library and delete the file from disk?",
-            confirmLabel: "Remove",
-            cancelLabel: "Cancel");
-        if (!confirmed) return;
 
-        try
+        // "Remove from playlist" only makes sense when a specific playlist is actually in
+        // view — in All Tracks there's no single playlist to scope the removal to.
+        var selectedProject = LibraryViewModel?.SelectedProject;
+        var canRemoveFromPlaylist = selectedProject is { Id: var pid } && pid != Guid.Empty;
+
+        var choice = await _dialogService.ShowRemoveTrackChoiceAsync(label, canRemoveFromPlaylist, selectedProject?.SourceTitle);
+
+        switch (choice)
         {
-            _logger.LogInformation("Removing track: {Title}", track.Title);
-            await _downloadManager.DeleteTrackFromDiskAndHistoryAsync(track.GlobalId);
-            _logger.LogInformation("Track removed successfully");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to remove track");
-            _eventBus.Publish(new NotificationEvent("Remove Track", "Failed to remove track.", NotificationType.Error));
+            case Views.Avalonia.Controls.RemoveTrackChoice.RemoveFromPlaylist:
+                try
+                {
+                    _logger.LogInformation("Removing track {Title} from playlist {Playlist} only", track.Title, selectedProject!.SourceTitle);
+                    await _libraryService.RemoveTracksFromPlaylistAsync(selectedProject.Id, new List<Guid> { track.Model.Id });
+                    _logger.LogInformation("Track removed from playlist");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to remove track from playlist");
+                    _eventBus.Publish(new NotificationEvent("Remove Track", "Failed to remove track from playlist.", NotificationType.Error));
+                }
+                break;
+
+            case Views.Avalonia.Controls.RemoveTrackChoice.DeletePermanently:
+                try
+                {
+                    _logger.LogInformation("Deleting track from disk and history: {Title}", track.Title);
+                    await _downloadManager.DeleteTrackFromDiskAndHistoryAsync(track.GlobalId);
+                    _logger.LogInformation("Track deleted successfully");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to delete track");
+                    _eventBus.Publish(new NotificationEvent("Remove Track", "Failed to delete track.", NotificationType.Error));
+                }
+                break;
+
+            case Views.Avalonia.Controls.RemoveTrackChoice.Cancel:
+            default:
+                break;
         }
     }
 

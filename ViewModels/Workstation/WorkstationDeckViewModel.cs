@@ -748,7 +748,9 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Failed to persist database state: {ex.Message}");
+                    // Debug.WriteLine is compiled out in Release builds — this failure would
+                    // otherwise be completely invisible in production.
+                    Serilog.Log.Warning(ex, "WorkstationDeckViewModel: failed to persist database state for {Hash}", track.TrackUniqueHash);
                 }
 
                 var downloadManager = app.Services.GetService(typeof(SLSKDONET.Services.DownloadManager)) as SLSKDONET.Services.DownloadManager;

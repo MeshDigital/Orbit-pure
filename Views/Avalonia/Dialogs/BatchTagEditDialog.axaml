@@ -62,6 +62,40 @@
                              CornerRadius="6" Padding="10,8"/>
                 </StackPanel>
 
+                <!-- BPM -->
+                <StackPanel Spacing="5">
+                    <TextBlock Text="BPM" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding Bpm, Mode=TwoWay}" Watermark="Keep original BPM (e.g. 128)"
+                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
+                             CornerRadius="6" Padding="10,8"/>
+                    <TextBlock Text="Not a valid number" Foreground="#E06C75" FontSize="10"
+                               IsVisible="{Binding !IsBpmValid}"/>
+                </StackPanel>
+
+                <!-- Key -->
+                <StackPanel Spacing="5">
+                    <TextBlock Text="Key (Camelot)" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding Key, Mode=TwoWay}" Watermark="Keep original key (e.g. 8A)"
+                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
+                             CornerRadius="6" Padding="10,8"/>
+                </StackPanel>
+
+                <!-- Comments -->
+                <StackPanel Spacing="5">
+                    <TextBlock Text="Comments" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding Comments, Mode=TwoWay}" Watermark="Keep original comments"
+                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
+                             CornerRadius="6" Padding="10,8"/>
+                </StackPanel>
+
+                <!-- Mood -->
+                <StackPanel Spacing="5">
+                    <TextBlock Text="Mood" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding Mood, Mode=TwoWay}" Watermark="Keep original mood tag"
+                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
+                             CornerRadius="6" Padding="10,8"/>
+                </StackPanel>
+
                 <!-- File Name (single-track only) -->
                 <StackPanel Spacing="5">
                     <TextBlock Text="File Name (without extension)" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>

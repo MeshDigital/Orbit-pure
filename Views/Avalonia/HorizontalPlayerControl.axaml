@@ -10,7 +10,10 @@
              x:DataType="vm:PlayerViewModel"
              Background="#252526">
 
-    <Grid ColumnDefinitions="350,*,350" Margin="20,10">
+    <!-- Column 2 (secondary actions) is content-sized, not a fixed 350 — its actual content
+         (shuffle/repeat + volume + like/queue + cycle-visual + FULL VIEW + THEATER MODE) runs
+         well past 350px and was overflowing left into the progress bar. -->
+    <Grid ColumnDefinitions="350,*,Auto" Margin="20,10">
         <!-- Column 0: Track Info -->
         <Grid Grid.Column="0" ColumnDefinitions="Auto,*" VerticalAlignment="Center">
             <!-- Mini Album Art -->
@@ -28,7 +31,11 @@
                             VerticalAlignment="Stretch"
                             ToolTip.Tip="Open expanded now playing view">
                         <Panel>
-                            <!-- Phase 1.7: Vibe Visualizer (Mini-Glow) -->
+                            <!-- Phase 1.7: Vibe Visualizer (Mini-Glow). Draws an opaque full-bleed
+                                 background, so it only makes sense as a fallback when there's no
+                                 artwork to show instead — the Image below (UniformToFill,
+                                 ClipToBounds) otherwise covers this 60x60 box completely and the
+                                 glow was never visible at all. -->
                             <controls:VibeVisualizer IsPlaying="{Binding IsPlaying}"
                                                  VuLeft="{Binding VuLeft}"
                                                  VuRight="{Binding VuRight}"
@@ -36,13 +43,19 @@
                                                  Energy="{Binding CurrentTrack.Energy}"
                                                  MoodTag="{Binding CurrentTrack.MoodTag}"
                                                  VisualStyle="{Binding CurrentVisualStyle}"
-                                                 Opacity="0.6"/>
+                                                 IsVisible="{Binding CurrentTrack.ArtworkBitmap, Converter={x:Static ObjectConverters.IsNull}}"
+                                                 Opacity="0.9"/>
                             <Image Source="{Binding CurrentTrack.ArtworkBitmap}" 
                                    Stretch="UniformToFill"
                                    IsVisible="{Binding CurrentTrack.ArtworkBitmap, Converter={x:Static ObjectConverters.IsNotNull}}"/>
                             
                             <!-- Immersive Hover Overlay -->
-                            <Border Name="ImmersiveOverlay" Background="#AA000000" Opacity="0" Transitions="{StaticResource ControlOpacityTransitions}">
+                            <Border Name="ImmersiveOverlay" Background="#AA000000" Opacity="0">
+                                <Border.Transitions>
+                                    <Transitions>
+                                        <DoubleTransition Property="Opacity" Duration="0:0:0.15"/>
+                                    </Transitions>
+                                </Border.Transitions>
                                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                                     <TextBlock Text="✨" FontSize="16" HorizontalAlignment="Center"/>
                                     <TextBlock Text="IMMERSIVE" FontSize="8" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center"/>

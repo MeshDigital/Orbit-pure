@@ -157,6 +157,13 @@
                 CornerRadius="12"
                 Padding="12">
             <StackPanel Spacing="10">
+                <Border Background="{DynamicResource BrushError}" Opacity="0.15"
+                        BorderBrush="{DynamicResource BrushError}" BorderThickness="1"
+                        CornerRadius="8" Padding="10,7"
+                        IsVisible="{Binding LibraryLoadErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <TextBlock Text="{Binding LibraryLoadErrorMessage}"
+                               FontSize="11" Foreground="{DynamicResource BrushError}" TextWrapping="Wrap"/>
+                </Border>
                 <Grid ColumnDefinitions="*,*,*,*,*">
                     <Border Grid.Column="0" Background="{DynamicResource BrushBg2}" CornerRadius="10" Padding="12,10">
                         <StackPanel Spacing="2">

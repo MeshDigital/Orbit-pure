@@ -112,9 +112,10 @@ public class CueForgeAnalysisResultBuilderTests
     }
 
     [Fact]
-    public void PhraseSegments_DeserializedFromJson()
+    public void PhraseSegments_DeserializedFromJson_WhenSourceIsEdmFormer()
     {
         var features = BaseFeatures();
+        features.PhraseSegmentsSource = "EDMFormer";
         features.PhraseSegmentsJson = JsonSerializer.Serialize(new[]
         {
             new SLSKDONET.Models.PhraseSegment { Label = "Drop", Start = 100f, Duration = 30f, Confidence = 0.9f },
@@ -124,6 +125,27 @@ public class CueForgeAnalysisResultBuilderTests
 
         Assert.Single(result.PhraseSegments);
         Assert.Equal("Drop", result.PhraseSegments[0].Label);
+    }
+
+    [Fact]
+    public void HeuristicPhraseSegments_AreNotSurfaced_SoDspPathIsNotStarved()
+    {
+        // PhraseSegmentsJson can also be populated by the rule-based StructuralAnalysisEngine
+        // bridge (AnalyzeTrackStructureJob) when EDMFormer isn't running — that's the same weak
+        // signal the DSP path (sub-bass/novelty) is meant to improve on. If it were surfaced here,
+        // GenerateCues' PhraseSegments.Count >= 2 check would take the ML-priority path using
+        // heuristic data, starving out the real DSP signals below.
+        var features = BaseFeatures();
+        features.PhraseSegmentsSource = "Heuristic";
+        features.PhraseSegmentsJson = JsonSerializer.Serialize(new[]
+        {
+            new SLSKDONET.Models.PhraseSegment { Label = "Drop", Start = 100f, Duration = 30f, Confidence = 0.5f },
+            new SLSKDONET.Models.PhraseSegment { Label = "Intro", Start = 0f, Duration = 30f, Confidence = 0.5f },
+        });
+
+        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+
+        Assert.Empty(result.PhraseSegments);
     }
 
     [Fact]

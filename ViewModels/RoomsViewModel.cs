@@ -231,15 +231,17 @@ public class RoomsViewModel : ReactiveObject, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to leave room {RoomName}", room.RoomName);
+            // Don't remove the room on a failed server-side leave — the server likely still
+            // considers us a member, so silently dropping it from JoinedRooms here would
+            // orphan any RoomMessageReceivedEvents that keep arriving for it.
+            _logger.LogWarning(ex, "Failed to leave room {RoomName} — keeping it in the joined list", room.RoomName);
+            return;
         }
-        finally
-        {
-            JoinedRooms.Remove(room);
-            room.Dispose();
-            if (ReferenceEquals(SelectedRoom, room))
-                SelectedRoom = JoinedRooms.FirstOrDefault();
-        }
+
+        JoinedRooms.Remove(room);
+        room.Dispose();
+        if (ReferenceEquals(SelectedRoom, room))
+            SelectedRoom = JoinedRooms.FirstOrDefault();
     }
 
     public void Dispose()

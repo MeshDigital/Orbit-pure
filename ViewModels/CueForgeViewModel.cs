@@ -495,6 +495,14 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         private set => this.RaiseAndSetIfChanged(ref _hasCommitError, value);
     }
 
+    private string? _trackLoadError;
+    /// <summary>Set when <see cref="LoadTrackAsync"/> fails partway through (cues/waveform/features) so the UI isn't left silently half-loaded.</summary>
+    public string? TrackLoadError
+    {
+        get => _trackLoadError;
+        private set => this.RaiseAndSetIfChanged(ref _trackLoadError, value);
+    }
+
     // True when track has at least one Intro, one Drop, and one Outro cue
     public bool IsExportReady => TrackHash != null &&
         WorkingCues.Any(c => c.Role == CueRole.Intro) &&
@@ -661,77 +669,86 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             _logger.LogWarning(ex, "CueForge: could not load audio for {Hash}; transport will have nothing to play", trackHash);
         }
 
-        // Load cues from DB
-        var entities = await _cueService.GetByTrackIdAsync(trackHash);
-        var cues = entities.Select(EntityToOrbitCue).ToList();
-
-        // Load audio features for waveform data + analysis metadata
-        var features = await _libraryService.GetAudioFeaturesByHashAsync(trackHash);
-        if (features is not null)
+        TrackLoadError = null;
+        try
         {
-            Bpm = (int)Math.Round(Math.Max(60, features.Bpm));
-            TrackDuration = features.TrackDuration > 0 ? features.TrackDuration : 300.0;
-            TrackEnergyScore = features.EnergyScore;
+            // Load cues from DB
+            var entities = await _cueService.GetByTrackIdAsync(trackHash);
+            var cues = entities.Select(EntityToOrbitCue).ToList();
 
-            // Decode waveform blob: [low₀…lowN | mid₀…midN | high₀…highN]
-            if (features.WaveformBlob is { Length: > 0 } blob && features.WaveformBlobSampleCount > 0)
+            // Load audio features for waveform data + analysis metadata
+            var features = await _libraryService.GetAudioFeaturesByHashAsync(trackHash);
+            if (features is not null)
             {
-                int n = features.WaveformBlobSampleCount;
-                int expected = n * 3;
-                if (blob.Length >= expected)
+                Bpm = (int)Math.Round(Math.Max(60, features.Bpm));
+                TrackDuration = features.TrackDuration > 0 ? features.TrackDuration : 300.0;
+                TrackEnergyScore = features.EnergyScore;
+
+                // Decode waveform blob: [low₀…lowN | mid₀…midN | high₀…highN]
+                if (features.WaveformBlob is { Length: > 0 } blob && features.WaveformBlobSampleCount > 0)
                 {
-                    var low = new byte[n]; var mid = new byte[n]; var high = new byte[n];
-                    Buffer.BlockCopy(blob, 0, low, 0, n);
-                    Buffer.BlockCopy(blob, n, mid, 0, n);
-                    Buffer.BlockCopy(blob, n * 2, high, 0, n);
-                    WaveformLow = low; WaveformMid = mid; WaveformHigh = high;
+                    int n = features.WaveformBlobSampleCount;
+                    int expected = n * 3;
+                    if (blob.Length >= expected)
+                    {
+                        var low = new byte[n]; var mid = new byte[n]; var high = new byte[n];
+                        Buffer.BlockCopy(blob, 0, low, 0, n);
+                        Buffer.BlockCopy(blob, n, mid, 0, n);
+                        Buffer.BlockCopy(blob, n * 2, high, 0, n);
+                        WaveformLow = low; WaveformMid = mid; WaveformHigh = high;
+                    }
                 }
+
+                // Energy curve
+                EnergyCurveData = ParseJsonFloatArray(features.EnergyCurveJson);
+
+                // Vocal density
+                VocalDensityCurveData = ParseJsonFloatArray(features.VocalDensityCurveJson);
+
+                // Beat grid → onset density
+                var beatGrid = ParseJsonFloatArray(features.BeatGridJson)?.Select(f => (double)f).ToList()
+                               ?? new List<double>();
+                if (beatGrid.Count > 0)
+                {
+                    var densityEngine = new OnsetDensityEngine();
+                    OnsetDensityCurveData = densityEngine.ComputeOnsetDensityCurve(beatGrid, TrackDuration);
+                }
+
+                // Phrase segments
+                var segments = ParsePhraseSegments(features.PhraseSegmentsJson);
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    PhraseSegments.Clear();
+                    foreach (var s in segments) PhraseSegments.Add(s);
+                });
+
+                // Camelot key
+                UpdateCamelotKeyDisplay(features.CamelotKey);
             }
 
-            // Energy curve
-            EnergyCurveData = ParseJsonFloatArray(features.EnergyCurveJson);
-
-            // Vocal density
-            VocalDensityCurveData = ParseJsonFloatArray(features.VocalDensityCurveJson);
-
-            // Beat grid → onset density
-            var beatGrid = ParseJsonFloatArray(features.BeatGridJson)?.Select(f => (double)f).ToList()
-                           ?? new List<double>();
-            if (beatGrid.Count > 0)
-            {
-                var densityEngine = new OnsetDensityEngine();
-                OnsetDensityCurveData = densityEngine.ComputeOnsetDensityCurve(beatGrid, TrackDuration);
-            }
-
-            // Phrase segments
-            var segments = ParsePhraseSegments(features.PhraseSegmentsJson);
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                PhraseSegments.Clear();
-                foreach (var s in segments) PhraseSegments.Add(s);
+                WorkingCues.Clear();
+                HasUncommittedChanges = false;
+                foreach (var c in cues) WorkingCues.Add(c);
             });
 
-            // Camelot key
-            UpdateCamelotKeyDisplay(features.CamelotKey);
+            this.RaisePropertyChanged(nameof(IsExportReady));
+            RefreshHotCuePads();
+            _logger.LogInformation("CueForge: loaded {Count} cues for {Hash} (BPM={Bpm} Dur={Dur:F0}s)",
+                cues.Count, trackHash, Bpm, TrackDuration);
+
+            // Persist last-opened track so we can restore it on next launch
+            _config.CueForgeLastTrackHash = trackHash;
+            _config.CueForgeLastTrackTitle = title;
+            _config.CueForgeLastTrackArtist = artist;
+            _configManager.Save(_config);
         }
-
-        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        catch (Exception ex)
         {
-            WorkingCues.Clear();
-            HasUncommittedChanges = false;
-            foreach (var c in cues) WorkingCues.Add(c);
-        });
-
-        this.RaisePropertyChanged(nameof(IsExportReady));
-        RefreshHotCuePads();
-        _logger.LogInformation("CueForge: loaded {Count} cues for {Hash} (BPM={Bpm} Dur={Dur:F0}s)",
-            cues.Count, trackHash, Bpm, TrackDuration);
-
-        // Persist last-opened track so we can restore it on next launch
-        _config.CueForgeLastTrackHash = trackHash;
-        _config.CueForgeLastTrackTitle = title;
-        _config.CueForgeLastTrackArtist = artist;
-        _configManager.Save(_config);
+            _logger.LogError(ex, "CueForge: failed to load cues/features for {Hash}", trackHash);
+            TrackLoadError = $"Couldn't fully load this track's cue data: {ex.Message}";
+        }
     }
 
     public void ClearWorkingDraft()
@@ -1023,71 +1040,12 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     // ── Fast-path AnalysisPipelineResult reconstruction ────────────────────
 
+    // Delegates to Engine.Analysis.AnalysisPipelineResultBuilder, which AnalyzeTrackStructureJob's
+    // background pipeline also calls, so both routes score cues against identical signals.
     // internal (not private) so SLSKDONET.Tests can cover the real/fallback signal wiring
     // directly, without standing up the full CueForgeViewModel dependency graph.
-    internal static Engine.Analysis.AnalysisPipelineResult BuildAnalysisResultFromFeatures(AudioFeaturesEntity f)
-    {
-        var result = new Engine.Analysis.AnalysisPipelineResult
-        {
-            Bpm = f.Bpm,
-            DurationSeconds = f.TrackDuration,
-            EnergyCurve = ParseJsonFloatArray(f.EnergyCurveJson) ?? Array.Empty<float>(),
-            EssentiaInstrumentalProbability = f.InstrumentalProbability,
-            EssentiaAggressiveProbability = 0f,
-            EssentiaDanceability = f.Danceability,
-            // Without this, GenerateCues' PhraseSegments.Count >= 2 check never passes here,
-            // so Auto-Generate could never reach the ML path (1) even when EDMFormer phrase
-            // data was already cached — it silently fell through to the DSP/heuristic paths.
-            PhraseSegments = ParsePhraseSegments(f.PhraseSegmentsJson),
-        };
-
-        // Real multi-candidate drop signals (SubBassDropoutEngine / SpectralFluxNoveltyEngine,
-        // computed once at analysis time in AudioAnalysisService). Falls back to the old
-        // single-collapsed-float reconstruction only for tracks analysed before this existed
-        // and not yet re-analysed — GenerateCues' DSP scoring path can compare many real
-        // candidates instead of always being handed exactly one guess.
-        var dropouts = ParseJsonDoubleList(f.SubBassDropoutTimestampsJson);
-        var returns = ParseJsonDoubleList(f.SubBassReturnTimestampsJson);
-        var signatures = ParseJsonNoveltySignatures(f.NoveltyDropSignaturesJson);
-
-        if (dropouts.Count > 0) result.SubBassDropoutTimestamps = dropouts;
-        if (returns.Count > 0)
-        {
-            result.SubBassReturnTimestamps = returns;
-        }
-        else if (f.DropTimeSeconds.HasValue && f.DropConfidence > 0.4f)
-        {
-            result.SubBassReturnTimestamps = new List<double> { f.DropTimeSeconds.Value };
-        }
-
-        if (signatures.Count > 0)
-        {
-            result.NoveltyDropSignatures = signatures
-                .Select(s => (s.DropSeconds, s.BuildStartSeconds, s.Strength))
-                .ToList();
-        }
-        else if (f.CueDrop.HasValue)
-        {
-            double buildStart = f.CueBuild.HasValue
-                ? f.CueBuild.Value
-                : Math.Max(0, f.CueDrop.Value - 16 * (60.0 / Math.Max(1, f.Bpm)));
-            result.NoveltyDropSignatures = new List<(double, double, float)> { (f.CueDrop.Value, buildStart, f.DropConfidence) };
-        }
-
-        return result;
-    }
-
-    private static List<double> ParseJsonDoubleList(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json) || json == "[]") return new();
-        try { return JsonSerializer.Deserialize<List<double>>(json) ?? new(); } catch { return new(); }
-    }
-
-    private static List<Engine.Analysis.NoveltyDropSignatureDto> ParseJsonNoveltySignatures(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json) || json == "[]") return new();
-        try { return JsonSerializer.Deserialize<List<Engine.Analysis.NoveltyDropSignatureDto>>(json) ?? new(); } catch { return new(); }
-    }
+    internal static Engine.Analysis.AnalysisPipelineResult BuildAnalysisResultFromFeatures(AudioFeaturesEntity f) =>
+        Engine.Analysis.AnalysisPipelineResultBuilder.Build(f);
 
     // ── Model ↔ Entity mapping ─────────────────────────────────────────────
 

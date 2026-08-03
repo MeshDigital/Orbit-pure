@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
@@ -13,6 +14,7 @@ using SLSKDONET.ViewModels.Settings;
 using Avalonia.Threading;
 
 using System.Collections.ObjectModel; // Added
+using System.Linq;
 using SLSKDONET.Models; // For SearchPolicy and Events
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Data; // For AppDbContext
@@ -200,6 +202,99 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             if (_config.CheckForDuplicates != value)
             {
                 _config.CheckForDuplicates = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    /// <summary>Auto-reply to peer "reply with this word to unlock downloads" gate-bots, only for peers we've recently attempted to download from.</summary>
+    public bool AutoSolveDownloadVerificationChallenges
+    {
+        get => _config.AutoSolveDownloadVerificationChallenges;
+        set
+        {
+            if (_config.AutoSolveDownloadVerificationChallenges != value)
+            {
+                _config.AutoSolveDownloadVerificationChallenges = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    /// <summary>WaveOut / WasapiShared / WasapiExclusive / Asio — matches <see cref="SLSKDONET.Services.Audio.AudioOutputMode"/>'s member names.</summary>
+    public static string[] AvailableAudioOutputModes { get; } = { "WaveOut", "WasapiShared", "WasapiExclusive", "Asio" };
+
+    public string AudioOutputMode
+    {
+        get => _config.AudioOutputMode;
+        set
+        {
+            if (_config.AudioOutputMode != value)
+            {
+                _config.AudioOutputMode = value;
+                OnPropertyChanged();
+                SaveSettings();
+                RefreshAvailableAudioOutputDevices();
+            }
+        }
+    }
+
+    public string? AudioOutputDeviceName
+    {
+        get => _config.AudioOutputDeviceName;
+        set
+        {
+            if (_config.AudioOutputDeviceName != value)
+            {
+                _config.AudioOutputDeviceName = string.IsNullOrWhiteSpace(value) ? null : value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    /// <summary>Device/driver names for the currently-selected <see cref="AudioOutputMode"/> — empty for WaveOut, which has no per-device selection.</summary>
+    public ObservableCollection<string> AvailableAudioOutputDevices { get; } = new();
+
+    public ICommand RefreshAudioDevicesCommand => new RelayCommand(RefreshAvailableAudioOutputDevices);
+
+    public void RefreshAvailableAudioOutputDevices()
+    {
+        AvailableAudioOutputDevices.Clear();
+        IEnumerable<string> names = AudioOutputMode switch
+        {
+            "WasapiShared" or "WasapiExclusive" => SLSKDONET.Services.Audio.AudioOutputProvider.GetWasapiDeviceNames(),
+            "Asio" => SLSKDONET.Services.Audio.AudioOutputProvider.GetAsioDriverNames(),
+            _ => Enumerable.Empty<string>(),
+        };
+        foreach (var name in names)
+            AvailableAudioOutputDevices.Add(name);
+    }
+
+    public bool LoudnessNormalizationEnabled
+    {
+        get => _config.LoudnessNormalizationEnabled;
+        set
+        {
+            if (_config.LoudnessNormalizationEnabled != value)
+            {
+                _config.LoudnessNormalizationEnabled = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public double LoudnessNormalizationTargetLufs
+    {
+        get => _config.LoudnessNormalizationTargetLufs;
+        set
+        {
+            if (Math.Abs(_config.LoudnessNormalizationTargetLufs - value) > 0.001)
+            {
+                _config.LoudnessNormalizationTargetLufs = value;
                 OnPropertyChanged();
                 SaveSettings();
             }
@@ -1465,6 +1560,9 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         StartAiServerCommand   = new AsyncRelayCommand(() => _aiEngine.StartServerAsync());
         CheckAiEngineCommand   = new AsyncRelayCommand(() => _aiEngine.CheckStatusAsync());
         _ = _aiEngine.CheckStatusAsync();
+
+        try { RefreshAvailableAudioOutputDevices(); }
+        catch (Exception ex) { _logger.LogDebug(ex, "Failed to enumerate audio output devices on Settings load"); }
 
         // Ensure default Client ID is set if empty
         if (string.IsNullOrEmpty(_config.SpotifyClientId))

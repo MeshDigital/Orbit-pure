@@ -11,6 +11,7 @@ using SLSKDONET.Data.Entities;
 using SLSKDONET.Utils;
 using Avalonia.Threading;
 using Microsoft.EntityFrameworkCore;
+using SLSKDONET.Views;
 
 namespace SLSKDONET.Services;
 
@@ -1831,8 +1832,27 @@ public class LibraryService : ILibraryService
             var project = await FindPlaylistJobAsync(targetProjectId);
             if (project == null) throw new InvalidOperationException("Target project not found");
 
+            // "ID" is DJ-tracklist shorthand for an unidentified track (see
+            // CommentTracklistParser, which already drops these at tracklist-paste import time).
+            // This is the single chokepoint every "add to playlist" path funnels through
+            // (drag-drop, Smart Insert, the context-menu action, Flow Builder) — filtering here
+            // catches ID tracks regardless of how they ended up in the source list.
+            var incoming = tracks.ToList();
+            var skippedIdTracks = incoming.Where(t => t.Title.Trim().Equals("ID", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (skippedIdTracks.Count > 0)
+            {
+                incoming = incoming.Except(skippedIdTracks).ToList();
+                _logger.LogWarning("Skipped {Count} unidentified 'ID' track(s) when adding to project {Title}", skippedIdTracks.Count, project.SourceTitle);
+                _eventBus.Publish(new NotificationEvent(
+                    "Skipped unidentified tracks",
+                    skippedIdTracks.Count == 1
+                        ? "1 track titled \"ID\" (unidentified) was not added."
+                        : $"{skippedIdTracks.Count} tracks titled \"ID\" (unidentified) were not added.",
+                    NotificationType.Warning));
+            }
+
             var newTracks = new List<PlaylistTrack>();
-            foreach (var track in tracks)
+            foreach (var track in incoming)
             {
                 // Create a clone of the relational entry for the new project
                 var newTrack = new PlaylistTrack
@@ -1896,6 +1916,24 @@ public class LibraryService : ILibraryService
             _logger.LogError(ex, "Failed to add tracks to project {Id}", targetProjectId);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Removes tracks from one playlist only. Deletes the PlaylistTrack relational row(s) —
+    /// the LibraryEntry (and the file on disk) is untouched, so the track stays in All Tracks
+    /// and any other playlist it's also part of. Contrast with DownloadManager's
+    /// DeleteTrackFromDiskAndHistoryAsync, which is a global, permanent delete.
+    /// </summary>
+    public async Task RemoveTracksFromPlaylistAsync(Guid playlistId, List<Guid> playlistTrackIds)
+    {
+        if (playlistTrackIds.Count == 0) return;
+
+        await _databaseService.BatchDeletePlaylistTracksAsync(playlistTrackIds);
+
+        _cache.InvalidateProject(playlistId);
+        _eventBus.Publish(new ProjectUpdatedEvent(playlistId));
+
+        _logger.LogInformation("Removed {Count} track(s) from playlist {PlaylistId} (library entries untouched)", playlistTrackIds.Count, playlistId);
     }
 
     public async Task UpdateTrackCuePointsAsync(string trackHash, string cuePointsJson)

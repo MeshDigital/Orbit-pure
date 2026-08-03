@@ -1,0 +1,61 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="440" d:DesignHeight="280"
+        x:Class="SLSKDONET.Views.Avalonia.Controls.RemoveTrackDialog"
+        Title="Remove Track"
+        SizeToContent="WidthAndHeight"
+        MinWidth="440" MaxWidth="560"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        SystemDecorations="Full">
+
+    <Border Padding="20">
+        <StackPanel Spacing="16">
+
+            <StackPanel Spacing="8">
+                <TextBlock Name="TitleText"
+                           FontWeight="Bold"
+                           FontSize="16"
+                           Text="Remove Track"/>
+                <TextBlock Name="MessageText"
+                           TextWrapping="Wrap"
+                           MaxWidth="480"
+                           Text="What do you want to do with this track?"/>
+            </StackPanel>
+
+            <!-- Remove from playlist only — the safe, scoped option. Hidden entirely when
+                 there's no specific playlist to remove it from (e.g. viewing All Tracks). -->
+            <Button Name="RemoveFromPlaylistButton"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Left"
+                    Padding="14,10">
+                <StackPanel Spacing="2">
+                    <TextBlock Name="RemoveFromPlaylistTitle" Text="Remove from playlist" FontWeight="SemiBold" FontSize="13"/>
+                    <TextBlock Text="Keeps the file and its entry in All Tracks — only removes it from this playlist."
+                               FontSize="11" Opacity="0.7" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Button>
+
+            <!-- Permanent delete — the destructive option, visually set apart. -->
+            <Button Name="DeletePermanentlyButton"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Left"
+                    Padding="14,10"
+                    Background="#3A1E1E"
+                    BorderBrush="#8B3A3A"
+                    BorderThickness="1">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="Delete from library &amp; disk" FontWeight="SemiBold" FontSize="13" Foreground="#FFD6D6"/>
+                    <TextBlock Text="Permanently deletes the file and removes it from every playlist and your download history."
+                               FontSize="11" Opacity="0.8" Foreground="#FFD6D6" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Button>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,4,0,0">
+                <Button Name="CancelButton" Content="Cancel" MinWidth="90" Padding="16,8" HorizontalContentAlignment="Center"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

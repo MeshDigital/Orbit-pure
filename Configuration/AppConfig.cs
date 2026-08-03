@@ -67,11 +67,21 @@ public class AppConfig
     public int MaxConcurrentDownloads { get; set; } = 5; // Optimized: was 2, increased for better throughput
     public string? NameFormat { get; set; } = "{artist|filename} - {title}";
     public bool CheckForDuplicates { get; set; } = true;
+    public bool AutoSolveDownloadVerificationChallenges { get; set; } = true; // Auto-reply to peer "reply with this word to unlock downloads" gate-bots, only when there's a recent download attempt with that peer
 
     // Playback (persisted so crossfade/pitch survive an app restart)
     public bool PlaybackCrossfadeEnabled { get; set; } = false;
     public double PlaybackCrossfadeSeconds { get; set; } = 3.0;
     public double PlaybackPitch { get; set; } = 1.0;
+
+    /// <summary>One of WaveOut / WasapiShared / WasapiExclusive / Asio — see <see cref="Services.Audio.AudioOutputMode"/>. Stored as a string so Configuration doesn't need a compile-time dependency on the Services.Audio enum.</summary>
+    public string AudioOutputMode { get; set; } = "WasapiShared";
+    /// <summary>Friendly device/driver name for the selected output mode; null = system default output device.</summary>
+    public string? AudioOutputDeviceName { get; set; }
+    /// <summary>Normalizes playback loudness using each track's already-analyzed integrated loudness (LUFS), the same technique as ReplayGain — off by default since it changes perceived volume relative to unnormalized playback.</summary>
+    public bool LoudnessNormalizationEnabled { get; set; } = false;
+    /// <summary>Target integrated loudness in LUFS that normalization aims for. -14 LUFS matches Spotify/YouTube's streaming target.</summary>
+    public double LoudnessNormalizationTargetLufs { get; set; } = -14.0;
     public List<string> ImportWebShortcuts { get; set; } = new()
     {
         "1001Tracklists|https://www.1001tracklists.com/",

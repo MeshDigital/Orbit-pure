@@ -160,7 +160,8 @@ public partial class PlayerControl : UserControl
                     playerViewModel.PlayTrack(
                         track.Model.ResolvedFilePath,
                         track.Title ?? "Unknown",
-                        track.Artist ?? "Unknown Artist"
+                        track.Artist ?? "Unknown Artist",
+                        track.Model?.Loudness
                     );
                 }
             }

@@ -75,11 +75,7 @@ public class UsersViewModel : ReactiveObject, IDisposable
     public string FilterText
     {
         get => _filterText;
-        set
-        {
-            this.RaiseAndSetIfChanged(ref _filterText, value);
-            ApplyFilter();
-        }
+        set => this.RaiseAndSetIfChanged(ref _filterText, value);
     }
 
     private bool _isLoading;
@@ -149,10 +145,26 @@ public class UsersViewModel : ReactiveObject, IDisposable
         var canStartChat = this.WhenAnyValue(x => x.NewChatUsername, text => !string.IsNullOrWhiteSpace(text));
         StartNewChatCommand = ReactiveCommand.CreateFromTask(StartNewChatAsync, canStartChat);
 
+        // Debounced: ApplyFilter() rebuilds Rows via Clear+Add, which used to run on every keystroke.
+        this.WhenAnyValue(x => x.FilterText)
+            .Throttle(TimeSpan.FromMilliseconds(200), RxApp.MainThreadScheduler)
+            .Subscribe(_ => ApplyFilter())
+            .DisposeWith(_disposables);
+
         _eventBus.GetEvent<PrivateMessageReceivedEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
             .Where(e => !e.IsOutgoing)
             .Subscribe(OnIncomingMessage)
+            .DisposeWith(_disposables);
+
+        _eventBus.GetEvent<ConversationClearedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e =>
+            {
+                var row = Conversations.FirstOrDefault(c => string.Equals(c.Username, e.PeerUsername, StringComparison.OrdinalIgnoreCase));
+                if (row != null)
+                    Conversations.Remove(row);
+            })
             .DisposeWith(_disposables);
 
         _ = LoadAsync();

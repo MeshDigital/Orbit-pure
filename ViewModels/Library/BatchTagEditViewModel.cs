@@ -11,6 +11,10 @@ public class BatchTagEditResult
     public string? Genre { get; set; }
     public string? Year { get; set; }
     public string? NewFileName { get; set; }
+    public string? Bpm { get; set; }
+    public string? Key { get; set; }
+    public string? Comments { get; set; }
+    public string? Mood { get; set; }
 }
 
 public sealed class BatchTagEditViewModel : ReactiveObject
@@ -21,6 +25,10 @@ public sealed class BatchTagEditViewModel : ReactiveObject
     private string _genre = string.Empty;
     private string _year = string.Empty;
     private string _newFileName = string.Empty;
+    private string _bpm = string.Empty;
+    private string _key = string.Empty;
+    private string _comments = string.Empty;
+    private string _mood = string.Empty;
 
     public bool IsSingleTrack { get; }
     public string FileNameWatermark { get; }
@@ -94,11 +102,59 @@ public sealed class BatchTagEditViewModel : ReactiveObject
         }
     }
 
+    public string Bpm
+    {
+        get => _bpm;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _bpm, value);
+            this.RaisePropertyChanged(nameof(CanSave));
+        }
+    }
+
+    public string Key
+    {
+        get => _key;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _key, value);
+            this.RaisePropertyChanged(nameof(CanSave));
+        }
+    }
+
+    public string Comments
+    {
+        get => _comments;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _comments, value);
+            this.RaisePropertyChanged(nameof(CanSave));
+        }
+    }
+
+    public string Mood
+    {
+        get => _mood;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _mood, value);
+            this.RaisePropertyChanged(nameof(CanSave));
+        }
+    }
+
+    /// <summary>True once a BPM value is present and parses as a valid positive number — gates Save so a typo can't silently no-op or write garbage.</summary>
+    public bool IsBpmValid => string.IsNullOrWhiteSpace(Bpm) || (double.TryParse(Bpm, out var bpm) && bpm > 0);
+
     public bool CanSave =>
-        !string.IsNullOrWhiteSpace(Artist) ||
+        IsBpmValid &&
+        (!string.IsNullOrWhiteSpace(Artist) ||
         !string.IsNullOrWhiteSpace(Title) ||
         !string.IsNullOrWhiteSpace(Album) ||
         !string.IsNullOrWhiteSpace(Genre) ||
         !string.IsNullOrWhiteSpace(Year) ||
-        (IsSingleTrack && !string.IsNullOrWhiteSpace(NewFileName));
+        !string.IsNullOrWhiteSpace(Bpm) ||
+        !string.IsNullOrWhiteSpace(Key) ||
+        !string.IsNullOrWhiteSpace(Comments) ||
+        !string.IsNullOrWhiteSpace(Mood) ||
+        (IsSingleTrack && !string.IsNullOrWhiteSpace(NewFileName)));
 }

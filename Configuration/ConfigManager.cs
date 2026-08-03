@@ -74,6 +74,7 @@ public class ConfigManager
                 MaxConcurrentDownloads = int.TryParse(config["Download:MaxConcurrentDownloads"], out var mcd) ? mcd : 2,
                 NameFormat = config["Download:NameFormat"] ?? "{artist|filename} - {title}",
                 CheckForDuplicates = !bool.TryParse(config["Download:CheckForDuplicates"], out var check) || check, // Default to true
+                AutoSolveDownloadVerificationChallenges = !bool.TryParse(config["Download:AutoSolveDownloadVerificationChallenges"], out var avc) || avc, // Default true
                 SearchLengthToleranceSeconds = int.TryParse(config["Download:SearchLengthToleranceSeconds"], out var tol) ? tol : 3,
                 FuzzyMatchEnabled = !bool.TryParse(config["Download:FuzzyMatchEnabled"], out var fz) || fz, // Default true
                 MaxSearchAttempts = int.TryParse(config["Download:MaxSearchAttempts"], out var msa) ? msa : 3,
@@ -119,6 +120,23 @@ public class ConfigManager
                 CriticalSearchFileLimitPercent = int.TryParse(config["Search:CriticalSearchFileLimitPercent"], out var csflp) ? csflp : 50,
                 ElevatedSearchExtraDelayMs = int.TryParse(config["Search:ElevatedSearchExtraDelayMs"], out var esed) ? esed : 75,
                 CriticalSearchExtraDelayMs = int.TryParse(config["Search:CriticalSearchExtraDelayMs"], out var csed) ? csed : 200,
+                MinSearchDurationSeconds = int.TryParse(config["Search:MinSearchDurationSeconds"], out var msds) ? msds : 5,
+
+                // [AutoDownload] — Strict Mode
+                EnableAutoDownloadStrictMode = bool.TryParse(config["AutoDownload:EnableStrictMode"], out var eadsm) && eadsm,
+                AutoDownloadInitialWaitMs = int.TryParse(config["AutoDownload:InitialWaitMs"], out var adiwm) ? adiwm : 4000,
+                AutoDownloadExtendedWaitMs = int.TryParse(config["AutoDownload:ExtendedWaitMs"], out var adewm) ? adewm : 20000,
+                AutoDownloadAllowedExtensions = config["AutoDownload:AllowedExtensions"]?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList()
+                    ?? new List<string> { "flac", "wav", "aiff", "aif", "ape", "alac" },
+                AutoDownloadMinFileSizeBytes = long.TryParse(config["AutoDownload:MinFileSizeBytes"], out var admfsb) ? admfsb : 1024 * 500,
+                AutoDownloadMinBitrateKbps = int.TryParse(config["AutoDownload:MinBitrateKbps"], out var admbk) ? admbk : 320,
+                AutoDownloadMinMatchScore = int.TryParse(config["AutoDownload:MinMatchScore"], out var admms) ? admms : 75,
+                AutoDownloadExactFirstOnly = bool.TryParse(config["AutoDownload:ExactFirstOnly"], out var adefo) && adefo,
+                AutoDownloadAllowFuzzyFallback = bool.TryParse(config["AutoDownload:AllowFuzzyFallback"], out var adaff) && adaff,
+                AutoDownloadDurationToleranceSeconds = int.TryParse(config["AutoDownload:DurationToleranceSeconds"], out var addts) ? addts : 3,
+                AutoDownloadMaxCandidatesToScore = int.TryParse(config["AutoDownload:MaxCandidatesToScore"], out var admcts) ? admcts : 50,
+                AutoDownloadExcludedPhrases = config["AutoDownload:ExcludedPhrases"] ?? "remix,cover,live,acoustic",
+                AutoDownloadDiagnosticsEnabled = bool.TryParse(config["AutoDownload:DiagnosticsEnabled"], out var adde) && adde,
 
                 // [Library] & Upgrade Scout
                 LibraryColumnOrder = config["Library:ColumnOrder"] ?? "",
@@ -132,7 +150,16 @@ public class ConfigManager
                 UpgradeMinBitrateThreshold = int.TryParse(config["Library:UpgradeMinBitrateThreshold"], out var umbt) ? umbt : 320,
                 UpgradeMinGainKbps = int.TryParse(config["Library:UpgradeMinGainKbps"], out var umgk) ? umgk : 128,
                 UpgradeAutoQueueEnabled = bool.TryParse(config["Library:UpgradeAutoQueueEnabled"], out var uaqe) && uaqe,
-                
+
+                // [Playback]
+                PlaybackCrossfadeEnabled = bool.TryParse(config["Playback:CrossfadeEnabled"], out var pce) && pce,
+                PlaybackCrossfadeSeconds = double.TryParse(config["Playback:CrossfadeSeconds"], out var pcs) ? pcs : 3.0,
+                PlaybackPitch = double.TryParse(config["Playback:Pitch"], out var pp) ? pp : 1.0,
+                AudioOutputMode = config["Playback:AudioOutputMode"] ?? "WasapiShared",
+                AudioOutputDeviceName = string.IsNullOrEmpty(config["Playback:AudioOutputDeviceName"]) ? null : config["Playback:AudioOutputDeviceName"],
+                LoudnessNormalizationEnabled = bool.TryParse(config["Playback:LoudnessNormalizationEnabled"], out var lne) && lne,
+                LoudnessNormalizationTargetLufs = double.TryParse(config["Playback:LoudnessNormalizationTargetLufs"], out var lntl) ? lntl : -14.0,
+
                 // [Dependencies]
                 IsFfmpegAvailable = bool.TryParse(config["Dependencies:IsFfmpegAvailable"], out var ifa) && ifa,
                 FfmpegVersion = config["Dependencies:FfmpegVersion"] ?? "",
@@ -219,6 +246,7 @@ public class ConfigManager
         iniContent.AppendLine($"MaxConcurrentDownloads = {config.MaxConcurrentDownloads}");
         iniContent.AppendLine($"NameFormat = {config.NameFormat}");
         iniContent.AppendLine($"CheckForDuplicates = {config.CheckForDuplicates}");
+        iniContent.AppendLine($"AutoSolveDownloadVerificationChallenges = {config.AutoSolveDownloadVerificationChallenges}");
         iniContent.AppendLine($"SearchLengthToleranceSeconds = {config.SearchLengthToleranceSeconds}");
         iniContent.AppendLine($"FuzzyMatchEnabled = {config.FuzzyMatchEnabled}");
         iniContent.AppendLine($"MaxSearchAttempts = {config.MaxSearchAttempts}");
@@ -254,6 +282,23 @@ public class ConfigManager
         iniContent.AppendLine($"CriticalSearchFileLimitPercent = {Math.Clamp(config.CriticalSearchFileLimitPercent, 10, 100)}");
         iniContent.AppendLine($"ElevatedSearchExtraDelayMs = {Math.Max(0, config.ElevatedSearchExtraDelayMs)}");
         iniContent.AppendLine($"CriticalSearchExtraDelayMs = {Math.Max(0, config.CriticalSearchExtraDelayMs)}");
+        iniContent.AppendLine($"MinSearchDurationSeconds = {config.MinSearchDurationSeconds}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[AutoDownload]");
+        iniContent.AppendLine($"EnableStrictMode = {config.EnableAutoDownloadStrictMode}");
+        iniContent.AppendLine($"InitialWaitMs = {config.AutoDownloadInitialWaitMs}");
+        iniContent.AppendLine($"ExtendedWaitMs = {config.AutoDownloadExtendedWaitMs}");
+        iniContent.AppendLine($"AllowedExtensions = {(config.AutoDownloadAllowedExtensions != null ? string.Join(",", config.AutoDownloadAllowedExtensions) : "flac,wav,aiff,aif,ape,alac")}");
+        iniContent.AppendLine($"MinFileSizeBytes = {config.AutoDownloadMinFileSizeBytes}");
+        iniContent.AppendLine($"MinBitrateKbps = {config.AutoDownloadMinBitrateKbps}");
+        iniContent.AppendLine($"MinMatchScore = {config.AutoDownloadMinMatchScore}");
+        iniContent.AppendLine($"ExactFirstOnly = {config.AutoDownloadExactFirstOnly}");
+        iniContent.AppendLine($"AllowFuzzyFallback = {config.AutoDownloadAllowFuzzyFallback}");
+        iniContent.AppendLine($"DurationToleranceSeconds = {config.AutoDownloadDurationToleranceSeconds}");
+        iniContent.AppendLine($"MaxCandidatesToScore = {config.AutoDownloadMaxCandidatesToScore}");
+        iniContent.AppendLine($"ExcludedPhrases = {config.AutoDownloadExcludedPhrases}");
+        iniContent.AppendLine($"DiagnosticsEnabled = {config.AutoDownloadDiagnosticsEnabled}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[MusicalIntelligence]");
@@ -281,6 +326,16 @@ public class ConfigManager
         iniContent.AppendLine($"UpgradeMinBitrateThreshold = {config.UpgradeMinBitrateThreshold}");
         iniContent.AppendLine($"UpgradeMinGainKbps = {config.UpgradeMinGainKbps}");
         iniContent.AppendLine($"UpgradeAutoQueueEnabled = {config.UpgradeAutoQueueEnabled}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Playback]");
+        iniContent.AppendLine($"CrossfadeEnabled = {config.PlaybackCrossfadeEnabled}");
+        iniContent.AppendLine($"CrossfadeSeconds = {config.PlaybackCrossfadeSeconds}");
+        iniContent.AppendLine($"Pitch = {config.PlaybackPitch}");
+        iniContent.AppendLine($"AudioOutputMode = {config.AudioOutputMode}");
+        iniContent.AppendLine($"AudioOutputDeviceName = {config.AudioOutputDeviceName}");
+        iniContent.AppendLine($"LoudnessNormalizationEnabled = {config.LoudnessNormalizationEnabled}");
+        iniContent.AppendLine($"LoudnessNormalizationTargetLufs = {config.LoudnessNormalizationTargetLufs}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[Dependencies]");

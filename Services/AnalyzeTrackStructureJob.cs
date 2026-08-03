@@ -19,16 +19,21 @@ namespace SLSKDONET.Services;
 /// Workflow
 /// ========
 /// 1. Look up the track's stored <see cref="AudioFeaturesEntity"/> (BPM, duration, energy curve).
-/// 2. Run the <see cref="StructuralAnalysisEngine"/> to detect phrase boundaries and drops.
-/// 3. Use <see cref="CueGenerationService"/> to map the results into <see cref="CuePointEntity"/> objects.
-/// 4. Persist the cue points and publish a <see cref="TrackStructureAnalysisCompletedEvent"/>.
+/// 2. Run the <see cref="StructuralAnalysisEngine"/> to detect phrase boundaries and drops (feeds the
+///    genre-aware phrase/section map — TrackPhrases, embeddings, energy profile — not cue placement).
+/// 3. Attempt EDMFormer ML phrase segmentation (optional, local microservice) before cue generation,
+///    so cue generation benefits from it the same run when available.
+/// 4. Use <see cref="Engine.Cueing.CueGenerationService"/> — built from the persisted sub-bass/novelty/
+///    energy signals via <see cref="Engine.Analysis.AnalysisPipelineResultBuilder"/>, the same real-signal
+///    path Cue Forge's manual Auto-Generate button uses — to map the results into <see cref="CuePointEntity"/>
+///    objects and persist them.
 ///
 /// If any step fails the error is logged and a failure event is published – the job does NOT throw.
 /// </summary>
 public sealed class AnalyzeTrackStructureJob
 {
     private readonly DatabaseService _databaseService;
-    private readonly CueGenerationService _cueGenerationService;
+    private readonly Engine.Cueing.CueGenerationService _cueGenerationService;
     private readonly IPhraseAlignmentService _phraseAlignmentService;
     private readonly IEmbeddingExtractionService _embeddingExtractionService;
     private readonly EnergyAnalysisService _energyAnalysisService;
@@ -38,7 +43,7 @@ public sealed class AnalyzeTrackStructureJob
 
     public AnalyzeTrackStructureJob(
         DatabaseService databaseService,
-        CueGenerationService cueGenerationService,
+        Engine.Cueing.CueGenerationService cueGenerationService,
         IPhraseAlignmentService phraseAlignmentService,
         IEmbeddingExtractionService embeddingExtractionService,
         EnergyAnalysisService energyAnalysisService,
@@ -122,16 +127,19 @@ public sealed class AnalyzeTrackStructureJob
                 : await BuildPhraseEntitiesAsync(trackUniqueHash, features, analysisResult, cancellationToken);
 
             // Bridge the real rule-based phrase analysis into PhraseSegmentsJson. This is the
-            // same field Cue Forge's phrase map and GenerateDefaultCuesAsync's ML path read,
-            // but it was previously only ever populated by the optional EDMFormer microservice
-            // (Step 5.5 below), which requires a user to manually run a separate Python service.
-            // Without this bridge, phrase-aware cue generation and the Cue Forge phrase map were
+            // same field Cue Forge's phrase map reads, but it was previously only ever populated
+            // by the optional EDMFormer microservice (below), which requires a user to manually
+            // run a separate Python service. Without this bridge, the Cue Forge phrase map was
             // silently empty for everyone who hasn't set EDMFormer up — even though this same
             // rule-based structural analysis already ran for every track and produced real data,
             // just under a different table (TrackPhrases) that nothing downstream consulted.
+            // Marked "Heuristic" (not "EDMFormer") so cue generation's signal-priority gate
+            // doesn't mistake this weak signal for ML-grade phrase data — see
+            // AnalysisPipelineResultBuilder.Build's PhraseSegmentsSource check.
             if (sections.Count >= 2 && (string.IsNullOrWhiteSpace(features.PhraseSegmentsJson) || features.PhraseSegmentsJson == "[]"))
             {
                 features.PhraseSegmentsJson = JsonSerializer.Serialize(ToPhraseSegments(sections, features.Bpm));
+                features.PhraseSegmentsSource = "Heuristic";
             }
 
             var energyProfile = _energyAnalysisService.BuildEnergyProfile(
@@ -143,25 +151,9 @@ public sealed class AnalyzeTrackStructureJob
             if (sections.Count > 0)
                 await _databaseService.SavePhrasesAsync(sections);
 
-            // Step 5: Generate and persist cue points
-            // Use EDMFormer ML phrase segments when available, otherwise heuristic
-            IReadOnlyList<PhraseSegment>? phraseSegments = null;
-            if (!string.IsNullOrWhiteSpace(features.PhraseSegmentsJson) && features.PhraseSegmentsJson != "[]")
-            {
-                try
-                {
-                    phraseSegments = JsonSerializer.Deserialize<List<PhraseSegment>>(features.PhraseSegmentsJson);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[AnalyzeTrackStructureJob] Could not deserialize PhraseSegmentsJson for {Hash}", trackUniqueHash);
-                }
-            }
-
-            var cues = await _cueGenerationService.GenerateDefaultCuesAsync(
-                trackUniqueHash, analysisResult, phraseSegments, cancellationToken);
-
-            // Step 5.5: EDMFormer ML phrase detection (optional — requires local Python service)
+            // Step 5: EDMFormer ML phrase detection (optional — requires local Python service).
+            // Runs before cue generation so, when it succeeds, cue generation benefits from the
+            // ML-grade segments in this same pass instead of lagging one analysis run behind.
             if (_edmFormer?.IsAvailable == true)
             {
                 try
@@ -173,6 +165,7 @@ public sealed class AnalyzeTrackStructureJob
                         if (edmSegments is { Count: > 0 })
                         {
                             features.PhraseSegmentsJson = JsonSerializer.Serialize(edmSegments);
+                            features.PhraseSegmentsSource = "EDMFormer";
                             _logger.LogInformation(
                                 "[AnalyzeTrackStructureJob] EDMFormer produced {n} phrase segments for {Hash}",
                                 edmSegments.Count, trackUniqueHash);
@@ -185,11 +178,26 @@ public sealed class AnalyzeTrackStructureJob
                 }
             }
 
-            // Step 6: Mark structural analysis version on the features entity
+            // Step 6: Generate and persist cue points — via the real-signal-aware
+            // Engine.Cueing.CueGenerationService, built from the features entity's persisted
+            // sub-bass/novelty/energy JSON (not a fresh, independent recompute), the exact same
+            // way Cue Forge's own Auto-Generate button does it.
+            var analysisPipelineResult = Engine.Analysis.AnalysisPipelineResultBuilder.Build(features);
+            double downbeatAnchor = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
+            var cues = await _cueGenerationService.GenerateAndPersistCuesAsync(
+                trackUniqueHash,
+                analysisPipelineResult,
+                downbeatAnchor,
+                features.VocalStartSeconds.HasValue ? (double?)features.VocalStartSeconds.Value : null,
+                features.VocalEndSeconds.HasValue ? (double?)features.VocalEndSeconds.Value : null,
+                features.VocalIntensity > 0 ? (double?)features.VocalIntensity : null,
+                cancellationToken);
+
+            // Step 7: Mark structural analysis version on the features entity
             features.StructuralVersion += 1;
             await _databaseService.UpdateAudioFeaturesAsync(features);
 
-            // Step 6.5: Sync the track embedding for Similarity search
+            // Step 8: Sync the track embedding for Similarity search
             try
             {
                 await _embeddingExtractionService.SyncEmbeddingAsync(trackUniqueHash, cancellationToken).ConfigureAwait(false);
@@ -199,7 +207,7 @@ public sealed class AnalyzeTrackStructureJob
                 _logger.LogWarning(ex, "[AnalyzeTrackStructureJob] Failed to sync embedding for {Hash}", trackUniqueHash);
             }
 
-            // Step 7: Publish completion event
+            // Step 9: Publish completion event
             PublishCompleted(trackUniqueHash, success: true);
 
             _logger.LogInformation(

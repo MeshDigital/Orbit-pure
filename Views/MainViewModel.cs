@@ -323,13 +323,17 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
              _ = OnAddToProjectRequested(evt.Tracks);
         }));
 
-        // Theater Mode: reuses the existing Zen Mode chrome-hiding (collapsed nav, hidden top bar/sidebar)
+        // Theater Mode: chrome-hiding (Zen Mode) + true OS fullscreen (see MainWindow's
+        // IsZenMode PropertyChanged handler) + the actual visualizer-first expanded player.
+        // Previously this only hid the nav chrome and left the window exactly as it was — the
+        // "Visualizer (Theater Mode)" button didn't actually show any visualizer on its own.
         _disposables.Add(_eventBus.GetEvent<RequestTheaterModeEvent>().Subscribe(_ =>
         {
             Dispatcher.UIThread.Post(() =>
             {
                 PlayerViewModel.IsTheaterMode = !PlayerViewModel.IsTheaterMode;
                 IsZenMode = PlayerViewModel.IsTheaterMode;
+                PlayerViewModel.IsExpandedPlayerOpen = PlayerViewModel.IsTheaterMode;
             });
         }));
 

@@ -10,22 +10,69 @@ namespace SLSKDONET.Views.Avalonia
 {
     public partial class MainWindow : Window
     {
+        private WindowState _preFullScreenWindowState = WindowState.Normal;
+        private SystemDecorations _preFullScreenDecorations = SystemDecorations.Full;
+
         public MainWindow()
         {
             InitializeComponent();
 #if DEBUG
             this.AttachDevTools();
 #endif
-            
+
             // Get config from DataContext (MainViewModel will set it)
             this.Opened += OnWindowOpened;
             this.Closing += OnWindowClosing;
-            
+
             // Responsive layout: auto-collapse navigation on small screens
             this.PropertyChanged += OnWindowPropertyChanged;
 
             // Global Keyboard Shortcuts
             this.KeyDown += OnKeyDown;
+
+            this.DataContextChanged += (_, _) =>
+            {
+                if (DataContext is MainViewModel vm)
+                {
+                    vm.PropertyChanged -= OnMainViewModelPropertyChanged; // avoid double-subscribing if DataContext is reassigned
+                    vm.PropertyChanged += OnMainViewModelPropertyChanged;
+                }
+            };
+        }
+
+        private void OnMainViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(MainViewModel.IsZenMode) && sender is MainViewModel vm)
+                OnZenModeChanged(vm.IsZenMode);
+        }
+
+        /// <summary>
+        /// Theater Mode used to only hide ORBIT's own chrome (nav/top bar) within whatever size
+        /// the window already was — the taskbar and native window border stayed visible even in
+        /// "fullscreen visualizer" mode. This makes it cover the whole screen with zero chrome.
+        ///
+        /// Deliberately NOT WindowState.FullScreen: this window uses
+        /// TransparencyLevelHint="Mica, AcrylicBlur", and toggling real FullScreen on top of that
+        /// reproduced a hard, silent process-terminating crash on this machine (no managed
+        /// exception, no Windows Event Log entry — consistent with a native compositor/swapchain
+        /// failure, not a .NET fault). Maximized + no system decorations gets the same visual
+        /// result (borderless, edge-to-edge) via a window-state path this app already exercises
+        /// safely on every launch that restores a maximized window.
+        /// </summary>
+        private void OnZenModeChanged(bool isZenMode)
+        {
+            if (isZenMode)
+            {
+                _preFullScreenWindowState = WindowState;
+                _preFullScreenDecorations = SystemDecorations;
+                SystemDecorations = SystemDecorations.None;
+                WindowState = WindowState.Maximized;
+            }
+            else
+            {
+                WindowState = _preFullScreenWindowState;
+                SystemDecorations = _preFullScreenDecorations;
+            }
         }
 
         private void OnKeyDown(object? sender, global::Avalonia.Input.KeyEventArgs e)
@@ -72,6 +119,22 @@ namespace SLSKDONET.Views.Avalonia
                                 vm.PlayerViewModel.NextTrackCommand.Execute(null);
                                 e.Handled = true;
                             }
+                        }
+                        break;
+
+                    case global::Avalonia.Input.Key.Escape:
+                        // Theater Mode is now real OS fullscreen (see OnZenModeChanged) — Escape
+                        // is the expected way out on every platform, so it needs an explicit exit,
+                        // not just whatever the window manager's own chrome would normally offer.
+                        if (vm.IsZenMode)
+                        {
+                            vm.PlayerViewModel.ToggleTheaterModeCommand.Execute(null);
+                            e.Handled = true;
+                        }
+                        else if (vm.PlayerViewModel.IsExpandedPlayerOpen)
+                        {
+                            vm.PlayerViewModel.ToggleExpandedPlayerCommand.Execute(null);
+                            e.Handled = true;
                         }
                         break;
                 }

@@ -116,6 +116,7 @@
                                     VuRight="{Binding VuRight}"
                                     Energy="{Binding CurrentTrack.Energy, FallbackValue=0.5}"
                                     Bpm="{Binding CurrentTrack.BPM, FallbackValue=120}"
+                                    BeatPulse="{Binding BeatPulse}"
                                     MoodTag="{Binding CurrentTrack.MoodTag}"
                                     IsPlaying="{Binding IsPlaying}"
                                     Preset="{Binding CurrentVisualizerPreset}"
@@ -240,8 +241,12 @@
                             <ToggleButton IsChecked="{Binding IsShuffling}" Command="{Binding ToggleShuffleCommand}" Padding="10,6">
                                 <TextBlock Text="SHUFFLE" FontSize="10" FontWeight="Bold"/>
                             </ToggleButton>
-                            <Button Command="{Binding ToggleRepeatCommand}" Padding="10,6">
-                                <TextBlock Text="{Binding RepeatMode}" FontSize="10" FontWeight="Bold"/>
+                            <Button Command="{Binding ToggleRepeatCommand}" Padding="10,6" ToolTip.Tip="{Binding RepeatMode}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="{Binding RepeatMode, Converter={StaticResource RepeatModeIconConverter}}"
+                                               FontSize="12" Foreground="{Binding RepeatMode, Converter={StaticResource RepeatModeColorConverter}}"/>
+                                    <TextBlock Text="REPEAT" FontSize="10" FontWeight="Bold"/>
+                                </StackPanel>
                             </Button>
                         </StackPanel>
 

@@ -1867,8 +1867,15 @@ public partial class LibraryViewModel
             releaseDate = new DateTime(year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         }
 
+        double? bpm = null;
+        if (!string.IsNullOrWhiteSpace(result.Bpm) && double.TryParse(result.Bpm, out var parsedBpm) && parsedBpm > 0)
+        {
+            bpm = parsedBpm;
+        }
+
         int tagUpdateSuccessCount = 0;
         int dbUpdateSuccessCount = 0;
+        int renameFailedCount = 0;
 
         await Task.Run(async () =>
         {
@@ -1921,6 +1928,17 @@ public partial class LibraryViewModel
                                 {
                                     tagFile.Tag.Year = y;
                                 }
+                                if (bpm.HasValue)
+                                {
+                                    tagFile.Tag.BeatsPerMinute = (uint)Math.Round(bpm.Value);
+                                }
+                                if (!string.IsNullOrWhiteSpace(result.Comments))
+                                {
+                                    tagFile.Tag.Comment = result.Comments;
+                                }
+                                // Key/Mood are intentionally not written to the physical file — neither
+                                // has a standard, widely-supported ID3/tag slot via TagLib's high-level
+                                // Tag API, so they stay database-only (same treatment MoodTag already got).
                                 tagFile.Save();
                                 fileUpdated = true;
                                 tagUpdateSuccessCount++;
@@ -1948,6 +1966,10 @@ public partial class LibraryViewModel
                             dbTrack.Genres = System.Text.Json.JsonSerializer.Serialize(new List<string> { result.Genre });
                         }
                         if (releaseDate.HasValue) dbTrack.ReleaseDate = releaseDate;
+                        if (bpm.HasValue) dbTrack.BPM = bpm;
+                        if (!string.IsNullOrWhiteSpace(result.Key)) dbTrack.MusicalKey = result.Key;
+                        if (!string.IsNullOrWhiteSpace(result.Comments)) dbTrack.Comments = result.Comments;
+                        if (!string.IsNullOrWhiteSpace(result.Mood)) dbTrack.MoodTag = result.Mood;
 
                         context.PlaylistTracks.Update(dbTrack);
                     }
@@ -1967,6 +1989,10 @@ public partial class LibraryViewModel
                                 dbLibraryEntry.Genres = System.Text.Json.JsonSerializer.Serialize(new List<string> { result.Genre });
                             }
                             if (releaseDate.HasValue) dbLibraryEntry.ReleaseDate = releaseDate;
+                            if (bpm.HasValue) dbLibraryEntry.BPM = bpm;
+                            if (!string.IsNullOrWhiteSpace(result.Key)) dbLibraryEntry.MusicalKey = result.Key;
+                            if (!string.IsNullOrWhiteSpace(result.Comments)) dbLibraryEntry.Comments = result.Comments;
+                            if (!string.IsNullOrWhiteSpace(result.Mood)) dbLibraryEntry.MoodTag = result.Mood;
 
                             context.LibraryEntries.Update(dbLibraryEntry);
                         }
@@ -2017,6 +2043,7 @@ public partial class LibraryViewModel
                                     catch (Exception ex)
                                     {
                                         _logger.LogError(ex, "Failed to rename file: {Path}", sourcePath);
+                                        renameFailedCount++;
                                     }
                                 }
                                 else
@@ -2061,6 +2088,22 @@ public partial class LibraryViewModel
                     {
                         trackVm.Model.ReleaseDate = releaseDate;
                     }
+                    if (bpm.HasValue)
+                    {
+                        trackVm.Model.BPM = bpm;
+                    }
+                    if (!string.IsNullOrWhiteSpace(result.Key))
+                    {
+                        trackVm.Model.MusicalKey = result.Key;
+                    }
+                    if (!string.IsNullOrWhiteSpace(result.Comments))
+                    {
+                        trackVm.Model.Comments = result.Comments;
+                    }
+                    if (!string.IsNullOrWhiteSpace(result.Mood))
+                    {
+                        trackVm.Model.MoodTag = result.Mood;
+                    }
                     trackVm.NotifyMetadataChanged();
                 });
             }
@@ -2072,11 +2115,13 @@ public partial class LibraryViewModel
         var message = $"Successfully edited metadata tags for {dbUpdateSuccessCount} track(s) in DB (and {tagUpdateSuccessCount} physical files).";
         if (failedCount > 0)
             message += $" {failedCount} track(s) failed and were not changed — see logs for details.";
+        if (renameFailedCount > 0)
+            message += $" File rename failed for {renameFailedCount} track(s) — tags were still updated, but the file on disk keeps its old name. See logs for details.";
 
         _notificationService.Show(
             "Tags Updated",
             message,
-            failedCount > 0 ? NotificationType.Warning : NotificationType.Success);
+            failedCount > 0 || renameFailedCount > 0 ? NotificationType.Warning : NotificationType.Success);
     }
 
     private async Task ExecuteBatchQueueAnalysisAsync()

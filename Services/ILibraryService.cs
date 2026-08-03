@@ -263,6 +263,13 @@ public interface ILibraryService
     Task AddTracksToProjectAsync(System.Collections.Generic.IEnumerable<PlaylistTrack> tracks, Guid targetProjectId);
 
     /// <summary>
+    /// Removes tracks from a single playlist only — deletes the playlist-track relational
+    /// row(s) but leaves the underlying LibraryEntry (and the file on disk) untouched, so the
+    /// track stays visible in All Tracks and any other playlist it belongs to.
+    /// </summary>
+    Task RemoveTracksFromPlaylistAsync(Guid playlistId, System.Collections.Generic.List<Guid> playlistTrackIds);
+
+    /// <summary>
     /// Updates the cue points for all instances of a track (Library and Playlist entries).
     /// </summary>
     Task UpdateTrackCuePointsAsync(string trackHash, string cuePointsJson);
