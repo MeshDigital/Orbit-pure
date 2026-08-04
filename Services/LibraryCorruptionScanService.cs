@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -42,7 +43,7 @@ public sealed class LibraryCorruptionScanService
         CancellationToken cancellationToken = default)
     {
         List<(string Hash, string FilePath, string Artist, string Title)> targets;
-        await using (var db = await _dbFactory.CreateDbContextAsync(cancellationToken))
+        await using (var db = await _dbFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false))
         {
             targets = await db.LibraryEntries
                 .AsNoTracking()
@@ -51,20 +52,28 @@ public sealed class LibraryCorruptionScanService
                 .ToListAsync(cancellationToken)
                 .ContinueWith(
                     t => t.Result.Select(e => (e.UniqueHash, e.FilePath, e.Artist, e.Title)).ToList(),
-                    cancellationToken, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                    cancellationToken, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default)
+                .ConfigureAwait(false);
         }
 
         _logger.LogInformation("[LibraryScan] Starting corruption scan — {Count} tracks", targets.Count);
 
         int done = 0, clean = 0, warned = 0, fatal = 0, missing = 0;
-        var issues = new List<CorruptFileScanEntry>();
+        var issues = new ConcurrentBag<CorruptFileScanEntry>();
 
-        foreach (var (hash, filePath, artist, title) in targets)
+        // Bounded parallelism: each scan spawns an external FFmpeg process and does its own DB
+        // round-trip, so a fully serial foreach here meant a multi-thousand-track library took a
+        // linear chain of process spawns — tens of minutes to hours. Mirrors AnalysisQueueService's
+        // default worker sizing rather than reinventing a concurrency scheme.
+        var options = new ParallelOptions
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            done++;
-            progress?.Report((done, targets.Count, Path.GetFileName(filePath)));
+            MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2),
+            CancellationToken = cancellationToken,
+        };
 
+        await Parallel.ForEachAsync(targets, options, async (target, ct) =>
+        {
+            var (hash, filePath, artist, title) = target;
             CorruptionStatus status;
             string? details;
 
@@ -72,13 +81,13 @@ public sealed class LibraryCorruptionScanService
             {
                 status  = CorruptionStatus.Fatal;
                 details = "File not found on disk";
-                missing++;
+                Interlocked.Increment(ref missing);
             }
             else
             {
                 try
                 {
-                    (status, details) = await _scanner.ScanAsync(filePath, cancellationToken)
+                    (status, details) = await _scanner.ScanAsync(filePath, ct)
                         .ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
@@ -94,9 +103,9 @@ public sealed class LibraryCorruptionScanService
 
                 switch (status)
                 {
-                    case CorruptionStatus.Clean:   clean++;   break;
-                    case CorruptionStatus.Warning: warned++;  break;
-                    case CorruptionStatus.Fatal:   fatal++;   break;
+                    case CorruptionStatus.Clean:   Interlocked.Increment(ref clean);   break;
+                    case CorruptionStatus.Warning: Interlocked.Increment(ref warned);  break;
+                    case CorruptionStatus.Fatal:   Interlocked.Increment(ref fatal);   break;
                 }
 
                 if (status != CorruptionStatus.Clean)
@@ -107,8 +116,11 @@ public sealed class LibraryCorruptionScanService
             if (status != CorruptionStatus.Clean)
                 issues.Add(new CorruptFileScanEntry(hash, filePath, artist, title, status, details));
 
-            await PersistAsync(hash, status, details, cancellationToken).ConfigureAwait(false);
-        }
+            await PersistAsync(hash, status, details, ct).ConfigureAwait(false);
+
+            int doneNow = Interlocked.Increment(ref done);
+            progress?.Report((doneNow, targets.Count, Path.GetFileName(filePath)));
+        }).ConfigureAwait(false);
 
         var result = new LibraryCorruptionScanResult(
             Total:       targets.Count,
@@ -116,7 +128,10 @@ public sealed class LibraryCorruptionScanService
             Warned:      warned,
             Fatal:       fatal,
             Missing:     missing,
-            Issues:      issues,
+            // Parallel completion order isn't meaningful — sort for a stable, scannable list.
+            Issues:      issues.OrderBy(i => i.Artist, StringComparer.OrdinalIgnoreCase)
+                                .ThenBy(i => i.Title, StringComparer.OrdinalIgnoreCase)
+                                .ToList(),
             CompletedAt: DateTime.UtcNow);
 
         _logger.LogInformation(
@@ -134,10 +149,10 @@ public sealed class LibraryCorruptionScanService
     {
         try
         {
-            await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+            await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 
             var entity = await db.AudioAnalysis
-                .FirstOrDefaultAsync(a => a.TrackUniqueHash == trackHash, cancellationToken);
+                .FirstOrDefaultAsync(a => a.TrackUniqueHash == trackHash, cancellationToken).ConfigureAwait(false);
 
             if (entity is null)
             {
@@ -149,7 +164,7 @@ public sealed class LibraryCorruptionScanService
             entity.CorruptionDetails   = details;
             entity.LastIntegrityScanAt = DateTime.UtcNow;
 
-            await db.SaveChangesAsync(cancellationToken);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

@@ -33,6 +33,7 @@ public partial class LibraryViewModel
     // Commands delegate to child view models or orchestration paths and are assigned in InitializeCommands().
     public ICommand ViewHistoryCommand { get; set; } = null!;
     public ICommand OpenSourcesCommand { get; set; } = null!;
+    public ICommand RemoveUnidentifiedTracksCommand { get; set; } = null!;
     public ICommand ToggleEditModeCommand { get; set; } = null!;
     public ICommand ToggleActiveDownloadsCommand { get; set; } = null!;
     public ICommand ToggleNavigationCommand { get; set; } = null!;
@@ -105,11 +106,12 @@ public partial class LibraryViewModel
     partial void InitializeCommands()
     {
         ViewHistoryCommand = new AsyncRelayCommand(ExecuteViewHistoryAsync);
-        OpenSourcesCommand = new RelayCommand<object>(param => 
+        OpenSourcesCommand = new RelayCommand<object>(param =>
         {
             if (param?.ToString() == "Close") IsSourcesOpen = false;
             else IsSourcesOpen = true;
         });
+        RemoveUnidentifiedTracksCommand = new AsyncRelayCommand(ExecuteRemoveUnidentifiedTracksAsync);
         ToggleEditModeCommand = new RelayCommand(() => IsEditMode = !IsEditMode);
         ToggleActiveDownloadsCommand = new RelayCommand(() => IsActiveDownloadsVisible = !IsActiveDownloadsVisible);
         ToggleNavigationCommand = new RelayCommand(ExecuteToggleNavigation);
@@ -2122,6 +2124,47 @@ public partial class LibraryViewModel
             "Tags Updated",
             message,
             failedCount > 0 || renameFailedCount > 0 ? NotificationType.Warning : NotificationType.Success);
+    }
+
+    /// <summary>
+    /// Finds and permanently removes every "ID" placeholder track (DJ-tracklist shorthand for an
+    /// unidentified track, e.g. "Basstripper - ID") — <see cref="Utils.CommentTracklistParser"/>
+    /// drops these at import time now, but that can't retroactively clean tracklists imported
+    /// before the filter existed, so leftovers can still be sitting in the library.
+    /// </summary>
+    private async Task ExecuteRemoveUnidentifiedTracksAsync()
+    {
+        var cleanupService = _serviceProvider?.GetService(typeof(Services.UnidentifiedTrackCleanupService))
+            as Services.UnidentifiedTrackCleanupService;
+        if (cleanupService == null)
+        {
+            _notificationService.Show("Remove Unidentified Tracks", "Cleanup service unavailable.", NotificationType.Error);
+            return;
+        }
+
+        bool confirm = await _dialogService.ConfirmAsync(
+            "Remove Unidentified (\"ID\") Tracks",
+            "This permanently deletes every track titled \"ID\" — a DJ-tracklist placeholder meaning the real track was never identified — from every playlist and the library, including any downloaded file on disk. This cannot be undone. Continue?");
+        if (!confirm) return;
+
+        try
+        {
+            var result = await cleanupService.RemoveAllAsync();
+            _notificationService.Show(
+                "Remove Unidentified Tracks",
+                result.TracksRemoved == 0 ? "No unidentified (\"ID\") tracks found." : result.Summary,
+                result.HasErrors ? NotificationType.Warning : NotificationType.Success);
+
+            if (result.TracksRemoved > 0)
+            {
+                await ExecuteRefreshLibraryAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to remove unidentified tracks");
+            _notificationService.Show("Remove Unidentified Tracks", $"Failed: {ex.Message}", NotificationType.Error);
+        }
     }
 
     private async Task ExecuteBatchQueueAnalysisAsync()

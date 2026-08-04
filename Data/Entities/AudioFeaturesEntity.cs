@@ -248,7 +248,18 @@ public class AudioFeaturesEntity
     
     // Phase 21: AI Brain Upgrade
     public float? Sadness { get; set; }
-    
+
+    /// <summary>
+    /// Raw per-dimension scores (0-1) from the 5 independent DiscogsEffnet mood classifier
+    /// heads — distinct from <see cref="MoodTag"/>/<see cref="MoodConfidence"/>, which only
+    /// record the single winner-takes-all result. These let the UI show the full mood
+    /// breakdown instead of just one label. <see cref="Sadness"/> above is the Sad dimension.
+    /// </summary>
+    public float MoodHappy { get; set; }
+    public float MoodRelaxed { get; set; }
+    public float MoodParty { get; set; }
+    public float MoodAggressive { get; set; }
+
     // Tier 3: Specialized Analysis
     public float? AvgPitch { get; set; }
     public float? PitchConfidence { get; set; }
@@ -568,13 +579,15 @@ public class AudioFeaturesEntity
     public string? CuePointsJson { get; set; }
 
     // ============================================
-    // Task 2.1 — Discogs-Effnet 2048-D Embedding
+    // Task 2.1 — Discogs-Effnet 1280-D Embedding
     // ============================================
 
     /// <summary>
-    /// Raw 2048-dimensional Essentia DiscogsEffnet embedding, stored as a byte blob.
-    /// Layout: 2048 × float32 little-endian = 8 192 bytes.
-    /// Null until the embedding model has been run on this track.
+    /// Raw 1280-dimensional DiscogsEffnet embedding (track-level mean across 128-frame
+    /// mel-spectrogram patches), stored as a byte blob. Layout: 1280 × float32 little-endian
+    /// = 5 120 bytes. Null until the embedding model has been run on this track.
+    /// Corrected from an earlier assumed 2048-D — the real published model outputs 1280-D
+    /// (confirmed against the model's own schema at essentia.upf.edu).
     /// </summary>
     [Column("EmbeddingBlob")]
     public byte[]? EmbeddingBlob { get; set; }

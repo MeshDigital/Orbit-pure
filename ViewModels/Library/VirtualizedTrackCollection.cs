@@ -85,6 +85,12 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         _disposables.Add(_eventBus.GetEvent<Models.TrackMetadataUpdatedEvent>().Subscribe(evt => DispatchToViewModel(evt.TrackGlobalId, vm => vm.OnMetadataUpdated(evt))));
         _disposables.Add(_eventBus.GetEvent<Models.TrackAnalysisStartedEvent>().Subscribe(evt => DispatchToViewModel(evt.TrackGlobalId, vm => vm.OnAnalysisStarted(evt))));
         _disposables.Add(_eventBus.GetEvent<Models.TrackAnalysisFailedEvent>().Subscribe(evt => DispatchToViewModel(evt.TrackGlobalId, vm => vm.OnAnalysisFailed(evt))));
+        // TrackAnalysisUpdatedEvent was published on every successful analysis (AnalysisQueueService)
+        // but had no subscriber anywhere, so Started/Failed had a spinner/error bookend but no success
+        // refresh — the Inspector kept showing pre-analysis data until the track was reselected after
+        // a full reload. Reuses OnMetadataUpdated's existing full-refetch-from-DB logic rather than
+        // adding a second near-identical refresh path.
+        _disposables.Add(_eventBus.GetEvent<Models.TrackAnalysisUpdatedEvent>().Subscribe(evt => DispatchToViewModel(evt.TrackGlobalId, vm => vm.OnMetadataUpdated(new Models.TrackMetadataUpdatedEvent(evt.TrackGlobalId)))));
         _disposables.Add(_eventBus.GetEvent<Events.TrackDetailedStatusEvent>().Subscribe(evt => DispatchToViewModel(evt.TrackHash, vm => vm.OnDetailedStatus(evt))));
     }
 

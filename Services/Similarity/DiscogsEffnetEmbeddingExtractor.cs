@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Threading;
@@ -8,31 +10,45 @@ using Microsoft.Extensions.Logging;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using SLSKDONET.Data.Entities;
+using SLSKDONET.Engine.Analysis;
 
 namespace SLSKDONET.Services.Similarity;
 
 /// <summary>
-/// Extracts 2 048-dimensional Essentia DiscogsEffnet audio embeddings via ONNX Runtime (DirectML).
+/// Extracts DiscogsEffnet audio embeddings and built-in style predictions via ONNX Runtime
+/// (DirectML). Run in-process rather than via ORBIT's bundled Essentia CLI binary because that
+/// binary's TensorFlow-model layer was found to silently produce no output at all (confirmed
+/// empirically — the profile.yaml's `tensorflow_models` directive is not recognized by the
+/// stock `essentia_streaming_extractor_music` build ORBIT bundles).
 ///
-/// Expected model: <c>Tools/Essentia/models/discogs-effnet-bs64-1.onnx</c>
-/// Input:  <c>"input"</c>  — float32 tensor [1, samples] (mono PCM at 16 kHz)
-/// Output: <c>"output"</c> — float32 tensor [1, 2048]   (DiscogsEffnet activations)
+/// Expected model: <c>Tools/Essentia/models/discogs-effnet-bsdynamic-1.onnx</c> (the officially
+/// published ONNX export from essentia.upf.edu — the "bs64" filename referenced by earlier code
+/// here does not exist as an ONNX file; "bsdynamic" is the correct, dynamic-batch-size variant).
 ///
-/// When the model file is absent, all Extract calls return <c>null</c> and log a warning — the
+/// Input:  mel-spectrogram patches, <see cref="EffnetMelSpectrogramExtractor"/> — NOT raw PCM
+///         (an earlier version of this class assumed raw audio input; the model actually expects
+///         pre-computed mel-spectrogram frames, confirmed against the model's published schema).
+/// Outputs: "PartitionedCall:0" — 400-D Discogs-style predictions (sigmoid, multi-label)
+///          "PartitionedCall:1" — 1280-D embedding (not 2048-D, corrected from the same
+///          earlier incorrect assumption)
+///
+/// A full track produces multiple 128-frame patches; both outputs are mean-aggregated across
+/// patches to a single track-level vector, the standard MIR convention for this kind of model.
+///
+/// When the model file is absent, all Extract calls return null and log a warning — the
 /// application continues without embeddings (similarity search degrades gracefully).
 /// </summary>
 public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
 {
-    public const int EmbeddingDimension = 2048;
+    public const int EmbeddingDimension = 1280;
+    public const int StyleClassCount = 400;
 
-    // Relative path resolved against the application base directory at runtime.
     private static readonly string DefaultModelRelativePath =
-        Path.Combine("Tools", "Essentia", "models", "discogs-effnet-bs64-1.onnx");
+        Path.Combine("Tools", "Essentia", "models", "discogs-effnet-bsdynamic-1.onnx");
 
     private readonly string _modelPath;
     private readonly ILogger<DiscogsEffnetEmbeddingExtractor> _logger;
 
-    // Lazily created; null when the model file is absent.
     private InferenceSession? _session;
     private bool _loadAttempted;
     private string? _modelTag;
@@ -42,9 +58,8 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
         ILogger<DiscogsEffnetEmbeddingExtractor> logger,
         string? modelPath = null)
     {
-        _logger   = logger ?? throw new ArgumentNullException(nameof(logger));
-        _modelPath = modelPath
-            ?? Path.Combine(AppContext.BaseDirectory, DefaultModelRelativePath);
+        _logger    = logger ?? throw new ArgumentNullException(nameof(logger));
+        _modelPath = modelPath ?? Path.Combine(AppContext.BaseDirectory, DefaultModelRelativePath);
     }
 
     /// <summary>True when the ONNX model file exists and was loaded successfully.</summary>
@@ -58,10 +73,8 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
     }
 
     /// <summary>
-    /// Model version tag used for cache-invalidation stored in
-    /// <see cref="AudioFeaturesEntity.EmbeddingModelTag"/>.
-    /// Format: <c>"discogs-effnet-bs64-1|{SHA256_8_HEX}"</c>.
-    /// Returns <c>null</c> when the model is not available.
+    /// Model version tag used for cache-invalidation, stored in
+    /// <see cref="AudioFeaturesEntity.EmbeddingModelTag"/>. Format: "discogs-effnet-bsdynamic-1|{SHA256_8_HEX}".
     /// </summary>
     public string? ModelTag
     {
@@ -73,76 +86,100 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
     }
 
     /// <summary>
-    /// Extracts a 2 048-D embedding from the supplied mono PCM audio samples.
+    /// Extracts the track-level embedding and style-prediction vectors from mono 16 kHz audio.
+    /// Returns <c>null</c> when the model is unavailable or the audio is too short for even one
+    /// mel-spectrogram patch (~2 seconds).
     /// </summary>
-    /// <param name="monoAudioSamples">Mono float[] at 16 kHz (any length).</param>
-    /// <param name="ct">Cancellation token.</param>
-    /// <returns>Float array of length 2 048, or <c>null</c> when the model is unavailable.</returns>
-    public Task<float[]?> ExtractAsync(
-        float[] monoAudioSamples,
+    public Task<(float[] Embedding, float[] StylePredictions)?> ExtractAsync(
+        float[] monoAudioSamples16k,
         CancellationToken ct = default)
     {
-        ArgumentNullException.ThrowIfNull(monoAudioSamples);
+        ArgumentNullException.ThrowIfNull(monoAudioSamples16k);
 
         EnsureSessionLoaded();
-        if (_session == null) return Task.FromResult<float[]?>(null);
+        if (_session == null) return Task.FromResult<(float[], float[])?>(null);
 
         ct.ThrowIfCancellationRequested();
 
-        // ONNX inference is CPU/GPU-bound but has no native async API; offload to a thread-pool
-        // thread so that calling code using async/await is not blocked on the UI thread.
-        return Task.Run(() => RunInference(monoAudioSamples, ct), ct);
+        // ONNX inference is CPU/GPU-bound with no native async API; offload to a thread-pool
+        // thread so async/await callers don't block on it.
+        return Task.Run(() => RunInference(monoAudioSamples16k, ct), ct);
     }
 
     /// <summary>
     /// Populates <see cref="AudioFeaturesEntity.EmbeddingBlob"/> and
-    /// <see cref="AudioFeaturesEntity.EmbeddingModelTag"/> in-place.
+    /// <see cref="AudioFeaturesEntity.EmbeddingModelTag"/> in-place. Style predictions are
+    /// returned separately for the caller to fuse into genre inference — they aren't stored on
+    /// the entity directly (no dedicated column for them today).
     /// </summary>
-    public async Task PopulateEntityAsync(
+    public async Task<float[]?> PopulateEntityAsync(
         AudioFeaturesEntity entity,
-        float[] monoAudioSamples,
+        float[] monoAudioSamples16k,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(entity);
 
-        var embedding = await ExtractAsync(monoAudioSamples, ct).ConfigureAwait(false);
-        if (embedding == null) return;
+        var result = await ExtractAsync(monoAudioSamples16k, ct).ConfigureAwait(false);
+        if (result is null) return null;
 
-        // Zero-copy: reinterpret float[] as byte[] via MemoryMarshal
-        entity.EmbeddingBlob     = MemoryMarshal.AsBytes(embedding.AsSpan()).ToArray();
+        entity.Embedding         = result.Value.Embedding;
         entity.EmbeddingModelTag = _modelTag;
+        return result.Value.StylePredictions;
     }
 
     // ── private helpers ───────────────────────────────────────────────────────
 
-    private float[]? RunInference(float[] audio, CancellationToken ct)
+    private (float[] Embedding, float[] StylePredictions)? RunInference(float[] audio16k, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
 
-        // Build input tensor [1, samples]
-        var tensor = new DenseTensor<float>(new[] { 1, audio.Length });
-        audio.AsSpan().CopyTo(MemoryMarshal.Cast<float, float>(tensor.Buffer.Span));
-
-        var inputs = new NamedOnnxValue[]
+        var patches = EffnetMelSpectrogramExtractor.ExtractPatches(audio16k);
+        if (patches.Count == 0)
         {
-            NamedOnnxValue.CreateFromTensor("input", tensor),
-        };
-
-        using var results = _session!.Run(inputs);
-
-        ct.ThrowIfCancellationRequested();
-
-        // Extract the first output tensor as float[]
-        var output = results[0].AsEnumerable<float>();
-        var embedding = new float[EmbeddingDimension];
-        int i = 0;
-        foreach (var v in output)
-        {
-            if (i >= EmbeddingDimension) break;
-            embedding[i++] = v;
+            _logger.LogDebug("[EmbeddingExtractor] Audio too short for a single mel-spectrogram patch — skipping");
+            return null;
         }
 
-        return embedding;
+        // Batch every patch into one inference call: input shape [patchCount, 128, 96].
+        var tensor = new DenseTensor<float>(new[]
+        {
+            patches.Count,
+            EffnetMelSpectrogramExtractor.PatchFrames,
+            EffnetMelSpectrogramExtractor.MelBands,
+        });
+
+        for (int p = 0; p < patches.Count; p++)
+            patches[p].AsSpan().CopyTo(tensor.Buffer.Span.Slice(p * patches[p].Length, patches[p].Length));
+
+        // Note: the model's published JSON metadata documents these as "serving_default_melspectrogram" /
+        // "PartitionedCall:0" / "PartitionedCall:1" (the original TensorFlow graph's node names) — the
+        // actual ONNX export renames them to these simpler names, confirmed directly against the loaded
+        // InferenceSession's real InputMetadata/OutputMetadata rather than trusting the JSON.
+        var inputs = new[] { NamedOnnxValue.CreateFromTensor("melspectrogram", tensor) };
+
+        using var results = _session!.Run(inputs);
+        ct.ThrowIfCancellationRequested();
+
+        var predictionsTensor = results.First(r => r.Name == "activations").AsTensor<float>();
+        var embeddingTensor   = results.First(r => r.Name == "embeddings").AsTensor<float>();
+
+        var embedding    = MeanAcrossPatches(embeddingTensor, patches.Count, EmbeddingDimension);
+        var predictions  = MeanAcrossPatches(predictionsTensor, patches.Count, StyleClassCount);
+
+        return (embedding, predictions);
+    }
+
+    private static float[] MeanAcrossPatches(Tensor<float> tensor, int patchCount, int dim)
+    {
+        var mean = new float[dim];
+        for (int p = 0; p < patchCount; p++)
+            for (int d = 0; d < dim; d++)
+                mean[d] += tensor[p, d];
+
+        for (int d = 0; d < dim; d++)
+            mean[d] /= patchCount;
+
+        return mean;
     }
 
     private void EnsureSessionLoaded()
@@ -154,7 +191,7 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
         {
             _logger.LogWarning(
                 "[EmbeddingExtractor] DiscogsEffnet model not found at {Path}. " +
-                "Similarity search will operate without dense embeddings.",
+                "Similarity search and ONNX-based genre/mood classification will operate without it.",
                 _modelPath);
             return;
         }
@@ -162,7 +199,6 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
         try
         {
             var opts = new SessionOptions();
-            // DirectML (GPU) preferred; falls back to CPU automatically when unavailable.
             opts.AppendExecutionProvider_DML();
 
             _session  = new InferenceSession(_modelPath, opts);
@@ -181,7 +217,6 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
 
     private static string BuildModelTag(string modelPath)
     {
-        // First 8 hex chars of the SHA-256 of the model file, for cache invalidation.
         using var sha = SHA256.Create();
         using var fs  = File.OpenRead(modelPath);
         var hash = sha.ComputeHash(fs);

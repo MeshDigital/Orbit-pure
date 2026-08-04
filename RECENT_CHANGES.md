@@ -2,6 +2,53 @@
 
 ---
 
+## [0.7.1-beta] — 2026-08-04
+
+### 🧠 Real genre/mood/embedding AI — replacing a silently-dead Essentia layer
+
+ORBIT's bundled `essentia_streaming_extractor_music.exe` was confirmed (via repeated empirical testing, including a re-verification via native PowerShell after an initial Git-Bash test was correctly challenged for possible path mistranslation) to silently produce an *empty* `highlevel` JSON section regardless of `profile.yaml`'s `tensorflow_models` directive. Genre classification, mood scoring, and similarity embeddings had been dead for every track in the library — not erroring, just quietly producing nothing.
+
+Rather than trying to fix or replace the Essentia binary, or standing up a Python microservice (a dependency shape that's repeatedly gone unset-up in this codebase — see EDMFormer), genre/mood/embeddings are now computed directly in C# via ONNX Runtime, in-process, using the same DirectML execution provider the existing stem-separation feature already relies on:
+
+- `Engine/Analysis/EffnetMelSpectrogramExtractor.cs` — mel-spectrogram preprocessing (16 kHz, 512/256 frame/hop, 96 Slaney-scale bands, log(10000·x+1) compression) matching Essentia's own `TensorflowInputMusiCNN` convention, cross-verified against three independent sources.
+- `Services/Similarity/DiscogsEffnetEmbeddingExtractor.cs` — the shared 1280-D DiscogsEffnet embedding (corrected from an earlier incorrect 2048-D assumption; real input/output tensor names differ from the published JSON metadata and were confirmed against the loaded model's own `InputMetadata`/`OutputMetadata`).
+- `Services/Similarity/EffnetClassifierHeadService.cs` — MTG-Jamendo 87-class genre + 5 independent binary mood classifiers (Happy/Sad/Relaxed/Party/Aggressive), chained off the shared embedding.
+- Fed into the existing `AudioAnalysisService.InferAndApplyGenreAsync` multi-source fusion scorer as a new highest-weighted candidate (0.85) rather than replacing that mechanism — a future working Essentia binary would just add a second corroborating vote.
+- Validated against a real known-genre track (top prediction matched) before wiring into production — mel-spectrogram preprocessing has no unit-testable ground truth of its own, so this empirical check was the actual gate.
+
+See `ARCHITECTURE.md`'s "Real-Time Genre, Mood & Embeddings" section for the full data-flow diagram.
+
+### 🎨 Track Inspector — surfaces the new AI data, no pill badges
+
+The Analysis tab's "Vibe" section (a `VibePillContainer` of colored pill badges) is replaced with a "GENRE & MOOD" section using the panel's existing bar/percentage visual language instead:
+
+- Ranked AI genre classification as confidence bars (top 3), falling back to a plain label for tracks analyzed before this pipeline existed.
+- The full 5-way mood breakdown (Party/Aggressive/Happy/Relaxed/Sad) as individual bars — previously only a single winner-takes-all mood pill was shown; the other 4 scores were computed and silently discarded.
+- Sonic Profile's Arousal/Valence bars (never backed by real data — the emomusic model this would need was never built) are removed rather than shown at a permanent 0%.
+- The Deep Analysis radar chart's two dead Arousal/Valence points are swapped for Party/Aggressive, so all 5 axes now carry real data.
+- Required 4 new `AudioFeaturesEntity` columns (schema migration #23) to persist the 4 mood scores that were previously computed then thrown away — `Sadness` already existed and covers the 5th.
+
+### 🔧 Fixed: analysis results not appearing until app restart
+
+`AnalysisQueueService` published `TrackAnalysisUpdatedEvent` on every successful analysis, but nothing in the codebase ever subscribed to it — `VirtualizedTrackCollection` wired up the started/failed bookends (`TrackAnalysisStartedEvent`/`TrackAnalysisFailedEvent`) but the success case was apparently never finished. Re-analyzing an already-open track updated the database correctly but the visible Inspector kept showing stale data until the track was reselected after a full app reload. Fixed by subscribing the dead event to the existing full-refetch-from-DB refresh path — BPM, key, energy, danceability, and genre now confirmed to update live; one narrower residual gap (the new mood-breakdown bars specifically not always picking up the live refresh, though always correct on reload) is still open.
+
+### 🧹 "ID" placeholder tracks — cleanup tool + confirmed the import fix already covers it
+
+DJ-tracklist shorthand for an unidentified track (e.g. "Basstripper - ID") was previously kept as a real, downloadable track. A parser-level fix already existed (`Utils/CommentTracklistParser.cs`, 2026-07-31) and was confirmed still correct across every current import path — the pollution found in the library was legacy data from imports at or before that fix, never retroactively cleaned. Added `Services/UnidentifiedTrackCleanupService.cs`, wired into **Library → Tools → "Remove Unidentified ('ID') Tracks"**: finds every track titled "ID" across playlists and the library, deletes the (very likely wrongly-matched) file from disk, and removes all associated rows including cached analysis data, behind a confirmation dialog since it's irreversible. Removed 18 unidentified tracks / 7 wrongly-downloaded files / 22 playlist rows on first run against the live library.
+
+### 🩺 Corruption scanning — fewer false positives, much faster, self-healing
+
+- `AudioIngestionPipeline.ProbeForCorruptionAsync`'s FFmpeg decode probe now runs single-threaded (`-threads 1`) — FFmpeg's default multi-threaded decode made error counts non-deterministic near a bad frame, observed directly on real files that logged decode errors on one scan and none on the next.
+- `AudioCorruptionScannerService` now distinguishes an isolated, recovered decode glitch (a handful of error lines — common in P2P-sourced files, barely dents a multi-minute track's analysis) from pervasive corruption (errors repeating throughout) via an error-line-count threshold, rather than treating any decode error at all as fully Fatal. Previously this blocked real, largely-intact tracks from ever being analyzed over a single recovered glitch.
+- `LibraryCorruptionScanService` now scans in bounded parallel (`Parallel.ForEachAsync`, half the CPU core count) instead of a fully serial loop — a multi-thousand-track library previously took a linear chain of external FFmpeg process spawns, tens of minutes to hours.
+- `AnalysisPageViewModel` now auto-remediates Fatal issues immediately after a scan completes (no manual "Fix" click required) and subscribes to `LibraryEntryDeletedEvent` so a track removed elsewhere (e.g. by remediation) disappears from the page immediately instead of leaving its last-loaded waveform/BPM on screen looking current. The Analysis page also now tells corrupt-file failures apart from generic ones ("file may be corrupt — try re-downloading" vs "analysis failed: ...") since retrying a corrupt file fails identically every time.
+
+#### ✅ Verification
+
+- `dotnet build` clean, full `dotnet test` suite green (aside from the pre-existing, timing-sensitive `BackgroundJobQueueTests` flake under parallel load, confirmed clean in isolation, unrelated to this batch).
+- ONNX pipeline live-tested end-to-end in the running app (not just a standalone harness): triggered analysis on a real track via the UI, confirmed via direct SQLite query that all 5 mood scores and the genre distribution landed correctly, and confirmed the Track Inspector renders them.
+- ID-track cleanup run live against the actual library and independently re-verified via SQLite query afterward (zero "ID" rows remain anywhere).
+
 ## [0.7.0-beta] — 2026-08-03
 
 ### 🎯 Drop/Cue Auto-Generation — real signal routing fix

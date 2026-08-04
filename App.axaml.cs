@@ -433,6 +433,7 @@ public partial class App : Application
         services.AddSingleton<AudioCorruptionScannerService>();   // Fast per-file corruption probe (FFmpeg + NAudio)
         services.AddSingleton<LibraryCorruptionScanService>();    // Batch library-wide corruption scan
         services.AddSingleton<CorruptFileRemediationService>();   // Disk delete + DB reset + re-queue for corrupt/missing files
+        services.AddSingleton<UnidentifiedTrackCleanupService>(); // Full removal of "ID" placeholder tracks (no identity to redownload against)
         services.AddSingleton<ArtworkPipeline>();
         services.AddSingleton<DragAdornerService>();
         
@@ -707,6 +708,11 @@ public partial class App : Application
         // ── Task 1.6: Waveform + Energy Extraction ───────────────────────
         services.AddSingleton<Services.AudioAnalysis.WaveformExtractionService>();
         services.AddSingleton<Services.AudioAnalysis.EnergyAnalysisService>();
+        // DiscogsEffnet embedding + genre/mood classification via ONNX Runtime, run in-process —
+        // replaces the Essentia CLI's TensorFlow-model layer, which was found to silently produce
+        // no output at all with the binary ORBIT bundles.
+        services.AddSingleton<Services.Similarity.DiscogsEffnetEmbeddingExtractor>();
+        services.AddSingleton<Services.Similarity.EffnetClassifierHeadService>();
         services.AddSingleton<Services.AudioAnalysis.AudioAnalysisService>();
         services.AddSingleton<Services.IAudioAnalysisService>(sp =>
             sp.GetRequiredService<Services.AudioAnalysis.AudioAnalysisService>());

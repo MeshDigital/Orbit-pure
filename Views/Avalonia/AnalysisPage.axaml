@@ -305,7 +305,7 @@
                                                 <Run Text="{Binding Title}"/>
                                             </TextBlock>
                                             <TextBlock Grid.Column="1"
-                                                       Foreground="{DynamicResource BrushText2}"
+                                                       Foreground="{Binding IsLikelyCorruptFile, Converter={StaticResource BooleanToRedBrushConverter}}"
                                                        FontSize="10"
                                                        Text="{Binding IncompleteAnalysisSummary}"/>
                                         </Grid>

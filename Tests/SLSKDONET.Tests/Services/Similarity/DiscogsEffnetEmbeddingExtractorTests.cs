@@ -111,6 +111,9 @@ public class DiscogsEffnetEmbeddingExtractorTests : IDisposable
     }
 
     [Fact]
-    public void EmbeddingDimension_Is2048()
-        => Assert.Equal(2048, DiscogsEffnetEmbeddingExtractor.EmbeddingDimension);
+    public void EmbeddingDimension_Is1280()
+        // Corrected from an earlier incorrect assumption of 2048-D — the real published
+        // DiscogsEffnet ONNX model outputs 1280-D (confirmed against its own schema at
+        // essentia.upf.edu and against the loaded InferenceSession's actual OutputMetadata).
+        => Assert.Equal(1280, DiscogsEffnetEmbeddingExtractor.EmbeddingDimension);
 }

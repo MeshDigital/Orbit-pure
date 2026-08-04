@@ -139,6 +139,10 @@
                                                ToolTip.Tip="Restore a playlist you removed from the list">
                                          <MenuItem.Icon><TextBlock Text="🗑️"/></MenuItem.Icon>
                                      </MenuItem>
+                                     <MenuItem Header="Remove Unidentified (&quot;ID&quot;) Tracks" Command="{Binding RemoveUnidentifiedTracksCommand}"
+                                               ToolTip.Tip="Permanently deletes tracklist placeholder tracks like &quot;Artist - ID&quot; — leftovers from before imports filtered these out">
+                                         <MenuItem.Icon><TextBlock Text="❓"/></MenuItem.Icon>
+                                     </MenuItem>
                                      <MenuItem Header="New Smart Crate (Genre/Mood)" Command="{Binding CreateSmartPlaylistCommand}"
                                                ToolTip.Tip="Rule-based playlist: sub-genre, mood, BPM/energy range">
                                          <MenuItem.Icon><TextBlock Text="⚡"/></MenuItem.Icon>

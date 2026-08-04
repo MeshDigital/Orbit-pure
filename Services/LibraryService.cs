@@ -1315,6 +1315,7 @@ public class LibraryService : ILibraryService
             Comments = entity.Comments,
             ColorTag = entity.ColorTag,
             MoodTag = !string.IsNullOrEmpty(entity.MoodTag) ? entity.MoodTag : entity.AudioFeatures?.MoodTag,
+            MoodConfidence = entity.AudioFeatures?.MoodConfidence,
             PrimaryGenre = entity.PrimaryGenre,
 
             // Phase 21: AI Brain - Mapped below via AudioFeatures
@@ -1362,11 +1363,17 @@ public class LibraryService : ILibraryService
             
             // Phase 15
             DetectedSubGenre = !string.IsNullOrEmpty(entity.DetectedSubGenre) ? entity.DetectedSubGenre : entity.AudioFeatures?.DetectedSubGenre,
+            SubGenreConfidence = entity.SubGenreConfidence > 0 ? entity.SubGenreConfidence : entity.AudioFeatures?.SubGenreConfidence,
             InstrumentalProbability = entity.InstrumentalProbability ?? (entity.AudioFeatures?.InstrumentalProbability > 0 ? (double?)entity.AudioFeatures.InstrumentalProbability : null), // Phase 18.2
 
             // Phase 21: AI Brain (Mapped from AudioFeatures)
             Sadness = entity.AudioFeatures?.Sadness,
             VectorEmbedding = entity.AudioFeatures?.VectorEmbedding,
+            MoodHappy = entity.AudioFeatures?.MoodHappy,
+            MoodRelaxed = entity.AudioFeatures?.MoodRelaxed,
+            MoodParty = entity.AudioFeatures?.MoodParty,
+            MoodAggressive = entity.AudioFeatures?.MoodAggressive,
+            GenreDistributionJson = entity.AudioFeatures?.GenreDistributionJson,
 
             BpmStability = entity.AudioFeatures?.BpmStability,
 

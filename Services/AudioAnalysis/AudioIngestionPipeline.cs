@@ -97,17 +97,24 @@ public sealed class AudioIngestionPipeline
 
     /// <summary>
     /// Fast corruption probe: decodes <paramref name="filePath"/> to /dev/null via FFmpeg.
-    /// Works for every format. Returns null if clean, or a concise error string if corrupt.
-    /// No temp file is created.
+    /// Works for every format. Returns (0, null) if clean, or (error line count, a concise error
+    /// preview) if FFmpeg logged decode errors — the caller decides Fatal vs Warning from the count,
+    /// since a handful of isolated frame errors (decoder hit one bad spot and recovered) is a very
+    /// different situation from errors repeating throughout most of the file. No temp file is created.
     /// </summary>
-    public async Task<string?> ProbeForCorruptionAsync(
+    public async Task<(int ErrorLineCount, string? Preview)> ProbeForCorruptionAsync(
         string filePath,
         CancellationToken cancellationToken = default)
     {
         if (!File.Exists(filePath))
-            return "File does not exist";
+            return (1, "File does not exist");
 
-        string args = $"-v error -i \"{filePath}\" -f null -";
+        // -threads 1: FFmpeg's default multi-threaded frame decode makes error counts
+        // non-deterministic near a corrupted frame (thread-scheduling-dependent whether that
+        // frame's error surfaces on a given run) — observed directly on real files, where the
+        // same file logged decode errors on one run and none on the next. Single-threaded decode
+        // makes the corruption probe's verdict repeatable.
+        string args = $"-threads 1 -v error -i \"{filePath}\" -f null -";
         var (exitCode, stderr) = await RunProcessAsync(_ffmpegPath, args, cancellationToken)
             .ConfigureAwait(false);
 
@@ -121,12 +128,12 @@ public sealed class AudioIngestionPipeline
             .ToArray();
 
         if (errors.Length > 0)
-            return string.Join("; ", errors.Take(3));
+            return (errors.Length, string.Join("; ", errors.Take(3)));
 
         if (exitCode != 0)
-            return $"FFmpeg exited {exitCode} with no stderr";
+            return (1, $"FFmpeg exited {exitCode} with no stderr");
 
-        return null;
+        return (0, null);
     }
 
     // ──────────────────────────────────── helpers ──────────────────────────

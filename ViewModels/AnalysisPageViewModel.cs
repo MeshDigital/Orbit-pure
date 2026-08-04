@@ -169,6 +169,9 @@ public class AnalysisTrackItem : ReactiveObject
         {
             this.RaiseAndSetIfChanged(ref _analysisError, value);
             this.RaisePropertyChanged(nameof(HasAnalysisError));
+            this.RaisePropertyChanged(nameof(IsLikelyCorruptFile));
+            this.RaisePropertyChanged(nameof(HasIncompleteAnalysis));
+            this.RaisePropertyChanged(nameof(IncompleteAnalysisSummary));
         }
     }
 
@@ -209,6 +212,17 @@ public class AnalysisTrackItem : ReactiveObject
 
     public bool HasAnalysisError => !string.IsNullOrWhiteSpace(AnalysisError);
     public bool HasStemError     => !string.IsNullOrWhiteSpace(StemError);
+
+    /// <summary>
+    /// True when the last analysis attempt failed because the audio file itself has decode
+    /// errors serious enough to block analysis (see AudioCorruptionScannerService), rather than
+    /// a transient/environmental failure. Re-analyzing will fail identically every time for these
+    /// — the fix is re-acquiring the file, not retrying — so the UI should say so instead of
+    /// implying a retry might help.
+    /// </summary>
+    public bool IsLikelyCorruptFile =>
+        !string.IsNullOrWhiteSpace(AnalysisError) &&
+        AnalysisError.Contains("Corrupt file", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Human-readable "Last analyzed" display string for tooltip use.</summary>
     public string LastAnalyzedDisplay
@@ -387,7 +401,9 @@ public class AnalysisTrackItem : ReactiveObject
 
         if (AnalysisStatus == AnalysisRunStatus.Failed)
         {
-            reasons.Add("analysis failed");
+            reasons.Add(IsLikelyCorruptFile
+                ? "file may be corrupt — try re-downloading rather than re-analyzing"
+                : HasAnalysisError ? $"analysis failed: {Truncate(AnalysisError!, 70)}" : "analysis failed");
         }
 
         if (AnalysisData is null)
@@ -426,6 +442,9 @@ public class AnalysisTrackItem : ReactiveObject
     {
         return reasons.Count == 0 ? "Complete" : string.Join(" • ", reasons);
     }
+
+    private static string Truncate(string text, int maxLength) =>
+        text.Length <= maxLength ? text : text[..maxLength].TrimEnd() + "…";
 
     private WaveformAnalysisData BuildWaveformAnalysisData()
     {
@@ -1088,6 +1107,11 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             .Subscribe(OnFileMissingDetected)
             .DisposeWith(_disposables);
 
+        _eventBus.GetEvent<LibraryEntryDeletedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(OnLibraryEntryDeleted)
+            .DisposeWith(_disposables);
+
         this.WhenAnyValue(x => x.SearchText)
             .Throttle(TimeSpan.FromMilliseconds(220), RxApp.MainThreadScheduler)
             .Subscribe(_ => ApplyFilter())
@@ -1497,6 +1521,24 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         ApplyLifecycleMetrics(_lifecycleProjectionService.ApplyFileMissingDetected(GetCurrentLifecycleMetrics()));
 
         AutomixStatusMessage = $"Stale index detected: {System.IO.Path.GetFileName(evt.FilePath)}";
+        RefreshComputedState();
+    }
+
+    /// <summary>
+    /// Fired by CorruptFileRemediationService (and anything else that removes a LibraryEntry)
+    /// after the underlying row is gone. Removes the track from this page entirely rather than
+    /// leaving its last-loaded waveform/BPM/analysis on screen looking current — a corrupt or
+    /// missing track that was just wiped from the DB has nothing left to show here.
+    /// </summary>
+    private void OnLibraryEntryDeleted(LibraryEntryDeletedEvent evt)
+    {
+        var track = FindTrack(evt.UniqueHash);
+        if (track is null)
+            return;
+
+        AnalysisQueue.Remove(track);
+        LibraryTracks.Remove(track);
+        AutomixStatusMessage = $"Removed {track.Artist} — {track.Title} (corrupt or missing file).";
         RefreshComputedState();
     }
 
@@ -2110,6 +2152,18 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             IntegrityScanStatusText =
                 $"Scan complete — {result.Clean} clean, {result.Warned} warnings, {result.Fatal - result.Missing} corrupt, {result.Missing} missing";
             AutomixStatusMessage = IntegrityScanStatusText;
+
+            // Auto-remediate fatal issues (genuinely corrupt or missing files) immediately — no
+            // manual "Fix" click required. Warnings are deliberately excluded: those are isolated,
+            // recoverable decode glitches (see AudioCorruptionScannerService) that still analyse
+            // fine, not files that need removing.
+            var fatalIssues = result.Issues.Where(i => i.Status == Data.Entities.CorruptionStatus.Fatal).ToList();
+            if (fatalIssues.Count > 0)
+            {
+                await RemediateAsync(fatalIssues).ConfigureAwait(true);
+                IntegrityScanStatusText = $"{IntegrityScanStatusText} — {RemediationStatusText}";
+                AutomixStatusMessage = IntegrityScanStatusText;
+            }
         }
         catch (OperationCanceledException)
         {

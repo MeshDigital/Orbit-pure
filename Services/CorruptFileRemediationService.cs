@@ -19,18 +19,26 @@ namespace SLSKDONET.Services;
 ///   - Removes the LibraryEntryEntity row
 ///   - Resets PlaylistTrackEntity → Missing so the download queue re-acquires it
 ///   - Clears LocalFilePath on TrackEntity
-///   - Deletes AudioAnalysisEntity + AudioFeaturesEntity (re-generated after re-download)
+///   - Deletes AudioAnalysisEntity + AudioFeaturesEntity — this also wipes the waveform blob,
+///     energy curve, beatgrid, and every other cached analysis artifact stored on that row
+///     (re-generated after re-download), so a stale waveform/BPM/cue display can't linger
+///   - Publishes LibraryEntryDeletedEvent per track so any open view (Analysis page, Cue Forge,
+///     Workstation) still holding that track's data in memory can react and clear it too, instead
+///     of silently continuing to show a waveform/analysis that no longer matches what's in the DB
 /// </summary>
 public sealed class CorruptFileRemediationService
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly IEventBus _eventBus;
     private readonly ILogger<CorruptFileRemediationService> _logger;
 
     public CorruptFileRemediationService(
         IDbContextFactory<AppDbContext> dbFactory,
+        IEventBus eventBus,
         ILogger<CorruptFileRemediationService> logger)
     {
         _dbFactory = dbFactory;
+        _eventBus = eventBus;
         _logger = logger;
     }
 
@@ -44,6 +52,14 @@ public sealed class CorruptFileRemediationService
     {
         int filesDeleted = 0, libEntriesRemoved = 0, playlistTracksReset = 0, analysisCleaned = 0;
         var errors = new List<string>();
+
+        // Hop off the calling thread immediately — this method is invoked both from UI-bound
+        // ReactiveCommands and, since today, automatically right after an integrity scan finds
+        // fatal issues. Without this, the synchronous File.Exists/File.Delete calls below execute
+        // directly on whatever thread called us (the UI thread, for the common case), and every
+        // ConfigureAwait(false) further down only prevents *resuming* back onto that thread after
+        // an await — it does nothing for work that runs before the first await is ever reached.
+        await Task.Yield();
 
         for (int i = 0; i < entries.Count; i++)
         {
@@ -61,12 +77,12 @@ public sealed class CorruptFileRemediationService
                     _logger.LogInformation("[Remediation] Deleted corrupt file: {File}", entry.FilePath);
                 }
 
-                await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+                await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 
                 // 2 — Reset PlaylistTrack rows → Missing so the download queue re-acquires them
                 var playlistTracks = await db.PlaylistTracks
                     .Where(t => t.TrackUniqueHash == entry.Hash)
-                    .ToListAsync(cancellationToken);
+                    .ToListAsync(cancellationToken).ConfigureAwait(false);
 
                 foreach (var pt in playlistTracks)
                 {
@@ -84,7 +100,7 @@ public sealed class CorruptFileRemediationService
                 // NOT NULL constraint and failing remediation every time for the affected track.
                 if (playlistTracks.Count > 0)
                 {
-                    await db.SaveChangesAsync(cancellationToken);
+                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 }
 
                 // 3 — Remove LibraryEntryEntity (re-created after successful re-download).
@@ -92,7 +108,7 @@ public sealed class CorruptFileRemediationService
                 // fixup above even if more steps are added here later.
                 var libDeleted = await db.LibraryEntries
                     .Where(e => e.UniqueHash == entry.Hash)
-                    .ExecuteDeleteAsync(cancellationToken);
+                    .ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
                 if (libDeleted > 0) libEntriesRemoved++;
 
                 // 4 — Clear LocalFilePath on TrackEntity
@@ -100,18 +116,25 @@ public sealed class CorruptFileRemediationService
                     .Where(t => t.GlobalId == entry.Hash)
                     .ExecuteUpdateAsync(setters => setters
                         .SetProperty(t => t.LocalFilePath, (string?)null)
-                        .SetProperty(t => t.IsLocalFile, false), cancellationToken);
+                        .SetProperty(t => t.IsLocalFile, false), cancellationToken).ConfigureAwait(false);
 
                 // 5 — Remove AudioAnalysisEntity (regenerated after re-download + re-analysis)
                 var analysisDeleted = await db.AudioAnalysis
                     .Where(a => a.TrackUniqueHash == entry.Hash)
-                    .ExecuteDeleteAsync(cancellationToken);
+                    .ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
                 if (analysisDeleted > 0) analysisCleaned++;
 
-                // 6 — Remove AudioFeaturesEntity
+                // 6 — Remove AudioFeaturesEntity (waveform blob, energy curve, beatgrid, cues data,
+                // and every other cached analysis artifact for this track lives on this row — this
+                // delete is what actually clears the waveform, not a separate step)
                 await db.AudioFeatures
                     .Where(f => f.TrackUniqueHash == entry.Hash)
-                    .ExecuteDeleteAsync(cancellationToken);
+                    .ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+
+                // 7 — Tell any open view still holding this track's data (Analysis page, Cue Forge,
+                // Workstation) to drop it, so a stale waveform/BPM/cue display can't linger on
+                // screen after the underlying row is gone.
+                _eventBus.Publish(new LibraryEntryDeletedEvent(entry.Hash));
             }
             catch (OperationCanceledException)
             {

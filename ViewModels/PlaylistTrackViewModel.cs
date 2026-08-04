@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Input; // For ICommand
 using SLSKDONET.Models;
@@ -13,7 +14,8 @@ using SLSKDONET.Events;
 
 namespace SLSKDONET.ViewModels;
 
-
+/// <summary>One entry in the AI genre classifier's ranked output, for the Track Inspector.</summary>
+public sealed record GenreScore(string Label, double Confidence);
 
 /// <summary>
 /// ViewModel representing a track in the download queue.
@@ -85,6 +87,10 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     public string ReleaseYear => Model?.ReleaseDate?.Year.ToString() ?? "";
     public string YearDisplay => ReleaseYear; // Alias for StandardTrackRow compatibility
     public string? PrimaryGenre => Model.PrimaryGenre;
+
+    /// <summary>Genre label for tracks with no ranked AI breakdown stored yet (see <see cref="TopGenres"/>).</summary>
+    public string? LegacyGenreLabel => !string.IsNullOrEmpty(DetectedSubGenre) ? DetectedSubGenre : PrimaryGenre;
+    public bool ShowLegacyGenreFallback => !HasTopGenres && !string.IsNullOrEmpty(LegacyGenreLabel);
 
     // Phase 2: Pure UX Alignment - DataGrid Extras
     public DateTime? CompletedAt => Model.CompletedAt;
@@ -517,6 +523,44 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     }
     public bool IsDjTool => Model.IsDjTool;
     public double RadarInstrumentalness => Math.Clamp(InstrumentalProbability, 0.0, 1.0);
+
+    // ── AI mood breakdown (DiscogsEffnet classifier heads, 5 independent binary scores) ──────
+    public double MoodHappyNorm => Math.Clamp(Model.MoodHappy ?? 0.0, 0.0, 1.0);
+    public double MoodSadNorm => Math.Clamp(Model.Sadness ?? 0.0, 0.0, 1.0);
+    public double MoodRelaxedNorm => Math.Clamp(Model.MoodRelaxed ?? 0.0, 0.0, 1.0);
+    public double MoodPartyNorm => Math.Clamp(Model.MoodParty ?? 0.0, 0.0, 1.0);
+    public double MoodAggressiveNorm => Math.Clamp(Model.MoodAggressive ?? 0.0, 0.0, 1.0);
+    public bool HasMoodBreakdown =>
+        MoodHappyNorm > 0 || MoodSadNorm > 0 || MoodRelaxedNorm > 0 || MoodPartyNorm > 0 || MoodAggressiveNorm > 0;
+
+    // ── AI genre classification (MTG-Jamendo classifier head, fused with other sources) ──────
+    public double SubGenreConfidenceNorm => Math.Clamp(Model.SubGenreConfidence ?? 0f, 0.0, 1.0);
+
+    public IReadOnlyList<GenreScore> TopGenres
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(Model.GenreDistributionJson))
+                return Array.Empty<GenreScore>();
+
+            try
+            {
+                var dict = JsonSerializer.Deserialize<Dictionary<string, double>>(Model.GenreDistributionJson);
+                if (dict is null || dict.Count == 0) return Array.Empty<GenreScore>();
+
+                return dict
+                    .OrderByDescending(kv => kv.Value)
+                    .Take(3)
+                    .Select(kv => new GenreScore(kv.Key, Math.Clamp(kv.Value, 0.0, 1.0)))
+                    .ToArray();
+            }
+            catch (JsonException)
+            {
+                return Array.Empty<GenreScore>();
+            }
+        }
+    }
+    public bool HasTopGenres => TopGenres.Count > 0;
     public double AudioVocalDensity => Model.VocalDensityCurve?.Length > 0
         ? Math.Clamp(Model.VocalDensityCurve.Average(), 0.0, 1.0)
         : Math.Clamp(1.0 - InstrumentalProbability, 0.0, 1.0);
@@ -1227,6 +1271,14 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
                      Model.InstrumentalProbability = updatedTrack.InstrumentalProbability;
                      Model.Arousal = updatedTrack.Arousal;
                      Model.IsDjTool = updatedTrack.IsDjTool;
+                     Model.Sadness = updatedTrack.Sadness;
+                     Model.MoodHappy = updatedTrack.MoodHappy;
+                     Model.MoodRelaxed = updatedTrack.MoodRelaxed;
+                     Model.MoodParty = updatedTrack.MoodParty;
+                     Model.MoodAggressive = updatedTrack.MoodAggressive;
+                     Model.SubGenreConfidence = updatedTrack.SubGenreConfidence;
+                     Model.GenreDistributionJson = updatedTrack.GenreDistributionJson;
+                     Model.VectorEmbedding = updatedTrack.VectorEmbedding;
                      
                      // Update Analysis info if available
                      Model.Popularity = updatedTrack.Popularity;
@@ -1310,7 +1362,20 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
              OnPropertyChanged(nameof(VibeColor));
              OnPropertyChanged(nameof(VibeTooltip));
              OnPropertyChanged(nameof(InstrumentalProbability));
-             
+
+             // AI mood breakdown + genre classification (DiscogsEffnet/MTG-Jamendo)
+             OnPropertyChanged(nameof(MoodHappyNorm));
+             OnPropertyChanged(nameof(MoodSadNorm));
+             OnPropertyChanged(nameof(MoodRelaxedNorm));
+             OnPropertyChanged(nameof(MoodPartyNorm));
+             OnPropertyChanged(nameof(MoodAggressiveNorm));
+             OnPropertyChanged(nameof(HasMoodBreakdown));
+             OnPropertyChanged(nameof(SubGenreConfidenceNorm));
+             OnPropertyChanged(nameof(TopGenres));
+             OnPropertyChanged(nameof(HasTopGenres));
+             OnPropertyChanged(nameof(LegacyGenreLabel));
+             OnPropertyChanged(nameof(ShowLegacyGenreFallback));
+
              // NEW: Notify Waveform and technical props
              OnPropertyChanged(nameof(WaveformData));
              OnPropertyChanged(nameof(Bitrate));

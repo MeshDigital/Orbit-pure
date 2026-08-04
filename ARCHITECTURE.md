@@ -465,6 +465,57 @@ EssentiaOutput
 `ModelPrediction.Probability` is the raw confidence score from the TensorFlow model,
 stored verbatim so downstream features can apply their own thresholds.
 
+> **Known gap (as of 2026-08):** the bundled `essentia_streaming_extractor_music.exe` binary
+> silently produces an *empty* `highlevel` JSON section regardless of `profile.yaml`'s
+> `tensorflow_models` directive — confirmed empirically, not a config error. Every field under
+> `HighLevelData` above (`MoodHappy`, `VoiceInstrumental`, etc.) is effectively dead in practice.
+> Real genre/mood/embedding data now comes from the separate in-process ONNX pipeline described
+> below, not from this Essentia code path — see [Real-Time Genre, Mood & Embeddings](#real-time-genre-mood--embeddings-onnx-in-process-discogseffnet).
+
+### Real-Time Genre, Mood & Embeddings (ONNX, in-process, DiscogsEffnet) {#real-time-genre-mood--embeddings-onnx-in-process-discogseffnet}
+
+Because Essentia's TensorFlow layer is dead in this build (see caveat above), genre
+classification, mood scoring, and similarity embeddings are computed directly in C# via ONNX
+Runtime — in-process, no external service — rather than by re-enabling or replacing the Essentia
+binary. This mirrors the existing ONNX DirectML stem-separation provider's approach rather than
+introducing a new dependency shape (e.g. a Python microservice), since optional external
+dependencies have repeatedly gone unset-up in this codebase (see EDMFormer).
+
+```
+PCM samples (16 kHz mono)
+    │
+    ▼
+EffnetMelSpectrogramExtractor          Engine/Analysis/EffnetMelSpectrogramExtractor.cs
+    │  512-sample frames, 256 hop, 96 Slaney-scale mel bands,
+    │  power spectrum, log(10000·x + 1) compression, 128-frame patches
+    ▼
+DiscogsEffnetEmbeddingExtractor        Services/Similarity/DiscogsEffnetEmbeddingExtractor.cs
+    │  discogs-effnet-bsdynamic-1.onnx → 1280-D embedding (+ 400-class style prediction)
+    │  shared embedding reused for similarity search AND the classifier heads below
+    ▼
+EffnetClassifierHeadService            Services/Similarity/EffnetClassifierHeadService.cs
+    ├── mtg_jamendo_genre-discogs-effnet-1.onnx   → 87-class genre distribution
+    └── mood_{happy,sad,relaxed,party,aggressive}-discogs-effnet-1.onnx
+                                                    → 5 independent binary mood scores
+```
+
+- The base embedding model and each classifier head are separate small ONNX models under
+  `Tools/Essentia/models/`, all consuming the DirectML execution provider like the stem
+  separator does.
+- Genre output feeds `AudioAnalysisService.InferAndApplyGenreAsync` as a new, highest-weighted
+  candidate source (0.85) in the pre-existing multi-source fusion scorer — it doesn't replace
+  that mechanism, so a future working Essentia binary would just add a second corroborating vote.
+- Mood is stored two ways on `AudioFeaturesEntity`: a winner-takes-all `MoodTag`/`MoodConfidence`
+  pair (same convention the dead Essentia path would have used), and the full per-dimension
+  breakdown (`MoodHappy`/`MoodRelaxed`/`MoodParty`/`MoodAggressive`, plus the pre-existing
+  `Sadness`) for UI surfaces that want the whole distribution rather than one label.
+- Validated empirically against a real known-genre track (top prediction matched) before being
+  wired into the production analysis pipeline — mel-spectrogram preprocessing has no unit-testable
+  ground truth of its own, so this was the practical gate.
+- Surfaced in the Track Inspector's "GENRE & MOOD" section (`Views/Avalonia/Controls/LibraryTrackInspector.axaml`)
+  as ranked confidence bars, not badges — the panel's existing bar/percentage visual language,
+  not a new pattern.
+
 ### Stem Separation (`Services/StemSeparationService.cs`)
 
 `StemSeparationService` coordinates a three-tier provider chain:

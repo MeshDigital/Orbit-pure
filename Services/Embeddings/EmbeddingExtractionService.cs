@@ -277,7 +277,14 @@ public sealed class EmbeddingExtractionService : IEmbeddingExtractionService
     /// </summary>
     private static float[]? PickBestEmbedding(AudioFeaturesEntity f)
     {
-        // 512-D discogs-effnet (highest quality)
+        // 1280-D DiscogsEffnet embedding via ONNX Runtime (Services.Similarity.
+        // DiscogsEffnetEmbeddingExtractor) — the real, working source. Highest priority.
+        var effnet = f.Embedding;
+        if (effnet is { Length: > 0 }) return effnet;
+
+        // 512-D discogs-effnet via Essentia's highlevel output — currently always empty in
+        // practice (ORBIT's bundled Essentia binary doesn't produce TensorFlow-model output),
+        // kept as a fallback in case that's ever fixed.
         var deep = f.DeepTextureEmbedding;
         if (deep is { Length: > 0 }) return deep;
 

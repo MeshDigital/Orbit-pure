@@ -164,6 +164,16 @@ public class PlaylistTrack
     public double? Sadness { get; set; }
     public float[]? VectorEmbedding { get; set; } // Effnet Embeddings
 
+    // Full mood breakdown (raw per-dimension scores from the 5 DiscogsEffnet mood classifier
+    // heads) — Sadness above is the Sad dimension; these are the other 4.
+    public double? MoodHappy { get; set; }
+    public double? MoodRelaxed { get; set; }
+    public double? MoodParty { get; set; }
+    public double? MoodAggressive { get; set; }
+
+    /// <summary>Top genre candidates from the fused scorer, as a label→score JSON dictionary.</summary>
+    public string? GenreDistributionJson { get; set; }
+
     // Phase 13: BPM Analysis Quality
     public float? BpmStability { get; set; } // 0-1; <0.7 = unstable/drifting tempo
 

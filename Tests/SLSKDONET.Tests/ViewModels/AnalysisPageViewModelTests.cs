@@ -42,6 +42,53 @@ public class AnalysisPageViewModelTests : IDisposable
     }
 
     [Fact]
+    public void IsLikelyCorruptFile_TrueOnlyForCorruptionScannerMessages()
+    {
+        var corrupt = new AnalysisTrackItem("t1", "Artist", "Title")
+        {
+            AnalysisError = "Corrupt file — analysis blocked: FFmpeg: [flac] decode_frame() failed"
+        };
+        var transientFailure = new AnalysisTrackItem("t2", "Artist", "Title")
+        {
+            AnalysisError = "Audio analysis returned no result for track.flac"
+        };
+        var noError = new AnalysisTrackItem("t3", "Artist", "Title");
+
+        Assert.True(corrupt.IsLikelyCorruptFile);
+        Assert.False(transientFailure.IsLikelyCorruptFile);
+        Assert.False(noError.IsLikelyCorruptFile);
+    }
+
+    [Fact]
+    public void IncompleteAnalysisSummary_SurfacesReDownloadGuidance_ForCorruptFiles_NotGenericFailure()
+    {
+        var item = new AnalysisTrackItem("t1", "Artist", "Title")
+        {
+            AnalysisStatus = AnalysisRunStatus.Failed,
+            AnalysisError = "Corrupt file — analysis blocked: FFmpeg: invalid sync code"
+        };
+
+        // Previously this just said "analysis failed" regardless of cause, indistinguishable from
+        // a transient failure a retry might fix — re-analyzing a genuinely corrupt file fails
+        // identically every time, so the summary should point at re-acquiring the file instead.
+        Assert.Contains("re-download", item.IncompleteAnalysisSummary, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("analysis failed:", item.IncompleteAnalysisSummary);
+    }
+
+    [Fact]
+    public void IncompleteAnalysisSummary_SurfacesSpecificError_ForNonCorruptFailures()
+    {
+        var item = new AnalysisTrackItem("t1", "Artist", "Title")
+        {
+            AnalysisStatus = AnalysisRunStatus.Failed,
+            AnalysisError = "Audio analysis returned no result for track.flac"
+        };
+
+        Assert.Contains("analysis failed:", item.IncompleteAnalysisSummary);
+        Assert.Contains("Audio analysis returned no result", item.IncompleteAnalysisSummary);
+    }
+
+    [Fact]
     public void LastAnalyzedDisplay_ReturnsNotYetAnalyzedWhenNull()
     {
         var item = new AnalysisTrackItem("t1", "Artist", "Title");

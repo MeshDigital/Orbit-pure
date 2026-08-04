@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Data.Essentia;
 using SLSKDONET.Engine.Analysis;
+using SLSKDONET.Services.Similarity;
 
 namespace SLSKDONET.Services.AudioAnalysis;
 
@@ -33,6 +34,8 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
     private readonly EnergyAnalysisService _energyAnalysis;
     private readonly SubBassDropoutEngine _subBassEngine = new();
     private readonly SpectralFluxNoveltyEngine _noveltyEngine = new();
+    private readonly DiscogsEffnetEmbeddingExtractor _effnetEmbedding;
+    private readonly EffnetClassifierHeadService _effnetClassifier;
     private readonly TrackFingerprintBuilderService _trackFingerprintBuilder;
     private readonly TrackFingerprintStore _trackFingerprintStore;
     private readonly DatabaseService _db;
@@ -57,6 +60,8 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         EssentiaRunner essentiaRunner,
         EnergyScoringService energyScoring,
         EnergyAnalysisService energyAnalysis,
+        DiscogsEffnetEmbeddingExtractor effnetEmbedding,
+        EffnetClassifierHeadService effnetClassifier,
         TrackFingerprintBuilderService trackFingerprintBuilder,
         TrackFingerprintStore trackFingerprintStore,
         DatabaseService db,
@@ -71,6 +76,8 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         _essentia      = essentiaRunner;
         _energyScoring = energyScoring;
         _energyAnalysis = energyAnalysis;
+        _effnetEmbedding = effnetEmbedding;
+        _effnetClassifier = effnetClassifier;
         _trackFingerprintBuilder = trackFingerprintBuilder;
         _trackFingerprintStore = trackFingerprintStore;
         _db            = db;
@@ -146,6 +153,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             float[] pcmSamples = Array.Empty<float>();
             int pcmSampleRate = 44100;
             int pcmChannels = 2;
+            GenreMoodPrediction? onnxGenrePrediction = null;
             try
             {
                 (pcmSamples, pcmSampleRate, pcmChannels) = AudioIngestionPipeline.ReadPcmFloat(tempWav);
@@ -201,6 +209,58 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 {
                     _logger.LogWarning(ex,
                         "[AudioAnalysis] Drop-signal detection failed for {File}; DSP drop scoring will fall back to a single collapsed timestamp.",
+                        Path.GetFileName(filePath));
+                }
+
+                // Real DiscogsEffnet embedding + genre/mood classification via ONNX Runtime, run
+                // in-process. ORBIT's bundled Essentia CLI binary was found to silently produce no
+                // TensorFlow-model output at all (confirmed empirically — its `highlevel` section
+                // comes back empty regardless of the profile.yaml's tensorflow_models directive),
+                // so genre classification and mood scoring were previously running on a weak
+                // BPM-only heuristic and a dead 0-value fallback respectively, for every track.
+                // Feeds InferAndApplyGenreAsync (genre) and mood fields directly below.
+                try
+                {
+                    var mono16k = EffnetMelSpectrogramExtractor.ResampleTo16k(ToMono(pcmSamples, pcmChannels), pcmSampleRate);
+                    var embeddingResult = await _effnetEmbedding.ExtractAsync(mono16k, cancellationToken).ConfigureAwait(false);
+                    if (embeddingResult is not null)
+                    {
+                        features.Embedding = embeddingResult.Value.Embedding;
+                        features.EmbeddingModelTag = _effnetEmbedding.ModelTag;
+
+                        var prediction = _effnetClassifier.Classify(embeddingResult.Value.Embedding);
+                        onnxGenrePrediction = prediction;
+
+                        // Winner-takes-all across the 5 independent binary mood classifiers,
+                        // matching the (previously dead) ApplyMoodClassification's own convention.
+                        (string Tag, float Score)[] moodCandidates =
+                        [
+                            ("Happy", prediction.MoodHappy), ("Aggressive", prediction.MoodAggressive),
+                            ("Sad", prediction.MoodSad), ("Relaxed", prediction.MoodRelaxed),
+                            ("Party", prediction.MoodParty),
+                        ];
+                        var moodWinner = moodCandidates.MaxBy(c => c.Score);
+                        if (moodWinner.Score > 0.35f)
+                        {
+                            features.MoodTag = moodWinner.Tag;
+                            features.MoodConfidence = Math.Clamp(moodWinner.Score, 0f, 1f);
+                        }
+                        if (prediction.MoodSad > 0.1f)
+                            features.Sadness = prediction.MoodSad;
+
+                        // Full per-dimension breakdown (unlike the winner-takes-all fields above,
+                        // stored unthresholded — the Track Inspector shows these as raw confidence
+                        // bars, so even a low score is meaningful information, not noise to hide).
+                        features.MoodHappy = Math.Clamp(prediction.MoodHappy, 0f, 1f);
+                        features.MoodRelaxed = Math.Clamp(prediction.MoodRelaxed, 0f, 1f);
+                        features.MoodParty = Math.Clamp(prediction.MoodParty, 0f, 1f);
+                        features.MoodAggressive = Math.Clamp(prediction.MoodAggressive, 0f, 1f);
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex,
+                        "[AudioAnalysis] ONNX embedding/genre/mood classification failed for {File}; genre inference will fall back to BPM heuristics.",
                         Path.GetFileName(filePath));
                 }
             }
@@ -285,7 +345,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             }
 
             // ── Step 5b: Genre inference + canonical normalisation ──────
-            await InferAndApplyGenreAsync(essentiaOutput, features, cancellationToken).ConfigureAwait(false);
+            await InferAndApplyGenreAsync(essentiaOutput, features, onnxGenrePrediction, cancellationToken).ConfigureAwait(false);
 
             // ── Step 6: Cue point detection ───────────────────────────────
             if (features.Bpm > 0 && features.TrackDuration > 0)
@@ -417,9 +477,27 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
     private async Task InferAndApplyGenreAsync(
         EssentiaOutput? output,
         AudioFeaturesEntity features,
+        GenreMoodPrediction? onnxPrediction,
         CancellationToken cancellationToken)
     {
         var candidates = new List<GenreInferenceCandidate>();
+
+        // 0) ONNX-based MTG-Jamendo classifier head, run in-process (see the call site in
+        // AnalyzeFileAsync). Weighted above the Essentia-sourced "jamendo" source below because
+        // that source is currently dead in practice (ORBIT's bundled Essentia binary doesn't
+        // produce highlevel/TensorFlow output at all — confirmed empirically) — this is the one
+        // that actually fires. Kept as a separate, higher-weighted source rather than replacing
+        // the Essentia path outright, so a future fixed Essentia binary would just add a second
+        // corroborating vote instead of requiring code changes.
+        if (onnxPrediction is { } prediction)
+        {
+            foreach (var (label, probability) in prediction.JamendoGenres.Take(10))
+            {
+                var canonical = MapJamendoToElectronicGenre(label);
+                if (string.IsNullOrWhiteSpace(canonical)) continue;
+                candidates.Add(new GenreInferenceCandidate(canonical, probability, "onnx-jamendo", 0.85f));
+            }
+        }
 
         // 1) Explicit model heads from Essentia output
         var extension = output?.HighLevel?.ExtensionData;
@@ -770,16 +848,21 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             ("Electronic", ClassProb(hl.MoodElectronic, c => c.Electronic)),
         ];
 
+        // Runs after the ONNX classifier head (see AnalyzeFileAsync) already had a chance to set
+        // MoodTag/MoodConfidence for this same track. Essentia's TensorFlow layer is currently
+        // confirmed non-functional in ORBIT's bundled binary (empty highlevel output), so this is
+        // a no-op today — but if a future working binary produces real scores, only let it win
+        // when it's actually more confident, rather than unconditionally overwriting the ONNX result.
         var winner = candidates.MaxBy(c => c.Score);
-        if (winner.Score > 0.35f)
+        if (winner.Score > 0.35f && winner.Score > features.MoodConfidence)
         {
             features.MoodTag        = winner.Tag;
             features.MoodConfidence = Math.Clamp(winner.Score, 0f, 1f);
         }
 
-        // Persist raw sadness score for downstream mood filtering
+        // Persist raw sadness score for downstream mood filtering (same precedence rule)
         float sadScore = ClassProb(hl.MoodSad, c => c.Sad);
-        if (sadScore > 0.1f)
+        if (sadScore > 0.1f && sadScore > (features.Sadness ?? 0f))
             features.Sadness = sadScore;
     }
 

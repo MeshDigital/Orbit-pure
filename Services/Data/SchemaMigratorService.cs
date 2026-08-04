@@ -2706,6 +2706,21 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 23. Raw per-dimension scores from the 5 independent DiscogsEffnet mood classifier
+            // heads (Sad already covered by the pre-existing Sadness column) — lets the Track
+            // Inspector show the full mood breakdown instead of only the winner-takes-all MoodTag.
+            if (!ColumnExists("audio_features", "MoodHappy"))
+            {
+                _logger.LogInformation("Patching Schema: Adding mood breakdown columns to audio_features...");
+                command.CommandText = @"
+                    ALTER TABLE ""audio_features"" ADD COLUMN ""MoodHappy"" REAL NOT NULL DEFAULT 0;
+                    ALTER TABLE ""audio_features"" ADD COLUMN ""MoodRelaxed"" REAL NOT NULL DEFAULT 0;
+                    ALTER TABLE ""audio_features"" ADD COLUMN ""MoodParty"" REAL NOT NULL DEFAULT 0;
+                    ALTER TABLE ""audio_features"" ADD COLUMN ""MoodAggressive"" REAL NOT NULL DEFAULT 0;
+                ";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)
