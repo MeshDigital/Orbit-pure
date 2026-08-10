@@ -10,8 +10,11 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 
 ### Audio Integrity & Forensic Analysis
 - **Spectral Analysis**: NWaves-powered frequency analysis detecting transcoding artifacts
+- **Fake-Lossless / VBR Fraud Detection**: every completed lossless download is run through a
+  real FFT pipeline (Hann-windowed spectrum over 4096-sample frames) that measures spectral
+  cutoff and rolloff steepness to catch transcoded "fake FLAC" files — not a heuristic, a
+  genuine authenticity verdict shown as a badge on the track row, toggleable in Settings
 - **Forensic Logging**: Detailed integrity metrics with dB measurements and energy ratios
-- **Quality Verification**: Automatic detection of fake lossless files and audio manipulation
 - **Health Reports**: Comprehensive library integrity assessments with actionable insights
 
 ### Professional Library Management
@@ -45,6 +48,12 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Waveform Visualization**: Interactive seekbar with detailed audio representation
 
 ### Advanced Audio Analysis
+- **Real AI Genre & Mood Classification**: genre (87-class MTG-Jamendo taxonomy) and 5-way mood
+  scoring (Happy/Sad/Relaxed/Party/Aggressive) computed in-process via ONNX Runtime
+  (DiscogsEffnet embeddings + classifier heads), shown as ranked confidence bars in the Track
+  Inspector rather than a single winner-takes-all label — replaces a previously silently-dead
+  Essentia TensorFlow layer that produced empty results for every track
+  (see [ARCHITECTURE.md](ARCHITECTURE.md) → Real-Time Genre, Mood & Embeddings)
 - **Stem Separation**: Real-time vocal/accompaniment isolation (optional ONNX/Spleeter) with model-version-aware caching
 - **Stem Cache Versioning**: Cache keys include model tag (e.g. `spleeter-5stems!{hash}_{start}_{dur}_{stem}.wav`); `PurgeStaleEntriesAsync` auto-evicts stems from superseded models on upgrade
 - **Spectral Forensics**: Frequency cutoff detection and energy distribution analysis
@@ -66,6 +75,24 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Quality Filtering**: Automatic rejection of impossible or suspicious files
 - **Duplicate Prevention**: Intelligent detection of existing tracks
 - **Bandwidth Optimization**: Adaptive scheduling based on network conditions
+
+---
+
+## 🤝 Social Layer
+
+- **Real Serving**: ORBIT isn't a pure download client — it serves files back to the Soulseek
+  network from your shared folder, so your reported share count is real, not cosmetic
+- **Contacts**: every peer you've downloaded from becomes a contact — see their online status,
+  browse their full shared library, and view your download history with them
+- **1:1 & Room Chat**: persistent chat with individual peers or public Soulseek rooms, including
+  image attachments (built on the file-serving pipeline, since the Soulseek protocol itself has
+  no attachment support)
+- **Presence**: live online/away status for watched contacts, plus setting your own status
+- **Notification Center**: persistent history (bell icon) for finished downloads and incoming
+  messages, alongside OS-level Windows Action Center toasts — separate from the in-app toast
+  popup
+- **Known-Good-Peer Ranking**: peers you've successfully downloaded a track from before get a
+  ranking bonus next time a search finds them again
 
 ---
 
@@ -95,7 +122,8 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Graceful Cancellation**: All analysis and stem jobs respect `CancellationToken` top-to-bottom; worker shuts down cleanly on app exit
 
 ### Professional Export Suite
-- **Rekordbox XML**: Full Pioneer DJ export — `POSITION_MARK` hot-cue/memory-cue nodes (R/G/B color, pad slots 0-7), `TEMPO` beat-grid nodes (`Inizio`, `Bpm`, `Metro`, `Battito`); cues sourced from `CuePointEntity` DB rows and per-track `CuePointsJson` (50 ms dedup window)
+- **Rekordbox XML**: Full Pioneer DJ export — `POSITION_MARK` hot-cue/memory-cue nodes (R/G/B color, pad slots 0-7) with hot-cue → memory-cue dual write, a real multi-anchor `TEMPO` beat-grid derived from ORBIT's own computed beatgrid (not a flat guess), nested playlist folders, and a colour-tag picker (8 Rekordbox swatches, right-click any track)
+- **Merge-Mode Re-Export**: re-exporting to a `rekordbox.xml` that already exists merges into it instead of overwriting — Rating/Colour/Comments/cues you've since edited *inside* Rekordbox survive a re-export after new downloads land; only file-derived/analysis-owned fields (metadata, tempo grid, location) always refresh from ORBIT
 - **Forensic CSV**: Professional analysis data for music librarians
 - **Batch Operations**: Efficient processing of large track collections
 - **Metadata Preservation**: Complete fidelity in export operations

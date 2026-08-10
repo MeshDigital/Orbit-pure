@@ -1,6 +1,6 @@
 # ORBIT
 
-ORBIT is a music library and DJ prep tool. It finds tracks on Soulseek, checks that what it downloads is actually the right file at the quality it claims to be, and analyzes everything it collects (BPM, key, energy, phrase structure, cue points) so you can build sets without needing Mixed In Key or a separate prep step in Rekordbox.
+ORBIT is a music library and DJ prep tool. It finds tracks on Soulseek, checks that what it downloads is actually the right file at the quality it claims to be (real FFT-based fake-lossless detection, not a heuristic), and analyzes everything it collects (BPM, key, energy, phrase structure, cue points, genre/mood via an in-process ONNX classifier) so you can build sets without needing Mixed In Key or a separate prep step in Rekordbox.
 
 Think of it as: search + downloads + a music library + a lightweight DJ workstation, in one app.
 

@@ -620,6 +620,98 @@ dependency and handles the GPU ↔ CPU fallback at the ONNX Runtime level.
 
 ---
 
+## 👥 Social & Serving Layer
+
+ORBIT is not a pure download client — it is a full Soulseek peer: it serves files back to the
+network, tracks presence, and provides chat, on top of the same peer relationships downloads
+already create.
+
+### Serving (upload) side
+
+Soulseek.NET requires five delegates to act as a real peer (`SearchResponseResolver`,
+`BrowseResponseResolver`, `DirectoryContentsResolver`, `EnqueueDownload`, `UserInfoResolver`).
+`SoulseekAdapter.CreateClientOptions()` wires all five, backed by `Services/ShareIndexService.cs`
+— a `ConcurrentDictionary`-backed index of `AppConfig.SharedFolderPath`/`DownloadDirectory`,
+keyed by virtual path (TTL+fingerprint refresh, 60s). Peer-supplied filenames are only ever
+checked against this pre-built index, never touch disk directly (path-traversal guard).
+Accepting a download enqueue fires `client.UploadAsync(...)` — accepting the handshake alone
+does not serve the file.
+
+### Presence, chat, and contacts
+
+- **`Services/UserPresenceWatchService.cs`** — reference-counted `WatchUserAsync`/`UnwatchUserAsync`;
+  only watches peers with an actively open profile (not every historical peer), republishes as
+  `UserPresenceChangedEvent`.
+- **`Services/ChatService.cs`** / **`Services/RoomChatService.cs`** — persist and republish 1:1
+  and room messages, with in-memory dedup on replay (Soulseek message IDs) in addition to a DB
+  unique index.
+- **`Views/Avalonia/UsersPage.axaml`** — Contacts pane (per-user download history, browse-their-shares,
+  presence, chat) and Rooms pane, fed by `UsersViewModel` (merges `PeerReliabilityService` +
+  `DatabaseService.GetDownloadedUsersSummaryAsync`) and `UserProfileViewModel`.
+- **`Services/NotificationCenterService.cs`** — persistent, capped (200) notification history for
+  completed downloads and incoming chat, distinct from the transient toast system
+  (`INotificationService`); both fire from one call site.
+- Two new tables (`PrivateMessages`, `RoomMessages`) added via the standard raw-SQL
+  `SchemaMigratorService` patch convention. Room rosters are not persisted — refetched live
+  each session.
+
+### Known-good-peer ranking
+
+Peers you've successfully downloaded from before get a ranking bonus in
+`SearchCandidateRankingPolicy.CalculateFinalScore` (`isKnownGoodPeerForTrack`), looked up once
+per `DownloadDiscoveryService.FindBestMatchAsync` call.
+
+---
+
+## 🔍 Download Quality Verification (Fake-Lossless / VBR Detection)
+
+Every completed lossless download is spectrally analyzed to catch transcoded ("fake FLAC")
+files — a real FFT pipeline, not a heuristic:
+
+- **`Services/AudioIntegrityService.cs`** — decodes audio (NAudio, with an FFmpeg-pipe fallback
+  for codecs Windows can't decode natively), runs a Hann-windowed `NWaves.RealFft` over
+  overlapping 4096-sample frames, temporally averages the power spectrum, and derives
+  spectral-cutoff + rolloff-steepness + band-energy/dynamics measurements. Classifies into an
+  `AudioAuthenticityVerdict` (GenuineLossless / TranscodedHighBitrate / Medium / Low / Unknown)
+  with a confidence score.
+- **`Services/PostDownloadSpectralScanService.cs`** — subscribes to `TrackStateChangedEvent.Completed`,
+  runs the analysis on every completed lossless download, persists the verdict and full spectral
+  forensics (`FrequencyCutoff`, `Integrity`, `QualityDetails`) via
+  `DatabaseService.UpdateSpectralVerdictAsync`, and publishes `TrackMetadataUpdatedEvent`. Gated
+  by `AppConfig.EnableVbrFraudDetection` — disabling the setting genuinely skips the (expensive,
+  full-decode) FFT pass rather than running it and discarding the result.
+- The verdict renders live as a badge (`UnifiedTrackViewModel.SpectralVerdictBadgeText`/`Color`/`Tooltip`)
+  in `StandardTrackRow.axaml`, `DownloadsPage.axaml`, and `TrackInspector.axaml`.
+
+---
+
+## 💿 Rekordbox Export Pipeline
+
+`Services/Library/PlaylistExportService.cs` is the single, real Rekordbox-XML export path (two
+earlier parallel implementations were consolidated away — see `RECENT_CHANGES.md`, 2026-07-31).
+
+- **Real metadata** — Rating/Comments/ColorTag are read from the track instead of synthesized
+  from energy/Camelot-key telemetry. `ColorTag` is a real nullable DB column, editable via the
+  Library "Set Colour" context-menu submenu (8 Rekordbox swatches).
+- **Stable `TrackID`** — deterministic hash of `TrackUniqueHash` (`GuidGenerator.CreateStableIntFromSeed`),
+  not a fresh counter per export, so cross-references and re-export merging stay valid.
+- **Nested playlist folders**, **hot loops** honoring explicit `SlotIndex` pads, and a hot-cue →
+  memory-cue dual write so a cue on a hot-cue pad is also readable as a memory cue.
+- **Real multi-anchor tempo grid** — `Services/Library/Rekordbox/TempoGridDeriver.cs` derives
+  `TEMPO` nodes from the actual computed `AudioFeaturesEntity.BeatGridJson`/`DownbeatOffsetSeconds`
+  (previously hardcoded to `Inizio="0.000"`), with multiple anchors only for tracks with real
+  detected tempo drift (`BpmStability < 0.7`).
+- **Merge-mode re-export** — `Services/Library/Rekordbox/RekordboxXmlMerger.cs` reconciles a
+  fresh export into an existing `rekordbox.xml` instead of overwriting it, so Rating/Colour/
+  Comments/cues a user has since edited *inside* Rekordbox survive a re-export after new
+  downloads land. Field-ownership split: `TrackID`/`DateAdded` always preserved on match;
+  `Rating`/`Colour`/`Comments`/cues preserved if present else filled from ORBIT; everything
+  file-derived or analysis-owned (name/artist/BPM/key/location/tempo grid) always refreshed
+  from ORBIT. Track matching is `TrackID` first, `Location` fallback; a malformed/foreign
+  existing file falls back to a full overwrite rather than throwing.
+
+---
+
 ## 🔄 Development Workflow
 
 ### Version Control
@@ -642,12 +734,13 @@ dependency and handles the GPU ↔ CPU fallback at the ONNX Runtime level.
 ## 📚 Related Documentation
 
 - **[README.md](README.md)**: Project overview and quick start
-- **[DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md](DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md)**: Deep technical guide for the new reactive search runtime
+- **[DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md)**: Full documentation index
+- **[DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md](DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md)**: Deep technical guide for the reactive search runtime
 - **[DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md](DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md)**: Search firehose hardening plan and acceptance criteria
 - **[BETA_TESTER_GUIDE.md](BETA_TESTER_GUIDE.md)**: Comprehensive testing guide
-- **[RECENT_CHANGES.md](RECENT_CHANGES.md)**: Development changelog
+- **[RECENT_CHANGES.md](RECENT_CHANGES.md)**: Development changelog — the most up-to-date doc in the repo
 - **[TODO.md](TODO.md)**: Development roadmap and backlog
 
 ---
 
-*This architecture document reflects the current state of ORBIT-Pure as of March 2026. The system is designed for reliability, performance, and professional audio integrity verification.*
+*Last substantially updated 2026-08-10. The system is designed for reliability, performance, and professional audio integrity verification.*
