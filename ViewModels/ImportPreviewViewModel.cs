@@ -110,7 +110,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     }
 
     public int TrackCount => ImportedTracks.Count;
-    public bool CanAddToLibrary => !IsLoading && SelectedCount > 0;
+    public bool CanAddToLibrary => !IsLoading && SelectedCount > 0 && (!IsMergeMode || SelectedMergeTarget != null);
 
     public ICommand AddToLibraryCommand { get; }
     public ICommand SelectAllCommand { get; }
@@ -145,10 +145,6 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
         SelectMissingCommand = new RelayCommand(SelectMissing);
         SelectMergeCandidatesCommand = new AsyncRelayCommand(SelectMergeCandidatesAsync);
         CancelCommand = new RelayCommand(Cancel);
-        
-        MergeCommand = new AsyncRelayCommand(MergeAsync);
-        CreateNewCommand = new AsyncRelayCommand(CreateNewAsync);
-        UseSelectedMergeTargetCommand = new AsyncRelayCommand(UseSelectedMergeTargetAsync);
     }
 
     /// <summary>
@@ -308,10 +304,29 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
     public ObservableCollection<MergeTargetOptionViewModel> MergeTargets { get; } = new();
 
     private MergeTargetOptionViewModel? _selectedMergeTarget;
+
+    /// <summary>
+    /// The playlist currently picked in the merge-target dropdown. Changing this while
+    /// <see cref="IsMergeMode"/> is on immediately re-applies row selection against the new
+    /// target (equivalent to the old "Use As Merge Target" button click) — a passive choice
+    /// doesn't need a separate confirm step.
+    /// </summary>
     public MergeTargetOptionViewModel? SelectedMergeTarget
     {
         get => _selectedMergeTarget;
-        set { _selectedMergeTarget = value; OnPropertyChanged(); }
+        set
+        {
+            if (_selectedMergeTarget == value) return;
+            _selectedMergeTarget = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CommitButtonLabel));
+            OnPropertyChanged(nameof(CanAddToLibrary));
+
+            if (_isMergeMode && value != null)
+            {
+                _ = ApplyMergeTargetAsync(value);
+            }
+        }
     }
 
     public bool HasMergeTargets => MergeTargets.Count > 0;
@@ -334,9 +349,52 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
         set { _existingTrackCount = value; OnPropertyChanged(); }
     }
 
-    public ICommand MergeCommand { get; }
-    public ICommand CreateNewCommand { get; }
-    public ICommand UseSelectedMergeTargetCommand { get; }
+    private bool _isMergeMode;
+
+    /// <summary>
+    /// The single "where do these tracks go?" choice: merge into <see cref="SelectedMergeTarget"/>,
+    /// or create a brand-new playlist. Replaces the old three-separate-commit-button design
+    /// (Create New Clone / Merge to Existing / Add to Library) — this only changes which target
+    /// <see cref="AddToLibraryAsync"/> will commit to; it never commits by itself.
+    /// </summary>
+    public bool IsMergeMode
+    {
+        get => _isMergeMode;
+        set
+        {
+            if (_isMergeMode == value) return;
+            _isMergeMode = value;
+            OnPropertyChanged();
+
+            if (_isMergeMode)
+            {
+                if (SelectedMergeTarget != null)
+                {
+                    _ = ApplyMergeTargetAsync(SelectedMergeTarget);
+                }
+            }
+            else
+            {
+                // Same reset "Create New Clone" used to do, minus the auto-commit.
+                _targetJobId = Guid.NewGuid();
+                _existingJob = null;
+                IsDuplicate = false;
+                ExistingTrackCount = 0;
+                SelectMissing();
+            }
+
+            OnPropertyChanged(nameof(CommitButtonLabel));
+            OnPropertyChanged(nameof(CanAddToLibrary));
+        }
+    }
+
+    /// <summary>Drives the footer commit button's text so it always says what it's about to do.</summary>
+    public string CommitButtonLabel =>
+        !IsMergeMode
+            ? "Add to Library"
+            : SelectedMergeTarget != null
+                ? $"Merge into '{SelectedMergeTarget.Title}'"
+                : "Select a playlist to merge into";
 
     /// <summary>
     /// Initialize preview mode for streaming - clears existing data and sets headers immediately.
@@ -357,7 +415,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasMergeTargets));
 
         _sourceUrl = inputUrl;
-        
+
         // Deduplication Logic
         _existingJob = existingJob;
         if (_existingJob != null)
@@ -365,7 +423,7 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
             IsDuplicate = true;
             ExistingTrackCount = _existingJob.PlaylistTracks.Count; // Assuming Tracks loaded, otherwise TotalTracks
             if (ExistingTrackCount == 0 && _existingJob.TotalTracks > 0) ExistingTrackCount = _existingJob.TotalTracks;
-            
+
             // Default assumes MERGE, so we target the EXISTING ID
             _targetJobId = _existingJob.Id;
             StatusMessage = $"Found existing playlist '{_existingJob.SourceTitle}' ({ExistingTrackCount} tracks).";
@@ -377,39 +435,32 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
              _targetJobId = newJobId;
         }
 
-           _ = LoadMergeTargetsAsync(sourceType);
-    }
-    
-    private async Task MergeAsync()
-    {
-        // Select tracks that are new to this playlist or need retry, then merge into existing job.
-        await SelectMergeCandidatesAsync();
-        await AddToLibraryAsync();
-    }
+        // Seed the destination toggle to match — bypasses IsMergeMode's setter side effects
+        // (which would reset _targetJobId/_existingJob) since the fields above are already
+        // correctly set up for the initial state. SelectedMergeTarget isn't loaded yet
+        // (LoadMergeTargetsAsync below fills it in), so there's nothing to react to yet either.
+        _isMergeMode = _existingJob != null;
+        OnPropertyChanged(nameof(IsMergeMode));
+        OnPropertyChanged(nameof(CommitButtonLabel));
 
-    private async Task CreateNewAsync()
-    {
-        // Force a new random ID to avoid collision
-        _targetJobId = Guid.NewGuid();
-        IsDuplicate = false;
-        ExistingTrackCount = 0;
-        await AddToLibraryAsync();
+        _ = LoadMergeTargetsAsync(sourceType);
     }
 
-    private async Task UseSelectedMergeTargetAsync()
+    /// <summary>
+    /// Switches the merge destination to <paramref name="target"/> and re-applies row selection
+    /// against it — used both when the user picks a different playlist from the dropdown and
+    /// when they flip the destination toggle into merge mode. Never commits anything itself.
+    /// </summary>
+    private async Task ApplyMergeTargetAsync(MergeTargetOptionViewModel target)
     {
-        if (SelectedMergeTarget == null)
-        {
-            StatusMessage = "Select a target playlist first.";
-            return;
-        }
-
-        _existingJob = SelectedMergeTarget.Job;
+        _existingJob = target.Job;
         _targetJobId = _existingJob.Id;
         IsDuplicate = true;
         ExistingTrackCount = _existingJob.TotalTracks;
 
         await SelectMergeCandidatesAsync();
+        OnPropertyChanged(nameof(CommitButtonLabel));
+        OnPropertyChanged(nameof(CanAddToLibrary));
     }
 
     /// <summary>
