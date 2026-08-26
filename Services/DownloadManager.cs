@@ -145,6 +145,19 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     // the scheduler skips them until all currently-queued tracks have had at least one attempt.
     private long _schedulerSlot = 0;
 
+    // Cap on how far a retry's RetryAfterSlot can be pushed into the future. Without this, a
+    // retry deferred by "however many tracks are currently pending" scales disastrously with
+    // library size: at 500+ pending tracks (a large multi-playlist download queue is completely
+    // normal here), a single failed search could defer its retry by 500+ scheduler slots — and
+    // since most of a big batch fails its first attempt at roughly the same time, nearly the
+    // whole queue ends up gated behind the same huge future slot simultaneously, starving the
+    // engine down to whatever tiny handful of never-yet-attempted tracks remain (confirmed live:
+    // "524 tracks waiting, only 1 ever searching" with dozens of distinct tracks all logging
+    // "eligible after slot 520" while the scheduler slot climbed roughly 1 per dispatch). The
+    // intent — "don't let a just-failed track immediately re-compete with fresh candidates" — only
+    // needs a modest push, not literally the entire queue's length.
+    private const long MAX_RETRY_SLOT_DEFERRAL = 25;
+
     // Expose read-only copy for internal checks
     public IReadOnlyList<DownloadContext> ActiveDownloads 
     {
@@ -2825,8 +2838,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                                 (!d.RetryAfterSlot.HasValue || d.RetryAfterSlot.Value <= _schedulerSlot));
 
                         // Slot gate: track becomes eligible again after every currently-pending
-                        // track has been dispatched at least once.
-                        ctx.RetryAfterSlot = _schedulerSlot + Math.Max(1, pendingAhead);
+                        // track has been dispatched at least once — capped so this doesn't scale
+                        // unboundedly with total queue size (see MAX_RETRY_SLOT_DEFERRAL).
+                        ctx.RetryAfterSlot = _schedulerSlot + Math.Clamp(pendingAhead, 1, MAX_RETRY_SLOT_DEFERRAL);
 
                         // Time gate: safety net so we don't hammer the network if the queue
                         // drains faster than expected.  30s base + small jitter.
@@ -2871,7 +2885,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                             long pendingAheadMp3;
                             lock (_collectionLock)
                                 pendingAheadMp3 = _downloads.Count(d => d != ctx && d.State == PlaylistTrackState.Pending);
-                            ctx.RetryAfterSlot = _schedulerSlot + Math.Max(1, pendingAheadMp3);
+                            ctx.RetryAfterSlot = _schedulerSlot + Math.Clamp(pendingAheadMp3, 1, MAX_RETRY_SLOT_DEFERRAL);
                             ctx.NextRetryTime = DateTime.UtcNow.AddSeconds(30);
                             _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, $"🎵 FLAC not found after {_config.MaxSearchAttempts * _config.MaxSearchAttempts} attempts — switching to MP3 fallback lane automatically.", false, ctx.CorrelationId));
                             await UpdateStateAsync(ctx, PlaylistTrackState.Pending, $"FLAC failed ({_config.MaxSearchAttempts * _config.MaxSearchAttempts}x) → Auto MP3 Fallback queued");
@@ -3003,7 +3017,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 long pendingAheadStall;
                 lock (_collectionLock)
                     pendingAheadStall = _downloads.Count(d => d != ctx && d.State == PlaylistTrackState.Pending);
-                ctx.RetryAfterSlot = _schedulerSlot + Math.Max(1, pendingAheadStall);
+                ctx.RetryAfterSlot = _schedulerSlot + Math.Clamp(pendingAheadStall, 1, MAX_RETRY_SLOT_DEFERRAL);
                 ctx.NextRetryTime = DateTime.UtcNow.AddSeconds(15); // Minimum gap after stall
                 await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "Stall detected — re-queued behind active tracks.");
             }
