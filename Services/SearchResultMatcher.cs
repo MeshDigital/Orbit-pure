@@ -636,9 +636,26 @@ public class SearchResultMatcher
         // Only allow "The" stripping as a single fallback
         // Example: "The Beatles" -> "Beatles" can match "beatles" in filename
         string strippedArtist = NormalizeArtist(expectedArtist);
-        if (!string.IsNullOrEmpty(strippedArtist) && strippedArtist.Length > 2 
+        if (!string.IsNullOrEmpty(strippedArtist) && strippedArtist.Length > 2
             && ContainsWithBoundary(normalizedFilename, strippedArtist, ignoreCase: true))
             return true;
+
+        // Multi-artist collabs get re-ordered and re-punctuated by whoever shared the file —
+        // Soulseek has no canonical convention ("Flowidus & Loboski" vs "Loboski & Flowidus" vs
+        // "Flowidus, Loboski" are all the same real collab). Confirmed in the wild via the search
+        // audit log: correct candidates for exactly this track were scoring Artist: Mismatch (0)
+        // and getting silently excluded over word order alone. This still requires EVERY individual
+        // artist name to be present (word-boundary each), just not in the stored order/punctuation —
+        // strictly more restrictive than "any one artist matches" (which would wrongly accept a
+        // solo track by just one collaborator), so it doesn't reopen the false-positive risk the
+        // "NO multi-artist splitting" note above was originally guarding against.
+        var artistParts = SplitMultiArtist(expectedArtist);
+        if (artistParts.Count > 1)
+        {
+            var normalizedParts = artistParts.Select(NormalizeFuzzy).Where(p => p.Length > 1).ToList();
+            if (normalizedParts.Count > 1 && normalizedParts.All(p => ContainsWithBoundary(normalizedFilename, p, ignoreCase: true)))
+                return true;
+        }
 
         // NO fuzzy Levenshtein, NO reverse matching, NO feature/collaboration fallback
         // or Query="Deadmau5" but file says "deadmaus" — caught by fuzzy below.
@@ -666,6 +683,26 @@ public class SearchResultMatcher
         }
 
         return false;
+    }
+
+    private static readonly Regex MultiArtistDelimiterRegex = new(
+        @"\s*(?:&|,|\bfeat\.?\b|\bft\.?\b|\bfeaturing\b|\bx\b|\bvs\.?\b|\band\b)\s*",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Splits a raw (pre-normalization) artist string on genuine multi-artist delimiters only —
+    /// operates on the original string, not the NormalizeFuzzy'd one, because NormalizeFuzzy
+    /// already collapses "&"/","/etc. into plain spaces, which would make a real delimiter
+    /// indistinguishable from a space inside a single compound artist name (e.g. "Sub Focus").
+    /// A single-artist name with no delimiter returns a one-element list, so callers should only
+    /// treat the result as "this is a real collab" when Count > 1.
+    /// </summary>
+    private static List<string> SplitMultiArtist(string rawArtist)
+    {
+        return MultiArtistDelimiterRegex.Split(rawArtist)
+            .Select(a => a.Trim())
+            .Where(a => a.Length > 1)
+            .ToList();
     }
 
     /// <summary>

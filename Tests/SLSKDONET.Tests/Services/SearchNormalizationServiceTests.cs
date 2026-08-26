@@ -57,6 +57,20 @@ public class SearchNormalizationServiceTests
     }
 
     [Fact]
+    public void BuildSearchPlan_ShouldDropWholeVersionQualifierGroup_NotLeaveModifierWordDangling()
+    {
+        // Regression: "(ID Remix)" used to lose only the word "Remix" from the relaxed query,
+        // leaving the modifier word "ID" dangling once the parens were stripped separately
+        // ("Born Slippy (ID Remix)" -> "Born Slippy ID" instead of "Born Slippy"), polluting the
+        // Soulseek query with a literal "ID" search term that doesn't appear in real filenames.
+        var plan = _sut.BuildSearchPlan("Underworld - Born Slippy (ID Remix)");
+
+        Assert.Equal("Underworld Born Slippy", plan.StandardQuery);
+        Assert.DoesNotContain(" ID", plan.StandardQuery);
+        Assert.Equal("Underworld Born Slippy (ID Remix)", plan.StrictQuery);
+    }
+
+    [Fact]
     public void BuildSearchPlan_FromSearchQuery_ShouldUseQueryMetadata()
     {
         var query = new SearchQuery
