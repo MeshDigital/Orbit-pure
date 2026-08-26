@@ -16,9 +16,18 @@ public static class CommentTracklistParser
     // optionally followed by a separator commonly used in tracklists.
     private static readonly Regex LeadingTimestampPrefixRegex = new(@"^\s*[\[\(]?\d{1,2}:\d{2}(?::\d{2})?[\]\)]?\s*(?:[-–—|:•]\s*)?", RegexOptions.Compiled);
     private static readonly Regex TimestampOnlyRegex = new(@"^[\[\(]?\d{1,2}:\d{2}(:\d{2})?[\]\)]?$", RegexOptions.Compiled);
+
+    // Matches a numbered-list prefix like "05. ", "12) ", "3. " on tracklist pastes that number
+    // their entries instead of (or alongside) timestamping them, e.g. "05. Grafix ft. Nu-La -
+    // Vital Signs". Requires "." or ")" directly after the digits so it never eats a genuine
+    // artist name that merely starts with a number (e.g. "21 Savage", "50 Cent").
+    private static readonly Regex LeadingTrackNumberPrefixRegex = new(@"^\s*\d{1,3}[.)]\s+", RegexOptions.Compiled);
     
-    // Matches artist/title separator (supports: -, –, —, |, :, •)
-    private static readonly Regex SeparatorRegex = new(@"\s*([-–—|:•]|(?<=\S)\s{2,}(?=\S))\s*", RegexOptions.Compiled);
+    // Matches artist/title separator (supports: -, –, —, |, :, •). Dash-type separators require
+    // real whitespace on both sides — without the lookarounds, a bare "-" inside a hyphenated
+    // artist name (e.g. "Nu-La", "Jay-Z", "K-391") was itself treated as the split point, silently
+    // truncating the artist and shoving the rest of the name onto the title.
+    private static readonly Regex SeparatorRegex = new(@"\s*(?:(?<=\s)[-–—](?=\s)|[|:•]|(?<=\S)\s{2,}(?=\S))\s*", RegexOptions.Compiled);
 
     // 1001Tracklists often appends record label in ALL CAPS at end.
     private static readonly Regex TrailingLabelRegex = new(@"\s+[A-Z0-9][A-Z0-9 '&/().-]{1,40}$", RegexOptions.Compiled);
@@ -85,7 +94,12 @@ public static class CommentTracklistParser
     /// tracklist up-to-date" backlink) so the caller can persist it for later reference. Null if
     /// the input contains no URL.
     /// </param>
-    public static List<SearchQuery> Parse(string rawText, out string? detectedTitle, out string? detectedSourceUrl)
+    /// <param name="onLine">
+    /// Optional per-line audit callback, invoked once for every non-blank input line with what it
+    /// became (or why it was dropped) — the Engine Diagnostics import audit trail. Not invoked for
+    /// CSV-shortcut input (a different, much simpler column-mapping path) or blank lines.
+    /// </param>
+    public static List<SearchQuery> Parse(string rawText, out string? detectedTitle, out string? detectedSourceUrl, Action<ImportLineAuditEntry>? onLine = null)
     {
         detectedTitle = null;
         detectedSourceUrl = null;
@@ -115,9 +129,9 @@ public static class CommentTracklistParser
         bool previousLineWasTimestamp = false;
         bool sawAnyNonBlankLine = false;
 
-        foreach (var line in lines)
+        for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
         {
-            var original = (line ?? string.Empty).Trim();
+            var original = (lines[lineIndex] ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(original))
                 continue;
 
@@ -133,16 +147,19 @@ public static class CommentTracklistParser
             {
                 previousLineWasTimestamp = true;
                 sawAnyNonBlankLine = true;
+                onLine?.Invoke(new ImportLineAuditEntry(lineIndex + 1, original, ImportLineOutcome.TimestampMarker));
                 continue;
             }
 
             var (cleaned, hadLeadingTimestamp) = StripLeadingTimestamp(original);
             cleaned = cleaned.Trim();
+            cleaned = StripLeadingTrackNumber(cleaned);
 
             if (IsJunkLine(cleaned) || string.IsNullOrWhiteSpace(cleaned))
             {
                 previousLineWasTimestamp = false;
                 sawAnyNonBlankLine = true;
+                onLine?.Invoke(new ImportLineAuditEntry(lineIndex + 1, original, ImportLineOutcome.DroppedJunk));
                 continue;
             }
 
@@ -165,7 +182,14 @@ public static class CommentTracklistParser
                 // The very first non-blank, non-junk, non-track line is almost always the
                 // pasted source's own title/header (e.g. "Kanine @ Summer Essentials Vol. 8 2026-06-29").
                 if (detectedTitle is null && !sawAnyNonBlankLine)
+                {
                     detectedTitle = original;
+                    onLine?.Invoke(new ImportLineAuditEntry(lineIndex + 1, original, ImportLineOutcome.DetectedAsTitle));
+                }
+                else
+                {
+                    onLine?.Invoke(new ImportLineAuditEntry(lineIndex + 1, original, ImportLineOutcome.DroppedNotATrack));
+                }
 
                 sawAnyNonBlankLine = true;
                 continue;
@@ -182,31 +206,81 @@ public static class CommentTracklistParser
                 : (string.Empty, cleaned);
 
             if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(title))
+            {
+                onLine?.Invoke(new ImportLineAuditEntry(lineIndex + 1, original, ImportLineOutcome.DroppedEmptyAfterSplit));
                 continue;
+            }
 
             // "ID" is DJ-tracklist shorthand for an unidentified track — there's nothing to search
-            // for, so drop it rather than queuing a doomed download (covers both "Artist - ID" and
-            // "ID - ID").
-            if (title.Trim().Equals("ID", StringComparison.OrdinalIgnoreCase))
+            // for, so drop it rather than queuing a doomed download. Covers "Artist - ID",
+            // "ID - ID", "Artist - ID (Deeper)"/"ID (VIP)" style qualified variants, AND a real
+            // song title with an unidentified-remixer qualifier like "Song (ID Remix)" — see
+            // IsUnidentifiedTitle for why that last case is unfindable too, not just the first two.
+            if (IsUnidentifiedTitle(title))
+            {
+                onLine?.Invoke(new ImportLineAuditEntry(lineIndex + 1, original, ImportLineOutcome.DroppedId, artist, title));
                 continue;
+            }
 
             var key = $"{artist.Trim().ToLowerInvariant()}|{title.Trim().ToLowerInvariant()}";
             if (key == previousTrackKey)
+            {
+                onLine?.Invoke(new ImportLineAuditEntry(lineIndex + 1, original, ImportLineOutcome.DroppedDuplicate, artist, title));
                 continue;
+            }
 
             previousTrackKey = key;
+            var finalArtist = artist.Trim();
+            var finalTitle = title.Trim();
+            var finalOriginalArtist = string.IsNullOrWhiteSpace(rawArtist) ? null : rawArtist.Trim();
+            var finalOriginalTitle = string.IsNullOrWhiteSpace(rawTitle) ? null : rawTitle.Trim();
+
             tracks.Add(new SearchQuery
             {
-                Artist = artist.Trim(),
-                Title = title.Trim(),
+                Artist = finalArtist,
+                Title = finalTitle,
                 // Store raw values so the preview UI can show a "cleaned" badge when transforms changed content.
-                OriginalArtist = string.IsNullOrWhiteSpace(rawArtist) ? null : rawArtist.Trim(),
-                OriginalTitle = string.IsNullOrWhiteSpace(rawTitle) ? null : rawTitle.Trim(),
+                OriginalArtist = finalOriginalArtist,
+                OriginalTitle = finalOriginalTitle,
                 Album = null // No album info from pasted tracklist blocks
             });
+
+            onLine?.Invoke(new ImportLineAuditEntry(lineIndex + 1, original, ImportLineOutcome.Kept, finalArtist, finalTitle, finalOriginalArtist, finalOriginalTitle));
         }
 
         return tracks;
+    }
+
+    private static readonly Regex TrailingQualifierGroupRegex = new(@"\s*[\(\[]([^\(\)\[\]]*)[\)\]]\s*$", RegexOptions.Compiled);
+    private static readonly Regex StandaloneIdTokenRegex = new(@"(?<![A-Za-z0-9])ID(?![A-Za-z0-9])", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// True if a title is DJ-tracklist / 1001Tracklists shorthand for "unidentified" — either bare
+    /// "ID" ("ID (Deeper)", "ID (VIP)"), or a real song title whose version qualifier says the
+    /// remixer/editor is unidentified, e.g. "Born Slippy (ID Remix)", "The Weekend (ID Remix)".
+    /// There is no producer literally named "ID" — on 1001Tracklists "ID" always means "identity
+    /// pending," so an "(ID Remix)"/"(ID Edit)"/"(ID Flip)" is an unofficial edit that was never
+    /// released under a findable name and is "damn sure not the original track" if searched for
+    /// under the base title. Contrast with "(SKIYE Remix)" or "(Wilkinson Remix)" — a real, named
+    /// producer, which stays a legitimate, findable release.
+    /// </summary>
+    public static bool IsUnidentifiedTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return false;
+
+        var trimmed = title.Trim();
+        if (trimmed.Equals("ID", StringComparison.OrdinalIgnoreCase)) return true;
+
+        var match = TrailingQualifierGroupRegex.Match(trimmed);
+        if (!match.Success) return false;
+
+        // "ID" anywhere inside the trailing qualifier ("(ID Remix)", "(Some Artist & ID Flip)")
+        // means the edit itself is unidentified, regardless of how well-known the base title is.
+        if (StandaloneIdTokenRegex.IsMatch(match.Groups[1].Value)) return true;
+
+        // Or the base title, once the qualifier is stripped, is itself just "ID" — e.g. "ID (Deeper)".
+        var withoutQualifier = trimmed[..match.Index].Trim();
+        return withoutQualifier.Equals("ID", StringComparison.OrdinalIgnoreCase);
     }
 
     private static (string Cleaned, bool HadLeadingTimestamp) StripLeadingTimestamp(string line)
@@ -220,6 +294,15 @@ public static class CommentTracklistParser
 
         var cleaned = line[match.Length..];
         return (cleaned, true);
+    }
+
+    private static string StripLeadingTrackNumber(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return line;
+
+        var match = LeadingTrackNumberPrefixRegex.Match(line);
+        return match.Success ? line[match.Length..].TrimStart() : line;
     }
 
     /// <summary>
