@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -32,6 +33,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     private readonly IEventBus _eventBus; // Phase 11.6 Notification
     private readonly IDialogService _dialogService;
     private readonly CueForgeViewModel _cueForgeViewModel;
+    private readonly INotificationService _notificationService;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -69,7 +71,8 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         IBulkOperationCoordinator bulkCoordinator,
         IEventBus eventBus,
         IDialogService dialogService,
-        CueForgeViewModel cueForgeViewModel)
+        CueForgeViewModel cueForgeViewModel,
+        INotificationService notificationService)
     {
         _logger = logger;
         _downloadManager = downloadManager;
@@ -82,6 +85,7 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         _eventBus = eventBus;
         _dialogService = dialogService;
         _cueForgeViewModel = cueForgeViewModel;
+        _notificationService = notificationService;
 
         // Subscribe to dynamic health updates
         _healthChangedHandler = (s, healthy) =>
@@ -300,12 +304,63 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         _logger.LogInformation("Analysis queued for track: {Title}", track.Title);
     }
 
+    /// <summary>
+    /// Reported directly by the user: clicking "Hard Retry" on a bad-content track (e.g. a
+    /// download that completed but is only 30 seconds long) did nothing visible — no error, no
+    /// confirmation, nothing. Two stacked causes: (1) no notification was ever shown for either
+    /// outcome, and (2) DownloadManager.HardRetryTrack only resets in-memory state for a track
+    /// it's still actively tracking — a track that already reached "Downloaded" has long since
+    /// left that working set, so the method silently had nothing to do.
+    /// </summary>
     private async Task ExecuteHardRetry(PlaylistTrackViewModel? track)
     {
         track ??= LibraryViewModel?.Tracks.LeadSelectedTrack;
         if (track == null) return;
+
         _logger.LogInformation("Hard retry for track: {Title}", track.Title);
-        await _downloadManager.HardRetryTrack(track.GlobalId);
+
+        try
+        {
+            var retriedActiveDownload = await _downloadManager.HardRetryTrack(track.GlobalId);
+
+            if (!retriedActiveDownload)
+            {
+                // Not an active/recent download — re-queue from scratch instead, mirroring
+                // LibraryViewModel.Commands.ExecuteForceRedownloadAsync's reset-and-requeue recipe
+                // for a single track. Deleting the existing file matters: without it, the
+                // "file already on disk" dedup fast-path would just see the bad file and skip
+                // redownloading it again.
+                _downloadManager.CancelTrack(track.GlobalId);
+
+                if (!string.IsNullOrEmpty(track.Model.ResolvedFilePath) && File.Exists(track.Model.ResolvedFilePath))
+                {
+                    try
+                    {
+                        File.Delete(track.Model.ResolvedFilePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not delete existing file during hard retry for {Title}", track.Title);
+                    }
+                }
+
+                track.Model.ResolvedFilePath = string.Empty;
+                track.Model.Priority = 0;
+                track.Model.Status = TrackStatus.Missing;
+                track.Model.IsClearedFromDownloadCenter = false;
+
+                await _libraryService.SavePlaylistTracksAsync(new List<PlaylistTrack> { track.Model });
+                await Task.Delay(100);
+                _downloadManager.QueueTracks(new List<PlaylistTrack> { track.Model });
+            }
+
+            _notificationService.Show("Hard Retry", $"Re-downloading '{track.Title}' from scratch.", NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Hard retry failed for track: {Title}", track.Title);
+            _notificationService.Show("Hard Retry Failed", ex.Message, NotificationType.Error);
+        }
     }
 
     private async Task ExecutePause(PlaylistTrackViewModel? track)
