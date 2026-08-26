@@ -596,6 +596,19 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         _disposables.Add(_eventBus.GetEvent<FileIngestionCompletedEvent>().Subscribe(OnFileIngestionCompleted));
         _disposables.Add(_eventBus.GetEvent<FileMissingDetectedEvent>().Subscribe(OnFileMissingDetected));
         _disposables.Add(_eventBus.GetEvent<TrackRemovedEvent>().Subscribe(evt => OnLibraryTrackRemoved(evt.TrackGlobalId)));
+        // Playlist Overview stats should update live as tracks land in whichever playlist is
+        // currently open, not just when the user re-selects it — filtered so an import into a
+        // different playlist elsewhere doesn't trigger a pointless refresh.
+        _disposables.Add(_eventBus.GetEvent<TrackAddedEvent>().Subscribe(evt =>
+        {
+            if (SelectedProject != null && evt.TrackModel.PlaylistId == SelectedProject.Id)
+                _ = Intelligence.RefreshOverviewStatsAsync();
+        }));
+        _disposables.Add(_eventBus.GetEvent<BatchTracksAddedEvent>().Subscribe(evt =>
+        {
+            if (SelectedProject != null && evt.Tracks.Any(t => t.Track.PlaylistId == SelectedProject.Id))
+                _ = Intelligence.RefreshOverviewStatsAsync();
+        }));
         _disposables.Add(_eventBus.GetEvent<RemoveTrackFromInspectorEvent>().Subscribe(_ =>
             Dispatcher.UIThread.InvokeAsync(() => Operations.RemoveTrackCommand.Execute(null))));
         _disposables.Add(_eventBus.GetEvent<EditTagsFromInspectorEvent>().Subscribe(_ =>
@@ -608,6 +621,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         Intelligence.SeedPlaylistUpgradeScaffoldCandidates();
         _ = Intelligence.RefreshSuggestNextCandidatesAsync();
         _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
+        _ = Intelligence.RefreshOverviewStatsAsync();
 
         _ = RefreshSavedDoublesAsync();
     }
@@ -672,6 +686,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
             RefreshSavedDoublesForCurrentPlayerTrack();
             _ = Intelligence.RefreshSuggestNextCandidatesAsync();
             _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
+            _ = Intelligence.RefreshOverviewStatsAsync();
             return;
         }
 
@@ -680,6 +695,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
             RefreshSavedDoublesForCurrentPlayerTrack();
             _ = Intelligence.RefreshSuggestNextCandidatesAsync();
             _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
+            _ = Intelligence.RefreshOverviewStatsAsync();
         });
     }
 
@@ -814,6 +830,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
             RefreshSavedDoublesForCurrentPlayerTrack();
             _ = Intelligence.RefreshSuggestNextCandidatesAsync();
             _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
+            _ = Intelligence.RefreshOverviewStatsAsync();
         });
     }
 

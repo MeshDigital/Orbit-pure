@@ -8,6 +8,20 @@
              mc:Ignorable="d"
              x:Class="SLSKDONET.Views.Avalonia.Controls.PlaylistIntelligencePanel"
              x:DataType="vmCore:PlaylistIntelligenceViewModel">
+    <UserControl.Resources>
+        <!-- Shared row for Top Artists / Top Genres / Key Distribution / BPM Brackets -->
+        <DataTemplate x:Key="StatBarRowTemplate" DataType="vmCore:PlaylistStatBar">
+            <Grid ColumnDefinitions="80,*,28" Margin="0,0,0,6">
+                <TextBlock Grid.Column="0" Text="{Binding Label}" FontSize="10" Foreground="#CCCCCC"
+                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                <ProgressBar Grid.Column="1" Value="{Binding Percent}" Maximum="100" Height="6"
+                             Foreground="#4EC9B0" Background="#1E2626" BorderThickness="0" CornerRadius="3"
+                             Margin="8,0" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" Text="{Binding CountDisplay}" FontSize="10" Foreground="#888888"
+                           HorizontalAlignment="Right" VerticalAlignment="Center"/>
+            </Grid>
+        </DataTemplate>
+    </UserControl.Resources>
     <Border Background="#1A1B1C">
     <Grid RowDefinitions="Auto,Auto,Auto,*">
         <Border Grid.Row="0" Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1" Padding="12,10">
@@ -23,7 +37,8 @@
             </StackPanel>
         </Border>
 
-        <Border Grid.Row="1" Background="#1A1A1B" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1" Padding="12,8">
+        <Border Grid.Row="1" Background="#1A1A1B" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1" Padding="12,8"
+                IsVisible="{Binding !IsLibraryIntelligenceOverviewActive}">
             <StackPanel Spacing="4">
                 <TextBlock Text="Insert Context" FontSize="10" FontWeight="SemiBold" Foreground="#888"/>
                 <TextBlock Text="{Binding SmartInsertContextSummary}" FontSize="10" Foreground="#CCC" TextWrapping="Wrap"/>
@@ -31,7 +46,15 @@
         </Border>
 
         <Border Grid.Row="2" Background="#171718" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1" Padding="8,8">
-            <UniformGrid Columns="4">
+            <UniformGrid Columns="5">
+                <ToggleButton IsChecked="{Binding IsLibraryIntelligenceOverviewActive, Mode=OneWay}"
+                              Command="{Binding SetLibraryIntelligenceTabCommand}"
+                              CommandParameter="Overview"
+                              FontSize="10"
+                              Padding="6,4"
+                              Margin="2,0"
+                              HorizontalContentAlignment="Center"
+                              Content="Overview"/>
                 <ToggleButton IsChecked="{Binding IsLibraryIntelligenceSmartInsertActive, Mode=OneWay}"
                               Command="{Binding SetLibraryIntelligenceTabCommand}"
                               CommandParameter="SmartInsert"
@@ -69,6 +92,80 @@
 
         <ScrollViewer Grid.Row="3" Padding="12,10">
             <Grid>
+                <StackPanel IsVisible="{Binding IsLibraryIntelligenceOverviewActive}" Spacing="12">
+                    <StackPanel IsVisible="{Binding !HasOverviewData}" Spacing="4" Margin="0,24,0,0">
+                        <TextBlock Text="No tracks in this playlist yet." FontSize="11" Foreground="#666666"
+                                   HorizontalAlignment="Center"/>
+                    </StackPanel>
+
+                    <StackPanel IsVisible="{Binding HasOverviewData}" Spacing="12">
+                        <!-- Headline stats -->
+                        <Border Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                            <StackPanel Spacing="6">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="{Binding OverviewTrackCount, StringFormat='{}{0} tracks'}"
+                                               FontSize="12" FontWeight="SemiBold" Foreground="#CCCCCC"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding OverviewDurationDisplay}"
+                                               FontSize="11" Foreground="#888888"/>
+                                </Grid>
+                                <TextBlock Text="{Binding OverviewBpmRangeDisplay}" FontSize="10" Foreground="#888888"/>
+
+                                <Border Background="#27313A" Height="1"/>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="Analysis coverage" FontSize="10" Foreground="#888888" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding OverviewAnalysisCoverageDisplay}" FontSize="10" Foreground="#4EC9B0"/>
+                                </Grid>
+                                <ProgressBar Value="{Binding OverviewAnalysisCoveragePercent}" Maximum="100" Height="6"
+                                             Foreground="#4EC9B0" Background="#1E2626" BorderThickness="0" CornerRadius="3"/>
+
+                                <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                                    <TextBlock Grid.Column="0" Text="Avg energy" FontSize="10" Foreground="#888888" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding OverviewAvgEnergyDisplay}" FontSize="10" Foreground="#E0A458"/>
+                                </Grid>
+                                <ProgressBar Value="{Binding OverviewAvgEnergyPercent}" Maximum="100" Height="6"
+                                             Foreground="#E0A458" Background="#26221E" BorderThickness="0" CornerRadius="3"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Top Artists -->
+                        <Border IsVisible="{Binding HasOverviewTopArtists}"
+                                Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="TOP ARTISTS" FontSize="9" FontWeight="Black" Foreground="#666666" LetterSpacing="1"/>
+                                <ItemsControl ItemsSource="{Binding OverviewTopArtists}" ItemTemplate="{StaticResource StatBarRowTemplate}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Top Genres -->
+                        <Border IsVisible="{Binding HasOverviewTopGenres}"
+                                Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="TOP GENRES" FontSize="9" FontWeight="Black" Foreground="#666666" LetterSpacing="1"/>
+                                <ItemsControl ItemsSource="{Binding OverviewTopGenres}" ItemTemplate="{StaticResource StatBarRowTemplate}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- BPM Distribution -->
+                        <Border IsVisible="{Binding HasOverviewBpmBrackets}"
+                                Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="BPM DISTRIBUTION" FontSize="9" FontWeight="Black" Foreground="#666666" LetterSpacing="1"/>
+                                <ItemsControl ItemsSource="{Binding OverviewBpmBrackets}" ItemTemplate="{StaticResource StatBarRowTemplate}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Key Distribution -->
+                        <Border IsVisible="{Binding HasOverviewKeyDistribution}"
+                                Background="#1E1E1F" BorderBrush="#2D2D2D" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="KEY DISTRIBUTION" FontSize="9" FontWeight="Black" Foreground="#666666" LetterSpacing="1"/>
+                                <ItemsControl ItemsSource="{Binding OverviewKeyDistribution}" ItemTemplate="{StaticResource StatBarRowTemplate}"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </StackPanel>
+
                 <StackPanel IsVisible="{Binding IsLibraryIntelligenceSmartInsertActive}" Spacing="8">
                     <TextBlock Text="Smart Insert"
                                FontSize="12"
