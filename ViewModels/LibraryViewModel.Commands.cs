@@ -34,6 +34,11 @@ public partial class LibraryViewModel
     public ICommand ViewHistoryCommand { get; set; } = null!;
     public ICommand OpenSourcesCommand { get; set; } = null!;
     public ICommand RemoveUnidentifiedTracksCommand { get; set; } = null!;
+    public ICommand RemoveDuplicateTracksCommand { get; set; } = null!;
+    public ICommand FixMissingFileFlagsCommand { get; set; } = null!;
+    public ICommand BackfillDurationsCommand { get; set; } = null!;
+    public ICommand AutoArrangePlaylistCommand { get; set; } = null!;
+    public ICommand CombineSelectedPlaylistsCommand { get; set; } = null!;
     public ICommand ToggleEditModeCommand { get; set; } = null!;
     public ICommand ToggleActiveDownloadsCommand { get; set; } = null!;
     public ICommand ToggleNavigationCommand { get; set; } = null!;
@@ -112,6 +117,11 @@ public partial class LibraryViewModel
             else IsSourcesOpen = true;
         });
         RemoveUnidentifiedTracksCommand = new AsyncRelayCommand(ExecuteRemoveUnidentifiedTracksAsync);
+        RemoveDuplicateTracksCommand = new AsyncRelayCommand(ExecuteRemoveDuplicateTracksAsync);
+        FixMissingFileFlagsCommand = new AsyncRelayCommand(ExecuteFixMissingFileFlagsAsync);
+        BackfillDurationsCommand = new AsyncRelayCommand(ExecuteBackfillDurationsAsync);
+        AutoArrangePlaylistCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteAutoArrangePlaylistAsync);
+        CombineSelectedPlaylistsCommand = new RelayCommand(ExecuteCombineSelectedPlaylists);
         ToggleEditModeCommand = new RelayCommand(() => IsEditMode = !IsEditMode);
         ToggleActiveDownloadsCommand = new RelayCommand(() => IsActiveDownloadsVisible = !IsActiveDownloadsVisible);
         ToggleNavigationCommand = new RelayCommand(ExecuteToggleNavigation);
@@ -506,11 +516,16 @@ public partial class LibraryViewModel
                 return;
             _downloadMissingLastRun[project.Id] = now;
 
+            // Shown before the DB round-trip below, not after: LoadPlaylistTracksAsync eager-loads
+            // TechnicalDetails/AudioFeatures for the whole playlist, which is not instant — without
+            // an immediate acknowledgement here the click reads as not having registered at all.
+            _notificationService.Show("Download Missing", $"Looking up missing tracks in {project.SourceTitle}...", NotificationType.Information);
+
             var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
             var missing = tracks.Where(t => t.Status != TrackStatus.Downloaded && t.Status != TrackStatus.OnHold).ToList();
             if (missing.Any())
             {
-                _notificationService.Show("Queueing Missing Tracks", $"{missing.Count} missing tracks from {project.SourceTitle}", NotificationType.Information);
+                _notificationService.Show("Queued", $"{missing.Count} missing tracks from {project.SourceTitle} added to queue.", NotificationType.Success);
 
                 foreach (var t in missing)
                 {
@@ -1022,16 +1037,49 @@ public partial class LibraryViewModel
                 return;
             }
 
-            _navigationService.NavigateTo("Workstation");
+            _navigationService.NavigateTo("FlowBuilder");
             _notificationService.Show(
                 "Flow Builder",
-                "Opened Workstation Flow view.",
+                "Opened Flow Builder.",
                 NotificationType.Information);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to open flow builder");
             _notificationService.Show("Flow Builder Failed", ex.Message, NotificationType.Error);
+        }
+    }
+
+    /// <summary>
+    /// Library sidebar multi-select "Combine into New Playlist…": hands the selected playlists off
+    /// to Flow Builder, which opens the Combine Playlists dialog pre-checked with them — the same
+    /// flow as Flow Builder's own "Combine Playlists…" button.
+    /// </summary>
+    private void ExecuteCombineSelectedPlaylists()
+    {
+        try
+        {
+            var playlists = Projects.SelectedTreeNodes
+                .OfType<PlaylistTreeCardNodeViewModel>()
+                .Select(n => n.Card.Model)
+                .ToList();
+
+            if (playlists.Count < 2)
+            {
+                _notificationService.Show(
+                    "Combine Playlists",
+                    "Select 2 or more playlists first (Ctrl/Shift-click in the sidebar).",
+                    NotificationType.Warning);
+                return;
+            }
+
+            _eventBus.Publish(new CombinePlaylistsRequestEvent(playlists));
+            _navigationService.NavigateTo("FlowBuilder");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to hand off selected playlists to Flow Builder");
+            _notificationService.Show("Combine Playlists Failed", ex.Message, NotificationType.Error);
         }
     }
 
@@ -2164,6 +2212,235 @@ public partial class LibraryViewModel
         {
             _logger.LogError(ex, "Failed to remove unidentified tracks");
             _notificationService.Show("Remove Unidentified Tracks", $"Failed: {ex.Message}", NotificationType.Error);
+        }
+    }
+
+    /// <summary>
+    /// Cleans up two confirmed duplicate-data bugs: the same track inserted multiple times into
+    /// the same playlist, and the same file registered twice in the library under two different
+    /// hash formats (legacy vs. current). See <see cref="Services.DuplicateTrackCleanupService"/>.
+    /// Fresh imports and AddTracksToProjectAsync no longer create new duplicates going forward —
+    /// this is the one-off correction for rows already affected.
+    /// </summary>
+    private async Task ExecuteRemoveDuplicateTracksAsync()
+    {
+        var cleanupService = _serviceProvider?.GetService(typeof(Services.DuplicateTrackCleanupService))
+            as Services.DuplicateTrackCleanupService;
+        if (cleanupService == null)
+        {
+            _notificationService.Show("Remove Duplicate Tracks", "Cleanup service unavailable.", NotificationType.Error);
+            return;
+        }
+
+        bool confirm = await _dialogService.ConfirmAsync(
+            "Remove Duplicate Tracks",
+            "This merges duplicate library entries and removes duplicate track rows within playlists (keeping the downloaded/earliest copy of each). A safety backup of the database is taken first. This cannot be undone otherwise. Continue?");
+        if (!confirm) return;
+
+        try
+        {
+            var result = await cleanupService.RunAsync();
+            var noneFound = !result.Aborted && result.LibraryEntriesMerged == 0 && result.PlaylistRowsRemoved == 0;
+            _notificationService.Show(
+                "Remove Duplicate Tracks",
+                noneFound ? "No duplicate tracks found." : result.Summary,
+                result.Aborted || result.HasErrors ? NotificationType.Warning : NotificationType.Success);
+
+            if (result.PlaylistRowsRemoved > 0 || result.LibraryEntriesMerged > 0)
+            {
+                await ExecuteRefreshLibraryAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to remove duplicate tracks");
+            _notificationService.Show("Remove Duplicate Tracks", $"Failed: {ex.Message}", NotificationType.Error);
+        }
+    }
+
+    /// <summary>
+    /// Fixes tracks stuck showing "FILE MISSING" in the Track Inspector even though the file
+    /// genuinely exists on disk (and is often already fully analyzed — waveform, BPM, etc. all
+    /// present) — reported directly by the user from a screenshot. Root cause: some "file already
+    /// exists, skip the actual download" fast paths in DownloadManager didn't always advance
+    /// AvailabilityState past Ghost the way a full download completion does, leaving existing rows
+    /// stuck (now fixed going forward — this is the one-off correction for rows already affected).
+    /// </summary>
+    private async Task ExecuteFixMissingFileFlagsAsync()
+    {
+        var reconcileService = _serviceProvider?.GetService(typeof(Services.AvailabilityStateReconciliationService))
+            as Services.AvailabilityStateReconciliationService;
+        if (reconcileService == null)
+        {
+            _notificationService.Show("Fix Missing-File Flags", "Reconciliation service unavailable.", NotificationType.Error);
+            return;
+        }
+
+        try
+        {
+            var result = await reconcileService.ReconcileAsync();
+            _notificationService.Show(
+                "Fix Missing-File Flags",
+                result.Summary,
+                result.TotalFixed > 0 ? NotificationType.Success : NotificationType.Information);
+
+            if (result.TotalFixed > 0)
+            {
+                await ExecuteRefreshLibraryAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to reconcile missing-file flags");
+            _notificationService.Show("Fix Missing-File Flags", $"Failed: {ex.Message}", NotificationType.Error);
+        }
+    }
+
+    /// <summary>
+    /// One-time sweep fixing two stacked gaps behind the Inspector's TRACK DETAILS section showing
+    /// "—"/"UNKNOWN" even on already-analysed tracks: (1) a TagLib duration probe for tracks that
+    /// predate PostDownloadDurationCaptureService — most Soulseek downloads never had their real
+    /// duration read, only Bitrate/Format; (2) Bitrate/Format on PlaylistTracks rows that never
+    /// inherited them from the matching LibraryEntries row (DatabaseService.SavePlaylistJobWithTracksAsync
+    /// was missing that field entirely). Reported directly by the user via screenshot.
+    /// </summary>
+    private async Task ExecuteBackfillDurationsAsync()
+    {
+        var backfillService = _serviceProvider?.GetService(typeof(Services.DurationBackfillService))
+            as Services.DurationBackfillService;
+        if (backfillService == null)
+        {
+            _notificationService.Show("Backfill Missing Durations", "Backfill service unavailable.", NotificationType.Error);
+            return;
+        }
+
+        try
+        {
+            var result = await backfillService.BackfillAsync();
+            _notificationService.Show(
+                "Backfill Missing Track Metadata",
+                result.Summary,
+                result.TotalFixed > 0 ? NotificationType.Success : NotificationType.Information);
+
+            if (result.TotalFixed > 0)
+            {
+                await ExecuteRefreshLibraryAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to backfill missing track metadata");
+            _notificationService.Show("Backfill Missing Track Metadata", $"Failed: {ex.Message}", NotificationType.Error);
+        }
+    }
+
+    /// <summary>
+    /// Reorders every downloaded track in a playlist by similarity and "double drop" DJ-mix
+    /// compatibility (close BPM + harmonically compatible key + similar drop-section sonics),
+    /// then persists the new order. Reuses PlaylistIntelligenceService.ReorderAsync — the same
+    /// engine Flow Builder's "Suggest Flow" already uses — with the new optional double-drop
+    /// weighting so this one-click entry point, unlike Flow Builder's multi-step review UI,
+    /// favors beatmatchable neighbor pairs rather than just general similarity.
+    /// </summary>
+    private async Task ExecuteAutoArrangePlaylistAsync(PlaylistJob? job)
+    {
+        if (job == null) return;
+
+        try
+        {
+            var tracks = await _libraryService.LoadPlaylistTracksAsync(job.Id);
+            // Not-yet-downloaded tracks have no file to derive fingerprint/BPM data from, so they
+            // can't take part in similarity scoring — excluded here, left untouched in the saved
+            // order below (Set Plan / manual placement for wanted-but-missing tracks is unaffected).
+            var eligible = tracks
+                .Where(t => !string.IsNullOrEmpty(t.ResolvedFilePath) && File.Exists(t.ResolvedFilePath))
+                .ToList();
+            var skippedNotDownloaded = tracks.Count - eligible.Count;
+
+            // The same physical track can legitimately appear more than once in a set (an
+            // intentional replay/reprise) — dedupe by hash for the reorder computation itself
+            // (ReorderAsync also dedupes internally, but building lookups keyed by hash from a
+            // list containing duplicates throws), then apply the resulting position to every
+            // instance sharing that hash so repeats move together rather than being dropped.
+            var distinctEligible = eligible
+                .GroupBy(t => t.TrackUniqueHash, StringComparer.Ordinal)
+                .Select(g => g.First())
+                .ToList();
+
+            if (distinctEligible.Count < 3)
+            {
+                _notificationService.Show("Auto-Arrange",
+                    "Need at least 3 distinct downloaded tracks in this playlist to arrange.",
+                    NotificationType.Warning);
+                return;
+            }
+            if (distinctEligible.Count > PlaylistIntelligenceService.MaxReorderTracks)
+            {
+                _notificationService.Show("Auto-Arrange",
+                    $"Playlist has {distinctEligible.Count} distinct tracks — auto-arrange supports up to {PlaylistIntelligenceService.MaxReorderTracks}.",
+                    NotificationType.Warning);
+                return;
+            }
+
+            bool confirm = await _dialogService.ConfirmAsync(
+                "Auto-Arrange Playlist",
+                $"Reorder {distinctEligible.Count} downloaded tracks in '{job.SourceTitle}' by similarity and double-drop compatibility?" +
+                (skippedNotDownloaded > 0 ? $" {skippedNotDownloaded} not-yet-downloaded track(s) will be left in place." : "") +
+                " This replaces the current track order.");
+            if (!confirm) return;
+
+            var intelligenceService = _serviceProvider?.GetService(typeof(PlaylistIntelligenceService))
+                as PlaylistIntelligenceService;
+            if (intelligenceService == null)
+            {
+                _notificationService.Show("Auto-Arrange", "Reorder service unavailable.", NotificationType.Error);
+                return;
+            }
+
+            var bpmByHash = distinctEligible
+                .Where(t => t.BPM is > 0)
+                .ToDictionary(t => t.TrackUniqueHash, t => (float)t.BPM!.Value, StringComparer.Ordinal);
+
+            var metadataByHash = distinctEligible
+                .ToDictionary(t => t.TrackUniqueHash, t => new ReorderTrackMetadata(t.Artist, t.DetectedSubGenre), StringComparer.Ordinal);
+
+            var result = await intelligenceService.ReorderAsync(
+                distinctEligible.Select(t => t.TrackUniqueHash),
+                energyCurve: EnergyCurvePattern.Rising,
+                doubleDropWeight: 0.35,
+                bpmByHash: bpmByHash,
+                metadataByHash: metadataByHash);
+
+            if (result.OrderedTrackHashes.Count == 0)
+            {
+                _notificationService.Show("Auto-Arrange", "Could not compute an order (missing analysis data).", NotificationType.Warning);
+                return;
+            }
+
+            var newIndexByHash = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (int i = 0; i < result.OrderedTrackHashes.Count; i++)
+                newIndexByHash[result.OrderedTrackHashes[i]] = i;
+
+            foreach (var track in eligible)
+            {
+                if (newIndexByHash.TryGetValue(track.TrackUniqueHash, out var newIndex))
+                {
+                    track.SortOrder = newIndex;
+                    track.TrackNumber = newIndex + 1;
+                }
+            }
+
+            await _libraryService.SaveTrackOrderAsync(job.Id, eligible);
+            await ExecuteRefreshLibraryAsync();
+            _notificationService.Show("Auto-Arrange",
+                $"Rearranged {result.OrderedTrackHashes.Count} tracks in '{job.SourceTitle}' (avg transition score {result.AverageTransitionScore:P0})." +
+                (skippedNotDownloaded > 0 ? $" {skippedNotDownloaded} not-yet-downloaded track(s) left in place." : ""),
+                NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Auto-arrange failed for playlist {Id}", job.Id);
+            _notificationService.Show("Auto-Arrange Failed", ex.Message, NotificationType.Error);
         }
     }
 

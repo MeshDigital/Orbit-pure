@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using SLSKDONET.Configuration;
 using SLSKDONET.Data;
 using SLSKDONET.Events;
 using SLSKDONET.Models;
@@ -14,9 +15,11 @@ using SLSKDONET.Services.AutoDownload;
 namespace SLSKDONET.Services.AutoDownload;
 
 /// <summary>
-/// Background service that scans the database for Ghost tracks,
-/// searches Soulseek via AutoSearchService, validates with SearchResultMatcher,
-/// and queues downloads if confidence >= 95%.
+/// Background service that scans the database for tracks not yet downloaded (Missing, Failed,
+/// or OnHold), searches Soulseek via AutoSearchService, validates with SearchResultMatcher, and
+/// queues downloads if confidence >= 95%. Processes the most promising (least-tried) tracks
+/// first within each sweep; tracks that have already failed repeatedly are retried last rather
+/// than excluded, so nothing is permanently stuck once it starts failing.
 /// </summary>
 public class GhostAcquisitionOrchestrator : BackgroundService
 {
@@ -26,6 +29,7 @@ public class GhostAcquisitionOrchestrator : BackgroundService
     private readonly DownloadManager _downloadManager;
     private readonly ILibraryService _libraryService;
     private readonly IEventBus _eventBus;
+    private readonly AppConfig _config;
     private readonly ILogger<GhostAcquisitionOrchestrator> _logger;
     private readonly Random _random = new();
 
@@ -36,6 +40,7 @@ public class GhostAcquisitionOrchestrator : BackgroundService
         DownloadManager downloadManager,
         ILibraryService libraryService,
         IEventBus eventBus,
+        AppConfig config,
         ILogger<GhostAcquisitionOrchestrator> logger)
     {
         _dbContextFactory = dbContextFactory;
@@ -44,6 +49,7 @@ public class GhostAcquisitionOrchestrator : BackgroundService
         _downloadManager = downloadManager;
         _libraryService = libraryService;
         _eventBus = eventBus;
+        _config = config;
         _logger = logger;
     }
 
@@ -65,15 +71,41 @@ public class GhostAcquisitionOrchestrator : BackgroundService
                     continue;
                 }
 
-                // Query database for Ghost tracks with Status == Missing and SearchRetryCount < 3
+                // Idle-gate: don't start a background sweep while the user's own searches/downloads
+                // are in flight — this competes for the same rate-limited search dispatch otherwise.
+                // EnableIdleGhostAcquisition is a safety valve to restore the old always-on behavior.
+                if (_config.EnableIdleGhostAcquisition && !_downloadManager.IsQueueIdle)
+                {
+                    _logger.LogDebug("Download queue is active. Skipping acquisition sweep until idle.");
+                    continue;
+                }
+
+                // Every track not yet downloaded is in scope — Missing, Failed, and OnHold alike.
+                // Previously this only matched AvailabilityState==Ghost && Status==Missing &&
+                // SearchRetryCount<3, which was a one-way trapdoor: a track that failed search 3
+                // times got flipped to OnHold and then permanently excluded from every future
+                // sweep (nothing ever reset it back), while tracks that reached Status==Failed
+                // through the main DownloadManager pipeline were never in scope at all. Verified
+                // live: this left the eligible pool at literally zero while ~1,900 "wanted"
+                // tracks sat stuck, unreachable by this background service.
+                //
+                // No candidate is excluded anymore — instead, ordering does the throttling: worst
+                // state last. A track that has never been attempted (Missing) is tried well before
+                // one that has already failed search repeatedly (Failed, then OnHold), so a full
+                // sweep spends its limited time budget on the most promising candidates first and
+                // only reaches the stubborn ones once everything better has had a turn.
                 List<PlaylistTrack> ghostTracks = new();
                 await using (var context = await _dbContextFactory.CreateDbContextAsync(stoppingToken))
                 {
                     var entities = await context.PlaylistTracks
-                        .Where(t => t.AvailabilityState == TrackAvailabilityState.Ghost &&
-                                    t.Status == TrackStatus.Missing &&
-                                    t.SearchRetryCount < 3)
-                        .OrderBy(t => t.Priority)
+                        .Where(t => t.Status == TrackStatus.Missing ||
+                                    t.Status == TrackStatus.Failed ||
+                                    t.Status == TrackStatus.OnHold)
+                        .OrderBy(t => t.Status == TrackStatus.Missing ? 0
+                                    : t.Status == TrackStatus.Failed ? 1
+                                    : 2) // OnHold — already exhausted retries, worst state, tried last
+                        .ThenBy(t => t.SearchRetryCount)
+                        .ThenBy(t => t.Priority)
                         .ThenBy(t => t.AddedAt)
                         .ToListAsync(stoppingToken);
 
@@ -108,12 +140,20 @@ public class GhostAcquisitionOrchestrator : BackgroundService
 
                 if (ghostTracks.Count > 0)
                 {
-                    _logger.LogInformation("Found {Count} ghost tracks needing acquisition.", ghostTracks.Count);
+                    _logger.LogInformation("Found {Count} tracks needing acquisition (Missing/Failed/OnHold, worst-state-last order).", ghostTracks.Count);
 
                     foreach (var track in ghostTracks)
                     {
                         if (stoppingToken.IsCancellationRequested)
                             break;
+
+                        // Re-check mid-sweep: back off immediately if the user started something
+                        // since this sweep began, rather than blasting through the whole batch.
+                        if (_config.EnableIdleGhostAcquisition && !_downloadManager.IsQueueIdle)
+                        {
+                            _logger.LogDebug("Download queue became active mid-sweep. Stopping this batch early.");
+                            break;
+                        }
 
                         // Double check: if already active in download manager, skip
                         if (_downloadManager.IsTrackAlreadyQueued(track.SpotifyTrackId, track.Artist, track.Title))
@@ -150,9 +190,12 @@ public class GhostAcquisitionOrchestrator : BackgroundService
                                     }
                                 }
 
-                                // Queue track in download manager
+                                // Queue track in download manager — awaited (this is a background
+                                // service, not the UI thread) since the OverrideCandidate lookup
+                                // right below needs the freshly-created DownloadContext to already
+                                // exist in ActiveDownloads.
                                 track.AvailabilityState = TrackAvailabilityState.QueuedForDownload;
-                                _downloadManager.QueueTracks(new List<PlaylistTrack> { track });
+                                await _downloadManager.QueueTracksAsync(new List<PlaylistTrack> { track });
 
                                 // Find context in download manager and set override candidate
                                 var active = _downloadManager.ActiveDownloads;
