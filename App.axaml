@@ -34,6 +34,7 @@
         <conv_root:LogLevelColorConverter x:Key="LogLevelColorConverter"/>
         <converters:BoolToWidthConverter x:Key="BoolToWidthConverter"/>
         <conv_root:BoolToStringConverter x:Key="BoolToStringConverter"/>
+        <conv_root:GridLengthPixelConverter x:Key="GridLengthPixelConverter"/>
         <conv_root:MultiBoolToBlurConverter x:Key="MultiBoolToBlurConverter"/>
         <converters:BoolToAngleConverter x:Key="BoolToAngleConverter"/>
         <converters:BoolToTextConverter x:Key="BoolToTextConverter"/>
@@ -115,6 +116,7 @@
         
         <!-- UI Icons Added in Phase 3.6 -->
         <StreamGeometry x:Key="rocket_regular">M12,2L4.5,20.29L5.21,21L12,18L18.79,21L19.5,20.29L12,2Z</StreamGeometry>
+        <StreamGeometry x:Key="star_regular">M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z</StreamGeometry>
         <StreamGeometry x:Key="arrow_up_regular">M11,19V7.83L5.91,12.91L4.5,11.5L12,4L19.5,11.5L18.09,12.91L13,7.83V19H11Z</StreamGeometry>
         <StreamGeometry x:Key="search_regular">M15.5,14H14.71L14.43,13.73C15.41,12.59 16,11.11 16,9.5A6.5,6.5 0 0,0 9.5,3A6.5,6.5 0 0,0 3,9.5A6.5,6.5 0 0,0 9.5,16C11.11,16 12.59,15.41 13.73,14.43L14,14.71V15.5L19,20.5L20.5,19L15.5,14M9.5,14C7.01,14 5,11.99 5,9.5C5,7.01 7.01,5 9.5,5C11.99,5 14,7.01 14,9.5C14,11.99 11.99,14 9.5,14Z</StreamGeometry>
         <StreamGeometry x:Key="cloud_arrow_up_regular">M14,13V17H10V13H7L12,8L17,13M19.35,10.03C18.67,6.59 15.64,4 12,4C9.11,4 6.6,5.64 5.35,8.03C2.34,8.36 0,10.9 0,14A6,6 0 0,0 6,20H19A5,5 0 0,0 24,15C24,12.36 21.95,10.22 19.35,10.03Z</StreamGeometry>
@@ -140,6 +142,22 @@
         </Style>
         <Style Selector="Button.nav-item:pointerover /template/ ContentPresenter">
             <Setter Property="Background" Value="#333"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+
+        <!-- Compact segmented-bar nav item (Library sidebar: All Tracks / Liked Songs / Folders) -->
+        <Style Selector="Button.segbar-item">
+            <Setter Property="Background" Value="#20242A"/>
+            <Setter Property="Foreground" Value="#AAA"/>
+            <Setter Property="BorderBrush" Value="#2E343D"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="Padding" Value="4,7"/>
+            <Setter Property="CornerRadius" Value="6"/>
+        </Style>
+        <Style Selector="Button.segbar-item:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#2E343D"/>
             <Setter Property="Foreground" Value="White"/>
         </Style>
 
