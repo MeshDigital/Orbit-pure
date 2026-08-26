@@ -314,13 +314,21 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
             var items = Tracks.ToList();
             foreach (var t in items)
             {
-                // Status Reset Safety Check: If mid-download/searching, reset to Failed
+                // Status Reset Safety Check: if mid-download/searching, make sure the explicit
+                // save below (which CancelTrack's own state transition can race against — its
+                // UpdateStateAsync call is fire-and-forget) never persists a stale in-progress
+                // status. Skipped, not Failed: DownloadManager.SyncDbAsync maps
+                // PlaylistTrackState.Cancelled -> TrackStatus.Skipped everywhere else, and this
+                // used to hardcode Failed instead — meaning a plain user-initiated cancel could
+                // land in the DB as "Failed" with zero audit-log trace explaining why (the direct
+                // property set bypasses the audit-logged UpdateStateAsync path entirely), which is
+                // exactly the kind of silently-wrong status this app should never show.
                 if (t.State == PlaylistTrackState.Downloading ||
                     t.State == PlaylistTrackState.Searching ||
                     t.State == PlaylistTrackState.Queued ||
                     t.State == PlaylistTrackState.Pending)
                 {
-                    t.Model.Status = TrackStatus.Failed;
+                    t.Model.Status = TrackStatus.Skipped;
                 }
 
                 // Cancel
