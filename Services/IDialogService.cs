@@ -58,6 +58,15 @@ public interface IDialogService
     Task<ViewModels.Library.PlaylistPickerResult?> ShowPlaylistPickerDialogAsync(System.Collections.Generic.IEnumerable<PlaylistJob> playlists);
 
     /// <summary>
+    /// Shows the "Combine Playlists" dialog — lets the user pick 2+ playlists, a name for the
+    /// combined playlist, and whether to dedupe overlapping tracks. <paramref name="preSelected"/>
+    /// pre-checks playlists handed off from another entry point (e.g. the Library sidebar).
+    /// </summary>
+    Task<ViewModels.Library.CombinePlaylistsResult?> ShowCombinePlaylistsDialogAsync(
+        System.Collections.Generic.IEnumerable<PlaylistJob> playlists,
+        System.Collections.Generic.IReadOnlyList<PlaylistJob>? preSelected = null);
+
+    /// <summary>
     /// Shows a batch tag editor dialog.
     /// </summary>
     Task<ViewModels.Library.BatchTagEditResult?> ShowBatchTagEditDialogAsync(string? initialFileName = null);

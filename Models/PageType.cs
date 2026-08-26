@@ -17,5 +17,6 @@ public enum PageType
     Stems,
     Workstation,
     CueForge,
-    Users
+    Users,
+    FlowBuilder
 }

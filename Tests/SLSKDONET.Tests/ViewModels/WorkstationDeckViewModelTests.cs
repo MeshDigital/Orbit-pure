@@ -659,10 +659,13 @@ public class WorkstationDeckViewModelTests
     [Fact]
     public void ComputeFlowHarmonicCompatibility_MapsAdjacentCamelotToLock()
     {
+        // Delegates to the shared TrackMatchScorer.ComputeHarmony formula (1 - distance/6 scale),
+        // which places an adjacent Camelot step (distance 1) at ~83.3, not the old independent
+        // bucket formula's 90 — thresholds were retuned to match (>=80 => lock).
         var score = WorkstationViewModel.ComputeFlowHarmonicCompatibility("8A", "9A", semitoneShift: 0);
 
         Assert.Equal("lock", score.Label);
-        Assert.True(score.Score >= 90);
+        Assert.True(score.Score >= 80);
     }
 
     [Fact]

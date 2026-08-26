@@ -225,6 +225,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateStemsCommand = new RelayCommand(NavigateToStems);
         NavigateCueForgeCommand = new RelayCommand(NavigateToCueForge);
         NavigateUsersCommand = new RelayCommand(NavigateToUsers);
+        NavigateFlowBuilderCommand = new RelayCommand(NavigateToFlowBuilder);
         PlayPauseCommand = new RelayCommand(() => PlayerViewModel.TogglePlayPauseCommand.Execute(null));
         FocusSearchCommand = new RelayCommand(FocusSearch);
         ToggleNavigationCommand = new RelayCommand(() =>
@@ -423,6 +424,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("Stems", typeof(Avalonia.StemsPage));
         _navigationService.RegisterPage("CueForge", typeof(Avalonia.CueForgePagee));
         _navigationService.RegisterPage("Users", typeof(Avalonia.UsersPage));
+        _navigationService.RegisterPage("FlowBuilder", typeof(Avalonia.FlowBuilderPage));
 
         // Subscribe to navigation events
         _navigationService.Navigated += OnNavigated;
@@ -814,6 +816,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsWorkstationOverlayActive => IsCreativeOverlayPage(CurrentPageType);
     public bool IsCueForgeOverlayActive => CurrentPageType == PageType.CueForge;
     public bool IsUsersOverlayActive => CurrentPageType == PageType.Users;
+    public bool IsFlowBuilderOverlayActive => CurrentPageType == PageType.FlowBuilder;
 
     private static readonly string[] NavigationOverlayPropertyNames =
     [
@@ -830,7 +833,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         nameof(IsSettingsOverlayActive),
         nameof(IsWorkstationOverlayActive),
         nameof(IsCueForgeOverlayActive),
-        nameof(IsUsersOverlayActive)
+        nameof(IsUsersOverlayActive),
+        nameof(IsFlowBuilderOverlayActive)
     ];
 
     public static PageType ResolvePageType(Type? pageType, PageType fallback)
@@ -851,6 +855,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         if (typeof(Avalonia.WorkstationPage).IsAssignableFrom(pageType)) return PageType.Workstation;
         if (pageType.Name.Contains("StemsPage", StringComparison.Ordinal)) return PageType.Stems;
         if (typeof(Avalonia.UsersPage).IsAssignableFrom(pageType)) return PageType.Users;
+        if (typeof(Avalonia.FlowBuilderPage).IsAssignableFrom(pageType)) return PageType.FlowBuilder;
 
         return fallback;
     }
@@ -1067,6 +1072,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand NavigateStemsCommand { get; }
     public ICommand NavigateCueForgeCommand { get; }
     public ICommand NavigateUsersCommand { get; }
+    public ICommand NavigateFlowBuilderCommand { get; }
     public ICommand PlayPauseCommand { get; }
     public ICommand FocusSearchCommand { get; }
     public ICommand ToggleNavigationCommand { get; }
@@ -1230,6 +1236,11 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private void NavigateToUsers()
     {
         _navigationService.NavigateTo("Users");
+    }
+
+    private void NavigateToFlowBuilder()
+    {
+        _navigationService.NavigateTo("FlowBuilder");
     }
 
     /// <summary>

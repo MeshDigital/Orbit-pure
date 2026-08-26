@@ -5,7 +5,6 @@
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Workstation"
              xmlns:wsViews="clr-namespace:SLSKDONET.Views.Avalonia.Workstation"
              xmlns:models="clr-namespace:SLSKDONET.Models"
-             xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
              xmlns:ctrl="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="900"
              x:Class="SLSKDONET.Views.Avalonia.WorkstationPage"
@@ -985,9 +984,6 @@
 
                 <Grid Grid.Row="2" ColumnDefinitions="2*,*" Margin="0,2,0,0">
                     <TabControl Grid.Column="0" x:Name="DrawerTabs" Classes="drawer-tabs" BorderThickness="0" Background="Transparent" TabStripPlacement="Top" SelectionChanged="OnDrawerTabsSelectionChanged" SelectedIndex="0">
-                        <TabItem Header="Flow Builder" Classes="drawer-tab">
-                            <views:FlowBuilderView/>
-                        </TabItem>
                         <TabItem Header="Track List" Classes="drawer-tab">
                             <StackPanel>
                                 <ctrl:VirtualGridHeader>

@@ -44,7 +44,7 @@
                 BorderBrush="#3E3E3E"
                 BorderThickness="0,0,0,1"
                 Padding="20,12">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
 
                 <!-- Title block -->
                 <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
@@ -153,6 +153,15 @@
                         Margin="4,0"
                         VerticalAlignment="Center"/>
 
+                <!-- Combine multiple playlists into a new, auto-arranged one -->
+                <Button Grid.Column="10"
+                        Content="⛙ Combine Playlists…"
+                        Classes="fb-ghost"
+                        Command="{Binding CombinePlaylistsCommand}"
+                        ToolTip.Tip="Pick 2+ playlists, combine and auto-arrange their tracks, and save as a new playlist"
+                        Margin="12,0,4,0"
+                        VerticalAlignment="Center"/>
+
             </Grid>
         </Border>
 
@@ -179,6 +188,9 @@
                     </TextBlock>
                     <Border Classes="fb-chip" IsVisible="{Binding HasTracks}">
                         <TextBlock Text="Drag cards to shape transitions" FontSize="10" Foreground="#8AA0B8"/>
+                    </Border>
+                    <Border Classes="fb-chip" IsVisible="{Binding HasPendingCombine}" Background="#1D4E42" BorderBrush="#2D8E7A">
+                        <TextBlock Text="{Binding PendingCombineStatusText}" FontSize="10" Foreground="#9BD7CA"/>
                     </Border>
                     <TextBlock Text="Style filter"
                                FontSize="10"
@@ -468,6 +480,13 @@
                                                     Width="28" Height="22"
                                                     FontSize="10"
                                                     Padding="0"/>
+                                            <Button Content="{Binding IsPreviewingTrack, Converter={StaticResource BoolToTextConverter}, ConverterParameter='⏹|🎧'}"
+                                                    Command="{Binding PreviewTrackCommand}"
+                                                    ToolTip.Tip="Pre-listen to this track"
+                                                    Width="28" Height="22"
+                                                    FontSize="10"
+                                                    Padding="0"
+                                                    Foreground="#4EC9B0"/>
                                                 <Button Content="🔗"
                                                     Command="{Binding FindBridgeToNextCommand}"
                                                     ToolTip.Tip="Find bridge track to the next item"

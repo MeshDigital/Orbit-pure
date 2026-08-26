@@ -126,11 +126,6 @@
                 <ToggleButton Classes="mixer-toggle"
                               IsChecked="{Binding IsQuantizeEnabled, Mode=TwoWay}"
                               ToolTip.Tip="Quantize hot-cue triggers to beat boundaries">QTZ</ToggleButton>
-
-                <!-- METRONOME toggle -->
-                <ToggleButton Classes="mixer-toggle"
-                              IsChecked="{Binding IsMetronomeEnabled, Mode=TwoWay}"
-                              ToolTip.Tip="Metronome click on master BPM">MET</ToggleButton>
             </StackPanel>
 
         </Grid>

@@ -106,9 +106,6 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     // ── Stem mixer ────────────────────────────────────────────────────────────
     public StemMixerViewModel Stems { get; }
 
-    /// <summary>Waveform rows for the four separated stems, shown in Stems mode.</summary>
-    public StemWaveformViewModel StemWaveforms { get; }
-
     private bool _stemsVisible;
     /// <summary>True after stem separation completes — shows the fader panel.</summary>
     public bool StemsVisible
@@ -292,6 +289,9 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     public bool HasMoodTag => IsLoaded && !string.IsNullOrWhiteSpace(_moodTag);
     public string MoodTagText => _moodTag ?? string.Empty;
 
+    /// <summary>Real analyzed energy (0-1), when available — prefer this over a BPM-derived estimate.</summary>
+    public double? Energy => _energy;
+
     public bool HasEnergyBadge => IsLoaded && _energy.HasValue;
     private int ComputedEnergyScore => (int)Math.Round((_energy ?? 0) * 10);
     public string EnergyBadgeText => HasEnergyBadge ? $"E{ComputedEnergyScore}" : string.Empty;
@@ -460,7 +460,6 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         DeckLabel  = deckLabel;
         Deck          = deck;
         Stems         = new StemMixerViewModel(stemSeparator);
-        StemWaveforms = new StemWaveformViewModel();
         CueEditor     = new CueEditorViewModel(cueService);
         _stemPrefService = stemPrefService;
         _dbFactory = dbFactory;
@@ -1439,16 +1438,6 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         if (Deck.LoadedFilePath is not { } path) return;
 
         await Stems.LoadAndSeparateCommand.Execute(path).FirstAsync();
-
-        // After separation, also extract per-stem waveforms for the visual strip
-        if (Stems.VocalsWavPath != null)
-        {
-            await StemWaveforms.LoadStemWaveformsAsync(
-                Stems.VocalsWavPath,
-                Stems.DrumsWavPath,
-                Stems.BassWavPath,
-                Stems.OtherWavPath);
-        }
     }
 
     private IEnumerable<PhraseSegment> BuildPhraseSegments()

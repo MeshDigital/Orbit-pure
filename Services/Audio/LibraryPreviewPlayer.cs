@@ -16,6 +16,10 @@ public interface ILibraryPreviewPlayer : IDisposable
     // Raw PCM magnitudes from FFT — subscribe to drive a spectrum visualizer.
     event EventHandler<float[]>? SpectrumChanged;
 
+    /// <summary>Raised when a preview stops, whether by user request, a new preview replacing
+    /// it, or natural end-of-file — lets callers with a play/stop toggle reset their UI state.</summary>
+    event EventHandler? PreviewStopped;
+
     // Hover over a library row — debounced 250ms, then starts playback.
     void RequestPreview(string filePath, double? bpm = null);
 
@@ -51,6 +55,7 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
     public string? CurrentPreviewPath { get; private set; }
 
     public event EventHandler<float[]>? SpectrumChanged;
+    public event EventHandler? PreviewStopped;
 
     public LibraryPreviewPlayer(ILogger<LibraryPreviewPlayer> logger)
     {
@@ -173,6 +178,7 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
         if (e.Exception != null)
             _logger.LogWarning(e.Exception, "[LibraryPreview] Playback stopped with error");
         DisposePlaybackResources();
+        PreviewStopped?.Invoke(this, EventArgs.Empty);
     }
 
     public void Dispose()
