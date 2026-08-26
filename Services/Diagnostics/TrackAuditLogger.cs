@@ -15,13 +15,15 @@ public class TrackAuditLogger : ITrackAuditLogger, IDisposable
 {
     private readonly string _baseLogsDirectory;
     private readonly ILogger<TrackAuditLogger> _logger;
+    private readonly EngineDiagnosticsService _diagnostics;
     private readonly Channel<AuditLogEntry> _channel;
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _writerTask;
 
-    public TrackAuditLogger(IEventBus eventBus, ILogger<TrackAuditLogger> logger)
+    public TrackAuditLogger(IEventBus eventBus, EngineDiagnosticsService diagnostics, ILogger<TrackAuditLogger> logger)
     {
         _logger = logger;
+        _diagnostics = diagnostics;
         _baseLogsDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "ORBIT",
@@ -60,6 +62,11 @@ public class TrackAuditLogger : ITrackAuditLogger, IDisposable
     {
         var formattedMsg = $"[CANDIDATE {action}] Peer: '{peer}' | Bitrate: {bitrate}kbps | Format: {format} | Reason: {reason}";
         Log(trackHash, formattedMsg, action == "REJECTED" || action == "IGNORED");
+
+        // Structured dual-write for Engine Diagnostics — every per-track free-text call site (8 in
+        // DownloadDiscoveryService) gets cross-track queryability for free from this one bridge
+        // point, rather than touching each call site individually.
+        var fireAndForget = _diagnostics.LogSearchCandidateAsync(trackHash, query: null, action, reason, peer, details: new { bitrate, format });
     }
 
     private async Task ProcessQueueAsync()

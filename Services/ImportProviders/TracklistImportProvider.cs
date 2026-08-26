@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Models;
+using SLSKDONET.Services;
 
 namespace SLSKDONET.Services.ImportProviders;
 
@@ -12,13 +13,15 @@ namespace SLSKDONET.Services.ImportProviders;
 public class TracklistImportProvider : IStreamingImportProvider
 {
     private readonly ILogger<TracklistImportProvider> _logger;
+    private readonly EngineDiagnosticsService? _diagnostics;
 
     public string Name => "Pasted Tracklist";
     public string IconGlyph => "📋";
 
-    public TracklistImportProvider(ILogger<TracklistImportProvider> logger)
+    public TracklistImportProvider(ILogger<TracklistImportProvider> logger, EngineDiagnosticsService? diagnostics = null)
     {
         _logger = logger;
+        _diagnostics = diagnostics;
     }
 
     /// <summary>
@@ -48,7 +51,8 @@ public class TracklistImportProvider : IStreamingImportProvider
                 rawText.Length, 
                 rawText.Split('\n').Length);
 
-            var tracks = Utils.CommentTracklistParser.Parse(rawText, out var detectedTitle, out var detectedSourceUrl);
+            var tracks = Utils.CommentTracklistParser.Parse(rawText, out var detectedTitle, out var detectedSourceUrl,
+                onLine: entry => { var fireAndForget = _diagnostics?.LogImportLineAsync(playlistId: null, entry); });
 
             if (!tracks.Any())
             {

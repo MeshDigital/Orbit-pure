@@ -65,6 +65,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private readonly DatabaseService _databaseService;
     private readonly LibraryFolderScannerService _libraryFolderScannerService;
     private readonly IEventBus _eventBus;
+    private readonly NetworkActivityMonitor? _networkActivityMonitor;
+    private readonly EngineDiagnosticsService? _engineDiagnosticsService;
     private readonly ISoulseekAdapter _soulseek;
     private readonly ISoulseekCredentialService _credentialService;
     private readonly IConnectionLifecycleService _lifecycle;
@@ -143,6 +145,21 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             if (_config.EnableKeyboardTelemetry != value)
             {
                 _config.EnableKeyboardTelemetry = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    /// <summary>Toggle for the live network-activity feed (Soulseek + HTTP + socket/DNS). Local-only.</summary>
+    public bool EnableNetworkActivityMonitor
+    {
+        get => _config.EnableNetworkActivityMonitor;
+        set
+        {
+            if (_config.EnableNetworkActivityMonitor != value)
+            {
+                _config.EnableNetworkActivityMonitor = value;
                 OnPropertyChanged();
                 SaveSettings();
             }
@@ -1381,6 +1398,112 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     }
     public bool HasDiagnosticsSnapshotStatus => !string.IsNullOrEmpty(_diagnosticsSnapshotStatus);
 
+    // Network Activity Monitor: live feed of every outbound network call
+    private const int NetworkActivityFeedMaxEntries = 300;
+    public ObservableCollection<NetworkActivityEntryViewModel> NetworkActivityFeed { get; } = new();
+    private IDisposable? _networkActivitySubscription;
+
+    private int _soulseekCallsLast4Min;
+    public int SoulseekCallsLast4Min
+    {
+        get => _soulseekCallsLast4Min;
+        private set => SetProperty(ref _soulseekCallsLast4Min, value);
+    }
+
+    private int _httpCallsLast4Min;
+    public int HttpCallsLast4Min
+    {
+        get => _httpCallsLast4Min;
+        private set => SetProperty(ref _httpCallsLast4Min, value);
+    }
+
+    private int _socketConnectsLast4Min;
+    public int SocketConnectsLast4Min
+    {
+        get => _socketConnectsLast4Min;
+        private set => SetProperty(ref _socketConnectsLast4Min, value);
+    }
+
+    private static readonly TimeSpan NetworkActivityRateWindow = TimeSpan.FromMinutes(4);
+
+    private void RefreshNetworkActivityRates()
+    {
+        if (_networkActivityMonitor == null) return;
+
+        SoulseekCallsLast4Min = _networkActivityMonitor.CountSince(NetworkActivityRateWindow, "Soulseek");
+        HttpCallsLast4Min = _networkActivityMonitor.CountSince(NetworkActivityRateWindow, "HTTP");
+        SocketConnectsLast4Min = _networkActivityMonitor.CountSince(NetworkActivityRateWindow, "Socket");
+    }
+
+    private void OnNetworkActivityEvent(NetworkActivityEvent e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            NetworkActivityFeed.Insert(0, new NetworkActivityEntryViewModel(e));
+            while (NetworkActivityFeed.Count > NetworkActivityFeedMaxEntries)
+                NetworkActivityFeed.RemoveAt(NetworkActivityFeed.Count - 1);
+
+            RefreshNetworkActivityRates();
+        });
+    }
+
+    // Engine Diagnostics: import/search audit trail (what a pasted line became, what was
+    // searched, what candidates were evaluated, why a search did/didn't match)
+    private const int EngineDiagnosticsFeedMaxEntries = 300;
+    public ObservableCollection<EngineDiagnosticEntryViewModel> EngineDiagnosticsFeed { get; } = new();
+    private IDisposable? _engineDiagnosticsSubscription;
+
+    public string[] EngineDiagnosticsEventTypeFilters { get; } =
+    {
+        "All",
+        EngineDiagnosticEventType.ImportLine,
+        EngineDiagnosticEventType.TracksAddedToPlaylist,
+        EngineDiagnosticEventType.SearchDispatched,
+        EngineDiagnosticEventType.SearchCandidateEvaluated,
+        EngineDiagnosticEventType.SearchResolved,
+    };
+
+    private string _engineDiagnosticsEventTypeFilter = "All";
+    public string EngineDiagnosticsEventTypeFilter
+    {
+        get => _engineDiagnosticsEventTypeFilter;
+        set
+        {
+            if (SetProperty(ref _engineDiagnosticsEventTypeFilter, value))
+            {
+                _ = RefreshEngineDiagnosticsFeedAsync();
+            }
+        }
+    }
+
+    private async System.Threading.Tasks.Task RefreshEngineDiagnosticsFeedAsync()
+    {
+        if (_engineDiagnosticsService == null) return;
+
+        var filter = EngineDiagnosticsEventTypeFilter == "All" ? null : EngineDiagnosticsEventTypeFilter;
+        var recent = await _engineDiagnosticsService.GetRecentAsync(filter, take: EngineDiagnosticsFeedMaxEntries);
+
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            EngineDiagnosticsFeed.Clear();
+            foreach (var entry in recent)
+                EngineDiagnosticsFeed.Add(new EngineDiagnosticEntryViewModel(entry));
+        });
+    }
+
+    private void OnEngineDiagnosticEvent(EngineDiagnosticEvent e)
+    {
+        if (EngineDiagnosticsEventTypeFilter != "All" && EngineDiagnosticsEventTypeFilter != e.EventType)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            EngineDiagnosticsFeed.Insert(0, new EngineDiagnosticEntryViewModel(e));
+            while (EngineDiagnosticsFeed.Count > EngineDiagnosticsFeedMaxEntries)
+                EngineDiagnosticsFeed.RemoveAt(EngineDiagnosticsFeed.Count - 1);
+        });
+    }
+
     private void OnSecurityAuditEvent(SecurityAuditEvent e)
     {
         Dispatcher.UIThread.Post(() =>
@@ -1536,10 +1659,14 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         IDbContextFactory<AppDbContext>? dbFactory = null,
         ILibraryService? libraryService = null,
         AiEngineService? aiEngine = null,
-        IDialogService? dialogService = null)
+        IDialogService? dialogService = null,
+        NetworkActivityMonitor? networkActivityMonitor = null,
+        EngineDiagnosticsService? engineDiagnosticsService = null)
     {
         _logger = logger;
         _config = config;
+        _networkActivityMonitor = networkActivityMonitor;
+        _engineDiagnosticsService = engineDiagnosticsService;
         _configManager = configManager;
         _fileInteractionService = fileInteractionService;
         _spotifyAuthService = spotifyAuthService;
@@ -1640,6 +1767,17 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
         // Phase 6: Security Audit Feed subscription
         _securityAuditSubscription = _eventBus.GetEvent<SecurityAuditEvent>().Subscribe(OnSecurityAuditEvent);
+
+        // Network Activity Monitor: seed from existing history (Subject<T> doesn't replay), then subscribe for live updates
+        if (_networkActivityMonitor != null)
+        {
+            foreach (var entry in _networkActivityMonitor.GetRecentActivity(NetworkActivityFeedMaxEntries))
+                NetworkActivityFeed.Add(new NetworkActivityEntryViewModel(entry));
+            RefreshNetworkActivityRates();
+        }
+        _networkActivitySubscription = _eventBus.GetEvent<NetworkActivityEvent>().Subscribe(OnNetworkActivityEvent);
+        _ = RefreshEngineDiagnosticsFeedAsync();
+        _engineDiagnosticsSubscription = _eventBus.GetEvent<EngineDiagnosticEvent>().Subscribe(OnEngineDiagnosticEvent);
         _adaptiveLaneStatusSubscription = _eventBus.GetEvent<AdaptiveLaneStatusEvent>().Subscribe(OnAdaptiveLaneStatusEvent);
         _searchPressureSubscription = _eventBus.GetEvent<SearchPressureStatusEvent>().Subscribe(OnSearchPressureStatusEvent);
         
@@ -2410,6 +2548,12 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         // Phase 6: Security audit subscription
         _securityAuditSubscription?.Dispose();
         _securityAuditSubscription = null;
+
+        _networkActivitySubscription?.Dispose();
+        _networkActivitySubscription = null;
+
+        _engineDiagnosticsSubscription?.Dispose();
+        _engineDiagnosticsSubscription = null;
 
         _adaptiveLaneStatusSubscription?.Dispose();
         _adaptiveLaneStatusSubscription = null;

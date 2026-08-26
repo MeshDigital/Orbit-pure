@@ -6,11 +6,13 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using ReactiveUI;
 using System.Reactive.Concurrency;
 using SLSKDONET.Configuration;
+using SLSKDONET.Data;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Services.Network;
@@ -172,7 +174,11 @@ public class SearchViewModelTests
             config,
             hardening,
             library.Object,
-            eventBus);
+            eventBus,
+            new EngineDiagnosticsService(
+                Mock.Of<IDbContextFactory<AppDbContext>>(),
+                eventBus,
+                NullLogger<EngineDiagnosticsService>.Instance));
 
         var bulkCoordinator = new Mock<IBulkOperationCoordinator>();
         bulkCoordinator.SetupGet(x => x.IsRunning).Returns(false);

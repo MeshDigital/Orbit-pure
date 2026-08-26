@@ -1694,6 +1694,187 @@
             </Border>
             </Expander>
 
+            <!-- Network Activity Monitor -->
+            <Expander Header="🌐 Network Activity" IsExpanded="False" Padding="0" Margin="0,12,0,0">
+            <Border Background="#0D1B2A" CornerRadius="8" Padding="20" BorderBrush="#00D4FF" BorderThickness="1" Margin="0,8,0,0">
+                <StackPanel Spacing="16">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="🌐" FontSize="20" VerticalAlignment="Center"/>
+                                <TextBlock Text="Network Activity" FontSize="16" FontWeight="SemiBold" Foreground="#00D4FF"/>
+                            </StackPanel>
+                            <TextBlock Text="Live feed of every outbound network call: Soulseek searches/messages/transfers plus HTTP calls to Spotify, MusicBrainz, and others."
+                                       Foreground="#778DA9" FontSize="12" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <CheckBox Grid.Column="1"
+                                  IsChecked="{Binding EnableNetworkActivityMonitor, Mode=TwoWay}"
+                                  VerticalAlignment="Top"
+                                  AutomationProperties.Name="Enable network activity monitor"
+                                  Margin="16,0,0,0"/>
+                    </Grid>
+
+                    <Separator Background="#1B263B" Height="1"/>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Border Classes="statCard">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="SOULSEEK / 4MIN" FontSize="9" FontWeight="Bold" Foreground="#555"/>
+                                <TextBlock Text="{Binding SoulseekCallsLast4Min}" FontSize="16" FontWeight="Bold" Foreground="#4EC9B0"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Classes="statCard">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="HTTP / 4MIN" FontSize="9" FontWeight="Bold" Foreground="#555"/>
+                                <TextBlock Text="{Binding HttpCallsLast4Min}" FontSize="16" FontWeight="Bold" Foreground="#00D4FF"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Classes="statCard">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="SOCKET CONNECTS / 4MIN" FontSize="9" FontWeight="Bold" Foreground="#555"/>
+                                <TextBlock Text="{Binding SocketConnectsLast4Min}" FontSize="16" FontWeight="Bold" Foreground="#D7BA7D"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <TextBlock Text="No network activity recorded yet."
+                               Foreground="#516A86"
+                               FontSize="11"
+                               FontStyle="Italic"
+                               IsVisible="{Binding !NetworkActivityFeed.Count}"/>
+
+                    <ScrollViewer MaxHeight="260"
+                                  VerticalScrollBarVisibility="Auto"
+                                  IsVisible="{Binding NetworkActivityFeed.Count}">
+                        <ItemsControl ItemsSource="{Binding NetworkActivityFeed}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#111F2F"
+                                            BorderBrush="#22364C"
+                                            BorderThickness="1"
+                                            CornerRadius="4"
+                                            Padding="8,6"
+                                            Margin="0,2">
+                                        <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto">
+                                            <TextBlock Grid.Column="0"
+                                                       Text="{Binding TimeLabel}"
+                                                       Foreground="#6C87A6"
+                                                       FontSize="10"
+                                                       FontFamily="Consolas,Courier New,monospace"
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,10,0"/>
+                                            <Border Grid.Column="1"
+                                                    CornerRadius="3" Padding="6,1"
+                                                    Background="{Binding ProtocolColor}"
+                                                    Opacity="0.85"
+                                                    VerticalAlignment="Center"
+                                                    Margin="0,0,8,0">
+                                                <TextBlock Text="{Binding Protocol}" Foreground="Black" FontSize="9" FontWeight="Bold"/>
+                                            </Border>
+                                            <TextBlock Grid.Column="2"
+                                                       Text="{Binding Kind}"
+                                                       Foreground="#A7D8FF"
+                                                       FontSize="10"
+                                                       FontWeight="SemiBold"
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,10,0"/>
+                                            <TextBlock Grid.Column="3"
+                                                       Text="{Binding Detail}"
+                                                       Foreground="#C7D4E2"
+                                                       FontSize="10"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       TextWrapping="NoWrap"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="4"
+                                                       Text="{Binding DurationLabel}"
+                                                       Foreground="{Binding StatusColor}"
+                                                       FontSize="10"
+                                                       FontFamily="Consolas,Courier New,monospace"
+                                                       VerticalAlignment="Center"
+                                                       Margin="8,0,0,0"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </StackPanel>
+            </Border>
+            </Expander>
+
+            <!-- Engine Diagnostics -->
+            <Expander Header="🔧 Engine Diagnostics" IsExpanded="False" Padding="0" Margin="0,12,0,0">
+            <Border Background="#0D1B2A" CornerRadius="8" Padding="20" BorderBrush="#4EC9B0" BorderThickness="1" Margin="0,8,0,0">
+                <StackPanel Spacing="16">
+                    <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="🔧" FontSize="20" VerticalAlignment="Center"/>
+                            <TextBlock Text="Engine Diagnostics" FontSize="16" FontWeight="SemiBold" Foreground="#4EC9B0"/>
+                        </StackPanel>
+                        <TextBlock Text="Always-on audit trail of the import/search pipeline: what you pasted, how it was cleaned, what got added to a playlist, what was searched, what candidates came back, and what got picked to download. This runs continuously in the background — there's nothing to turn on or off here, this is just a live viewer into it."
+                                   Foreground="#778DA9" FontSize="12" TextWrapping="Wrap"/>
+                    </StackPanel>
+
+                    <Separator Background="#1B263B" Height="1"/>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <TextBlock Text="FILTER" FontSize="9" FontWeight="Bold" Foreground="#555" VerticalAlignment="Center"/>
+                        <ComboBox ItemsSource="{Binding EngineDiagnosticsEventTypeFilters}"
+                                  SelectedItem="{Binding EngineDiagnosticsEventTypeFilter, Mode=TwoWay}"
+                                  MinWidth="180"/>
+                    </StackPanel>
+
+                    <TextBlock Text="No diagnostics recorded yet — paste a tracklist or run a search."
+                               Foreground="#516A86"
+                               FontSize="11"
+                               FontStyle="Italic"
+                               IsVisible="{Binding !EngineDiagnosticsFeed.Count}"/>
+
+                    <ScrollViewer MaxHeight="320"
+                                  VerticalScrollBarVisibility="Auto"
+                                  IsVisible="{Binding EngineDiagnosticsFeed.Count}">
+                        <ItemsControl ItemsSource="{Binding EngineDiagnosticsFeed}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#111F2F"
+                                            BorderBrush="#22364C"
+                                            BorderThickness="1"
+                                            CornerRadius="4"
+                                            Padding="8,6"
+                                            Margin="0,2">
+                                        <Grid ColumnDefinitions="Auto,Auto,*">
+                                            <TextBlock Grid.Column="0"
+                                                       Text="{Binding TimeLabel}"
+                                                       Foreground="#6C87A6"
+                                                       FontSize="10"
+                                                       FontFamily="Consolas,Courier New,monospace"
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,10,0"/>
+                                            <Border Grid.Column="1"
+                                                    CornerRadius="3" Padding="6,1"
+                                                    Background="{Binding EventTypeColor}"
+                                                    Opacity="0.85"
+                                                    VerticalAlignment="Center"
+                                                    Margin="0,0,8,0">
+                                                <TextBlock Text="{Binding EventType}" Foreground="Black" FontSize="9" FontWeight="Bold"/>
+                                            </Border>
+                                            <TextBlock Grid.Column="2"
+                                                       Text="{Binding Summary}"
+                                                       Foreground="#C7D4E2"
+                                                       FontSize="10"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       TextWrapping="NoWrap"
+                                                       VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </StackPanel>
+            </Border>
+            </Expander>
+
             <!-- ═══════════════════════════════════════════════════════════════
                  KEYBOARD MAPPINGS SECTION (Epic #119)
             ═══════════════════════════════════════════════════════════════ -->

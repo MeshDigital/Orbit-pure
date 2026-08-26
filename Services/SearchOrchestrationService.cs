@@ -43,6 +43,7 @@ public class SearchOrchestrationService
     
     private readonly ILibraryService _libraryService;
     private readonly IEventBus _eventBus;
+    private readonly EngineDiagnosticsService _diagnostics;
 
     // Set when server sends a ban global message; checked before each search.
     private DateTime _searchBanUntilUtc = DateTime.MinValue;
@@ -57,7 +58,8 @@ public class SearchOrchestrationService
         AppConfig config,
         Network.ProtocolHardeningService hardeningService,
         ILibraryService libraryService,
-        IEventBus eventBus)
+        IEventBus eventBus,
+        EngineDiagnosticsService diagnostics)
     {
         _logger = logger;
         _soulseek = soulseek;
@@ -68,6 +70,7 @@ public class SearchOrchestrationService
         _config = config;
         _libraryService = libraryService;
         _eventBus = eventBus;
+        _diagnostics = diagnostics;
 
         _banSub = _eventBus.GetEvent<SearchBanDetectedEvent>().Subscribe(e =>
         {
@@ -432,6 +435,13 @@ public class SearchOrchestrationService
         if (progressiveYield && lane != SearchQueryLane.Desperate)
         {
             var allowLossy = maxBitrate > 0 || System.Linq.Enumerable.Contains(formatFilter, "mp3", StringComparer.OrdinalIgnoreCase);
+            // Progressive lanes stream/yield immediately rather than buffering then ranking, so
+            // there's no final winner list to build the buffered path's full SearchSelectionAudit
+            // from (see LogSelectionAudit below) — this was a real audit gap (every progressive
+            // search was invisible to engine diagnostics). Track just the count/outcome here; the
+            // per-candidate score detail progressive lanes lack is exactly what Part 3's structured
+            // diagnostics table is for.
+            var progressiveCandidateCount = 0;
             await foreach (var track in _soulseek.StreamResultsAsync(
                 networkQuery,
                 formatFilter,
@@ -442,6 +452,7 @@ public class SearchOrchestrationService
             {
                 _safetyFilter.EvaluateSafety(track, normalizedQuery, allowLossy, _config?.SearchPolicy);
                 ScoreSingleTrack(track, target, normalizedQuery, formatFilter, minBitrate, maxBitrate);
+                progressiveCandidateCount++;
                 yield return track;
 
                 if (_config.EnableAccumulatorPerfectMatchShortCircuit && IsPerfectAccumulatorWinner(track, target, formatFilter, minBitrate))
@@ -450,9 +461,22 @@ public class SearchOrchestrationService
                         "Search accumulator short-circuit: found ideal candidate for '{Query}' from {User}.",
                         normalizedQuery,
                         track.Username ?? "Unknown");
+                    _logger.LogInformation(
+                        "[SEARCH_AUDIT] Query='{Query}' NetworkQuery='{NetworkQuery}' Lane={Lane} Progressive=true Candidates={Count} Outcome=ShortCircuit",
+                        normalizedQuery, networkQuery, lane, progressiveCandidateCount);
+                    var fireAndForgetShortCircuit = _diagnostics.LogSearchResolvedAsync(
+                        trackHash: null, normalizedQuery, $"{progressiveCandidateCount} candidate(s) — short-circuit match",
+                        details: new { networkQuery, lane = lane.ToString(), progressive = true, progressiveCandidateCount, outcome = "ShortCircuit" });
                     yield break;
                 }
             }
+
+            _logger.LogInformation(
+                "[SEARCH_AUDIT] Query='{Query}' NetworkQuery='{NetworkQuery}' Lane={Lane} Progressive=true Candidates={Count} Outcome=Exhausted",
+                normalizedQuery, networkQuery, lane, progressiveCandidateCount);
+            var fireAndForgetExhausted = _diagnostics.LogSearchResolvedAsync(
+                trackHash: null, normalizedQuery, $"{progressiveCandidateCount} candidate(s) — {(progressiveCandidateCount == 0 ? "no results" : "exhausted, no short-circuit")}",
+                details: new { networkQuery, lane = lane.ToString(), progressive = true, progressiveCandidateCount, outcome = "Exhausted" });
             yield break;
         }
 
@@ -876,6 +900,11 @@ public class SearchOrchestrationService
 
         _logger.LogDebug("[SEARCH_AUDIT] Candidates {Payload}", JsonSerializer.Serialize(audit.Candidates));
         _logger.LogDebug("[SEARCH_AUDIT] Winners {Payload}", JsonSerializer.Serialize(audit.Winners));
+
+        var summary = $"{audit.CandidateCount} candidate(s), {audit.WinnerCount} winner(s)" + (audit.WinnerCount == 0 ? " — no match" : "");
+        var fireAndForget = _diagnostics.LogSearchResolvedAsync(
+            trackHash: null, audit.Query, summary,
+            details: new { audit.NetworkQuery, audit.CandidateCount, audit.WinnerCount, audit.BufferSeconds, audit.Candidates, audit.Winners });
     }
     
 

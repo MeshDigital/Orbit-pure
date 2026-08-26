@@ -43,6 +43,7 @@ public class AppDbContext : DbContext
     public DbSet<Entities.PeerReliabilityEntity> PeerReliability { get; set; } // Phase 9: Hedged Resilience
     public DbSet<Entities.DownloadHistoryEntity> DownloadHistory { get; set; } // Download intelligence log
     public DbSet<Entities.CuePointEntity> CuePoints { get; set; } // Phase 17+: Auto-generated structural cue points
+    public DbSet<Entities.EngineDiagnosticEventEntity> EngineDiagnosticEvents { get; set; } // Engine Diagnostics: import/search audit trail
     public DbSet<FrequentSource> FrequentSources { get; set; }
     public DbSet<PrefetchQueueItem> PrefetchQueueItems { get; set; }
     public DbSet<Entities.PrivateMessageEntity> PrivateMessages { get; set; } // Social: 1:1 Soulseek chat

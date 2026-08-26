@@ -27,23 +27,26 @@ public class LibraryService : ILibraryService
     private readonly AppConfig _appConfig;
     private readonly IEventBus _eventBus;
     private readonly LibraryCacheService _cache; // Session 1: Performance cache
+    private readonly EngineDiagnosticsService? _diagnostics;
 
     // Events now published via IEventBus (ProjectDeletedEvent, ProjectUpdatedEvent)
 
 
 
     public LibraryService(
-        ILogger<LibraryService> logger, 
-        DatabaseService databaseService, 
-        AppConfig appConfig, 
+        ILogger<LibraryService> logger,
+        DatabaseService databaseService,
+        AppConfig appConfig,
         IEventBus eventBus,
-        LibraryCacheService cache) // Session 1: Inject cache
+        LibraryCacheService cache, // Session 1: Inject cache
+        EngineDiagnosticsService? diagnostics = null)
     {
         _logger = logger;
         _databaseService = databaseService;
         _appConfig = appConfig;
         _eventBus = eventBus;
         _cache = cache;
+        _diagnostics = diagnostics;
 
         _logger.LogDebug("LibraryService initialized (Data Only) with caching enabled");
     }
@@ -1794,6 +1797,11 @@ public class LibraryService : ILibraryService
             clone.IsPrepared = false;
             clone.CuePointsJson = null; // Fresh start for cues
             clone.Status = TrackStatus.Downloaded; // Immediately ready
+            // Explicit, not inherited from source — EntityToPlaylistTrack copies AvailabilityState
+            // from the source track above, which would leave the clone stuck showing "FILE MISSING"
+            // if the source ever happened to be Ghost, even though the clone's file is confirmed
+            // present at newPath right now.
+            clone.AvailabilityState = TrackAvailabilityState.LocalUnanalyzed;
             clone.AddedAt = DateTime.UtcNow;
 
             // 5. Persist to PlaylistTracks table
@@ -1845,7 +1853,7 @@ public class LibraryService : ILibraryService
             // (drag-drop, Smart Insert, the context-menu action, Flow Builder) — filtering here
             // catches ID tracks regardless of how they ended up in the source list.
             var incoming = tracks.ToList();
-            var skippedIdTracks = incoming.Where(t => t.Title.Trim().Equals("ID", StringComparison.OrdinalIgnoreCase)).ToList();
+            var skippedIdTracks = incoming.Where(t => CommentTracklistParser.IsUnidentifiedTitle(t.Title)).ToList();
             if (skippedIdTracks.Count > 0)
             {
                 incoming = incoming.Except(skippedIdTracks).ToList();
@@ -1856,6 +1864,25 @@ public class LibraryService : ILibraryService
                         ? "1 track titled \"ID\" (unidentified) was not added."
                         : $"{skippedIdTracks.Count} tracks titled \"ID\" (unidentified) were not added.",
                     NotificationType.Warning));
+            }
+
+            // Dedup guard: this method is the single chokepoint every "add to playlist" path
+            // funnels through (drag-drop, Smart Insert, Flow Builder, batch add, cross-playlist
+            // add) — without this, calling it more than once for the same track+playlist (a
+            // resumed action, a retry, pulling the same bridge track twice) silently created
+            // another row instead of being a no-op.
+            var existingHashes = (await LoadPlaylistTracksAsync(targetProjectId))
+                .Select(t => t.TrackUniqueHash)
+                .Where(h => !string.IsNullOrEmpty(h))
+                .ToHashSet(StringComparer.Ordinal);
+
+            var skippedDuplicateTracks = incoming
+                .Where(t => !string.IsNullOrEmpty(t.TrackUniqueHash) && existingHashes.Contains(t.TrackUniqueHash))
+                .ToList();
+            if (skippedDuplicateTracks.Count > 0)
+            {
+                incoming = incoming.Except(skippedDuplicateTracks).ToList();
+                _logger.LogInformation("Skipped {Count} track(s) already in project {Title}", skippedDuplicateTracks.Count, project.SourceTitle);
             }
 
             var newTracks = new List<PlaylistTrack>();
@@ -1911,9 +1938,10 @@ public class LibraryService : ILibraryService
                 project.TotalTracks += newTracks.Count;
                 
                 await SavePlaylistJobAsync(project);
-                
+
                 _logger.LogInformation("Added {Count} tracks to project {Title}", newTracks.Count, project.SourceTitle);
-                
+                var fireAndForget = _diagnostics?.LogTracksAddedToPlaylistAsync(targetProjectId, newTracks.Count, project.SourceTitle);
+
                 // Publish event so UI can refresh
                 _eventBus.Publish(new ProjectUpdatedEvent(targetProjectId));
             }
