@@ -45,10 +45,13 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     private readonly AppConfig           _appConfig;
     private readonly ConfigManager       _configManager;
     private readonly IDialogService _dialogService;
+    private readonly IEventBus _eventBus;
     private readonly FlowBuilderSuggestionTelemetryService _telemetryService;
     private readonly SLSKDONET.Services.Library.PlaylistExportService? _exportService;
     private readonly SLSKDONET.Services.Audio.ITransitionPreviewPlayer? _transitionPreviewPlayer;
+    private readonly SLSKDONET.Services.Audio.ILibraryPreviewPlayer? _libraryPreviewPlayer;
     private FlowTrackCardViewModel? _activePreviewCard;
+    private FlowTrackCardViewModel? _activePreviewTrackCard;
     private string? _transitionCacheKey;
     private IReadOnlyDictionary<(string FromHash, string ToHash), PlaylistRecommendation>? _transitionCache;
     private string? _activeInspectorTransitionFromHash;
@@ -59,6 +62,8 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
 
     public ObservableCollection<PlaylistJob> Playlists { get; } = new();
 
+    public bool HasEnoughPlaylistsToCombine => Playlists.Count >= 2;
+
     private PlaylistJob? _selectedPlaylist;
     public PlaylistJob? SelectedPlaylist
     {
@@ -68,8 +73,29 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
             this.RaiseAndSetIfChanged(ref _selectedPlaylist, value);
             _appConfig.FlowBuilderSelectedPlaylistId = value?.Id.ToString();
             _ = _configManager.SaveAsync(_appConfig);
+
+            // A manual playlist pick supersedes a staged "combine into new playlist" — without
+            // this, a later Save Order could silently create an unwanted extra playlist.
+            if (_pendingCombinedPlaylistName != null)
+            {
+                _pendingCombinedPlaylistName = null;
+                this.RaisePropertyChanged(nameof(HasPendingCombine));
+                this.RaisePropertyChanged(nameof(PendingCombineStatusText));
+            }
         }
     }
+
+    // ── Combine Playlists (staged "save as new playlist" state) ────────────────
+
+    private string? _pendingCombinedPlaylistName;
+
+    /// <summary>Non-null while a combined track set is staged to be saved as a brand-new playlist.</summary>
+    public bool HasPendingCombine => _pendingCombinedPlaylistName != null;
+
+    public string PendingCombineStatusText =>
+        _pendingCombinedPlaylistName != null
+            ? $"Building new playlist \"{_pendingCombinedPlaylistName}\" — Save Order to finish"
+            : string.Empty;
 
     // ── Set timeline ──────────────────────────────────────────────────────────
 
@@ -240,6 +266,7 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> DismissSuggestedFlowCommand { get; }
     public ReactiveCommand<Unit, Unit> ViewSuggestedFlowImpactCommand { get; }
     public ReactiveCommand<Unit, Unit> LoadPlaylistsCommand        { get; }
+    public ReactiveCommand<Unit, Unit> CombinePlaylistsCommand     { get; }
     public ReactiveCommand<Unit, Unit> ClearCommand                { get; }
     public ReactiveCommand<Unit, Unit> SaveOrderToPlaylistCommand  { get; }
     public ReactiveCommand<Unit, Unit> ExportSetCommand            { get; }
@@ -255,13 +282,22 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         AppConfig appConfig,
         ConfigManager configManager,
         IDialogService dialogService,
+        IEventBus eventBus,
         FlowBuilderSuggestionTelemetryService telemetryService,
         SLSKDONET.Services.Similarity.SectionVectorService? sectionVectors = null,
         SLSKDONET.Services.Library.PlaylistExportService? exportService = null,
-        SLSKDONET.Services.Audio.ITransitionPreviewPlayer? transitionPreviewPlayer = null)
+        SLSKDONET.Services.Audio.ITransitionPreviewPlayer? transitionPreviewPlayer = null,
+        SLSKDONET.Services.Audio.ILibraryPreviewPlayer? libraryPreviewPlayer = null)
     {
         _exportService = exportService;
         _transitionPreviewPlayer = transitionPreviewPlayer;
+        _libraryPreviewPlayer = libraryPreviewPlayer;
+        if (_libraryPreviewPlayer != null)
+        {
+            _libraryPreviewPlayer.PreviewStopped += OnTrackPreviewStopped;
+            _disposables.Add(System.Reactive.Disposables.Disposable.Create(
+                () => _libraryPreviewPlayer.PreviewStopped -= OnTrackPreviewStopped));
+        }
         if (_transitionPreviewPlayer != null)
         {
             _transitionPreviewPlayer.PreviewStopped += OnTransitionPreviewStopped;
@@ -276,11 +312,17 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         _appConfig = appConfig;
         _configManager = configManager;
         _dialogService = dialogService;
+        _eventBus = eventBus;
         _telemetryService = telemetryService;
         _sectionVectors = sectionVectors;
         _selectedEnergyCurveOption = EnergyCurveOptions[0];
 
         LoadPlaylistsCommand = ReactiveCommand.CreateFromTask(LoadPlaylistsAsync);
+        CombinePlaylistsCommand = ReactiveCommand.CreateFromTask(
+            () => CombinePlaylistsAsync(),
+            this.WhenAnyValue(x => x.IsLoading, x => x.HasEnoughPlaylistsToCombine,
+                (loading, canCombine) => !loading && canCombine));
+
         LoadSelectedPlaylistCommand = ReactiveCommand.CreateFromTask(
             LoadSelectedPlaylistAsync,
             this.WhenAnyValue(x => x.SelectedPlaylist, x => x.IsLoading,
@@ -319,8 +361,8 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
 
         SaveOrderToPlaylistCommand = ReactiveCommand.CreateFromTask(
             SaveOrderToPlaylistAsync,
-            this.WhenAnyValue(x => x.SelectedPlaylist, x => x.IsLoading, x => x.HasTracks,
-                (pl, loading, hasTracks) => pl != null && !loading && hasTracks));
+            this.WhenAnyValue(x => x.SelectedPlaylist, x => x.IsLoading, x => x.HasTracks, x => x.HasPendingCombine,
+                (pl, loading, hasTracks, hasPending) => (pl != null || hasPending) && !loading && hasTracks));
 
         ExportSetCommand = ReactiveCommand.CreateFromTask(
             ExportSetAsync,
@@ -351,6 +393,15 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
             {
                 IsLoading = false;
                 StatusText = $"Unable to load playlists: {ex.Message}";
+            })
+            .DisposeWith(_disposables);
+
+        CombinePlaylistsCommand.ThrownExceptions
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(ex =>
+            {
+                IsLoading = false;
+                StatusText = $"Unable to combine playlists: {ex.Message}";
             })
             .DisposeWith(_disposables);
 
@@ -397,8 +448,14 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
             RaiseTrackCollectionChanged();
         };
 
+        Playlists.CollectionChanged += (_, _) => this.RaisePropertyChanged(nameof(HasEnoughPlaylistsToCombine));
+
         _disposables.Add(ReactiveUI.MessageBus.Current.Listen<InsertBridgeTrackBetweenEvent>()
             .Subscribe(evt => Dispatcher.UIThread.Post(async () => await InsertBridgeTrackBetweenAsync(evt))));
+
+        // Hand-off from the Library sidebar's multi-select "Combine into New Playlist…" action.
+        _disposables.Add(_eventBus.GetEvent<CombinePlaylistsRequestEvent>()
+            .Subscribe(evt => Dispatcher.UIThread.Post(async () => await CombinePlaylistsAsync(evt.Playlists))));
 
         _ = LoadPlaylistsAsync();
     }
@@ -539,6 +596,101 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         catch (Exception ex)
         {
             StatusText = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// Combines 2+ playlists into the on-screen set: unions their tracks (optionally deduping by
+    /// hash), auto-orders the result with the same optimizer <see cref="LoadSelectedPlaylistAsync"/>
+    /// uses, and stages the chosen name so <see cref="SaveOrderToPlaylistAsync"/> creates a brand
+    /// new playlist on Save instead of writing back into one of the sources.
+    /// </summary>
+    private async Task CombinePlaylistsAsync(IReadOnlyList<PlaylistJob>? preSelected = null)
+    {
+        var dialogResult = await _dialogService.ShowCombinePlaylistsDialogAsync(Playlists, preSelected);
+        if (dialogResult == null || !dialogResult.IsConfirmed || dialogResult.SelectedPlaylists.Count < 2)
+            return;
+
+        IsLoading = true;
+        StatusText = $"Combining {dialogResult.SelectedPlaylists.Count} playlists…";
+        try
+        {
+            var combinedTracks = new List<PlaylistTrack>();
+            var seenHashes = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var playlist in dialogResult.SelectedPlaylists)
+            {
+                var tracks = await _library.LoadPlaylistTracksAsync(playlist.Id);
+                var eligible = tracks.Where(SLSKDONET.ViewModels.Workstation.WorkstationDeckViewModel.IsTrackReadyForWorkstation);
+
+                foreach (var track in eligible)
+                {
+                    var hash = track.TrackUniqueHash ?? string.Empty;
+                    if (dialogResult.SkipDuplicateTracks && hash.Length > 0 && !seenHashes.Add(hash))
+                        continue;
+
+                    combinedTracks.Add(track);
+                }
+            }
+
+            if (combinedTracks.Count == 0)
+            {
+                StatusText = "No ready tracks found across the selected playlists.";
+                return;
+            }
+
+            // Optimise the order: AI-powered greedy sort by Camelot + BPM + energy — same call
+            // the single-playlist loader above makes.
+            var hashes = combinedTracks.Select(t => t.TrackUniqueHash ?? "").Where(h => h.Length > 0).ToList();
+            PlaylistOptimizationResult? result = null;
+            try
+            {
+                result = await _optimizer.OptimizeAsync(hashes);
+            }
+            catch
+            {
+                // Fall back to combined order if the optimizer fails (e.g. no audio features yet)
+            }
+
+            var trackByHash = combinedTracks
+                .Where(t => !string.IsNullOrEmpty(t.TrackUniqueHash))
+                .GroupBy(t => t.TrackUniqueHash!)
+                .ToDictionary(g => g.Key, g => g.First());
+            var orderedTracks = result != null
+                ? result.OrderedHashes
+                    .Where(h => trackByHash.ContainsKey(h))
+                    .Select(h => trackByHash[h])
+                    .Concat(combinedTracks.Where(t => !result.OrderedHashes.Contains(t.TrackUniqueHash ?? "")))
+                    .ToList()
+                : combinedTracks;
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                Tracks.Clear();
+                foreach (var t in orderedTracks)
+                    Tracks.Add(BuildCard(t));
+
+                SelectedPlaylist = null;
+                _pendingCombinedPlaylistName = dialogResult.NewPlaylistName;
+                this.RaisePropertyChanged(nameof(HasPendingCombine));
+                this.RaisePropertyChanged(nameof(PendingCombineStatusText));
+
+                StatusText = result?.UnanalyzedTrackCount > 0
+                    ? $"Combined {Tracks.Count} tracks from {dialogResult.SelectedPlaylists.Count} playlists ({result.UnanalyzedTrackCount} unanalysed, appended at end)"
+                    : $"Combined {Tracks.Count} tracks from {dialogResult.SelectedPlaylists.Count} playlists — transitions optimised. Save Order to create \"{dialogResult.NewPlaylistName}\".";
+
+                InvalidateFlowCaches(clearSuggestedFlow: true);
+            });
+
+            await RefreshBridgesAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Error combining playlists: {ex.Message}";
         }
         finally
         {
@@ -695,10 +847,22 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
                 .Where(hash => !string.IsNullOrWhiteSpace(hash))
                 .ToList();
 
+            // Grouped rather than a direct ToDictionary: the same track can legitimately appear
+            // twice on the timeline (an intentional replay), which would otherwise throw building
+            // a hash-keyed lookup.
+            var metadataByHash = Tracks
+                .Where(track => !string.IsNullOrWhiteSpace(track.TrackHash))
+                .GroupBy(track => track.TrackHash, StringComparer.Ordinal)
+                .ToDictionary(
+                    g => g.Key,
+                    g => new ReorderTrackMetadata(g.First().Model.Artist, g.First().Model.DetectedSubGenre),
+                    StringComparer.Ordinal);
+
             var proposal = await _playlistIntelligence.ReorderAsync(
                 currentHashes,
                 energyCurve: SelectedEnergyCurveOption.Pattern,
-                anchorTrackHash: currentHashes.FirstOrDefault());
+                anchorTrackHash: currentHashes.FirstOrDefault(),
+                metadataByHash: metadataByHash);
 
             if (proposal.OrderedTrackHashes.Count == 0)
             {
@@ -774,32 +938,57 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     }
 
     /// <summary>
-    /// The "finish" of the Set Plan workflow: writes the current on-screen set order back to the
-    /// selected playlist. Bridge tracks pulled in from other playlists are added to the playlist
-    /// first; playlist tracks not staged in the flow keep their place after the planned set.
+    /// The "finish" of the Set Plan workflow. Normally writes the current on-screen set order back
+    /// to the selected playlist; when a combine is staged (<see cref="HasPendingCombine"/>), first
+    /// creates the new playlist and targets that instead of overwriting a source.
     /// </summary>
     private async Task SaveOrderToPlaylistAsync()
     {
-        if (SelectedPlaylist == null || Tracks.Count == 0) return;
+        if (Tracks.Count == 0) return;
+        if (SelectedPlaylist == null && _pendingCombinedPlaylistName == null) return;
 
+        if (_pendingCombinedPlaylistName != null)
+        {
+            var newPlaylist = await _library.CreateEmptyPlaylistAsync(_pendingCombinedPlaylistName);
+            await CommitOrderToPlaylistAsync(newPlaylist.Id, newPlaylist.SourceTitle);
+
+            _pendingCombinedPlaylistName = null;
+            this.RaisePropertyChanged(nameof(HasPendingCombine));
+            this.RaisePropertyChanged(nameof(PendingCombineStatusText));
+
+            // Land the user on their new combined playlist — subsequent saves behave normally.
+            SelectedPlaylist = newPlaylist;
+            return;
+        }
+
+        await CommitOrderToPlaylistAsync(SelectedPlaylist!.Id, SelectedPlaylist.SourceTitle);
+    }
+
+    /// <summary>
+    /// Writes the current on-screen set order into <paramref name="targetPlaylistId"/>. Bridge
+    /// tracks pulled in from other playlists — or, in combine mode, every track, since the new
+    /// playlist starts empty — are added first; playlist tracks not staged in the flow keep their
+    /// place after the planned set.
+    /// </summary>
+    private async Task CommitOrderToPlaylistAsync(Guid targetPlaylistId, string displayName)
+    {
         IsLoading = true;
-        StatusText = $"Saving set order to \"{SelectedPlaylist.SourceTitle}\"…";
+        StatusText = $"Saving set order to \"{displayName}\"…";
         try
         {
-            // Bridge insertions may reference tracks from other playlists — membership first.
             var foreignModels = Tracks
                 .Select(card => card.Model)
-                .Where(model => model.PlaylistId != SelectedPlaylist.Id)
+                .Where(model => model.PlaylistId != targetPlaylistId)
                 .ToList();
 
             if (foreignModels.Count > 0)
             {
-                await _library.AddTracksToProjectAsync(foreignModels, SelectedPlaylist.Id);
+                await _library.AddTracksToProjectAsync(foreignModels, targetPlaylistId);
             }
 
             // Re-load the playlist's own rows so we order the real membership (including rows
-            // just created for bridge tracks, and tracks hidden from the flow as not-ready).
-            var playlistTracks = await _library.LoadPlaylistTracksAsync(SelectedPlaylist.Id);
+            // just created for bridge/combined tracks, and tracks hidden from the flow as not-ready).
+            var playlistTracks = await _library.LoadPlaylistTracksAsync(targetPlaylistId);
 
             var stagedOrder = Tracks
                 .Select((card, index) => new { card.TrackHash, index })
@@ -819,12 +1008,12 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
                 ordered[i].TrackNumber = i + 1;
             }
 
-            await _library.SaveTrackOrderAsync(SelectedPlaylist.Id, ordered);
+            await _library.SaveTrackOrderAsync(targetPlaylistId, ordered);
 
             var unstaged = ordered.Count - stagedOrder.Count;
             StatusText = unstaged > 0
-                ? $"Saved set order to \"{SelectedPlaylist.SourceTitle}\" — {stagedOrder.Count} planned tracks first, {unstaged} unstaged kept after."
-                : $"Saved set order to \"{SelectedPlaylist.SourceTitle}\" ({ordered.Count} tracks).";
+                ? $"Saved set order to \"{displayName}\" — {stagedOrder.Count} planned tracks first, {unstaged} unstaged kept after."
+                : $"Saved set order to \"{displayName}\" ({ordered.Count} tracks).";
         }
         finally
         {
@@ -899,7 +1088,8 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
             onRemove:    () => RemoveCard(track),
             onFindBridgeToNext: currentHash => FindBridgeToNextTrack(currentHash),
             onSelectTransitionInspector: currentHash => OpenTransitionInspector(currentHash),
-            onPreviewTransition: currentHash => PreviewTransitionAsync(currentHash));
+            onPreviewTransition: currentHash => PreviewTransitionAsync(currentHash),
+            onPreviewTrack: currentHash => PreviewTrackAsync(currentHash));
         return card;
     }
 
@@ -944,10 +1134,17 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
             return;
         }
 
-        // Only one preview plays at a time.
+        // Only one preview plays at a time — also stop a single-track preview, which uses a
+        // separate audio output and would otherwise overlap.
         if (_activePreviewCard != null)
         {
             _activePreviewCard.IsPreviewingTransition = false;
+        }
+        if (_activePreviewTrackCard != null)
+        {
+            _activePreviewTrackCard.IsPreviewingTrack = false;
+            _activePreviewTrackCard = null;
+            _libraryPreviewPlayer?.StopPreview();
         }
 
         var overlapSeconds = Math.Clamp(_appConfig.PlaybackCrossfadeSeconds, 2.0, 30.0);
@@ -982,6 +1179,69 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
             {
                 _activePreviewCard.IsPreviewingTransition = false;
                 _activePreviewCard = null;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Plays or stops a quick, single-track preview for one card — the same hover-preview
+    /// engine the Library page uses, independent of any deck or the main player. Toggles off if
+    /// this card is already previewing; stops an active transition preview first since the two
+    /// use separate audio outputs and would otherwise overlap.
+    /// </summary>
+    private async Task PreviewTrackAsync(string trackHash)
+    {
+        if (_libraryPreviewPlayer == null)
+        {
+            StatusText = "Track preview is unavailable.";
+            return;
+        }
+
+        var card = Tracks.FirstOrDefault(c => string.Equals(c.TrackHash, trackHash, StringComparison.Ordinal));
+        if (card == null)
+            return;
+
+        if (_activePreviewTrackCard == card && card.IsPreviewingTrack)
+        {
+            _libraryPreviewPlayer.StopPreview();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(card.FilePath) || !System.IO.File.Exists(card.FilePath))
+        {
+            StatusText = "Preview unavailable — this track isn't downloaded locally yet.";
+            return;
+        }
+
+        // Only one preview plays at a time — also stop a transition preview, which uses a
+        // separate audio output and would otherwise overlap.
+        if (_activePreviewTrackCard != null)
+        {
+            _activePreviewTrackCard.IsPreviewingTrack = false;
+        }
+        if (_activePreviewCard != null)
+        {
+            _activePreviewCard.IsPreviewingTransition = false;
+            _activePreviewCard = null;
+            _transitionPreviewPlayer?.StopPreview();
+        }
+
+        _activePreviewTrackCard = card;
+        card.IsPreviewingTrack = true;
+        StatusText = $"Previewing: {card.Artist} — {card.Title}";
+        _libraryPreviewPlayer.RequestPreview(card.FilePath, card.Model.BPM);
+
+        await Task.CompletedTask;
+    }
+
+    private void OnTrackPreviewStopped(object? sender, EventArgs e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_activePreviewTrackCard != null)
+            {
+                _activePreviewTrackCard.IsPreviewingTrack = false;
+                _activePreviewTrackCard = null;
             }
         });
     }

@@ -473,7 +473,7 @@ public partial class WorkstationPage : UserControl
     {
         if (this.FindControl<TabControl>("DrawerTabs") is { } tabs)
         {
-            tabs.SelectedIndex = 1;
+            tabs.SelectedIndex = 0;
         }
 
         if (!_overlaySizePinnedByUser)
@@ -493,7 +493,7 @@ public partial class WorkstationPage : UserControl
     {
         if (this.FindControl<TabControl>("DrawerTabs") is { } tabs)
         {
-            tabs.SelectedIndex = 1;
+            tabs.SelectedIndex = 0;
         }
     }
 
@@ -999,18 +999,6 @@ public partial class WorkstationPage : UserControl
             if (this.FindControl<TabControl>("DrawerTabs") is { } tabs)
             {
                 tabs.SelectedIndex = 0;
-            }
-
-            e.Handled = true;
-            return;
-        }
-
-        if (e.KeyModifiers == KeyModifiers.Control &&
-            (e.Key == Key.D2 || e.Key == Key.NumPad2))
-        {
-            if (this.FindControl<TabControl>("DrawerTabs") is { } tabs)
-            {
-                tabs.SelectedIndex = 1;
             }
 
             e.Handled = true;

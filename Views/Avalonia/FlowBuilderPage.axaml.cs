@@ -1,11 +1,11 @@
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 
-namespace SLSKDONET.Views.Avalonia.Controls;
+namespace SLSKDONET.Views.Avalonia;
 
-public partial class PlaylistMergeDialog : UserControl
+public partial class FlowBuilderPage : UserControl
 {
-    public PlaylistMergeDialog()
+    public FlowBuilderPage()
     {
         InitializeComponent();
     }

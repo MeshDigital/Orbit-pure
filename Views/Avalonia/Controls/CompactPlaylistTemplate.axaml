@@ -4,108 +4,103 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
-             mc:Ignorable="d" d:DesignWidth="280" d:DesignHeight="60"
+             mc:Ignorable="d" d:DesignWidth="280" d:DesignHeight="44"
              x:Class="SLSKDONET.Views.Avalonia.Controls.CompactPlaylistTemplate"
              x:DataType="vm:LibraryPlaylistCardViewModel">
-    
-    <Grid ColumnDefinitions="Auto, *, Auto" Margin="4" Height="56">
+
+    <!--
+        Text column is a star column with a MaxWidth cap, not a plain "*" — a plain star greedily
+        claims all remaining row width and shoves the action buttons all the way out to the row's
+        far right edge, leaving a large dead gap between the name and the icons. Capping it means
+        the buttons land close to the text once there's more room than the cap needs, while the
+        star behavior still lets the column shrink below the cap at the sidebar's narrow end (so
+        nothing overflows/clips at MinWidth) — Auto instead of star would have had a fixed desired
+        width that could exceed the available space and overflow.
+    -->
+    <Grid Classes="row-root" Height="80" Margin="4,3" HorizontalAlignment="Stretch">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*" MaxWidth="190"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
         <Grid.Styles>
-            <Style Selector="Grid:pointerover">
+            <Style Selector="Grid.row-root:pointerover">
                 <Setter Property="Background" Value="{DynamicResource GlassThinBrush}"/>
             </Style>
-            <Style Selector="StackPanel.actions-panel">
-                <Setter Property="Opacity" Value="0"/>
-                <Setter Property="Transitions">
-                    <Transitions>
-                        <DoubleTransition Property="Opacity" Duration="0:0:0.15"/>
-                    </Transitions>
-                </Setter>
-            </Style>
-            <Style Selector="Grid:pointerover StackPanel.actions-panel">
-                <Setter Property="Opacity" Value="1"/>
-            </Style>
         </Grid.Styles>
-        
-        
-        <!-- Column 0: Cover Art (Refined to 44x44 for compactness) -->
-        <Panel Grid.Column="0" Width="44" Height="44" Margin="2" VerticalAlignment="Center">
-            <Border CornerRadius="4" ClipToBounds="True" Background="{DynamicResource TertiaryBackgroundBrush}"
+
+        <!-- Column 0: Cover art — restored to its original larger size. -->
+        <Panel Grid.Column="0" Width="64" Height="64" Margin="3" VerticalAlignment="Center">
+            <Border CornerRadius="6" ClipToBounds="True" Background="{DynamicResource TertiaryBackgroundBrush}"
                     BoxShadow="{DynamicResource ShadowSm}">
                 <Image Source="{Binding CoverBitmap}" Stretch="UniformToFill"/>
             </Border>
         </Panel>
-        
-        <!-- Column 1: Text & Status Info -->
-        <Grid Grid.Column="1" RowDefinitions="Auto,Auto" VerticalAlignment="Center" Margin="10,0,6,0">
-            <!-- Row 0: Name & Source -->
-            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                <TextBlock Text="{Binding Name}" 
-                           FontWeight="SemiBold" 
-                           FontSize="12" 
-                           Foreground="White"
-                           MaxWidth="140"
-                           TextTrimming="CharacterEllipsis"
-                           VerticalAlignment="Center"/>
-                <Border Background="#252528" CornerRadius="4" Padding="4,1" VerticalAlignment="Center" ToolTip.Tip="{Binding Model.SourceType}">
-                    <StackPanel Orientation="Horizontal" Spacing="3">
-                        <TextBlock Text="{Binding Model.SourceIcon}" FontSize="8"/>
-                        <TextBlock Text="{Binding Model.SourceType}" FontSize="8" Foreground="#8FA7C0" FontWeight="SemiBold"/>
-                    </StackPanel>
-                </Border>
+
+        <!-- Column 1: Name / source / stats — three always-visible lines, top to bottom, in that
+             order. -->
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,8,0" Spacing="3">
+            <TextBlock Text="{Binding Name}"
+                       FontWeight="SemiBold"
+                       FontSize="13"
+                       Foreground="White"
+                       TextTrimming="CharacterEllipsis"/>
+
+            <!-- Source type — always visible, its own line, directly below the name. -->
+            <StackPanel Orientation="Horizontal" Spacing="5">
+                <TextBlock Text="{Binding Model.SourceIcon}" FontSize="10"/>
+                <TextBlock Text="{Binding Model.SourceType}" FontSize="10" Foreground="#8FA7C0" FontWeight="SemiBold"/>
             </StackPanel>
 
-            <!-- Row 1: Subtitle/Stats/Sync Progress -->
-            <Panel Grid.Row="1" Margin="0,3,0,0">
-                <!-- Standard Stats (visible when not syncing) -->
-                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding !Model.HasActiveDownloads}">
-                    <TextBlock Text="{Binding TrackCountText}" FontSize="10" Foreground="#888"/>
+            <!-- Standard stats (visible when not syncing) -->
+            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding !Model.HasActiveDownloads}">
+                <TextBlock Text="{Binding TrackCountText}" FontSize="10" Foreground="#888"/>
+                <TextBlock Text="•" FontSize="10" Foreground="#555"/>
+                <TextBlock Text="{Binding DownloadedCount, StringFormat='{}{0} done'}" FontSize="10" Foreground="#29D391"/>
+                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasFailures}">
                     <TextBlock Text="•" FontSize="10" Foreground="#555"/>
-                    <TextBlock Text="{Binding DownloadedCount, StringFormat='{}{0} done'}" FontSize="10" Foreground="#29D391"/>
-                    
-                    <!-- Failures display (visible only when there are failures) -->
-                    <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasFailures}">
-                        <TextBlock Text="•" FontSize="10" Foreground="#555"/>
-                        <TextBlock Text="{Binding FailedCount, StringFormat='{}{0} failed'}" FontSize="10" Foreground="#E56767"/>
-                    </StackPanel>
+                    <TextBlock Text="{Binding FailedCount, StringFormat='{}{0} failed'}" FontSize="10" Foreground="#E56767"/>
                 </StackPanel>
+            </StackPanel>
 
-                <!-- Syncing Progress (visible when syncing) -->
-                <StackPanel Spacing="3" IsVisible="{Binding Model.HasActiveDownloads}">
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <TextBlock Text="🔄 Syncing..." FontSize="9" Foreground="#2DB5FF" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding Model.CurrentDownloadingTrack}" 
-                                   FontSize="9" Foreground="#888" MaxWidth="110" TextTrimming="CharacterEllipsis"/>
-                    </StackPanel>
-                    <ProgressBar Height="2" Minimum="0" Maximum="100" 
-                                 Value="{Binding Model.ProgressPercentage}" 
-                                 Foreground="#2DB5FF" Background="#252528"/>
+            <!-- Syncing progress (visible when syncing) -->
+            <StackPanel Spacing="3" IsVisible="{Binding Model.HasActiveDownloads}">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <TextBlock Text="🔄 Syncing..." FontSize="10" Foreground="#2DB5FF" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding Model.CurrentDownloadingTrack}"
+                               FontSize="10" Foreground="#888" TextTrimming="CharacterEllipsis"/>
                 </StackPanel>
-            </Panel>
-        </Grid>
+                <ProgressBar Height="3" Minimum="0" Maximum="100"
+                             Value="{Binding Model.ProgressPercentage}"
+                             Foreground="#2DB5FF" Background="#252528"/>
+            </StackPanel>
+        </StackPanel>
 
-        <!-- Column 2: Controls (Hover Revealed actions) -->
-        <StackPanel Grid.Column="2" Classes="actions-panel" Orientation="Horizontal" VerticalAlignment="Center" Spacing="2" Margin="0,0,4,0">
+        <!-- Column 2: Actions — always visible, no hover/opacity choreography. Play and Download
+             are core actions; Sync/Open-Link only show for playlists that actually have a source
+             URL (nothing to sync/open otherwise), which was already true before. -->
+        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Spacing="0" Margin="0,0,3,0">
             <Button Classes="icon-btn" ToolTip.Tip="Play" Padding="4" Background="Transparent" BorderThickness="0"
                     Command="{Binding $parent[views:LibraryPage].DataContext.PlayAlbumCommand}"
                     CommandParameter="{Binding Model}">
-                 <TextBlock Text="▶️" FontSize="12"/>
+                 <TextBlock Text="▶️" FontSize="13"/>
             </Button>
             <Button Classes="icon-btn" ToolTip.Tip="Download Playlist" Padding="4" Background="Transparent" BorderThickness="0"
                     Command="{Binding $parent[views:LibraryPage].DataContext.DownloadAlbumCommand}"
                     CommandParameter="{Binding Model}">
-                 <TextBlock Text="⬇️" FontSize="12"/>
+                 <TextBlock Text="⬇️" FontSize="13"/>
             </Button>
             <Button Classes="icon-btn" ToolTip.Tip="Sync — check the source for newly added tracks" Padding="4" Background="Transparent" BorderThickness="0"
                     IsVisible="{Binding Model.SourceUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                     Command="{Binding $parent[views:LibraryPage].DataContext.SyncProjectCommand}"
                     CommandParameter="{Binding Model}">
-                 <TextBlock Text="🔄" FontSize="12"/>
+                 <TextBlock Text="🔄" FontSize="13"/>
             </Button>
             <Button Classes="icon-btn" ToolTip.Tip="Open Source Link" Padding="4" Background="Transparent" BorderThickness="0"
                     IsVisible="{Binding Model.SourceUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                     Command="{Binding $parent[views:LibraryPage].DataContext.OpenSourceUrlCommand}"
                     CommandParameter="{Binding Model}">
-                 <TextBlock Text="🔗" FontSize="12"/>
+                 <TextBlock Text="🔗" FontSize="13"/>
             </Button>
         </StackPanel>
     </Grid>

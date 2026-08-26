@@ -46,6 +46,11 @@ public static class AnalysisPipelineResultBuilder
         var dropouts = ParseJsonDoubleList(f.SubBassDropoutTimestampsJson);
         var returns = ParseJsonDoubleList(f.SubBassReturnTimestampsJson);
         var signatures = ParseJsonNoveltySignatures(f.NoveltyDropSignaturesJson);
+        var strippingStarts = ParseJsonDoubleList(f.StructuralStrippingStartTimestampsJson);
+        var strippingReturns = ParseJsonDoubleList(f.StructuralStrippingReturnTimestampsJson);
+
+        if (strippingStarts.Count > 0) result.StructuralStrippingStartTimestamps = strippingStarts;
+        if (strippingReturns.Count > 0) result.StructuralStrippingReturnTimestamps = strippingReturns;
 
         if (dropouts.Count > 0) result.SubBassDropoutTimestamps = dropouts;
         if (returns.Count > 0)

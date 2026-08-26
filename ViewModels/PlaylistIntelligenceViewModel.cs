@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Windows.Input;
 using System.Linq;
 using System.Collections.Generic;
@@ -21,7 +22,7 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
 {
     private readonly LibraryViewModel _library;
     private readonly TrackSimilarityService? _trackSimilarityService;
-    private string _selectedLibraryIntelligenceTab = IntelligenceTabSmartInsert;
+    private string _selectedLibraryIntelligenceTab = IntelligenceTabOverview;
     private double _librarySmartInsertMinConfidence;
     private int _librarySmartInsertStructureSensitivity;
     private bool _isSuggestNextLoading;
@@ -52,10 +53,25 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
 
     public ObservableCollection<PlaylistTrackViewModel> StagedAutomixTracks { get; } = new();
 
+    public const string IntelligenceTabOverview = "Overview";
     private const string IntelligenceTabSmartInsert = "SmartInsert";
     private const string IntelligenceTabSuggestNext = "SuggestNext";
     private const string IntelligenceTabUpgrade = "Upgrade";
     private const string IntelligenceTabAutomix = "Automix";
+
+    private int _overviewRefreshVersion;
+    private int _overviewTrackCount;
+    private string _overviewDurationDisplay = "—";
+    private string _overviewBpmRangeDisplay = "—";
+    private string _overviewAvgEnergyDisplay = "—";
+    private double _overviewAvgEnergyPercent;
+    private int _overviewAnalyzedCount;
+    private double _overviewAnalysisCoveragePercent;
+
+    public ObservableCollection<PlaylistStatBar> OverviewTopArtists { get; } = new();
+    public ObservableCollection<PlaylistStatBar> OverviewTopGenres { get; } = new();
+    public ObservableCollection<PlaylistStatBar> OverviewKeyDistribution { get; } = new();
+    public ObservableCollection<PlaylistStatBar> OverviewBpmBrackets { get; } = new();
 
     public PlaylistIntelligenceViewModel(
         LibraryViewModel library,
@@ -95,10 +111,27 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
 
     public string SelectedLibraryIntelligenceTab => _selectedLibraryIntelligenceTab;
 
+    public bool IsLibraryIntelligenceOverviewActive => string.Equals(SelectedLibraryIntelligenceTab, IntelligenceTabOverview, StringComparison.Ordinal);
     public bool IsLibraryIntelligenceSmartInsertActive => string.Equals(SelectedLibraryIntelligenceTab, IntelligenceTabSmartInsert, StringComparison.Ordinal);
     public bool IsLibraryIntelligenceSuggestNextActive => string.Equals(SelectedLibraryIntelligenceTab, IntelligenceTabSuggestNext, StringComparison.Ordinal);
     public bool IsLibraryIntelligenceUpgradeActive => string.Equals(SelectedLibraryIntelligenceTab, IntelligenceTabUpgrade, StringComparison.Ordinal);
     public bool IsLibraryIntelligenceAutomixActive => string.Equals(SelectedLibraryIntelligenceTab, IntelligenceTabAutomix, StringComparison.Ordinal);
+
+    // ── Playlist Overview — general "what's in this list" stats, recomputed live as tracks are
+    // added/removed/analyzed. This is what the sidepanel now defaults to on open, instead of the
+    // Smart Insert tool tab, which requires an explicit source/target track pick to be useful.
+    public bool HasOverviewData => _overviewTrackCount > 0;
+    public int OverviewTrackCount => _overviewTrackCount;
+    public string OverviewDurationDisplay => _overviewDurationDisplay;
+    public string OverviewBpmRangeDisplay => _overviewBpmRangeDisplay;
+    public string OverviewAvgEnergyDisplay => _overviewAvgEnergyDisplay;
+    public double OverviewAvgEnergyPercent => _overviewAvgEnergyPercent;
+    public string OverviewAnalysisCoverageDisplay => $"{_overviewAnalyzedCount}/{_overviewTrackCount} analyzed";
+    public double OverviewAnalysisCoveragePercent => _overviewAnalysisCoveragePercent;
+    public bool HasOverviewTopArtists => OverviewTopArtists.Count > 0;
+    public bool HasOverviewTopGenres => OverviewTopGenres.Count > 0;
+    public bool HasOverviewKeyDistribution => OverviewKeyDistribution.Count > 0;
+    public bool HasOverviewBpmBrackets => OverviewBpmBrackets.Count > 0;
 
     public ICommand SetLibraryIntelligenceTabCommand => _setLibraryIntelligenceTabCommand;
     public ICommand SetSmartInsertStrictPresetCommand => _setSmartInsertStrictPresetCommand;
@@ -592,6 +625,185 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
         }
     }
 
+    /// <summary>
+    /// Refreshes the Playlist Overview stats for whatever's currently selected. Deliberately
+    /// re-reads from source rather than trusting whatever's materialized in the UI-bound track
+    /// collections: for a regular (DB-virtualized) project, Tracks.CurrentProjectTracks is left
+    /// empty by design (Tracks.FilteredTracks holds a VirtualizedTrackCollection instead, which
+    /// only has the currently-scrolled-into-view page loaded in memory — enumerating "all" of it
+    /// silently returns an incomplete/placeholder-heavy set). Smart Crates/Smart Playlists DO
+    /// populate CurrentProjectTracks fully in-memory, so that path is used when non-empty; the
+    /// DB query below covers everything else.
+    /// </summary>
+    public async Task RefreshOverviewStatsAsync()
+    {
+        var refreshVersion = System.Threading.Interlocked.Increment(ref _overviewRefreshVersion);
+
+        var inMemory = _library.Tracks.CurrentProjectTracks;
+        if (inMemory.Count > 0)
+        {
+            var models = inMemory.Select(t => t.Model).ToList();
+            if (refreshVersion != _overviewRefreshVersion) return;
+            await Dispatcher.UIThread.InvokeAsync(() => ApplyOverviewStats(models));
+            return;
+        }
+
+        var projectId = _library.SelectedProject?.Id;
+        if (projectId is null || projectId == Guid.Empty)
+        {
+            if (refreshVersion != _overviewRefreshVersion) return;
+            await Dispatcher.UIThread.InvokeAsync(() => ApplyOverviewStats(new List<PlaylistTrack>()));
+            return;
+        }
+
+        List<PlaylistTrack> tracks;
+        try
+        {
+            tracks = await _library.LibraryService.LoadPlaylistTracksAsync(projectId.Value);
+        }
+        catch (Exception ex)
+        {
+            _library.Logger.LogWarning(ex, "Failed to load tracks for Playlist Overview (playlist {PlaylistId})", projectId.Value);
+            return;
+        }
+
+        if (refreshVersion != _overviewRefreshVersion) return;
+        await Dispatcher.UIThread.InvokeAsync(() => ApplyOverviewStats(tracks));
+    }
+
+    private void ApplyOverviewStats(List<PlaylistTrack> tracks)
+    {
+        var count = tracks.Count;
+        _overviewTrackCount = count;
+
+        if (count == 0)
+        {
+            _overviewDurationDisplay = "—";
+            _overviewBpmRangeDisplay = "—";
+            _overviewAvgEnergyDisplay = "—";
+            _overviewAvgEnergyPercent = 0;
+            _overviewAnalyzedCount = 0;
+            _overviewAnalysisCoveragePercent = 0;
+            OverviewTopArtists.Clear();
+            OverviewTopGenres.Clear();
+            OverviewKeyDistribution.Clear();
+            OverviewBpmBrackets.Clear();
+            RaiseOverviewStateChanged();
+            return;
+        }
+
+        var totalSeconds = tracks.Sum(t => t.Duration);
+        _overviewDurationDisplay = FormatOverviewDuration(totalSeconds);
+
+        var bpms = tracks.Where(t => (t.BPM ?? 0) > 0).Select(t => t.BPM!.Value).ToList();
+        _overviewBpmRangeDisplay = bpms.Count > 0
+            ? $"{bpms.Min():0}–{bpms.Max():0} BPM · avg {bpms.Average():0}"
+            : "No BPM data yet";
+
+        var energies = tracks.Where(t => (t.Energy ?? 0) > 0).Select(t => t.Energy!.Value).ToList();
+        if (energies.Count > 0)
+        {
+            var avgEnergy = energies.Average();
+            _overviewAvgEnergyDisplay = $"{avgEnergy * 10:0.0} / 10";
+            _overviewAvgEnergyPercent = Math.Clamp(avgEnergy * 100, 0, 100);
+        }
+        else
+        {
+            _overviewAvgEnergyDisplay = "No energy data yet";
+            _overviewAvgEnergyPercent = 0;
+        }
+
+        _overviewAnalyzedCount = tracks.Count(t => (t.BPM ?? 0) > 0 || !string.IsNullOrEmpty(t.MusicalKey));
+        _overviewAnalysisCoveragePercent = _overviewAnalyzedCount * 100.0 / count;
+
+        RebuildOverviewStatBars(OverviewTopArtists, tracks
+            .Select(t => t.Artist)
+            .Where(a => !string.IsNullOrWhiteSpace(a) && !string.Equals(a, "Unknown Artist", StringComparison.Ordinal)),
+            top: 5);
+
+        RebuildOverviewStatBars(OverviewTopGenres, tracks
+            .Select(t => !string.IsNullOrEmpty(t.DetectedSubGenre) ? t.DetectedSubGenre : t.PrimaryGenre),
+            top: 5);
+
+        RebuildOverviewStatBars(OverviewKeyDistribution, tracks
+            .Where(t => !string.IsNullOrEmpty(t.MusicalKey))
+            .Select(t => SLSKDONET.Utils.KeyConverter.ToCamelot(t.MusicalKey)),
+            top: 8);
+
+        RebuildOverviewBpmBrackets(bpms);
+
+        RaiseOverviewStateChanged();
+    }
+
+    private static void RebuildOverviewStatBars(ObservableCollection<PlaylistStatBar> target, IEnumerable<string?> values, int top)
+    {
+        var grouped = values
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .GroupBy(v => v!, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new { Label = g.Key, Count = g.Count() })
+            .OrderByDescending(g => g.Count)
+            .ThenBy(g => g.Label, StringComparer.OrdinalIgnoreCase)
+            .Take(top)
+            .ToList();
+
+        target.Clear();
+        var max = grouped.Count > 0 ? grouped[0].Count : 1;
+        foreach (var g in grouped)
+        {
+            target.Add(new PlaylistStatBar(g.Label, g.Count.ToString(), Math.Clamp(g.Count * 100.0 / max, 4, 100)));
+        }
+    }
+
+    private void RebuildOverviewBpmBrackets(List<double> bpms)
+    {
+        OverviewBpmBrackets.Clear();
+        if (bpms.Count == 0) return;
+
+        (string Label, Func<double, bool> Match)[] brackets =
+        {
+            ("<100", b => b < 100),
+            ("100-120", b => b >= 100 && b < 120),
+            ("120-140", b => b >= 120 && b < 140),
+            ("140-160", b => b >= 140 && b < 160),
+            ("160-180", b => b >= 160 && b < 180),
+            ("180+", b => b >= 180),
+        };
+
+        var counts = brackets
+            .Select(b => (b.Label, Count: bpms.Count(b.Match)))
+            .Where(x => x.Count > 0)
+            .ToList();
+        var max = counts.Count > 0 ? counts.Max(c => c.Count) : 1;
+        foreach (var (label, cnt) in counts)
+        {
+            OverviewBpmBrackets.Add(new PlaylistStatBar(label, cnt.ToString(), Math.Clamp(cnt * 100.0 / max, 4, 100)));
+        }
+    }
+
+    private static string FormatOverviewDuration(double totalSeconds)
+    {
+        var span = TimeSpan.FromSeconds(totalSeconds);
+        return span.TotalHours >= 1
+            ? $"{(int)span.TotalHours}h {span.Minutes}m"
+            : $"{span.Minutes}m {span.Seconds}s";
+    }
+
+    private void RaiseOverviewStateChanged()
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasOverviewData)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OverviewTrackCount)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OverviewDurationDisplay)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OverviewBpmRangeDisplay)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OverviewAvgEnergyDisplay)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OverviewAvgEnergyPercent)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OverviewAnalysisCoverageDisplay)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OverviewAnalysisCoveragePercent)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasOverviewTopArtists)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasOverviewTopGenres)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasOverviewKeyDistribution)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasOverviewBpmBrackets)));
+    }
+
     private void ExecuteSetLibraryIntelligenceTab(object? parameter)
     {
         _library.FocusLibraryIntelligenceTab(parameter?.ToString() ?? IntelligenceTabSmartInsert);
@@ -682,15 +894,18 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
 
     private static string NormalizeIntelligenceTab(string? tab)
     {
+        if (string.Equals(tab, IntelligenceTabOverview, StringComparison.OrdinalIgnoreCase)) return IntelligenceTabOverview;
+        if (string.Equals(tab, IntelligenceTabSmartInsert, StringComparison.OrdinalIgnoreCase)) return IntelligenceTabSmartInsert;
         if (string.Equals(tab, IntelligenceTabSuggestNext, StringComparison.OrdinalIgnoreCase)) return IntelligenceTabSuggestNext;
         if (string.Equals(tab, IntelligenceTabUpgrade, StringComparison.OrdinalIgnoreCase)) return IntelligenceTabUpgrade;
         if (string.Equals(tab, IntelligenceTabAutomix, StringComparison.OrdinalIgnoreCase)) return IntelligenceTabAutomix;
-        return IntelligenceTabSmartInsert;
+        return IntelligenceTabOverview;
     }
 
     private void RaiseIntelligenceTabStateChanged()
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedLibraryIntelligenceTab)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLibraryIntelligenceOverviewActive)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLibraryIntelligenceSmartInsertActive)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLibraryIntelligenceSuggestNextActive)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLibraryIntelligenceUpgradeActive)));
@@ -891,3 +1106,6 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
         }
     }
 }
+
+/// <summary>One row in a Playlist Overview stat bar list (top artists/genres/keys/BPM brackets).</summary>
+public sealed record PlaylistStatBar(string Label, string CountDisplay, double Percent);

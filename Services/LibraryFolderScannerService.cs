@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
+using SLSKDONET.Models;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -455,6 +456,7 @@ public class LibraryFolderScannerService
                 AddedAt = DateTime.UtcNow,
                 Bitrate = bitrate,
                 Format = format,
+                AvailabilityState = TrackAvailabilityState.LocalUnanalyzed,
                 QualityDetails = $"scanner:v2;score={qualityScore};format={format};bitrate={bitrate};samplerate={sampleRate};bitdepth={bitsPerSample}"
             };
         }

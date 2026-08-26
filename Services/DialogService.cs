@@ -194,6 +194,23 @@ public class DialogService : IDialogService
         });
     }
 
+    public async Task<CombinePlaylistsResult?> ShowCombinePlaylistsDialogAsync(
+        IEnumerable<PlaylistJob> playlists,
+        IReadOnlyList<PlaylistJob>? preSelected = null)
+    {
+        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var vm = new CombinePlaylistsViewModel(playlists, preSelected);
+            var dialog = new Views.Avalonia.Dialogs.CombinePlaylistsDialog(vm);
+            var owner = GetOwnerWindow();
+            if (owner != null)
+            {
+                return await dialog.ShowDialog<CombinePlaylistsResult?>(owner);
+            }
+            return null;
+        });
+    }
+
     public async Task<BatchTagEditResult?> ShowBatchTagEditDialogAsync(string? initialFileName = null)
     {
         return await Dispatcher.UIThread.InvokeAsync(async () =>

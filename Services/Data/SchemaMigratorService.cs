@@ -2332,11 +2332,21 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // Trigger rowid alignment: LibraryEntriesFts's implicit rowid must be set explicitly
+            // to LibraryEntries.rowid on every insert/update. Without this, SQLite assigns the FTS
+            // table's rowid from its own independent auto-increment sequence — the two tables'
+            // rowids drift apart (badly, since tbl_lib_au deletes+reinserts on every update), and
+            // `WHERE rowid IN (SELECT rowid FROM LibraryEntriesFts WHERE ... MATCH ...)` — the join
+            // every library search query uses — silently returns whatever LibraryEntries row
+            // happens to currently hold that (unrelated) rowid instead of the actual match. This
+            // was a real, confirmed bug: searching a track title returned a completely different,
+            // unrelated track.
             _logger.LogInformation("Patching Schema: Ensuring LibraryEntriesFts triggers are correct...");
             command.CommandText = @"
                 DROP TRIGGER IF EXISTS tbl_lib_ai;
                 CREATE TRIGGER tbl_lib_ai AFTER INSERT ON LibraryEntries BEGIN
-                    INSERT INTO LibraryEntriesFts(Artist, Title, Album, Key, UniqueHash) VALUES (
+                    INSERT INTO LibraryEntriesFts(rowid, Artist, Title, Album, Key, UniqueHash) VALUES (
+                        new.rowid,
                         new.Artist,
                         new.Title,
                         new.Album,
@@ -2361,13 +2371,14 @@ public class SchemaMigratorService
 
                 DROP TRIGGER IF EXISTS tbl_lib_ad;
                 CREATE TRIGGER tbl_lib_ad AFTER DELETE ON LibraryEntries BEGIN
-                    DELETE FROM LibraryEntriesFts WHERE UniqueHash = old.UniqueHash;
+                    DELETE FROM LibraryEntriesFts WHERE rowid = old.rowid;
                 END;
 
                 DROP TRIGGER IF EXISTS tbl_lib_au;
                 CREATE TRIGGER tbl_lib_au AFTER UPDATE ON LibraryEntries BEGIN
-                    DELETE FROM LibraryEntriesFts WHERE UniqueHash = old.UniqueHash;
-                    INSERT INTO LibraryEntriesFts(Artist, Title, Album, Key, UniqueHash) VALUES (
+                    DELETE FROM LibraryEntriesFts WHERE rowid = old.rowid;
+                    INSERT INTO LibraryEntriesFts(rowid, Artist, Title, Album, Key, UniqueHash) VALUES (
+                        new.rowid,
                         new.Artist,
                         new.Title,
                         new.Album,
@@ -2399,8 +2410,8 @@ public class SchemaMigratorService
             {
                 _logger.LogInformation("Seeding FTS5 library index...");
                 command.CommandText = @"
-                    INSERT INTO LibraryEntriesFts(Artist, Title, Album, Key, UniqueHash)
-                    SELECT Artist, Title, Album,
+                    INSERT INTO LibraryEntriesFts(rowid, Artist, Title, Album, Key, UniqueHash)
+                    SELECT rowid, Artist, Title, Album,
                            COALESCE(MusicalKey, '') || ' ' || (CASE MusicalKey
                             WHEN 'Abm' THEN '1A' WHEN 'G#m' THEN '1A' WHEN 'B' THEN '1B' WHEN 'Cb' THEN '1B'
                             WHEN 'Ebm' THEN '2A' WHEN 'D#m' THEN '2A' WHEN 'F#' THEN '2B' WHEN 'Gb' THEN '2B'
@@ -2419,6 +2430,54 @@ public class SchemaMigratorService
                         UniqueHash FROM LibraryEntries;";
                 await command.ExecuteNonQueryAsync();
                 _logger.LogInformation("✅ Library FTS5 search index seeded successfully.");
+            }
+            else
+            {
+                // Repair pass for an existing index built before the rowid fix above: spot-check
+                // one row's rowid alignment between the two tables (cheap — 1 row) and, if it's
+                // drifted, fully rebuild the index with correct rowid alignment. Self-correcting:
+                // once repaired, this check passes and the rebuild is skipped on future startups.
+                command.CommandText = @"
+                    SELECT le.rowid, fts.rowid
+                    FROM LibraryEntries le
+                    LEFT JOIN LibraryEntriesFts fts ON fts.UniqueHash = le.UniqueHash
+                    LIMIT 1";
+                bool misaligned = false;
+                using (var reader = await command.ExecuteReaderAsync())
+                {
+                    if (await reader.ReadAsync() && !await reader.IsDBNullAsync(1))
+                    {
+                        misaligned = reader.GetInt64(0) != reader.GetInt64(1);
+                    }
+                }
+
+                if (misaligned)
+                {
+                    _logger.LogWarning("LibraryEntriesFts rowid is misaligned with LibraryEntries — full-text search could silently return the wrong track. Rebuilding index with explicit rowid alignment...");
+                    command.CommandText = "DELETE FROM LibraryEntriesFts;";
+                    await command.ExecuteNonQueryAsync();
+                    command.CommandText = @"
+                        INSERT INTO LibraryEntriesFts(rowid, Artist, Title, Album, Key, UniqueHash)
+                        SELECT rowid, Artist, Title, Album,
+                               COALESCE(MusicalKey, '') || ' ' || (CASE MusicalKey
+                                WHEN 'Abm' THEN '1A' WHEN 'G#m' THEN '1A' WHEN 'B' THEN '1B' WHEN 'Cb' THEN '1B'
+                                WHEN 'Ebm' THEN '2A' WHEN 'D#m' THEN '2A' WHEN 'F#' THEN '2B' WHEN 'Gb' THEN '2B'
+                                WHEN 'Bbm' THEN '3A' WHEN 'A#m' THEN '3A' WHEN 'Db' THEN '3B' WHEN 'C#' THEN '3B'
+                                WHEN 'Fm' THEN '4A' WHEN 'Ab' THEN '4B' WHEN 'G#' THEN '4B'
+                                WHEN 'Cm' THEN '5A' WHEN 'Eb' THEN '5B' WHEN 'D#' THEN '5B'
+                                WHEN 'Gm' THEN '6A' WHEN 'Bb' THEN '6B' WHEN 'A#' THEN '6B'
+                                WHEN 'Dm' THEN '7A' WHEN 'F' THEN '7B'
+                                WHEN 'Am' THEN '8A' WHEN 'C' THEN '8B'
+                                WHEN 'Em' THEN '9A' WHEN 'G' THEN '9B'
+                                WHEN 'Bm' THEN '10A' WHEN 'D' THEN '10B'
+                                WHEN 'F#m' THEN '11A' WHEN 'Gbm' THEN '11A' WHEN 'A' THEN '11B'
+                                WHEN 'Dbm' THEN '12A' WHEN 'C#m' THEN '12A' WHEN 'E' THEN '12B'
+                                ELSE ''
+                            END),
+                            UniqueHash FROM LibraryEntries;";
+                    await command.ExecuteNonQueryAsync();
+                    _logger.LogInformation("✅ LibraryEntriesFts rebuilt with correct rowid alignment.");
+                }
             }
 
             // Phase 3: Set-Prep Intelligence tables
@@ -2717,6 +2776,46 @@ public class SchemaMigratorService
                     ALTER TABLE ""audio_features"" ADD COLUMN ""MoodRelaxed"" REAL NOT NULL DEFAULT 0;
                     ALTER TABLE ""audio_features"" ADD COLUMN ""MoodParty"" REAL NOT NULL DEFAULT 0;
                     ALTER TABLE ""audio_features"" ADD COLUMN ""MoodAggressive"" REAL NOT NULL DEFAULT 0;
+                ";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 24. Structural-stripping breakdown signal (StructuralStrippingEngine) — the
+            // House/Techno-family analogue of SubBassDropoutTimestampsJson/SubBassReturnTimestampsJson
+            // above, but detecting a genuinely different signal shape: full kick+bass transient
+            // *absence* (periodicity check), not just a sub-bass energy-level dropout, since
+            // four-on-the-floor breakdowns often keep a faint bass presence that a pure energy-level
+            // check would misread as "no breakdown here."
+            if (!ColumnExists("audio_features", "StructuralStrippingStartTimestampsJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding structural-stripping columns to audio_features...");
+                command.CommandText = @"
+                    ALTER TABLE ""audio_features"" ADD COLUMN ""StructuralStrippingStartTimestampsJson"" TEXT NOT NULL DEFAULT '[]';
+                    ALTER TABLE ""audio_features"" ADD COLUMN ""StructuralStrippingReturnTimestampsJson"" TEXT NOT NULL DEFAULT '[]';
+                ";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 25. EngineDiagnosticEvents — structured, queryable audit trail for the import/search
+            // pipeline (Engine Diagnostics feature): what a pasted line became, what was searched,
+            // what candidates were evaluated, and why a search did/didn't resolve to a match.
+            if (!TableExists("EngineDiagnosticEvents"))
+            {
+                _logger.LogInformation("Patching Schema: Creating EngineDiagnosticEvents table...");
+                command.CommandText = @"
+                    CREATE TABLE ""EngineDiagnosticEvents"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_EngineDiagnosticEvents"" PRIMARY KEY,
+                        ""TimestampUtc"" TEXT NOT NULL,
+                        ""EventType"" TEXT NOT NULL,
+                        ""TrackHash"" TEXT NULL,
+                        ""PlaylistId"" TEXT NULL,
+                        ""Query"" TEXT NULL,
+                        ""Summary"" TEXT NOT NULL,
+                        ""DetailsJson"" TEXT NULL
+                    );
+                    CREATE INDEX ""IX_EngineDiagnosticEvents_TimestampUtc"" ON ""EngineDiagnosticEvents"" (""TimestampUtc"");
+                    CREATE INDEX ""IX_EngineDiagnosticEvents_EventType"" ON ""EngineDiagnosticEvents"" (""EventType"");
+                    CREATE INDEX ""IX_EngineDiagnosticEvents_PlaylistId"" ON ""EngineDiagnosticEvents"" (""PlaylistId"");
                 ";
                 await command.ExecuteNonQueryAsync();
             }

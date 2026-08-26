@@ -211,13 +211,20 @@
              5 = GridSplitter (4px) for Overlays
              6 = Overlays panel (toggleable, min 140px)
         -->
-        <Grid Grid.Row="1" x:Name="MainLayoutGrid"
-              ColumnDefinitions="Auto,4,*,4,Auto,4,Auto">
-            
+        <Grid Grid.Row="1" x:Name="MainLayoutGrid">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="{Binding NavSidebarWidth, Mode=TwoWay, Converter={StaticResource GridLengthPixelConverter}}" MinWidth="56" MaxWidth="320"/>
+                <ColumnDefinition Width="4"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="4"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="4"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
             <!-- Left Navigation Sidebar -->
             <Border Grid.Column="0"
-                    Width="{Binding NavSidebarWidth, Mode=TwoWay}"
-                    MinWidth="56" MaxWidth="320"
+                    HorizontalAlignment="Stretch"
                     Background="{StaticResource DeepBackgroundBrush}"
                     BorderBrush="{StaticResource BorderBrush}"
                     Classes="nav-sidebar"
@@ -356,6 +363,15 @@
                                     </StackPanel>
                                 </Button>
 
+                                <Button Classes="nav" Command="{Binding NavigateFlowBuilderCommand}"
+                                        ToolTip.Tip="Flow Builder — Suggest and apply a DJ-mix track order for a playlist"
+                                        Classes.selected="{Binding IsFlowBuilderOverlayActive}">
+                                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,0">
+                                        <TextBlock Text="🌊" FontSize="16"/>
+                                        <TextBlock Text="Flow Builder" FontSize="14"/>
+                                    </StackPanel>
+                                </Button>
+
                                 <Button Classes="nav" Command="{Binding NavigateWorkstationCommand}"
                                         ToolTip.Tip="Workstation — Decks, Timeline &amp; Stem Editor"
                                         Classes.selected="{Binding IsWorkstationOverlayActive}">
@@ -370,12 +386,13 @@
                 </ScrollViewer>
             </Border>
 
-            <!-- GridSplitter: Nav sidebar ↔ Content (col 1) -->
+            <!-- GridSplitter: Nav sidebar ↔ Content (col 1). ShowsPreview="True" removed — it
+                 defers the actual resize until mouse-up (only a detached preview line moves while
+                 dragging), which reads as nothing responding until the drag finishes. -->
             <GridSplitter Grid.Column="1"
                           Background="#3C3C3C"
                           HorizontalAlignment="Stretch"
                           ResizeDirection="Columns"
-                          ShowsPreview="True"
                           ToolTip.Tip="Drag to resize navigation sidebar"/>
 
             <!-- Center Content Area with Global Contextual Sidebar -->

@@ -1240,13 +1240,24 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         
         Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
         {
+          try
+          {
              _isAnalyzing = false; // Clear analyzing flag
 
-             // Reload track data from database to get updated metadata
+             // Reload track data from database to get updated metadata.
+             // GetPlaylistTrackByHashAsync queries the real PlaylistTracks table scoped by
+             // PlaylistId — but "All Tracks" rows carry the synthetic sentinel PlaylistId ==
+             // Guid.Empty (TrackRepository.GetPagedAllTracksAsync), which no real PlaylistTracks
+             // row ever has, so that lookup always returned null there — refresh silently no-op'd
+             // for the primary Library browsing mode. GetPagedPlaylistTracksAsync already knows
+             // how to route Guid.Empty to the LibraryEntries-backed adapter instead, so reuse it
+             // with a single-hash filter rather than duplicating that routing here.
              if (_libraryService != null)
              {
-                 var updatedTrack = await _libraryService.GetPlaylistTrackByHashAsync(Model.PlaylistId, GlobalId);
-                 
+                 var refetched = await _libraryService.GetPagedPlaylistTracksAsync(
+                     Model.PlaylistId, 0, 1, hashFilter: new[] { GlobalId });
+                 var updatedTrack = refetched.FirstOrDefault();
+
                  if (updatedTrack != null)
                  {
                      // Update model with fresh data
@@ -1298,6 +1309,8 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
                      Model.HighData = updatedTrack.HighData;
                      Model.CanonicalDuration = updatedTrack.CanonicalDuration;
                      Model.Bitrate = updatedTrack.Bitrate;
+                     Model.Format = updatedTrack.Format;
+                     Model.SpectralSampleRateHz = updatedTrack.SpectralSampleRateHz;
                      Model.QualityConfidence = updatedTrack.QualityConfidence;
                      Model.IsTrustworthy = updatedTrack.IsTrustworthy;
                      
@@ -1379,9 +1392,20 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
              // NEW: Notify Waveform and technical props
              OnPropertyChanged(nameof(WaveformData));
              OnPropertyChanged(nameof(Bitrate));
+             OnPropertyChanged(nameof(BitrateFormatted));
              OnPropertyChanged(nameof(IntegritySymbol));
              OnPropertyChanged(nameof(IntegrityText));
-             
+
+             // Inspector's TRACK DETAILS section binds to these Display properties directly, not
+             // to the Duration/DurationFormatted aliases below — those were the only ones notified
+             // here, so Duration/Format/Sample Rate kept showing stale/"—"/"UNKNOWN" even once the
+             // Model fields above were correctly refreshed.
+             OnPropertyChanged(nameof(DurationDisplay));
+             OnPropertyChanged(nameof(FormatDisplay));
+             OnPropertyChanged(nameof(SampleRate));
+             OnPropertyChanged(nameof(SampleRateDisplay));
+             OnPropertyChanged(nameof(SpectralAnalysisAvailable));
+
              // CRITICAL: Reload technical data (waveforms) from TechnicalDetails table
              _ = LoadTechnicalDataAsync();
              OnPropertyChanged(nameof(Duration));
@@ -1407,6 +1431,15 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
               OnPropertyChanged(nameof(CurationIcon));
               OnPropertyChanged(nameof(CurationColor));
               OnPropertyChanged(nameof(ProvenanceTooltip));
+          }
+          catch (Exception ex)
+          {
+              // This whole handler runs fire-and-forget from Dispatcher.UIThread.InvokeAsync
+              // (OnMetadataUpdated itself doesn't await it) — an unobserved exception here used
+              // to vanish silently, permanently leaving the Inspector showing stale/pre-analysis
+              // data with no error anywhere to explain why.
+              Serilog.Log.Warning(ex, "OnMetadataUpdated refresh failed for track {GlobalId}", GlobalId);
+          }
         });
     }
 

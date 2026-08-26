@@ -183,8 +183,16 @@ public class SafetyFilterService : ISafetyFilterService
         if (policy?.EnforceStrictTitleMatch == true && !string.IsNullOrWhiteSpace(query) && !string.IsNullOrEmpty(candidate.Filename))
         {
             var filenameLower = candidate.Filename.ToLowerInvariant();
-            var queryTokens = query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            var missingToken = queryTokens.FirstOrDefault(t => t.Length > 1 && !filenameLower.Contains(t.ToLowerInvariant()));
+            var queryTokens = query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                // Trim edge punctuation before requiring a token verbatim — e.g. a title like
+                // "Burn 'Em Down" splits into a raw "'Em" token, but peer filenames almost always
+                // drop the apostrophe ("Burn Em Down"). Without this, a token that's really just
+                // "em" with a leading quote mark permanently disqualifies an otherwise-correct
+                // match (confirmed in the wild: Pythius - Burn 'Em Down (Primate Remix) rejecting
+                // real candidates from multiple peers on this exact token, live audit log 2026-08).
+                .Select(t => t.Trim('\'', '"', '’', '.', ',', '!', '?', ':', ';', '(', ')', '[', ']'))
+                .Where(t => t.Length > 1);
+            var missingToken = queryTokens.FirstOrDefault(t => !filenameLower.Contains(t.ToLowerInvariant()));
             if (missingToken != null)
             {
                 return new SafetyCheckResult(false, "Strict Title Mismatch", $"Filename is missing query token '{missingToken}'.");

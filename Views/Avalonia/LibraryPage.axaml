@@ -82,11 +82,27 @@
     </UserControl.KeyBindings>
 
     <Panel>
-    <Grid ColumnDefinitions="Auto,4,*">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <!-- Width bound directly to the column (not a child element's Width) so GridSplitter's
+                 drag — which mutates ColumnDefinition.Width, not any sibling's Width property —
+                 actually round-trips into LibraryNavPanelWidth via this TwoWay binding. Previously
+                 this column was Auto with the binding living on the Border below instead: the
+                 splitter would resize the Auto column but the Border's own stale-bound Width never
+                 followed, so dragging looked interactive but the panel never actually scaled.
+
+                 MinWidth is a hard floor, not a suggestion — explicitly requested: playlist rows
+                 must always show every piece of info (art, name, stats, all action icons) at a
+                 glance, never hide or shrink content to cope with a narrow column. 260px is enough
+                 room for that at the row template's current sizing, so the splitter simply can't
+                 be dragged past the point where anything would need to disappear. -->
+            <ColumnDefinition Width="{Binding LibraryNavPanelWidth, Mode=TwoWay, Converter={StaticResource GridLengthPixelConverter}}" MinWidth="260" MaxWidth="560"/>
+            <ColumnDefinition Width="4"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
         <!-- LEFT PANE: Collapsible, user-drag-resizable Playlist Navigation -->
         <Border Grid.Column="0"
-                Width="{Binding LibraryNavPanelWidth, Mode=TwoWay}"
-                MinWidth="60" MaxWidth="560"
+                HorizontalAlignment="Stretch"
                 Background="#1A1A1D" BorderBrush="#2A2A2E" BorderThickness="0,0,1,0">
                 <interactivity:Interaction.Behaviors>
                     <ia:EventTriggerBehavior EventName="PointerEntered">
@@ -143,6 +159,18 @@
                                                ToolTip.Tip="Permanently deletes tracklist placeholder tracks like &quot;Artist - ID&quot; — leftovers from before imports filtered these out">
                                          <MenuItem.Icon><TextBlock Text="❓"/></MenuItem.Icon>
                                      </MenuItem>
+                                     <MenuItem Header="Remove Duplicate Tracks" Command="{Binding RemoveDuplicateTracksCommand}"
+                                               ToolTip.Tip="Merges duplicate library files and removes tracks that got added to the same playlist more than once — backs up the database first">
+                                         <MenuItem.Icon><TextBlock Text="🧹"/></MenuItem.Icon>
+                                     </MenuItem>
+                                     <MenuItem Header="Fix &quot;File Missing&quot; Flags" Command="{Binding FixMissingFileFlagsCommand}"
+                                               ToolTip.Tip="Corrects tracks stuck showing FILE MISSING even though the file exists on disk">
+                                         <MenuItem.Icon><TextBlock Text="🩹"/></MenuItem.Icon>
+                                     </MenuItem>
+                                     <MenuItem Header="Backfill Missing Track Metadata" Command="{Binding BackfillDurationsCommand}"
+                                               ToolTip.Tip="Reads real duration (TagLib) and syncs bitrate/format for tracks showing '—'/'UNKNOWN' in the Inspector despite having a file on disk">
+                                         <MenuItem.Icon><TextBlock Text="⏱"/></MenuItem.Icon>
+                                     </MenuItem>
                                      <MenuItem Header="New Smart Crate (Genre/Mood)" Command="{Binding CreateSmartPlaylistCommand}"
                                                ToolTip.Tip="Rule-based playlist: sub-genre, mood, BPM/energy range">
                                          <MenuItem.Icon><TextBlock Text="⚡"/></MenuItem.Icon>
@@ -176,46 +204,38 @@
                     <!-- Unified Navigation Content -->
                     <ScrollViewer Grid.Row="1" IsVisible="{Binding !IsNavigationCollapsed}">
                         <StackPanel Spacing="2">
-                            <Border Background="#20242A" BorderBrush="#2E343D" BorderThickness="1" CornerRadius="8" Margin="8,8,8,6" Padding="10,8">
-                                <StackPanel Spacing="4">
-                                    <TextBlock Text="Lifecycle" FontSize="10" FontWeight="SemiBold" Foreground="#8FA7C0"/>
-                                    <TextBlock Text="{Binding LibraryCountDifferentiationSummary}" FontSize="11" Foreground="#D8E5F2" TextWrapping="Wrap"/>
-                                    <TextBlock Text="{Binding LibraryLifecycleStatusMessage}" FontSize="10" Foreground="#93C7B8" TextWrapping="Wrap" IsVisible="{Binding !!LibraryLifecycleStatusMessage}"/>
-                                </StackPanel>
-                            </Border>
-
-                            <!-- Section: Library Management -->
-                            <TextBlock Text="LIBRARY" FontSize="10" FontWeight="Bold" Foreground="#555" Margin="16,12,16,4"/>
-
-                            <Button Command="{Binding Projects.LoadAllTracksCommand}" Classes="nav-item" Margin="8,0">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Border Width="24" Height="24" CornerRadius="4" Background="#111128" VerticalAlignment="Center">
-                                        <TextBlock Text="📚" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <TextBlock Text="All Tracks" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-
-                            <Button Command="{Binding Projects.ImportLikedSongsCommand}" Classes="nav-item" Margin="8,0">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Border Width="24" Height="24" CornerRadius="4" Background="#281111" VerticalAlignment="Center">
-                                        <TextBlock Text="❤️" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <TextBlock Text="Liked Songs" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-
-                            <Button Command="{Binding OpenSourcesCommand}" Classes="nav-item" Margin="8,0">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Border Width="24" Height="24" CornerRadius="4" Background="#112811" VerticalAlignment="Center">
-                                        <TextBlock Text="📁" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <TextBlock Text="Folders" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
+                            <!-- Quick nav: one compact segmented bar instead of three stacked
+                                 full-width buttons — same three commands, far less vertical space.
+                                 (The old "Lifecycle" diagnostics box that used to live here was
+                                 removed — it's technical ingestion/indexing info, not playlist
+                                 navigation, and the same data is already shown on the Analysis
+                                 page via LibraryCountDifferentiationSummary.) -->
+                            <Grid ColumnDefinitions="*,*,*" Margin="8,8,8,10">
+                                <Button Grid.Column="0" Command="{Binding Projects.LoadAllTracksCommand}"
+                                        Classes="segbar-item" ToolTip.Tip="All Tracks">
+                                    <StackPanel Spacing="2" HorizontalAlignment="Center">
+                                        <TextBlock Text="📚" FontSize="15" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="All Tracks" FontSize="9" HorizontalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Grid.Column="1" Command="{Binding Projects.ImportLikedSongsCommand}"
+                                        Classes="segbar-item" ToolTip.Tip="Liked Songs" Margin="4,0">
+                                    <StackPanel Spacing="2" HorizontalAlignment="Center">
+                                        <TextBlock Text="❤️" FontSize="15" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="Liked" FontSize="9" HorizontalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Grid.Column="2" Command="{Binding OpenSourcesCommand}"
+                                        Classes="segbar-item" ToolTip.Tip="Folders">
+                                    <StackPanel Spacing="2" HorizontalAlignment="Center">
+                                        <TextBlock Text="📁" FontSize="15" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="Folders" FontSize="9" HorizontalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
 
                             <!-- Section: Project Workspace -->
-                            <Separator Height="1" Background="#2A2A2A" Margin="12,12"/>
+                            <Separator Height="1" Background="#2A2A2A" Margin="12,4"/>
                             <Grid ColumnDefinitions="*,Auto" Margin="16,4,12,4">
                                 <TextBlock Grid.Column="0" Text="PROJECTS" FontSize="10" FontWeight="Bold" Foreground="#555" VerticalAlignment="Center"/>
                                 <Button Grid.Column="1" Command="{Binding Projects.CreateFolderCommand}"
@@ -235,7 +255,22 @@
                             <TreeView x:Name="PlaylistTreeView"
                                       ItemsSource="{Binding Projects.RootTreeNodes}"
                                       SelectedItem="{Binding Projects.SelectedTreeNode, Mode=TwoWay}"
+                                      SelectionMode="Multiple"
+                                      SelectedItems="{Binding Projects.SelectedTreeNodes}"
                                       Background="Transparent" BorderThickness="0" Padding="0,4">
+                                <!-- Non-virtualizing items panel: the default VirtualizingStackPanel
+                                     recycles/measures row containers keyed off item changes, not off
+                                     the column's own width changing — dragging the nav-panel splitter
+                                     narrower resizes the column but doesn't reliably tell already-
+                                     realized rows to re-measure, so playlist name text and the hover
+                                     action icons appeared to vanish until a big enough resize forced
+                                     a full re-layout. The playlist list is at most a few dozen items,
+                                     so the virtualization this panel buys isn't worth that staleness. -->
+                                <TreeView.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel/>
+                                    </ItemsPanelTemplate>
+                                </TreeView.ItemsPanel>
                                 <TreeView.Styles>
                                     <Style Selector="TreeViewItem">
                                         <Setter Property="Padding" Value="4"/>
@@ -297,7 +332,7 @@
 
                                                 <!-- Playlist card node: unchanged rich card template, bindings routed through Card.* -->
                                                 <DataTemplate DataType="liblib:PlaylistTreeCardNodeViewModel">
-                                                    <Border Background="Transparent">
+                                                    <Border Background="Transparent" HorizontalAlignment="Stretch">
                                                         <Border.ContextMenu>
                                                             <ContextMenu>
                                                                 <MenuItem Header="Download Missing Tracks">
@@ -324,6 +359,18 @@
                                                                           CommandParameter="{Binding Card.Model}">
                                                                     <MenuItem.Icon><TextBlock Text="🎯"/></MenuItem.Icon>
                                                                 </MenuItem>
+                                                                <MenuItem Header="Auto-Arrange by Similarity"
+                                                                          Command="{Binding $parent[UserControl].DataContext.AutoArrangePlaylistCommand}"
+                                                                          CommandParameter="{Binding Card.Model}"
+                                                                          ToolTip.Tip="Reorders all tracks by similarity and double-drop compatibility (harmonic + tempo match)">
+                                                                    <MenuItem.Icon><TextBlock Text="🔀"/></MenuItem.Icon>
+                                                                </MenuItem>
+                                                                <MenuItem Header="Combine into New Playlist…"
+                                                                          Command="{Binding $parent[UserControl].DataContext.CombineSelectedPlaylistsCommand}"
+                                                                          IsEnabled="{Binding $parent[UserControl].DataContext.Projects.HasMultiplePlaylistsSelected}"
+                                                                          ToolTip.Tip="Select 2+ playlists (Ctrl/Shift-click) to combine their tracks into a new, auto-arranged playlist">
+                                                                    <MenuItem.Icon><TextBlock Text="⛙"/></MenuItem.Icon>
+                                                                </MenuItem>
                                                                 <MenuItem Header="Export Playlist">
                                                                     <MenuItem.Icon><TextBlock Text="📤"/></MenuItem.Icon>
                                                                     <MenuItem Header="Rekordbox XML"
@@ -336,6 +383,13 @@
                                                                               CommandParameter="{Binding Card.Model}">
                                                                         <MenuItem.Icon><TextBlock Text="🎵"/></MenuItem.Icon>
                                                                     </MenuItem>
+                                                                </MenuItem>
+                                                                <MenuItem Header="Check for New Tracks"
+                                                                          Command="{Binding $parent[UserControl].DataContext.SyncProjectCommand}"
+                                                                          CommandParameter="{Binding Card.Model}"
+                                                                          IsVisible="{Binding Card.Model.SourceUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                                          ToolTip.Tip="Spotify playlists re-fetch automatically. Pasted tracklists (1001Tracklists etc.) can't be auto-fetched — this opens the source page so you can copy the current tracklist and re-paste it to merge in anything new.">
+                                                                    <MenuItem.Icon><TextBlock Text="🔄"/></MenuItem.Icon>
                                                                 </MenuItem>
                                                                 <Separator/>
                                                                 <MenuItem Header="Rename Playlist"
@@ -351,7 +405,7 @@
                                                                 </MenuItem>
                                                             </ContextMenu>
                                                         </Border.ContextMenu>
-                                                        <controls:CompactPlaylistTemplate DataContext="{Binding Card}"/>
+                                                        <controls:CompactPlaylistTemplate DataContext="{Binding Card}" HorizontalAlignment="Stretch"/>
                                                     </Border>
                                                 </DataTemplate>
 
@@ -373,7 +427,7 @@
                                     <TextBlock Text="New Playlist"/>
                                 </StackPanel>
                             </Button>
-                            <Button Command="{Binding DeleteProjectCommand}" CommandParameter="{Binding SelectedProject}" Classes="danger" IsVisible="{Binding !!SelectedProject}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
+                            <Button Command="{Binding Projects.DeleteProjectCommand}" CommandParameter="{Binding Projects.SelectedProject}" Classes="danger" IsVisible="{Binding !!Projects.SelectedProject}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
                                  <TextBlock Text="Delete Project"/>
                             </Button>
                         </StackPanel>
@@ -398,11 +452,14 @@
                 </Grid>
             </Border>
 
+        <!-- ShowsPreview="True" defers the actual column resize until mouse-up — only a thin
+             detached preview line moves while dragging, so the panel/rows never visibly reflow
+             until you release, which read as "nothing happens until I drag absurdly far."
+             Live (non-preview) resize updates LibraryNavPanelWidth continuously during the drag. -->
         <GridSplitter Grid.Column="1"
                       Background="#2A2A2E"
                       HorizontalAlignment="Stretch"
                       ResizeDirection="Columns"
-                      ShowsPreview="True"
                       ToolTip.Tip="Drag to resize the playlist panel"/>
 
         <!-- MAIN CONTENT AREA -->

@@ -16,6 +16,7 @@ using SLSKDONET.Services.Models;
 using SLSKDONET.ViewModels;
 using SLSKDONET.ViewModels.Downloads;
 using SLSKDONET.ViewModels.Library;
+using SLSKDONET.Views;
 using Xunit;
 
 namespace SLSKDONET.Tests.ViewModels;
@@ -160,6 +161,7 @@ public class DownloadCenterSoftClearContractTests
         var databaseService = (DatabaseService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(DatabaseService));
         var dbFactory = Mock.Of<IDbContextFactory<AppDbContext>>();
         var dialogService = Mock.Of<IDialogService>();
+        var notificationService = Mock.Of<INotificationService>();
         var config = new AppConfig();
 
         using var sut = new DownloadCenterViewModel(
@@ -170,7 +172,8 @@ public class DownloadCenterSoftClearContractTests
             libraryService,
             databaseService,
             dbFactory,
-            dialogService);
+            dialogService,
+            notificationService);
 
         var clearedTrack = new PlaylistTrack
         {
@@ -184,13 +187,77 @@ public class DownloadCenterSoftClearContractTests
         eventBus.Publish(new TrackAddedEvent(clearedTrack, PlaylistTrackState.Completed));
 
         // Assert
-        Assert.Empty(sut.ActiveDownloads);
-        Assert.Empty(sut.CompletedDownloads);
-        Assert.Empty(sut.FailedDownloads);
+        Assert.Empty(sut.HubActiveRows);
+        Assert.Empty(sut.HubCompletedRows);
+        Assert.Empty(sut.AttentionRows);
     }
 
     [Fact]
-    public void DownloadMissingCommand_IgnoresDownloaded_AndIgnoresOnHoldTracks()
+    public async Task SearchText_NarrowsAttentionRows_SourcedFromPersistedUnfindableTracks()
+    {
+        // Regression test for the bug the Attention-tab merge exists to fix: SearchText used to
+        // apply only to runtime Failed/Stalled rows and never touched the persisted OnHold
+        // ("Unfindable Tracks") list at all — RebuildAttentionRows now applies the same
+        // diacritics-insensitive filter to both sources (see the class doc comment on
+        // RebuildAttentionRows). This test drives UnfindableTracks + SearchText directly rather
+        // than through the TrackAddedEvent -> Dispatcher.UIThread.Post path, which requires an
+        // Avalonia dispatcher loop that isn't pumped in this headless test host.
+        var eventBus = new EventBusService();
+        var downloadManager = CreateUninitializedDownloadManager();
+        typeof(DownloadManager).GetField("_downloads", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?.SetValue(downloadManager, new List<DownloadContext>());
+        typeof(DownloadManager).GetField("_collectionLock", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?.SetValue(downloadManager, new object());
+
+        var artworkCache = (ArtworkCacheService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(ArtworkCacheService));
+        var libraryService = Mock.Of<ILibraryService>();
+        var databaseService = (DatabaseService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(DatabaseService));
+        var dbFactory = Mock.Of<IDbContextFactory<AppDbContext>>();
+        var dialogService = Mock.Of<IDialogService>();
+        var notificationService = Mock.Of<INotificationService>();
+        var config = new AppConfig();
+
+        using var sut = new DownloadCenterViewModel(
+            downloadManager,
+            eventBus,
+            config,
+            artworkCache,
+            libraryService,
+            databaseService,
+            dbFactory,
+            dialogService,
+            notificationService);
+
+        sut.UnfindableTracks.Add(new UnfindableTrackViewModel(
+            Guid.NewGuid(), Guid.NewGuid(), "Zebra Collective", "Static Bloom", "Some Playlist", 3,
+            _ => Task.CompletedTask));
+        sut.UnfindableTracks.Add(new UnfindableTrackViewModel(
+            Guid.NewGuid(), Guid.NewGuid(), "Marble Horizon", "Quiet Season", "Other Playlist", 1,
+            _ => Task.CompletedTask));
+
+        // Nothing rebuilds AttentionRows until SearchText's throttled subscription fires at least
+        // once — this also proves it does pick up the current UnfindableTracks state on its own.
+        await Task.Delay(400);
+        Assert.Equal(2, sut.AttentionRows.Count);
+
+        // "static" should match only the first track — previously SearchText had zero effect on
+        // this list at all, so both would still show.
+        sut.SearchText = "static";
+        await Task.Delay(400);
+
+        Assert.Single(sut.AttentionRows);
+        Assert.Contains("Zebra", sut.AttentionRows.Single().Title);
+
+        // Accent-insensitive, mirroring StripDiacritics used everywhere else on this page.
+        sut.SearchText = "seasón";
+        await Task.Delay(400);
+
+        Assert.Single(sut.AttentionRows);
+        Assert.Contains("Marble", sut.AttentionRows.Single().Title);
+    }
+
+    [Fact]
+    public async Task DownloadMissingCommand_IgnoresDownloaded_AndIgnoresOnHoldTracks()
     {
         // Arrange
         var eventBus = new EventBusService();
@@ -224,6 +291,17 @@ public class DownloadCenterSoftClearContractTests
 
         // Act
         albumNode.DownloadMissingCommand.Execute(null);
+
+        // DownloadManager.QueueTracks now runs on a background thread (fixes a real UI freeze on
+        // large "Download Missing"/"Download Album" batches — see QueueTracksCore) instead of
+        // synchronously on the calling thread, so the TrackAddedEvent publish is no longer
+        // guaranteed to have happened by the time Execute() returns. Poll briefly instead of
+        // asserting immediately.
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (queuedTracks.Count == 0 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(20);
+        }
 
         // Assert
         Assert.Single(queuedTracks);

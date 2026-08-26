@@ -307,9 +307,30 @@ public class ImportOrchestrator
                 else
                 {
                     // ── FRESH IMPORT MODE ────────────────────────────────────────────────────
-                    tracksToQueue = incomingTracks;
+                    // Dedupe within the incoming batch itself — a source provider can yield the
+                    // same track twice (pagination hiccups, etc.); without this every copy became
+                    // a separate PlaylistTrack row. Same keep-first-by-hash rule Sync Mode already
+                    // applies above; tracks with no hash can't be deduped so pass through untouched.
+                    var seenHashes = new HashSet<string>(StringComparer.Ordinal);
+                    tracksToQueue = new System.Collections.Generic.List<PlaylistTrack>();
+                    var duplicatesInBatch = 0;
+
+                    foreach (var incoming in incomingTracks)
+                    {
+                        if (string.IsNullOrEmpty(incoming.TrackUniqueHash) || seenHashes.Add(incoming.TrackUniqueHash))
+                        {
+                            tracksToQueue.Add(incoming);
+                        }
+                        else
+                        {
+                            duplicatesInBatch++;
+                        }
+                    }
+
                     newCount = tracksToQueue.Count;
-                    _logger.LogInformation("Fresh import for '{Title}': {Count} tracks", sourceTitle, newCount);
+                    _logger.LogInformation(
+                        "Fresh import for '{Title}': {Count} tracks ({Duplicates} in-batch duplicates skipped)",
+                        sourceTitle, newCount, duplicatesInBatch);
                 }
 
                 // Build and queue the job

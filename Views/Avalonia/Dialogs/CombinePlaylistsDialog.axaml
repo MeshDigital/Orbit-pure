@@ -1,0 +1,59 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SLSKDONET.ViewModels.Library"
+        x:Class="SLSKDONET.Views.Avalonia.Dialogs.CombinePlaylistsDialog"
+        Title="Combine Playlists" Width="440" Height="560"
+        WindowStartupLocation="CenterOwner"
+        Background="#151520" TransparencyLevelHint="AcrylicBlur"
+        ExtendClientAreaToDecorationsHint="True">
+
+    <Grid RowDefinitions="Auto,*,Auto,Auto,Auto" Margin="20">
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Spacing="8" Margin="0,10,0,16">
+            <TextBlock Text="Combine Playlists" FontSize="18" FontWeight="SemiBold" Foreground="White"/>
+            <TextBlock Text="Pick 2 or more playlists — their tracks will be combined and auto-arranged for best playback in a new playlist."
+                       FontSize="12" Foreground="#AAA" TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <!-- Playlist checkbox list -->
+        <ListBox Grid.Row="1" ItemsSource="{Binding Playlists}"
+                 Background="#1E1E2E" BorderBrush="#3E3E42" BorderThickness="1"
+                 CornerRadius="8" Margin="0,0,0,16">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:SelectablePlaylistItem">
+                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="2">
+                        <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" VerticalAlignment="Center"/>
+                        <TextBlock Text="🎵" FontSize="16" VerticalAlignment="Center"/>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Playlist.SourceTitle}" Foreground="White" FontWeight="Medium" FontSize="13"/>
+                            <TextBlock Text="{Binding Playlist.TotalTracks, StringFormat='{}{0} tracks'}" Foreground="#777" FontSize="11"/>
+                        </StackPanel>
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <!-- New playlist name -->
+        <StackPanel Grid.Row="2" Spacing="8" Margin="0,0,0,12">
+            <TextBlock Text="New Playlist Name" FontSize="12" FontWeight="SemiBold" Foreground="#4EC9B0"/>
+            <TextBox Text="{Binding NewPlaylistName, Mode=TwoWay}"
+                     Watermark="Enter a name for the combined playlist..."
+                     Background="#1E1E2E" Foreground="White"
+                     BorderThickness="1" BorderBrush="#3E3E42"
+                     CornerRadius="6" Padding="10,8"/>
+        </StackPanel>
+
+        <!-- Dedup option -->
+        <CheckBox Grid.Row="3" Content="Skip duplicate tracks (recommended)"
+                  IsChecked="{Binding SkipDuplicateTracks, Mode=TwoWay}"
+                  Foreground="#CCC" FontSize="12" Margin="0,0,0,16"/>
+
+        <!-- Action buttons -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12">
+            <Button Content="Cancel" Click="Cancel_Click" Background="Transparent" Foreground="#AAA" Padding="16,8"/>
+            <Button Content="Combine &amp; Arrange" Click="Combine_Click"
+                    IsEnabled="{Binding CanConfirm}"
+                    Background="#4EC9B0" Foreground="#151520" Padding="16,8" CornerRadius="6" FontWeight="Bold"/>
+        </StackPanel>
+    </Grid>
+</Window>

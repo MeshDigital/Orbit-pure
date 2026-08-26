@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reactive;
@@ -93,8 +94,35 @@ public sealed class NotificationCenterService : ReactiveObject, IDisposable
         }
     }
 
+    // A track that belongs to multiple playlists gets one DownloadContext (and one
+    // TrackStateChangedEvent(Completed)) per playlist when the same physical file finishes —
+    // correct for each playlist's own row to update, but it means a single download can fire this
+    // handler many times in a tight burst for the same hash, often interleaved with bursts for
+    // OTHER tracks completing around the same moment (a single last-hash slot gets clobbered by
+    // the interleaving and stops deduplicating either one). Track a per-hash last-notified
+    // timestamp instead so the bell gets exactly one entry per actual download regardless of how
+    // many playlists it belongs to or what else completes alongside it, while a genuine later
+    // re-download of the same track still gets its own entry. Pruned opportunistically so this
+    // doesn't grow unbounded over a long-running session.
+    private readonly Dictionary<string, DateTime> _recentlyCompletedHashes = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly TimeSpan DuplicateCompletionWindow = TimeSpan.FromSeconds(10);
+
     private void OnTrackDownloadCompleted(TrackStateChangedEvent e)
     {
+        var now = DateTime.UtcNow;
+
+        if (_recentlyCompletedHashes.TryGetValue(e.TrackGlobalId, out var lastAt) && now - lastAt < DuplicateCompletionWindow)
+        {
+            return;
+        }
+        _recentlyCompletedHashes[e.TrackGlobalId] = now;
+
+        if (_recentlyCompletedHashes.Count > 256)
+        {
+            var stale = _recentlyCompletedHashes.Where(kv => now - kv.Value >= DuplicateCompletionWindow).Select(kv => kv.Key).ToList();
+            foreach (var key in stale) _recentlyCompletedHashes.Remove(key);
+        }
+
         // Resolve Artist/Title from the in-memory download list rather than the database —
         // avoids a race against DownloadHistoryEntity's own (independently-timed) write.
         var match = _downloadManager.GetAllDownloads()

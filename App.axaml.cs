@@ -57,6 +57,10 @@ public partial class App : Application
             // Without resolving this singleton, manual Analyse actions appear to do nothing.
             _ = Services.GetRequiredService<Services.AnalysisQueueService>();
 
+            // Eagerly activate the network activity monitor so it's observing from startup, not
+            // only once something (e.g. the Settings page) happens to resolve it first.
+            _ = Services.GetRequiredService<Services.NetworkActivityMonitor>();
+
             // Register shutdown handler to prevent orphaned processes
             desktop.Exit += async (_, __) =>
             {
@@ -115,6 +119,11 @@ public partial class App : Application
                             Serilog.Log.Information("Closing crash recovery journal...");
                             await crashJournal.DisposeAsync();
                         }
+
+                        // Plain AddSingleton services are never auto-disposed (the container itself
+                        // is never disposed), so the EventListener-based network monitor needs an
+                        // explicit unsubscribe here to avoid leaking its runtime event subscriptions.
+                        Services?.GetService<Services.NetworkActivityMonitor>()?.Dispose();
 
                         // Stop IHostedService background workers
                         try
@@ -248,6 +257,15 @@ public partial class App : Application
                         // Activate post-download spectral scan listener (eager resolve so it
                         // subscribes to TrackStateChangedEvent immediately after the engine starts).
                         _ = Services.GetRequiredService<PostDownloadSpectralScanService>();
+                        _ = Services.GetRequiredService<PostDownloadDurationCaptureService>();
+
+                        // NativeDependencyHealthService.IsHealthy defaults to false and only ever
+                        // gets computed inside CheckHealthAsync() — which nothing in the app was
+                        // actually calling (only its own unit tests did). Result: the Library
+                        // context menu's "Analyse Track"/"Hard Retry" items (IsEnabled bound to
+                        // AreDependenciesHealthy) stayed permanently disabled for the whole session
+                        // regardless of whether FFmpeg/Essentia were genuinely available.
+                        _ = Services.GetRequiredService<NativeDependencyHealthService>().CheckHealthAsync();
 
                         // Eager-resolve chat/notification services so they start listening for
                         // incoming Soulseek messages from app launch, not just after the user
@@ -430,10 +448,15 @@ public partial class App : Application
         services.AddSingleton<LibraryOrganizationService>();
         services.AddSingleton<IAudioIntegrityService, AudioIntegrityService>();
         services.AddSingleton<PostDownloadSpectralScanService>(); // Runs FFT analysis on completed FLAC downloads
+        services.AddSingleton<PostDownloadDurationCaptureService>(); // TagLib duration probe for every completed download (any format)
         services.AddSingleton<AudioCorruptionScannerService>();   // Fast per-file corruption probe (FFmpeg + NAudio)
         services.AddSingleton<LibraryCorruptionScanService>();    // Batch library-wide corruption scan
         services.AddSingleton<CorruptFileRemediationService>();   // Disk delete + DB reset + re-queue for corrupt/missing files
         services.AddSingleton<UnidentifiedTrackCleanupService>(); // Full removal of "ID" placeholder tracks (no identity to redownload against)
+        services.AddSingleton<DuplicateTrackCleanupService>(); // Merges duplicate LibraryEntries + removes duplicate in-playlist track rows
+        services.AddSingleton<EngineDiagnosticsService>(); // Structured import/search audit trail — "Engine Diagnostics"
+        services.AddSingleton<AvailabilityStateReconciliationService>(); // Fixes tracks stuck "FILE MISSING" despite the file existing on disk
+        services.AddSingleton<DurationBackfillService>(); // One-time TagLib duration sweep for tracks that predate PostDownloadDurationCaptureService
         services.AddSingleton<ArtworkPipeline>();
         services.AddSingleton<DragAdornerService>();
         
@@ -442,6 +465,7 @@ public partial class App : Application
 
         // Services
         services.AddSingleton<INetworkHealthService, NetworkHealthService>();
+        services.AddSingleton<NetworkActivityMonitor>();
         services.AddSingleton<ShareIndexService>();
         services.AddSingleton<ChatAttachmentService>();
         services.AddSingleton<SoulseekAdapter>();
@@ -659,6 +683,7 @@ public partial class App : Application
         services.AddTransient<Views.Avalonia.WorkstationPage>();
         services.AddTransient<Views.Avalonia.UsersPage>();
         services.AddTransient<Views.Avalonia.CueForgePagee>();
+        services.AddTransient<Views.Avalonia.FlowBuilderPage>();
         services.AddSingleton<Services.ICuePointService, Services.CuePointService>();
         services.AddSingleton<Services.Audio.StemPreferenceService>();
         services.AddSingleton<Services.Audio.MixdownService>();
@@ -673,6 +698,8 @@ public partial class App : Application
         services.AddSingleton<Services.AudioAnalysis.CuePointDetectionService>();
         services.AddSingleton<Services.AudioAnalysis.DnBTransientDetectionService>();
         services.AddSingleton<Services.DnBCueNamingService>();
+        services.AddSingleton<Engine.Analysis.BreakbeatAnalysisStrategy>();
+        services.AddSingleton<Engine.Analysis.FourOnTheFloorAnalysisStrategy>();
         services.AddSingleton<Services.CamelotKeyDisplayService>();
         services.AddSingleton<Services.PhraseAlignmentService>();
         services.AddSingleton<Services.IPhraseAlignmentService>(sp =>
@@ -781,6 +808,7 @@ public partial class App : Application
                 sp.GetRequiredService<DownloadManager>(),
                 sp.GetRequiredService<ILibraryService>(),
                 sp.GetRequiredService<IEventBus>(),
+                sp.GetRequiredService<AppConfig>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.AutoDownload.GhostAcquisitionOrchestrator>>()));
     }
 

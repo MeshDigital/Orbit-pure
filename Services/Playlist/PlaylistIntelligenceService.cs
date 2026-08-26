@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using SLSKDONET.Configuration;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
 using SLSKDONET.Models.Musical;
@@ -145,11 +146,28 @@ public sealed class PlaylistIntelligenceService
             .ToList();
     }
 
+    /// <param name="doubleDropWeight">
+    /// 0 (default) preserves the original similarity/harmonic/transition-only scoring exactly —
+    /// existing callers (Flow Builder) are unaffected. When > 0, blends in
+    /// TrackMatchScorer.ComputeDoubleDropScore (harmony × tight-BPM-match × drop-section
+    /// compatibility) so the walk favors pairs that are also good beatmatched "double drop"
+    /// candidates, not just generally similar. Requires <paramref name="bpmByHash"/>.
+    /// </param>
+    /// <param name="bpmByHash">Real BPM per track hash — TrackFingerprint only carries a
+    /// normalized tempo, not raw BPM, so this must come from the caller when
+    /// <paramref name="doubleDropWeight"/> > 0. Tracks missing from this lookup fall back to 0
+    /// (neutral/unknown BPM handling, same as TrackMatchScorer's own convention).</param>
+    /// <param name="metadataByHash">Artist/subgenre per track hash, used to softly discourage
+    /// back-to-back repeats. Optional — when null, scoring is unaffected (same as omitting
+    /// <paramref name="bpmByHash"/>).</param>
     public async Task<PlaylistReorderResult> ReorderAsync(
         IEnumerable<string> trackHashes,
         TrackSimilarityProfile profile = TrackSimilarityProfile.BlendSafe,
         EnergyCurvePattern energyCurve = EnergyCurvePattern.None,
         string? anchorTrackHash = null,
+        double doubleDropWeight = 0.0,
+        IReadOnlyDictionary<string, float>? bpmByHash = null,
+        IReadOnlyDictionary<string, ReorderTrackMetadata>? metadataByHash = null,
         CancellationToken ct = default)
     {
         var hashes = trackHashes
@@ -200,7 +218,10 @@ public sealed class PlaylistIntelligenceService
                     fingerprints[candidateHash],
                     GetSections(sectionLookup, current),
                     GetSections(sectionLookup, candidateHash),
-                    profile))
+                    profile,
+                    doubleDropWeight,
+                    bpmByHash,
+                    metadataByHash))
                 .OrderByDescending(r => r.Score)
                 .First();
 
@@ -219,7 +240,10 @@ public sealed class PlaylistIntelligenceService
                 fingerprints[ordered[index + 1]],
                 GetSections(sectionLookup, ordered[index]),
                 GetSections(sectionLookup, ordered[index + 1]),
-                profile));
+                profile,
+                doubleDropWeight,
+                bpmByHash,
+                metadataByHash));
         }
 
         return new PlaylistReorderResult
@@ -282,12 +306,26 @@ public sealed class PlaylistIntelligenceService
         TrackFingerprint candidate,
         IReadOnlyList<SectionFeatureVector> currentSections,
         IReadOnlyList<SectionFeatureVector> candidateSections,
-        TrackSimilarityProfile profile)
+        TrackSimilarityProfile profile,
+        double doubleDropWeight = 0.0,
+        IReadOnlyDictionary<string, float>? bpmByHash = null,
+        IReadOnlyDictionary<string, ReorderTrackMetadata>? metadataByHash = null)
     {
         var similarity = _trackSimilarityService.Score(current, candidate, currentSections, candidateSections, profile);
         var harmonic = _harmonicCompatibilityService.Score(current, candidate);
         var transition = ComputeTransitionFeasibility(currentSections, candidateSections);
         var score = Clamp01((similarity.FinalSimilarity * 0.50) + (harmonic * 0.30) + (transition * 0.20));
+
+        if (metadataByHash != null)
+        {
+            score = Clamp01(score * ComputeRepetitionPenalty(current.TrackUniqueHash, candidate.TrackUniqueHash, metadataByHash));
+        }
+
+        if (doubleDropWeight > 0)
+        {
+            var doubleDropScore = ComputeDoubleDropComponent(current, candidate, currentSections, candidateSections, bpmByHash, (float)similarity.FinalSimilarity);
+            score = Clamp01(score * (1 - doubleDropWeight) + doubleDropScore * doubleDropWeight);
+        }
 
         var reasons = new List<string>(similarity.ReasonTags);
         if (transition >= 0.75)
@@ -539,6 +577,58 @@ public sealed class PlaylistIntelligenceService
             return 0.5;
 
         return outro.TransitionScore(intro);
+    }
+
+    /// <summary>
+    /// Auto-Arrange's double-drop signal: how well would these two tracks work beatmatched
+    /// together (harmonic compatibility × tight BPM match × drop-section sonic similarity)?
+    /// Reuses TrackMatchScorer's own formula/constants exactly rather than re-deriving them —
+    /// see TrackMatchScorer.Compute for the equivalent inline computation.
+    /// </summary>
+    private static float ComputeDoubleDropComponent(
+        TrackFingerprint current,
+        TrackFingerprint candidate,
+        IReadOnlyList<SectionFeatureVector> currentSections,
+        IReadOnlyList<SectionFeatureVector> candidateSections,
+        IReadOnlyDictionary<string, float>? bpmByHash,
+        float soundScoreFallback)
+    {
+        var harmonyScore = TrackMatchScorer.ComputeHarmony(current.Harmonic?.PrimaryKey, candidate.Harmonic?.PrimaryKey, out _);
+
+        bpmByHash ??= EmptyBpmLookup;
+        bpmByHash.TryGetValue(current.TrackUniqueHash, out var bpmA);
+        bpmByHash.TryGetValue(candidate.TrackUniqueHash, out var bpmB);
+        TrackMatchScorer.ComputeBeat(bpmA, bpmB, ScoringConstants.Matching.BeatDecayBpmWidth, out _, out var bestDiff, out _);
+        var tightBeatScore = TrackMatchScorer.ComputeBeatFromBestDiff(bestDiff, ScoringConstants.Matching.TightBeatDecayBpmWidth);
+
+        var dropA = currentSections.Where(s => s.SectionType == PhraseType.Drop).OrderByDescending(s => s.Confidence).FirstOrDefault();
+        var dropB = candidateSections.Where(s => s.SectionType == PhraseType.Drop).OrderByDescending(s => s.Confidence).FirstOrDefault();
+
+        return TrackMatchScorer.ComputeDoubleDropScore(harmonyScore, tightBeatScore, dropA, dropB, soundScoreFallback);
+    }
+
+    private static readonly Dictionary<string, float> EmptyBpmLookup = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Soft multiplicative penalty (1.0 = no penalty) for placing same-artist or same-subgenre
+    /// tracks back-to-back. Deliberately not a hard filter — a playlist with several tracks by
+    /// one artist must still produce a complete order, just a less repetitive one when a
+    /// reasonable alternative exists.
+    /// </summary>
+    private static double ComputeRepetitionPenalty(
+        string currentHash,
+        string candidateHash,
+        IReadOnlyDictionary<string, ReorderTrackMetadata> metadataByHash)
+    {
+        if (!metadataByHash.TryGetValue(currentHash, out var cur) || !metadataByHash.TryGetValue(candidateHash, out var cand))
+            return 1.0;
+
+        double penalty = 1.0;
+        if (!string.IsNullOrWhiteSpace(cur.Artist) && string.Equals(cur.Artist, cand.Artist, StringComparison.OrdinalIgnoreCase))
+            penalty *= 0.20;
+        if (!string.IsNullOrWhiteSpace(cur.SubGenre) && string.Equals(cur.SubGenre, cand.SubGenre, StringComparison.OrdinalIgnoreCase))
+            penalty *= 0.70;
+        return penalty;
     }
 
     private static double ComputeInsertEnergyFit(TrackFingerprint from, TrackFingerprint candidate, TrackFingerprint to)

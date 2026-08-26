@@ -34,10 +34,13 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
     private readonly EnergyAnalysisService _energyAnalysis;
     private readonly SubBassDropoutEngine _subBassEngine = new();
     private readonly SpectralFluxNoveltyEngine _noveltyEngine = new();
+    private readonly Engine.Analysis.StructuralStrippingEngine _structuralStrippingEngine = new(new SubBassDropoutEngine());
     private readonly DiscogsEffnetEmbeddingExtractor _effnetEmbedding;
     private readonly EffnetClassifierHeadService _effnetClassifier;
     private readonly TrackFingerprintBuilderService _trackFingerprintBuilder;
     private readonly TrackFingerprintStore _trackFingerprintStore;
+    private readonly BreakbeatAnalysisStrategy _breakbeatStrategy;
+    private readonly FourOnTheFloorAnalysisStrategy _fourOnFloorStrategy;
     private readonly DatabaseService _db;
     private readonly ILogger<AudioAnalysisService> _logger;
 
@@ -64,6 +67,8 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         EffnetClassifierHeadService effnetClassifier,
         TrackFingerprintBuilderService trackFingerprintBuilder,
         TrackFingerprintStore trackFingerprintStore,
+        BreakbeatAnalysisStrategy breakbeatStrategy,
+        FourOnTheFloorAnalysisStrategy fourOnFloorStrategy,
         DatabaseService db,
         ILogger<AudioAnalysisService> logger)
     {
@@ -80,6 +85,8 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         _effnetClassifier = effnetClassifier;
         _trackFingerprintBuilder = trackFingerprintBuilder;
         _trackFingerprintStore = trackFingerprintStore;
+        _breakbeatStrategy = breakbeatStrategy;
+        _fourOnFloorStrategy = fourOnFloorStrategy;
         _db            = db;
         _logger        = logger;
 
@@ -198,6 +205,18 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                     var (dropouts, returns) = _subBassEngine.DetectDropoutEvents(subBassCurve);
                     features.SubBassDropoutTimestampsJson = JsonSerializer.Serialize(dropouts);
                     features.SubBassReturnTimestampsJson = JsonSerializer.Serialize(returns);
+
+                    // House/Techno-family breakdown signature — genuinely different from a
+                    // sub-bass energy dropout (see StructuralStrippingEngine's own doc comment).
+                    // Genre isn't known yet at this point in analysis, so this runs unconditionally
+                    // for every track exactly like sub-bass dropout does; genre-gating happens
+                    // downstream in CueGenerationService's DSP path.
+                    if (features.Bpm > 0)
+                    {
+                        var (strippingStarts, strippingReturns) = _structuralStrippingEngine.DetectStructuralStripping(mono, pcmSampleRate);
+                        features.StructuralStrippingStartTimestampsJson = JsonSerializer.Serialize(strippingStarts);
+                        features.StructuralStrippingReturnTimestampsJson = JsonSerializer.Serialize(strippingReturns);
+                    }
 
                     var novelty = _noveltyEngine.ComputeNoveltyFunction(mono, pcmSampleRate);
                     var dropSignatures = _noveltyEngine.DetectDropSignatures(novelty, pcmSampleRate, 512);
@@ -622,11 +641,53 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         features.PredictedVibe = winner.Key;
         features.PredictionConfidence = finalConfidence;
 
+        // Genre-family BPM refinement — this is the one place both a final genre string and BPM
+        // are both settled, the correct seam for a genre-corroborated bracket correction (unlike
+        // BpmDetectionService's genre-agnostic half-time correction, which runs before genre is
+        // known and can't use it). See BreakbeatAnalysisStrategy/FourOnTheFloorAnalysisStrategy.
+        var classification = GenreFamilyClassifier.Classify(winner.Key, features.Bpm);
+        IGenreFamilyAnalysisStrategy? strategy = classification.Family switch
+        {
+            GenreFamily.Breakbeat => _breakbeatStrategy,
+            GenreFamily.FourOnTheFloor => _fourOnFloorStrategy,
+            _ => null
+        };
+        if (strategy != null)
+        {
+            var (correctedBpm, confidencePenalty, anomalyNote) = strategy.RefineBpm(classification, features.Bpm, features.BpmConfidence);
+            if (correctedBpm != features.Bpm && anomalyNote != null)
+            {
+                RecordAnomaly(features, anomalyNote);
+                features.Bpm = correctedBpm;
+                features.BpmConfidence *= confidencePenalty;
+            }
+        }
+
         var distribution = fusedScores
             .OrderByDescending(kv => kv.Value)
             .Take(6)
             .ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value, 4));
         features.GenreDistributionJson = JsonSerializer.Serialize(distribution);
+    }
+
+    /// <summary>Appends a short note to <see cref="AudioFeaturesEntity.AnomaliesJson"/> for later
+    /// auditing. Mirrors <c>BpmDetectionService.RecordAnomaly</c> — duplicated rather than shared
+    /// since it's a trivial JSON-append and sharing it would add a cross-class coupling for
+    /// something this small.</summary>
+    private static void RecordAnomaly(AudioFeaturesEntity target, string note)
+    {
+        List<string> anomalies;
+        try
+        {
+            anomalies = JsonSerializer.Deserialize<List<string>>(target.AnomaliesJson) ?? new List<string>();
+        }
+        catch (JsonException)
+        {
+            anomalies = new List<string>();
+        }
+
+        anomalies.Add(note);
+        target.AnomaliesJson = JsonSerializer.Serialize(anomalies);
     }
 
     private static string NormalizeModelKey(string key)

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Reactive.Subjects;
 using Microsoft.Extensions.Logging;
@@ -68,6 +69,12 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
     private readonly SemaphoreSlim _rateLimitLock = new(1, 1);
     private DateTime _searchBucketLastRefillUtc = DateTime.UtcNow;
     private double _searchBucketTokens = 1d;
+    // Separate bucket/lock for outgoing chat (private + room) messages — independent of search so
+    // the two operation categories don't serialize against or starve each other. See
+    // AppConfig.MessageTokenBucketCapacity/RefillMs.
+    private readonly SemaphoreSlim _messageRateLimitLock = new(1, 1);
+    private DateTime _messageBucketLastRefillUtc = DateTime.UtcNow;
+    private double _messageBucketTokens = 1d;
     private readonly SemaphoreSlim _upnpLock = new(1, 1);
     private bool _upnpPortMapped;
     private DateTime _lastUpnpAttemptUtc = DateTime.MinValue;
@@ -155,6 +162,97 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
         var missing = 1d - _searchBucketTokens;
         return Math.Max(25, (int)Math.Ceiling(missing * Math.Max(1, refillIntervalMs)));
+    }
+
+    /// <summary>
+    /// Blocks (without holding the caller's own locks) until an outgoing-message token is
+    /// available, per <see cref="AppConfig.MessageTokenBucketCapacity"/>/<c>RefillMs</c>. Same
+    /// token-bucket shape as the search rate limiter above, kept independent so chat sends never
+    /// wait on search dispatch or vice versa.
+    /// </summary>
+    private async Task WaitForMessageTokenAsync(CancellationToken ct)
+    {
+        var capacity = Math.Max(1, _config.MessageTokenBucketCapacity);
+        var refillMs = Math.Max(100, _config.MessageTokenBucketRefillMs);
+
+        while (true)
+        {
+            int waitMs;
+            await _messageRateLimitLock.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                var now = DateTime.UtcNow;
+                var elapsedMs = (now - _messageBucketLastRefillUtc).TotalMilliseconds;
+                if (elapsedMs > 0)
+                {
+                    var refillTokens = elapsedMs / refillMs;
+                    if (refillTokens > 0)
+                    {
+                        _messageBucketTokens = Math.Min(capacity, _messageBucketTokens + refillTokens);
+                        _messageBucketLastRefillUtc = now;
+                    }
+                }
+
+                if (_messageBucketTokens >= 1d)
+                {
+                    _messageBucketTokens -= 1d;
+                    return;
+                }
+
+                var missing = 1d - _messageBucketTokens;
+                waitMs = Math.Max(25, (int)Math.Ceiling(missing * refillMs));
+            }
+            finally
+            {
+                _messageRateLimitLock.Release();
+            }
+
+            await Task.Delay(waitMs, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Observational wrapper for a single Soulseek protocol call (search, message, download, browse,
+    /// presence, room ops, connect). Every Soulseek operation after the initial connect reuses the
+    /// same already-open TCP connection, so raw socket-level monitoring cannot distinguish one
+    /// operation from another — this call-site wrapper is the only place each operation is
+    /// individually observable. Publishes a <see cref="NetworkActivityEvent"/> for the Settings →
+    /// Advanced → Network Activity feed; never changes control flow (exceptions propagate unchanged).
+    /// </summary>
+    private async Task<T> TrackNetworkCallAsync<T>(string kind, string detail, Func<Task<T>> action)
+    {
+        if (!_config.EnableNetworkActivityMonitor) return await action();
+
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var result = await action();
+            _eventBus.Publish(new NetworkActivityEvent(DateTime.UtcNow, "Soulseek", kind, detail, sw.ElapsedMilliseconds, true));
+            return result;
+        }
+        catch
+        {
+            _eventBus.Publish(new NetworkActivityEvent(DateTime.UtcNow, "Soulseek", kind, detail, sw.ElapsedMilliseconds, false));
+            throw;
+        }
+    }
+
+    /// <summary>Non-generic overload for calls that return <see cref="Task"/> rather than <see cref="Task{T}"/>.</summary>
+    private async Task TrackNetworkCallAsync(string kind, string detail, Func<Task> action)
+    {
+        if (!_config.EnableNetworkActivityMonitor) { await action(); return; }
+
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            await action();
+            _eventBus.Publish(new NetworkActivityEvent(DateTime.UtcNow, "Soulseek", kind, detail, sw.ElapsedMilliseconds, true));
+        }
+        catch
+        {
+            _eventBus.Publish(new NetworkActivityEvent(DateTime.UtcNow, "Soulseek", kind, detail, sw.ElapsedMilliseconds, false));
+            throw;
+        }
     }
 
     private async Task EnsureUpnpPortMappingAsync(CancellationToken ct)
@@ -828,12 +926,12 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
             _logger.LogInformation("Connecting to Soulseek as {Username} on {Server}:{Port}...",
                 _config.Username, _config.SoulseekServer, _config.SoulseekPort);
             
-            await client.ConnectAsync(
-                _config.SoulseekServer ?? "server.slsknet.org", 
-                _config.SoulseekPort == 0 ? 2242 : _config.SoulseekPort, 
-                _config.Username, 
-                password, 
-                ct);
+            await TrackNetworkCallAsync("Connect", $"{_config.SoulseekServer}:{_config.SoulseekPort}", () => client.ConnectAsync(
+                _config.SoulseekServer ?? "server.slsknet.org",
+                _config.SoulseekPort == 0 ? 2242 : _config.SoulseekPort,
+                _config.Username,
+                password,
+                ct));
 
             await EnsureUpnpPortMappingAsync(ct);
             
@@ -1205,7 +1303,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 }
             }
 
-            await client.SearchAsync(
+            await TrackNetworkCallAsync("Search", query, () => client.SearchAsync(
                 searchQuery,
                 (response) =>
                 {
@@ -1353,7 +1451,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
                 scope: scope ?? Soulseek.SearchScope.Network,
                 options: options,
                 cancellationToken: effectiveCt
-            );
+            ));
 
             Volatile.Write(ref searchDispatchCompleted, 1);
             TrySignalCallbackDrain();
@@ -1910,6 +2008,15 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
                     options: downloadOptions,
                     cancellationToken: downloadCts.Token);
 
+                // Download completion/failure already has dedicated events (TransferFinishedEvent/
+                // TransferFailedEvent below); this just marks dispatch for the network activity feed —
+                // the stall-detection loop below can cancel/retry independently of the underlying
+                // call, so there's no single "call finished" point to wrap with TrackNetworkCallAsync.
+                if (_config.EnableNetworkActivityMonitor)
+                {
+                    _eventBus.Publish(new NetworkActivityEvent(DateTime.UtcNow, "Soulseek", "Download", $"{username}: {filename}", null, true));
+                }
+
                 // Monitoring Loop
                 while (!downloadTask.IsCompleted)
                 {
@@ -2106,7 +2213,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
         {
             _logger.LogInformation("Browsing shares for user: {Username}", username);
             
-            var response = await _client.BrowseAsync(username, cancellationToken: ct);
+            var response = await TrackNetworkCallAsync("Browse", username, () => _client.BrowseAsync(username, cancellationToken: ct));
             
             var tracks = new List<Track>();
             var allFiles = response.Directories
@@ -2153,7 +2260,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
         try
         {
-            var data = await _client.WatchUserAsync(username, cancellationToken: ct);
+            var data = await TrackNetworkCallAsync("WatchUser", username, () => _client.WatchUserAsync(username, cancellationToken: ct));
             return new UserWatchSnapshot(
                 data.Username,
                 MapPresence(data.Status),
@@ -2178,7 +2285,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
         try
         {
-            await _client.SetStatusAsync(MapPresenceToLibrary(status), cancellationToken: ct);
+            await TrackNetworkCallAsync("SetStatus", status.ToString(), () => _client.SetStatusAsync(MapPresenceToLibrary(status), cancellationToken: ct));
         }
         catch (Exception ex)
         {
@@ -2193,7 +2300,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
         try
         {
-            await _client.UnwatchUserAsync(username, cancellationToken: ct);
+            await TrackNetworkCallAsync("UnwatchUser", username, () => _client.UnwatchUserAsync(username, cancellationToken: ct));
         }
         catch (Exception ex)
         {
@@ -2208,7 +2315,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
         try
         {
-            var status = await _client.GetUserStatusAsync(username, cancellationToken: ct);
+            var status = await TrackNetworkCallAsync("GetUserStatus", username, () => _client.GetUserStatusAsync(username, cancellationToken: ct));
             return new UserStatusSnapshot(status.Username, MapPresence(status.Presence), status.IsPrivileged);
         }
         catch (Exception ex)
@@ -2225,7 +2332,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
         try
         {
-            var info = await _client.GetUserInfoAsync(username, cancellationToken: ct);
+            var info = await TrackNetworkCallAsync("GetUserInfo", username, () => _client.GetUserInfoAsync(username, cancellationToken: ct));
             return new UserProfileSnapshot(
                 username,
                 info.Description,
@@ -2265,7 +2372,8 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
         if (_client == null || !_client.State.HasFlag(SoulseekClientStates.Connected))
             throw new InvalidOperationException("Not connected to Soulseek");
 
-        await _client.SendPrivateMessageAsync(username, message, cancellationToken: ct);
+        await WaitForMessageTokenAsync(ct).ConfigureAwait(false);
+        await TrackNetworkCallAsync("SendMessage", username, () => _client.SendPrivateMessageAsync(username, message, cancellationToken: ct));
     }
 
     // ── Social: rooms ────────────────────────────────────────────────────
@@ -2277,7 +2385,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
         try
         {
-            var roomList = await _client.GetRoomListAsync(cancellationToken: ct);
+            var roomList = await TrackNetworkCallAsync("GetRoomList", "server", () => _client.GetRoomListAsync(cancellationToken: ct));
             return roomList.Public.Select(r => new RoomSummary(r.Name, r.UserCount, IsPrivate: false))
                 .Concat(roomList.Private.Select(r => new RoomSummary(r.Name, r.UserCount, IsPrivate: true)))
                 .ToList();
@@ -2296,7 +2404,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
         try
         {
-            var room = await _client.JoinRoomAsync(roomName, isPrivate, cancellationToken: ct);
+            var room = await TrackNetworkCallAsync("JoinRoom", roomName, () => _client.JoinRoomAsync(roomName, isPrivate, cancellationToken: ct));
             var members = (room.Users ?? Enumerable.Empty<UserData>())
                 .Select(u => new RoomMemberSnapshot(u.Username, MapPresence(u.Status), u.AverageSpeed, u.FileCount, u.DirectoryCount, u.SlotsFree))
                 .ToList();
@@ -2321,7 +2429,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
         try
         {
-            await _client.LeaveRoomAsync(roomName, cancellationToken: ct);
+            await TrackNetworkCallAsync("LeaveRoom", roomName, () => _client.LeaveRoomAsync(roomName, cancellationToken: ct));
         }
         catch (Exception ex)
         {
@@ -2334,7 +2442,8 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
         if (_client == null || !_client.State.HasFlag(SoulseekClientStates.Connected))
             throw new InvalidOperationException("Not connected to Soulseek");
 
-        await _client.SendRoomMessageAsync(roomName, message, cancellationToken: ct);
+        await WaitForMessageTokenAsync(ct).ConfigureAwait(false);
+        await TrackNetworkCallAsync("SendRoomMessage", roomName, () => _client.SendRoomMessageAsync(roomName, message, cancellationToken: ct));
     }
 
     /// <summary>

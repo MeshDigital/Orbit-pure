@@ -37,6 +37,10 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     private int _count = -1;
     private readonly List<PlaylistTrackViewModel> _loadedItems = new();
     private readonly Dictionary<int, PageInfo> _pages = new();
+    // Populated in LoadPageAsync/LoadMoreItemsAsync, read by DispatchToViewModel. Regressed to
+    // permanently empty in commit 5b116eb (virtualization rewrite) — every live-update event
+    // (analysis complete, metadata changed, state/progress changed) silently no-op'd for every
+    // track in the grid ever since, even though the publish/subscribe wiring around it was correct.
     private readonly Dictionary<string, PlaylistTrackViewModel> _viewModelCache = new();
     private readonly HashSet<int> _pendingPages = new();
     private readonly CompositeDisposable _disposables = new();
@@ -252,7 +256,17 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             
             var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending);
             var viewModels = tracks.Select(t => new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
-            
+            foreach (var vm in viewModels) _viewModelCache[vm.GlobalId] = vm;
+
+            // A stale/mismatched _count (e.g. a count query and its paired data query
+            // disagreeing on how many rows match the active filter) can make this legitimately
+            // come back empty even though a page was requested. Nothing was loaded, so there's
+            // nothing to notify — critically, do NOT fall through to a Replace notification with
+            // zero old/new items below: Avalonia's ItemsRepeater throws NotSupportedException for
+            // that ("Replace ... OldItemsCount value of 0 ... Use Insert instead"), which is
+            // unhandled on the dispatcher thread and takes down the whole app.
+            if (viewModels.Count == 0) return;
+
             // Ensure _loadedItems has enough capacity
             while (_loadedItems.Count < startIndex + viewModels.Count)
             {
@@ -298,6 +312,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         {
             var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending);
             var viewModels = tracks.Select(t => new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
+            foreach (var vm in viewModels) _viewModelCache[vm.GlobalId] = vm;
 
             _loadedItems.AddRange(viewModels);
 

@@ -275,9 +275,14 @@ public class TrackRepository : ITrackRepository
         }
         if (!string.IsNullOrEmpty(filter))
         {
+            // Album was missing here — a playlist-scoped search only ever matched Artist/Title/
+            // MusicalKey, so a track findable by its album name in the FTS-backed "All Tracks"
+            // view (which does index Album) would silently not show up when searching inside a
+            // specific playlist. Matches Album in now for parity between the two search paths.
             var lowerFilter = filter.ToLower();
             query = query.Where(t => t.Artist.ToLower().Contains(lowerFilter) ||
                                      t.Title.ToLower().Contains(lowerFilter) ||
+                                     t.Album.ToLower().Contains(lowerFilter) ||
                                      (t.MusicalKey != null && t.MusicalKey.ToLower().Contains(lowerFilter)));
         }
         if (!string.IsNullOrEmpty(camelotKeyFilter))
@@ -891,9 +896,9 @@ public class TrackRepository : ITrackRepository
         var hashSet = hashFilter?.Where(h => !string.IsNullOrWhiteSpace(h)).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         IQueryable<LibraryEntryEntity> baseQuery;
-        if (!string.IsNullOrEmpty(filter))
+        var formattedSearch = BuildFtsMatchExpression(filter);
+        if (formattedSearch != null)
         {
-            var formattedSearch = filter.Trim() + "*";
             baseQuery = context.LibraryEntries.FromSqlRaw(
                 "SELECT * FROM LibraryEntries WHERE rowid IN (SELECT rowid FROM LibraryEntriesFts WHERE LibraryEntriesFts MATCH {0})", formattedSearch);
         }
@@ -902,8 +907,13 @@ public class TrackRepository : ITrackRepository
             baseQuery = context.LibraryEntries.AsQueryable();
         }
 
-        if (downloadedOnly == true)
-            baseQuery = baseQuery.Where(t => t.FilePath != null && t.FilePath != "");
+        if (downloadedOnly.HasValue)
+        {
+            if (downloadedOnly.Value)
+                baseQuery = baseQuery.Where(t => t.FilePath != null && t.FilePath != "");
+            else
+                baseQuery = baseQuery.Where(t => string.IsNullOrEmpty(t.FilePath));
+        }
 
         if (hashSet is { Count: > 0 })
             baseQuery = baseQuery.Where(t => hashSet.Contains(t.UniqueHash));
@@ -925,9 +935,9 @@ public class TrackRepository : ITrackRepository
         IQueryable<LibraryEntryEntity> query;
 
         // 2. Apply Filters (Use FTS5 if filter is present)
-        if (!string.IsNullOrEmpty(filter))
+        var formattedSearch = BuildFtsMatchExpression(filter);
+        if (formattedSearch != null)
         {
-            var formattedSearch = filter.Trim() + "*";
             query = context.LibraryEntries
                 .FromSqlRaw("SELECT * FROM LibraryEntries WHERE rowid IN (SELECT rowid FROM LibraryEntriesFts WHERE LibraryEntriesFts MATCH {0})", formattedSearch);
         }
@@ -972,6 +982,7 @@ public class TrackRepository : ITrackRepository
                 e.Title,
                 e.Album,
                 e.FilePath,
+                e.AvailabilityState,
                 e.Bitrate,
                 e.DurationSeconds,
                 e.Format,
@@ -1025,6 +1036,7 @@ public class TrackRepository : ITrackRepository
             Album = e.Album,
             TrackUniqueHash = e.UniqueHash,
             Status = string.IsNullOrEmpty(e.FilePath) ? TrackStatus.Missing : TrackStatus.Downloaded,
+            AvailabilityState = e.AvailabilityState,
             ResolvedFilePath = e.FilePath,
             SpotifyTrackId = e.SpotifyTrackId,
             AlbumArtUrl = e.AlbumArtUrl,
@@ -1068,14 +1080,53 @@ public class TrackRepository : ITrackRepository
     public async Task<List<LibraryEntryEntity>> SearchLibraryFtsAsync(string searchTerm, int limit = 100)
     {
         using var context = new AppDbContext();
-        var formattedSearch = searchTerm.Trim() + "*";
-        
+        var formattedSearch = BuildFtsMatchExpression(searchTerm);
+        if (formattedSearch == null)
+            return new List<LibraryEntryEntity>();
+
         return await context.LibraryEntries
             .FromSqlRaw("SELECT * FROM LibraryEntries WHERE rowid IN (SELECT rowid FROM LibraryEntriesFts WHERE LibraryEntriesFts MATCH {0})", formattedSearch)
             .Include(le => le.AudioFeatures)
             .AsNoTracking()
             .Take(limit)
             .ToListAsync();
+    }
+
+    /// <summary>
+    /// Builds a safe FTS5 MATCH expression from raw user search input. Returns null when there's
+    /// nothing to search on (caller should skip the FTS query entirely and return unfiltered).
+    ///
+    /// Two real bugs this fixes (both were live in the "All Tracks" search path, previously just
+    /// <c>filter.Trim() + "*"</c>):
+    ///   1. Appending "*" to the whole trimmed string, not per word — FTS5 treats space-separated
+    ///      barewords as implicitly ANDed terms, so a multi-word query like "daft punk" became
+    ///      `daft punk*`: only the last word got prefix matching, the rest had to match a complete
+    ///      token exactly. A user who hadn't finished typing an earlier word (or wanted a genuine
+    ///      substring match) got zero/incomplete results.
+    ///   2. No escaping — FTS5 query syntax gives special meaning to `"`, `(`, `)`, `:`, `-`, `*`,
+    ///      and the barewords AND/OR/NOT. Track/artist/album text containing any of those (hyphens
+    ///      in "Artist - Title", parenthetical "(Radio Edit)", colons, quotes) could produce an
+    ///      invalid MATCH expression — and that SQLite exception was being silently swallowed by
+    ///      LibraryService's try/catch around these calls, surfacing as a search that just returns
+    ///      nothing with no visible error.
+    ///
+    /// Fix: split on whitespace, wrap each token in double quotes (escaping embedded quotes by
+    /// doubling them, standard FTS5/SQL convention) so it's treated as a literal phrase rather than
+    /// parsed syntax, then append "*" after the closing quote — FTS5 supports prefix-matching the
+    /// final token of a quoted phrase. Space-joining the quoted-prefix tokens keeps the implicit
+    /// AND-of-terms behavior, now applied consistently to every term instead of just the last one.
+    /// </summary>
+    private static string? BuildFtsMatchExpression(string? rawFilter)
+    {
+        if (string.IsNullOrWhiteSpace(rawFilter))
+            return null;
+
+        var tokens = rawFilter.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (tokens.Length == 0)
+            return null;
+
+        var quotedTokens = tokens.Select(t => "\"" + t.Replace("\"", "\"\"") + "\"*");
+        return string.Join(" ", quotedTokens);
     }
 
     public async Task UpdateAllInstancesMetadataAsync(string trackHash, TrackEnrichmentResult result)

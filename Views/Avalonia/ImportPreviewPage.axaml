@@ -27,9 +27,24 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="BorderBrush" Value="#0078D4"/>
         </Style>
+        <Style Selector="ToggleButton.dest-toggle">
+            <Setter Property="Background" Value="#2D2D2D"/>
+            <Setter Property="Foreground" Value="#CCCCCC"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="ToggleButton.dest-toggle:checked">
+            <Setter Property="Background" Value="#0078D4"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
         
         <!-- Header -->
         <Border Grid.Row="0" Background="#252526" Padding="24,20" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
@@ -48,136 +63,132 @@
 
 
 
-        <!-- Deduplication Alert Banner -->
-        <Border Grid.Row="1" Background="#663300" BorderBrush="#FF8C00" BorderThickness="0,0,0,1" Padding="16,12" IsVisible="{Binding IsDuplicate}">
-            <Grid ColumnDefinitions="*,Auto">
-                <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                    <TextBlock Text="⚠️" FontSize="20" VerticalAlignment="Center"/>
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="Existing Playlist Found" FontWeight="Bold" Foreground="#FFD580"/>
-                        <TextBlock Foreground="#FFD580" FontSize="12"
-                                   Text="{Binding ExistingTrackCount, StringFormat='We found an existing playlist with {0} tracks. Do you want to merge new tracks into it?'}"/>
-                    </StackPanel>
+        <!-- Destination: where these tracks go. The one place this is decided; nothing here
+             commits — committing only ever happens via the single footer button below. -->
+        <Border Grid.Row="1" Background="#1F2A33" BorderBrush="#355066" BorderThickness="0,0,0,1" Padding="16,14" IsVisible="{Binding HasMergeTargets}">
+            <StackPanel Spacing="10">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="📍" FontSize="13" VerticalAlignment="Center"/>
+                    <TextBlock Text="DESTINATION" FontSize="11" FontWeight="Bold" Foreground="#9FC8E6" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding ExistingTrackCount, StringFormat='— an existing playlist with {0} tracks looks like a match'}"
+                               FontSize="11" Foreground="#7C97AC" VerticalAlignment="Center" IsVisible="{Binding IsDuplicate}"/>
                 </StackPanel>
-                
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                    <Button Command="{Binding SelectMergeCandidatesCommand}" Background="#1AFFFFFF" Foreground="White" Padding="12,6" CornerRadius="4">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="✨" FontSize="14"/>
-                            <TextBlock Text="Select Merge Candidates" FontSize="12"/>
-                        </StackPanel>
-                    </Button>
-                    <Border Width="1" Height="16" Background="#444" Margin="4,0"/>
-                    <Button Command="{Binding CreateNewCommand}" Background="#424242" Foreground="White" Padding="12,6" CornerRadius="4">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="📄" FontSize="14"/> <!-- Clone Icon -->
-                            <TextBlock Text="Create New Clone" FontSize="12"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Command="{Binding MergeCommand}" Background="#FF8C00" Foreground="Black" Padding="12,6" CornerRadius="4">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="🔗" FontSize="14"/> <!-- Link/Merge Icon -->
-                            <TextBlock Text="Merge to Existing" FontSize="12" FontWeight="SemiBold"/>
-                        </StackPanel>
-                    </Button>
+
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ToggleButton Classes="dest-toggle"
+                                  Content="➕ New Playlist"
+                                  IsChecked="{Binding !IsMergeMode, Mode=TwoWay}"
+                                  ToolTip.Tip="Import these tracks as a separate, brand-new playlist"/>
+                    <ToggleButton Classes="dest-toggle"
+                                  Content="🔗 Merge into Existing"
+                                  IsChecked="{Binding IsMergeMode, Mode=TwoWay}"
+                                  ToolTip.Tip="Add these tracks into an existing playlist instead of creating a new one"/>
                 </StackPanel>
-            </Grid>
+
+                <StackPanel Spacing="6" IsVisible="{Binding IsMergeMode}">
+                    <Grid ColumnDefinitions="Auto,*">
+                        <TextBlock Text="Playlist" Foreground="#9FC8E6" VerticalAlignment="Center" FontSize="12" Margin="0,0,10,0"/>
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{Binding MergeTargets}"
+                                  SelectedItem="{Binding SelectedMergeTarget, Mode=TwoWay}"
+                                  IsEnabled="{Binding !IsMergeTargetLoading}"
+                                  MinWidth="360"
+                                  Background="#172028"
+                                  BorderBrush="#355066"
+                                  BorderThickness="1"
+                                  Foreground="White"
+                                  Padding="8,4"
+                                  ToolTip.Tip="Pick a different playlist to merge into, if this isn't the right one">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding Subtitle}" Foreground="#90A4B5" FontSize="11"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </Grid>
+                    <TextBlock Text="New and previously-failed tracks will be added; tracks already downloaded here will be skipped."
+                               Foreground="#7C97AC" FontSize="11" TextWrapping="Wrap"/>
+                </StackPanel>
+            </StackPanel>
         </Border>
 
-        <!-- Toolbar -->
-        <Border Grid.Row="2" Background="#1F2A33" BorderBrush="#355066" BorderThickness="0,0,0,1" Padding="16,10" IsVisible="{Binding HasMergeTargets}">
-            <Grid ColumnDefinitions="Auto,*,Auto">
-                <TextBlock Text="Target Playlist" Foreground="#9FC8E6" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
-
-                <ComboBox Grid.Column="1"
-                          ItemsSource="{Binding MergeTargets}"
-                          SelectedItem="{Binding SelectedMergeTarget, Mode=TwoWay}"
-                          MinWidth="360"
-                          Background="#172028"
-                          BorderBrush="#355066"
-                          BorderThickness="1"
-                          Foreground="White"
-                          Padding="8,4">
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel>
-                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
-                                <TextBlock Text="{Binding Subtitle}" Foreground="#90A4B5" FontSize="11"/>
+        <Border Grid.Row="2" Background="#1E1E1E" Padding="24,16" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
+            <StackPanel Spacing="8">
+                <TextBlock Text="WHICH TRACKS" FontSize="10" FontWeight="Bold" Foreground="#666"/>
+                <Grid ColumnDefinitions="*,Auto">
+                    <!-- Left: Selection Actions -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                        <Button Command="{Binding SelectAllCommand}"
+                                Background="#0078D4"
+                                Foreground="White"
+                                Padding="12,8"
+                                CornerRadius="6"
+                                ToolTip.Tip="Check every track in the list below">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="☑" FontSize="14"/>
+                                <TextBlock Text="Select All" FontSize="13"/>
                             </StackPanel>
-                        </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
+                        </Button>
 
-                <Button Grid.Column="2"
-                        Command="{Binding UseSelectedMergeTargetCommand}"
-                        Background="#2C6E49"
-                        Foreground="White"
-                        Padding="12,6"
-                        CornerRadius="4"
-                        IsEnabled="{Binding !IsMergeTargetLoading}">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock Text="🔗" FontSize="12"/>
-                        <TextBlock Text="Use As Merge Target" FontSize="12"/>
+                        <Button Command="{Binding DeselectAllCommand}"
+                                Background="#424242"
+                                Foreground="White"
+                                Padding="12,8"
+                                CornerRadius="6"
+                                ToolTip.Tip="Uncheck every track in the list below">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="☐" FontSize="14"/>
+                                <TextBlock Text="Deselect All" FontSize="13"/>
+                            </StackPanel>
+                        </Button>
+
+                        <Button Command="{Binding SelectMissingCommand}"
+                                Background="#2D2D2D"
+                                Foreground="White"
+                                Padding="12,8"
+                                CornerRadius="6"
+                                ToolTip.Tip="Check only tracks that aren't already anywhere in your library">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="✨" FontSize="14"/>
+                                <TextBlock Text="Select Missing" FontSize="13"/>
+                            </StackPanel>
+                        </Button>
+
+                        <Button Command="{Binding SelectMergeCandidatesCommand}"
+                                IsVisible="{Binding IsMergeMode}"
+                                Background="#2D2D2D"
+                                Foreground="White"
+                                Padding="12,8"
+                                CornerRadius="6"
+                                ToolTip.Tip="Re-check new tracks and previously-failed downloads for the selected playlist; uncheck tracks already downloaded there">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="🔗" FontSize="14"/>
+                                <TextBlock Text="Select Merge Candidates" FontSize="13"/>
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
-                </Button>
-            </Grid>
-        </Border>
 
-        <Border Grid.Row="3" Background="#1E1E1E" Padding="24,16" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="*,Auto">
-                <!-- Left: Selection Actions -->
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
-                    <Button Command="{Binding SelectAllCommand}"
-                            Background="#0078D4"
-                            Foreground="White"
-                            Padding="12,8"
-                            CornerRadius="6">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="☑" FontSize="14"/>
-                            <TextBlock Text="Select All" FontSize="13"/>
-                        </StackPanel>
-                    </Button>
-                    
-                    <Button Command="{Binding DeselectAllCommand}"
-                            Background="#424242"
-                            Foreground="White"
-                            Padding="12,8"
-                            CornerRadius="6">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="☐" FontSize="14"/>
-                            <TextBlock Text="Deselect All" FontSize="13"/>
-                        </StackPanel>
-                    </Button>
-
-                    <Button Command="{Binding SelectMissingCommand}"
-                            Background="#2D2D2D"
-                            Foreground="White"
-                            Padding="12,8"
-                            CornerRadius="6">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="✨" FontSize="14"/>
-                            <TextBlock Text="Select Missing" FontSize="13"/>
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
-                
-                <!-- Right: Status -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
-                    <Border Background="#1A4CAF50" 
-                            CornerRadius="12" 
-                            Padding="10,6"
-                            IsVisible="{Binding !!SelectedCount}">
-                        <TextBlock Text="{Binding SelectedCount, StringFormat='{}{0} selected'}" 
-                                   FontSize="12" 
-                                   Foreground="White"
-                                   FontWeight="SemiBold"/>
-                    </Border>
-                </StackPanel>
-            </Grid>
+                    <!-- Right: Status -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                        <Border Background="#1A4CAF50"
+                                CornerRadius="12"
+                                Padding="10,6"
+                                IsVisible="{Binding !!SelectedCount}">
+                            <TextBlock Text="{Binding SelectedCount, StringFormat='{}{0} selected'}"
+                                       FontSize="12"
+                                       Foreground="White"
+                                       FontWeight="SemiBold"/>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
         </Border>
 
         <!-- Track List -->
-        <Grid Grid.Row="4" RowDefinitions="Auto,*">
+        <Grid Grid.Row="3" RowDefinitions="Auto,*">
             <!-- Column Header -->
             <controls:VirtualGridHeader Grid.Row="0" Margin="16,0,16,4">
                 <controls:VirtualGridHeader.HeaderContent>
@@ -254,7 +265,7 @@
         </Grid>
 
         <!-- Footer Actions -->
-        <Border Grid.Row="5" 
+        <Border Grid.Row="4"
                 Background="#252526" 
                 BorderBrush="#3E3E3E" 
                 BorderThickness="0,1,0,0" 
@@ -292,8 +303,9 @@
                             Padding="20,10"
                             CornerRadius="6">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="📚" FontSize="14"/>
-                            <TextBlock Text="Add to Library" FontSize="13" FontWeight="SemiBold"/>
+                            <TextBlock Text="🔗" FontSize="14" IsVisible="{Binding IsMergeMode}"/>
+                            <TextBlock Text="📚" FontSize="14" IsVisible="{Binding !IsMergeMode}"/>
+                            <TextBlock Text="{Binding CommitButtonLabel}" FontSize="13" FontWeight="SemiBold"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>

@@ -26,6 +26,8 @@ public partial class LibraryViewModel
                 .ToList();
             foreach (var t in toRemove)
                 Tracks.CurrentProjectTracks.Remove(t);
+
+            _ = Intelligence.RefreshOverviewStatsAsync();
         });
     }
 
@@ -101,6 +103,7 @@ public partial class LibraryViewModel
 
         _ = Intelligence.RefreshSuggestNextCandidatesAsync();
         _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
+        _ = Intelligence.RefreshOverviewStatsAsync();
     }
 
     private async Task TryAttachInspectorPairwiseContextAsync(PlaylistTrackViewModel selected)
@@ -188,26 +191,36 @@ public partial class LibraryViewModel
         SetSmartPlaylistContextMode(false);
         RaiseLibraryIntelligenceContextStateChanged();
 
-        if (project == null || project.Id == Guid.Empty)
+        if (project == null)
         {
             Intelligence.ResetSmartInsertPairContext();
             _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
+            _ = Intelligence.RefreshOverviewStatsAsync();
             ReactiveUI.MessageBus.Current.SendMessage(new CloseInspectorEvent());
             return;
         }
 
-        if (project != null)
-        {
-            _logger.LogInformation("LibraryViewModel.OnProjectSelected: Switching to project {Title} (ID: {Id})", project.SourceTitle, project.Id);
-            await Tracks.LoadProjectTracksAsync(project);
-            await RefreshSavedDoublesAsync();
-            _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
+        // Note: the "All Tracks" pseudo-project (ProjectListViewModel._allTracksJob) also uses
+        // Guid.Empty as its Id, so it must NOT be treated as "nothing selected" here — it needs
+        // the same load below as any real project. A prior pass added the null-check above and
+        // mistakenly folded project.Id == Guid.Empty into it, which made LoadProjectTracksAsync
+        // never run for "All Tracks": the grid stayed on whatever the previous project loaded
+        // (or empty) until an unrelated event — typing in the search box — triggered the first
+        // real load, which read as "search is broken and incomplete."
+        _logger.LogInformation("LibraryViewModel.OnProjectSelected: Switching to project {Title} (ID: {Id})", project.SourceTitle, project.Id);
+        await Tracks.LoadProjectTracksAsync(project);
+        await RefreshSavedDoublesAsync();
+        _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
+        _ = Intelligence.RefreshOverviewStatsAsync();
 
-            if (Tracks.SelectedTracks.Count == 0)
-            {
-                ReactiveUI.MessageBus.Current.SendMessage(
-                    OpenInspectorEvent.Create(Intelligence, "Library.ProjectSelection.EmptyIntelligence"));
-            }
+        if (Tracks.SelectedTracks.Count == 0)
+        {
+            // Land on the Overview tab (general playlist stats), not whichever tool tab (Smart
+            // Insert etc.) happened to be selected last — the panel auto-opens here, and a tool
+            // that needs an explicit source/target track pick isn't a useful first thing to show.
+            Intelligence.FocusLibraryIntelligenceTab(PlaylistIntelligenceViewModel.IntelligenceTabOverview);
+            ReactiveUI.MessageBus.Current.SendMessage(
+                OpenInspectorEvent.Create(Intelligence, "Library.ProjectSelection.EmptyIntelligence"));
         }
     }
 

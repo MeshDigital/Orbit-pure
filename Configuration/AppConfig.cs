@@ -39,9 +39,25 @@ public class AppConfig
     public int ElevatedSearchExtraDelayMs { get; set; } = 75;
     public int CriticalSearchExtraDelayMs { get; set; } = 200;
     public int SearchTokenBucketCapacity { get; set; } = 1;
-    public int SearchTokenBucketRefillMs { get; set; } = 3500;
-    public int ElevatedSearchTokenBucketRefillMs { get; set; } = 4000;
-    public int CriticalSearchTokenBucketRefillMs { get; set; } = 5000;
+    // Sustained rate = 1 search per refill interval (capacity=1, no bursting).
+    // Was 3500/4000/5000ms (~68/4min at baseline) — well above Soulseek's observed
+    // ~25-30 searches per 4-minute-window ban threshold. Widened to keep the sustained
+    // rate inside that safe band even under Normal pressure, escalating further as
+    // pressure rises.
+    public int SearchTokenBucketRefillMs { get; set; } = 9000;
+    public int ElevatedSearchTokenBucketRefillMs { get; set; } = 10000;
+    public int CriticalSearchTokenBucketRefillMs { get; set; } = 12000;
+    // Outgoing private/room chat messages had no rate limiting at all (unlike search above),
+    // despite Soulseek's own ban notice explicitly naming "flood chat rooms or private chat with
+    // many messages" as a ban trigger. Capacity allows a small natural burst (e.g. the gate-bot
+    // auto-responder replying to several already-queued peers back-to-back); refill caps the
+    // sustained rate to roughly 1 message/second, well under anything a real conversation needs.
+    public int MessageTokenBucketCapacity { get; set; } = 5;
+    public int MessageTokenBucketRefillMs { get; set; } = 900;
+    // Live feed of every outbound network call (Soulseek + HTTP + raw sockets/DNS), surfaced in
+    // Settings → Advanced → Network Activity. Local-only, default on since it's the tool used to
+    // diagnose ban-causing traffic patterns; overhead is connection/request-level only.
+    public bool EnableNetworkActivityMonitor { get; set; } = true;
     public int SearchResponseLimit { get; set; } = 200; // was 100 — at Critical (65%) this gives ~130, enough for meaningful ranking
     public int SearchFileLimit { get; set; } = 200; // was 100
     public int SearchHardResultCap { get; set; } = 10000; // Absolute per-search circuit breaker for accepted candidates
@@ -51,6 +67,11 @@ public class AppConfig
     public int MinLosslessSearchDurationSeconds { get; set; } = 10; // was 20 — accumulator short-circuit handles fast exits; 10s is the fallback for scarce tracks
     public bool EnableSpeculativeEarlyAccept { get; set; } = true; // Accept silver match after minSearchDuration window; avoids waiting full buffer for good-enough results
     public bool EnableAutoAcquireOnImport { get; set; } = false; // Auto-acquire imported Spotify Ghost tracks
+    // GhostAcquisitionOrchestrator's background sweep only starts when DownloadManager.IsQueueIdle
+    // (nothing pending/searching/downloading) — avoids competing with the user's own active
+    // searches for search bandwidth. Default on since idle-gating is strictly safer than the old
+    // always-on behavior; this is a safety valve to restore the old behavior if needed.
+    public bool EnableIdleGhostAcquisition { get; set; } = true;
     public bool EnableGoldenEarlyExit { get; set; } = true; // Golden FLAC hit (score≥85, >700kbps, queue=0) cancels the lane immediately
     public bool EnableFastLaneEarlyExit { get; set; } = true; // Idle peer winner cancels the lane immediately; avoids waiting for the rest of the stream
     public bool EnableQuickStrikeEarlyExit { get; set; } = true; // Score>95 exits the tier immediately without waiting for full buffer

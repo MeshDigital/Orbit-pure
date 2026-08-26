@@ -160,8 +160,23 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     public int ActiveWorkerSlots => _maxActiveDownloads - _downloadSemaphore.CurrentCount;
     public int TotalWorkerSlots => _maxActiveDownloads;
     public bool SoulseekConnected => _soulseek.IsLoggedIn;
+
+    /// <summary>
+    /// True when the queue has nothing in it at all — not pending, searching, or downloading.
+    /// <see cref="_downloads"/> already represents the full pipeline (see the Pending-state check
+    /// in <c>QueueTracks</c>), so an empty list is a genuine "nothing going on" signal, not just
+    /// "no active transfers." Used to gate background work (e.g. <c>GhostAcquisitionOrchestrator</c>)
+    /// so it doesn't compete with the user's own in-progress searches/downloads for search bandwidth.
+    /// </summary>
+    public bool IsQueueIdle { get { lock (_collectionLock) { return _downloads.Count == 0; } } }
     public bool IsBackingOff => CurrentBackoffSeconds > 0;
     public int CurrentBackoffSeconds { get; private set; }
+
+    // Lets the circuit breaker's backoff wait wake up the instant Windows reports the network
+    // came back (e.g. Wi-Fi reconnected), instead of always sitting out the current exponential
+    // backoff step (up to 60s) even though the underlying cause already cleared. Released only on
+    // IsAvailable transitions to true — see OnNetworkAvailabilityChanged.
+    private readonly SemaphoreSlim _networkAvailabilitySignal = new(0);
 
     public DownloadManager(
         ILogger<DownloadManager> logger,
@@ -201,6 +216,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         _networkHealth = networkHealth;
         _auditLogger = auditLogger;
 
+        System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
 
         // CONCURRENCY CONTROL ARCHITECTURE:
         // WHY: SemaphoreSlim instead of Task.WhenAll() or Parallel.ForEach():
@@ -844,7 +860,34 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     /// <summary>
     /// Internal method to queue a list of individual tracks for processing (e.g. from an existing project or ad-hoc).
     /// </summary>
+    /// <summary>
+    /// Queues tracks for download. Runs on a background thread — the per-track work below (hash
+    /// lookups, event-bus fan-out, per-track DB sync) is O(N) real work, and for a "Download
+    /// Missing"/"Download Album" batch of hundreds of tracks that used to run synchronously on
+    /// whatever thread called this. Most callers are UI commands, so a big batch froze the app —
+    /// including the just-opened context menu, which can't repaint/dismiss while the UI thread is
+    /// blocked, making it look stuck open over other windows until the batch finished.
+    /// <see cref="_downloads"/> is a plain List guarded by <see cref="_collectionLock"/>, safe to
+    /// mutate from a background thread.
+    /// </summary>
     public void QueueTracks(List<PlaylistTrack> tracks)
+    {
+        _ = Task.Run(() => QueueTracksCore(tracks));
+    }
+
+    /// <summary>
+    /// Same as <see cref="QueueTracks"/>, awaitable for the rare caller that needs the freshly-
+    /// created DownloadContext to exist before it continues (e.g. GhostAcquisitionOrchestrator
+    /// immediately looks its own just-queued track back up in ActiveDownloads to attach an
+    /// OverrideCandidate) — background-service callers can safely await this without risking a UI
+    /// freeze, since they're not on the UI thread to begin with.
+    /// </summary>
+    public Task QueueTracksAsync(List<PlaylistTrack> tracks)
+    {
+        return Task.Run(() => QueueTracksCore(tracks));
+    }
+
+    private void QueueTracksCore(List<PlaylistTrack> tracks)
     {
         _logger.LogInformation("Queueing project tracks with {Count} tracks", tracks.Count);
         
@@ -863,6 +906,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             .GroupBy(d => d.Model.Id)
             .ToDictionary(g => g.Key, g => g.First());
 
+        // Published after the lock is released below — publishing per-track while holding
+        // _collectionLock ran arbitrary subscriber code (event-bus fan-out) with the lock held,
+        // for every track in the batch.
+        var newlyQueued = new List<(DownloadContext Ctx, PlaylistTrack Track)>();
+
         lock (_collectionLock)
         {
 
@@ -880,15 +928,48 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 }
 
                 DownloadContext? existingCtx = null;
-                
-                if (existingIds.TryGetValue(track.Id, out var byId)) existingCtx = byId;
-                else if (existingMap.TryGetValue(track.TrackUniqueHash, out var byHash)) existingCtx = byHash;
+                var existingCtxIsCrossPlaylistHashMatch = false;
+
+                if (existingIds.TryGetValue(track.Id, out var byId))
+                {
+                    existingCtx = byId;
+                }
+                else if (existingMap.TryGetValue(track.TrackUniqueHash, out var byHash))
+                {
+                    existingCtx = byHash;
+                    // This row belongs to a DIFFERENT PlaylistTrack (found by hash, not by Id) — almost
+                    // always a different playlist's copy of the same song.
+                    existingCtxIsCrossPlaylistHashMatch = byHash.Model.Id != track.Id;
+                }
+
+                // A cross-playlist hash match sitting in a FAILURE state (Failed/Cancelled/Deferred/
+                // Pending) must NOT be "retried" here — that reused/bumped the OTHER playlist's own
+                // context, so e.g. clicking "Download Missing" on playlist A would silently revive and
+                // show a "Syncing" indicator on an unrelated playlist B just because they share a
+                // track. Deliberately narrower than "!IsActive": a Completed cross-playlist match must
+                // stay handled by the normal skip path below, not be nulled out here — an earlier
+                // version of this guard used the broader "!IsActive" check, which also matched
+                // Completed, so every re-queue of an already-finished track (e.g. the synthetic
+                // PlaylistId=Guid.Empty rows the "All Tracks" view feeds through this same path)
+                // spawned a brand-new DownloadContext that instantly short-circuit-completed again —
+                // firing a fresh duplicate notification and a phantom DB row every single time.
+                var existingCtxIsStaleCrossPlaylistFailure = existingCtxIsCrossPlaylistHashMatch
+                    && existingCtx != null
+                    && existingCtx.State is PlaylistTrackState.Failed
+                        or PlaylistTrackState.Cancelled
+                        or PlaylistTrackState.Deferred
+                        or PlaylistTrackState.Pending;
+
+                if (existingCtxIsStaleCrossPlaylistFailure)
+                {
+                    existingCtx = null;
+                }
 
                 if (existingCtx != null)
                 {
                     // Fix: Smart Retry if in a terminal/failure state
-                    if (existingCtx.State == PlaylistTrackState.Failed || 
-                        existingCtx.State == PlaylistTrackState.Cancelled || 
+                    if (existingCtx.State == PlaylistTrackState.Failed ||
+                        existingCtx.State == PlaylistTrackState.Cancelled ||
                         existingCtx.State == PlaylistTrackState.Deferred ||
                         existingCtx.State == PlaylistTrackState.Pending)
                     {
@@ -923,17 +1004,22 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                 var ctx = new DownloadContext(track);
                 _downloads.Add(ctx);
-                
+
                 existingMap[track.TrackUniqueHash] = ctx;
                 existingIds[track.Id] = ctx;
-                
+
                 queued++;
-                
-                _eventBus.Publish(new TrackAddedEvent(track, PlaylistTrackState.Pending));
-                _ = SyncDbAsync(ctx);
+
+                newlyQueued.Add((ctx, track));
             }
         }
-        
+
+        foreach (var (ctx, track) in newlyQueued)
+        {
+            _eventBus.Publish(new TrackAddedEvent(track, PlaylistTrackState.Pending));
+            _ = SyncDbAsync(ctx);
+        }
+
         if (skipped > 0)
         {
             _logger.LogInformation("Queued {Queued} new tracks, skipped {Skipped} already queued tracks", queued, skipped);
@@ -2250,6 +2336,22 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// Windows-level network availability changed (e.g. Wi-Fi reconnected). Only wakes the circuit
+    /// breaker's backoff wait on a transition TO available — an unavailable transition doesn't need
+    /// to do anything since the breaker is already backing off in that case.
+    /// </summary>
+    private void OnNetworkAvailabilityChanged(object? sender, System.Net.NetworkInformation.NetworkAvailabilityEventArgs e)
+    {
+        if (!e.IsAvailable) return;
+
+        _logger.LogInformation("🌐 Windows reports network availability restored — waking circuit breaker early.");
+        if (_networkAvailabilitySignal.CurrentCount == 0)
+        {
+            _networkAvailabilitySignal.Release();
+        }
+    }
+
     private async Task ProcessQueueLoop(CancellationToken token)
     {
         int disconnectBackoff = 0;
@@ -2267,11 +2369,19 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 // Phase 0.9: Circuit Breaker
                 if (!_soulseek.IsLoggedIn)
                 {
+                    // Distinguishes "Windows/Wi-Fi has no route at all" from "the OS network is
+                    // fine but Soulseek's own login/protocol failed" — these need different
+                    // messaging (and, via the wait below, different urgency) rather than always
+                    // implying a Soulseek-specific fault.
+                    bool osNetworkAvailable = System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable();
+
                     if (disconnectBackoff == 0)
                     {
-                        _logger.LogWarning("🔌 Circuit Breaker: Queue processing PAUSED due to disconnection.");
-                        _eventBus.Publish(new GlobalStatusEvent("Disconnected: Waiting for Soulseek...", true, true));
-                        
+                        _logger.LogWarning("🔌 Circuit Breaker: Queue processing PAUSED due to disconnection. OS network available={OsNetworkAvailable}", osNetworkAvailable);
+                        _eventBus.Publish(new GlobalStatusEvent(
+                            osNetworkAvailable ? "Disconnected: Waiting for Soulseek..." : "No network connection — waiting for Wi-Fi/network...",
+                            true, true));
+
                         // Transition active downloads and in-flight searches to waiting state
                         lock (_collectionLock)
                         {
@@ -2284,21 +2394,42 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                             }
                         }
                     }
-                    
+
                     // Exponential Backoff: 2, 4, 8, 16... max 60s
-                    int delaySeconds = Math.Min(60, (int)Math.Pow(2, Math.Min(6, disconnectBackoff + 1))); 
+                    int delaySeconds = Math.Min(60, (int)Math.Pow(2, Math.Min(6, disconnectBackoff + 1)));
                     disconnectBackoff++;
                     CurrentBackoffSeconds = delaySeconds;
                     OnPropertyChanged(nameof(CurrentBackoffSeconds));
                     OnPropertyChanged(nameof(IsBackingOff));
-                    
+
                     if (disconnectBackoff % 5 == 0) // Log occasionally
                     {
                         _logger.LogInformation("Circuit Breaker: Waiting for connection... (Next check in {Seconds}s)", delaySeconds);
-                        _eventBus.Publish(new GlobalStatusEvent($"Disconnected: Retrying in {delaySeconds}s...", true, true));
+                        _eventBus.Publish(new GlobalStatusEvent(
+                            osNetworkAvailable ? $"Disconnected: Retrying in {delaySeconds}s..." : $"No network connection — retrying in {delaySeconds}s...",
+                            true, true));
                     }
 
-                    await Task.Delay(delaySeconds * 1000, token);
+                    // Race the backoff delay against Windows reporting the network came back, so a
+                    // Wi-Fi drop-and-reconnect doesn't sit out up to 60s of a stale backoff window
+                    // after connectivity is already restored.
+                    using (var delayCts = CancellationTokenSource.CreateLinkedTokenSource(token))
+                    {
+                        var delayTask = Task.Delay(delaySeconds * 1000, delayCts.Token);
+                        var networkRestoredTask = _networkAvailabilitySignal.WaitAsync(delayCts.Token);
+                        try
+                        {
+                            var completed = await Task.WhenAny(delayTask, networkRestoredTask);
+                            if (completed == networkRestoredTask)
+                            {
+                                _logger.LogInformation("🌐 Network came back early — re-checking Soulseek connection instead of waiting out the remaining {Seconds}s backoff.", delaySeconds);
+                            }
+                        }
+                        finally
+                        {
+                            delayCts.Cancel();
+                        }
+                    }
                     continue;
                 }
 
@@ -2484,6 +2615,28 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         _ = currentTrackGlobalId;
     }
 
+    /// <summary>
+    /// Advances a track's AvailabilityState past Ghost/QueuedForDownload/Downloading whenever its
+    /// file is confirmed present, mirroring the same fixup <see cref="UpdateStateAsync"/> applies
+    /// on a full download completion. The three "file already exists, skip the actual download"
+    /// fast paths in <see cref="ProcessTrackAsync"/> set Status = Downloaded without going through
+    /// that path, which is what left existing tracks stuck showing "FILE MISSING" in the Inspector
+    /// despite having a real, already-analyzed file on disk (see AvailabilityStateReconciliationService
+    /// for the one-off fix to rows that got stuck before this existed). Returns true if it changed anything.
+    /// </summary>
+    private static bool AdvancePastGhost(PlaylistTrack model)
+    {
+        if (model.AvailabilityState != TrackAvailabilityState.Ghost &&
+            model.AvailabilityState != TrackAvailabilityState.QueuedForDownload &&
+            model.AvailabilityState != TrackAvailabilityState.Downloading)
+        {
+            return false;
+        }
+
+        model.AvailabilityState = TrackAvailabilityState.LocalUnanalyzed;
+        return true;
+    }
+
     private async Task ProcessTrackAsync(DownloadContext ctx, CancellationToken ct)
     {
         ctx.CancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -2502,6 +2655,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     _auditLogger.Log(ctx.GlobalId, $"Track already exists on disk, reusing local file: {ctx.Model.ResolvedFilePath}");
 
                     ctx.Model.Status = TrackStatus.Downloaded;
+                    AdvancePastGhost(ctx.Model);
                     await _libraryService.UpdatePlaylistTrackAsync(ctx.Model);
                     await UpdateStateAsync(ctx, PlaylistTrackState.Completed);
                     return;
@@ -2511,6 +2665,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 if (ctx.Model.Status == TrackStatus.Downloaded && File.Exists(ctx.Model.ResolvedFilePath))
                 {
                     _auditLogger.Log(ctx.GlobalId, "Track already marked downloaded in project, verifying file path.");
+                    if (AdvancePastGhost(ctx.Model))
+                    {
+                        await _libraryService.UpdatePlaylistTrackAsync(ctx.Model);
+                    }
                     await UpdateStateAsync(ctx, PlaylistTrackState.Completed);
                     return;
                 }
@@ -2532,6 +2690,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                         // Reuse existing file instead of downloading
                         ctx.Model.ResolvedFilePath = existingEntry.FilePath;
                         ctx.Model.Status = TrackStatus.Downloaded;
+                        AdvancePastGhost(ctx.Model);
                         await _libraryService.UpdatePlaylistTrackAsync(ctx.Model);
                         await UpdateStateAsync(ctx, PlaylistTrackState.Completed);
                         return;
@@ -4093,10 +4252,12 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         _eventBusSubs.Clear();
         _soulseek.DownloadProgressChanged -= OnDownloadProgressChanged;
         _soulseek.DownloadCompleted -= OnDownloadCompleted;
+        System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
         _globalCts.Cancel();
         _globalCts.Dispose();
         _processingTask?.Wait(1000);
         _downloadSemaphore.Dispose();
+        _networkAvailabilitySignal.Dispose();
     }
 
     private DownloadContext? FindContextByGlobalId(string globalId)
@@ -4131,11 +4292,21 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }
     }
 
-    public async Task HardRetryTrack(string globalId)
+    /// <summary>
+    /// Returns false when <paramref name="globalId"/> isn't currently tracked as an active/recent
+    /// download (typically because it already reached a terminal "completed" state and was
+    /// dropped from the in-memory working set) — this method resets in-memory download context
+    /// state, so there's nothing for it to do for a track outside that set. Callers that need
+    /// "redownload this specific already-completed track" (e.g. bad/truncated content) must
+    /// handle a false return by re-queuing it themselves — see
+    /// TrackOperationsViewModel.ExecuteHardRetry for the single-track equivalent of
+    /// LibraryViewModel.Commands.ExecuteForceRedownloadAsync's reset-and-requeue recipe.
+    /// </summary>
+    public async Task<bool> HardRetryTrack(string globalId)
     {
         var ctx = FindContextByGlobalId(globalId);
 
-        if (ctx == null) return;
+        if (ctx == null) return false;
 
         _logger.LogInformation("🔄 Hard Retry triggered for {Title}", ctx.Model.Title);
 
@@ -4198,8 +4369,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         
         // 5. Force save to DB to ensure 'IsUserPaused=false' and Priority persists
         await _databaseService.UpdatePlaylistTrackUserPausedAsync(ctx.Model.Id, false);
-        // We'll trust the SaveTrackToDb call within UpdateStateAsync to persist the Priority, 
+        // We'll trust the SaveTrackToDb call within UpdateStateAsync to persist the Priority,
         // or explicitly save here if needed.
+
+        return true;
     }
 
 }

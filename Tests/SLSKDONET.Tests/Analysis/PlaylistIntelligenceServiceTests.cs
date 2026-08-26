@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
+using SLSKDONET.Models.Musical;
 using SLSKDONET.Services.AudioAnalysis;
 using SLSKDONET.Services.Playlist;
 using SLSKDONET.Services.Similarity;
@@ -114,6 +115,176 @@ public class PlaylistIntelligenceServiceTests
 
             Assert.Equal(new[] { "low", "mid", "high" }, result.OrderedTrackHashes);
             Assert.Equal(2, result.TransitionRecommendations.Count);
+        }
+        finally
+        {
+            DeleteTempRoot(tempRoot);
+        }
+    }
+
+    [Fact]
+    public async Task ReorderAsync_WithDoubleDropWeight_PrefersTightBpmMatchOverPlainSimilarity()
+    {
+        var tempRoot = CreateTempRoot();
+
+        try
+        {
+            using var store = new TrackFingerprintStore(NullLogger<TrackFingerprintStore>.Instance, tempRoot);
+            var sectionVectors = new SectionVectorService(NullLogger<SectionVectorService>.Instance);
+            var sut = CreateSut(store, sectionVectors);
+
+            // Same key as the anchor for both candidates (harmony ties), but:
+            //  - closeEnergy: nearer GlobalEnergy (wins on plain similarity) with a BPM far from
+            //    the anchor's — bad double-drop match (no clean beat ratio).
+            //  - tightBpm: energy further from the anchor (loses on plain similarity) but BPM
+            //    almost identical to the anchor — a genuine double-drop candidate.
+            var anchor = CreateFingerprint("anchor", "8A", 0.60f);
+            var closeEnergy = CreateFingerprint("closeEnergy", "8A", 0.61f);
+            var tightBpm = CreateFingerprint("tightBpm", "8A", 0.75f);
+
+            await SaveAllAsync(store, anchor, closeEnergy, tightBpm);
+            SeedSections(sectionVectors, "anchor", CreateSections(0.58f, 0.64f));
+            SeedSections(sectionVectors, "closeEnergy", CreateSections(0.59f, 0.65f));
+            SeedSections(sectionVectors, "tightBpm", CreateSections(0.73f, 0.79f));
+
+            var bpmByHash = new Dictionary<string, float>(StringComparer.Ordinal)
+            {
+                ["anchor"] = 128f,
+                ["closeEnergy"] = 175f, // no clean 1:1/2:1/3:2 ratio to 128 — poor beatmatch
+                ["tightBpm"] = 129f,    // 1 BPM off — near-perfect beatmatch
+            };
+
+            var plain = await sut.ReorderAsync(new[] { "anchor", "closeEnergy", "tightBpm" }, anchorTrackHash: "anchor");
+            var doubleDropWeighted = await sut.ReorderAsync(
+                new[] { "anchor", "closeEnergy", "tightBpm" },
+                anchorTrackHash: "anchor",
+                doubleDropWeight: 0.9,
+                bpmByHash: bpmByHash);
+
+            // Baseline (no double-drop weighting): plain similarity picks the closer-energy track next.
+            Assert.Equal("closeEnergy", plain.OrderedTrackHashes[1]);
+
+            // With double-drop weighting dominant, the near-identical-BPM track should win instead —
+            // proving doubleDropWeight/bpmByHash actually changes the walk, not just adds noise.
+            Assert.Equal("tightBpm", doubleDropWeighted.OrderedTrackHashes[1]);
+        }
+        finally
+        {
+            DeleteTempRoot(tempRoot);
+        }
+    }
+
+    [Fact]
+    public async Task ReorderAsync_DoubleDropWeightDefaultsToZero_MatchesPlainReorderExactly()
+    {
+        // Guards Flow Builder's existing behavior: callers that don't pass doubleDropWeight
+        // must get byte-for-byte the same result as before this parameter was added.
+        var tempRoot = CreateTempRoot();
+
+        try
+        {
+            using var store = new TrackFingerprintStore(NullLogger<TrackFingerprintStore>.Instance, tempRoot);
+            var sectionVectors = new SectionVectorService(NullLogger<SectionVectorService>.Instance);
+            var sut = CreateSut(store, sectionVectors);
+
+            var low = CreateFingerprint("low", "8A", 0.20f);
+            var mid = CreateFingerprint("mid", "8A", 0.50f);
+            var high = CreateFingerprint("high", "8A", 0.85f);
+
+            await SaveAllAsync(store, low, mid, high);
+            SeedSections(sectionVectors, "low", CreateSections(0.20f, 0.28f));
+            SeedSections(sectionVectors, "mid", CreateSections(0.50f, 0.56f));
+            SeedSections(sectionVectors, "high", CreateSections(0.84f, 0.90f));
+
+            var withoutParam = await sut.ReorderAsync(new[] { "high", "mid", "low" });
+            var withExplicitZero = await sut.ReorderAsync(new[] { "high", "mid", "low" }, doubleDropWeight: 0.0, bpmByHash: null);
+
+            Assert.Equal(withoutParam.OrderedTrackHashes, withExplicitZero.OrderedTrackHashes);
+            Assert.Equal(withoutParam.AverageTransitionScore, withExplicitZero.AverageTransitionScore);
+        }
+        finally
+        {
+            DeleteTempRoot(tempRoot);
+        }
+    }
+
+    [Fact]
+    public async Task ReorderAsync_WithMetadataByHash_PrefersDifferentArtistOverSameArtistRepeat()
+    {
+        var tempRoot = CreateTempRoot();
+
+        try
+        {
+            using var store = new TrackFingerprintStore(NullLogger<TrackFingerprintStore>.Instance, tempRoot);
+            var sectionVectors = new SectionVectorService(NullLogger<SectionVectorService>.Instance);
+            var sut = CreateSut(store, sectionVectors);
+
+            // Same key as the anchor for both candidates (harmony ties). sameArtist has the
+            // closer GlobalEnergy and wins on plain similarity; otherArtist is a worse plain
+            // match but doesn't repeat the anchor's artist.
+            var anchor = CreateFingerprint("anchor", "8A", 0.60f);
+            var sameArtist = CreateFingerprint("sameArtist", "8A", 0.61f);
+            var otherArtist = CreateFingerprint("otherArtist", "8A", 0.75f);
+
+            await SaveAllAsync(store, anchor, sameArtist, otherArtist);
+            SeedSections(sectionVectors, "anchor", CreateSections(0.58f, 0.64f));
+            SeedSections(sectionVectors, "sameArtist", CreateSections(0.59f, 0.65f));
+            SeedSections(sectionVectors, "otherArtist", CreateSections(0.73f, 0.79f));
+
+            var metadataByHash = new Dictionary<string, ReorderTrackMetadata>(StringComparer.Ordinal)
+            {
+                ["anchor"] = new ReorderTrackMetadata("DJ Anchor", "House"),
+                ["sameArtist"] = new ReorderTrackMetadata("DJ Anchor", "House"),
+                ["otherArtist"] = new ReorderTrackMetadata("DJ Other", "House"),
+            };
+
+            var plain = await sut.ReorderAsync(new[] { "anchor", "sameArtist", "otherArtist" }, anchorTrackHash: "anchor");
+            var withMetadata = await sut.ReorderAsync(
+                new[] { "anchor", "sameArtist", "otherArtist" },
+                anchorTrackHash: "anchor",
+                metadataByHash: metadataByHash);
+
+            // Baseline (no metadata): plain similarity picks the closer-energy track next.
+            Assert.Equal("sameArtist", plain.OrderedTrackHashes[1]);
+
+            // With metadata supplied, the same-artist repeat is penalized enough that the
+            // different-artist candidate wins instead.
+            Assert.Equal("otherArtist", withMetadata.OrderedTrackHashes[1]);
+        }
+        finally
+        {
+            DeleteTempRoot(tempRoot);
+        }
+    }
+
+    [Fact]
+    public async Task ReorderAsync_MetadataByHashDefaultsToNull_MatchesPlainReorderExactly()
+    {
+        // Guards existing callers (Auto-Arrange without metadata, Flow Builder before this
+        // parameter existed): omitting metadataByHash must produce byte-for-byte the same
+        // result as explicitly passing null.
+        var tempRoot = CreateTempRoot();
+
+        try
+        {
+            using var store = new TrackFingerprintStore(NullLogger<TrackFingerprintStore>.Instance, tempRoot);
+            var sectionVectors = new SectionVectorService(NullLogger<SectionVectorService>.Instance);
+            var sut = CreateSut(store, sectionVectors);
+
+            var low = CreateFingerprint("low", "8A", 0.20f);
+            var mid = CreateFingerprint("mid", "8A", 0.50f);
+            var high = CreateFingerprint("high", "8A", 0.85f);
+
+            await SaveAllAsync(store, low, mid, high);
+            SeedSections(sectionVectors, "low", CreateSections(0.20f, 0.28f));
+            SeedSections(sectionVectors, "mid", CreateSections(0.50f, 0.56f));
+            SeedSections(sectionVectors, "high", CreateSections(0.84f, 0.90f));
+
+            var withoutParam = await sut.ReorderAsync(new[] { "high", "mid", "low" });
+            var withExplicitNull = await sut.ReorderAsync(new[] { "high", "mid", "low" }, metadataByHash: null);
+
+            Assert.Equal(withoutParam.OrderedTrackHashes, withExplicitNull.OrderedTrackHashes);
+            Assert.Equal(withoutParam.AverageTransitionScore, withExplicitNull.AverageTransitionScore);
         }
         finally
         {

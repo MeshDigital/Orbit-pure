@@ -742,6 +742,39 @@ public class DatabaseService
     }
 
     /// <summary>
+    /// Writes a verified track duration to every table that carries its own copy
+    /// (PlaylistTracks.CanonicalDuration in ms, Tracks.CanonicalDuration in ms,
+    /// LibraryEntries.DurationSeconds in seconds — TrackRepository.GetPagedAllTracksAsync derives
+    /// the "All Tracks" view's duration from the LibraryEntries copy, so all three need updating
+    /// for the value to show up everywhere). Guarded to only fill currently-empty values so this
+    /// never clobbers a duration set by a more authoritative source (e.g. Spotify metadata).
+    /// </summary>
+    public async Task UpdateDurationAsync(string trackUniqueHash, int durationSeconds)
+    {
+        if (string.IsNullOrWhiteSpace(trackUniqueHash) || durationSeconds <= 0) return;
+
+        await _writeSemaphore.WaitAsync();
+        try
+        {
+            using var context = new AppDbContext();
+            var canonicalMs = durationSeconds * 1000;
+            await context.Database.ExecuteSqlInterpolatedAsync($@"
+                UPDATE PlaylistTracks SET CanonicalDuration = {canonicalMs}
+                WHERE TrackUniqueHash = {trackUniqueHash} AND (CanonicalDuration IS NULL OR CanonicalDuration = 0)");
+            await context.Database.ExecuteSqlInterpolatedAsync($@"
+                UPDATE Tracks SET CanonicalDuration = {canonicalMs}
+                WHERE GlobalId = {trackUniqueHash} AND (CanonicalDuration IS NULL OR CanonicalDuration = 0)");
+            await context.Database.ExecuteSqlInterpolatedAsync($@"
+                UPDATE LibraryEntries SET DurationSeconds = {durationSeconds}
+                WHERE UniqueHash = {trackUniqueHash} AND (DurationSeconds IS NULL OR DurationSeconds = 0)");
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>
     /// Saves or updates an AudioFeatures entity (Essentia analysis results).
     /// </summary>
     public async Task SaveAudioFeaturesAsync(AudioFeaturesEntity features)
@@ -863,11 +896,18 @@ public class DatabaseService
                  existingJob.SourceTitle = job.SourceTitle;
                  existingJob.SourceType = job.SourceType;
                  existingJob.IsDeleted = false;
-                 
+                 // SourceUrl was never mapped here — every playlist's "Check for New Tracks" /
+                 // "Open Source Link" stayed permanently unavailable regardless of what the
+                 // in-memory PlaylistJob carried, since this is where it actually gets persisted.
+                 // Only overwrite with a real value — a re-save that doesn't carry a URL (e.g. an
+                 // unrelated status update elsewhere) shouldn't wipe out one already on record.
+                 if (!string.IsNullOrWhiteSpace(job.SourceUrl))
+                     existingJob.SourceUrl = job.SourceUrl;
+
                  // Phase 20
                  existingJob.IsSmartPlaylist = job.IsSmartPlaylist;
                  existingJob.SmartCriteriaJson = job.SmartCriteriaJson;
-                 
+
                  context.Projects.Update(existingJob);
             }
             else
@@ -886,7 +926,8 @@ public class DatabaseService
                      MissingCount = job.MissingCount,
                      // Duplicates removed
                      IsDeleted = false,
-                     
+                     SourceUrl = job.SourceUrl,
+
                      // Phase 20
                      IsSmartPlaylist = job.IsSmartPlaylist,
                      SmartCriteriaJson = job.SmartCriteriaJson
@@ -963,6 +1004,9 @@ public class DatabaseService
                         Album = track.Album,
                         TrackUniqueHash = track.TrackUniqueHash ?? string.Empty,
                         Status = track.Status,
+                        AvailabilityState = (entry != null && !string.IsNullOrEmpty(entry.FilePath))
+                            ? entry.AvailabilityState
+                            : track.AvailabilityState,
                         ResolvedFilePath = track.ResolvedFilePath,
                         TrackNumber = track.TrackNumber,
                         AddedAt = track.AddedAt,
@@ -988,7 +1032,14 @@ public class DatabaseService
                         Energy = track.Energy > 0 ? track.Energy : (entry?.Energy ?? 0),
                         Danceability = track.Danceability > 0 ? track.Danceability : (entry?.Danceability ?? 0),
                         Valence = track.Valence > 0 ? track.Valence : (entry?.Valence ?? 0),
-                        
+
+                        // Bitrate/Format were missing from this initializer entirely (unlike every
+                        // other "inherit if possible" field above) — every PlaylistTracks row ever
+                        // created here silently kept the entity's 0/empty default, even when the
+                        // matched LibraryEntries row (the same physical file) had the real values.
+                        Bitrate = track.Bitrate > 0 ? track.Bitrate.Value : (entry?.Bitrate ?? 0),
+                        Format = !string.IsNullOrEmpty(track.Format) ? track.Format : entry?.Format,
+
                         CuePointsJson = track.CuePointsJson,
                         AudioFingerprint = track.AudioFingerprint,
                         BitrateScore = track.BitrateScore,
@@ -1004,7 +1055,7 @@ public class DatabaseService
                         // Phase 13: Search Filter Overrides
                         PreferredFormats = track.PreferredFormats,
                         MinBitrateOverride = track.MinBitrateOverride,
-                        
+
                         IsEnriched = (track.IsEnriched || (entry?.IsEnriched ?? false))
                     };
                 });
@@ -1033,6 +1084,9 @@ public class DatabaseService
                         Album = track.Album,
                         TrackUniqueHash = track.TrackUniqueHash ?? string.Empty,
                         Status = track.Status,
+                        AvailabilityState = (entry != null && !string.IsNullOrEmpty(entry.FilePath))
+                            ? entry.AvailabilityState
+                            : track.AvailabilityState,
                         ResolvedFilePath = track.ResolvedFilePath,
                         TrackNumber = track.TrackNumber,
                         AddedAt = track.AddedAt,
@@ -1058,6 +1112,12 @@ public class DatabaseService
                         Energy = track.Energy > 0 ? track.Energy : (entry?.Energy ?? 0),
                         Danceability = track.Danceability > 0 ? track.Danceability : (entry?.Danceability ?? 0),
                         Valence = track.Valence > 0 ? track.Valence : (entry?.Valence ?? 0),
+
+                        // See matching comment in the add-branch above: Bitrate/Format were never
+                        // set here at all, so every re-sync of an existing project silently reset
+                        // them to 0/empty on every track, even ones with a correct LibraryEntries match.
+                        Bitrate = track.Bitrate > 0 ? track.Bitrate.Value : (entry?.Bitrate ?? 0),
+                        Format = !string.IsNullOrEmpty(track.Format) ? track.Format : entry?.Format,
 
                         CuePointsJson = track.CuePointsJson,
                         AudioFingerprint = track.AudioFingerprint,

@@ -59,9 +59,18 @@ public sealed class DnBCueNamingService
             return $"Build +32"; // Placeholder; could be made smarter
         }
 
-        // For breakdowns, indicate subdrop or vocal section
+        // For breakdowns, show how many beats until the upcoming drop (same runway framing as
+        // the Drop role above) — previously this branch always returned the literal string
+        // "Breakdown 2" regardless of which breakdown it was, a real bug fixed while resurrecting
+        // this service for actual use.
+        if (role == CueRole.Breakdown && nextDropTimestamp.HasValue)
+        {
+            int beatsBefore = (int)CalculateBeatsUntilTimestamp(currentTimestamp, nextDropTimestamp.Value, bpm);
+            if (beatsBefore > 0)
+                return $"Breakdown -{beatsBefore}";
+        }
         if (role == CueRole.Breakdown)
-            return "Breakdown 2";
+            return "Breakdown";
 
         // Standard naming for other roles
         return role switch

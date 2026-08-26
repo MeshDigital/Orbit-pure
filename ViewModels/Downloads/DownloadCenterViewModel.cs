@@ -17,6 +17,7 @@ using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Configuration;
 using SLSKDONET.ViewModels;
+using SLSKDONET.Views;
 
 namespace SLSKDONET.ViewModels.Downloads;
 
@@ -53,6 +54,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     private readonly DatabaseService _databaseService;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IDialogService _dialogService;
+    private readonly INotificationService _notificationService;
     private readonly CompositeDisposable _subscriptions = new();
     private readonly object _logsLock = new();
     public ObservableCollection<EngineLogEntry> EngineLogs { get; } = new();
@@ -66,15 +68,16 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     // Collections (DynamicData Source)
     private readonly SourceCache<UnifiedTrackViewModel, string> _downloadsSource = new(x => x.GlobalId);
 
-    // Public ReadOnly Collections (Bound to UI)
+    // Shared, throttled text-only search filter (SearchText, no status component) — both the Hub
+    // row projection and the "group by playlist" pipeline subscribe to this same hot observable
+    // instead of each debouncing SearchText independently.
+    private IObservable<Func<UnifiedTrackViewModel, bool>> _textOnlyFilter = null!;
+
+    // These three drive ActiveCount/CompletedTodayCount/FailedCount only — kept private. The public
+    // per-row surface for the UI is the Hub projection below (HubActiveRows/AttentionRows/HubCompletedRows).
     private readonly ReadOnlyObservableCollection<UnifiedTrackViewModel> _activeDownloads;
-    public ReadOnlyObservableCollection<UnifiedTrackViewModel> ActiveDownloads => _activeDownloads;
-
     private readonly ReadOnlyObservableCollection<UnifiedTrackViewModel> _completedDownloads;
-    public ReadOnlyObservableCollection<UnifiedTrackViewModel> CompletedDownloads => _completedDownloads;
-
     private readonly ReadOnlyObservableCollection<UnifiedTrackViewModel> _failedDownloads;
-    public ReadOnlyObservableCollection<UnifiedTrackViewModel> FailedDownloads => _failedDownloads;
 
     // Download Center v2 (Slice 1): stable projection rows for future card-based layout.
     private readonly ReadOnlyObservableCollection<DownloadRowViewModel> _hubRows;
@@ -93,6 +96,22 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
     /// <summary>Playlists that still have Missing tracks — start their downloads from here.</summary>
     public ObservableCollection<MissingPlaylistSummaryViewModel> MissingPlaylists { get; } = new();
+
+    /// <summary>
+    /// Tracks GhostAcquisitionOrchestrator gave up searching for (TrackStatus.OnHold, after 3
+    /// failed background attempts), with their source playlist — otherwise these are invisible
+    /// except lumped into the "All" row filter.
+    /// </summary>
+    public ObservableCollection<UnfindableTrackViewModel> UnfindableTracks { get; } = new();
+
+    /// <summary>
+    /// The Attention tab's row source — merges HubAttentionRows (runtime Failed/Stalled/Cancelled,
+    /// session-scoped) with UnfindableTracks (persisted OnHold, can outlive the session) into one
+    /// filtered, sorted list. These used to be two unrelated UI sections with unrelated filtering
+    /// (SearchText never touched UnfindableTracks at all) even though both answer the same user
+    /// question: "why can't ORBIT find this track." See RebuildAttentionRows.
+    /// </summary>
+    public ObservableCollection<IHubRowDisplay> AttentionRows { get; } = new();
 
     private bool _showAllCompleted;
     /// <summary>False = recent completed only; true = the full completed history inline —
@@ -119,38 +138,11 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     private readonly ReadOnlyObservableCollection<PeerLaneViewModel> _byPeerGroups;
     public ReadOnlyObservableCollection<PeerLaneViewModel> ByPeerGroups => _byPeerGroups;
 
-    // Swimlanes (Derived from Active)
-    private readonly ReadOnlyObservableCollection<UnifiedTrackViewModel> _expressItems;
-    public ReadOnlyObservableCollection<UnifiedTrackViewModel> ExpressItems => _expressItems;
-
-    private readonly ReadOnlyObservableCollection<UnifiedTrackViewModel> _activeTracks;
-    public ReadOnlyObservableCollection<UnifiedTrackViewModel> ActiveTracks => _activeTracks;
-
-    private readonly ReadOnlyObservableCollection<UnifiedTrackViewModel> _sessionTracks;
-    public ReadOnlyObservableCollection<UnifiedTrackViewModel> SessionTracks => _sessionTracks;
-
-    private readonly ReadOnlyObservableCollection<DownloadGroupViewModel> _expressGroups;
-    public ReadOnlyObservableCollection<DownloadGroupViewModel> ExpressGroups => _expressGroups;
-
-    private readonly ReadOnlyObservableCollection<DownloadGroupViewModel> _standardGroups;
-    public ReadOnlyObservableCollection<DownloadGroupViewModel> StandardGroups => _standardGroups;
-
-    private readonly ReadOnlyObservableCollection<UnifiedTrackViewModel> _standardItems;
-    public ReadOnlyObservableCollection<UnifiedTrackViewModel> StandardItems => _standardItems;
-
-    private readonly ReadOnlyObservableCollection<UnifiedTrackViewModel> _backgroundItems;
-    public ReadOnlyObservableCollection<UnifiedTrackViewModel> BackgroundItems => _backgroundItems;
-
-    // Phase 12.8: Grouped Session Ledger
-    private readonly ReadOnlyObservableCollection<DownloadGroupViewModel> _sessionGroups;
-    public ReadOnlyObservableCollection<DownloadGroupViewModel> SessionGroups => _sessionGroups;
-
-    // Ongoing vs Queued Split
+    // Ongoing vs Queued Split — kept private; only used to drive DownloadingCount/QueuedCount below,
+    // never exposed as a public bound collection (that role belongs to the Hub rows).
     private readonly ReadOnlyObservableCollection<UnifiedTrackViewModel> _ongoingDownloads;
-    public ReadOnlyObservableCollection<UnifiedTrackViewModel> OngoingDownloads => _ongoingDownloads;
 
     private readonly ReadOnlyObservableCollection<UnifiedTrackViewModel> _queuedDownloads;
-    public ReadOnlyObservableCollection<UnifiedTrackViewModel> QueuedDownloads => _queuedDownloads;
 
     // Stats
     private int _activeCount;
@@ -246,8 +238,29 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         set => this.RaiseAndSetIfChanged(ref _searchText, value);
     }
 
-    // Quick status filter for the Hub view — narrows HubActiveRows/HubAttentionRows/HubCompletedRecentRows
-    // (and the QUEUE BY PLAYLIST groups) to just the selected state, on top of the text search above.
+    // Session-scoped only — no persistence needed. Toggles the Active tab between the flat
+    // HubActiveRows/HubDownloadRowTemplate list and the ActiveGroups/DownloadGroupTemplate
+    // per-playlist view.
+    private bool _groupActiveByPlaylist;
+    public bool GroupActiveByPlaylist
+    {
+        get => _groupActiveByPlaylist;
+        set => this.RaiseAndSetIfChanged(ref _groupActiveByPlaylist, value);
+    }
+
+    // Active / Attention / Completed tabs — replaces the old 7-stacked-section shared-scroll
+    // layout. Each tab owns its own scoped ScrollViewer for real virtualization.
+    private int _selectedDownloadTab;
+    public int SelectedDownloadTab
+    {
+        get => _selectedDownloadTab;
+        set => this.RaiseAndSetIfChanged(ref _selectedDownloadTab, value);
+    }
+
+    // Quick status filter — narrows the Active tab only (Searching/Downloading/All). Failed/
+    // Completed used to be chip values here too, but now that Attention and Completed are their
+    // own tabs, a chip that could also silently empty those tabs was redundant and confusing —
+    // removed. Never affects Attention/Completed or the "group by playlist" view.
     private string _rowStatusFilter = "All";
     public string RowStatusFilter
     {
@@ -260,8 +273,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
                 this.RaisePropertyChanged(nameof(RowStatusFilterAll));
                 this.RaisePropertyChanged(nameof(RowStatusFilterSearching));
                 this.RaisePropertyChanged(nameof(RowStatusFilterDownloading));
-                this.RaisePropertyChanged(nameof(RowStatusFilterFailed));
-                this.RaisePropertyChanged(nameof(RowStatusFilterCompleted));
+                ApplyRowStatusFilterBanner();
             }
         }
     }
@@ -284,18 +296,6 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         set => RowStatusFilter = value ? "Downloading" : "All";
     }
 
-    public bool RowStatusFilterFailed
-    {
-        get => RowStatusFilter == "Failed";
-        set => RowStatusFilter = value ? "Failed" : "All";
-    }
-
-    public bool RowStatusFilterCompleted
-    {
-        get => RowStatusFilter == "Completed";
-        set => RowStatusFilter = value ? "Completed" : "All";
-    }
-
     public static bool MatchesRowStatusFilter(UnifiedTrackViewModel track, string filter) => filter switch
     {
         "Searching" => track.State == PlaylistTrackState.Searching,
@@ -309,65 +309,9 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         _ => true,
     };
 
-    private string _sessionFilterMode = "All";
-    public string SessionFilterMode
-    {
-        get => _sessionFilterMode;
-        private set
-        {
-            if (_sessionFilterMode != value)
-            {
-                this.RaiseAndSetIfChanged(ref _sessionFilterMode, value);
-                this.RaisePropertyChanged(nameof(SessionFilterAll));
-                this.RaisePropertyChanged(nameof(SessionFilterLive));
-                this.RaisePropertyChanged(nameof(SessionFilterQueued));
-                this.RaisePropertyChanged(nameof(SessionFilterDone));
-                this.RaisePropertyChanged(nameof(SessionFilterFailed));
-                ApplySessionFilterBanner();
-            }
-        }
-    }
-
-    public bool SessionFilterAll
-    {
-        get => SessionFilterMode == "All";
-        set
-        {
-            if (value)
-            {
-                SessionFilterMode = "All";
-            }
-        }
-    }
-
-    public bool SessionFilterLive
-    {
-        get => SessionFilterMode == "Live";
-        set => SessionFilterMode = value ? "Live" : "All";
-    }
-
-    public bool SessionFilterQueued
-    {
-        get => SessionFilterMode == "Queued";
-        set => SessionFilterMode = value ? "Queued" : "All";
-    }
-
-    public bool SessionFilterDone
-    {
-        get => SessionFilterMode == "Done";
-        set => SessionFilterMode = value ? "Done" : "All";
-    }
-
-    public bool SessionFilterFailed
-    {
-        get => SessionFilterMode == "Failed";
-        set => SessionFilterMode = value ? "Failed" : "All";
-    }
-
-    public int SessionLedgerCount => _activeTracks?.Count ?? 0;
-    public int VisibleSessionTrackCount => _sessionTracks?.Count ?? 0;
-    public bool HasSessionHistory => SessionLedgerCount > 0;
-    public bool HasVisibleSessionTracks => VisibleSessionTrackCount > 0;
+    // SessionFilterMode and the whole parallel session-ledger filter system it drove were deleted
+    // here — confirmed zero XAML bindings anywhere (superseded entirely by RowStatusFilter/the Hub
+    // row projection below), but the live subscriptions kept running every frame regardless.
 
     private string? _globalStatusMessage;
     public string? GlobalStatusMessage
@@ -669,7 +613,8 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         ILibraryService libraryService,
         DatabaseService databaseService,
         IDbContextFactory<AppDbContext> dbFactory,
-        IDialogService dialogService)
+        IDialogService dialogService,
+        INotificationService notificationService)
     {
         _downloadManager = downloadManager;
         _eventBus = eventBus;
@@ -679,6 +624,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         _config = config;
         _dbFactory = dbFactory;
         _dialogService = dialogService;
+        _notificationService = notificationService;
         _isAutoEnrichEnabled = _config.IsAutoEnrichEnabled;
         
         ToggleLogsCommand = ReactiveCommand.Create(() => ShowEngineLogs = !ShowEngineLogs);
@@ -706,7 +652,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             {
                 var newName = _downloadManager.GetPlaylistSourceName(evt.ProjectId);
                 if (string.IsNullOrEmpty(newName)) return;
-                foreach (var grp in _sessionGroups.Concat(_activeGroups).Concat(_expressGroups).Concat(_standardGroups))
+                foreach (var grp in _activeGroups)
                 {
                     if (grp.GroupKey == evt.ProjectId)
                         grp.Title = newName;
@@ -796,7 +742,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
         RetryAllFailedCommand = ReactiveCommand.CreateFromTask(async () => 
         {
-            var failedItems = FailedDownloads.ToList();
+            var failedItems = _failedDownloads.ToList();
             for (var i = 0; i < failedItems.Count; i++)
             {
                 // Stagger retries to avoid a search storm that pushes active search count
@@ -922,28 +868,31 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             .Ascending(x => x.Priority)
             .ThenByDescending(x => x.LastUpdatedUtc);
 
-        // Live search filter for hub rows — previously SearchText only filtered the old
-        // session/history tabs, leaving the Hub's filter box decorative. RowStatusFilter adds
-        // a second, independent dimension (quick-filter chips) on top of the free-text search.
-        var hubSearchFilter = this.WhenAnyValue(x => x.SearchText)
+        // Text-only search filter — deliberately has NO RowStatusFilter component, so SearchText
+        // applies uniformly to every tab (Active/Attention/Completed) instead of only the section
+        // RowStatusFilter happened to be scoped to. This is the fix for search feeling inconsistent
+        // across the page: it used to gate _hubRows upstream of the 3-way Active/Attention/Completed
+        // split combined with the status chips, so e.g. clicking "Failed" silently emptied Completed
+        // too. RowStatusFilter is now applied only within the Active tab's own filter chain below.
+        _textOnlyFilter = this.WhenAnyValue(x => x.SearchText)
             .Throttle(TimeSpan.FromMilliseconds(250))
             .ObserveOn(RxApp.MainThreadScheduler)
-            .CombineLatest(this.WhenAnyValue(x => x.RowStatusFilter), (text, statusFilter) => (text, statusFilter))
-            .Select<(string? text, string statusFilter), Func<UnifiedTrackViewModel, bool>>(f =>
+            .Select<string?, Func<UnifiedTrackViewModel, bool>>(text =>
             {
                 // Accent-insensitive, same rationale as BuildFilter: typing "beyonce" must still
                 // find "Beyoncé" — computed once per filter change, not per track, for efficiency.
-                var normalizedSearch = string.IsNullOrWhiteSpace(f.text) ? null : StripDiacritics(f.text);
+                var normalizedSearch = string.IsNullOrWhiteSpace(text) ? null : StripDiacritics(text);
                 return track =>
-                    (normalizedSearch == null
-                        || StripDiacritics(track.TrackTitle).Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase)
-                        || StripDiacritics(track.ArtistName).Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase))
-                    && MatchesRowStatusFilter(track, f.statusFilter);
-            });
+                    normalizedSearch == null
+                    || StripDiacritics(track.TrackTitle).Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase)
+                    || StripDiacritics(track.ArtistName).Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase);
+            })
+            .Replay(1)
+            .RefCount();
 
         sharedSource
             .Filter(x => !x.IsClearedFromDownloadCenter)
-            .Filter(hubSearchFilter)
+            .Filter(_textOnlyFilter)
             .Transform(x => new DownloadRowViewModel(x, row => SelectedHubRow = row))
             .DisposeMany() // rows subscribe to their track's PropertyChanged — unhook on removal
             .AutoRefresh(x => x.Priority) // re-sort when a row's status flips its section
@@ -951,11 +900,25 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             .Subscribe()
             .DisposeWith(_subscriptions);
 
+        // RowStatusFilter (Searching/Downloading/All — Failed/Completed removed, tabs do that job
+        // now) narrows the Active tab only, so it never silently empties Attention/Completed.
+        var activeRowStatusFilter = this.WhenAnyValue(x => x.RowStatusFilter)
+            .Select<string, Func<DownloadRowViewModel, bool>>(statusFilter =>
+                row => MatchesRowStatusFilter(row.Track, statusFilter));
+
         // AutoRefresh(Priority) on each section: without it a row that transitions
         // (e.g. Downloading → Completed) stays stuck in its original section forever.
+        // AutoRefresh(Status) additionally: Searching→Pending (a failed search attempt
+        // going back to the retry queue) doesn't change Priority at all — both map to
+        // DownloadRowPriority.Active — so without watching Status directly, a row that
+        // finished searching (no results) and moved to Pending stayed stuck showing the
+        // "Searching" badge and its last stale status message under the Searching chip
+        // filter forever, even though DownloadManager had already moved it to Pending.
         _hubRows.ToObservableChangeSet()
             .AutoRefresh(x => x.Priority)
+            .AutoRefresh(x => x.Status)
             .Filter(x => x.Priority == DownloadRowPriority.Active)
+            .Filter(activeRowStatusFilter)
             .Bind(out _hubActiveRows)
             .Subscribe()
             .DisposeWith(_subscriptions);
@@ -965,6 +928,20 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             .Filter(x => x.Priority == DownloadRowPriority.Attention)
             .Bind(out _hubAttentionRows)
             .Subscribe()
+            .DisposeWith(_subscriptions);
+
+        _hubAttentionRows.ToObservableChangeSet()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(_ => RebuildAttentionRows())
+            .DisposeWith(_subscriptions);
+
+        // SearchText changes UnfindableTracks' own filtered contribution to AttentionRows (the
+        // HubAttentionRows side is already covered by the subscription above, since _textOnlyFilter
+        // changing re-fires _hubRows itself).
+        this.WhenAnyValue(x => x.SearchText)
+            .Throttle(TimeSpan.FromMilliseconds(250))
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(_ => RebuildAttentionRows())
             .DisposeWith(_subscriptions);
 
         _hubRows.ToObservableChangeSet()
@@ -1031,107 +1008,28 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             })
             .DisposeWith(_subscriptions);
 
-        // Phase 2: Grouping Pipeline (On-Deck: Queued + Actively Searching + Stalled)
-        // Shows items that are either waiting to be processed or actively being searched
-        // Concurrency is controlled by DownloadManager's worker slots (MaxConcurrentSearches/MaxConcurrentDownloads)
-        // Group by Source/Origin (e.g. Spotify Playlist ID or Search Session ID)
+        // "Group by playlist" pipeline for the Active tab — widened to include IsActive (a playlist
+        // with a track actively downloading right now used to be excluded from its own group card)
+        // and now shares _textOnlyFilter so SearchText actually narrows grouped view too (previously
+        // this pipeline had no SearchText awareness at all — the same class of bug as the Hub rows
+        // fix above, just in the grouped-view sibling). Also applies RowStatusFilter (All/Searching/
+        // Downloading) directly to UnifiedTrackViewModel — the flat view's chips filter DownloadRowViewModel
+        // via activeRowStatusFilter above, but that filter never touched this pipeline at all, so
+        // clicking "Searching" while "Group by playlist" was on silently did nothing.
+        var activeGroupRowStatusFilter = this.WhenAnyValue(x => x.RowStatusFilter)
+            .Select<string, Func<UnifiedTrackViewModel, bool>>(statusFilter =>
+                track => MatchesRowStatusFilter(track, statusFilter));
+
         sharedSource
-            .Filter(x => x.IsWaiting || x.IsStalled || x.State == PlaylistTrackState.Searching) // Include searching for transparency + visibility
+            .Filter(x => x.IsActive || x.IsWaiting || x.IsStalled)
+            .Filter(_textOnlyFilter)
+            .Filter(activeGroupRowStatusFilter)
             .Group(x => x.Model.SourcePlaylistId ?? x.Model.PlaylistId)
-            .Transform((IGroup<UnifiedTrackViewModel, string, Guid> group) => new DownloadGroupViewModel(group, _downloadManager, _libraryService))
-            .DisposeMany() 
+            .Transform((IGroup<UnifiedTrackViewModel, string, Guid> group) => new DownloadGroupViewModel(group, _downloadManager, _libraryService, _notificationService, row => SelectedHubRow = row))
+            .DisposeMany()
             .SortAndBind(out _activeGroups, SortExpressionComparer<DownloadGroupViewModel>.Descending(x => x.LastActivity))
             .Subscribe()
             .DisposeWith(_subscriptions);
-
-        // Unified Session Ledger: all non-cleared tracks, newest first — no dancing, no jumping.
-        // Tracks morph in-place (Searching → Downloading → Completed/Failed) and only leave
-        // when the user explicitly presses "Clear Completed" or "Clear Failed".
-        var directActiveComparer = SortExpressionComparer<UnifiedTrackViewModel>
-            .Descending(x => x.Model.AddedAt);
-
-        sharedSource
-            .Filter(x => !x.IsClearedFromDownloadCenter)
-            .SortAndBind(out _activeTracks, directActiveComparer)
-            .Subscribe()
-            .DisposeWith(_subscriptions);
-
-        var sessionFilter = this.WhenAnyValue(x => x.SearchText, x => x.SessionFilterMode)
-            .Throttle(TimeSpan.FromMilliseconds(120))
-            .Select(tuple =>
-            {
-                var textFilter = BuildFilter(tuple.Item1);
-                var mode = tuple.Item2;
-
-                return new Func<UnifiedTrackViewModel, bool>(x =>
-                    !x.IsClearedFromDownloadCenter &&
-                    textFilter(x) &&
-                    MatchesSessionFilter(x, mode));
-            });
-
-        sharedSource
-            .Filter(sessionFilter)
-            .SortAndBind(out _sessionTracks, directActiveComparer)
-            .Subscribe()
-            .DisposeWith(_subscriptions);
-
-        _activeTracks.ToObservableChangeSet()
-            .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(_ =>
-            {
-                this.RaisePropertyChanged(nameof(SessionLedgerCount));
-                this.RaisePropertyChanged(nameof(HasSessionHistory));
-            })
-            .DisposeWith(_subscriptions);
-
-        _sessionTracks.ToObservableChangeSet()
-            .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(_ =>
-            {
-                this.RaisePropertyChanged(nameof(VisibleSessionTrackCount));
-                this.RaisePropertyChanged(nameof(HasVisibleSessionTracks));
-                ApplySessionFilterBanner();
-            })
-            .DisposeWith(_subscriptions);
-
-        // Phase 12.8: Grouped Session Pipeline
-        sharedSource
-            .Filter(sessionFilter)
-            .Group(x => x.Model.SourcePlaylistId ?? x.Model.PlaylistId)
-            .Transform((IGroup<UnifiedTrackViewModel, string, Guid> group) => new DownloadGroupViewModel(group, _downloadManager, _libraryService))
-            .DisposeMany()
-            .SortAndBind(out _sessionGroups, SortExpressionComparer<DownloadGroupViewModel>.Descending(x => x.LastActivity))
-            .Subscribe()
-            .DisposeWith(_subscriptions);
-
-        _sessionGroups.ToObservableChangeSet()
-            .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe()
-            .DisposeWith(_subscriptions);
-
-        // Phase 8: Split Grouping Pipelines for Swimlanes
-        // Express Groups (Priority 0 - Only if NOT actively downloading/searching, or always? 
-        // User wants active on top, groups below. We keep groups for those waiting or stalled)
-        sharedSource
-            .Filter(x => (x.IsWaiting || x.IsStalled) && x.Model.Priority == 0)
-            .Group(x => x.Model.SourcePlaylistId ?? x.Model.PlaylistId)
-            .Transform((IGroup<UnifiedTrackViewModel, string, Guid> group) => new DownloadGroupViewModel(group, _downloadManager, _libraryService))
-            .DisposeMany()
-            .SortAndBind(out _expressGroups, SortExpressionComparer<DownloadGroupViewModel>.Descending(x => x.LastActivity))
-            .Subscribe()
-            .DisposeWith(_subscriptions);
-
-        // Standard Groups (Priority >= 1)
-        sharedSource
-            .Filter(x => (x.IsWaiting || x.IsStalled) && x.Model.Priority >= 1)
-            .Group(x => x.Model.SourcePlaylistId ?? x.Model.PlaylistId)
-            .Transform((IGroup<UnifiedTrackViewModel, string, Guid> group) => new DownloadGroupViewModel(group, _downloadManager, _libraryService))
-            .DisposeMany()
-            .SortAndBind(out _standardGroups, SortExpressionComparer<DownloadGroupViewModel>.Descending(x => x.LastActivity))
-            .Subscribe()
-            .DisposeWith(_subscriptions);
-
-        // Auto-Enrich Hand-off removed
 
         // Completed Pipeline
         var completedFilter = this.WhenAnyValue(x => x.SearchText)
@@ -1189,28 +1087,6 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
                  x.State == PlaylistTrackState.Cancelled ||
                  x.State == PlaylistTrackState.Stalled) && !x.IsClearedFromDownloadCenter))
             .DisposeWith(_subscriptions);
-
-        // 2. Swimlane Pipelines (Derived from sharedSource filtered to Active)
-        // Express: Priority 0
-        sharedSource
-            .Filter(x => (x.IsActive || x.IsWaiting || x.IsStalled) && x.Model.Priority == 0)
-            .ObserveOn(RxApp.MainThreadScheduler)
-            .Bind(out _expressItems)
-            .Subscribe();
-
-        // Standard: Priority 1-9
-        sharedSource
-             .Filter(x => (x.IsActive || x.IsWaiting || x.IsStalled) && x.Model.Priority >= 1 && x.Model.Priority < 10)
-            .ObserveOn(RxApp.MainThreadScheduler)
-            .Bind(out _standardItems)
-            .Subscribe();
-
-        // Background: Priority >= 10
-        sharedSource
-            .Filter(x => (x.IsActive || x.IsWaiting || x.IsStalled) && x.Model.Priority >= 10)
-            .ObserveOn(RxApp.MainThreadScheduler)
-            .Bind(out _backgroundItems)
-            .Subscribe();
 
         sharedSource.Connect(); // Connect the publisher
 
@@ -1326,12 +1202,14 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         // Playlists-with-missing panel: initial load, then refresh (throttled) whenever
         // completions land so counts stay honest.
         _ = RefreshMissingPlaylistsAsync();
+        _ = RefreshUnfindableTracksAsync();
         _hubCompletedRows.ToObservableChangeSet()
             .Throttle(TimeSpan.FromSeconds(3))
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(changes =>
             {
                 var fireAndForget = RefreshMissingPlaylistsAsync();
+                var fireAndForgetUnfindable = RefreshUnfindableTracksAsync();
             })
             .DisposeWith(_subscriptions);
 
@@ -1351,6 +1229,26 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         {
             HubCompletedRecentRows.Add(row);
         }
+    }
+
+    /// <summary>
+    /// Rebuilds AttentionRows from HubAttentionRows + UnfindableTracks. HubAttentionRows is
+    /// already text-filtered upstream (via _textOnlyFilter on _hubRows), so only UnfindableTracks
+    /// needs its own SearchText check here — this is the fix for "the search box doesn't affect
+    /// Unfindable Tracks," which previously had zero SearchText awareness at all.
+    /// </summary>
+    private void RebuildAttentionRows()
+    {
+        var normalizedSearch = string.IsNullOrWhiteSpace(SearchText) ? null : StripDiacritics(SearchText);
+        var unfindableFiltered = normalizedSearch == null
+            ? UnfindableTracks.AsEnumerable()
+            : UnfindableTracks.Where(t => StripDiacritics(t.DisplayName).Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase));
+
+        AttentionRows.Clear();
+        // HubAttentionRows first (already sorted newest-activity-first); Unfindable rows after
+        // (already sorted by playlist title, then artist, from RefreshUnfindableTracksAsync).
+        foreach (var row in _hubAttentionRows) AttentionRows.Add(row);
+        foreach (var row in unfindableFiltered) AttentionRows.Add(row);
     }
 
     /// <summary>
@@ -1425,6 +1323,12 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     /// </summary>
     private async System.Threading.Tasks.Task StartMissingPlaylistAsync(MissingPlaylistSummaryViewModel playlist, PlaylistPriority priority)
     {
+        // Set before either await below: SetJobPriorityAsync and LoadPlaylistTracksAsync are both
+        // full DB round-trips, so without this the row gives zero visual feedback for the whole
+        // duration and a click reads as not having registered at all.
+        playlist.IsStarting = true;
+        ShowGlobalStatus($"Looking up missing tracks in \"{playlist.Title}\"...", isError: false, autoHide: true, context: "missing-playlists");
+
         try
         {
             await _downloadManager.SetJobPriorityAsync(playlist.PlaylistId, priority);
@@ -1462,6 +1366,94 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         {
             Serilog.Log.Error(ex, "Failed to start missing downloads for playlist {Playlist}", playlist.Title);
             ShowGlobalStatus($"Failed to queue \"{playlist.Title}\": {ex.Message}", isError: true, autoHide: false, context: "missing-playlists");
+        }
+        finally
+        {
+            playlist.IsStarting = false;
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds the "Unfindable Tracks" panel — every track GhostAcquisitionOrchestrator gave up
+    /// on (TrackStatus.OnHold) plus its source playlist name, same live-DB-count approach as
+    /// <see cref="RefreshMissingPlaylistsAsync"/>.
+    /// </summary>
+    public async System.Threading.Tasks.Task RefreshUnfindableTracksAsync()
+    {
+        try
+        {
+            List<(Guid Id, Guid PlaylistId, string Artist, string Title, int SearchRetryCount)> rows;
+            await using (var db = await _dbFactory.CreateDbContextAsync())
+            {
+                rows = (await db.PlaylistTracks
+                        .AsNoTracking()
+                        .Where(t => t.Status == TrackStatus.OnHold)
+                        .Select(t => new { t.Id, t.PlaylistId, t.Artist, t.Title, t.SearchRetryCount })
+                        .ToListAsync())
+                    .Select(x => (x.Id, x.PlaylistId, x.Artist, x.Title, x.SearchRetryCount))
+                    .ToList();
+            }
+
+            var jobs = await _libraryService.LoadAllPlaylistJobsAsync();
+            var titleById = jobs.ToDictionary(j => j.Id, j => j.SourceTitle);
+
+            var items = rows
+                .Where(r => titleById.ContainsKey(r.PlaylistId))
+                .OrderBy(r => titleById[r.PlaylistId])
+                .ThenBy(r => r.Artist)
+                .Select(r => new UnfindableTrackViewModel(
+                    r.Id,
+                    r.PlaylistId,
+                    r.Artist,
+                    r.Title,
+                    titleById[r.PlaylistId],
+                    r.SearchRetryCount,
+                    RetryUnfindableTrackAsync))
+                .ToList();
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                UnfindableTracks.Clear();
+                foreach (var item in items)
+                {
+                    UnfindableTracks.Add(item);
+                }
+                RebuildAttentionRows();
+            });
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "Failed to refresh unfindable-tracks panel");
+        }
+    }
+
+    /// <summary>
+    /// Resets an OnHold track back to Missing with a clean retry count so the next idle sweep (or
+    /// a manual "Download Missing") reconsiders it — otherwise OnHold is a one-way trip.
+    /// </summary>
+    private async System.Threading.Tasks.Task RetryUnfindableTrackAsync(UnfindableTrackViewModel track)
+    {
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var entity = await db.PlaylistTracks.FirstOrDefaultAsync(t => t.Id == track.PlaylistTrackId);
+            if (entity == null)
+            {
+                ShowGlobalStatus($"\"{track.DisplayName}\" no longer exists.", isError: true, autoHide: true, context: "unfindable-tracks");
+                return;
+            }
+
+            entity.Status = TrackStatus.Missing;
+            entity.SearchRetryCount = 0;
+            await db.SaveChangesAsync();
+
+            UnfindableTracks.Remove(track);
+            ShowGlobalStatus($"\"{track.DisplayName}\" will be retried.", isError: false, autoHide: true, context: "unfindable-tracks");
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Failed to retry unfindable track {Track}", track.DisplayName);
+            ShowGlobalStatus($"Failed to retry \"{track.DisplayName}\": {ex.Message}", isError: true, autoHide: false, context: "unfindable-tracks");
         }
     }
 
@@ -1571,9 +1563,9 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             && evt.Message.Contains("profile", StringComparison.OrdinalIgnoreCase);
     }
 
-    private void ApplySessionFilterBanner()
+    private void ApplyRowStatusFilterBanner()
     {
-        var message = BuildSessionFilterBanner(SessionFilterMode, VisibleSessionTrackCount);
+        var message = BuildSessionFilterBanner(RowStatusFilter, HubActiveRows.Count);
         if (string.IsNullOrWhiteSpace(message))
         {
             ClearGlobalStatus("session-filter");
@@ -1668,18 +1660,6 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         return string.IsNullOrWhiteSpace(fallbackHash) ? "unknown track" : fallbackHash;
     }
 
-    private static bool MatchesSessionFilter(UnifiedTrackViewModel vm, string mode)
-    {
-        return mode switch
-        {
-            "Live" => vm.IsActive || vm.IsPaused || vm.State == PlaylistTrackState.Searching,
-            "Queued" => vm.IsWaiting,
-            "Done" => vm.IsCompleted,
-            "Failed" => vm.IsFailed || vm.IsStalled || vm.State == PlaylistTrackState.Cancelled,
-            _ => true
-        };
-    }
-    
     private void InitialHydration()
     {
         var existingDownloads = _downloadManager.GetAllDownloads();
@@ -1798,7 +1778,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
     private void RefreshGlobalSpeed()
     {
-        var totalSpeedBytes = ActiveDownloads
+        var totalSpeedBytes = _activeDownloads
             .Where(d => d.State == PlaylistTrackState.Downloading)
             .Sum(d => d.CurrentSpeedBytes);
 
@@ -1944,7 +1924,7 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     {
         try
         {
-            var activeItems = ActiveDownloads.Where(d => d.State == PlaylistTrackState.Downloading).ToList();
+            var activeItems = _activeDownloads.Where(d => d.State == PlaylistTrackState.Downloading).ToList();
             foreach (var item in activeItems)
             {
                 // Logic: If item says Downloading but has 0 speed for > 30 seconds, mark stalled?

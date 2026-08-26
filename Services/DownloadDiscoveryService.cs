@@ -664,7 +664,7 @@ public class DownloadDiscoveryService
                     {
                         _logger.LogInformation("🏁 GOLDEN CRITERIA hit ({Score}/100): {File} [{Bitrate}kbps {Format}] - ending tier early.",
                             score, searchTrack.Filename, searchTrack.Bitrate, searchTrack.Format);
-                        _auditLogger.LogSearchCandidate(trackHash, searchTrack.Username, searchTrack.Bitrate, searchTrack.Format, "ACCEPTED", $"Golden match early exit (Score: {score:F1}/100) | File: {searchTrack.Filename}");
+                        _auditLogger.LogSearchCandidate(trackHash, searchTrack.Username, searchTrack.Bitrate, searchTrack.Format, "ACCEPTED", $"Golden match early exit (Score: {score:F1}/100) | File: {searchTrack.Filename} | Breakdown: {searchTrack.ScoreBreakdown}");
 
                         PublishStatus($"🏁 Golden match: {searchTrack.Username} ({searchTrack.Bitrate}kbps FLAC).");
 
@@ -692,7 +692,7 @@ public class DownloadDiscoveryService
                             searchTrack.Bitrate,
                             searchTrack.Format,
                             queueLength);
-                        _auditLogger.LogSearchCandidate(trackHash, searchTrack.Username, searchTrack.Bitrate, searchTrack.Format, "ACCEPTED", $"Fast lane idle-peer winner (Score: {score:F1}/100, Queue: {queueLength}) | File: {searchTrack.Filename}");
+                        _auditLogger.LogSearchCandidate(trackHash, searchTrack.Username, searchTrack.Bitrate, searchTrack.Format, "ACCEPTED", $"Fast lane idle-peer winner (Score: {score:F1}/100, Queue: {queueLength}) | File: {searchTrack.Filename} | Breakdown: {searchTrack.ScoreBreakdown}");
 
                         PublishStatus($"⚡ Fast lane winner: {searchTrack.Username} ({searchTrack.Bitrate}kbps, queue {queueLength}).");
 
@@ -707,7 +707,7 @@ public class DownloadDiscoveryService
                     {
                         _logger.LogInformation("🚀 QUICK STRIKE: Found high-confidence match ({Score}/100) early! Skipping rest of search. File: {File}",
                             score, searchTrack.Filename);
-                        _auditLogger.LogSearchCandidate(trackHash, searchTrack.Username, searchTrack.Bitrate, searchTrack.Format, "ACCEPTED", $"Quick strike early exit (Score: {score:F1}/100) | File: {searchTrack.Filename}");
+                        _auditLogger.LogSearchCandidate(trackHash, searchTrack.Username, searchTrack.Bitrate, searchTrack.Format, "ACCEPTED", $"Quick strike early exit (Score: {score:F1}/100) | File: {searchTrack.Filename} | Breakdown: {searchTrack.ScoreBreakdown}");
 
                         PublishStatus($"🚀 Found high-confidence match from {searchTrack.Username} ({score:F0}/100)");
 
@@ -736,7 +736,12 @@ public class DownloadDiscoveryService
                     }
 
                     allTracks.Add(searchTrack);
-                    _auditLogger.LogSearchCandidate(trackHash, searchTrack.Username, searchTrack.Bitrate, searchTrack.Format, "EVALUATED", $"Score: {score:F1}/100, Queue: {queueLength} | File: {searchTrack.Filename} | Reason: {searchTrack.MatchReason}");
+                    // ScoreBreakdown is the actual per-component math (Duration/Artist/Title/
+                    // Format/Bitrate/Context points, then the Match/Fit/Reliability/Queue blend
+                    // that produces the final score above) — MatchReason alone is just a short
+                    // human summary of it, not enough to tell whether a given score is a scoring
+                    // bug or a genuinely weak/wrong candidate without this.
+                    _auditLogger.LogSearchCandidate(trackHash, searchTrack.Username, searchTrack.Bitrate, searchTrack.Format, "EVALUATED", $"Score: {score:F1}/100, Queue: {queueLength} | File: {searchTrack.Filename} | Reason: {searchTrack.MatchReason} | Breakdown: {searchTrack.ScoreBreakdown}");
                 }
 
                 return null;
@@ -878,15 +883,32 @@ public class DownloadDiscoveryService
 
             if (!allTracks.Any())
             {
-                _logger.LogWarning("No results found for {Query}", query);
+                // Previously logged with zero explanation — these counters are already computed
+                // on `log` (rejections applied before a candidate ever reaches allTracks), just
+                // never included here. Distinguishes "network returned literally nothing" from
+                // "candidates arrived but were filtered out before scoring."
+                _logger.LogWarning(
+                    "No results found for {Query} (rejected before scoring: {Quality} quality, {Format} format, {Blacklist} blacklisted, {Forensics} forensics)",
+                    query, log.RejectedByQuality, log.RejectedByFormat, log.RejectedByBlacklist, log.RejectedByForensics);
                 PublishStatus("❌ No results found on network for this query.", true);
                 return new DiscoveryResult(null, log);
             }
 
-// 3. Select Best Match — TieredTrackComparer: tier-first, then blend score
+// 3. Select Best Match — TieredTrackComparer: tier-first, then blend score.
+            // TieredTrackComparer only ranks by audio quality/availability/sonic fit — it has no
+            // idea whether a candidate is even the right song. Every evaluated candidate lands in
+            // `allTracks` regardless of its textual match score, so without this filter a
+            // high-bitrate file for the WRONG version (e.g. the Original Mix landing on a search
+            // for "Song (Some Remix)") could out-rank a lower-bitrate correct match, or simply win
+            // by being the only candidate available at ranking time — silently downloading and
+            // labeling the wrong track as if it were the one requested. Only candidates that
+            // cleared SearchResultMatcher's own acceptance bar (score >= 70, see
+            // SearchResultMatcher.FindBestMatch) are eligible for the quality-tier ranking; if
+            // none did, fall through to the relaxation ladder below instead of guessing.
             var policy   = _config.SearchPolicy ?? SearchPolicy.QualityFirst();
             var comparer = new TieredTrackComparer(policy, new Track { BPM = null });
-            var rankedCandidates = allTracks
+            var textuallyAcceptable = allTracks.Where(IsAcceptableTextualMatch).ToList();
+            var rankedCandidates = textuallyAcceptable
                 .OrderBy(t => t, comparer)
                 .ToList();
 
@@ -906,6 +928,26 @@ public class DownloadDiscoveryService
                 return new DiscoveryResult(bestMatch, log, runnerUpMatch);
             }
 
+            // No candidate cleared the textual-match gate, even though some may have looked
+            // "acceptable" in their earlier EVALUATED log entry — that entry shows the *blended*
+            // score (quality/reliability/queue bonuses included), which can land well above 70
+            // even when the *raw* textual match score behind IsAcceptableTextualMatch is 0 (e.g.
+            // the peer didn't report a duration, costing 40 of ~113 possible raw points). Without
+            // this, the audit trail ends at a misleadingly good-looking EVALUATED line followed by
+            // an unexplained overall failure — this makes the real reason visible.
+            if (allTracks.Any())
+            {
+                foreach (var excluded in allTracks.Where(t => !IsAcceptableTextualMatch(t)))
+                {
+                    var rawMatchScore = excluded.Metadata != null
+                        && excluded.Metadata.TryGetValue("BlendMatchScore", out var raw)
+                        && raw is double rawScore
+                            ? rawScore.ToString("F1")
+                            : "unknown";
+                    _auditLogger.LogSearchCandidate(trackHash, excluded.Username, excluded.Bitrate, excluded.Format, "EXCLUDED",
+                        $"Textual match score too low ({rawMatchScore}/100, needs >=70 — treated as a different song/version, not just lower quality) | File: {excluded.Filename} | Breakdown: {excluded.ScoreBreakdown}");
+                }
+            }
 
             // 4. Adaptive Relaxation Strategy (Phase 2.0) - WITH TIMEOUT
             // Phase 21 Hardening: If we are in regular FLAC mode, we DON'T relax to MP3 automatically.
@@ -940,9 +982,14 @@ public class DownloadDiscoveryService
                     }
                 }
 
-                // Relaxation Tier 2: Accept any quality (highest available)
-                _logger.LogInformation("🧠 BRAIN: Relaxation Tier 2: Accepting highest available quality");
-                bestMatch = allTracks.OrderByDescending(t => t.Bitrate).FirstOrDefault();
+                // Relaxation Tier 2: Accept any quality (highest available) — but still only among
+                // candidates that are genuinely the requested song/version. Never widen this to
+                // "any candidate regardless of match" — that's what silently substitutes the
+                // Original Mix for a specifically-requested remix when the real match hasn't
+                // streamed back yet; better to report no match here and let the normal
+                // retry/next-tier machinery try again than to download and mislabel the wrong file.
+                _logger.LogInformation("🧠 BRAIN: Relaxation Tier 2: Accepting highest available quality (still match-filtered)");
+                bestMatch = allTracks.Where(IsAcceptableTextualMatch).OrderByDescending(t => t.Bitrate).FirstOrDefault();
                 
                 if (bestMatch != null)
                 {
@@ -1080,6 +1127,22 @@ public class DownloadDiscoveryService
         track.Metadata["BlendFitScore"] = fitScore;
         track.Metadata["BlendReliability"] = reliability;
         track.Metadata["BlendFinalScore"] = finalScore;
+    }
+
+    /// <summary>
+    /// Whether a candidate's raw SearchResultMatcher score (artist/title/duration/format fit —
+    /// see "BlendMatchScore" set by <see cref="EnsureBlendTelemetryMetadata"/>) clears the same
+    /// acceptance bar <see cref="SearchResultMatcher.FindBestMatch"/> uses internally (70/100).
+    /// Candidates below this are a different song/version, not just a lower-quality copy of the
+    /// right one — quality-tier ranking (<see cref="TieredTrackComparer"/>) must never be allowed
+    /// to pick a "better" file among those, since being higher bitrate doesn't make it correct.
+    /// </summary>
+    private static bool IsAcceptableTextualMatch(Track candidate)
+    {
+        return candidate.Metadata != null
+            && candidate.Metadata.TryGetValue("BlendMatchScore", out var raw)
+            && raw is double score
+            && score >= 70;
     }
 
     private async Task<bool> WaitForConnectionAsync(CancellationToken ct)
