@@ -9,6 +9,7 @@ using DynamicData.Binding;
 using ReactiveUI;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Views;
 
 namespace SLSKDONET.ViewModels.Downloads;
 
@@ -21,6 +22,7 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
     private readonly IDisposable _cleanUp;
     private readonly DownloadManager _downloadManager;
     private readonly ILibraryService _libraryService;
+    private readonly INotificationService? _notificationService;
     private bool _isExpanded = false;
     private double _totalProgress;
     private double _totalSpeed;
@@ -38,6 +40,14 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
     public string Subtitle { get; }
     public string? ArtworkUrl { get; }
     public ReadOnlyObservableCollection<UnifiedTrackViewModel> Tracks { get; }
+
+    /// <summary>
+    /// Row projection of this group's tracks — lets grouped view reuse the same slim
+    /// HubDownloadRowTemplate as the flat Active view instead of the heavier "Golden Row"
+    /// template, so there's one row template for Active (flat or grouped), not two.
+    /// </summary>
+    public ReadOnlyObservableCollection<DownloadRowViewModel> Rows { get; }
+
     public DateTime LastActivity { get; private set; }
     
     // Aggregate Properties
@@ -148,11 +158,17 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
     public ICommand SetLowCommand { get; }
     public ICommand ToggleFocusModeCommand { get; }
 
-    public DownloadGroupViewModel(IGroup<UnifiedTrackViewModel, string, Guid> group, DownloadManager downloadManager, ILibraryService libraryService)
+    public DownloadGroupViewModel(
+        IGroup<UnifiedTrackViewModel, string, Guid> group,
+        DownloadManager downloadManager,
+        ILibraryService libraryService,
+        INotificationService? notificationService = null,
+        Action<DownloadRowViewModel>? onSelectRow = null)
     {
         GroupKey = group.Key;
         _downloadManager = downloadManager;
         _libraryService = libraryService;
+        _notificationService = notificationService;
 
         // Connect to the group cache
         var tracksLoader = group.Cache.Connect()
@@ -160,6 +176,14 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
             .Subscribe();
 
         Tracks = tracks;
+
+        var rowsLoader = group.Cache.Connect()
+            .Transform(x => new DownloadRowViewModel(x, onSelectRow))
+            .DisposeMany()
+            .Bind(out var rows)
+            .Subscribe();
+
+        Rows = rows;
 
         // Initialize Metadata from first track (assuming homogenous groups for now)
         var firstTrack = Tracks.FirstOrDefault()?.Model;
@@ -230,23 +254,26 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         RecalculateAggregates(); // Initial calc
 
         // Group Commands
-        PauseCommand = ReactiveCommand.Create(() => 
+        PauseCommand = ReactiveCommand.Create(() =>
         {
-            var items = Tracks.ToList();
-            foreach (var t in items.Where(x => x.IsActive))
+            var items = Tracks.ToList().Where(x => x.IsActive).ToList();
+            foreach (var t in items)
             {
                 ExecuteIfAllowed(t.PauseCommand);
             }
+            NotifyGroupAction(items.Count, "Paused {0} download(s)", "Nothing to pause — no active downloads in this playlist");
         });
-        
-        ResumeCommand = ReactiveCommand.Create(() => 
+
+        ResumeCommand = ReactiveCommand.Create(() =>
         {
             var items = Tracks.ToList();
+            int affected = 0;
             foreach (var t in items)
             {
                 if (t.State == PlaylistTrackState.Paused)
                 {
                     ExecuteIfAllowed(t.ResumeCommand);
+                    affected++;
                     continue;
                 }
 
@@ -254,6 +281,7 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
                 if (t.State == PlaylistTrackState.Pending || t.State == PlaylistTrackState.Stalled)
                 {
                     ExecuteIfAllowed(t.ForceStartCommand);
+                    affected++;
                     continue;
                 }
 
@@ -261,47 +289,51 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
                 if (t.State == PlaylistTrackState.Failed)
                 {
                     ExecuteIfAllowed(t.RetryCommand);
+                    affected++;
                 }
             }
+            NotifyGroupAction(affected, "Resumed {0} track(s)", "Nothing to resume — no paused, queued, or failed tracks");
         });
 
         // Explicit queue-bypass group action for playlist cards.
         VipStartCommand = ReactiveCommand.Create(() =>
         {
-            var items = Tracks.ToList();
-            foreach (var t in items.Where(x =>
+            var items = Tracks.ToList().Where(x =>
                          x.State == PlaylistTrackState.Pending ||
                          x.State == PlaylistTrackState.Stalled ||
-                         x.State == PlaylistTrackState.Paused))
+                         x.State == PlaylistTrackState.Paused).ToList();
+            foreach (var t in items)
             {
                 ExecuteIfAllowed(t.ForceStartCommand);
             }
+            NotifyGroupAction(items.Count, "Bumped {0} track(s) to the front of the queue", "Nothing to bump — no queued or paused tracks");
         });
 
-        CancelCommand = ReactiveCommand.CreateFromTask(async () => 
+        CancelCommand = ReactiveCommand.CreateFromTask(async () =>
         {
             var items = Tracks.ToList();
             foreach (var t in items)
             {
                 // Status Reset Safety Check: If mid-download/searching, reset to Failed
-                if (t.State == PlaylistTrackState.Downloading || 
-                    t.State == PlaylistTrackState.Searching || 
-                    t.State == PlaylistTrackState.Queued || 
+                if (t.State == PlaylistTrackState.Downloading ||
+                    t.State == PlaylistTrackState.Searching ||
+                    t.State == PlaylistTrackState.Queued ||
                     t.State == PlaylistTrackState.Pending)
                 {
                     t.Model.Status = TrackStatus.Failed;
                 }
-                
+
                 // Cancel
                 _downloadManager.CancelTrack(t.GlobalId);
-                
+
                 // Soft clear
                 t.IsClearedFromDownloadCenter = true;
                 t.Model.IsClearedFromDownloadCenter = true;
-                
+
                 // Persist soft clear
                 await _libraryService.UpdatePlaylistTrackAsync(t.Model);
             }
+            NotifyGroupAction(items.Count, "Cancelled {0} track(s) from " + Title, null);
         });
 
         ToggleExpandedCommand = ReactiveCommand.Create(() => { IsExpanded = !IsExpanded; });
@@ -313,7 +345,7 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         SetLowCommand       = ReactiveCommand.CreateFromTask(() => ApplyJobPriorityAsync(PlaylistPriority.Low));
         ToggleFocusModeCommand = ReactiveCommand.CreateFromTask(ToggleFocusAsync);
 
-        _cleanUp = new System.Reactive.Disposables.CompositeDisposable(tracksLoader, aggregates, listChanges);
+        _cleanUp = new System.Reactive.Disposables.CompositeDisposable(tracksLoader, rowsLoader, aggregates, listChanges);
     }
 
     private void RecalculateAggregates()
@@ -405,6 +437,23 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
         if (command.CanExecute(null))
         {
             command.Execute(null);
+        }
+    }
+
+    /// <summary>
+    /// Surfaces a toast after a group-level action (Pause/Resume/VIP Start/Cancel) — these
+    /// commands silently no-op when nothing matches (e.g. clicking Pause with no active
+    /// downloads), which previously looked identical to a click doing nothing at all.
+    /// </summary>
+    private void NotifyGroupAction(int affectedCount, string successFormat, string? zeroMessage)
+    {
+        if (affectedCount > 0)
+        {
+            _notificationService?.Show(Title, string.Format(successFormat, affectedCount), NotificationType.Success, TimeSpan.FromSeconds(3));
+        }
+        else if (zeroMessage != null)
+        {
+            _notificationService?.Show(Title, zeroMessage, NotificationType.Information, TimeSpan.FromSeconds(3));
         }
     }
 }

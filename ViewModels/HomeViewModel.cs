@@ -319,10 +319,6 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         _ => "#808080"
     };
 
-    public int ExpressCount => _downloadCenter?.ExpressItems.Count ?? 0;
-    public int StandardCount => _downloadCenter?.StandardItems.Count ?? 0;
-    public int BackgroundCount => _downloadCenter?.BackgroundItems.Count ?? 0;
-    
     private void UpdateResilienceLog(List<string> newLog)
     {
         if (ResilienceLog.SequenceEqual(newLog)) return;

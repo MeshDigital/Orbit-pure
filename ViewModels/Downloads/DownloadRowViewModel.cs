@@ -31,7 +31,7 @@ public enum DownloadRowStatus
 /// everything at construction, which left every hub row frozen (progress bars stuck, status
 /// badges never flipping, rows never migrating between Active/Attention/Completed sections).
 /// </summary>
-public sealed class DownloadRowViewModel : ReactiveObject, IDisposable
+public sealed class DownloadRowViewModel : ReactiveObject, IDisposable, IHubRowDisplay
 {
     public DownloadRowViewModel(UnifiedTrackViewModel track, Action<DownloadRowViewModel>? onSelect = null)
     {
