@@ -27,14 +27,25 @@ public sealed class SubBassDropoutEngine
     private const double EnergyWindowSeconds = 0.5;
 
     /// <summary>
-    /// Isolates sub-bass band and computes per-window RMS energy.
+    /// Isolates the sub-bass band (120 Hz low-pass) and computes per-window RMS energy.
+    /// Thin wrapper over <see cref="ComputeBandEnergyCurve"/> — preserves this method's
+    /// exact prior behavior for existing callers.
     /// </summary>
     public float[] ComputeSubBassEnergyCurve(float[] monoSignal, int sampleRate)
+        => ComputeBandEnergyCurve(monoSignal, sampleRate, CutoffHz);
+
+    /// <summary>
+    /// Isolates an arbitrary low-pass band and computes per-window RMS energy. Generalized
+    /// from the sub-bass-only (120 Hz) version so other detectors needing a different band
+    /// (e.g. a wider mid-low band covering kick fundamental + punch) can reuse the same
+    /// Butterworth filter + windowed-RMS pipeline instead of duplicating it.
+    /// </summary>
+    public float[] ComputeBandEnergyCurve(float[] monoSignal, int sampleRate, double cutoffHz)
     {
         if (monoSignal == null || monoSignal.Length == 0) return Array.Empty<float>();
 
         // Apply 4th-order Butterworth LP filter cascaded as two 2nd-order sections
-        var filtered = ApplyButterworthLowPass(monoSignal, sampleRate, CutoffHz);
+        var filtered = ApplyButterworthLowPass(monoSignal, sampleRate, cutoffHz);
 
         // Compute RMS per window
         int windowSamples = (int)(EnergyWindowSeconds * sampleRate);
@@ -53,6 +64,10 @@ public sealed class SubBassDropoutEngine
 
         return energyCurve;
     }
+
+    /// <summary>Window size (seconds) used by <see cref="ComputeBandEnergyCurve"/> — exposed so
+    /// other detectors sharing this engine's curve can convert indices to timestamps correctly.</summary>
+    public double WindowSeconds => EnergyWindowSeconds;
 
     /// <summary>
     /// Detects sub-bass dropout and return events — the primary DnB drop signature.

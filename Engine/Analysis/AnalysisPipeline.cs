@@ -46,6 +46,14 @@ public sealed class AnalysisPipelineResult
     public IReadOnlyList<(double DropSeconds, double BuildStartSeconds, float Strength)> NoveltyDropSignatures { get; set; }
         = Array.Empty<(double, double, float)>();
 
+    /// <summary>Timestamps where a House/Techno "structural stripping" breakdown begins (kick+bass
+    /// transients confirmed absent, not just quiet) — from <see cref="StructuralStrippingEngine"/>.</summary>
+    public IReadOnlyList<double> StructuralStrippingStartTimestamps { get; set; } = Array.Empty<double>();
+
+    /// <summary>Timestamps where a structural-stripping breakdown ends with a confirmed kick
+    /// re-entry (onset-density spike, not just a gradual swell).</summary>
+    public IReadOnlyList<double> StructuralStrippingReturnTimestamps { get; set; } = Array.Empty<double>();
+
     // ── Essentia AI signals (fed in from EssentiaOutput when available) ───
     /// <summary>0–1. From Essentia HighLevel voice_instrumental model. >0.7 = likely instrumental section.</summary>
     public float EssentiaInstrumentalProbability { get; set; } = 0.5f;
@@ -84,6 +92,7 @@ public sealed class AnalysisPipeline
     private readonly EnergyCurveNormalizer _energyNormalizer;
     private readonly SpectralFluxNoveltyEngine _noveltyEngine;
     private readonly SubBassDropoutEngine _subBassEngine;
+    private readonly StructuralStrippingEngine _structuralStrippingEngine;
     private readonly IEdmFormerService? _edmFormer;
     private readonly ILogger<AnalysisPipeline> _logger;
 
@@ -102,6 +111,7 @@ public sealed class AnalysisPipeline
         _energyNormalizer = new EnergyCurveNormalizer();
         _noveltyEngine = new SpectralFluxNoveltyEngine();
         _subBassEngine = new SubBassDropoutEngine();
+        _structuralStrippingEngine = new StructuralStrippingEngine(_subBassEngine);
     }
 
     /// <summary>
@@ -209,6 +219,12 @@ public sealed class AnalysisPipeline
             var subBassEnergyCurve = _subBassEngine.ComputeSubBassEnergyCurve(monoSamples, sampleRate);
             var (subBassDropouts, subBassReturns) = _subBassEngine.DetectDropoutEvents(subBassEnergyCurve);
 
+            // Pass F2: Structural Stripping Detection (House/Techno-specific breakdown signature —
+            // kick+bass transients confirmed absent, not just a sub-bass energy dropout)
+            _logger.LogDebug("[AnalysisPipeline] Running Structural Stripping detection...");
+            var (structuralStrippingStarts, structuralStrippingReturns) =
+                _structuralStrippingEngine.DetectStructuralStripping(monoSamples, sampleRate);
+
             // Pass G: EDMFormer ML phrase detection (optional — requires local microservice)
             IReadOnlyList<PhraseSegment> phraseSegments = Array.Empty<PhraseSegment>();
             if (_edmFormer?.IsAvailable == true)
@@ -241,6 +257,8 @@ public sealed class AnalysisPipeline
                 SubBassEnergyCurve = subBassEnergyCurve,
                 SubBassDropoutTimestamps = subBassDropouts,
                 SubBassReturnTimestamps = subBassReturns,
+                StructuralStrippingStartTimestamps = structuralStrippingStarts,
+                StructuralStrippingReturnTimestamps = structuralStrippingReturns,
                 NoveltyDropSignatures = noveltyDropSignatures,
                 PhraseSegments = phraseSegments,
             };

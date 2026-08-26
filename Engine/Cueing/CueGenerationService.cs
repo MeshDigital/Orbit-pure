@@ -9,6 +9,7 @@ using SLSKDONET.Data.Entities;
 using SLSKDONET.Engine.Analysis;
 using SLSKDONET.Engine.Snapping;
 using SLSKDONET.Models;
+using SLSKDONET.Services;
 
 namespace SLSKDONET.Engine.Cueing;
 
@@ -35,12 +36,19 @@ public sealed class CueGenerationService
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly TransientAwareSnappingEngine _snappingEngine;
     private readonly IntentClassifier _classifier;
+    private readonly BreakbeatAnalysisStrategy? _breakbeatStrategy;
+    private readonly FourOnTheFloorAnalysisStrategy? _fourOnFloorStrategy;
 
-    public CueGenerationService(IDbContextFactory<AppDbContext> contextFactory)
+    public CueGenerationService(
+        IDbContextFactory<AppDbContext> contextFactory,
+        BreakbeatAnalysisStrategy? breakbeatStrategy = null,
+        FourOnTheFloorAnalysisStrategy? fourOnFloorStrategy = null)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _snappingEngine = new TransientAwareSnappingEngine();
         _classifier = new IntentClassifier();
+        _breakbeatStrategy = breakbeatStrategy;
+        _fourOnFloorStrategy = fourOnFloorStrategy;
     }
 
     // ── Public API ──────────────────────────────────────────────────────────
@@ -207,15 +215,19 @@ public sealed class CueGenerationService
         double bar  = 60.0 / bpm * 4;
         double beat = 60.0 / bpm;
 
-        // Genre-aware signal weighting: continuous-bassline genres (techno, tech house) rarely
-        // trigger a literal sub-bass dropout/return — the bass just keeps running — so a sub-bass
-        // return timestamp is a weaker, less-frequent signal there. Lean more on the broadband
-        // energy-jump candidate for those genres, more on sub-bass return where a real breakdown
-        // is the norm (DnB, house). Starting weights, meant to be tuned empirically against real
-        // tracks — not derived from any measured study.
-        bool continuousBassline = IsContinuousBasslineGenre(analysis.Genre);
-        float subBassWeight = continuousBassline ? 0.55f : 0.85f;
-        float energyJumpWeight = continuousBassline ? 0.80f : 0.45f;
+        // Genre-family-aware signal weighting — replaces the old single continuous-bassline
+        // boolean with per-family weights from IGenreFamilyAnalysisStrategy. Breakbeat (DnB/Jungle)
+        // leans on sub-bass; four-on-the-floor (House/Techno/Trance/EDM) leans on spectral flux,
+        // since brickwall limiting washes out raw RMS for those genres. Unrecognized genres keep
+        // today's old implicit non-continuous-bassline default (unchanged behavior).
+        var classification = GenreFamilyClassifier.Classify(analysis.Genre, (float)bpm);
+        IGenreFamilyAnalysisStrategy? strategy = classification.Family switch
+        {
+            GenreFamily.Breakbeat => (IGenreFamilyAnalysisStrategy?)_breakbeatStrategy,
+            GenreFamily.FourOnTheFloor => _fourOnFloorStrategy,
+            _ => null
+        };
+        var weights = strategy?.GetSignalWeights() ?? new DropSignalWeights(0.70f, 0.60f, 0.70f);
 
         // ── 1. Collect and score drop candidates ──────────────────────────
         // SubBassReturns are normally the strongest signal. Reinforce with flux novelty.
@@ -224,7 +236,7 @@ public sealed class CueGenerationService
         foreach (var t in analysis.SubBassReturnTimestamps)
         {
             float fluxBonus = SampleFluxAt(analysis.SpectralFluxNovelty, t, duration);
-            dropCandidates.Add((t, subBassWeight * (0.7f + 0.3f * fluxBonus)));
+            dropCandidates.Add((t, weights.SubBassWeight * (0.7f + weights.SpectralFluxWeight * 0.3f * fluxBonus)));
         }
 
         // Also consider novelty drop signatures not already covered
@@ -243,7 +255,19 @@ public sealed class CueGenerationService
         {
             bool alreadyCovered = dropCandidates.Any(d => Math.Abs(d.Time - t) < bar * 2);
             if (!alreadyCovered)
-                dropCandidates.Add((t, energyJumpWeight * 0.75f));
+                dropCandidates.Add((t, weights.EnergyJumpWeight * 0.75f));
+        }
+
+        // Family-specific drop candidates (e.g. FourOnTheFloor's structural-stripping return —
+        // the moment the kick genuinely re-enters at full force after a real breakdown).
+        if (strategy != null)
+        {
+            foreach (var (t, score) in strategy.GetFamilySpecificDropCandidates(analysis, bpm, downbeatAnchor))
+            {
+                bool alreadyCovered = dropCandidates.Any(d => Math.Abs(d.Time - t) < bar * 2);
+                if (!alreadyCovered)
+                    dropCandidates.Add((t, score));
+            }
         }
 
         // Sort by time, deduplicate within 2 bars
@@ -274,14 +298,24 @@ public sealed class CueGenerationService
         // position (within 4 bars), so an unrelated dropout elsewhere in the track can't hijack
         // the placement. This is the drop-anchored architecture: the drop is the one
         // high-confidence signal, everything else is 4/4 bar-math from it unless a real boundary
-        // confirms a nearby adjustment.
+        // confirms a nearby adjustment. Family-specific breakdown candidates (DnB's audio-derived
+        // pre-drop valley, FourOnTheFloor's structural-stripping start) are merged in alongside
+        // the generic sub-bass-dropout list so genre-family analysis can improve this too.
+        var breakdownCandidates = analysis.SubBassDropoutTimestamps;
+        if (strategy != null)
+        {
+            var familyBreakdowns = strategy.GetFamilySpecificBreakdownCandidates(analysis, bpm, downbeatAnchor);
+            if (familyBreakdowns.Count > 0)
+                breakdownCandidates = breakdownCandidates.Concat(familyBreakdowns).ToList();
+        }
+
         double brk1Default = SnapToBar(drop1Time - bar * 8, bpm, downbeatAnchor);
-        double brk1Time = NearestWithinTolerance(analysis.SubBassDropoutTimestamps, brk1Default, bar * 4, bpm, downbeatAnchor)
+        double brk1Time = NearestWithinTolerance(breakdownCandidates, brk1Default, bar * 4, bpm, downbeatAnchor)
                            ?? brk1Default;
         brk1Time = Math.Max(brk1Time, downbeatAnchor + bar * 2);
 
         double brk2Default = SnapToBar(drop1Time + bar * 16, bpm, downbeatAnchor);
-        double brk2Time = NearestWithinTolerance(analysis.SubBassDropoutTimestamps, brk2Default, bar * 4, bpm, downbeatAnchor)
+        double brk2Time = NearestWithinTolerance(breakdownCandidates, brk2Default, bar * 4, bpm, downbeatAnchor)
                            ?? brk2Default;
         if (brk2Time <= drop1Time) brk2Time = brk2Default;
         brk2Time = Math.Min(brk2Time, drop2Time - bar);
@@ -339,24 +373,28 @@ public sealed class CueGenerationService
         mixOutTime = Math.Max(mixOutTime, drop2Time + bar * 4);
 
         // ── 8. Assemble 8-slot map ────────────────────────────────────────
+        // Breakbeat-family tracks get DnBCueNamingService's pre-drop-runway breakdown labels
+        // (e.g. "Breakdown -64") instead of the generic "Breakdown"/"Breakdown 2" — same 8 slots,
+        // just more informative naming for a family where DJs plan drops on a beat countdown.
+        string brk1Label = "Breakdown";
+        string brk2Label = "Breakdown 2";
+        if (classification.Family == GenreFamily.Breakbeat)
+        {
+            brk1Label = DnBCueNamingService.GenerateCueName(CueRole.Breakdown, (float)bpm, brk1Time, nextDropTimestamp: drop1Time);
+            brk2Label = DnBCueNamingService.GenerateCueName(CueRole.Breakdown, (float)bpm, brk2Time, nextDropTimestamp: drop2Time);
+        }
+
         cues.Add(Make(trackHash, introTime,  CuePointType.Intro,     "Intro",          1.0f));
         cues.Add(Make(trackHash, mixInTime,  CuePointType.Intro,     "Mix-In",         0.85f));
-        cues.Add(Make(trackHash, brk1Time,   CuePointType.Breakdown, "Breakdown",      0.90f));
+        cues.Add(Make(trackHash, brk1Time,   CuePointType.Breakdown, brk1Label,        0.90f));
         cues.Add(Make(trackHash, drop1Time,  CuePointType.Drop,      "Drop 1",         drop1.Time > 0 ? 0.93f : 0.70f));
-        cues.Add(Make(trackHash, brk2Time,   CuePointType.Breakdown, "Breakdown 2",    0.85f));
+        cues.Add(Make(trackHash, brk2Time,   CuePointType.Breakdown, brk2Label,        0.85f));
         cues.Add(Make(trackHash, drop2Time,  CuePointType.Drop,      "Drop 2",         drop2.Time > 0 ? 0.90f : 0.65f));
         cues.Add(Make(trackHash, mixOutTime, CuePointType.Outro,     "Mix-Out",        0.88f));
         cues.Add(Make(trackHash, outroTime,  CuePointType.Outro,     "Outro",          0.92f));
 
         cues.Sort((a, b) => a.TimestampInSeconds.CompareTo(b.TimestampInSeconds));
         return cues;
-    }
-
-    private static bool IsContinuousBasslineGenre(string? genre)
-    {
-        if (string.IsNullOrWhiteSpace(genre)) return false;
-        var g = genre.ToLowerInvariant();
-        return g.Contains("techno") || g.Contains("tech house") || g.Contains("techhouse");
     }
 
     /// <summary>

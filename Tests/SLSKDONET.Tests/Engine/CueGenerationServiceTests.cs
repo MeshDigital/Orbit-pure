@@ -4,6 +4,7 @@ using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using Moq;
 using SLSKDONET.Data;
+using SLSKDONET.Data.Entities;
 using SLSKDONET.Engine.Analysis;
 using SLSKDONET.Engine.Cueing;
 using SLSKDONET.Engine.Snapping;
@@ -26,7 +27,11 @@ public class CueGenerationServiceTests
     private static CueGenerationService CreateService()
     {
         var factoryMock = new Mock<IDbContextFactory<AppDbContext>>();
-        return new CueGenerationService(factoryMock.Object);
+        var breakbeatStrategy = new BreakbeatAnalysisStrategy(
+            new SLSKDONET.Services.AudioAnalysis.DnBTransientDetectionService(
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<SLSKDONET.Services.AudioAnalysis.DnBTransientDetectionService>.Instance));
+        var fourOnFloorStrategy = new FourOnTheFloorAnalysisStrategy();
+        return new CueGenerationService(factoryMock.Object, breakbeatStrategy, fourOnFloorStrategy);
     }
 
     private const double DurationSeconds = 240.0; // 4:00
@@ -127,9 +132,17 @@ public class CueGenerationServiceTests
 
         var analysis = DspAnalysis(subBassReturnSeconds: dropTime);
         analysis.SubBassDropoutTimestamps = new List<double> { dropoutTime };
+        // Explicit non-Breakbeat genre so this test exercises SubBassDropoutTimestamps placement
+        // in isolation — this fixture's 174 BPM alone would otherwise classify as Breakbeat and
+        // pull in the resurrected DnB pre-drop-valley detector as an extra breakdown-candidate
+        // source, which (run against this fixture's synthetic sine-wave energy curve, not real
+        // audio) can coincidentally land closer to the bar-math default than the deliberately
+        // planted dropout signal this test means to isolate. FourOnTheFloor's own extra source
+        // (StructuralStrippingStartTimestamps) is unset/empty here, so it contributes nothing.
+        analysis.Genre = "House";
 
         var cues = service.GenerateCues("hash", analysis, DownbeatAnchor);
-        var breakdown = cues.First(c => c.Label == "Breakdown");
+        var breakdown = cues.Where(c => c.Type == CuePointType.Breakdown).OrderBy(c => c.TimestampInSeconds).First();
 
         Assert.InRange(breakdown.TimestampInSeconds, dropoutTime - 2, dropoutTime + 2);
     }
@@ -145,7 +158,7 @@ public class CueGenerationServiceTests
         analysis.SubBassDropoutTimestamps = new List<double> { distantDropoutTime };
 
         var cues = service.GenerateCues("hash", analysis, DownbeatAnchor);
-        var breakdown = cues.First(c => c.Label == "Breakdown");
+        var breakdown = cues.Where(c => c.Type == CuePointType.Breakdown).OrderBy(c => c.TimestampInSeconds).First();
 
         // Should fall back to the drop-anchored bar-math default (~8 bars before the drop),
         // not snap to an unrelated dropout elsewhere in the track.

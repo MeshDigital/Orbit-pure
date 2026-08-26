@@ -168,6 +168,21 @@ public class AudioFeaturesEntity
     /// </summary>
     public string NoveltyDropSignaturesJson { get; set; } = "[]";
 
+    /// <summary>
+    /// Timestamps (JSON array of seconds) where House/Techno-family "structural stripping"
+    /// begins — kick+bass transients genuinely absent (not just quiet) for a sustained period,
+    /// from StructuralStrippingEngine. Distinct from SubBassDropoutTimestampsJson: that signal
+    /// is energy-level only and can misfire on a merely-quiet section that still has a faint
+    /// periodic kick; this one requires confirmed transient absence.
+    /// </summary>
+    public string StructuralStrippingStartTimestampsJson { get; set; } = "[]";
+
+    /// <summary>
+    /// Timestamps (JSON array of seconds) where a structural-stripping breakdown ends — kick
+    /// transients resume with a confirmed onset-density spike, from StructuralStrippingEngine.
+    /// </summary>
+    public string StructuralStrippingReturnTimestampsJson { get; set; } = "[]";
+
 
     /// <summary>
     /// Intro cue point (usually 0.0 - start of track).
