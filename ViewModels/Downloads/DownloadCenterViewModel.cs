@@ -1447,6 +1447,12 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             entity.SearchRetryCount = 0;
             await db.SaveChangesAsync();
 
+            // The DB flip alone doesn't touch this track's live in-memory DownloadContext — if it
+            // was already hydrated this session (OnHold hydrates into Paused), it would otherwise
+            // sit inert until the next app restart despite the UI saying "will be retried."
+            if (!string.IsNullOrEmpty(entity.TrackUniqueHash))
+                await _downloadManager.ResumeTrackAsync(entity.TrackUniqueHash);
+
             UnfindableTracks.Remove(track);
             ShowGlobalStatus($"\"{track.DisplayName}\" will be retried.", isError: false, autoHide: true, context: "unfindable-tracks");
         }

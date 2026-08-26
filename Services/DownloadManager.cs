@@ -967,11 +967,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                 if (existingCtx != null)
                 {
-                    // Fix: Smart Retry if in a terminal/failure state
+                    // Fix: Smart Retry if in a terminal/failure state. Paused is included only
+                    // when it wasn't an explicit user pause: an OnHold track (background search
+                    // gave up) hydrates into Paused too, and without this an explicit re-queue —
+                    // "Download Missing" reviving OnHold tracks, or the Unfindable-tracks "Retry"
+                    // button — silently fell through to the skip branch below since the existing
+                    // in-memory context was never actually touched, even though the DB row and UI
+                    // both said it would be retried.
                     if (existingCtx.State == PlaylistTrackState.Failed ||
                         existingCtx.State == PlaylistTrackState.Cancelled ||
                         existingCtx.State == PlaylistTrackState.Deferred ||
-                        existingCtx.State == PlaylistTrackState.Pending)
+                        existingCtx.State == PlaylistTrackState.Pending ||
+                        (existingCtx.State == PlaylistTrackState.Paused && !existingCtx.Model.IsUserPaused))
                     {
                         _logger.LogInformation("Retrying existing track {Title} (State: {State}) - Bumping to Priority 10 (Standard)", track.Title, existingCtx.State);
 

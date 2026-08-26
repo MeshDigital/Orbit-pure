@@ -523,6 +523,27 @@ public partial class LibraryViewModel
 
             var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
             var missing = tracks.Where(t => t.Status != TrackStatus.Downloaded && t.Status != TrackStatus.OnHold).ToList();
+
+            // OnHold tracks (background search gave up after repeated attempts) are a deliberate
+            // dead end otherwise — normally the user has to find and click "Retry" on each one
+            // individually in Downloads > Attention. That's exactly what clicking "Download
+            // Missing" here is already asking for, so revive them into the same batch instead of
+            // silently excluding them: without this, the sidebar could show a playlist with real
+            // undownloaded tracks (visibly "Pending" in the track grid) while this command reports
+            // "already downloaded or queued" — true only in the narrow DB sense that OnHold isn't
+            // TrackStatus.Missing, misleading in the sense a user actually cares about.
+            var onHold = tracks.Where(t => t.Status == TrackStatus.OnHold).ToList();
+            if (onHold.Count > 0)
+            {
+                foreach (var t in onHold)
+                {
+                    t.Status = TrackStatus.Missing;
+                    t.SearchRetryCount = 0;
+                }
+                await _libraryService.SavePlaylistTracksAsync(onHold);
+                missing.AddRange(onHold);
+            }
+
             if (missing.Any())
             {
                 _notificationService.Show("Queued", $"{missing.Count} missing tracks from {project.SourceTitle} added to queue.", NotificationType.Success);
