@@ -39,7 +39,6 @@ public class AnalysisQueueService : IDisposable
     private readonly IAudioAnalysisService? _audioAnalysisService;
     private readonly AnalyzeTrackStructureJob? _analyzeTrackStructureJob;
     private readonly AudioCorruptionScannerService? _corruptionScanner;
-    private readonly CorruptFileRemediationService? _remediationService;
     private readonly IDisposable _requestSubscription;
     private readonly SemaphoreSlim _parallelismGate;
     private readonly SemaphoreSlim _dispatchSignal = new(0);
@@ -67,7 +66,6 @@ public class AnalysisQueueService : IDisposable
         IAudioAnalysisService? audioAnalysisService = null,
         AnalyzeTrackStructureJob? analyzeTrackStructureJob = null,
         AudioCorruptionScannerService? corruptionScanner = null,
-        CorruptFileRemediationService? remediationService = null,
         AppConfig? config = null)
     {
         _eventBus = eventBus;
@@ -76,7 +74,6 @@ public class AnalysisQueueService : IDisposable
         _audioAnalysisService = audioAnalysisService;
         _analyzeTrackStructureJob = analyzeTrackStructureJob;
         _corruptionScanner = corruptionScanner;
-        _remediationService = remediationService;
 
         int requested = config?.MaxConcurrentAnalyses ?? 0;
         MaxWorkers = requested > 0
@@ -243,11 +240,15 @@ public class AnalysisQueueService : IDisposable
 
             if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
             {
+                // Deliberately non-destructive: a single File.Exists() miss during ordinary
+                // analysis can be transient (a NAS/cloud-synced library path not yet mounted, a
+                // file mid-move) and previously triggered full remediation here — deleting the
+                // LibraryEntry row and wiping analysis data on every false negative. Detection
+                // stays; the actual delete/reset now only happens through the explicit "Scan
+                // Library Integrity" flow, where a human confirms it after seeing the full list.
                 var message = $"Track file not found for analysis: {evt.TrackGlobalId}";
                 _logger.LogWarning("{Message}", message);
                 PublishProgress(evt.TrackGlobalId, "File not found", 100);
-                await RemediateMissingOrCorruptAsync(evt.TrackGlobalId, filePath ?? string.Empty, isMissing: true, message)
-                    .ConfigureAwait(false);
                 _eventBus.Publish(new TrackAnalysisFailedEvent(evt.TrackGlobalId, message));
                 _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, false, message));
                 completedOrFailed = true;
@@ -275,12 +276,14 @@ public class AnalysisQueueService : IDisposable
 
                 if (corruptionStatus == Data.Entities.CorruptionStatus.Fatal)
                 {
-                    var msg = $"Corrupt file — removed from library: {corruptionDetails}";
+                    // Non-destructive here too — see the File.Exists branch above for why. A
+                    // single probe misreading a file (e.g. embedded album art/padding read as
+                    // decode errors) used to delete the file from disk on the spot; now it just
+                    // blocks analysis and leaves the file for "Scan Library Integrity" to review.
+                    var msg = $"Corrupt file detected during analysis: {corruptionDetails}";
                     _logger.LogWarning("[AnalysisQueue] {Hash} — {Msg}", evt.TrackGlobalId, msg);
-                    PublishProgress(evt.TrackGlobalId, "File corrupt — removing", 100);
+                    PublishProgress(evt.TrackGlobalId, "File corrupt", 100);
                     await UpdateTrackAnalysisStatusAsync(evt.TrackGlobalId, AnalysisStatus.Failed, msg).ConfigureAwait(false);
-                    await RemediateMissingOrCorruptAsync(evt.TrackGlobalId, filePath, isMissing: false, corruptionDetails)
-                        .ConfigureAwait(false);
                     _eventBus.Publish(new TrackAnalysisFailedEvent(evt.TrackGlobalId, msg));
                     _eventBus.Publish(new TrackAnalysisCompletedEvent(evt.TrackGlobalId, false, msg));
                     completedOrFailed = true;
@@ -404,57 +407,6 @@ public class AnalysisQueueService : IDisposable
 
         await db.SaveChangesAsync().ConfigureAwait(false);
         await tx.CommitAsync().ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Runs the same removal <see cref="CorruptFileRemediationService"/> applies from the
-    /// library-wide integrity scan, but triggered inline the moment a track fails to analyse
-    /// because its file is missing or fatally corrupt — so a track that can't be analysed doesn't
-    /// just sit there re-failing forever; it's immediately reflected as not-on-disk everywhere
-    /// (every playlist row, the library entry) and, for a corrupt (not merely missing) file,
-    /// the bad file itself is deleted so the download queue can re-acquire a good copy.
-    /// No-ops if remediation isn't wired up (optional dependency).
-    /// </summary>
-    private async Task RemediateMissingOrCorruptAsync(string trackHash, string filePath, bool isMissing, string? details)
-    {
-        if (_remediationService is null)
-            return;
-
-        try
-        {
-            string artist = string.Empty, title = string.Empty;
-            await using (var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false))
-            {
-                var entry = await db.LibraryEntries
-                    .AsNoTracking()
-                    .Where(e => e.UniqueHash == trackHash)
-                    .Select(e => new { e.Artist, e.Title })
-                    .FirstOrDefaultAsync()
-                    .ConfigureAwait(false);
-                if (entry is not null)
-                {
-                    artist = entry.Artist ?? string.Empty;
-                    title = entry.Title ?? string.Empty;
-                }
-            }
-
-            var scanEntry = new CorruptFileScanEntry(
-                Hash: trackHash,
-                FilePath: filePath,
-                Artist: artist,
-                Title: title,
-                Status: Data.Entities.CorruptionStatus.Fatal,
-                // IsMissing is derived from this exact string (see LibraryCorruptionScanService) —
-                // must match verbatim so remediation correctly skips File.Delete for it.
-                Details: isMissing ? "File not found on disk" : details);
-
-            await _remediationService.RemediateAsync(new[] { scanEntry }, cancellationToken: CancellationToken.None)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[AnalysisQueue] Auto-remediation failed for {Hash}", trackHash);
-        }
     }
 
     private void PublishProgress(string trackGlobalId, string step, int percent)
