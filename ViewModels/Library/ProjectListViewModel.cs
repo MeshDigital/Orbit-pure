@@ -105,6 +105,18 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// Multi-select companion to <see cref="SelectedTreeNode"/>, bound to the sidebar TreeView's
+    /// SelectedItems (SelectionMode="Multiple"). Additive — doesn't affect the single-select browse
+    /// behavior driven by SelectedTreeNode/SelectedProjectCard above. Used by bulk playlist actions
+    /// like "Combine into New Playlist…".
+    /// </summary>
+    public ObservableCollection<PlaylistTreeNodeViewModel> SelectedTreeNodes { get; } = new();
+
+    /// <summary>True when 2+ playlists (not folders) are present in <see cref="SelectedTreeNodes"/>.</summary>
+    public bool HasMultiplePlaylistsSelected =>
+        SelectedTreeNodes.Count(n => n is PlaylistTreeCardNodeViewModel) >= 2;
+
     private LibraryPlaylistCardViewModel? _selectedProjectCard;
     public LibraryPlaylistCardViewModel? SelectedProjectCard
     {
@@ -272,6 +284,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         DeleteFolderCommand = new AsyncRelayCommand<PlaylistTreeFolderNodeViewModel>(ExecuteDeleteFolderAsync);
 
         FilteredProjectCards.CollectionChanged += (_, _) => ScheduleRebuildTree();
+        SelectedTreeNodes.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasMultiplePlaylistsSelected));
         AllFolders.CollectionChanged += (_, _) => ScheduleRebuildTree();
 
         // Subscribe to auth changes
@@ -309,6 +322,17 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         
         // Subscribe to track state changes to update active download counts in real-time
         _disposables.Add(eventBus.GetEvent<TrackStateChangedEvent>().Subscribe(OnTrackStateChanged));
+
+        // Freshly-queued tracks only publish TrackAddedEvent/BatchTracksAddedEvent (state=Pending) —
+        // without this, the sidebar's "Syncing..." indicator stayed off until the engine actually
+        // picked the track up and transitioned its state (TrackStateChangedEvent), which can lag far
+        // behind the click if other playlists are ahead in the queue.
+        _disposables.Add(eventBus.GetEvent<TrackAddedEvent>().Subscribe(evt => RefreshActiveDownloadStats(evt.TrackModel.PlaylistId)));
+        _disposables.Add(eventBus.GetEvent<BatchTracksAddedEvent>().Subscribe(evt =>
+        {
+            foreach (var projectId in evt.Tracks.Select(t => t.Track.PlaylistId).Distinct())
+                RefreshActiveDownloadStats(projectId);
+        }));
     }
 
     public void Dispose()
@@ -336,7 +360,9 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     }
 
     
-    private void OnTrackStateChanged(TrackStateChangedEvent evt)
+    private void OnTrackStateChanged(TrackStateChangedEvent evt) => RefreshActiveDownloadStats(evt.ProjectId);
+
+    private void RefreshActiveDownloadStats(Guid projectId)
     {
         // PERFORMANCE FIX: Target specific project instead of looping through all
         Dispatcher.UIThread.InvokeAsync(() =>
@@ -346,14 +372,14 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
                 // Fix 5: Threading Race Condition Safety
                 // Ensure AllProjects isn't null or being modified by another thread (though UI thread marshaling helps)
                 if (AllProjects == null) return;
-                
+
                 // Find the specific project that changed
-                var project = AllProjects.FirstOrDefault(p => p.Id == evt.ProjectId);
+                var project = AllProjects.FirstOrDefault(p => p.Id == projectId);
                 if (project != null)
                 {
                     // Refresh ONLY the affected project's stats
                     project.RefreshStatusCounts();
-                    
+
                     // Real tracking via DownloadManager
                     project.ActiveDownloadsCount = _downloadManager.GetActiveDownloadsCountForProject(project.Id);
                     project.CurrentDownloadingTrack = _downloadManager.GetCurrentlyDownloadingTrackName(project.Id);
@@ -362,7 +388,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
             catch (Exception ex)
             {
                 // Prevent crash if collection is modified during read or other race condition
-                _logger.LogWarning(ex, "Race condition avoided in OnTrackStateChanged for project {Id}", evt.ProjectId);
+                _logger.LogWarning(ex, "Race condition avoided in RefreshActiveDownloadStats for project {Id}", projectId);
             }
         });
     }
@@ -773,11 +799,28 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             _logger.LogInformation("Syncing project: {Title} from {Url}", job.SourceTitle, job.SourceUrl);
-            
+
             var provider = _importProviders.FirstOrDefault(p => p.CanHandle(job.SourceUrl));
             if (provider == null)
             {
-                _notificationService.Show("Sync Error", "No suitable provider found for this project source.", Views.NotificationType.Error);
+                // No provider can re-fetch this source live (e.g. a pasted 1001Tracklists
+                // tracklist — there's no API to poll, only the page a human copied it from).
+                // A DJ set's tracklist on 1001Tracklists is often edited after the fact as more
+                // tracks get IDed, so the practical way to "sync" is: open the page, let the user
+                // copy the current version, and paste it back in — Import's existing duplicate
+                // detection will offer to merge it into this same playlist, adding only what's
+                // new (see ImportPreviewViewModel.IsMergeMode).
+                if (TryOpenSourceUrl(job.SourceUrl))
+                {
+                    _notificationService.Show(
+                        "Can't Auto-Sync This Source",
+                        $"Opened the source page for '{job.SourceTitle}'. Copy the current tracklist and paste it into Import — it'll offer to merge into this playlist, adding only the new tracks.",
+                        Views.NotificationType.Information);
+                }
+                else
+                {
+                    _notificationService.Show("Sync Error", "No suitable provider found for this project source, and the source page couldn't be opened.", Views.NotificationType.Error);
+                }
                 return;
             }
 
@@ -795,14 +838,23 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     {
         if (job == null || string.IsNullOrWhiteSpace(job.SourceUrl)) return;
 
+        if (!TryOpenSourceUrl(job.SourceUrl))
+        {
+            _notificationService.Show("Open Link Error", "Could not open the source link.", Views.NotificationType.Error);
+        }
+    }
+
+    private bool TryOpenSourceUrl(string url)
+    {
         try
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(job.SourceUrl) { UseShellExecute = true });
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+            return true;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to open source URL {Url}", job.SourceUrl);
-            _notificationService.Show("Open Link Error", $"Could not open link: {ex.Message}", Views.NotificationType.Error);
+            _logger.LogWarning(ex, "Failed to open source URL {Url}", url);
+            return false;
         }
     }
 
