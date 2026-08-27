@@ -239,8 +239,38 @@ namespace SLSKDONET.Views.Avalonia
             }
         }
 
+        private bool _hasShownTrayHintThisSession;
+
         private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            // Closing the window (X button, Alt+F4, taskbar close) hides to the tray instead of
+            // exiting, so the download engine keeps running unattended in the background — the
+            // tray icon already had Show/Hide/Exit as if this were the design, it just wasn't
+            // wired up. Only an explicit "Exit" from the tray menu actually shuts the app down.
+            if (App.Current is App exitCheckApp && !exitCheckApp.IsExitRequested)
+            {
+                e.Cancel = true;
+                Hide();
+
+                if (!_hasShownTrayHintThisSession)
+                {
+                    _hasShownTrayHintThisSession = true;
+                    try
+                    {
+                        if (exitCheckApp.Services?.GetService(typeof(SLSKDONET.Services.WindowsToastService))
+                            is SLSKDONET.Services.WindowsToastService toastService)
+                        {
+                            toastService.ShowIfUnfocused(
+                                "ORBIT is still running",
+                                "Downloads continue in the background. Right-click the tray icon to reopen or exit.");
+                        }
+                    }
+                    catch { /* Toast is a courtesy hint, never worth failing the close over. */ }
+                }
+
+                return;
+            }
+
             // Save window state
             if (App.Current is App app && app.Services != null)
             {
