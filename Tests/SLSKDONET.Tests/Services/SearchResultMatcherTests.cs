@@ -110,6 +110,32 @@ public class SearchResultMatcherTests
     }
 
     [Fact]
+    public void CalculateScore_ShouldNotHardRejectWhenCanonicalDurationIsZero()
+    {
+        // Regression test: found live via the search audit log — "Enei - Sinking Vip" had
+        // CanonicalDuration=0 in the DB (never-downloaded track, no duration data yet), and every
+        // real, correctly-named FLAC candidate (345s actual) was hard-rejected as "Duration:
+        // Outside tolerance (expected 0s...)" because a stored 0 was treated as a real duration
+        // instead of "unknown". A zero CanonicalDuration must behave the same as a null one: don't
+        // score or gate on duration at all, but still let a correct artist/title match through.
+        var model = new PlaylistTrack { Artist = "Enei", Title = "Sinking Vip", CanonicalDuration = 0 };
+        var candidate = new Track
+        {
+            Length = 345,
+            Bitrate = 1025,
+            Filename = "Enei - Sinking VIP.flac",
+            Format = "flac",
+            PathSegments = new List<string> { "Enei", "Enei - Sinking VIP" }
+        };
+
+        var result = _matcher.CalculateMatchResult(model, candidate);
+
+        Assert.NotEqual("Duration Rejected", result.ShortReason);
+        // Artist: 30, Title: 20, Format: FLAC priority, Bitrate bonus -> comfortably above the 70 acceptance bar.
+        Assert.True(result.Score >= 70, $"Score should not be hard-rejected on a zero/unknown CanonicalDuration. Actual: {result.Score}. Breakdown: {result.ScoreBreakdown}");
+    }
+
+    [Fact]
     public void CalculateMatchResult_ShouldHardRejectDurationOutsideTolerance()
     {
         var model = new PlaylistTrack { Artist = "Artist", Title = "Title", CanonicalDuration = 200000 };
