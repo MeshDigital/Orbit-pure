@@ -317,7 +317,16 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     public string? GlobalStatusMessage
     {
         get => _globalStatusMessage;
-        set => this.RaiseAndSetIfChanged(ref _globalStatusMessage, value);
+        set
+        {
+            var changed = _globalStatusMessage != value;
+            this.RaiseAndSetIfChanged(ref _globalStatusMessage, value);
+            if (changed)
+            {
+                this.RaisePropertyChanged(nameof(IsGlobalStatusInfoVisible));
+                this.RaisePropertyChanged(nameof(IsGlobalStatusErrorVisible));
+            }
+        }
     }
 
     private bool _isGlobalStatusVisible;
@@ -348,8 +357,13 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         }
     }
 
-    public bool IsGlobalStatusInfoVisible => IsGlobalStatusVisible && !IsGlobalStatusError;
-    public bool IsGlobalStatusErrorVisible => IsGlobalStatusVisible && IsGlobalStatusError;
+    // Requiring a non-empty message here (not just IsGlobalStatusVisible) is deliberately
+    // redundant with ShowGlobalStatus/ApplyGlobalStatusEvent already guarding against blank
+    // messages — reported live as a red error banner rendering with nothing in it "often." Belt
+    // and suspenders: whichever future call site turns out to violate that invariant, the banner
+    // itself can no longer render empty.
+    public bool IsGlobalStatusInfoVisible => IsGlobalStatusVisible && !IsGlobalStatusError && !string.IsNullOrWhiteSpace(GlobalStatusMessage);
+    public bool IsGlobalStatusErrorVisible => IsGlobalStatusVisible && IsGlobalStatusError && !string.IsNullOrWhiteSpace(GlobalStatusMessage);
 
     private bool _showEngineLogs;
     public bool ShowEngineLogs
