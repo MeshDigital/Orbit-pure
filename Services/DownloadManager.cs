@@ -3592,58 +3592,77 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         // rather than open a second simultaneous connection (which often causes queue rejection).
         var peerGate = GetOrCreatePeerGate(bestMatch.Username!);
         await peerGate.WaitAsync(ct);
-        bool success;
+        bool success = false;
+        // We already found and vetted this peer — a single dropped/cancelled transfer doesn't mean
+        // they're bad, it's often just a transient hiccup. Give the SAME peer a couple of immediate
+        // shots before falling back to a full fresh search for a different one (which costs a real
+        // search window, not just a couple of seconds).
+        const int maxSameUserAttempts = 3;
         try
         {
-            try
+            for (var attempt = 1; attempt <= maxSameUserAttempts; attempt++)
             {
-                success = await _soulseek.DownloadAsync(
-                    bestMatch.Username!,
-                    bestMatch.Filename!,
-                    partPath,          // Download to .part file
-                    bestMatch.Size,
-                    progress,
-                    lifecycleUpdate: update =>
-                    {
-                        switch (update.Phase)
+                try
+                {
+                    success = await _soulseek.DownloadAsync(
+                        bestMatch.Username!,
+                        bestMatch.Filename!,
+                        partPath,          // Download to .part file
+                        bestMatch.Size,
+                        progress,
+                        lifecycleUpdate: update =>
                         {
-                            case TransferLifecyclePhase.RemoteQueued:
-                                // Track when we entered the peer's queue for Queue Velocity monitoring.
-                                // Only set once — QueueEnteredAt should not reset on repeated Queued events.
-                                if (!ctx.QueueEnteredAt.HasValue)
-                                {
-                                    ctx.QueueEnteredAt = DateTime.UtcNow;
+                            switch (update.Phase)
+                            {
+                                case TransferLifecyclePhase.RemoteQueued:
+                                    // Track when we entered the peer's queue for Queue Velocity monitoring.
+                                    // Only set once — QueueEnteredAt should not reset on repeated Queued events.
+                                    if (!ctx.QueueEnteredAt.HasValue)
+                                    {
+                                        ctx.QueueEnteredAt = DateTime.UtcNow;
+                                        ctx.QueuePositionLastUpdated = DateTime.UtcNow;
+                                    }
+                                    _ = UpdateStateAsync(ctx, PlaylistTrackState.Queued, update.Detail ?? "Queued remotely by peer");
+                                    _eventBus.Publish(new Events.TrackDetailedStatusEvent(
+                                        ctx.GlobalId,
+                                        $"⏳ Remote queue: {bestMatch.Username} is holding the transfer in queue.",
+                                        false,
+                                        ctx.CorrelationId));
+                                    break;
+                                case TransferLifecyclePhase.QueuePositionUpdate:
+                                    // Position improved — update the velocity clock and push to UI.
+                                    ctx.CurrentQueuePosition = update.QueuePosition ?? ctx.CurrentQueuePosition;
                                     ctx.QueuePositionLastUpdated = DateTime.UtcNow;
-                                }
-                                _ = UpdateStateAsync(ctx, PlaylistTrackState.Queued, update.Detail ?? "Queued remotely by peer");
-                                _eventBus.Publish(new Events.TrackDetailedStatusEvent(
-                                    ctx.GlobalId,
-                                    $"⏳ Remote queue: {bestMatch.Username} is holding the transfer in queue.",
-                                    false,
-                                    ctx.CorrelationId));
-                                break;
-                            case TransferLifecyclePhase.QueuePositionUpdate:
-                                // Position improved — update the velocity clock and push to UI.
-                                ctx.CurrentQueuePosition = update.QueuePosition ?? ctx.CurrentQueuePosition;
-                                ctx.QueuePositionLastUpdated = DateTime.UtcNow;
-                                _logger.LogDebug("📋 Queue position update: {Artist} - {Title} → #{Position} (peer: {Peer})",
-                                    ctx.Model.Artist, ctx.Model.Title, ctx.CurrentQueuePosition, bestMatch.Username);
-                                _eventBus.Publish(new TrackQueuePositionUpdatedEvent(
-                                    ctx.GlobalId, ctx.CurrentQueuePosition, bestMatch.Username));
-                                break;
-                            case TransferLifecyclePhase.Transferring:
-                                ctx.CurrentQueuePosition = 0; // We're no longer in queue
-                                _ = UpdateStateAsync(ctx, PlaylistTrackState.Downloading, update.Detail);
-                                break;
-                        }
-                    },
-                    ct: stallMonitorCts.Token,
-                    startOffset: startPosition      // Resume from existing bytes
-                );
-            }
-            catch (OperationCanceledException) when (stalledByMonitor)
-            {
-                throw new TimeoutException($"Local stall monitor triggered ({_config.StallTimeoutSeconds}s with no throughput). Dropping peer.");
+                                    _logger.LogDebug("📋 Queue position update: {Artist} - {Title} → #{Position} (peer: {Peer})",
+                                        ctx.Model.Artist, ctx.Model.Title, ctx.CurrentQueuePosition, bestMatch.Username);
+                                    _eventBus.Publish(new TrackQueuePositionUpdatedEvent(
+                                        ctx.GlobalId, ctx.CurrentQueuePosition, bestMatch.Username));
+                                    break;
+                                case TransferLifecyclePhase.Transferring:
+                                    ctx.CurrentQueuePosition = 0; // We're no longer in queue
+                                    _ = UpdateStateAsync(ctx, PlaylistTrackState.Downloading, update.Detail);
+                                    break;
+                            }
+                        },
+                        ct: stallMonitorCts.Token,
+                        startOffset: startPosition      // Resume from existing bytes
+                    );
+                }
+                catch (OperationCanceledException) when (stalledByMonitor)
+                {
+                    // A real stall (no throughput for the configured timeout) is a different,
+                    // already-handled scenario (see the Stall-detection retry path) — don't retry
+                    // it here as if it were a quick same-peer hiccup.
+                    throw new TimeoutException($"Local stall monitor triggered ({_config.StallTimeoutSeconds}s with no throughput). Dropping peer.");
+                }
+
+                if (success || attempt == maxSameUserAttempts)
+                {
+                    break;
+                }
+
+                _auditLogger.Log(ctx.GlobalId, $"⚠️ Transfer attempt {attempt}/{maxSameUserAttempts} failed from {bestMatch.Username} — retrying the same peer immediately.", isError: true);
+                await Task.Delay(TimeSpan.FromSeconds(2), ct);
             }
         }
         finally
@@ -3824,7 +3843,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
             if (ctx.Model.SearchRetryCount < _config.MaxSearchAttempts)
             {
-                _auditLogger.Log(ctx.GlobalId, $"❌ Transfer failed from user {bestMatch.Username}. Retrying with a different peer (#{ctx.Model.SearchRetryCount}/{_config.MaxSearchAttempts}).", isError: true);
+                _auditLogger.Log(ctx.GlobalId, $"❌ Transfer failed from user {bestMatch.Username} after {maxSameUserAttempts} same-peer attempts. Retrying with a different peer (#{ctx.Model.SearchRetryCount}/{_config.MaxSearchAttempts}).", isError: true);
 
                 ctx.Model.Priority = 20; // Low-priority lane for retries, same convention as a search-miss retry
                 ctx.NextRetryTime = DateTime.UtcNow.AddSeconds(15); // Minimum gap, same as a stall retry
