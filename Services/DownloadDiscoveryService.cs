@@ -141,9 +141,15 @@ public class DownloadDiscoveryService
             }
         }
 
-        // Global discovery timeout: if all tiers combined take > 90s, abort cleanly.
+        // Global discovery timeout: if all tiers combined take > 90s, abort cleanly. Not every peer
+        // is on the same continent — a query needs real time to propagate and for a distant/slower
+        // peer to respond before this cascade gives up and calls it "not found". Previously 45s
+        // (itself reduced from an original 120s for perceived slowness), which left barely enough
+        // room for all 3 tiers to each get a fair search window; confirmed live via a same-day
+        // failure scan that several "Aggressive" tier searches were being cut off by this cap
+        // before they'd had time to hear back from the network at all.
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(45)); // Global discovery timeout: 45s (was 120s causing slowness)
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(90));
         var timedCt = timeoutCts.Token;
 
         var tiers = _autoCleaner.Clean($"{track.Artist} - {track.Title}");

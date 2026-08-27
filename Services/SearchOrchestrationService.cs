@@ -411,16 +411,21 @@ public class SearchOrchestrationService
                                    formatFilter.Any(IsLosslessFormat) &&
                                    !formatFilter.Contains("mp3", StringComparer.OrdinalIgnoreCase);
 
+        // Upper bounds raised from 20 to 30: with SearchTimeout now 20s (was 12s) to give distant/
+        // slower peers real time to answer, the non-desperate lane's floor (searchTimeoutSeconds +
+        // 2) could already reach 22 — above the old 20 cap, which made Math.Clamp throw outright.
+        // AccumulatorShortCircuit still exits early the moment a good candidate arrives, so this
+        // only extends the worst-case wait for genuinely scarce tracks, not the common case.
         var brainBufferSeconds = lane == SearchQueryLane.Desperate
-            ? Math.Clamp(_config.SearchAccumulatorWindowSeconds, 5, 20)  // was 30 cap — AccumulatorShortCircuit exits early for good tracks
-            : Math.Clamp(_config.MinSearchDurationSeconds, searchTimeoutSeconds + 2, 20); // was +4/30 — +2s overhead is sufficient; AccumulatorShortCircuit handles fast exits
+            ? Math.Clamp(_config.SearchAccumulatorWindowSeconds, 5, 30)
+            : Math.Clamp(_config.MinSearchDurationSeconds, searchTimeoutSeconds + 2, 30);
 
         if (isLosslessOnlyIntent)
         {
             brainBufferSeconds = Math.Clamp(
                 Math.Max(brainBufferSeconds, _config.MinLosslessSearchDurationSeconds),
-                10,  // was 20 — AccumulatorShortCircuit handles immediate golden exits; 10s fallback for sparse tracks
-                20); // was 30 — tighter cap reduces worst-case latency for truly obscure tracks
+                10,
+                30);
         }
 
         var brainWinnerCount = lane == SearchQueryLane.Desperate
