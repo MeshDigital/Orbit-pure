@@ -3805,9 +3805,39 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }
         else
         {
-            _auditLogger.Log(ctx.GlobalId, $"❌ Download failed: Transfer failed from user {bestMatch.Username}", isError: true);
-            await UpdateStateAsync(ctx, PlaylistTrackState.Failed, 
-                DownloadFailureReason.TransferFailed);
+            // A peer-side transfer failure (disconnected, cancelled, network hiccup) went straight
+            // to a terminal Failed with zero retry — unlike every other failure path in this file
+            // (a search miss gets MaxSearchAttempts in-session retries, a stall blacklists the peer
+            // and requeues), a single flaky peer permanently doomed a track that a fresh search for
+            // a different peer would very plausibly have fixed. Applies the same retry-budget
+            // pattern used for search misses: blacklist this peer, back-of-queue retry, terminal
+            // Failed only once that budget is exhausted.
+            if (!string.IsNullOrEmpty(bestMatch.Username))
+            {
+                lock (ctx.BlacklistedUsers)
+                {
+                    ctx.BlacklistedUsers.Add(bestMatch.Username);
+                }
+            }
+
+            ctx.Model.SearchRetryCount++;
+
+            if (ctx.Model.SearchRetryCount < _config.MaxSearchAttempts)
+            {
+                _auditLogger.Log(ctx.GlobalId, $"❌ Transfer failed from user {bestMatch.Username}. Retrying with a different peer (#{ctx.Model.SearchRetryCount}/{_config.MaxSearchAttempts}).", isError: true);
+
+                ctx.Model.Priority = 20; // Low-priority lane for retries, same convention as a search-miss retry
+                ctx.NextRetryTime = DateTime.UtcNow.AddSeconds(15); // Minimum gap, same as a stall retry
+
+                await UpdateStateAsync(ctx, PlaylistTrackState.Pending,
+                    $"Transfer failed from {bestMatch.Username} — retrying with a different peer (#{ctx.Model.SearchRetryCount}/{_config.MaxSearchAttempts})");
+            }
+            else
+            {
+                _auditLogger.Log(ctx.GlobalId, $"❌ Download failed: Transfer failed from user {bestMatch.Username}. Exhausted {_config.MaxSearchAttempts} retries.", isError: true);
+                await UpdateStateAsync(ctx, PlaylistTrackState.Failed,
+                    DownloadFailureReason.TransferFailed);
+            }
         }
     }
 
