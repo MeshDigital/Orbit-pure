@@ -238,7 +238,7 @@
     <!-- System Tray Icon -->
     <TrayIcon.Icons>
         <TrayIcons>
-            <TrayIcon ToolTipText="ORBIT - Soulseek Music Downloader">
+            <TrayIcon ToolTipText="ORBIT - Soulseek Music Downloader" Icon="avares://ORBIT/tray_icon.png">
                 <TrayIcon.Menu>
                     <NativeMenu>
                         <NativeMenuItem Header="Show Window" Click="ShowWindow_Click"/>
