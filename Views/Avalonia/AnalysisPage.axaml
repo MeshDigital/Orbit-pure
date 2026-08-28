@@ -287,7 +287,7 @@
                             CornerRadius="6"
                             IsVisible="{Binding HasIncompleteAnalysisTracks}">
                         <StackPanel Spacing="8">
-                            <Grid ColumnDefinitions="*,Auto">
+                            <Grid ColumnDefinitions="*,Auto,Auto">
                                 <TextBlock Grid.Column="0"
                                            Text="{Binding IncompleteAnalysisSummary}"
                                            FontSize="11"
@@ -295,6 +295,13 @@
                                            TextWrapping="Wrap"
                                            VerticalAlignment="Center"/>
                                 <Button Grid.Column="1"
+                                        Classes="secondary"
+                                        Content="🗑 Fix All Corrupt"
+                                        IsVisible="{Binding HasIncompleteCorruptTracks}"
+                                        Command="{Binding RemediateAllIncompleteCorruptCommand}"
+                                        Margin="0,0,8,0"
+                                        ToolTip.Tip="Delete every corrupt file flagged below and reset it to Missing so the download queue re-acquires a clean copy"/>
+                                <Button Grid.Column="2"
                                         Classes="secondary"
                                         Content="↺ Reanalyze All Incomplete"
                                         Command="{Binding ReanalyzeAllIncompleteCommand}"
@@ -304,7 +311,7 @@
                             <ItemsControl ItemsSource="{Binding IncompleteAnalysisTracks}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,2">
+                                        <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,2">
                                             <TextBlock Grid.Column="0"
                                                        Foreground="{DynamicResource BrushText1}"
                                                        FontSize="10"
@@ -317,6 +324,16 @@
                                                        Foreground="{Binding IsLikelyCorruptFile, Converter={StaticResource BooleanToRedBrushConverter}}"
                                                        FontSize="10"
                                                        Text="{Binding IncompleteAnalysisSummary}"/>
+                                            <Button Grid.Column="2"
+                                                    Classes="secondary"
+                                                    Content="🗑 Fix"
+                                                    FontSize="10"
+                                                    Padding="6,2"
+                                                    Margin="6,0,0,0"
+                                                    IsVisible="{Binding IsLikelyCorruptFile}"
+                                                    Command="{Binding $parent[UserControl].DataContext.RemediateTrackCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip.Tip="Delete this corrupt file and reset it to Missing so the download queue re-acquires a clean copy"/>
                                         </Grid>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
