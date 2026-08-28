@@ -489,7 +489,16 @@ public class ImportOrchestrator
         {
              // Only reset IsLoading if not cancelled — cancellation means the ViewModel may have been reset already
              if (!ct.IsCancellationRequested)
-                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => _previewViewModel.IsLoading = false);
+             {
+                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                 {
+                     _previewViewModel.IsLoading = false;
+                     // Clear, distinct "done" message — the per-batch "Loading tracks… (N so
+                     // far)" message would otherwise just freeze at whatever count the last batch
+                     // reported, giving no positive confirmation the import actually finished.
+                     _previewViewModel.StatusMessage = $"Loaded {_previewViewModel.ImportedTracks.Count} track(s) — ready to import.";
+                 });
+             }
         }
     }
 

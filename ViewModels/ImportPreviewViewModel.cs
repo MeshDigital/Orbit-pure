@@ -540,8 +540,14 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
                  }
              }
 
-             StatusMessage = $"Loaded {ImportedTracks.Count} tracks...";
-             IsLoading = false; 
+             // IsLoading is NOT cleared here — this runs once per streamed batch (Spotify
+             // playlists page in, e.g., chunks of ~100), not once per import. Confirmed live:
+             // clearing it here hid the loading spinner and re-enabled "Add to Library"/"Merge"
+             // after just the first batch, while a large playlist (~1800 tracks) was still
+             // streaming in the background — nothing stopped the user from committing an
+             // incomplete import. Only ImportOrchestrator.StreamPreviewAsync's own finally block,
+             // which runs once the whole await-foreach loop is exhausted, clears it now.
+             StatusMessage = $"Loading tracks… ({ImportedTracks.Count} so far)";
              UpdateSelectedCount();
          });
 
