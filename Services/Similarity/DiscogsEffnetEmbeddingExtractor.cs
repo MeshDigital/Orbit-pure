@@ -54,6 +54,17 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
     private string? _modelTag;
     private bool _disposed;
 
+    // This extractor is registered as a DI singleton — one shared InferenceSession for the whole
+    // app — but the analysis pipeline batches many tracks concurrently (confirmed live: ~15
+    // tracks starting analysis within the same second). Calling Run() on the same session from
+    // multiple threads at once, under the DirectML (GPU) execution provider, crashed the entire
+    // process with a native-level failure that no managed try/catch could intercept (confirmed:
+    // the .NET Runtime crash report had no "Exception Info:" line — the signature of a non-CLR
+    // exception, not something List<Catch> could ever have stopped). Serializing access to Run()
+    // is the actual fix; the earlier try/catch around it stays as defense for genuine managed
+    // ONNX exceptions (bad input shape, etc.), which this doesn't replace.
+    private readonly SemaphoreSlim _inferenceLock = new(1, 1);
+
     public DiscogsEffnetEmbeddingExtractor(
         ILogger<DiscogsEffnetEmbeddingExtractor> logger,
         string? modelPath = null)
@@ -166,7 +177,20 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
             // InferenceSession's real InputMetadata/OutputMetadata rather than trusting the JSON.
             var inputs = new[] { NamedOnnxValue.CreateFromTensor("melspectrogram", tensor) };
 
-            using var results = _session!.Run(inputs);
+            // Serialize the actual native call — see _inferenceLock's doc comment. Everything
+            // else in this method (patch extraction, tensor building, output aggregation) is
+            // ordinary managed code and stays fully concurrent across tracks.
+            _inferenceLock.Wait(ct);
+            IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results;
+            try
+            {
+                results = _session!.Run(inputs);
+            }
+            finally
+            {
+                _inferenceLock.Release();
+            }
+            using var _ = results;
             ct.ThrowIfCancellationRequested();
 
             var predictionsTensor = results.First(r => r.Name == "activations").AsTensor<float>();
@@ -249,5 +273,6 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
         if (_disposed) return;
         _disposed = true;
         _session?.Dispose();
+        _inferenceLock.Dispose();
     }
 }
