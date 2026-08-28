@@ -257,7 +257,19 @@
                                       SelectedItem="{Binding Projects.SelectedTreeNode, Mode=TwoWay}"
                                       SelectionMode="Multiple"
                                       SelectedItems="{Binding Projects.SelectedTreeNodes}"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                       Background="Transparent" BorderThickness="0" Padding="0,4">
+                                <!-- HorizontalScrollBarVisibility="Disabled" above: TreeView's own
+                                     internal ScrollViewer defaults to horizontal scrolling available,
+                                     which — combined with the plain StackPanel items panel below —
+                                     measures each row at its own natural desired width instead of the
+                                     viewport's actual width. A long playlist title could legitimately
+                                     make a row wider than the visible pane, pushing the play/download/
+                                     sync icons on the right out past the edge until scrolled into view.
+                                     Disabling horizontal scroll forces rows to be measured against the
+                                     real available width, so CompactPlaylistTemplate's title
+                                     TextTrimming kicks in and the action icons — a fixed-width Auto
+                                     column — are always inside the visible bounds. -->
                                 <!-- Non-virtualizing items panel: the default VirtualizingStackPanel
                                      recycles/measures row containers keyed off item changes, not off
                                      the column's own width changing — dragging the nav-panel splitter
