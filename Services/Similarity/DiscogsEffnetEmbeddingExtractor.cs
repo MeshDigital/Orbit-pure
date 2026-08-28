@@ -140,33 +140,52 @@ public sealed class DiscogsEffnetEmbeddingExtractor : IDisposable
             return null;
         }
 
-        // Batch every patch into one inference call: input shape [patchCount, 128, 96].
-        var tensor = new DenseTensor<float>(new[]
+        // Confirmed live: an ONNX Runtime failure here (malformed input from a corrupt source
+        // file, a DirectML/native error under heavy concurrent analysis load, etc.) was
+        // completely unhandled — it escaped this Task.Run and crashed the entire app process
+        // (.NET Runtime error 1026, "process was terminated due to an unhandled exception",
+        // right at InferenceSession.Run). One track's embedding extraction failing must never be
+        // able to take down the whole app — treat it the same as "audio too short": log and skip
+        // this track's embedding rather than let the exception escape.
+        try
         {
-            patches.Count,
-            EffnetMelSpectrogramExtractor.PatchFrames,
-            EffnetMelSpectrogramExtractor.MelBands,
-        });
+            // Batch every patch into one inference call: input shape [patchCount, 128, 96].
+            var tensor = new DenseTensor<float>(new[]
+            {
+                patches.Count,
+                EffnetMelSpectrogramExtractor.PatchFrames,
+                EffnetMelSpectrogramExtractor.MelBands,
+            });
 
-        for (int p = 0; p < patches.Count; p++)
-            patches[p].AsSpan().CopyTo(tensor.Buffer.Span.Slice(p * patches[p].Length, patches[p].Length));
+            for (int p = 0; p < patches.Count; p++)
+                patches[p].AsSpan().CopyTo(tensor.Buffer.Span.Slice(p * patches[p].Length, patches[p].Length));
 
-        // Note: the model's published JSON metadata documents these as "serving_default_melspectrogram" /
-        // "PartitionedCall:0" / "PartitionedCall:1" (the original TensorFlow graph's node names) — the
-        // actual ONNX export renames them to these simpler names, confirmed directly against the loaded
-        // InferenceSession's real InputMetadata/OutputMetadata rather than trusting the JSON.
-        var inputs = new[] { NamedOnnxValue.CreateFromTensor("melspectrogram", tensor) };
+            // Note: the model's published JSON metadata documents these as "serving_default_melspectrogram" /
+            // "PartitionedCall:0" / "PartitionedCall:1" (the original TensorFlow graph's node names) — the
+            // actual ONNX export renames them to these simpler names, confirmed directly against the loaded
+            // InferenceSession's real InputMetadata/OutputMetadata rather than trusting the JSON.
+            var inputs = new[] { NamedOnnxValue.CreateFromTensor("melspectrogram", tensor) };
 
-        using var results = _session!.Run(inputs);
-        ct.ThrowIfCancellationRequested();
+            using var results = _session!.Run(inputs);
+            ct.ThrowIfCancellationRequested();
 
-        var predictionsTensor = results.First(r => r.Name == "activations").AsTensor<float>();
-        var embeddingTensor   = results.First(r => r.Name == "embeddings").AsTensor<float>();
+            var predictionsTensor = results.First(r => r.Name == "activations").AsTensor<float>();
+            var embeddingTensor   = results.First(r => r.Name == "embeddings").AsTensor<float>();
 
-        var embedding    = MeanAcrossPatches(embeddingTensor, patches.Count, EmbeddingDimension);
-        var predictions  = MeanAcrossPatches(predictionsTensor, patches.Count, StyleClassCount);
+            var embedding    = MeanAcrossPatches(embeddingTensor, patches.Count, EmbeddingDimension);
+            var predictions  = MeanAcrossPatches(predictionsTensor, patches.Count, StyleClassCount);
 
-        return (embedding, predictions);
+            return (embedding, predictions);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[EmbeddingExtractor] ONNX inference failed — skipping embedding for this track");
+            return null;
+        }
     }
 
     private static float[] MeanAcrossPatches(Tensor<float> tensor, int patchCount, int dim)
