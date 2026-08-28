@@ -711,7 +711,10 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     {
         TrackLoadError = null;
 
-        if (track != null && track.AvailabilityState == TrackAvailabilityState.Ghost)
+        // Status=Downloaded overrides a stale/drifted Ghost — see PlaylistTrackViewModel.IsGhost.
+        // Without this, a track whose file genuinely exists and plays fine got refused here and
+        // silently re-queued for a pointless re-download instead of just loading it.
+        if (track != null && track.AvailabilityState == TrackAvailabilityState.Ghost && track.Status != TrackStatus.Downloaded)
         {
             if (App.Current is App app && app.Services != null)
             {

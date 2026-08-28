@@ -995,7 +995,16 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     // Reference to the underlying model if needed for persistence later
     public PlaylistTrack Model { get; private set; }
 
-    public bool IsGhost => Model.AvailabilityState == SLSKDONET.Models.TrackAvailabilityState.Ghost;
+    // Status=Downloaded is a stronger, more consistently-maintained signal than AvailabilityState
+    // that a track's file is actually on disk. Confirmed live, repeatedly, across several separate
+    // write paths (fast "already exists" completion paths, the reconciliation scan, the normal
+    // download-completion path under a race) that AvailabilityState can drift back to/stay at
+    // Ghost even for a Status=Downloaded row whose file plays fine — each one an independent bug
+    // rather than a single root cause, so instead of chasing every future write path that could
+    // leave the two fields disagreeing, the "FILE MISSING" badge itself no longer trusts
+    // AvailabilityState alone when Status already says the file was successfully downloaded.
+    public bool IsGhost => Model.AvailabilityState == SLSKDONET.Models.TrackAvailabilityState.Ghost
+        && Model.Status != SLSKDONET.Models.TrackStatus.Downloaded;
 
     /// <summary>
     /// True only for the shared <see cref="Placeholder"/> instance returned by

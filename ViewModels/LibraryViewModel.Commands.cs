@@ -597,7 +597,11 @@ public partial class LibraryViewModel
         if (param is PlaylistJob project)
         {
             var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
-            var ghostTracks = tracks.Where(t => t.AvailabilityState == TrackAvailabilityState.Ghost).ToList();
+            // Status=Downloaded overrides a stale/drifted Ghost — see PlaylistTrackViewModel.IsGhost.
+            // Without this, a track already downloaded (file exists, plays fine) but stuck showing
+            // Ghost got its Status reset back to Missing here — an actively destructive side effect
+            // of the drift bug, not just a cosmetic badge issue.
+            var ghostTracks = tracks.Where(t => t.AvailabilityState == TrackAvailabilityState.Ghost && t.Status != TrackStatus.Downloaded).ToList();
             if (ghostTracks.Any())
             {
                 _notificationService.Show("Acquiring Missing Tracks", $"Starting acquisition for {ghostTracks.Count} tracks from {project.SourceTitle}...", NotificationType.Information);
