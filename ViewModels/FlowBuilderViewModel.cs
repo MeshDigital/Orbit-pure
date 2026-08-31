@@ -608,6 +608,14 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     /// hash), auto-orders the result with the same optimizer <see cref="LoadSelectedPlaylistAsync"/>
     /// uses, and stages the chosen name so <see cref="SaveOrderToPlaylistAsync"/> creates a brand
     /// new playlist on Save instead of writing back into one of the sources.
+    ///
+    /// Deliberately uses PlaylistOptimizer, not PlaylistIntelligenceService.ReorderAsync (the
+    /// engine Suggest Flow/Auto-Arrange use): ReorderAsync silently drops any track with no stored
+    /// fingerprint from its output entirely, with no fallback bucket or count. PlaylistOptimizer
+    /// explicitly buckets and appends unanalyzed tracks, which the status text below already
+    /// depends on. Switching engines correctly is real parity work (see
+    /// <see cref="ApplySuggestedFlowAsync"/> for the hash-recovery pattern it would need), not a
+    /// drive-by change.
     /// </summary>
     private async Task CombinePlaylistsAsync(IReadOnlyList<PlaylistJob>? preSelected = null)
     {
