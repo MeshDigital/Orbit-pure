@@ -1673,7 +1673,6 @@ The three retired standalone pages have been relocated to `Views/Avalonia/Legacy
 | File | Purpose |
 |---|---|
 | `Views/Avalonia/Controls/SparklineControl.cs` | Lightweight Avalonia `Control` that renders a normalised float array as a filled sparkline polyline. Used by Flow Builder track cards (`EnergyCurvePoints`). |
-| `Views/Avalonia/Controls/PlaylistMergeDialog.axaml/.cs` | Dialog for merging two playlists with conflict-resolution options. |
 
 ---
 
