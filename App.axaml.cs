@@ -814,6 +814,7 @@ public partial class App : Application
             new Services.AutoDownload.GhostAcquisitionOrchestrator(
                 sp.GetRequiredService<IDbContextFactory<AppDbContext>>(),
                 sp.GetRequiredService<AutoSearchService>(),
+                sp.GetRequiredService<DownloadDiscoveryService>(),
                 sp.GetRequiredService<SearchResultMatcher>(),
                 sp.GetRequiredService<DownloadManager>(),
                 sp.GetRequiredService<ILibraryService>(),

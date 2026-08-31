@@ -16,15 +16,23 @@ namespace SLSKDONET.Services.AutoDownload;
 
 /// <summary>
 /// Background service that scans the database for tracks not yet downloaded (Missing, Failed,
-/// or OnHold), searches Soulseek via AutoSearchService, validates with SearchResultMatcher, and
-/// queues downloads if confidence >= 95%. Processes the most promising (least-tried) tracks
-/// first within each sweep; tracks that have already failed repeatedly are retried last rather
-/// than excluded, so nothing is permanently stuck once it starts failing.
+/// or OnHold), searches Soulseek, validates with SearchResultMatcher, and queues downloads if
+/// confidence >= 95%. Processes the most promising (least-tried) tracks first within each sweep;
+/// tracks that have already failed repeatedly are retried last rather than excluded, so nothing
+/// is permanently stuck once it starts failing.
+///
+/// Search uses the same strict-mode gate as the main download pipeline
+/// (<see cref="DownloadManager.ResolveDiscoveryWithStrictGateAsync"/>): AutoSearchService only
+/// ever returns a result when the experimental EnableAutoDownloadStrictMode flag is on (default
+/// off), so this always falls back to DownloadDiscoveryService — the same always-available
+/// engine the interactive download pipeline uses — rather than relying on AutoSearchService
+/// alone, which would make this whole sweep a silent no-op for the vast majority of users.
 /// </summary>
 public class GhostAcquisitionOrchestrator : BackgroundService
 {
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly AutoSearchService _autoSearchService;
+    private readonly DownloadDiscoveryService _discoveryService;
     private readonly SearchResultMatcher _searchResultMatcher;
     private readonly DownloadManager _downloadManager;
     private readonly ILibraryService _libraryService;
@@ -36,6 +44,7 @@ public class GhostAcquisitionOrchestrator : BackgroundService
     public GhostAcquisitionOrchestrator(
         IDbContextFactory<AppDbContext> dbContextFactory,
         AutoSearchService autoSearchService,
+        DownloadDiscoveryService discoveryService,
         SearchResultMatcher searchResultMatcher,
         DownloadManager downloadManager,
         ILibraryService libraryService,
@@ -45,6 +54,7 @@ public class GhostAcquisitionOrchestrator : BackgroundService
     {
         _dbContextFactory = dbContextFactory;
         _autoSearchService = autoSearchService;
+        _discoveryService = discoveryService;
         _searchResultMatcher = searchResultMatcher;
         _downloadManager = downloadManager;
         _libraryService = libraryService;
@@ -164,10 +174,24 @@ public class GhostAcquisitionOrchestrator : BackgroundService
 
                         _logger.LogInformation("Attempting ghost acquisition for: {Artist} - {Title}", track.Artist, track.Title);
 
-                        // Find best match using AutoSearchService. Background ghost acquisition has
-                        // no interactive user waiting — use SearchScope.Wishlist (the protocol's own
-                        // low-priority scope, gentler server-side rate limiting) rather than Network.
-                        var (bestMatch, diagnostics) = await _autoSearchService.FindBestMatchAsync(track, stoppingToken, isBackgroundScan: true);
+                        // Find best match. Background ghost acquisition has no interactive user
+                        // waiting — use SearchScope.Wishlist (the protocol's own low-priority scope,
+                        // gentler server-side rate limiting) rather than Network. Strict mode (when
+                        // the user has opted in) gets first shot; otherwise — or if it misses and
+                        // fuzzy fallback is allowed — falls back to the real discovery engine so this
+                        // sweep still finds matches for the default, non-strict-mode majority.
+                        var discoveryResult = await DownloadManager.ResolveDiscoveryWithStrictGateAsync(
+                            _config.EnableAutoDownloadStrictMode,
+                            _config.AutoDownloadAllowFuzzyFallback,
+                            () => _autoSearchService.FindBestMatchAsync(track, stoppingToken, isBackgroundScan: true),
+                            () => _discoveryService.FindBestMatchAsync(track, stoppingToken),
+                            strictDiagnostics => _logger.LogDebug(
+                                "Ghost acquisition: strict-mode match for {Artist} - {Title} via {MatchType}",
+                                track.Artist, track.Title, strictDiagnostics.MatchType ?? "unknown"),
+                            (strictDiagnostics, fallbackAllowed) => _logger.LogDebug(
+                                "Ghost acquisition: strict-mode miss for {Artist} - {Title}; fallback {Fallback}",
+                                track.Artist, track.Title, fallbackAllowed ? "allowed" : "blocked"));
+                        var bestMatch = discoveryResult.BestMatch;
 
                         if (bestMatch != null)
                         {
