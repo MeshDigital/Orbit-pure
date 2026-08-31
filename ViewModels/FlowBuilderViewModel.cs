@@ -656,16 +656,8 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
                 // Fall back to combined order if the optimizer fails (e.g. no audio features yet)
             }
 
-            var trackByHash = combinedTracks
-                .Where(t => !string.IsNullOrEmpty(t.TrackUniqueHash))
-                .GroupBy(t => t.TrackUniqueHash!)
-                .ToDictionary(g => g.Key, g => g.First());
             var orderedTracks = result != null
-                ? result.OrderedHashes
-                    .Where(h => trackByHash.ContainsKey(h))
-                    .Select(h => trackByHash[h])
-                    .Concat(combinedTracks.Where(t => !result.OrderedHashes.Contains(t.TrackUniqueHash ?? "")))
-                    .ToList()
+                ? ExpandOrderedTracksWithDuplicates(result.OrderedHashes, combinedTracks)
                 : combinedTracks;
 
             await Dispatcher.UIThread.InvokeAsync(() =>
@@ -696,6 +688,32 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         {
             IsLoading = false;
         }
+    }
+
+    /// <summary>
+    /// Applies the optimizer's resolved hash order to the actual track objects, preserving
+    /// duplicates: if SkipDuplicateTracks was unchecked, combinedTracks can legitimately hold the
+    /// same hash more than once (the same track present in two source playlists). Grouped into
+    /// lists rather than a first-wins dictionary — the optimizer's own internal Distinct() only
+    /// dedupes for ordering purposes (correct — a nearest-neighbor walk can't meaningfully visit a
+    /// hash twice) and must not also collapse the actual track objects the user asked to keep
+    /// duplicated. All copies of a duplicated hash land together at whatever position the
+    /// optimizer chose for that hash.
+    /// </summary>
+    internal static List<PlaylistTrack> ExpandOrderedTracksWithDuplicates(
+        IReadOnlyList<string> orderedHashes,
+        List<PlaylistTrack> combinedTracks)
+    {
+        var tracksByHash = combinedTracks
+            .Where(t => !string.IsNullOrEmpty(t.TrackUniqueHash))
+            .GroupBy(t => t.TrackUniqueHash!)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        return orderedHashes
+            .Where(h => tracksByHash.ContainsKey(h))
+            .SelectMany(h => tracksByHash[h])
+            .Concat(combinedTracks.Where(t => !orderedHashes.Contains(t.TrackUniqueHash ?? "")))
+            .ToList();
     }
 
     private static string BuildHiddenEligibilityBreakdown(
