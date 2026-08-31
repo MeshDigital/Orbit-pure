@@ -110,6 +110,33 @@ public class CueGenerationServiceTests
     }
 
     [Fact]
+    public void GenerateCues_UnrecognizedGenre_UsesOldSubBassWeights_NotTheMismatchedFallback()
+    {
+        // Pins the Unknown-genre-family DropSignalWeights fallback to the pre-genre-family
+        // default (subBass=0.85, energyJump=0.45, spectralFlux=1.0 — verified against
+        // git show 07834bc^). Constructed so a sub-bass-return candidate at 60s only out-scores
+        // a fixed-strength novelty-signature candidate at 90s under the CORRECT weights:
+        //   subBass score = 0.85*(0.7+1.0*0.3*0)   = 0.595  (old, wrong weights: 0.70*0.7 = 0.49)
+        //   novelty score = 0.6875*0.8              = 0.55   (independent of DropSignalWeights)
+        // So with the previously-shipped (0.70, 0.60, 0.70) fallback the novelty candidate at
+        // 90s would win instead — this test would have caught that regression.
+        var service = CreateService();
+        var analysis = new AnalysisPipelineResult
+        {
+            Bpm = 100f, // outside every GenreFamilyClassifier BPM bracket (118-150, 170-180)
+            DurationSeconds = DurationSeconds,
+            Genre = "Pop", // doesn't match any Breakbeat/FourOnTheFloor keyword either
+            SubBassReturnTimestamps = new List<double> { 60.0 },
+            NoveltyDropSignatures = new List<(double, double, float)> { (90.0, 80.0, 0.6875f) },
+        };
+
+        var cues = service.GenerateCues("hash", analysis, DownbeatAnchor);
+        var drop1 = cues.First(c => c.Label == "Drop 1");
+
+        Assert.InRange(drop1.TimestampInSeconds, 50.0, 70.0);
+    }
+
+    [Fact]
     public void GenerateCues_NoSignalsAtAll_FallsBackToHeuristicPath_AndStillReturnsCues()
     {
         var service = CreateService();

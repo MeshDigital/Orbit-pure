@@ -36,6 +36,15 @@ namespace SLSKDONET;
 public partial class App : Application
 {
     public IServiceProvider? Services { get; private set; }
+
+    /// <summary>
+    /// True only once the user has explicitly chosen "Exit" from the tray menu (or another real
+    /// shutdown path sets it). Closing the main window (X button, Alt+F4, taskbar close) does NOT
+    /// set this — MainWindow.OnWindowClosing checks it to decide whether to actually exit or just
+    /// hide to the tray, so the download engine (and the app's whole background queue processing)
+    /// keeps running unattended instead of the process exiting the moment the window closes.
+    /// </summary>
+    public bool IsExitRequested { get; set; }
     private Views.Avalonia.ErrorStreamWindow? _errorStreamWindow;
 
     public override void Initialize()
@@ -395,6 +404,7 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            IsExitRequested = true;
             desktop.Shutdown();
         }
     }
@@ -804,6 +814,7 @@ public partial class App : Application
             new Services.AutoDownload.GhostAcquisitionOrchestrator(
                 sp.GetRequiredService<IDbContextFactory<AppDbContext>>(),
                 sp.GetRequiredService<AutoSearchService>(),
+                sp.GetRequiredService<DownloadDiscoveryService>(),
                 sp.GetRequiredService<SearchResultMatcher>(),
                 sp.GetRequiredService<DownloadManager>(),
                 sp.GetRequiredService<ILibraryService>(),

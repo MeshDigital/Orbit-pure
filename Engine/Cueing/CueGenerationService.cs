@@ -227,7 +227,9 @@ public sealed class CueGenerationService
             GenreFamily.FourOnTheFloor => _fourOnFloorStrategy,
             _ => null
         };
-        var weights = strategy?.GetSignalWeights() ?? new DropSignalWeights(0.70f, 0.60f, 0.70f);
+        // 0.85/0.45/1.0 — verified against git show 07834bc^ (the pre-genre-family default) so this
+        // actually matches the "unchanged behavior for unrecognized genres" promise above.
+        var weights = strategy?.GetSignalWeights() ?? new DropSignalWeights(0.85f, 0.45f, 1.0f);
 
         // ── 1. Collect and score drop candidates ──────────────────────────
         // SubBassReturns are normally the strongest signal. Reinforce with flux novelty.

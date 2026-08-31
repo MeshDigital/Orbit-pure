@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using SLSKDONET.Configuration;
+using SLSKDONET.Models;
 using SLSKDONET.Models.Flow;
 using SLSKDONET.Models.Musical;
 using SLSKDONET.ViewModels;
@@ -11,6 +12,52 @@ namespace SLSKDONET.Tests.ViewModels;
 
 public class FlowBuilderBridgeInsertionTests
 {
+    [Fact]
+    public void ExpandOrderedTracksWithDuplicates_SkipDuplicateTracksUnchecked_KeepsBothCopies()
+    {
+        // Combine Playlists' "Skip duplicate tracks" checkbox was a no-op when unchecked: the
+        // post-optimize remap collapsed to one instance per hash regardless. This pins the fix —
+        // both copies of a hash that appears twice in combinedTracks must survive.
+        var shared = new PlaylistTrack { TrackUniqueHash = "shared", Title = "A" };
+        var sharedCopy = new PlaylistTrack { TrackUniqueHash = "shared", Title = "A" };
+        var unique = new PlaylistTrack { TrackUniqueHash = "unique", Title = "B" };
+        var combinedTracks = new List<PlaylistTrack> { shared, unique, sharedCopy };
+        var orderedHashes = new List<string> { "unique", "shared" };
+
+        var result = FlowBuilderViewModel.ExpandOrderedTracksWithDuplicates(orderedHashes, combinedTracks);
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal(2, result.Count(t => t.TrackUniqueHash == "shared"));
+        Assert.Single(result, t => t.TrackUniqueHash == "unique");
+    }
+
+    [Fact]
+    public void ExpandOrderedTracksWithDuplicates_NoDuplicateHashes_DegradesToOldBehavior()
+    {
+        var a = new PlaylistTrack { TrackUniqueHash = "a", Title = "A" };
+        var b = new PlaylistTrack { TrackUniqueHash = "b", Title = "B" };
+        var combinedTracks = new List<PlaylistTrack> { a, b };
+        var orderedHashes = new List<string> { "b", "a" };
+
+        var result = FlowBuilderViewModel.ExpandOrderedTracksWithDuplicates(orderedHashes, combinedTracks);
+
+        Assert.Equal(new[] { "b", "a" }, result.Select(t => t.TrackUniqueHash));
+    }
+
+    [Fact]
+    public void ExpandOrderedTracksWithDuplicates_HashMissingFromOrder_IsAppendedAtEnd()
+    {
+        // Mirrors the optimizer's "unanalyzed tracks appended at end" contract.
+        var ordered = new PlaylistTrack { TrackUniqueHash = "ordered", Title = "A" };
+        var unanalyzed = new PlaylistTrack { TrackUniqueHash = "unanalyzed", Title = "B" };
+        var combinedTracks = new List<PlaylistTrack> { ordered, unanalyzed };
+        var orderedHashes = new List<string> { "ordered" };
+
+        var result = FlowBuilderViewModel.ExpandOrderedTracksWithDuplicates(orderedHashes, combinedTracks);
+
+        Assert.Equal(new[] { "ordered", "unanalyzed" }, result.Select(t => t.TrackUniqueHash));
+    }
+
     [Fact]
     public void DetermineBridgeInsertIndex_ReturnsMinusTwo_WhenBridgeAlreadyExists()
     {

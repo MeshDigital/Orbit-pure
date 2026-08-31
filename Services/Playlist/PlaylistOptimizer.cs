@@ -47,6 +47,11 @@ public sealed class PlaylistOptimizationResult
 /// </summary>
 public sealed class PlaylistOptimizer
 {
+    // The O(n²) greedy pass is fine up to ~500 tracks (see class doc comment); past that it's an
+    // uncapped, synchronous, previously-uncancellable loop that could freeze the UI. Same failure
+    // contract as PlaylistIntelligenceService.MaxReorderTracks.
+    public const int MaxOptimizeTracks = 500;
+
     private readonly ILogger<PlaylistOptimizer> _logger;
     private readonly SectionVectorService? _sectionVectors;
 
@@ -75,6 +80,12 @@ public sealed class PlaylistOptimizer
         if (hashes.Count == 0)
             return new PlaylistOptimizationResult();
 
+        if (hashes.Count > MaxOptimizeTracks)
+            throw new ArgumentException(
+                $"OptimizeAsync input exceeds the {MaxOptimizeTracks}-track safety limit (got {hashes.Count}). " +
+                "Split the set into smaller chunks before optimizing.",
+                nameof(trackHashes));
+
         // Load features for all tracks in one query.
         Dictionary<string, AudioFeaturesEntity> features;
         using (var db = new AppDbContext())
@@ -97,7 +108,7 @@ public sealed class PlaylistOptimizer
         if (_sectionVectors != null && options.SectionTransitionWeight > 0)
             await _sectionVectors.PreloadAsync(analyzed, cancellationToken);
 
-        var ordered = GreedyOrder(analyzed, features, options, _sectionVectors);
+        var ordered = GreedyOrder(analyzed, features, options, _sectionVectors, cancellationToken);
 
         // Apply optional energy-curve post-pass.
         if (options.EnergyCurve != EnergyCurvePattern.None && ordered.Count > 2)
@@ -120,7 +131,8 @@ public sealed class PlaylistOptimizer
         List<string> hashes,
         Dictionary<string, AudioFeaturesEntity> features,
         PlaylistOptimizerOptions options,
-        SectionVectorService? sectionVectors = null)
+        SectionVectorService? sectionVectors = null,
+        CancellationToken cancellationToken = default)
     {
         if (hashes.Count == 0) return hashes;
 
@@ -134,6 +146,8 @@ public sealed class PlaylistOptimizer
 
         while (remaining.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             // Find the unvisited track with the lowest edge cost from current.
             string? best = null;
             double bestCost = double.MaxValue;

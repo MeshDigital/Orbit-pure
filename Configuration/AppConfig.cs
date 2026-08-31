@@ -17,7 +17,7 @@ public class AppConfig
     public int ListenPort { get; set; } = 49998;
     public bool UseUPnP { get; set; } = false;
     public int ConnectTimeout { get; set; } = 60000; // ms
-    public int SearchTimeout { get; set; } = 12000; // ms; longer idle window improves late peer discovery for lossless searches
+    public int SearchTimeout { get; set; } = 20000; // ms; longer idle window improves late peer discovery for lossless searches — not every peer is nearby, give distant/slower ones real time to answer
     public int SearchAccumulatorWindowSeconds { get; set; } = 15; // was 30 — cap desperate-lane accumulation; accumulatorShortCircuit handles early exits for normal lanes
     public int MaxConcurrentSearches { get; set; } = 5; // Throttling to prevent bans
     public int MaxDiscoveryLanes { get; set; } = 5; // Concurrent discovery jobs for seeker pipeline
@@ -63,7 +63,7 @@ public class AppConfig
     public int SearchHardResultCap { get; set; } = 10000; // Absolute per-search circuit breaker for accepted candidates
     public int SearchHardFileCap { get; set; } = 50000; // Absolute per-search circuit breaker for inbound files (0 disables)
     public int MaxPeerQueueLength { get; set; } = 50; // Ignore peers with very long queue lengths
-    public int MinSearchDurationSeconds { get; set; } = 5; // Brain buffer floor: 5s gives network time to collect results but doesn't make downloads glacially slow
+    public int MinSearchDurationSeconds { get; set; } = 16; // Brain buffer floor (halved in DownloadDiscoveryService, clamped 6-15s): gives distant/slower peers real time to answer before a speculative silver-match accept short-circuits the wait
     public int MinLosslessSearchDurationSeconds { get; set; } = 10; // was 20 — accumulator short-circuit handles fast exits; 10s is the fallback for scarce tracks
     public bool EnableSpeculativeEarlyAccept { get; set; } = true; // Accept silver match after minSearchDuration window; avoids waiting full buffer for good-enough results
     public bool EnableAutoAcquireOnImport { get; set; } = false; // Auto-acquire imported Spotify Ghost tracks

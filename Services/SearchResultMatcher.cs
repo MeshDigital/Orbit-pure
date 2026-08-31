@@ -166,10 +166,18 @@ public class SearchResultMatcher
             breakdown.Add("Profile: Lossy fallback enabled (+0)");
         }
 
-        // 1. Duration Match (Max 40 pts) — STRICT: reject if outside tolerance
-        if (model.CanonicalDuration.HasValue && candidate.Length.HasValue)
+        // 1. Duration Match (Max 40 pts) — STRICT: reject if outside tolerance.
+        // A CanonicalDuration of exactly 0 is not a real duration — it means the value was never
+        // populated (a null-vs-zero DB default, same shape as the CanonicalDuration backfill gap
+        // fixed elsewhere this session), not "this track is 0 seconds long". Treating it as a real
+        // duration made "expected 0s" hard-reject every candidate for the ~950 not-yet-downloaded
+        // tracks that have no CanonicalDuration anywhere yet — confirmed live: real, correctly-named,
+        // high-bitrate FLAC candidates for "Enei - Sinking Vip" all scored Match=0 and got excluded
+        // solely because 345s (actual) vs 0s (bogus "expected") is always "outside tolerance".
+        var hasKnownDuration = model.CanonicalDuration.HasValue && model.CanonicalDuration.Value > 0;
+        if (hasKnownDuration && candidate.Length.HasValue)
         {
-            var expectedSec = model.CanonicalDuration.Value / 1000;
+            var expectedSec = model.CanonicalDuration!.Value / 1000;
             var actualSec = candidate.Length.Value;
             var diff = Math.Abs(expectedSec - actualSec);
 
@@ -187,11 +195,25 @@ public class SearchResultMatcher
             score += 40;
             breakdown.Add($"Duration: Acceptable ({diff}s diff, +40)");
         }
-        else if (model.CanonicalDuration.HasValue)
+        else if (hasKnownDuration)
         {
             // Duration missing on candidate — deduct points but don't hard-reject
             score += 0;
             breakdown.Add("Duration: Missing on candidate (+0)");
+        }
+        else if (candidate.Length.HasValue)
+        {
+            // Our own expected duration is unknown (never downloaded, no CanonicalDuration yet) —
+            // there's no way to test the candidate's length against anything, so this isn't
+            // negative evidence the way a real mismatch is. Zero points here (same as the
+            // model-has-duration-but-candidate-doesn't branch above) would keep even a perfect
+            // artist/title/format match under IsAcceptableTextualMatch's 70-point bar in most
+            // real cases, since duration is 40 of the ~113 available points — silently
+            // reproducing the same "can never download" outcome the hard-reject bug caused, just
+            // one level down. Half credit is a neutral prior for an untestable dimension, not a
+            // reward for a good duration match.
+            score += 20;
+            breakdown.Add("Duration: Unknown for this track — neutral (+20)");
         }
 
         // 2. Artist Match (Max 30 pts)

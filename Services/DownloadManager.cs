@@ -145,6 +145,19 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     // the scheduler skips them until all currently-queued tracks have had at least one attempt.
     private long _schedulerSlot = 0;
 
+    // Cap on how far a retry's RetryAfterSlot can be pushed into the future. Without this, a
+    // retry deferred by "however many tracks are currently pending" scales disastrously with
+    // library size: at 500+ pending tracks (a large multi-playlist download queue is completely
+    // normal here), a single failed search could defer its retry by 500+ scheduler slots — and
+    // since most of a big batch fails its first attempt at roughly the same time, nearly the
+    // whole queue ends up gated behind the same huge future slot simultaneously, starving the
+    // engine down to whatever tiny handful of never-yet-attempted tracks remain (confirmed live:
+    // "524 tracks waiting, only 1 ever searching" with dozens of distinct tracks all logging
+    // "eligible after slot 520" while the scheduler slot climbed roughly 1 per dispatch). The
+    // intent — "don't let a just-failed track immediately re-compete with fresh candidates" — only
+    // needs a modest push, not literally the entire queue's length.
+    private const long MAX_RETRY_SLOT_DEFERRAL = 25;
+
     // Expose read-only copy for internal checks
     public IReadOnlyList<DownloadContext> ActiveDownloads 
     {
@@ -360,17 +373,26 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     /// </summary>
     public bool IsTrackAlreadyQueued(string? spotifyTrackId, string artist, string title)
     {
+        // A Paused context that isn't a genuine user-initiated pause is an OnHold track hydrated
+        // at startup (EnableMp3Fallback maps OnHold -> Paused). QueueTracksAsync already knows how
+        // to safely resume that in place (see the existingCtx retry branch a few hundred lines up)
+        // rather than duplicate it, so it must not be treated as "already queued" here — otherwise
+        // GhostAcquisitionOrchestrator (the only caller of this method) skips it every sweep,
+        // forever, without ever attempting discovery.
+        static bool Blocks(DownloadContext d) => !(d.State == PlaylistTrackState.Paused && !d.Model.IsUserPaused);
+
         lock (_collectionLock)
         {
             if (!string.IsNullOrEmpty(spotifyTrackId))
             {
-                if (_downloads.Any(d => d.Model.SpotifyTrackId == spotifyTrackId))
+                if (_downloads.Any(d => d.Model.SpotifyTrackId == spotifyTrackId && Blocks(d)))
                     return true;
             }
 
-            return _downloads.Any(d => 
-                string.Equals(d.Model.Artist, artist, StringComparison.OrdinalIgnoreCase) && 
-                string.Equals(d.Model.Title, title, StringComparison.OrdinalIgnoreCase));
+            return _downloads.Any(d =>
+                string.Equals(d.Model.Artist, artist, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(d.Model.Title, title, StringComparison.OrdinalIgnoreCase) &&
+                Blocks(d));
         }
     }
 
@@ -967,11 +989,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
                 if (existingCtx != null)
                 {
-                    // Fix: Smart Retry if in a terminal/failure state
+                    // Fix: Smart Retry if in a terminal/failure state. Paused is included only
+                    // when it wasn't an explicit user pause: an OnHold track (background search
+                    // gave up) hydrates into Paused too, and without this an explicit re-queue —
+                    // "Download Missing" reviving OnHold tracks, or the Unfindable-tracks "Retry"
+                    // button — silently fell through to the skip branch below since the existing
+                    // in-memory context was never actually touched, even though the DB row and UI
+                    // both said it would be retried.
                     if (existingCtx.State == PlaylistTrackState.Failed ||
                         existingCtx.State == PlaylistTrackState.Cancelled ||
                         existingCtx.State == PlaylistTrackState.Deferred ||
-                        existingCtx.State == PlaylistTrackState.Pending)
+                        existingCtx.State == PlaylistTrackState.Pending ||
+                        (existingCtx.State == PlaylistTrackState.Paused && !existingCtx.Model.IsUserPaused))
                     {
                         _logger.LogInformation("Retrying existing track {Title} (State: {State}) - Bumping to Priority 10 (Standard)", track.Title, existingCtx.State);
 
@@ -1919,7 +1948,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         if (!TryValidateTrackForQueue(track, out var reason))
         {
             _logger.LogWarning("Skipping queue add for track {Artist} - {Title}: {Reason}", track.Artist, track.Title, reason);
-            _eventBus.Publish(new GlobalStatusEvent($"Queue rejected: {reason}", IsActive: false, IsError: true));
+            // IsActive: false here meant ApplyGlobalStatusEvent's own "!evt.IsActive -> clear" guard
+            // discarded this message immediately — the rejection reason was computed and published,
+            // then silently swallowed before ever reaching the banner. IsActive marks whether the
+            // banner should show at all, not whether the underlying condition is ongoing.
+            _eventBus.Publish(new GlobalStatusEvent($"Queue rejected: {reason}", IsActive: true, IsError: true));
             return false;
         }
 
@@ -2818,8 +2851,9 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                                 (!d.RetryAfterSlot.HasValue || d.RetryAfterSlot.Value <= _schedulerSlot));
 
                         // Slot gate: track becomes eligible again after every currently-pending
-                        // track has been dispatched at least once.
-                        ctx.RetryAfterSlot = _schedulerSlot + Math.Max(1, pendingAhead);
+                        // track has been dispatched at least once — capped so this doesn't scale
+                        // unboundedly with total queue size (see MAX_RETRY_SLOT_DEFERRAL).
+                        ctx.RetryAfterSlot = _schedulerSlot + Math.Clamp(pendingAhead, 1, MAX_RETRY_SLOT_DEFERRAL);
 
                         // Time gate: safety net so we don't hammer the network if the queue
                         // drains faster than expected.  30s base + small jitter.
@@ -2864,7 +2898,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                             long pendingAheadMp3;
                             lock (_collectionLock)
                                 pendingAheadMp3 = _downloads.Count(d => d != ctx && d.State == PlaylistTrackState.Pending);
-                            ctx.RetryAfterSlot = _schedulerSlot + Math.Max(1, pendingAheadMp3);
+                            ctx.RetryAfterSlot = _schedulerSlot + Math.Clamp(pendingAheadMp3, 1, MAX_RETRY_SLOT_DEFERRAL);
                             ctx.NextRetryTime = DateTime.UtcNow.AddSeconds(30);
                             _eventBus.Publish(new Events.TrackDetailedStatusEvent(ctx.GlobalId, $"🎵 FLAC not found after {_config.MaxSearchAttempts * _config.MaxSearchAttempts} attempts — switching to MP3 fallback lane automatically.", false, ctx.CorrelationId));
                             await UpdateStateAsync(ctx, PlaylistTrackState.Pending, $"FLAC failed ({_config.MaxSearchAttempts * _config.MaxSearchAttempts}x) → Auto MP3 Fallback queued");
@@ -2996,7 +3030,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 long pendingAheadStall;
                 lock (_collectionLock)
                     pendingAheadStall = _downloads.Count(d => d != ctx && d.State == PlaylistTrackState.Pending);
-                ctx.RetryAfterSlot = _schedulerSlot + Math.Max(1, pendingAheadStall);
+                ctx.RetryAfterSlot = _schedulerSlot + Math.Clamp(pendingAheadStall, 1, MAX_RETRY_SLOT_DEFERRAL);
                 ctx.NextRetryTime = DateTime.UtcNow.AddSeconds(15); // Minimum gap after stall
                 await UpdateStateAsync(ctx, PlaylistTrackState.Pending, "Stall detected — re-queued behind active tracks.");
             }
@@ -3567,58 +3601,91 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         // rather than open a second simultaneous connection (which often causes queue rejection).
         var peerGate = GetOrCreatePeerGate(bestMatch.Username!);
         await peerGate.WaitAsync(ct);
-        bool success;
+        bool success = false;
+        // We already found and vetted this peer — a single dropped/cancelled transfer doesn't mean
+        // they're bad, it's often just a transient hiccup. Give the SAME peer a couple of immediate
+        // shots before falling back to a full fresh search for a different one (which costs a real
+        // search window, not just a couple of seconds).
+        const int maxSameUserAttempts = 3;
         try
         {
-            try
+            for (var attempt = 1; attempt <= maxSameUserAttempts; attempt++)
             {
-                success = await _soulseek.DownloadAsync(
-                    bestMatch.Username!,
-                    bestMatch.Filename!,
-                    partPath,          // Download to .part file
-                    bestMatch.Size,
-                    progress,
-                    lifecycleUpdate: update =>
-                    {
-                        switch (update.Phase)
+                try
+                {
+                    // Recompute the resume offset from disk before each attempt. A prior attempt
+                    // in this same-peer retry loop can fail mid-transfer after already writing
+                    // bytes past the offset we started with; reusing that stale offset here would
+                    // reopen the .part file in Append mode (positioned at the new, larger EOF) but
+                    // tell the transfer client to resume from the old, smaller offset — which
+                    // requires a backward Seek that an Append-mode stream cannot perform, and
+                    // throws (uncatchable from here — surfaces as an unobserved task exception).
+                    startPosition = File.Exists(partPath) ? new FileInfo(partPath).Length : 0;
+                    ctx.BytesReceived = startPosition;
+
+                    success = await _soulseek.DownloadAsync(
+                        bestMatch.Username!,
+                        bestMatch.Filename!,
+                        partPath,          // Download to .part file
+                        bestMatch.Size,
+                        progress,
+                        lifecycleUpdate: update =>
                         {
-                            case TransferLifecyclePhase.RemoteQueued:
-                                // Track when we entered the peer's queue for Queue Velocity monitoring.
-                                // Only set once — QueueEnteredAt should not reset on repeated Queued events.
-                                if (!ctx.QueueEnteredAt.HasValue)
-                                {
-                                    ctx.QueueEnteredAt = DateTime.UtcNow;
+                            switch (update.Phase)
+                            {
+                                case TransferLifecyclePhase.RemoteQueued:
+                                    // Track when we entered the peer's queue for Queue Velocity monitoring.
+                                    // Only set once — QueueEnteredAt should not reset on repeated Queued events.
+                                    if (!ctx.QueueEnteredAt.HasValue)
+                                    {
+                                        ctx.QueueEnteredAt = DateTime.UtcNow;
+                                        ctx.QueuePositionLastUpdated = DateTime.UtcNow;
+                                    }
+                                    _ = UpdateStateAsync(ctx, PlaylistTrackState.Queued, update.Detail ?? "Queued remotely by peer");
+                                    _eventBus.Publish(new Events.TrackDetailedStatusEvent(
+                                        ctx.GlobalId,
+                                        $"⏳ Remote queue: {bestMatch.Username} is holding the transfer in queue.",
+                                        false,
+                                        ctx.CorrelationId));
+                                    break;
+                                case TransferLifecyclePhase.QueuePositionUpdate:
+                                    // Position improved — update the velocity clock and push to UI.
+                                    ctx.CurrentQueuePosition = update.QueuePosition ?? ctx.CurrentQueuePosition;
                                     ctx.QueuePositionLastUpdated = DateTime.UtcNow;
-                                }
-                                _ = UpdateStateAsync(ctx, PlaylistTrackState.Queued, update.Detail ?? "Queued remotely by peer");
-                                _eventBus.Publish(new Events.TrackDetailedStatusEvent(
-                                    ctx.GlobalId,
-                                    $"⏳ Remote queue: {bestMatch.Username} is holding the transfer in queue.",
-                                    false,
-                                    ctx.CorrelationId));
-                                break;
-                            case TransferLifecyclePhase.QueuePositionUpdate:
-                                // Position improved — update the velocity clock and push to UI.
-                                ctx.CurrentQueuePosition = update.QueuePosition ?? ctx.CurrentQueuePosition;
-                                ctx.QueuePositionLastUpdated = DateTime.UtcNow;
-                                _logger.LogDebug("📋 Queue position update: {Artist} - {Title} → #{Position} (peer: {Peer})",
-                                    ctx.Model.Artist, ctx.Model.Title, ctx.CurrentQueuePosition, bestMatch.Username);
-                                _eventBus.Publish(new TrackQueuePositionUpdatedEvent(
-                                    ctx.GlobalId, ctx.CurrentQueuePosition, bestMatch.Username));
-                                break;
-                            case TransferLifecyclePhase.Transferring:
-                                ctx.CurrentQueuePosition = 0; // We're no longer in queue
-                                _ = UpdateStateAsync(ctx, PlaylistTrackState.Downloading, update.Detail);
-                                break;
-                        }
-                    },
-                    ct: stallMonitorCts.Token,
-                    startOffset: startPosition      // Resume from existing bytes
-                );
-            }
-            catch (OperationCanceledException) when (stalledByMonitor)
-            {
-                throw new TimeoutException($"Local stall monitor triggered ({_config.StallTimeoutSeconds}s with no throughput). Dropping peer.");
+                                    _logger.LogDebug("📋 Queue position update: {Artist} - {Title} → #{Position} (peer: {Peer})",
+                                        ctx.Model.Artist, ctx.Model.Title, ctx.CurrentQueuePosition, bestMatch.Username);
+                                    _eventBus.Publish(new TrackQueuePositionUpdatedEvent(
+                                        ctx.GlobalId, ctx.CurrentQueuePosition, bestMatch.Username));
+                                    break;
+                                case TransferLifecyclePhase.Transferring:
+                                    ctx.CurrentQueuePosition = 0; // We're no longer in queue
+                                    _ = UpdateStateAsync(ctx, PlaylistTrackState.Downloading, update.Detail);
+                                    break;
+                            }
+                        },
+                        ct: stallMonitorCts.Token,
+                        startOffset: startPosition,     // Resume from existing bytes
+                        // Only the episode's final attempt reports to peer-reliability scoring —
+                        // a single flaky/transient failure shouldn't dock a peer 3x just because
+                        // this loop gives them a few quick same-peer shots before moving on.
+                        suppressCompletionEventOnFailure: attempt < maxSameUserAttempts
+                    );
+                }
+                catch (OperationCanceledException) when (stalledByMonitor)
+                {
+                    // A real stall (no throughput for the configured timeout) is a different,
+                    // already-handled scenario (see the Stall-detection retry path) — don't retry
+                    // it here as if it were a quick same-peer hiccup.
+                    throw new TimeoutException($"Local stall monitor triggered ({_config.StallTimeoutSeconds}s with no throughput). Dropping peer.");
+                }
+
+                if (success || attempt == maxSameUserAttempts)
+                {
+                    break;
+                }
+
+                _auditLogger.Log(ctx.GlobalId, $"⚠️ Transfer attempt {attempt}/{maxSameUserAttempts} failed from {bestMatch.Username} — retrying the same peer immediately.", isError: true);
+                await Task.Delay(TimeSpan.FromSeconds(2), ct);
             }
         }
         finally
@@ -3780,9 +3847,39 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         }
         else
         {
-            _auditLogger.Log(ctx.GlobalId, $"❌ Download failed: Transfer failed from user {bestMatch.Username}", isError: true);
-            await UpdateStateAsync(ctx, PlaylistTrackState.Failed, 
-                DownloadFailureReason.TransferFailed);
+            // A peer-side transfer failure (disconnected, cancelled, network hiccup) went straight
+            // to a terminal Failed with zero retry — unlike every other failure path in this file
+            // (a search miss gets MaxSearchAttempts in-session retries, a stall blacklists the peer
+            // and requeues), a single flaky peer permanently doomed a track that a fresh search for
+            // a different peer would very plausibly have fixed. Applies the same retry-budget
+            // pattern used for search misses: blacklist this peer, back-of-queue retry, terminal
+            // Failed only once that budget is exhausted.
+            if (!string.IsNullOrEmpty(bestMatch.Username))
+            {
+                lock (ctx.BlacklistedUsers)
+                {
+                    ctx.BlacklistedUsers.Add(bestMatch.Username);
+                }
+            }
+
+            ctx.Model.SearchRetryCount++;
+
+            if (ctx.Model.SearchRetryCount < _config.MaxSearchAttempts)
+            {
+                _auditLogger.Log(ctx.GlobalId, $"❌ Transfer failed from user {bestMatch.Username} after {maxSameUserAttempts} same-peer attempts. Retrying with a different peer (#{ctx.Model.SearchRetryCount}/{_config.MaxSearchAttempts}).", isError: true);
+
+                ctx.Model.Priority = 20; // Low-priority lane for retries, same convention as a search-miss retry
+                ctx.NextRetryTime = DateTime.UtcNow.AddSeconds(15); // Minimum gap, same as a stall retry
+
+                await UpdateStateAsync(ctx, PlaylistTrackState.Pending,
+                    $"Transfer failed from {bestMatch.Username} — retrying with a different peer (#{ctx.Model.SearchRetryCount}/{_config.MaxSearchAttempts})");
+            }
+            else
+            {
+                _auditLogger.Log(ctx.GlobalId, $"❌ Download failed: Transfer failed from user {bestMatch.Username}. Exhausted {_config.MaxSearchAttempts} retries.", isError: true);
+                await UpdateStateAsync(ctx, PlaylistTrackState.Failed,
+                    DownloadFailureReason.TransferFailed);
+            }
         }
     }
 

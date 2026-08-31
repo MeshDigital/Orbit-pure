@@ -843,6 +843,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public int QueueTrackCount => AnalysisQueue.Count;
     public int IncompleteAnalysisTrackCount => LibraryTracks.Count(t => t.HasIncompleteAnalysis);
     public bool HasIncompleteAnalysisTracks => IncompleteAnalysisTrackCount > 0;
+    public bool HasIncompleteCorruptTracks => LibraryTracks.Any(t => t.HasIncompleteAnalysis && t.IsLikelyCorruptFile);
     public IReadOnlyList<AnalysisTrackItem> IncompleteAnalysisTracks => LibraryTracks
         .Where(t => t.HasIncompleteAnalysis)
         .OrderBy(t => t.Artist)
@@ -944,6 +945,17 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> FixCorruptCommand   { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> FixMissingCommand   { get; private set; } = null!;
 
+    /// <summary>
+    /// Deletes one track already flagged corrupt in the "Incomplete Analysis" list and resets it
+    /// to Missing so the download queue re-acquires a clean copy — the same remediation the
+    /// "Scan Library Integrity" flow performs, just reachable directly from a track this session's
+    /// own analysis pass already flagged, instead of requiring a separate full-library rescan.
+    /// </summary>
+    public ReactiveCommand<AnalysisTrackItem, Unit> RemediateTrackCommand { get; private set; } = null!;
+
+    /// <summary>Same as <see cref="RemediateTrackCommand"/>, applied to every currently-flagged corrupt track at once.</summary>
+    public ReactiveCommand<Unit, Unit> RemediateAllIncompleteCorruptCommand { get; private set; } = null!;
+
     public bool IsRemediating
     {
         get => _isRemediating;
@@ -951,6 +963,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         {
             this.RaiseAndSetIfChanged(ref _isRemediating, value);
             this.RaisePropertyChanged(nameof(CanRemediate));
+            this.RaisePropertyChanged(nameof(CanRemediateFlaggedTrack));
         }
     }
 
@@ -978,6 +991,14 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     public int  CorruptIssueCount  => _scanIssues.Count(e => !e.IsMissing);
     public int  MissingIssueCount  => _scanIssues.Count(e => e.IsMissing);
     public bool CanRemediate    => HasScanIssues && !_isRemediating && _remediationService is not null;
+
+    /// <summary>
+    /// Gate for <see cref="RemediateTrackCommand"/>/<see cref="RemediateAllIncompleteCorruptCommand"/> —
+    /// deliberately doesn't require <see cref="HasScanIssues"/>, since those act on tracks this
+    /// session's own analysis pass flagged (<see cref="AnalysisTrackItem.IsLikelyCorruptFile"/>),
+    /// a separate detection path from the "Scan Library Integrity" issue list.
+    /// </summary>
+    public bool CanRemediateFlaggedTrack => !_isRemediating && _remediationService is not null;
 
     private string? _automixStatusMessage;
 
@@ -1052,6 +1073,13 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             () => RemediateAsync(_scanIssues.Where(e => !e.IsMissing).ToList()), canRemediate);
         FixMissingCommand = ReactiveCommand.CreateFromTask(
             () => RemediateAsync(_scanIssues.Where(e => e.IsMissing).ToList()), canRemediate);
+
+        var canRemediateFlaggedTrack = this.WhenAnyValue(x => x.CanRemediateFlaggedTrack);
+        RemediateTrackCommand = ReactiveCommand.CreateFromTask<AnalysisTrackItem>(
+            track => RemediateAsync(new[] { BuildScanEntry(track) }), canRemediateFlaggedTrack);
+        RemediateAllIncompleteCorruptCommand = ReactiveCommand.CreateFromTask(
+            () => RemediateAsync(IncompleteAnalysisTracks.Where(t => t.IsLikelyCorruptFile).Select(BuildScanEntry).ToList()),
+            canRemediateFlaggedTrack);
 
         // Keep all computed dashboard metrics in sync as the collections change.
         LibraryTracks.CollectionChanged += (_, _) => RefreshComputedState();
@@ -2016,6 +2044,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(QueueTrackCount));
         this.RaisePropertyChanged(nameof(IncompleteAnalysisTrackCount));
         this.RaisePropertyChanged(nameof(HasIncompleteAnalysisTracks));
+        this.RaisePropertyChanged(nameof(HasIncompleteCorruptTracks));
         this.RaisePropertyChanged(nameof(IncompleteAnalysisTracks));
         this.RaisePropertyChanged(nameof(IncompleteAnalysisSummary));
         this.RaisePropertyChanged(nameof(StemsReadyCount));
@@ -2178,6 +2207,19 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             IsIntegrityScanRunning = false;
         }
     }
+
+    /// <summary>
+    /// Builds a remediation entry for a track this session's own analysis pass already flagged
+    /// corrupt, reusing the same <see cref="CorruptFileRemediationService"/> path the "Scan
+    /// Library Integrity" flow uses.
+    /// </summary>
+    private static CorruptFileScanEntry BuildScanEntry(AnalysisTrackItem track) => new(
+        track.TrackId,
+        track.FilePath ?? string.Empty,
+        track.Artist,
+        track.Title,
+        CorruptionStatus.Fatal,
+        track.AnalysisError ?? "Corrupt file detected during analysis");
 
     private async Task RemediateAsync(IReadOnlyList<CorruptFileScanEntry> entries)
     {

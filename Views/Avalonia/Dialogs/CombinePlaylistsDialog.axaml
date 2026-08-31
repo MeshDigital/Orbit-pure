@@ -11,7 +11,7 @@
         <!-- Header -->
         <StackPanel Grid.Row="0" Spacing="8" Margin="0,10,0,16">
             <TextBlock Text="Combine Playlists" FontSize="18" FontWeight="SemiBold" Foreground="White"/>
-            <TextBlock Text="Pick 2 or more playlists — their tracks will be combined and auto-arranged for best playback in a new playlist."
+            <TextBlock Text="Pick 2 or more playlists — their tracks will be combined and ordered for smooth BPM/key transitions in a new playlist."
                        FontSize="12" Foreground="#AAA" TextWrapping="Wrap"/>
         </StackPanel>
 

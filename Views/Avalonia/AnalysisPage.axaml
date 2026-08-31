@@ -103,8 +103,17 @@
 
     <!-- ═══════════════════════════════════════════════════════════════════════
          Root layout: header + two-pane body
+
+         Wrapped in an outer ScrollViewer (HorizontalScrollBarVisibility="Disabled" —
+         see the Library sidebar fix for why that matters, same failure shape) so the whole page
+         has a scroll fallback: on a shorter window, the header + queue-metrics row could exceed
+         the available height on their own, squeezing the two-pane body's "*" row toward zero with
+         no way to reach it. The row spec below changes from "Auto,Auto,*" to "Auto,Auto,Auto" to
+         match — a star row measured against the effectively-infinite height an outer ScrollViewer
+         offers just becomes "however tall the content wants", the same as Auto.
     ════════════════════════════════════════════════════════════════════════ -->
-    <Grid RowDefinitions="Auto,Auto,*">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <Grid RowDefinitions="Auto,Auto,Auto">
 
         <!-- ── Page Header ────────────────────────────────────────────────── -->
         <Border Grid.Row="0"
@@ -278,7 +287,7 @@
                             CornerRadius="6"
                             IsVisible="{Binding HasIncompleteAnalysisTracks}">
                         <StackPanel Spacing="8">
-                            <Grid ColumnDefinitions="*,Auto">
+                            <Grid ColumnDefinitions="*,Auto,Auto">
                                 <TextBlock Grid.Column="0"
                                            Text="{Binding IncompleteAnalysisSummary}"
                                            FontSize="11"
@@ -286,6 +295,13 @@
                                            TextWrapping="Wrap"
                                            VerticalAlignment="Center"/>
                                 <Button Grid.Column="1"
+                                        Classes="secondary"
+                                        Content="🗑 Fix All Corrupt"
+                                        IsVisible="{Binding HasIncompleteCorruptTracks}"
+                                        Command="{Binding RemediateAllIncompleteCorruptCommand}"
+                                        Margin="0,0,8,0"
+                                        ToolTip.Tip="Delete every corrupt file flagged below and reset it to Missing so the download queue re-acquires a clean copy"/>
+                                <Button Grid.Column="2"
                                         Classes="secondary"
                                         Content="↺ Reanalyze All Incomplete"
                                         Command="{Binding ReanalyzeAllIncompleteCommand}"
@@ -295,7 +311,7 @@
                             <ItemsControl ItemsSource="{Binding IncompleteAnalysisTracks}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,2">
+                                        <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,2">
                                             <TextBlock Grid.Column="0"
                                                        Foreground="{DynamicResource BrushText1}"
                                                        FontSize="10"
@@ -308,6 +324,16 @@
                                                        Foreground="{Binding IsLikelyCorruptFile, Converter={StaticResource BooleanToRedBrushConverter}}"
                                                        FontSize="10"
                                                        Text="{Binding IncompleteAnalysisSummary}"/>
+                                            <Button Grid.Column="2"
+                                                    Classes="secondary"
+                                                    Content="🗑 Fix"
+                                                    FontSize="10"
+                                                    Padding="6,2"
+                                                    Margin="6,0,0,0"
+                                                    IsVisible="{Binding IsLikelyCorruptFile}"
+                                                    Command="{Binding $parent[UserControl].DataContext.RemediateTrackCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip.Tip="Delete this corrupt file and reset it to Missing so the download queue re-acquires a clean copy"/>
                                         </Grid>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
@@ -1002,5 +1028,6 @@
             </DockPanel>
         </Grid>
     </Grid>
+    </ScrollViewer>
 </UserControl>
 

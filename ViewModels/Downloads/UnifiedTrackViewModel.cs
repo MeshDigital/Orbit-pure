@@ -1531,7 +1531,8 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public ICommand ShowSpectralReportCommand { get; }
 
     public TrackAvailabilityState AvailabilityState => Model.AvailabilityState;
-    public bool IsGhost => AvailabilityState == TrackAvailabilityState.Ghost;
+    // See PlaylistTrackViewModel.IsGhost for why Status=Downloaded overrides a stale/drifted Ghost.
+    public bool IsGhost => AvailabilityState == TrackAvailabilityState.Ghost && Model.Status != TrackStatus.Downloaded;
 
     // Internal State
     private long _totalBytes;

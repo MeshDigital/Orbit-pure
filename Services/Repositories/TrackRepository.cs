@@ -505,6 +505,19 @@ public class TrackRepository : ITrackRepository
 
             var distinctJobIds = playlistTracks.Select(pt => pt.PlaylistId).Distinct().Cast<Guid>().ToList();
 
+            // Job SuccessfulCount/FailedCount only depend on Downloaded/Failed/Skipped membership —
+            // recalculating them (steps 4-5 below) requires pulling every track in every affected
+            // playlist, which is the expensive part of this call. Every non-terminal transition
+            // (Pending -> Searching -> Downloading -> Queued -> ...) leaves those counts completely
+            // unchanged, so doing the full recalc on each one anyway — serialized through
+            // _writeSemaphore for the whole app — was the actual bottleneck behind "524 tracks
+            // waiting, only 1 searching": every track's Pending->Searching transition queued up
+            // behind the same expensive, pointless recalculation before the next one could even
+            // start. Only recalculate when a track is entering or leaving one of the counted
+            // statuses.
+            static bool IsCountedStatus(TrackStatus s) => s is TrackStatus.Downloaded or TrackStatus.Failed or TrackStatus.Skipped;
+            var needsJobRecalculation = playlistTracks.Any(pt => IsCountedStatus(pt.Status) || IsCountedStatus(newStatus));
+
             // 2. Update their status
             foreach (var pt in playlistTracks)
             {
@@ -536,7 +549,7 @@ public class TrackRepository : ITrackRepository
             }
             
             // 4. Fetch all affected jobs and all their related tracks
-            if (distinctJobIds.Any())
+            if (distinctJobIds.Any() && needsJobRecalculation)
             {
                 var jobsToUpdate = await context.Projects
                     .Where(j => distinctJobIds.Contains(j.Id))

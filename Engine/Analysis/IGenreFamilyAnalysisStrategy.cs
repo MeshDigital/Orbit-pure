@@ -20,7 +20,13 @@ public interface IGenreFamilyAnalysisStrategy
         GenreFamilyResult classification, float rawBpm, float confidence);
 
     /// <summary>Resolves this family's phrase bar-count template. <paramref name="subgenre"/> is
-    /// ignored by the Breakbeat strategy, which has no subgenre split.</summary>
+    /// ignored by the Breakbeat strategy, which has no subgenre split.
+    ///
+    /// Currently unused: the real phrase-alignment path (<c>PhraseAlignmentService</c>) uses its
+    /// own separate, older ResolvePreset(string?) with a broader genre-keyword table, and never
+    /// consults this strategy interface. Wiring these together is a real feature decision (which
+    /// preset table should win), not a drive-by fix — don't assume this is live without checking.
+    /// </summary>
     GenreStructurePreset ResolvePreset(FourOnTheFloorSubgenre subgenre);
 
     /// <summary>Per-signal weights for <c>CueGenerationService</c>'s DSP drop-candidate scoring.</summary>

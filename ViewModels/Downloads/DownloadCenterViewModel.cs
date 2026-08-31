@@ -317,7 +317,16 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     public string? GlobalStatusMessage
     {
         get => _globalStatusMessage;
-        set => this.RaiseAndSetIfChanged(ref _globalStatusMessage, value);
+        set
+        {
+            var changed = _globalStatusMessage != value;
+            this.RaiseAndSetIfChanged(ref _globalStatusMessage, value);
+            if (changed)
+            {
+                this.RaisePropertyChanged(nameof(IsGlobalStatusInfoVisible));
+                this.RaisePropertyChanged(nameof(IsGlobalStatusErrorVisible));
+            }
+        }
     }
 
     private bool _isGlobalStatusVisible;
@@ -348,8 +357,13 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
         }
     }
 
-    public bool IsGlobalStatusInfoVisible => IsGlobalStatusVisible && !IsGlobalStatusError;
-    public bool IsGlobalStatusErrorVisible => IsGlobalStatusVisible && IsGlobalStatusError;
+    // Requiring a non-empty message here (not just IsGlobalStatusVisible) is deliberately
+    // redundant with ShowGlobalStatus/ApplyGlobalStatusEvent already guarding against blank
+    // messages — reported live as a red error banner rendering with nothing in it "often." Belt
+    // and suspenders: whichever future call site turns out to violate that invariant, the banner
+    // itself can no longer render empty.
+    public bool IsGlobalStatusInfoVisible => IsGlobalStatusVisible && !IsGlobalStatusError && !string.IsNullOrWhiteSpace(GlobalStatusMessage);
+    public bool IsGlobalStatusErrorVisible => IsGlobalStatusVisible && IsGlobalStatusError && !string.IsNullOrWhiteSpace(GlobalStatusMessage);
 
     private bool _showEngineLogs;
     public bool ShowEngineLogs
@@ -1446,6 +1460,12 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             entity.Status = TrackStatus.Missing;
             entity.SearchRetryCount = 0;
             await db.SaveChangesAsync();
+
+            // The DB flip alone doesn't touch this track's live in-memory DownloadContext — if it
+            // was already hydrated this session (OnHold hydrates into Paused), it would otherwise
+            // sit inert until the next app restart despite the UI saying "will be retried."
+            if (!string.IsNullOrEmpty(entity.TrackUniqueHash))
+                await _downloadManager.ResumeTrackAsync(entity.TrackUniqueHash);
 
             UnfindableTracks.Remove(track);
             ShowGlobalStatus($"\"{track.DisplayName}\" will be retried.", isError: false, autoHide: true, context: "unfindable-tracks");

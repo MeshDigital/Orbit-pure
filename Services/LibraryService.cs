@@ -789,10 +789,24 @@ public class LibraryService : ILibraryService
 
     public async Task<PlaylistJob> CreateEmptyPlaylistAsync(string title)
     {
+        // Explicit, low-frequency user action (New Playlist / Combine Playlists) — no uniqueness
+        // check existed before, so combining twice with the same auto-suggested name (or naming
+        // two playlists identically) silently created two indistinguishable playlists.
+        var existingTitles = (await LoadAllPlaylistJobsAsync().ConfigureAwait(false))
+            .Select(p => p.SourceTitle)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var finalTitle = title;
+        var suffix = 2;
+        while (existingTitles.Contains(finalTitle))
+        {
+            finalTitle = $"{title} ({suffix++})";
+        }
+
         var job = new PlaylistJob
         {
             Id = Guid.NewGuid(),
-            SourceTitle = title,
+            SourceTitle = finalTitle,
             SourceType = "User",
             CreatedAt = DateTime.UtcNow,
             PlaylistTracks = new List<PlaylistTrack>(),

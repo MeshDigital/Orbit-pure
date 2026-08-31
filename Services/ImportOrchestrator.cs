@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Models;
 using SLSKDONET.ViewModels;
+using SpotifyAPI.Web;
 
 namespace SLSKDONET.Services;
 
@@ -353,6 +354,18 @@ public class ImportOrchestrator
                 _notificationService.Show("Sync Complete", message, Views.NotificationType.Success);
             }
         }
+        catch (APIException apiEx) when (apiEx.Response?.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // Spotify returns a bare 404 "Resource not found" both when a playlist was deleted
+            // and when it was switched to private/collaborative-only since we last synced it —
+            // there's no way to tell those apart from the API response, so give the user the
+            // actionable read rather than the raw exception text.
+            _logger.LogWarning(apiEx, "Spotify playlist no longer reachable for {Input} (404)", input);
+            _notificationService.Show(
+                "Sync Failed",
+                "This Spotify playlist could not be found — it may have been deleted or made private since it was last synced.",
+                Views.NotificationType.Error);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to perform silent import for {Input}", input);
@@ -489,7 +502,16 @@ public class ImportOrchestrator
         {
              // Only reset IsLoading if not cancelled — cancellation means the ViewModel may have been reset already
              if (!ct.IsCancellationRequested)
-                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => _previewViewModel.IsLoading = false);
+             {
+                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                 {
+                     _previewViewModel.IsLoading = false;
+                     // Clear, distinct "done" message — the per-batch "Loading tracks… (N so
+                     // far)" message would otherwise just freeze at whatever count the last batch
+                     // reported, giving no positive confirmation the import actually finished.
+                     _previewViewModel.StatusMessage = $"Loaded {_previewViewModel.ImportedTracks.Count} track(s) — ready to import.";
+                 });
+             }
         }
     }
 

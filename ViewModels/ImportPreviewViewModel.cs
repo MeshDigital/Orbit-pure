@@ -540,8 +540,14 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
                  }
              }
 
-             StatusMessage = $"Loaded {ImportedTracks.Count} tracks...";
-             IsLoading = false; 
+             // IsLoading is NOT cleared here — this runs once per streamed batch (Spotify
+             // playlists page in, e.g., chunks of ~100), not once per import. Confirmed live:
+             // clearing it here hid the loading spinner and re-enabled "Add to Library"/"Merge"
+             // after just the first batch, while a large playlist (~1800 tracks) was still
+             // streaming in the background — nothing stopped the user from committing an
+             // incomplete import. Only ImportOrchestrator.StreamPreviewAsync's own finally block,
+             // which runs once the whole await-foreach loop is exhausted, clears it now.
+             StatusMessage = $"Loading tracks… ({ImportedTracks.Count} so far)";
              UpdateSelectedCount();
          });
 
@@ -585,41 +591,48 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
                 .GroupBy(t => t.TrackUniqueHash, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
-            int added = 0;
-            int retried = 0;
-            int skipped = 0;
-
-            foreach (var selectable in ImportedTracks)
+            // Off-thread when called from the background Spotify streaming path
+            // (AddTracksToPreviewAsync) — the DB load above is fine off the UI thread, but the
+            // IsSelected/StatusMessage mutations below are bound to the UI and threw "Call from
+            // invalid thread" without this.
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                var hash = selectable.Model.UniqueHash;
+                int added = 0;
+                int retried = 0;
+                int skipped = 0;
 
-                if (string.IsNullOrWhiteSpace(hash))
+                foreach (var selectable in ImportedTracks)
                 {
-                    selectable.IsSelected = true;
-                    added++;
-                    continue;
+                    var hash = selectable.Model.UniqueHash;
+
+                    if (string.IsNullOrWhiteSpace(hash))
+                    {
+                        selectable.IsSelected = true;
+                        added++;
+                        continue;
+                    }
+
+                    if (!existingByHash.TryGetValue(hash, out var existing))
+                    {
+                        selectable.IsSelected = true;
+                        added++;
+                        continue;
+                    }
+
+                    if (existing.Status == TrackStatus.Failed || existing.Status == TrackStatus.OnHold)
+                    {
+                        selectable.IsSelected = true;
+                        retried++;
+                        continue;
+                    }
+
+                    selectable.IsSelected = false;
+                    skipped++;
                 }
 
-                if (!existingByHash.TryGetValue(hash, out var existing))
-                {
-                    selectable.IsSelected = true;
-                    added++;
-                    continue;
-                }
-
-                if (existing.Status == TrackStatus.Failed || existing.Status == TrackStatus.OnHold)
-                {
-                    selectable.IsSelected = true;
-                    retried++;
-                    continue;
-                }
-
-                selectable.IsSelected = false;
-                skipped++;
-            }
-
-            UpdateSelectedCount();
-            StatusMessage = $"Merge ready: {added} new, {retried} retry, {skipped} already healthy.";
+                UpdateSelectedCount();
+                StatusMessage = $"Merge ready: {added} new, {retried} retry, {skipped} already healthy.";
+            });
         }
         catch (Exception ex)
         {
@@ -949,11 +962,19 @@ public class ImportPreviewViewModel : INotifyPropertyChanged
 
     private void SelectMissing()
     {
-        foreach (var track in ImportedTracks)
+        // Called both from a UI-thread command (SelectMergeCandidatesCommand) and from the
+        // background Spotify streaming path (AddTracksToPreviewAsync, off the UI thread once
+        // resumed past an await with no SynchronizationContext) — mutating IsSelected directly
+        // from that second caller threw "Call from invalid thread" against a bound checkbox.
+        // Dispatcher.UIThread.Post is safe to call from either thread.
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
-            track.IsSelected = !track.IsInLibrary;
-        }
-        UpdateSelectedCount();
+            foreach (var track in ImportedTracks)
+            {
+                track.IsSelected = !track.IsInLibrary;
+            }
+            UpdateSelectedCount();
+        });
     }
 
     private void Cancel()

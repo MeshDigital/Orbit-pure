@@ -11,6 +11,10 @@
     <Version>0.7.1-beta</Version>
     <Authors>SLSK_CSV Contributors</Authors>
     <Description>Soulseek batch downloader using Soulseek.NET - Cross-platform with Avalonia UI</Description>
+    <!-- Embeds the icon into the compiled exe itself (Explorer, Alt-Tab, and the taskbar's
+         fallback before Avalonia's own runtime Window.Icon takes over) — previously unset, so
+         the exe showed .NET's generic default icon everywhere. -->
+    <ApplicationIcon>app_icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -144,6 +148,11 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+    <!-- Compiled into the assembly so Window.Icon / TrayIcon.Icon can reference them via
+         avares://ORBIT/... in XAML — the root-level PNGs are not picked up by any default
+         AvaloniaResource glob, confirmed by a startup FileNotFoundException without these. -->
+    <AvaloniaResource Include="app_icon.png" />
+    <AvaloniaResource Include="tray_icon.png" />
     <Content Include="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
