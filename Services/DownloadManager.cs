@@ -3604,6 +3604,16 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
             {
                 try
                 {
+                    // Recompute the resume offset from disk before each attempt. A prior attempt
+                    // in this same-peer retry loop can fail mid-transfer after already writing
+                    // bytes past the offset we started with; reusing that stale offset here would
+                    // reopen the .part file in Append mode (positioned at the new, larger EOF) but
+                    // tell the transfer client to resume from the old, smaller offset — which
+                    // requires a backward Seek that an Append-mode stream cannot perform, and
+                    // throws (uncatchable from here — surfaces as an unobserved task exception).
+                    startPosition = File.Exists(partPath) ? new FileInfo(partPath).Length : 0;
+                    ctx.BytesReceived = startPosition;
+
                     success = await _soulseek.DownloadAsync(
                         bestMatch.Username!,
                         bestMatch.Filename!,
