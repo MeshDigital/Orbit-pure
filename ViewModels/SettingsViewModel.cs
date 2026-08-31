@@ -508,6 +508,20 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    public bool EnableUpdateCheck
+    {
+        get => _config.EnableUpdateCheck;
+        set
+        {
+            if (_config.EnableUpdateCheck != value)
+            {
+                _config.EnableUpdateCheck = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
     public int AutoDownloadInitialWaitMs
     {
         get => _config.AutoDownloadInitialWaitMs;

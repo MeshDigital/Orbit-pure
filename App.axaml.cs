@@ -276,6 +276,11 @@ public partial class App : Application
                         // regardless of whether FFmpeg/Essentia were genuinely available.
                         _ = Services.GetRequiredService<NativeDependencyHealthService>().CheckHealthAsync();
 
+                        // Fire-and-forget: a single throttled GitHub Releases check. Never awaited
+                        // so a slow/unreachable network never delays startup; all failures inside
+                        // are caught and logged, never thrown.
+                        _ = Services.GetRequiredService<IUpdateCheckService>().CheckForUpdatesAsync();
+
                         // Eager-resolve chat/notification services so they start listening for
                         // incoming Soulseek messages from app launch, not just after the user
                         // first opens Users & Contacts (these are otherwise only constructed
@@ -677,6 +682,9 @@ public partial class App : Application
         
         // Phase 10.5: Native Dependency Health (Reliability)
         services.AddSingleton<NativeDependencyHealthService>();
+
+        // Update check — single GET against GitHub Releases, opt-out via AppConfig.EnableUpdateCheck.
+        services.AddSingleton<IUpdateCheckService, UpdateCheckService>();
         
         // Views - Register all page controls for NavigationService
         services.AddTransient<Views.Avalonia.HomePage>();

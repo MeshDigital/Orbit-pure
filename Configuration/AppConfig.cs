@@ -252,6 +252,14 @@ public class AppConfig
     public string? AutoDownloadExcludedPhrases { get; set; } = "remix,cover,live,acoustic"; // Comma-separated phrases to exclude
     public bool AutoDownloadDiagnosticsEnabled { get; set; } = false; // Local-only diagnostic logging to PlaylistActivityLogEntity
 
+    // Update check — a single unauthenticated GET to the public GitHub Releases API at most once
+    // per CheckInterval, comparing tag_name against this build's own version. No telemetry, no
+    // account/PII involved; opt-out toggle provided for consistency with this app's other
+    // network-touching features.
+    public bool EnableUpdateCheck { get; set; } = true;
+    public DateTime? LastUpdateCheckUtc { get; set; }
+    public string? LastSeenUpdateVersion { get; set; } // Suppresses re-notifying for a version already shown
+
     // Library smart insert (segment-aware playlist intelligence)
     // Confidence threshold: 0.80 strict, 0.72 normal, 0.65 loose/experimental
     public double LibrarySmartInsertMinConfidence { get; set; } = 0.72;

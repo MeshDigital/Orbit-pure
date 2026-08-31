@@ -1255,6 +1255,24 @@
             <TabItem Header="ADVANCED">
             <StackPanel Spacing="24" Margin="0,16,0,0">
 
+            <!-- Update Check -->
+            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderThickness="1" BorderBrush="#1E2A3A">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Grid.Column="0" Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="🔔" FontSize="20" VerticalAlignment="Center"/>
+                            <TextBlock Text="Check for Updates" FontSize="16" FontWeight="SemiBold" Foreground="#00BFFF"/>
+                        </StackPanel>
+                        <TextBlock Text="On launch, checks GitHub Releases for a newer version (at most once every 12 hours) and shows a toast if one is found. No account or telemetry involved."
+                                   Foreground="#8AA9BB" FontSize="12" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <ToggleSwitch Grid.Column="1"
+                                  IsChecked="{Binding EnableUpdateCheck, Mode=TwoWay}"
+                                  OnContent="On" OffContent="Off"
+                                  VerticalAlignment="Top"/>
+                </Grid>
+            </Border>
+
             <!-- AI Engine -->
             <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderThickness="1"
                     BorderBrush="{Binding AiEngine.Status, Converter={StaticResource AiStatusToBorderBrushConverter}}">

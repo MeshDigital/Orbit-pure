@@ -138,6 +138,11 @@ public class ConfigManager
                 AutoDownloadExcludedPhrases = config["AutoDownload:ExcludedPhrases"] ?? "remix,cover,live,acoustic",
                 AutoDownloadDiagnosticsEnabled = bool.TryParse(config["AutoDownload:DiagnosticsEnabled"], out var adde) && adde,
 
+                // [Updates]
+                EnableUpdateCheck = bool.TryParse(config["Updates:EnableCheck"], out var euc) ? euc : true,
+                LastUpdateCheckUtc = DateTime.TryParse(config["Updates:LastCheckUtc"], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var luc) ? luc : null,
+                LastSeenUpdateVersion = config["Updates:LastSeenVersion"],
+
                 // [Library] & Upgrade Scout
                 LibraryColumnOrder = config["Library:ColumnOrder"] ?? "",
                 LibraryNavigationCollapsed = bool.TryParse(config["Library:NavigationCollapsed"], out var navCollapsed) && navCollapsed,
@@ -299,6 +304,14 @@ public class ConfigManager
         iniContent.AppendLine($"MaxCandidatesToScore = {config.AutoDownloadMaxCandidatesToScore}");
         iniContent.AppendLine($"ExcludedPhrases = {config.AutoDownloadExcludedPhrases}");
         iniContent.AppendLine($"DiagnosticsEnabled = {config.AutoDownloadDiagnosticsEnabled}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Updates]");
+        iniContent.AppendLine($"EnableCheck = {config.EnableUpdateCheck}");
+        if (config.LastUpdateCheckUtc.HasValue)
+            iniContent.AppendLine($"LastCheckUtc = {config.LastUpdateCheckUtc.Value.ToString("o", System.Globalization.CultureInfo.InvariantCulture)}");
+        if (!string.IsNullOrEmpty(config.LastSeenUpdateVersion))
+            iniContent.AppendLine($"LastSeenVersion = {config.LastSeenUpdateVersion}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[MusicalIntelligence]");
