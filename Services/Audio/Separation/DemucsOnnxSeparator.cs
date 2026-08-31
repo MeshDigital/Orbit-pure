@@ -44,6 +44,13 @@ public sealed class DemucsOnnxSeparator : IStemSeparator, IDisposable
     private readonly object _sessionLock = new();
     private InferenceSession? _session;
 
+    // DemucsOnnxSeparator is a DI singleton — this one session is shared across the whole app,
+    // but the analysis pipeline processes many tracks concurrently. Concurrent Run() calls on one
+    // session under the DirectML (GPU) execution provider crashed the whole process natively
+    // elsewhere in this codebase (see DiscogsEffnetEmbeddingExtractor/EffnetClassifierHeadService)
+    // — a managed try/catch alone can't stop that, only serializing Run() calls does.
+    private readonly SemaphoreSlim _inferenceLock = new(1, 1);
+
     public string Name => "Demucs v4 ONNX (4-stem)";
 
     public bool IsAvailable => _modelManager.IsAvailable;
@@ -63,8 +70,9 @@ public sealed class DemucsOnnxSeparator : IStemSeparator, IDisposable
     /// (and its DirectML/CPU execution provider setup) is expensive to load — reusing
     /// one session across every separation call instead of recreating it per-track is
     /// the difference between paying that cost once per app run vs. once per track.
-    /// <see cref="InferenceSession.Run"/> is safe to call concurrently once constructed,
-    /// so a single shared instance is fine even with multiple analysis workers.
+    /// <see cref="InferenceSession.Run"/> is NOT safe to call concurrently under the DirectML
+    /// execution provider (confirmed elsewhere in this codebase) — callers must serialize
+    /// through <see cref="_inferenceLock"/> around every Run() call on this shared session.
     /// </summary>
     private InferenceSession GetOrCreateSession()
     {
@@ -173,8 +181,28 @@ public sealed class DemucsOnnxSeparator : IStemSeparator, IDisposable
             // zero-padded (DenseTensor default), trimmed back out when writing results below.
 
             var inputs = new List<NamedOnnxValue> { NamedOnnxValue.CreateFromTensor(InputNodeName, chunkTensor) };
-            using var results = session.Run(inputs);
 
+            _inferenceLock.Wait(cancellationToken);
+            IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results;
+            try
+            {
+                results = session.Run(inputs);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Demucs ONNX: inference failed on chunk at sample {Start}.", start);
+                throw;
+            }
+            finally
+            {
+                _inferenceLock.Release();
+            }
+
+            using var _ = results;
             foreach (var result in results)
             {
                 if (!OutputNodeToStemType.TryGetValue(result.Name, out var stemType)) continue;
@@ -302,5 +330,6 @@ public sealed class DemucsOnnxSeparator : IStemSeparator, IDisposable
             _session?.Dispose();
             _session = null;
         }
+        _inferenceLock.Dispose();
     }
 }
