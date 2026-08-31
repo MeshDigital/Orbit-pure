@@ -3664,7 +3664,11 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                             }
                         },
                         ct: stallMonitorCts.Token,
-                        startOffset: startPosition      // Resume from existing bytes
+                        startOffset: startPosition,     // Resume from existing bytes
+                        // Only the episode's final attempt reports to peer-reliability scoring —
+                        // a single flaky/transient failure shouldn't dock a peer 3x just because
+                        // this loop gives them a few quick same-peer shots before moving on.
+                        suppressCompletionEventOnFailure: attempt < maxSameUserAttempts
                     );
                 }
                 catch (OperationCanceledException) when (stalledByMonitor)
