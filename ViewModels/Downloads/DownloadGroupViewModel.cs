@@ -314,19 +314,24 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
             var items = Tracks.ToList();
             foreach (var t in items)
             {
-                // Status Reset Safety Check: if mid-download/searching, make sure the explicit
-                // save below (which CancelTrack's own state transition can race against — its
-                // UpdateStateAsync call is fire-and-forget) never persists a stale in-progress
+                // Status Reset Safety Check: if not already in a terminal state, make sure the
+                // explicit save below (which CancelTrack's own state transition can race against —
+                // its UpdateStateAsync call is fire-and-forget) never persists a stale in-progress
                 // status. Skipped, not Failed: DownloadManager.SyncDbAsync maps
                 // PlaylistTrackState.Cancelled -> TrackStatus.Skipped everywhere else, and this
                 // used to hardcode Failed instead — meaning a plain user-initiated cancel could
                 // land in the DB as "Failed" with zero audit-log trace explaining why (the direct
                 // property set bypasses the audit-logged UpdateStateAsync path entirely), which is
                 // exactly the kind of silently-wrong status this app should never show.
-                if (t.State == PlaylistTrackState.Downloading ||
-                    t.State == PlaylistTrackState.Searching ||
-                    t.State == PlaylistTrackState.Queued ||
-                    t.State == PlaylistTrackState.Pending)
+                //
+                // A denylist of the 3 genuinely terminal states, not an allowlist of in-flight
+                // ones: the original allowlist (Downloading/Searching/Queued/Pending) missed
+                // Converting/Paused/Deferred/Stalled/WaitingForConnection — Stalled in particular
+                // is a very plausible real cancel target — and would silently miss any new state
+                // added later too.
+                if (t.State != PlaylistTrackState.Completed &&
+                    t.State != PlaylistTrackState.Failed &&
+                    t.State != PlaylistTrackState.Cancelled)
                 {
                     t.Model.Status = TrackStatus.Skipped;
                 }

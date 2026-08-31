@@ -4,6 +4,8 @@ using System.Linq;
 using DynamicData;
 using DynamicData.Binding;
 using Moq;
+using ReactiveUI;
+using System.Reactive.Threading.Tasks;
 using SLSKDONET.Configuration;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
@@ -48,6 +50,34 @@ public class DownloadGroupViewModelTests
         Assert.Equal("Project Selection", group.Title);
         Assert.Equal("Project Artist", group.Subtitle);
         Assert.Equal("https://example.com/project.jpg", group.ArtworkUrl);
+    }
+
+    [Theory]
+    [InlineData(PlaylistTrackState.Pending)]
+    [InlineData(PlaylistTrackState.Searching)]
+    [InlineData(PlaylistTrackState.Queued)]
+    [InlineData(PlaylistTrackState.Downloading)]
+    [InlineData(PlaylistTrackState.Converting)]
+    [InlineData(PlaylistTrackState.Paused)]
+    [InlineData(PlaylistTrackState.Deferred)]
+    [InlineData(PlaylistTrackState.Stalled)]
+    [InlineData(PlaylistTrackState.WaitingForConnection)]
+    public async System.Threading.Tasks.Task CancelCommand_AnyNonTerminalState_ResetsStatusToSkipped_NeverFailed(
+        PlaylistTrackState state)
+    {
+        // The original allowlist (Downloading/Searching/Queued/Pending) missed Converting, Paused,
+        // Deferred, Stalled, and WaitingForConnection — a denylist of the 3 genuinely terminal
+        // states covers all of them, and any future new state, by default.
+        var track = CreateTrack(globalId: "cancel-race-track", playlistId: Guid.NewGuid());
+        using var group = CreateGroupedViewModel(track);
+        var item = group.Tracks.Single();
+        item.State = state;
+
+        var cancelCommand = (ReactiveCommand<System.Reactive.Unit, System.Reactive.Unit>)group.CancelCommand;
+        await cancelCommand.Execute().ToTask();
+
+        Assert.Equal(TrackStatus.Skipped, item.Model.Status);
+        Assert.NotEqual(TrackStatus.Failed, item.Model.Status);
     }
 
     private static DownloadGroupViewModel CreateGroupedViewModel(PlaylistTrack model)
@@ -123,6 +153,11 @@ public class DownloadGroupViewModelTests
         SetField(instance, "_jobEffectivePriority", new System.Collections.Concurrent.ConcurrentDictionary<Guid, int>());
         SetField(instance, "_jobBasePriority", new System.Collections.Concurrent.ConcurrentDictionary<Guid, int>());
         SetField(instance, "_jobFocused", new System.Collections.Concurrent.ConcurrentDictionary<Guid, bool>());
+        // CancelTrack (invoked by DownloadGroupViewModel.CancelCommand) locks _collectionLock and
+        // reads _downloads before its early-return for an unknown GlobalId — both must be
+        // non-null or that lock/lookup throws before ever reaching the early return.
+        SetField(instance, "_collectionLock", new object());
+        SetField(instance, "_downloads", new System.Collections.Generic.List<SLSKDONET.Services.Models.DownloadContext>());
         return instance;
     }
 
