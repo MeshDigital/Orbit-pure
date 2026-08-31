@@ -373,17 +373,26 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
     /// </summary>
     public bool IsTrackAlreadyQueued(string? spotifyTrackId, string artist, string title)
     {
+        // A Paused context that isn't a genuine user-initiated pause is an OnHold track hydrated
+        // at startup (EnableMp3Fallback maps OnHold -> Paused). QueueTracksAsync already knows how
+        // to safely resume that in place (see the existingCtx retry branch a few hundred lines up)
+        // rather than duplicate it, so it must not be treated as "already queued" here — otherwise
+        // GhostAcquisitionOrchestrator (the only caller of this method) skips it every sweep,
+        // forever, without ever attempting discovery.
+        static bool Blocks(DownloadContext d) => !(d.State == PlaylistTrackState.Paused && !d.Model.IsUserPaused);
+
         lock (_collectionLock)
         {
             if (!string.IsNullOrEmpty(spotifyTrackId))
             {
-                if (_downloads.Any(d => d.Model.SpotifyTrackId == spotifyTrackId))
+                if (_downloads.Any(d => d.Model.SpotifyTrackId == spotifyTrackId && Blocks(d)))
                     return true;
             }
 
-            return _downloads.Any(d => 
-                string.Equals(d.Model.Artist, artist, StringComparison.OrdinalIgnoreCase) && 
-                string.Equals(d.Model.Title, title, StringComparison.OrdinalIgnoreCase));
+            return _downloads.Any(d =>
+                string.Equals(d.Model.Artist, artist, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(d.Model.Title, title, StringComparison.OrdinalIgnoreCase) &&
+                Blocks(d));
         }
     }
 
