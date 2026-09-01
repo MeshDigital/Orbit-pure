@@ -2669,6 +2669,21 @@ public class DatabaseService
         }
     }
 
+    /// <summary>Wipes an entire room's local history on this device — other members' own copies are unaffected.</summary>
+    public async Task DeleteRoomHistoryAsync(string roomName)
+    {
+        await _writeSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            await context.RoomMessages.Where(x => x.RoomName == roomName).ExecuteDeleteAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
     /// <summary>Removes one message from local room history — local-only, the Soulseek protocol has no message recall.</summary>
     public async Task DeleteRoomMessageAsync(Guid id)
     {

@@ -81,6 +81,9 @@ public sealed class RoomChatService
     /// <summary>Removes a single message from local room history — local-only, the Soulseek protocol has no message recall.</summary>
     public Task DeleteMessageAsync(Guid id) => _databaseService.DeleteRoomMessageAsync(id);
 
+    /// <summary>Wipes an entire room's local history on this device — other members are unaffected.</summary>
+    public Task DeleteRoomHistoryAsync(string roomName) => _databaseService.DeleteRoomHistoryAsync(roomName);
+
     /// <summary>Marks every message in a room as read — called when the room is opened/selected.</summary>
     public Task MarkRoomReadAsync(string roomName) => _databaseService.MarkRoomReadAsync(roomName);
 
