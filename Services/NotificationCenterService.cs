@@ -156,7 +156,7 @@ public sealed class NotificationCenterService : ReactiveObject, IDisposable
         });
 
         _notificationService.Show($"Message from {e.PeerUsername}", e.Message, NotificationType.Information);
-        _windowsToast.ShowIfUnfocused($"Message from {e.PeerUsername}", e.Message);
+        _windowsToast.ShowIfUnfocused($"Message from {e.PeerUsername}", e.Message, navigateUsername: e.PeerUsername);
     }
 
     private void OnRoomMessageReceived(RoomMessageReceivedEvent e)
@@ -170,7 +170,7 @@ public sealed class NotificationCenterService : ReactiveObject, IDisposable
         });
 
         _notificationService.Show($"{e.Username} in #{e.RoomName}", e.Message, NotificationType.Information);
-        _windowsToast.ShowIfUnfocused($"{e.Username} in #{e.RoomName}", e.Message);
+        _windowsToast.ShowIfUnfocused($"{e.Username} in #{e.RoomName}", e.Message, navigateRoomName: e.RoomName);
     }
 
     private void Add(NotificationItem item)
