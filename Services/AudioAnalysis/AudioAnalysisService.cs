@@ -172,17 +172,19 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                     Path.GetFileName(filePath));
             }
 
+            IReadOnlyList<float> rmsCurve = Array.Empty<float>();
             if (pcmSamples.Length > 0)
             {
-                // Real per-second RMS energy curve — independent of Essentia, so drop/phrase
-                // detection (CuePointDetectionService, AnalyzeTrackStructureJob) gets a genuine
-                // time-series signal to work with even when the optional Essentia binary isn't
-                // installed. Previously EnergyCurveJson was never populated at analysis time, so
-                // those detectors ran against a flat placeholder curve and could only ever "find"
-                // a drop at its artificial edges.
+                // Real per-second (1.0s window) RMS energy curve — independent of Essentia, so
+                // drop/phrase detection (CuePointDetectionService, AnalyzeTrackStructureJob) gets
+                // a genuine time-series signal to work with even when the optional Essentia binary
+                // isn't installed. Previously EnergyCurveJson was never populated at analysis time,
+                // so those detectors ran against a flat placeholder curve and could only ever "find"
+                // a drop at its artificial edges. Kept in an outer-scoped variable so the novelty
+                // gating step below can reuse it instead of recomputing.
                 try
                 {
-                    var rmsCurve = _energyAnalysis.ComputeRawEnergyCurveFromPcm(pcmSamples, pcmSampleRate, pcmChannels);
+                    rmsCurve = _energyAnalysis.ComputeRawEnergyCurveFromPcm(pcmSamples, pcmSampleRate, pcmChannels);
                     if (rmsCurve.Count > 0)
                         features.EnergyCurveJson = JsonSerializer.Serialize(rmsCurve);
                 }
@@ -218,8 +220,18 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                         features.StructuralStrippingReturnTimestampsJson = JsonSerializer.Serialize(strippingReturns);
                     }
 
+                    const int noveltyHopSize = 512;
                     var novelty = _noveltyEngine.ComputeNoveltyFunction(mono, pcmSampleRate);
-                    var dropSignatures = _noveltyEngine.DetectDropSignatures(novelty, pcmSampleRate, 512);
+
+                    // Track-wide baseline gating: without this, a riser/snare-roll/hi-hat rush
+                    // right before a real drop can out-score the drop's own transient, since
+                    // SubtractLocalMean only ever compares novelty to a ±1s local window. Scale
+                    // by how the broadband RMS at each point compares to the track's own mean —
+                    // a spectrally-busy-but-quiet moment can no longer win against a loud one.
+                    novelty = SpectralFluxNoveltyEngine.ApplyGlobalEnergyGate(
+                        novelty, (double)noveltyHopSize / pcmSampleRate, rmsCurve.ToArray(), energyCurveWindowSeconds: 1.0);
+
+                    var dropSignatures = _noveltyEngine.DetectDropSignatures(novelty, pcmSampleRate, noveltyHopSize);
                     features.NoveltyDropSignaturesJson = JsonSerializer.Serialize(dropSignatures
                         .Select(d => new NoveltyDropSignatureDto(d.DropSeconds, d.BuildStartSeconds, d.DropStrength))
                         .ToList());

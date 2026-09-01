@@ -404,11 +404,17 @@ public sealed class CueGenerationService
     /// and holds — not just a single spike — versus the level that preceded it. This is a
     /// candidate generator, not an authoritative drop decision: it feeds the same scored
     /// <c>dropCandidates</c> list as the sub-bass/novelty signals in <see cref="GenerateCuesDsp"/>.
+    ///
+    /// Requires the sustained level to also clear a fraction of the track's own mean energy, not
+    /// just the preceding 4s — a purely local 1.6x jump fires on any loud-but-transient moment
+    /// (a crash cymbal swell, a snare-roll fill) regardless of whether it's actually a drop.
     /// </summary>
-    private static List<double> FindEnergyJumpCandidates(float[] energyCurve, double duration)
+    internal static List<double> FindEnergyJumpCandidates(float[] energyCurve, double duration)
     {
         var candidates = new List<double>();
         if (energyCurve.Length < 8 || duration <= 0) return candidates;
+
+        float trackMeanEnergy = energyCurve.Average();
 
         double secPerSample = duration / energyCurve.Length;
         int precedingWindow = Math.Max(2, (int)Math.Round(4.0 / secPerSample));
@@ -420,7 +426,7 @@ public sealed class CueGenerationService
             if (precedingAvg <= 0f) continue;
 
             float sustainedAvg = AverageRange(energyCurve, i, i + sustainWindow);
-            if (sustainedAvg > precedingAvg * 1.6f)
+            if (sustainedAvg > precedingAvg * 1.6f && sustainedAvg >= trackMeanEnergy * 0.9f)
             {
                 candidates.Add(i * secPerSample);
                 i += sustainWindow; // skip past this rise before looking for the next one
