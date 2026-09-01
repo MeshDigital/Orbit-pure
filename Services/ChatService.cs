@@ -27,7 +27,12 @@ public sealed class ChatService
     // reconnect while a conversation thread is already open and displaying it. The DB's unique
     // index on SoulseekMessageId already prevents a duplicate row, but that write is effectively
     // fire-and-forget relative to this in-memory publish, so a separate guard is needed here too.
-    private readonly ConcurrentDictionary<int, byte> _seenIncomingMessageIds = new();
+    // Pruned opportunistically (same pattern as NotificationCenterService._recentlyCompletedHashes)
+    // so a long-running session doesn't grow this unbounded — a replay only ever happens shortly
+    // after a reconnect, so anything older than the retention window could never legitimately need
+    // to be looked up again.
+    private readonly ConcurrentDictionary<int, DateTime> _seenIncomingMessageIds = new();
+    private static readonly TimeSpan SeenMessageIdRetention = TimeSpan.FromHours(24);
 
     public ChatService(ISoulseekAdapter adapter, DatabaseService databaseService, IEventBus eventBus, ILogger<ChatService> logger)
     {
@@ -71,10 +76,18 @@ public sealed class ChatService
 
     private void OnPrivateMessageReceived(object? sender, PrivateMessageReceivedEventArgs e)
     {
-        if (!_seenIncomingMessageIds.TryAdd(e.Id, 0))
+        var now = DateTime.UtcNow;
+        if (!_seenIncomingMessageIds.TryAdd(e.Id, now))
         {
             _logger.LogDebug("[Chat] Ignoring duplicate/replayed message {Id} from {Username}", e.Id, e.Username);
             return;
+        }
+
+        if (_seenIncomingMessageIds.Count > 256)
+        {
+            var stale = _seenIncomingMessageIds.Where(kv => now - kv.Value >= SeenMessageIdRetention).Select(kv => kv.Key).ToList();
+            foreach (var key in stale)
+                _seenIncomingMessageIds.TryRemove(key, out _);
         }
 
         _ = PersistAndPublishAsync(e);

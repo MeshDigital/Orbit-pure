@@ -81,6 +81,14 @@ public sealed class RoomChatService
     /// <summary>Removes a single message from local room history — local-only, the Soulseek protocol has no message recall.</summary>
     public Task DeleteMessageAsync(Guid id) => _databaseService.DeleteRoomMessageAsync(id);
 
+    // No dedup guard here, unlike ChatService.OnPrivateMessageReceived's _seenIncomingMessageIds:
+    // investigated and confirmed this isn't reachable the same way. Private messages carry a real
+    // protocol-level message ID (SoulseekAdapter's PrivateMessageReceivedEventArgs.Id) because the
+    // server queues them for offline delivery and needs ACK/replay semantics. RoomMessageReceivedEventArgs
+    // has no ID at all — it's built purely from RoomName/Username/Message with a locally-generated
+    // timestamp (see SoulseekAdapter.cs's RoomMessageReceived handler) — because Soulseek's room
+    // chat protocol is a live-only broadcast to currently-connected members, with no server-side
+    // queue to replay from on reconnect.
     private void OnRoomMessageReceived(object? sender, RoomMessageReceivedEventArgs e)
     {
         _ = PersistAndPublishAsync(e);
