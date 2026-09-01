@@ -118,11 +118,45 @@ public class RoomViewModel : ReactiveObject, IDisposable
             {
                 var existing = Members.FirstOrDefault(m => string.Equals(m.Username, e.Username, StringComparison.OrdinalIgnoreCase));
                 if (e.Joined && existing.Username is null)
-                    Members.Add(new RoomMemberSnapshot(e.Username, UserPresenceState.Online, 0, 0, 0, null));
+                    _ = HandleMemberJoinedAsync(e.Username);
                 else if (!e.Joined && existing.Username is not null)
                     Members.Remove(existing);
             })
             .DisposeWith(_disposables);
+
+        // Live-updates an existing member's dot when they go online/away/offline — but only if
+        // something else in the app (contacts list, an open profile) happens to already be
+        // watching that username; this room doesn't open its own per-member watches (would mean
+        // watching every member on join and unwatching on leave, more invasive than warranted
+        // for a beta pass — deliberately deferred).
+        eventBus.GetEvent<UserPresenceChangedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e =>
+            {
+                var idx = Members.ToList().FindIndex(m => string.Equals(m.Username, e.Username, StringComparison.OrdinalIgnoreCase));
+                if (idx >= 0)
+                    Members[idx] = Members[idx] with { Presence = e.Presence };
+            })
+            .DisposeWith(_disposables);
+    }
+
+    /// <summary>Fetches a mid-session joiner's real status before adding them — the membership
+    /// event itself carries no presence, unlike the initial room-join snapshot.</summary>
+    private async Task HandleMemberJoinedAsync(string username)
+    {
+        var presence = UserPresenceState.Online;
+        try
+        {
+            var status = await _roomChat.GetUserStatusAsync(username).ConfigureAwait(true);
+            presence = status.Presence;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to fetch status for room joiner {Username} in {RoomName}", username, RoomName);
+        }
+
+        if (!Members.Any(m => string.Equals(m.Username, username, StringComparison.OrdinalIgnoreCase)))
+            Members.Add(new RoomMemberSnapshot(username, presence, 0, 0, 0, null));
     }
 
     public async Task LoadHistoryAsync(IReadOnlyList<RoomMemberSnapshot>? initialMembers = null)

@@ -39,6 +39,10 @@ public sealed class RoomChatService
 
     public Task<IReadOnlyList<RoomSummary>> GetRoomListAsync() => _adapter.GetRoomListAsync();
 
+    /// <summary>Real-time status fetch for a room member who just joined mid-session — the
+    /// membership event itself carries no presence data, unlike the initial room-join snapshot.</summary>
+    public Task<UserStatusSnapshot> GetUserStatusAsync(string username) => _adapter.GetUserStatusAsync(username);
+
     public async Task<RoomSnapshot> JoinRoomAsync(string roomName, bool isPrivate = false)
     {
         var snapshot = await _adapter.JoinRoomAsync(roomName, isPrivate).ConfigureAwait(false);
