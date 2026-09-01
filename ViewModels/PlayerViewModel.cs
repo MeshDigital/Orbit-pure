@@ -46,6 +46,13 @@ namespace SLSKDONET.ViewModels
         private readonly IAudioPlayerService _playerService;
         private readonly AppConfig? _config;
         private readonly ConfigManager? _configManager;
+
+        // Waveform appearance pass-through — set once from AppConfig in the constructor.
+        public bool WaveformUseNeonPalette { get; }
+        public double WaveformGain { get; }
+        public bool WaveformShowEnergyCurve { get; }
+        public bool WaveformShowVocalGhost { get; }
+        public bool WaveformShowPhraseSections { get; }
         private readonly DatabaseService _databaseService;
         private readonly ArtworkCacheService _artworkCacheService;
         private readonly IEventBus _eventBus;
@@ -584,6 +591,15 @@ namespace SLSKDONET.ViewModels
                 _pitch = _config.PlaybackPitch;
                 _playerService.Pitch = _config.PlaybackPitch;
             }
+
+            // Waveform appearance — read-only pass-through to AppConfig, same convention as every
+            // other settings-backed value in this app (applies on next view load, no live cross-VM
+            // push notification, matching how other settings toggles already behave here).
+            WaveformUseNeonPalette = !string.Equals(_config?.WaveformPalette, "ClassicRgb", StringComparison.OrdinalIgnoreCase);
+            WaveformGain = _config?.WaveformGain ?? 1.0f;
+            WaveformShowEnergyCurve = _config?.WaveformShowEnergyCurve ?? true;
+            WaveformShowVocalGhost = _config?.WaveformShowVocalGhost ?? true;
+            WaveformShowPhraseSections = _config?.WaveformShowPhraseSections ?? true;
 
             // Wire Ambient Mode service events
             if (_ambientModeService is not null)

@@ -143,6 +143,14 @@ public class ConfigManager
                 LastUpdateCheckUtc = DateTime.TryParse(config["Updates:LastCheckUtc"], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var luc) ? luc : null,
                 LastSeenUpdateVersion = config["Updates:LastSeenVersion"],
 
+                // [Waveform]
+                WaveformPalette = config["Waveform:Palette"] ?? "NeonRgb",
+                WaveformShowEnergyCurve = bool.TryParse(config["Waveform:ShowEnergyCurve"], out var wsec) ? wsec : true,
+                WaveformShowVocalGhost = bool.TryParse(config["Waveform:ShowVocalGhost"], out var wsvg) ? wsvg : true,
+                WaveformShowPhraseSections = bool.TryParse(config["Waveform:ShowPhraseSections"], out var wsps) ? wsps : true,
+                WaveformShowBeatGrid = bool.TryParse(config["Waveform:ShowBeatGrid"], out var wsbg) ? wsbg : true,
+                WaveformGain = float.TryParse(config["Waveform:Gain"], System.Globalization.CultureInfo.InvariantCulture, out var wg) ? wg : 1.0f,
+
                 // [Library] & Upgrade Scout
                 LibraryColumnOrder = config["Library:ColumnOrder"] ?? "",
                 LibraryNavigationCollapsed = bool.TryParse(config["Library:NavigationCollapsed"], out var navCollapsed) && navCollapsed,
@@ -312,6 +320,15 @@ public class ConfigManager
             iniContent.AppendLine($"LastCheckUtc = {config.LastUpdateCheckUtc.Value.ToString("o", System.Globalization.CultureInfo.InvariantCulture)}");
         if (!string.IsNullOrEmpty(config.LastSeenUpdateVersion))
             iniContent.AppendLine($"LastSeenVersion = {config.LastSeenUpdateVersion}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Waveform]");
+        iniContent.AppendLine($"Palette = {config.WaveformPalette}");
+        iniContent.AppendLine($"ShowEnergyCurve = {config.WaveformShowEnergyCurve}");
+        iniContent.AppendLine($"ShowVocalGhost = {config.WaveformShowVocalGhost}");
+        iniContent.AppendLine($"ShowPhraseSections = {config.WaveformShowPhraseSections}");
+        iniContent.AppendLine($"ShowBeatGrid = {config.WaveformShowBeatGrid}");
+        iniContent.AppendLine($"Gain = {config.WaveformGain.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[MusicalIntelligence]");

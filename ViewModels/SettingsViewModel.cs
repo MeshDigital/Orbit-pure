@@ -522,6 +522,93 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>True = Neon RGB palette, false = Classic RGB palette — two options, so a single toggle rather than a full picker.</summary>
+    public bool WaveformUseNeonPalette
+    {
+        get => string.Equals(_config.WaveformPalette, "NeonRgb", StringComparison.OrdinalIgnoreCase);
+        set
+        {
+            var newValue = value ? "NeonRgb" : "ClassicRgb";
+            if (!string.Equals(_config.WaveformPalette, newValue, StringComparison.OrdinalIgnoreCase))
+            {
+                _config.WaveformPalette = newValue;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool WaveformShowEnergyCurve
+    {
+        get => _config.WaveformShowEnergyCurve;
+        set
+        {
+            if (_config.WaveformShowEnergyCurve != value)
+            {
+                _config.WaveformShowEnergyCurve = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool WaveformShowVocalGhost
+    {
+        get => _config.WaveformShowVocalGhost;
+        set
+        {
+            if (_config.WaveformShowVocalGhost != value)
+            {
+                _config.WaveformShowVocalGhost = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool WaveformShowPhraseSections
+    {
+        get => _config.WaveformShowPhraseSections;
+        set
+        {
+            if (_config.WaveformShowPhraseSections != value)
+            {
+                _config.WaveformShowPhraseSections = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool WaveformShowBeatGrid
+    {
+        get => _config.WaveformShowBeatGrid;
+        set
+        {
+            if (_config.WaveformShowBeatGrid != value)
+            {
+                _config.WaveformShowBeatGrid = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public float WaveformGain
+    {
+        get => _config.WaveformGain;
+        set
+        {
+            var normalized = Math.Clamp(value, 0.5f, 2.0f);
+            if (Math.Abs(_config.WaveformGain - normalized) > 0.001f)
+            {
+                _config.WaveformGain = normalized;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
     public int AutoDownloadInitialWaitMs
     {
         get => _config.AutoDownloadInitialWaitMs;

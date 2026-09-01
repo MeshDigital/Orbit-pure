@@ -673,6 +673,43 @@
                 </StackPanel>
             </Border>
 
+            <!-- Waveform Appearance -->
+            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#00CFFF" BorderThickness="1">
+                <StackPanel Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="🌈" FontSize="20" VerticalAlignment="Center"/>
+                        <TextBlock Text="Waveform Appearance" FontSize="16" FontWeight="SemiBold" Foreground="#00CFFF"/>
+                    </StackPanel>
+                    <TextBlock Text="Controls the RGB tri-band waveform on the player and Now Playing view. Applies the next time a waveform is loaded." Foreground="#AAA" FontSize="12" TextWrapping="Wrap"/>
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Neon palette (off = classic RGB)" Foreground="#DDD" VerticalAlignment="Center"/>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding WaveformUseNeonPalette, Mode=TwoWay}" OnContent="Neon" OffContent="Classic"/>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto">
+                        <TextBlock Grid.Column="0" Text="Gain" Foreground="#DDD" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <Slider Grid.Column="1" Minimum="0.5" Maximum="2.0" Value="{Binding WaveformGain, Mode=TwoWay}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Text="{Binding WaveformGain, StringFormat={}{0:0.0}x}" Foreground="#AAA" FontSize="12" Margin="10,0,0,0" VerticalAlignment="Center" Width="32"/>
+                    </Grid>
+
+                    <Separator Background="#1A2F3A" Height="1"/>
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Show energy curve" Foreground="#DDD" VerticalAlignment="Center"/>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding WaveformShowEnergyCurve, Mode=TwoWay}" OnContent="On" OffContent="Off"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Show vocal density ghost" Foreground="#DDD" VerticalAlignment="Center"/>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding WaveformShowVocalGhost, Mode=TwoWay}" OnContent="On" OffContent="Off"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Show phrase sections" Foreground="#DDD" VerticalAlignment="Center"/>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding WaveformShowPhraseSections, Mode=TwoWay}" OnContent="On" OffContent="Off"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!-- Frequent Sources (local-only, opt-in) -->
             <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
                 <StackPanel Spacing="16">

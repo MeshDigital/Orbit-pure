@@ -260,6 +260,15 @@ public class AppConfig
     public DateTime? LastUpdateCheckUtc { get; set; }
     public string? LastSeenUpdateVersion { get; set; } // Suppresses re-notifying for a version already shown
 
+    // Waveform appearance — the RGB tri-band renderer/overlays already existed but had zero
+    // user-facing settings (colors/overlays were compiled-in constants).
+    public string WaveformPalette { get; set; } = "NeonRgb"; // "NeonRgb" or "ClassicRgb"
+    public bool WaveformShowEnergyCurve { get; set; } = true;
+    public bool WaveformShowVocalGhost { get; set; } = true;
+    public bool WaveformShowPhraseSections { get; set; } = true;
+    public bool WaveformShowBeatGrid { get; set; } = true;
+    public float WaveformGain { get; set; } = 1.0f;
+
     // Library smart insert (segment-aware playlist intelligence)
     // Confidence threshold: 0.80 strict, 0.72 normal, 0.65 loose/experimental
     public double LibrarySmartInsertMinConfidence { get; set; } = 0.72;
