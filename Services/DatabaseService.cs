@@ -2569,19 +2569,6 @@ public class DatabaseService
         }
     }
 
-    /// <summary>Distinct peers with any message history, most recently active first — powers the conversation list panel.</summary>
-    public async Task<List<string>> GetConversationPeersAsync()
-    {
-        using var context = new AppDbContext();
-        return await context.PrivateMessages
-            .GroupBy(x => x.PeerUsername)
-            .Select(g => new { Username = g.Key, LastMessageAt = g.Max(x => x.TimestampUtc) })
-            .OrderByDescending(x => x.LastMessageAt)
-            .Select(x => x.Username)
-            .ToListAsync()
-            .ConfigureAwait(false);
-    }
-
     /// <summary>
     /// Recent 1:1 conversations with a last-message preview, most recently active first — the data
     /// source for the Users page's "Conversations" section (distinct from the full "everyone you've

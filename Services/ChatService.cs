@@ -60,9 +60,6 @@ public sealed class ChatService
     public Task<List<PrivateMessageEntity>> GetConversationAsync(string peerUsername, int limit = 500, DateTime? beforeUtc = null)
         => _databaseService.GetConversationAsync(peerUsername, limit, beforeUtc);
 
-    public Task<List<string>> GetConversationPeersAsync()
-        => _databaseService.GetConversationPeersAsync();
-
     public Task<List<ConversationSummary>> GetRecentConversationsAsync()
         => _databaseService.GetRecentConversationsAsync();
 
