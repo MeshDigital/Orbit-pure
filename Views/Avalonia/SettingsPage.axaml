@@ -607,7 +607,7 @@
 
             <!-- Library Sharing -->
             <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#1DB954" BorderThickness="1"
-                    Tag="Library Sharing||When enabled, Orbit will share your local music library with other Soulseek users. You can choose which folders to share and set upload speed limits to avoid saturating your connection.">
+                    Tag="Library Sharing||When enabled, Orbit shares every folder in your Library Sources (Library tab) with other Soulseek users, plus any additional folder you add below. Set upload speed limits to avoid saturating your connection.">
                 <StackPanel Spacing="16">
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Grid.Column="0" Spacing="4">
@@ -615,7 +615,7 @@
                                 <TextBlock Text="📤" FontSize="20" VerticalAlignment="Center"/>
                                 <TextBlock Text="Library Sharing" FontSize="16" FontWeight="SemiBold" Foreground="#1DB954"/>
                             </StackPanel>
-                            <TextBlock Text="Share files back to the Soulseek network. Your share count directly affects your reputation and download priority from quality peers."
+                            <TextBlock Text="Shares every enabled Library Sources folder automatically. Your share count directly affects your reputation and download priority from quality peers."
                                        Foreground="#666" FontSize="12" TextWrapping="Wrap"/>
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1"
@@ -626,9 +626,10 @@
 
                     <Separator Background="#1A2F1A" Height="1"/>
 
-                    <!-- Folder picker – only enabled when sharing is on -->
+                    <!-- Additive extra folder – on top of every enabled Library Sources folder, not a replacement for them -->
                     <Grid ColumnDefinitions="130,*,Auto" IsEnabled="{Binding EnableLibrarySharing}">
-                        <TextBlock Grid.Column="0" Text="Shared Folder:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <TextBlock Grid.Column="0" Text="Additional Folder:" VerticalAlignment="Center" Foreground="#DDD"
+                                   ToolTip.Tip="Optional — shared in addition to your Library Sources folders, for files outside your library you also want to share."/>
                         <TextBox Grid.Column="1"
                                  Text="{Binding SharedFolderPath, Mode=TwoWay}"
                                  IsReadOnly="True"
