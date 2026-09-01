@@ -260,15 +260,26 @@ public sealed class CueGenerationService
                 dropCandidates.Add((t, weights.EnergyJumpWeight * 0.75f));
         }
 
-        // Family-specific drop candidates (e.g. FourOnTheFloor's structural-stripping return —
-        // the moment the kick genuinely re-enters at full force after a real breakdown).
+        // Family-specific drop candidates (e.g. FourOnTheFloor's structural-stripping return — the
+        // moment the kick genuinely re-enters at full force after a real breakdown; Breakbeat's
+        // novelty-corroborated sub-bass returns). A candidate near an existing one raises that
+        // entry's score to the higher of the two rather than being skipped outright — a corroboration
+        // signal is, by definition, usually close to an already-known candidate (that's what makes it
+        // a corroboration), so silently dropping it as "already covered" would make it a no-op.
         if (strategy != null)
         {
             foreach (var (t, score) in strategy.GetFamilySpecificDropCandidates(analysis, bpm, downbeatAnchor))
             {
-                bool alreadyCovered = dropCandidates.Any(d => Math.Abs(d.Time - t) < bar * 2);
-                if (!alreadyCovered)
+                int nearbyIndex = dropCandidates.FindIndex(d => Math.Abs(d.Time - t) < bar * 2);
+                if (nearbyIndex >= 0)
+                {
+                    if (score > dropCandidates[nearbyIndex].Score)
+                        dropCandidates[nearbyIndex] = (dropCandidates[nearbyIndex].Time, score);
+                }
+                else
+                {
                     dropCandidates.Add((t, score));
+                }
             }
         }
 
