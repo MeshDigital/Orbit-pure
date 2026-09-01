@@ -5,10 +5,15 @@
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:svc="clr-namespace:SLSKDONET.Services"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:conv="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
              mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="800"
              x:Class="SLSKDONET.Views.Avalonia.UsersPage"
              x:DataType="vm:UsersViewModel"
              Background="{DynamicResource BrushBg1}" Foreground="White">
+
+    <UserControl.Resources>
+        <conv:PresenceToDotBrushConverter x:Key="PresenceToDotBrushConverter"/>
+    </UserControl.Resources>
 
     <UserControl.Styles>
         <Style Selector="Border.row">
@@ -98,6 +103,7 @@
                                     <Grid ColumnDefinitions="*,Auto">
                                         <StackPanel Grid.Column="0" Spacing="2">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Ellipse Width="7" Height="7" Fill="{Binding Presence, Converter={StaticResource PresenceToDotBrushConverter}}" VerticalAlignment="Center" ToolTip.Tip="{Binding Presence}"/>
                                                 <Ellipse Width="7" Height="7" Fill="{DynamicResource BrushAccent}" IsVisible="{Binding IsUnread}" VerticalAlignment="Center"/>
                                                 <TextBlock Text="{Binding Username}" FontWeight="SemiBold" Foreground="White"/>
                                             </StackPanel>
@@ -131,7 +137,10 @@
                                             CommandParameter="{Binding Username}">
                                         <Grid ColumnDefinitions="*,Auto">
                                             <StackPanel Grid.Column="0" Spacing="2">
-                                                <TextBlock Text="{Binding Username}" FontWeight="SemiBold" Foreground="White"/>
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <Ellipse Width="7" Height="7" Fill="{Binding Presence, Converter={StaticResource PresenceToDotBrushConverter}}" VerticalAlignment="Center" ToolTip.Tip="{Binding Presence}"/>
+                                                    <TextBlock Text="{Binding Username}" FontWeight="SemiBold" Foreground="White"/>
+                                                </StackPanel>
                                                 <TextBlock FontSize="11" Foreground="{DynamicResource BrushText1}">
                                                     <Run Text="{Binding TotalDownloads}"/>
                                                     <Run Text=" downloads"/>
@@ -383,9 +392,27 @@
                     <Grid RowDefinitions="Auto,*,Auto,Auto" IsVisible="{Binding Rooms.SelectedRoom, Converter={x:Static ObjectConverters.IsNotNull}}">
                         <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
                             <TextBlock Grid.Column="0" Text="{Binding Rooms.SelectedRoom.RoomName}" FontSize="16" FontWeight="Bold"/>
-                            <TextBlock Grid.Column="1" Foreground="{DynamicResource BrushText2}">
-                                <Run Text="{Binding Rooms.SelectedRoom.Members.Count}"/><Run Text=" members"/>
-                            </TextBlock>
+                            <Button Grid.Column="1" Classes="secondary" Padding="8,4">
+                                <TextBlock Foreground="{DynamicResource BrushText2}">
+                                    <Run Text="{Binding Rooms.SelectedRoom.Members.Count}"/><Run Text=" members"/>
+                                </TextBlock>
+                                <Button.Flyout>
+                                    <Flyout Placement="BottomEdgeAlignedRight">
+                                        <ScrollViewer MaxHeight="320" Width="220">
+                                            <ItemsControl ItemsSource="{Binding Rooms.SelectedRoom.Members}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="svc:RoomMemberSnapshot">
+                                                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="4,3">
+                                                            <Ellipse Width="7" Height="7" Fill="{Binding Presence, Converter={StaticResource PresenceToDotBrushConverter}}" VerticalAlignment="Center" ToolTip.Tip="{Binding Presence}"/>
+                                                            <TextBlock Text="{Binding Username}" Foreground="White" FontSize="12"/>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
                         </Grid>
 
                         <controls:MessageThreadView Grid.Row="1"

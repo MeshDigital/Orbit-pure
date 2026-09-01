@@ -30,9 +30,17 @@ public class UsersViewModel : ReactiveObject, IDisposable
     private readonly IServiceProvider _serviceProvider;
     private readonly ISoulseekAdapter _adapter;
     private readonly ChatService _chatService;
+    private readonly UserPresenceWatchService _presenceWatch;
     private readonly IEventBus _eventBus;
     private readonly ILogger<UsersViewModel> _logger;
     private readonly CompositeDisposable _disposables = new();
+
+    // Presence dots: bounds how many contacts get a live server watch to what's actually visible
+    // (post-filter), not the full "everyone you've ever downloaded from" list, which could be
+    // large. Conversations is always watched in full — that list is inherently small.
+    private const int MaxPresenceWatchedContacts = 150;
+    private readonly Dictionary<string, IDisposable> _presenceHandles = new(StringComparer.OrdinalIgnoreCase);
+    private bool _disposed;
 
     /// <summary>
     /// Recent 1:1 conversations (peers you've actually exchanged messages with), most recently
@@ -123,6 +131,7 @@ public class UsersViewModel : ReactiveObject, IDisposable
         ISoulseekAdapter adapter,
         RoomsViewModel rooms,
         ChatService chatService,
+        UserPresenceWatchService presenceWatch,
         IEventBus eventBus,
         ILogger<UsersViewModel> logger,
         FrequentSourceService? frequentSourceService = null)
@@ -133,6 +142,7 @@ public class UsersViewModel : ReactiveObject, IDisposable
         _serviceProvider = serviceProvider;
         _adapter = adapter;
         _chatService = chatService;
+        _presenceWatch = presenceWatch;
         _eventBus = eventBus;
         _logger = logger;
         _frequentSourceService = frequentSourceService;
@@ -167,6 +177,20 @@ public class UsersViewModel : ReactiveObject, IDisposable
             })
             .DisposeWith(_disposables);
 
+        _eventBus.GetEvent<UserPresenceChangedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e =>
+            {
+                var row = Rows.FirstOrDefault(r => string.Equals(r.Username, e.Username, StringComparison.OrdinalIgnoreCase));
+                if (row != null)
+                    row.Presence = e.Presence;
+
+                var conversation = Conversations.FirstOrDefault(c => string.Equals(c.Username, e.Username, StringComparison.OrdinalIgnoreCase));
+                if (conversation != null)
+                    conversation.Presence = e.Presence;
+            })
+            .DisposeWith(_disposables);
+
         _ = LoadAsync();
     }
 
@@ -193,6 +217,7 @@ public class UsersViewModel : ReactiveObject, IDisposable
         else
         {
             Conversations.Insert(0, new ConversationRowViewModel(e.PeerUsername, e.Message, e.TimestampUtc, isUnread: !isActive));
+            _ = WatchOnePresenceAsync(e.PeerUsername);
         }
     }
 
@@ -202,6 +227,74 @@ public class UsersViewModel : ReactiveObject, IDisposable
         Conversations.Clear();
         foreach (var c in recent)
             Conversations.Add(new ConversationRowViewModel(c.Username, c.LastMessage, c.LastMessageUtc, isUnread: false));
+
+        _ = RefreshPresenceWatchesAsync();
+    }
+
+    /// <summary>
+    /// Keeps presence dots live for contacts currently visible in <see cref="Rows"/> (capped —
+    /// see <see cref="MaxPresenceWatchedContacts"/>) and every row in <see cref="Conversations"/>
+    /// (always small). Diffs against the currently-held watch set rather than unwatching and
+    /// rewatching everything on every call, so filtering by a keystroke doesn't cause needless
+    /// watch/unwatch server chatter for usernames that stay in view.
+    /// </summary>
+    private async Task RefreshPresenceWatchesAsync()
+    {
+        var desired = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in Rows.Take(MaxPresenceWatchedContacts))
+            desired.Add(row.Username);
+        foreach (var conversation in Conversations)
+            desired.Add(conversation.Username);
+
+        foreach (var username in _presenceHandles.Keys.Where(u => !desired.Contains(u)).ToList())
+        {
+            _presenceHandles[username].Dispose();
+            _presenceHandles.Remove(username);
+        }
+
+        foreach (var username in desired)
+        {
+            if (_presenceHandles.ContainsKey(username))
+                continue;
+
+            await WatchOnePresenceAsync(username).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>Watches a single username's presence and seeds the matching row(s) from the
+    /// initial snapshot; later changes arrive via the UserPresenceChangedEvent subscription.</summary>
+    private async Task WatchOnePresenceAsync(string username)
+    {
+        if (_presenceHandles.ContainsKey(username))
+            return;
+
+        try
+        {
+            var (handle, snapshot) = await _presenceWatch.WatchAsync(username).ConfigureAwait(true);
+            if (_disposed)
+            {
+                // Closed while the watch request was in flight — release immediately rather than
+                // leaking the ref-count for this username forever (see UserPresenceWatchService).
+                handle.Dispose();
+                return;
+            }
+
+            _presenceHandles[username] = handle;
+            if (snapshot != null)
+            {
+                var row = Rows.FirstOrDefault(r => string.Equals(r.Username, username, StringComparison.OrdinalIgnoreCase));
+                if (row != null)
+                    row.Presence = snapshot.Presence;
+
+                var conversation = Conversations.FirstOrDefault(c => string.Equals(c.Username, username, StringComparison.OrdinalIgnoreCase));
+                if (conversation != null)
+                    conversation.Presence = snapshot.Presence;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to watch presence for {Username}", username);
+        }
     }
 
     /// <summary>Jumps straight to a conversation or room — used when a chat/room notification is clicked.</summary>
@@ -303,6 +396,8 @@ public class UsersViewModel : ReactiveObject, IDisposable
 
         foreach (var row in query)
             Rows.Add(row);
+
+        _ = RefreshPresenceWatchesAsync();
     }
 
     private async Task OpenProfileAsync(string username)
@@ -323,6 +418,11 @@ public class UsersViewModel : ReactiveObject, IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
+        foreach (var handle in _presenceHandles.Values)
+            handle.Dispose();
+        _presenceHandles.Clear();
+
         _disposables.Dispose();
         SelectedProfile?.Dispose();
         Rooms.Dispose();
@@ -353,6 +453,13 @@ public class ConversationRowViewModel : ReactiveObject
     {
         get => _isUnread;
         set => this.RaiseAndSetIfChanged(ref _isUnread, value);
+    }
+
+    private UserPresenceState _presence = UserPresenceState.Unknown;
+    public UserPresenceState Presence
+    {
+        get => _presence;
+        set => this.RaiseAndSetIfChanged(ref _presence, value);
     }
 
     public ConversationRowViewModel(string username, string lastMessage, DateTime lastMessageUtc, bool isUnread)
