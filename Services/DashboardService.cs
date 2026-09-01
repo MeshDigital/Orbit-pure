@@ -290,6 +290,7 @@ public class DashboardService
             var tracks = await context.PlaylistTracks
                 .AsNoTracking()
                 .Include(t => t.TechnicalDetails)
+                .Include(t => t.AudioFeatures)
                 .Where(t => t.Status == TrackStatus.Downloaded)
                 .ToListAsync();
 
@@ -313,10 +314,11 @@ public class DashboardService
                     : track.TechnicalDetails!.CuePointsJson;
                 var hasCues = !string.IsNullOrWhiteSpace(cueJson);
 
-                var hasWaveform = (track.TechnicalDetails?.WaveformData?.Length ?? 0) > 0
-                    || (track.TechnicalDetails?.LowData?.Length ?? 0) > 0
-                    || (track.TechnicalDetails?.MidData?.Length ?? 0) > 0
-                    || (track.TechnicalDetails?.HighData?.Length ?? 0) > 0;
+                // Previously checked TechnicalDetails.WaveformData/LowData/MidData/HighData, which
+                // were dead columns never actually populated by anything — meaning this was always
+                // false and every downloaded track got flagged "incomplete," regardless of real
+                // analysis state. The live waveform data is AudioFeaturesEntity.WaveformBlob.
+                var hasWaveform = (track.AudioFeatures?.WaveformBlob?.Length ?? 0) > 0;
 
                 return !(hasBpm && hasKey && hasCues && hasWaveform);
             });

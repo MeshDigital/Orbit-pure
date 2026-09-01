@@ -858,16 +858,18 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         {
             if (_cachedWaveformData != null) return _cachedWaveformData;
 
-             // Use lazy loaded entity if available, checking cached array logic
-             var waveData = _technicalEntity?.WaveformData ?? Model.WaveformData ?? Array.Empty<byte>();
-             
-             _cachedWaveformData = new WaveformAnalysisData 
-             { 
-                 PeakData = waveData, 
-                 RmsData = _technicalEntity?.RmsData ?? Model.RmsData ?? Array.Empty<byte>(),
-                 LowData = _technicalEntity?.LowData ?? Model.LowData ?? Array.Empty<byte>(),
-                 MidData = _technicalEntity?.MidData ?? Model.MidData ?? Array.Empty<byte>(),
-                 HighData = _technicalEntity?.HighData ?? Model.HighData ?? Array.Empty<byte>(),
+             // TrackTechnicalEntity's own waveform columns were dead (never populated — dropped in
+             // SchemaMigratorService's patch #27); Model's bands are the real, live source, resolved
+             // from AudioFeaturesEntity.WaveformBlob by LibraryService.ResolveWaveformBands.
+             var waveData = Model.WaveformData ?? Array.Empty<byte>();
+
+             _cachedWaveformData = new WaveformAnalysisData
+             {
+                 PeakData = waveData,
+                 RmsData = Model.RmsData ?? Array.Empty<byte>(),
+                 LowData = Model.LowData ?? Array.Empty<byte>(),
+                 MidData = Model.MidData ?? Array.Empty<byte>(),
+                 HighData = Model.HighData ?? Array.Empty<byte>(),
                  DurationSeconds = (Model.CanonicalDuration ?? 0) / 1000.0
              };
 

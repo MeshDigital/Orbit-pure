@@ -1136,23 +1136,13 @@ public class LibraryService : ILibraryService
 
             if (libraryEntry != null)
             {
-                var libraryWaveform = ResolveWaveformBands(
-                    libraryEntry.WaveformData,
-                    libraryEntry.RmsData,
-                    libraryEntry.LowData,
-                    libraryEntry.MidData,
-                    libraryEntry.HighData,
-                    libraryEntry.AudioFeatures?.WaveformBlob,
-                    libraryEntry.AudioFeatures?.WaveformBlobSampleCount ?? 0);
-
+                // TrackTechnicalEntity's own waveform columns were dead (dropped in
+                // SchemaMigratorService's patch #27) — waveform bands are resolved from
+                // AudioFeaturesEntity.WaveformBlob via EntityToLibraryEntry/EntityToPlaylistTrack's
+                // own ResolveWaveformBands call instead, not through this synthesized entity.
                 return new TrackTechnicalEntity
                 {
                     PlaylistTrackId = playlistTrackId,
-                    WaveformData = libraryWaveform.PeakData,
-                    RmsData = libraryWaveform.RmsData,
-                    LowData = libraryWaveform.LowData,
-                    MidData = libraryWaveform.MidData,
-                    HighData = libraryWaveform.HighData,
                     CuePointsJson = !string.IsNullOrWhiteSpace(libraryEntry.CuePointsJson)
                         ? libraryEntry.CuePointsJson
                         : libraryEntry.AudioFeatures?.CuePointsJson,
@@ -1267,12 +1257,14 @@ public class LibraryService : ILibraryService
 
     private PlaylistTrack EntityToPlaylistTrack(PlaylistTrackEntity entity)
     {
+        // TechnicalDetails.WaveformData/RmsData/LowData/MidData/HighData were dropped (dead columns,
+        // never populated) — the real path is always AudioFeaturesEntity.WaveformBlob below.
         var playlistWaveform = ResolveWaveformBands(
-            entity.TechnicalDetails?.WaveformData,
-            entity.TechnicalDetails?.RmsData,
-            entity.TechnicalDetails?.LowData,
-            entity.TechnicalDetails?.MidData,
-            entity.TechnicalDetails?.HighData,
+            null,
+            null,
+            null,
+            null,
+            null,
             entity.AudioFeatures?.WaveformBlob,
             entity.AudioFeatures?.WaveformBlobSampleCount ?? 0);
 

@@ -2836,6 +2836,20 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 27. Retire TechnicalDetails' dead waveform blob columns — confirmed zero write sites
+            // ever populate real bytes through them (every insert is a bare clone-init with no
+            // waveform fields set). The live waveform path is AudioFeaturesEntity.WaveformBlob,
+            // unpacked on read by LibraryService — these columns were always-empty dead schema.
+            foreach (var deadColumn in new[] { "WaveformData", "RmsData", "LowData", "MidData", "HighData" })
+            {
+                if (ColumnExists("TechnicalDetails", deadColumn))
+                {
+                    _logger.LogInformation("Patching Schema: Dropping dead column TechnicalDetails.{Column}...", deadColumn);
+                    command.CommandText = $"ALTER TABLE \"TechnicalDetails\" DROP COLUMN \"{deadColumn}\";";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)
