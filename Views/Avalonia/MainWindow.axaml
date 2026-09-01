@@ -45,6 +45,7 @@
         <KeyBinding Gesture="Ctrl+N" Command="{Binding ToggleNavigationCommand}"/>
         <KeyBinding Gesture="F10" Command="{Binding ToggleZenModeCommand}"/>
         <KeyBinding Gesture="F11" Command="{Binding ToggleTopBarCommand}"/>
+        <KeyBinding Gesture="F12" Command="{Binding TogglePerformanceOverlayCommand}"/>
     </Window.KeyBindings>
 
     <Window.Styles>
@@ -885,6 +886,44 @@
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
         </ItemsControl>
+
+        <!-- Live perf overlay (F12). Avalonia's own native FPS counter (RendererDiagnostics,
+             toggled in MainWindow.axaml.cs) renders top-left; this panel — page navigation and
+             opted-in ViewModel load timings — sits bottom-right to stay out of its way. -->
+        <Border Grid.RowSpan="3"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                Margin="0,0,16,16"
+                Padding="12,10"
+                CornerRadius="6"
+                Background="#CC101418"
+                BorderBrush="#3A4A5A"
+                BorderThickness="1"
+                IsHitTestVisible="False"
+                ZIndex="2000"
+                IsVisible="{Binding IsPerformanceOverlayVisible}"
+                MaxWidth="320">
+            <StackPanel Spacing="4">
+                <TextBlock Text="PERF (F12 to hide)" FontSize="10" FontWeight="Bold" Foreground="#6FCF97"/>
+                <ItemsControl ItemsSource="{Binding PerfTracker.RecentTimings}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Vertical"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="svc:PerfTiming">
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,1">
+                                <TextBlock Grid.Column="0" Text="{Binding Label}" FontSize="10" Foreground="#B7C4D1"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Duration.TotalMilliseconds, StringFormat={}{0:0}ms}"
+                                           FontSize="10" FontFamily="Consolas,monospace" Foreground="White" Margin="8,0,0,0"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
 
         </Grid>
 </Window>
