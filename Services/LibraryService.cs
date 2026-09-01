@@ -1142,7 +1142,8 @@ public class LibraryService : ILibraryService
                     libraryEntry.LowData,
                     libraryEntry.MidData,
                     libraryEntry.HighData,
-                    libraryEntry.AudioFeatures?.WaveformBlob);
+                    libraryEntry.AudioFeatures?.WaveformBlob,
+                    libraryEntry.AudioFeatures?.WaveformBlobSampleCount ?? 0);
 
                 return new TrackTechnicalEntity
                 {
@@ -1272,7 +1273,8 @@ public class LibraryService : ILibraryService
             entity.TechnicalDetails?.LowData,
             entity.TechnicalDetails?.MidData,
             entity.TechnicalDetails?.HighData,
-            entity.AudioFeatures?.WaveformBlob);
+            entity.AudioFeatures?.WaveformBlob,
+            entity.AudioFeatures?.WaveformBlobSampleCount ?? 0);
 
         return new PlaylistTrack
         {
@@ -1493,7 +1495,8 @@ public class LibraryService : ILibraryService
             entity.LowData,
             entity.MidData,
             entity.HighData,
-            entity.AudioFeatures?.WaveformBlob);
+            entity.AudioFeatures?.WaveformBlob,
+            entity.AudioFeatures?.WaveformBlobSampleCount ?? 0);
 
         return new LibraryEntry
         {
@@ -1572,7 +1575,8 @@ public class LibraryService : ILibraryService
         byte[]? lowData,
         byte[]? midData,
         byte[]? highData,
-        byte[]? packedWaveformBlob)
+        byte[]? packedWaveformBlob,
+        int waveformBlobSampleCount = 0)
     {
         var resolvedPeak = peakData ?? Array.Empty<byte>();
         var resolvedRms = rmsData ?? Array.Empty<byte>();
@@ -1581,7 +1585,7 @@ public class LibraryService : ILibraryService
         var resolvedHigh = highData ?? Array.Empty<byte>();
 
         var needsBlobFallback = resolvedLow.Length == 0 || resolvedMid.Length == 0 || resolvedHigh.Length == 0;
-        if (needsBlobFallback && TryUnpackWaveformBlob(packedWaveformBlob, out var unpackedLow, out var unpackedMid, out var unpackedHigh))
+        if (needsBlobFallback && TryUnpackWaveformBlob(packedWaveformBlob, waveformBlobSampleCount, out var unpackedLow, out var unpackedMid, out var unpackedHigh))
         {
             resolvedLow = unpackedLow;
             resolvedMid = unpackedMid;
@@ -1601,20 +1605,35 @@ public class LibraryService : ILibraryService
         return (resolvedPeak, resolvedRms, resolvedLow, resolvedMid, resolvedHigh);
     }
 
+    /// <summary>
+    /// Unpacks a low|mid|high packed waveform blob (see WaveformExtractionService) using the real
+    /// per-band sample count it was written with — the extractor's sample count scales with track
+    /// duration (2000-12000, not a fixed number), so a hardcoded band length here silently sliced
+    /// the wrong byte ranges for virtually every track, corrupting the mid/high bands.
+    /// </summary>
     private static bool TryUnpackWaveformBlob(
         byte[]? packedWaveformBlob,
+        int sampleCount,
         out byte[] lowBand,
         out byte[] midBand,
         out byte[] highBand)
     {
-        const int bandLength = 1000;
-        const int totalLength = bandLength * 3;
-
         lowBand = Array.Empty<byte>();
         midBand = Array.Empty<byte>();
         highBand = Array.Empty<byte>();
 
-        if (packedWaveformBlob is null || packedWaveformBlob.Length < totalLength)
+        if (packedWaveformBlob is null || packedWaveformBlob.Length < 3)
+        {
+            return false;
+        }
+
+        // Fall back to an even three-way split for rows analyzed before WaveformBlobSampleCount
+        // was populated, or if the stored count doesn't actually fit the blob (corrupt/short data).
+        int bandLength = sampleCount > 0 && packedWaveformBlob.Length >= sampleCount * 3
+            ? sampleCount
+            : packedWaveformBlob.Length / 3;
+
+        if (bandLength <= 0)
         {
             return false;
         }
