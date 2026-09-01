@@ -33,6 +33,7 @@ public class UsersViewModel : ReactiveObject, IDisposable
     private readonly UserPresenceWatchService _presenceWatch;
     private readonly IEventBus _eventBus;
     private readonly ILogger<UsersViewModel> _logger;
+    private readonly PerformanceTracker _perfTracker;
     private readonly CompositeDisposable _disposables = new();
 
     // Presence dots: bounds how many contacts get a live server watch to what's actually visible
@@ -134,6 +135,7 @@ public class UsersViewModel : ReactiveObject, IDisposable
         UserPresenceWatchService presenceWatch,
         IEventBus eventBus,
         ILogger<UsersViewModel> logger,
+        PerformanceTracker perfTracker,
         FrequentSourceService? frequentSourceService = null)
     {
         _peerReliability = peerReliability;
@@ -145,6 +147,7 @@ public class UsersViewModel : ReactiveObject, IDisposable
         _presenceWatch = presenceWatch;
         _eventBus = eventBus;
         _logger = logger;
+        _perfTracker = perfTracker;
         _frequentSourceService = frequentSourceService;
         Rooms = rooms;
 
@@ -221,9 +224,11 @@ public class UsersViewModel : ReactiveObject, IDisposable
         }
     }
 
-    private async Task LoadConversationsAsync()
+    /// <summary>Populates <see cref="Conversations"/> from an already-fetched summary list — split
+    /// from the fetch itself so <see cref="LoadAsync"/> can run that fetch concurrently with its
+    /// other independent DB calls instead of awaiting it in isolation.</summary>
+    private void ApplyConversations(List<ConversationSummary> recent)
     {
-        var recent = await _chatService.GetRecentConversationsAsync().ConfigureAwait(true);
         Conversations.Clear();
         foreach (var c in recent)
             Conversations.Add(new ConversationRowViewModel(c.Username, c.LastMessage, c.LastMessageUtc, isUnread: c.HasUnread));
@@ -252,13 +257,13 @@ public class UsersViewModel : ReactiveObject, IDisposable
             _presenceHandles.Remove(username);
         }
 
-        foreach (var username in desired)
-        {
-            if (_presenceHandles.ContainsKey(username))
-                continue;
-
-            await WatchOnePresenceAsync(username).ConfigureAwait(true);
-        }
+        // Each watch is its own network round-trip to the Soulseek server — previously awaited
+        // one at a time, so up to MaxPresenceWatchedContacts (150) + every conversation could take
+        // 10s+ of wall-clock time to finish lighting up dots even though the page had already
+        // rendered. Running them concurrently bounds the wait to the slowest single watch.
+        var toWatch = desired.Where(u => !_presenceHandles.ContainsKey(u)).ToList();
+        if (toWatch.Count > 0)
+            await Task.WhenAll(toWatch.Select(WatchOnePresenceAsync)).ConfigureAwait(true);
     }
 
     /// <summary>Watches a single username's presence and seeds the matching row(s) from the
@@ -330,21 +335,28 @@ public class UsersViewModel : ReactiveObject, IDisposable
     public async Task LoadAsync()
     {
         IsLoading = true;
+        using var _ = _perfTracker.Measure("Users.LoadAsync");
         try
         {
-            var summaries = await _databaseService.GetDownloadedUsersSummaryAsync().ConfigureAwait(true);
-            var summaryByUser = summaries.ToDictionary(s => s.Username, StringComparer.OrdinalIgnoreCase);
-
-            var knownUsernames = new HashSet<string>(_peerReliability.GetKnownUsernames(), StringComparer.OrdinalIgnoreCase);
-            foreach (var username in summaryByUser.Keys)
-                knownUsernames.Add(username);
+            // Previously these ran one after another — three independent round-trips (DB summary,
+            // FrequentSources ranking, recent conversations) each waiting for the last, even though
+            // none of them depend on each other's results. Kicking them all off together and
+            // awaiting jointly cuts total wait time to whichever one is slowest, not their sum.
+            var summaryTask = _databaseService.GetDownloadedUsersSummaryAsync();
+            var conversationsTask = _chatService.GetRecentConversationsAsync();
 
             IReadOnlyDictionary<string, (bool IsFriend, bool IsPinned)> friendFlags = new Dictionary<string, (bool, bool)>(StringComparer.OrdinalIgnoreCase);
+            Task friendFlagsTask = Task.CompletedTask;
             if (_config.EnableFrequentSources && _frequentSourceService != null)
+            {
+                friendFlagsTask = LoadFriendFlagsAsync();
+            }
+
+            async Task LoadFriendFlagsAsync()
             {
                 try
                 {
-                    var ranked = await _frequentSourceService.GetRankedAsync().ConfigureAwait(true);
+                    var ranked = await _frequentSourceService!.GetRankedAsync().ConfigureAwait(true);
                     friendFlags = ranked
                         .GroupBy(r => r.SourceUsername, StringComparer.OrdinalIgnoreCase)
                         .ToDictionary(
@@ -357,6 +369,15 @@ public class UsersViewModel : ReactiveObject, IDisposable
                     _logger.LogDebug(ex, "Failed to load FrequentSources enrichment for Users page");
                 }
             }
+
+            await Task.WhenAll(summaryTask, conversationsTask, friendFlagsTask).ConfigureAwait(true);
+
+            var summaries = summaryTask.Result;
+            var summaryByUser = summaries.ToDictionary(s => s.Username, StringComparer.OrdinalIgnoreCase);
+
+            var knownUsernames = new HashSet<string>(_peerReliability.GetKnownUsernames(), StringComparer.OrdinalIgnoreCase);
+            foreach (var username in summaryByUser.Keys)
+                knownUsernames.Add(username);
 
             _allRows.Clear();
             foreach (var username in knownUsernames)
@@ -379,7 +400,9 @@ public class UsersViewModel : ReactiveObject, IDisposable
             _allRows.Sort((a, b) => b.TotalDownloads.CompareTo(a.TotalDownloads));
             ApplyFilter();
 
-            await LoadConversationsAsync().ConfigureAwait(true);
+            // conversationsTask already completed (awaited via Task.WhenAll above) — this just
+            // applies the result, no additional wait.
+            ApplyConversations(conversationsTask.Result);
         }
         finally
         {

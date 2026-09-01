@@ -28,6 +28,15 @@ public class DatabaseService
     private readonly SemaphoreSlim _initSemaphore = new SemaphoreSlim(1, 1);
     private bool _isInitialized;
 
+    // Short TTL cache for the Users page's per-peer download summary — this query previously ran
+    // an unindexed full-table GROUP BY (fixed separately, see SchemaMigratorService patch #28), but
+    // the Refresh button re-runs LoadAsync on demand, so a brief cache absorbs repeated clicks
+    // without needing an invalidation hook wired into every download-completion path. 20s balances
+    // "don't hammer the DB on a double-click" against "new downloads should show up reasonably soon".
+    private List<UserDownloadSummary>? _downloadedUsersSummaryCache;
+    private DateTime _downloadedUsersSummaryCachedAtUtc = DateTime.MinValue;
+    private static readonly TimeSpan DownloadedUsersSummaryCacheTtl = TimeSpan.FromSeconds(20);
+
     public DatabaseService(
         ILogger<DatabaseService> logger,
         SchemaMigratorService schemaMigrator,
@@ -2459,11 +2468,18 @@ public class DatabaseService
             .ConfigureAwait(false);
     }
 
-    /// <summary>Per-peer download counts/last-seen, grouped from DownloadHistory — the row source for the Users/Contacts page.</summary>
+    /// <summary>Per-peer download counts/last-seen, grouped from DownloadHistory — the row source
+    /// for the Users/Contacts page. Cached for <see cref="DownloadedUsersSummaryCacheTtl"/> since
+    /// this GroupBy can be a meaningful scan over a large table and the Refresh button re-triggers
+    /// it on demand.</summary>
     public async Task<List<UserDownloadSummary>> GetDownloadedUsersSummaryAsync()
     {
+        var cached = _downloadedUsersSummaryCache;
+        if (cached != null && DateTime.UtcNow - _downloadedUsersSummaryCachedAtUtc < DownloadedUsersSummaryCacheTtl)
+            return cached;
+
         using var context = new AppDbContext();
-        return await context.DownloadHistory
+        var result = await context.DownloadHistory
             .Where(x => x.PeerUsername != null)
             .GroupBy(x => x.PeerUsername!)
             .Select(g => new UserDownloadSummary(
@@ -2473,6 +2489,10 @@ public class DatabaseService
                 g.Max(x => x.RecordedAt)))
             .ToListAsync()
             .ConfigureAwait(false);
+
+        _downloadedUsersSummaryCache = result;
+        _downloadedUsersSummaryCachedAtUtc = DateTime.UtcNow;
+        return result;
     }
 
     /// <summary>

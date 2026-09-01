@@ -70,6 +70,14 @@
             </Grid>
         </Border>
 
+        <!-- Loading strip — overlays the top of the content area rather than taking its own row,
+             so it doesn't require renumbering every other Grid.Row in this page. Previously
+             IsLoading was set but never bound to anything, so a slow load looked like a hang
+             with zero visual feedback. -->
+        <ProgressBar Grid.Row="1" IsIndeterminate="True" Height="2" VerticalAlignment="Top"
+                     Background="Transparent" Foreground="{DynamicResource BrushAccent}"
+                     IsVisible="{Binding IsLoading}"/>
+
         <!-- ── Contacts pane ──────────────────────────────────────────── -->
         <Grid Grid.Row="1" ColumnDefinitions="360,*" IsVisible="{Binding !IsRoomsPaneActive}" Margin="16">
 

@@ -597,6 +597,7 @@ public partial class App : Application
 
         // Navigation and UI services
         services.AddSingleton<INavigationService, NavigationService>();
+        services.AddSingleton<PerformanceTracker>(); // live perf overlay (Ctrl+Shift+P) — page-nav and opted-in ViewModel load timings
         services.AddSingleton<IUserInputService, UserInputService>();
         services.AddSingleton<IFileInteractionService, FileInteractionService>();
         services.AddSingleton<INotificationService, NotificationServiceAdapter>();

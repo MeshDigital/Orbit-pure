@@ -2850,6 +2850,18 @@ public class SchemaMigratorService
                 }
             }
 
+            // 28. IX_DownloadHistory_PeerUsername existed only inside the CREATE TABLE branch, so
+            // it was only ever created for a brand-new database — every existing installation's
+            // DownloadHistory table (often tens/hundreds of thousands of rows: one row per download
+            // attempt, not just successes) predates this index and never actually got it. The Users
+            // page's GetDownloadedUsersSummaryAsync GROUP BY on PeerUsername was doing a full table
+            // scan on every load for exactly that reason.
+            if (TableExists("DownloadHistory"))
+            {
+                command.CommandText = @"CREATE INDEX IF NOT EXISTS ""IX_DownloadHistory_PeerUsername"" ON ""DownloadHistory"" (""PeerUsername"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)
