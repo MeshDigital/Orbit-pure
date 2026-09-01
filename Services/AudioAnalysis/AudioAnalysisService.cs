@@ -173,6 +173,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             }
 
             IReadOnlyList<float> rmsCurve = Array.Empty<float>();
+            float[] mono = Array.Empty<float>();
             if (pcmSamples.Length > 0)
             {
                 // Real per-second (1.0s window) RMS energy curve — independent of Essentia, so
@@ -199,10 +200,10 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 // DSP drop-scoring path with actual candidate timestamps (every sub-bass
                 // dropout/return, every build-confirmed novelty peak) instead of the single
                 // collapsed DropTimeSeconds/DropConfidence float pair it previously had to work with.
+                // Outer-scoped so the downbeat-phase validation step below can reuse it.
+                mono = ToMono(pcmSamples, pcmChannels);
                 try
                 {
-                    var mono = ToMono(pcmSamples, pcmChannels);
-
                     var subBassCurve = _subBassEngine.ComputeSubBassEnergyCurve(mono, pcmSampleRate);
                     var (dropouts, returns) = _subBassEngine.DetectDropoutEvents(subBassCurve);
                     features.SubBassDropoutTimestampsJson = JsonSerializer.Serialize(dropouts);
@@ -309,6 +310,31 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                     _bpm.Detect(essentiaOutput, features);
                     _key.Detect(essentiaOutput, features);
                     _beatgrid.Detect(essentiaOutput, features);
+
+                    // Downbeat-phase validation: BeatgridDetectionService anchors on the *first*
+                    // detected beat tick, which carries no bar-phase information from a generic
+                    // beat tracker — it's not necessarily beat 1 of a bar. Every downstream
+                    // SnapToBar call in CueGenerationService anchors off this value, so a wrong
+                    // bar-phase produces a systematic, consistent-per-track offset in every cue —
+                    // exactly the "close but way off" symptom. Pick whichever of the first few
+                    // ticks actually carries the strongest kick/sub-bass energy instead.
+                    if (mono.Length > 0 && !string.IsNullOrWhiteSpace(features.BeatGridJson))
+                    {
+                        try
+                        {
+                            var beats = JsonSerializer.Deserialize<double[]>(features.BeatGridJson);
+                            if (beats is { Length: >= 2 })
+                            {
+                                int strongestIndex = SubBassDropoutEngine.FindStrongestBeatIndex(mono, pcmSampleRate, beats, candidateCount: 4);
+                                if (strongestIndex > 0)
+                                    features.DownbeatOffsetSeconds = beats[strongestIndex];
+                            }
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            _logger.LogDebug(ex, "[AudioAnalysis] Downbeat-phase validation failed for {File}; keeping the beat tracker's first tick.", Path.GetFileName(filePath));
+                        }
+                    }
 
                     if (essentiaOutput.LowLevel?.AverageLoudness is > 0 and var loudness)
                         features.LoudnessLUFS = loudness;
