@@ -32,7 +32,34 @@ namespace SLSKDONET.Views.Avalonia.Controls
             set => SetValue(EnergyProperty, value);
         }
 
-        private SKImage? _blurredImage;
+        /// <summary>
+        /// Wraps an <see cref="SKImage"/> so it can be safely shared across many consecutive
+        /// draw operations (one per ~33ms frame) without any single one disposing it out from
+        /// under another. The image is genuinely disposed only once every holder has released it.
+        /// </summary>
+        private sealed class RefCountedImage
+        {
+            public SKImage Image { get; }
+            private int _refCount = 1; // starts owned by whoever constructs it
+
+            public RefCountedImage(SKImage image) => Image = image;
+
+            /// <summary>Call when handing this same instance to another consumer (e.g. a new draw operation).</summary>
+            public RefCountedImage AddRef()
+            {
+                Interlocked.Increment(ref _refCount);
+                return this;
+            }
+
+            /// <summary>Call when a consumer is done with it; disposes the underlying SKImage once every holder has released it.</summary>
+            public void Release()
+            {
+                if (Interlocked.Decrement(ref _refCount) == 0)
+                    Image.Dispose();
+            }
+        }
+
+        private RefCountedImage? _blurredImage;
         private Bitmap? _lastSource;
         private float _animationValue;
         private readonly DispatcherTimer _timer;
@@ -53,10 +80,11 @@ namespace SLSKDONET.Views.Avalonia.Controls
         {
             base.OnDetachedFromVisualTree(e);
             _timer.Stop();
-            // Safe to dispose here: control is no longer in the visual tree so
-            // no render thread can be executing a draw operation against this image.
+            // Releases this control's own slot's reference — any draw operation still holding
+            // its own AddRef() (e.g. mid-render on the compositor thread) keeps the image alive
+            // until it releases too, so this is safe even if a frame is still in flight.
             var img = Interlocked.Exchange(ref _blurredImage, null);
-            img?.Dispose();
+            img?.Release();
         }
 
         private void OnTimerTick(object? sender, EventArgs e)
@@ -86,12 +114,11 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
             if (source == null)
             {
-                // Do NOT dispose _blurredImage directly here: the render thread may
-                // be executing a LiveBackgroundCustomDrawOperation that still holds a
-                // reference to it.  The draw op's Dispose() will release the SKImage
-                // after rendering is complete; any remaining image is cleaned up in
-                // OnDetachedFromVisualTree.
-                _blurredImage = null;
+                // Release this control's own slot's reference — any draw operation still
+                // rendering a frame holds its own AddRef() and keeps the image alive until
+                // it releases too, so this can't race with an in-flight render.
+                var old = Interlocked.Exchange(ref _blurredImage, null);
+                old?.Release();
                 return;
             }
 
@@ -141,13 +168,13 @@ namespace SLSKDONET.Views.Avalonia.Controls
                         canvas.DrawBitmap(scaled, 0, 0, paint);
                     }
 
-                    var image = SKImage.FromBitmap(blurred);
-                    // Swap in the new image.  Do NOT dispose the old image here:
-                    // the render thread may still be inside a LiveBackgroundCustomDrawOperation
-                    // that captured the old reference.  Ownership of the old image is
-                    // transferred to whichever draw op last captured it; that op will
-                    // call Dispose() on it when Avalonia finishes rendering the frame.
-                    Interlocked.Exchange(ref _blurredImage, image);
+                    // Swap in the new image. The old one's control-level reference is released
+                    // here, but any draw operation still rendering a frame against it holds its
+                    // own AddRef() and keeps it alive until that render completes — no race with
+                    // an in-flight frame, unlike a raw unconditional Dispose() would be.
+                    var newRef = new RefCountedImage(SKImage.FromBitmap(blurred));
+                    var oldRef = Interlocked.Exchange(ref _blurredImage, newRef);
+                    oldRef?.Release();
                     blurred.Dispose();
                     scaled.Dispose();
 
@@ -172,33 +199,44 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 return;
             }
 
-            // Custom Skia Rendering for Parallax/Drift/Breathing
-            // The draw operation takes ownership of imageSnapshot and will dispose
-            // it in its own Dispose() once Avalonia is done rendering the frame.
-            context.Custom(new LiveBackgroundCustomDrawOperation(rect, imageSnapshot, _animationValue, (float)Energy));
+            // Custom Skia Rendering for Parallax/Drift/Breathing. AddRef() here — this frame's
+            // draw operation gets its own reference, independent of every other frame's draw
+            // operation that may still be sharing the same underlying SKImage (this control's
+            // ~33ms timer can produce several in-flight frames before any one of them actually
+            // renders on the compositor thread). The draw op releases its own reference in
+            // Dispose(); the image is only actually freed once every holder has released it.
+            context.Custom(new LiveBackgroundCustomDrawOperation(rect, imageSnapshot.AddRef(), _animationValue, (float)Energy));
         }
 
         private class LiveBackgroundCustomDrawOperation : ICustomDrawOperation
         {
             private readonly Rect _bounds;
+            private readonly RefCountedImage _imageRef;
             private readonly SKImage _image;
             private readonly float _animation;
             private readonly float _energy;
 
-            public LiveBackgroundCustomDrawOperation(Rect bounds, SKImage image, float animation, float energy)
+            /// <summary>
+            /// <paramref name="imageRef"/> must already be a reference this operation owns (i.e. the
+            /// caller has called <see cref="RefCountedImage.AddRef"/> for it) — this operation will
+            /// release exactly that one reference in <see cref="Dispose"/>, never disposing the
+            /// underlying SKImage directly (other frames' draw operations may still be sharing it).
+            /// </summary>
+            public LiveBackgroundCustomDrawOperation(Rect bounds, RefCountedImage imageRef, float animation, float energy)
             {
                 _bounds = bounds;
-                _image = image;
+                _imageRef = imageRef;
+                _image = imageRef.Image;
                 _animation = animation;
                 _energy = energy;
             }
 
             public void Dispose()
             {
-                // Release the SKImage once Avalonia has finished rendering this
-                // operation.  SkiaSharp's Dispose() is idempotent, so it is safe
-                // if multiple consecutive draw ops captured the same image.
-                _image?.Dispose();
+                // Releases this operation's own reference — the underlying SKImage is only
+                // actually disposed once every other frame's draw operation (and the control's
+                // own current-image slot) has released its reference too.
+                _imageRef.Release();
             }
 
             public bool Equals(ICustomDrawOperation? other) => false;
