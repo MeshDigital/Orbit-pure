@@ -2587,10 +2587,28 @@ public class DatabaseService
 
         return recentMessages
             .GroupBy(x => x.PeerUsername, StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.First()) // already ordered by TimestampUtc desc, so first = most recent per peer
-            .OrderByDescending(x => x.TimestampUtc)
-            .Select(x => new ConversationSummary(x.PeerUsername, x.Message, x.TimestampUtc, x.IsOutgoing))
+            .Select(g => (Latest: g.First(), HasUnread: g.Any(m => !m.IsOutgoing && !m.IsRead))) // already ordered by TimestampUtc desc, so first = most recent per peer
+            .OrderByDescending(x => x.Latest.TimestampUtc)
+            .Select(x => new ConversationSummary(x.Latest.PeerUsername, x.Latest.Message, x.Latest.TimestampUtc, x.Latest.IsOutgoing, x.HasUnread))
             .ToList();
+    }
+
+    /// <summary>Marks every message in a 1:1 conversation as read — called when its Chat tab is opened.</summary>
+    public async Task MarkConversationReadAsync(string peerUsername)
+    {
+        await _writeSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            await context.PrivateMessages
+                .Where(x => x.PeerUsername == peerUsername && !x.IsRead)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsRead, true))
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
     }
 
     // ── Social: chat rooms ────────────────────────────────────────────────────────
@@ -2633,6 +2651,24 @@ public class DatabaseService
             .ConfigureAwait(false);
     }
 
+    /// <summary>Marks every message in a room as read — called when the room is opened/selected.</summary>
+    public async Task MarkRoomReadAsync(string roomName)
+    {
+        await _writeSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            await context.RoomMessages
+                .Where(x => x.RoomName == roomName && !x.IsRead)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsRead, true))
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
     /// <summary>Removes one message from local room history — local-only, the Soulseek protocol has no message recall.</summary>
     public async Task DeleteRoomMessageAsync(Guid id)
     {
@@ -2661,7 +2697,8 @@ public readonly record struct ConversationSummary(
     string Username,
     string LastMessage,
     DateTime LastMessageUtc,
-    bool LastMessageWasOutgoing);
+    bool LastMessageWasOutgoing,
+    bool HasUnread);
 
 
 

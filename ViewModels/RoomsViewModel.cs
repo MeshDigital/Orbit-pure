@@ -194,6 +194,7 @@ public class RoomsViewModel : ReactiveObject, IDisposable
         {
             SelectedRoom = JoinedRooms.First(r => string.Equals(r.RoomName, roomName, StringComparison.OrdinalIgnoreCase));
             SelectedRoom.HasUnread = false;
+            _ = _roomChat.MarkRoomReadAsync(roomName);
             return;
         }
 
@@ -206,6 +207,7 @@ public class RoomsViewModel : ReactiveObject, IDisposable
             await room.LoadHistoryAsync(snapshot.Members).ConfigureAwait(true);
             JoinedRooms.Add(room);
             SelectedRoom = room;
+            _ = _roomChat.MarkRoomReadAsync(roomName);
         }
         catch (Exception ex)
         {

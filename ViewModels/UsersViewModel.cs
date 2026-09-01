@@ -226,7 +226,7 @@ public class UsersViewModel : ReactiveObject, IDisposable
         var recent = await _chatService.GetRecentConversationsAsync().ConfigureAwait(true);
         Conversations.Clear();
         foreach (var c in recent)
-            Conversations.Add(new ConversationRowViewModel(c.Username, c.LastMessage, c.LastMessageUtc, isUnread: false));
+            Conversations.Add(new ConversationRowViewModel(c.Username, c.LastMessage, c.LastMessageUtc, isUnread: c.HasUnread));
 
         _ = RefreshPresenceWatchesAsync();
     }
@@ -413,6 +413,7 @@ public class UsersViewModel : ReactiveObject, IDisposable
         if (conversation != null)
             conversation.IsUnread = false;
 
+        _ = _databaseService.MarkConversationReadAsync(username);
         await profile.LoadUserAsync(username).ConfigureAwait(true);
     }
 

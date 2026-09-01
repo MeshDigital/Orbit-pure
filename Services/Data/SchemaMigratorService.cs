@@ -2820,6 +2820,22 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 26. Persisted read/unread state for chat — previously in-memory only, so every
+            // restart showed all history as read regardless of what arrived while closed.
+            // DEFAULT 1 backfills existing rows as already-seen, matching that prior behavior.
+            if (!ColumnExists("PrivateMessages", "IsRead"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsRead to PrivateMessages...");
+                command.CommandText = @"ALTER TABLE ""PrivateMessages"" ADD COLUMN ""IsRead"" INTEGER NOT NULL DEFAULT 1;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("RoomMessages", "IsRead"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsRead to RoomMessages...");
+                command.CommandText = @"ALTER TABLE ""RoomMessages"" ADD COLUMN ""IsRead"" INTEGER NOT NULL DEFAULT 1;";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

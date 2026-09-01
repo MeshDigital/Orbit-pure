@@ -105,6 +105,7 @@ public sealed class ChatService
                 Message = e.Message,
                 TimestampUtc = e.TimestampUtc,
                 WasReplayed = e.Replayed,
+                IsRead = false,
             };
 
             await _databaseService.RecordPrivateMessageAsync(entity).ConfigureAwait(false);
