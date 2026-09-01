@@ -472,7 +472,6 @@ public partial class App : Application
         services.AddSingleton<EngineDiagnosticsService>(); // Structured import/search audit trail — "Engine Diagnostics"
         services.AddSingleton<AvailabilityStateReconciliationService>(); // Fixes tracks stuck "FILE MISSING" despite the file existing on disk
         services.AddSingleton<DurationBackfillService>(); // One-time TagLib duration sweep for tracks that predate PostDownloadDurationCaptureService
-        services.AddSingleton<ArtworkPipeline>();
         services.AddSingleton<DragAdornerService>();
         
         // Session 3: Performance Optimization - Polymorphic taggers
