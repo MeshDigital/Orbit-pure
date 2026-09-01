@@ -89,23 +89,25 @@ try {
     Write-Host "  Manifest:       $manifestPath"
 
     if (-not $SkipInstaller -and -not $Lite) {
-        $iscc = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
-        if (-not $iscc) {
+        $isccPath = $null
+        $isccCommand = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+        if ($isccCommand) { $isccPath = $isccCommand.Source }
+
+        if (-not $isccPath) {
             $candidatePaths = @(
                 "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
                 "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
                 "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
             )
-            $found = $candidatePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
-            if ($found) { $iscc = Get-Item $found }
+            $isccPath = $candidatePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
         }
 
-        if (-not $iscc) {
+        if (-not $isccPath) {
             Write-Host "Inno Setup (ISCC.exe) not found — skipping installer build. Install via 'winget install JRSoftware.InnoSetup' to enable it." -ForegroundColor Yellow
         }
         else {
             $issScript = Join-Path $PSScriptRoot "ORBIT.iss"
-            & $iscc.Source $issScript "/DMyAppVersion=$Version"
+            & $isccPath $issScript "/DMyAppVersion=$Version"
             if ($LASTEXITCODE -ne 0) {
                 throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
             }
