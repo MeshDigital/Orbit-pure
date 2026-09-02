@@ -1620,16 +1620,10 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     {
          if (string.IsNullOrEmpty(Model.ResolvedFilePath)) return;
          try {
-             await Task.Run(() => {
-                 var dir = System.IO.Path.GetDirectoryName(Model.ResolvedFilePath);
-                 var name = System.IO.Path.GetFileNameWithoutExtension(Model.ResolvedFilePath);
-                 if (string.IsNullOrEmpty(dir)) return;
-                 var path = System.IO.Path.Combine(dir, $"{name}_Stems");
-                 var found = System.IO.Directory.Exists(path) && System.IO.Directory.GetFiles(path).Length > 0;
-                 Avalonia.Threading.Dispatcher.UIThread.Post(() => {
-                     _hasStems = found;
-                     this.RaisePropertyChanged(nameof(HasStems));
-                 });
+             var found = await Services.StemAvailabilityProbe.HasStemsAsync(Model.ResolvedFilePath);
+             Avalonia.Threading.Dispatcher.UIThread.Post(() => {
+                 _hasStems = found;
+                 this.RaisePropertyChanged(nameof(HasStems));
              });
          } catch {}
     }

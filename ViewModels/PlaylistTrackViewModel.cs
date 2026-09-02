@@ -955,7 +955,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
 
     private async Task CheckStemsAsync()
     {
-        if (string.IsNullOrEmpty(Model.ResolvedFilePath)) 
+        if (string.IsNullOrEmpty(Model.ResolvedFilePath))
         {
             Avalonia.Threading.Dispatcher.UIThread.Post(() => HasStems = false);
             return;
@@ -963,31 +963,11 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
 
         try
         {
-            await Task.Run(() =>
+            var found = await Services.StemAvailabilityProbe.HasStemsAsync(Model.ResolvedFilePath);
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                var trackDir = System.IO.Path.GetDirectoryName(Model.ResolvedFilePath);
-                var trackName = System.IO.Path.GetFileNameWithoutExtension(Model.ResolvedFilePath);
-                
-                if (string.IsNullOrEmpty(trackDir)) return;
-
-                // Strategy A: /Music/Techno/Track.mp3 -> /Music/Techno/Stems/Track/
-                var stemPathA = System.IO.Path.Combine(trackDir, "Stems", trackName);
-                
-                // Strategy B: /Music/Techno/Track.mp3 -> /Music/Techno/Track_Stems/
-                var stemPathB = System.IO.Path.Combine(trackDir, $"{trackName}_Stems");
-                
-                // Strategy C: Check for _stems folder (Legacy)
-                var stemPathC = System.IO.Path.Combine(trackDir, "_stems");
-
-                bool found = (System.IO.Directory.Exists(stemPathA) && System.IO.Directory.GetFiles(stemPathA).Length > 0) || 
-                             (System.IO.Directory.Exists(stemPathB) && System.IO.Directory.GetFiles(stemPathB).Length > 0) ||
-                             (System.IO.Directory.Exists(stemPathC) && System.IO.Directory.GetFiles(stemPathC).Length > 0);
-
-                Avalonia.Threading.Dispatcher.UIThread.Post(() => 
-                {
-                    _hasStems = found;
-                    OnPropertyChanged(nameof(HasStems));
-                });
+                _hasStems = found;
+                OnPropertyChanged(nameof(HasStems));
             });
         }
         catch { /* Fail silently */ }
