@@ -163,6 +163,7 @@ public class ConfigManager
                 UpgradeMinBitrateThreshold = int.TryParse(config["Library:UpgradeMinBitrateThreshold"], out var umbt) ? umbt : 320,
                 UpgradeMinGainKbps = int.TryParse(config["Library:UpgradeMinGainKbps"], out var umgk) ? umgk : 128,
                 UpgradeAutoQueueEnabled = bool.TryParse(config["Library:UpgradeAutoQueueEnabled"], out var uaqe) && uaqe,
+                EnableLibrarySharing = !bool.TryParse(config["Library:EnableLibrarySharing"], out var els) || els, // Default true
 
                 // [Playback]
                 PlaybackCrossfadeEnabled = bool.TryParse(config["Playback:CrossfadeEnabled"], out var pce) && pce,
@@ -218,10 +219,23 @@ public class ConfigManager
 
                 // [Privacy]
                 EnableKeyboardTelemetry = bool.TryParse(config["Privacy:EnableKeyboardTelemetry"], out var ekt) && ekt,
+
+                // [Advanced]
+                EnableNetworkActivityMonitor = !bool.TryParse(config["Advanced:EnableNetworkActivityMonitor"], out var enam) || enam, // Default true
             };
-            
+
             // Apply defaults if loaded values are empty (for backward compatibility with old configs)
             if (string.IsNullOrEmpty(_config.SoulseekServer)) _config.SoulseekServer = "server.slsknet.org";
+
+            // The three Safety Gates are user overrides layered on top of whatever SearchPolicy
+            // preset RankingProfile/ConfigMigrationService already produced — previously these
+            // toggles worked for the rest of the session but were never round-tripped through the
+            // ini file at all, so they silently reverted to the profile default on every restart.
+            // Only apply when the key is actually present, so a fresh install keeps the profile's
+            // own default rather than being forced to true/false.
+            if (bool.TryParse(config["Search:EnforceFileIntegrity"], out var efi)) _config.SearchPolicy.EnforceFileIntegrity = efi;
+            if (bool.TryParse(config["Search:EnforceStrictTitleMatch"], out var estm)) _config.SearchPolicy.EnforceStrictTitleMatch = estm;
+            if (bool.TryParse(config["Search:EnforceDurationMatch"], out var edm)) _config.SearchPolicy.EnforceDurationMatch = edm;
         }
         else
         {
@@ -296,6 +310,13 @@ public class ConfigManager
         iniContent.AppendLine($"ElevatedSearchExtraDelayMs = {Math.Max(0, config.ElevatedSearchExtraDelayMs)}");
         iniContent.AppendLine($"CriticalSearchExtraDelayMs = {Math.Max(0, config.CriticalSearchExtraDelayMs)}");
         iniContent.AppendLine($"MinSearchDurationSeconds = {config.MinSearchDurationSeconds}");
+        // Was previously written under a "[MusicalIntelligence]" section that Load() never reads
+        // (it reads "Search:RankingProfile") — the strategy-card selection never survived a
+        // restart because of this section-name mismatch. Moved here to match what's actually read.
+        iniContent.AppendLine($"RankingProfile = {config.RankingProfile}");
+        iniContent.AppendLine($"EnforceFileIntegrity = {config.SearchPolicy.EnforceFileIntegrity}");
+        iniContent.AppendLine($"EnforceStrictTitleMatch = {config.SearchPolicy.EnforceStrictTitleMatch}");
+        iniContent.AppendLine($"EnforceDurationMatch = {config.SearchPolicy.EnforceDurationMatch}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[AutoDownload]");
@@ -331,10 +352,6 @@ public class ConfigManager
         iniContent.AppendLine($"Gain = {config.WaveformGain.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
 
         iniContent.AppendLine();
-        iniContent.AppendLine("[MusicalIntelligence]");
-        iniContent.AppendLine($"RankingProfile = {config.RankingProfile}");
-
-        iniContent.AppendLine();
         iniContent.AppendLine("[Spotify]");
         iniContent.AppendLine($"SpotifyClientId = {config.SpotifyClientId}");
         iniContent.AppendLine($"SpotifyClientSecret = {config.SpotifyClientSecret}");
@@ -356,6 +373,7 @@ public class ConfigManager
         iniContent.AppendLine($"UpgradeMinBitrateThreshold = {config.UpgradeMinBitrateThreshold}");
         iniContent.AppendLine($"UpgradeMinGainKbps = {config.UpgradeMinGainKbps}");
         iniContent.AppendLine($"UpgradeAutoQueueEnabled = {config.UpgradeAutoQueueEnabled}");
+        iniContent.AppendLine($"EnableLibrarySharing = {config.EnableLibrarySharing}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[Playback]");
@@ -419,6 +437,10 @@ public class ConfigManager
         iniContent.AppendLine();
         iniContent.AppendLine("[Privacy]");
         iniContent.AppendLine($"EnableKeyboardTelemetry = {config.EnableKeyboardTelemetry}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Advanced]");
+        iniContent.AppendLine($"EnableNetworkActivityMonitor = {config.EnableNetworkActivityMonitor}");
 
         File.WriteAllText(_configPath, iniContent.ToString());
         _config = config;
