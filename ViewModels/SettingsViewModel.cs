@@ -56,6 +56,22 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private bool _isDisposed;
     private IDisposable? _libraryFoldersSubscription;
 
+    private string _settingsSearchText = string.Empty;
+    /// <summary>Drives the Settings page's search box (SettingsSearchMatchConverter) — filters
+    /// the currently active tab's sections by keyword. Not persisted; page-local UI state only.</summary>
+    public string SettingsSearchText
+    {
+        get => _settingsSearchText;
+        set
+        {
+            if (_settingsSearchText != value)
+            {
+                _settingsSearchText = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
     private readonly ILogger<SettingsViewModel> _logger;
     private readonly AppConfig _config;
     private readonly ConfigManager _configManager;
