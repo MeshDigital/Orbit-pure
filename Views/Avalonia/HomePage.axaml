@@ -99,7 +99,7 @@
                     <!-- Library Health Tile -->
                     <Border Grid.Column="0" Classes="glass" Padding="18" Margin="0,0,16,0">
                         <Grid RowDefinitions="Auto,*,Auto">
-                            <TextBlock Grid.Row="0" Text="SONIC HEALTH" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1"/>
+                            <TextBlock Grid.Row="0" Text="AUDIO QUALITY" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1"/>
                             
                             <StackPanel Grid.Row="1" VerticalAlignment="Center" Spacing="10">
                                 <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Bottom">
@@ -135,7 +135,7 @@
                     <!-- Command Missions -->
                     <Border Grid.Column="1" Classes="glass" Padding="16" Margin="0,0,16,0">
                         <Grid RowDefinitions="Auto,*">
-                            <TextBlock Grid.Row="0" Text="COMMAND MISSIONS" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1"/>
+                            <TextBlock Grid.Row="0" Text="SUGGESTED ACTIONS" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1"/>
                             
                             <ItemsControl Grid.Row="1" ItemsSource="{Binding ActiveMissions}" Margin="0,10,0,0">
                                 <ItemsControl.ItemTemplate>
@@ -170,11 +170,11 @@
                             <StackPanel Grid.Row="1" VerticalAlignment="Center" Spacing="6">
                                 <Grid ColumnDefinitions="*,Auto">
                                     <StackPanel Spacing="1">
-                                        <TextBlock Text="Zombies" FontSize="10" Foreground="#808080"/>
+                                        <TextBlock Text="Stuck Processes" FontSize="10" Foreground="#808080"/>
                                         <TextBlock Text="{Binding CurrentSnapshot.ZombieProcessCount}" FontSize="16" FontWeight="Black" Foreground="White"/>
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Spacing="1" HorizontalAlignment="Right">
-                                        <TextBlock Text="Dead Letters" FontSize="10" Foreground="#808080" HorizontalAlignment="Right"/>
+                                        <TextBlock Text="Failed Retries" FontSize="10" Foreground="#808080" HorizontalAlignment="Right"/>
                                         <TextBlock Text="{Binding CurrentSnapshot.DeadLetterCount}" FontSize="16" FontWeight="Black" Foreground="White"/>
                                     </StackPanel>
                                 </Grid>
@@ -194,7 +194,7 @@
                                 <Button Command="{Binding ClearDeadLettersCommand}"
                                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                                         Background="#1AFF5252" BorderBrush="#FF5252" BorderThickness="1" Padding="3" CornerRadius="6">
-                                    <TextBlock Text="SELF-HEAL ENGINE" FontSize="9" FontWeight="Black" Foreground="#FF5252"/>
+                                    <TextBlock Text="RETRY STALLED DOWNLOADS" FontSize="9" FontWeight="Black" Foreground="#FF5252"/>
                                 </Button>
                             </StackPanel>
 
@@ -570,7 +570,7 @@
                     <!-- Resilience Log -->
                     <Border Grid.Column="1" Classes="glass" Padding="16">
                         <Grid RowDefinitions="Auto,*">
-                            <TextBlock Grid.Row="0" Text="RESILIENCE LOG" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="0" Text="RECOVERY LOG" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1" Margin="0,0,0,8"/>
 
                             <ScrollViewer Grid.Row="1" MaxHeight="150" VerticalScrollBarVisibility="Auto" IsVisible="{Binding ResilienceLog.Count}">
                                 <ItemsControl ItemsSource="{Binding ResilienceLog}">

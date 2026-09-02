@@ -221,15 +221,16 @@ namespace SLSKDONET.Services
                 });
             }
 
-            if (_searchOrchestrator.GetActiveSearchCount() > 0)
+            var activeSearchCount = _searchOrchestrator.GetActiveSearchCount();
+            if (activeSearchCount > 0)
             {
                 operations.Add(new MissionOperation
                 {
                     Type = SLSKDONET.Models.OperationType.Search,
-                    Title = "P2P Radar",
-                    Subtitle = $"{_searchOrchestrator.GetActiveSearchCount()} active queries",
+                    Title = $"Searching ({activeSearchCount} active)",
+                    Subtitle = $"{activeSearchCount} active queries",
                     Progress = 0.5,
-                    StatusText = "Broadcasting..."
+                    StatusText = "In progress..."
                 });
             }
             
