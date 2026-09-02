@@ -28,6 +28,7 @@ public class LibraryService : ILibraryService
     private readonly IEventBus _eventBus;
     private readonly LibraryCacheService _cache; // Session 1: Performance cache
     private readonly EngineDiagnosticsService? _diagnostics;
+    private readonly AudioAnalysis.TrackFingerprintStore? _fingerprintStore;
 
     // Events now published via IEventBus (ProjectDeletedEvent, ProjectUpdatedEvent)
 
@@ -39,7 +40,8 @@ public class LibraryService : ILibraryService
         AppConfig appConfig,
         IEventBus eventBus,
         LibraryCacheService cache, // Session 1: Inject cache
-        EngineDiagnosticsService? diagnostics = null)
+        EngineDiagnosticsService? diagnostics = null,
+        AudioAnalysis.TrackFingerprintStore? fingerprintStore = null)
     {
         _logger = logger;
         _databaseService = databaseService;
@@ -47,6 +49,7 @@ public class LibraryService : ILibraryService
         _eventBus = eventBus;
         _cache = cache;
         _diagnostics = diagnostics;
+        _fingerprintStore = fingerprintStore;
 
         _logger.LogDebug("LibraryService initialized (Data Only) with caching enabled");
     }
@@ -455,8 +458,12 @@ public class LibraryService : ILibraryService
             
             // I'll check DatabaseService.RemoveTrackAsync implementation.
             await _databaseService.RemoveTrackAsync(trackHash);
-            
+
             _cache.InvalidateGlobalLibrary();
+            // TrackFingerprintStore's in-memory cache is unbounded by design (fingerprints are
+            // small), but a deleted track's fingerprint has no reason to stick around — the
+            // Invalidate/InvalidateAll API existed but had zero production callers until now.
+            _fingerprintStore?.Invalidate(trackHash);
         }
         catch (Exception ex)
         {
