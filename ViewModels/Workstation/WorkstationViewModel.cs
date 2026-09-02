@@ -746,9 +746,9 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     // ── Inline Export panel (shown in Export mode) ────────────────────────────
 
     /// <summary>
-    /// Shared Export configuration shown in the inline Export mode panel.
-    /// The same instance also populates the popup Export dialog when
-    /// <see cref="ExportMixCommand"/> is invoked from the toolbar.
+    /// Export configuration used to gate header actions (e.g. <see cref="CanUseExportLaneActions"/>).
+    /// <see cref="ExportMixCommand"/> constructs its own separate <c>ExportDialogViewModel</c> for
+    /// the popup dialog rather than reusing this instance.
     /// </summary>
     public ExportDialogViewModel ExportPanel { get; }
 
@@ -803,7 +803,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit>          Loop8Command          { get; }
     /// <summary>Exit the active loop on the focused deck.</summary>
     public ReactiveCommand<Unit, Unit>          ExitLoopFocusedCommand { get; }
-    /// <summary>Switch to a Workstation mode (Waveform / Flow / Stems / Export).</summary>
+    /// <summary>Switch to a Workstation mode (Waveform / Flow).</summary>
     public ReactiveCommand<WorkstationMode, Unit> SetModeCommand      { get; }
     public ReactiveCommand<FlowTransitionOverlayViewModel, Unit> SelectFlowTransitionCommand { get; }
     public ReactiveCommand<Unit, Unit>          ClearFlowTransitionSelectionCommand { get; }
@@ -861,6 +861,9 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     /// <summary>Queue all hidden tracks with incomplete analysis data for full reanalysis.</summary>
     public ReactiveCommand<Unit, Unit> ReanalyzeAllIncompleteCommand { get; }
 
+    /// <summary>Whether another deck can be added (max 4, mirrors AddDeckCommand's own guard).</summary>
+    public bool CanAddDeck => Decks.Count < 4;
+
     private CancellationTokenSource? _analysisCts;
 
     // ── Constructor ───────────────────────────────────────────────────────────
@@ -907,8 +910,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         // Wrap existing DeckA / DeckB
         var deckA = new WorkstationDeckViewModel("A", deckPair.DeckA, stemSeparator, cueService, stemPrefService, _dbFactory);
         var deckB = new WorkstationDeckViewModel("B", deckPair.DeckB, stemSeparator, cueService, stemPrefService, _dbFactory);
-        deckA.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); await SaveSessionAsync(); };
-        deckB.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); await SaveSessionAsync(); };
+        deckA.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); RaiseHeaderProperties(); await SaveSessionAsync(); };
+        deckB.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); RaiseHeaderProperties(); await SaveSessionAsync(); };
         deckA.OnDeckStateChanged = RefreshDeckTransitionGuidance;
         deckB.OnDeckStateChanged = RefreshDeckTransitionGuidance;
         Decks.Add(deckA);
@@ -972,12 +975,13 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             var engine = new DeckEngine();
             var slot   = new DeckSlotViewModel(label, engine);
             var newDeck = new WorkstationDeckViewModel(label, slot, _stemSeparator, _cueService, _stemPrefService);
-            newDeck.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); await SaveSessionAsync(); };
+            newDeck.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); RaiseHeaderProperties(); await SaveSessionAsync(); };
             newDeck.OnDeckStateChanged = RefreshDeckTransitionGuidance;
             Decks.Add(newDeck);
             newDeck.UpdateWaveformViewport(TimelineWindowSeconds, TimelineOffsetSeconds);
             RefreshDeckTransitionGuidance();
             this.RaisePropertyChanged(nameof(MaxTimelineOffsetSeconds));
+            this.RaisePropertyChanged(nameof(CanAddDeck));
             RaiseHeaderProperties();
         });
 
@@ -989,6 +993,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             FocusedDeck = Decks.FirstOrDefault();
             RefreshDeckTransitionGuidance();
             this.RaisePropertyChanged(nameof(MaxTimelineOffsetSeconds));
+            this.RaisePropertyChanged(nameof(CanAddDeck));
             TimelineOffsetSeconds = TimelineOffsetSeconds;
             RaiseHeaderProperties();
         });
