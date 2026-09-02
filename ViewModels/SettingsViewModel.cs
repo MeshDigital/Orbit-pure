@@ -1458,6 +1458,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand RestartSpotifyAuthCommand { get; }
     public ICommand CheckFfmpegCommand { get; } // Phase 8: Dependency validation
     public ICommand ResetDatabaseCommand { get; }
+    public ICommand ResetToDefaultsCommand { get; }
     public ICommand ScanLibraryCommand { get; } // [NEW] Manual Scan
     public ICommand ReconcileLibraryCommand { get; }
     public ICommand FullLibrarySyncCommand { get; }
@@ -1903,6 +1904,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         CheckFfmpegCommand = new AsyncRelayCommand(CheckFfmpegAsync); // Phase 8
         RestartSpotifyAuthCommand = new AsyncRelayCommand(RestartSpotifyAuthAsync, () => IsSpotifyConnecting);
         ResetDatabaseCommand = new AsyncRelayCommand(ResetDatabaseAsync);
+        ResetToDefaultsCommand = new AsyncRelayCommand(ResetToDefaultsAsync);
         ScanLibraryCommand = new AsyncRelayCommand(ScanLibraryAsync, () => !IsScanning && !IsFullSyncing);
         ReconcileLibraryCommand = new AsyncRelayCommand(ReconcileLibraryAsync, () => !IsReconciling && !IsFullSyncing);
         FullLibrarySyncCommand = new AsyncRelayCommand(FullLibrarySyncAsync, () => !IsFullSyncing && !IsScanning && !IsReconciling);
@@ -2247,6 +2249,38 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             IsAuthenticating = false;
             (TestSpotifyConnectionCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
+    }
+
+    /// <summary>
+    /// Restores every setting on this page to its compiled default and saves immediately. Only
+    /// narrowly-scoped resets existed before this (DB schema reset, Spotify full re-auth) — there
+    /// was no single action to undo general customization.
+    /// Mutates the existing AppConfig instance in place (reflection over its public settable
+    /// properties) rather than swapping the reference, since other services/ViewModels hold the
+    /// same shared instance and should see the reset immediately too.
+    /// </summary>
+    private async Task ResetToDefaultsAsync()
+    {
+        var confirmed = await _dialogService.ConfirmAsync(
+            "Reset to Defaults",
+            "This resets every setting on this page back to its default value and saves immediately. This cannot be undone. Continue?",
+            confirmLabel: "Reset",
+            cancelLabel: "Cancel");
+
+        if (!confirmed) return;
+
+        var defaults = new AppConfig();
+        foreach (var prop in typeof(AppConfig).GetProperties())
+        {
+            if (prop.CanWrite && prop.CanRead)
+            {
+                prop.SetValue(_config, prop.GetValue(defaults));
+            }
+        }
+
+        SaveSettings();
+        OnPropertyChanged(string.Empty); // Refresh every binding on the page — not just one property.
+        _logger.LogInformation("Settings reset to defaults");
     }
 
     private void SaveSettings()

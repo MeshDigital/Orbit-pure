@@ -673,58 +673,6 @@
                 </StackPanel>
             </Border>
 
-            <!-- Waveform Appearance -->
-            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#00CFFF" BorderThickness="1"
-                    Tag="Waveform Appearance||Controls the RGB tri-band waveform on the player and Now Playing view — the preview above shows the effect of each toggle live, using a sample waveform rather than a real track.">
-                <StackPanel Spacing="16">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="🌈" FontSize="20" VerticalAlignment="Center"/>
-                        <TextBlock Text="Waveform Appearance" FontSize="16" FontWeight="SemiBold" Foreground="#00CFFF"/>
-                    </StackPanel>
-                    <TextBlock Text="Controls the RGB tri-band waveform on the player and Now Playing view. Applies the next time a waveform is loaded." Foreground="#AAA" FontSize="12" TextWrapping="Wrap"/>
-
-                    <Border Background="#000000" CornerRadius="6" ClipToBounds="True">
-                        <controls:WaveformControl Height="90"
-                                                   WaveformData="{Binding WaveformPreviewData}"
-                                                   UseNeonPalette="{Binding WaveformUseNeonPalette}"
-                                                   Gain="{Binding WaveformGain}"
-                                                   ShowEnergyCurve="{Binding WaveformShowEnergyCurve}"
-                                                   ShowVocalGhost="{Binding WaveformShowVocalGhost}"
-                                                   ShowPhraseSections="{Binding WaveformShowPhraseSections}"
-                                                   EnergyCurve="{Binding WaveformPreviewEnergyCurve}"
-                                                   VocalDensityCurve="{Binding WaveformPreviewVocalCurve}"
-                                                   PhraseSegments="{Binding WaveformPreviewPhraseSegments}"
-                                                   Progress="0.4"/>
-                    </Border>
-
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Grid.Column="0" Text="Neon palette (off = classic RGB)" Foreground="#DDD" VerticalAlignment="Center"/>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding WaveformUseNeonPalette, Mode=TwoWay}" OnContent="Neon" OffContent="Classic"/>
-                    </Grid>
-
-                    <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto">
-                        <TextBlock Grid.Column="0" Text="Gain" Foreground="#DDD" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                        <Slider Grid.Column="1" Minimum="0.5" Maximum="2.0" Value="{Binding WaveformGain, Mode=TwoWay}" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="2" Text="{Binding WaveformGain, StringFormat={}{0:0.0}x}" Foreground="#AAA" FontSize="12" Margin="10,0,0,0" VerticalAlignment="Center" Width="32"/>
-                    </Grid>
-
-                    <Separator Background="#1A2F3A" Height="1"/>
-
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Grid.Column="0" Text="Show energy curve" Foreground="#DDD" VerticalAlignment="Center"/>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding WaveformShowEnergyCurve, Mode=TwoWay}" OnContent="On" OffContent="Off"/>
-                    </Grid>
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Grid.Column="0" Text="Show vocal density ghost" Foreground="#DDD" VerticalAlignment="Center"/>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding WaveformShowVocalGhost, Mode=TwoWay}" OnContent="On" OffContent="Off"/>
-                    </Grid>
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Grid.Column="0" Text="Show phrase sections" Foreground="#DDD" VerticalAlignment="Center"/>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding WaveformShowPhraseSections, Mode=TwoWay}" OnContent="On" OffContent="Off"/>
-                    </Grid>
-                </StackPanel>
-            </Border>
-
             <!-- Frequent Sources (local-only, opt-in) -->
             <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
                     Tag="Frequent Sources||Tracks repeated source/folder pairs and prefetches staging locally, entirely on-device — disabled by default and never uploads any telemetry.">
@@ -1399,6 +1347,59 @@
                 </StackPanel>
             </Border>
 
+            <!-- Waveform Appearance — moved here from Library: it controls player/Now Playing
+                 visuals, not library scanning/sharing, so it reads better next to Audio Output. -->
+            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#00CFFF" BorderThickness="1"
+                    Tag="Waveform Appearance||Controls the RGB tri-band waveform on the player and Now Playing view — the preview above shows the effect of each toggle live, using a sample waveform rather than a real track.">
+                <StackPanel Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="🌈" FontSize="20" VerticalAlignment="Center"/>
+                        <TextBlock Text="Waveform Appearance" FontSize="16" FontWeight="SemiBold" Foreground="#00CFFF"/>
+                    </StackPanel>
+                    <TextBlock Text="Controls the RGB tri-band waveform on the player and Now Playing view. Applies the next time a waveform is loaded." Foreground="#AAA" FontSize="12" TextWrapping="Wrap"/>
+
+                    <Border Background="#000000" CornerRadius="6" ClipToBounds="True">
+                        <controls:WaveformControl Height="90"
+                                                   WaveformData="{Binding WaveformPreviewData}"
+                                                   UseNeonPalette="{Binding WaveformUseNeonPalette}"
+                                                   Gain="{Binding WaveformGain}"
+                                                   ShowEnergyCurve="{Binding WaveformShowEnergyCurve}"
+                                                   ShowVocalGhost="{Binding WaveformShowVocalGhost}"
+                                                   ShowPhraseSections="{Binding WaveformShowPhraseSections}"
+                                                   EnergyCurve="{Binding WaveformPreviewEnergyCurve}"
+                                                   VocalDensityCurve="{Binding WaveformPreviewVocalCurve}"
+                                                   PhraseSegments="{Binding WaveformPreviewPhraseSegments}"
+                                                   Progress="0.4"/>
+                    </Border>
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Neon palette (off = classic RGB)" Foreground="#DDD" VerticalAlignment="Center"/>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding WaveformUseNeonPalette, Mode=TwoWay}" OnContent="Neon" OffContent="Classic"/>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto">
+                        <TextBlock Grid.Column="0" Text="Gain" Foreground="#DDD" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <Slider Grid.Column="1" Minimum="0.5" Maximum="2.0" Value="{Binding WaveformGain, Mode=TwoWay}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Text="{Binding WaveformGain, StringFormat={}{0:0.0}x}" Foreground="#AAA" FontSize="12" Margin="10,0,0,0" VerticalAlignment="Center" Width="32"/>
+                    </Grid>
+
+                    <Separator Background="#1A2F3A" Height="1"/>
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Show energy curve" Foreground="#DDD" VerticalAlignment="Center"/>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding WaveformShowEnergyCurve, Mode=TwoWay}" OnContent="On" OffContent="Off"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Show vocal density ghost" Foreground="#DDD" VerticalAlignment="Center"/>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding WaveformShowVocalGhost, Mode=TwoWay}" OnContent="On" OffContent="Off"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Show phrase sections" Foreground="#DDD" VerticalAlignment="Center"/>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding WaveformShowPhraseSections, Mode=TwoWay}" OnContent="On" OffContent="Off"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!-- Audio Output & Loudness -->
             <Border Background="#252526" CornerRadius="8" Padding="20" BorderThickness="1" BorderBrush="#3E3E3E">
                 <StackPanel Spacing="0">
@@ -1628,13 +1629,13 @@
             </Border>
 
             <!-- Diagnostics & Telemetry (Advanced) -->
-            <Expander Header="🔬 Diagnostics &amp; Telemetry" IsExpanded="False" Padding="0" Margin="0">
+            <Expander Header="🔬 Performance Diagnostics" IsExpanded="False" Padding="0" Margin="0">
             <Border Background="#0D1B2A" CornerRadius="8" Padding="20" BorderBrush="#00D4FF" BorderThickness="1" Margin="0,8,0,0">
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="4">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Text="🔬" FontSize="20" VerticalAlignment="Center"/>
-                            <TextBlock Text="Diagnostics &amp; Telemetry" FontSize="16" FontWeight="SemiBold" Foreground="#00D4FF"/>
+                            <TextBlock Text="Performance Diagnostics" FontSize="16" FontWeight="SemiBold" Foreground="#00D4FF"/>
                         </StackPanel>
                         <TextBlock Text="Performance validation and system health monitoring for soundcheck sessions."
                                    Foreground="#778DA9" FontSize="12"/>
@@ -1862,14 +1863,14 @@
             </Border>
             </Expander>
 
-            <!-- Engine Diagnostics -->
-            <Expander Header="🔧 Engine Diagnostics" IsExpanded="False" Padding="0" Margin="0,12,0,0">
+            <!-- Import & Search Activity Log -->
+            <Expander Header="🔧 Import &amp; Search Activity Log" IsExpanded="False" Padding="0" Margin="0,12,0,0">
             <Border Background="#0D1B2A" CornerRadius="8" Padding="20" BorderBrush="#4EC9B0" BorderThickness="1" Margin="0,8,0,0">
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="4">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Text="🔧" FontSize="20" VerticalAlignment="Center"/>
-                            <TextBlock Text="Engine Diagnostics" FontSize="16" FontWeight="SemiBold" Foreground="#4EC9B0"/>
+                            <TextBlock Text="Import &amp; Search Activity Log" FontSize="16" FontWeight="SemiBold" Foreground="#4EC9B0"/>
                         </StackPanel>
                         <TextBlock Text="Always-on audit trail of the import/search pipeline: what you pasted, how it was cleaned, what got added to a playlist, what was searched, what candidates came back, and what got picked to download. This runs continuously in the background — there's nothing to turn on or off here, this is just a live viewer into it."
                                    Foreground="#778DA9" FontSize="12" TextWrapping="Wrap"/>
@@ -1963,16 +1964,27 @@
 
             </TabControl>
 
-            <!-- Save Button (always visible, regardless of active tab) -->
-            <Button Command="{Binding SaveSettingsCommand}"
-                    Classes="primary"
-                    HorizontalAlignment="Left"
-                    Padding="24,12">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="💾" FontSize="16"/>
-                    <TextBlock Text="Save Settings" FontSize="14" FontWeight="SemiBold"/>
-                </StackPanel>
-            </Button>
+            <!-- Save / Reset buttons (always visible, regardless of active tab) -->
+            <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Left">
+                <Button Command="{Binding SaveSettingsCommand}"
+                        Classes="primary"
+                        Padding="24,12">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="💾" FontSize="16"/>
+                        <TextBlock Text="Save Settings" FontSize="14" FontWeight="SemiBold"/>
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding ResetToDefaultsCommand}"
+                        Background="Transparent"
+                        BorderBrush="#664444"
+                        BorderThickness="1"
+                        Padding="24,12">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="↺" FontSize="16" Foreground="#FF8888"/>
+                        <TextBlock Text="Reset to Defaults" FontSize="14" FontWeight="SemiBold" Foreground="#FF8888"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
         </StackPanel>
         </ScrollViewer>
 
