@@ -204,11 +204,7 @@ public class ConfigManager
                 // [FlowBuilder]
                 FlowBuilderSelectedPlaylistId = config["FlowBuilder:SelectedPlaylistId"],
                 FlowBuilderRestoreContentOnStartup = !bool.TryParse(config["FlowBuilder:RestoreContentOnStartup"], out var fbrc) || fbrc,
-                EnableFlowBuilderSuggestedFlowPreview = !bool.TryParse(config["FlowBuilder:EnableSuggestedFlowPreview"], out var efbsp) || efbsp,
                 EnableFlowBuilderSuggestedFlowTelemetry = !bool.TryParse(config["FlowBuilder:EnableSuggestedFlowTelemetry"], out var efbst) || efbst,
-                FlowBuilderSuggestedFlowPreviewRolloutPercent = int.TryParse(config["FlowBuilder:SuggestedFlowPreviewRolloutPercent"], out var fsprp)
-                    ? Math.Clamp(fsprp, 0, 100)
-                    : 10,
 
                 // [FrequentSources]
                 EnableFrequentSources = bool.TryParse(config["FrequentSources:EnableFrequentSources"], out var efs) && efs,
@@ -421,9 +417,7 @@ public class ConfigManager
         iniContent.AppendLine("[FlowBuilder]");
         iniContent.AppendLine($"SelectedPlaylistId = {config.FlowBuilderSelectedPlaylistId}");
         iniContent.AppendLine($"RestoreContentOnStartup = {config.FlowBuilderRestoreContentOnStartup}");
-        iniContent.AppendLine($"EnableSuggestedFlowPreview = {config.EnableFlowBuilderSuggestedFlowPreview}");
         iniContent.AppendLine($"EnableSuggestedFlowTelemetry = {config.EnableFlowBuilderSuggestedFlowTelemetry}");
-        iniContent.AppendLine($"SuggestedFlowPreviewRolloutPercent = {Math.Clamp(config.FlowBuilderSuggestedFlowPreviewRolloutPercent, 0, 100)}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[FrequentSources]");

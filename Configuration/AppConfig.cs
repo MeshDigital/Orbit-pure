@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using SLSKDONET.Models;
 
 namespace SLSKDONET.Configuration;
@@ -182,9 +180,7 @@ public class AppConfig
     // Flow Builder persistence
     public string? FlowBuilderSelectedPlaylistId { get; set; }
     public bool FlowBuilderRestoreContentOnStartup { get; set; } = true;
-    public bool EnableFlowBuilderSuggestedFlowPreview { get; set; } = true;
     public bool EnableFlowBuilderSuggestedFlowTelemetry { get; set; } = true;
-    public int FlowBuilderSuggestedFlowPreviewRolloutPercent { get; set; } = 10;
 
     // Frequent Sources (privacy-first, local-only, opt-in)
     public bool EnableFrequentSources { get; set; } = false;
@@ -304,23 +300,4 @@ public class AppConfig
     /// </summary>
     public bool EnableKeyboardTelemetry { get; set; } = false;
 
-    public bool IsFlowBuilderPreviewEnabledForThisInstall(string installKey)
-    {
-        if (!EnableFlowBuilderSuggestedFlowPreview)
-            return false;
-
-        if (FlowBuilderSuggestedFlowPreviewRolloutPercent <= 0)
-            return false;
-
-        if (FlowBuilderSuggestedFlowPreviewRolloutPercent >= 100)
-            return true;
-
-        if (string.IsNullOrWhiteSpace(installKey))
-            return false;
-
-        using var sha256 = SHA256.Create();
-        var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(installKey.Trim()));
-        var bucket = hashBytes[0] % 100;
-        return bucket < FlowBuilderSuggestedFlowPreviewRolloutPercent;
-    }
 }
