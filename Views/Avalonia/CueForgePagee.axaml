@@ -296,9 +296,15 @@
                                  CaretBrush="#7777AA"/>
                     </Border>
 
-                    <!-- Downloaded track list -->
+                    <!-- Downloaded track list — can be the whole downloaded library, easily
+                         thousands of tracks; same unvirtualized-freeze risk the Users page had. -->
                     <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding BrowserTracks}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <Button Command="{Binding $parent[UserControl].DataContext.LoadFromBrowserCommand}"

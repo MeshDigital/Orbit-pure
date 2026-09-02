@@ -137,6 +137,15 @@
 
                 <ScrollViewer>
                     <ItemsControl ItemsSource="{Binding Rows}">
+                        <!-- Every Soulseek peer ever downloaded from — can run into the hundreds/
+                             thousands for a long-running library. Without virtualization every
+                             row's full visual tree was realized/measured/arranged eagerly on
+                             every population, which is exactly what made this page feel frozen. -->
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <VirtualizingStackPanel/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="vm:UserRowViewModel">
                                 <Border Classes="row">
@@ -239,6 +248,11 @@
                                         <TabItem Header="Download History">
                                             <ScrollViewer Margin="0,10,0,0">
                                                 <ItemsControl ItemsSource="{Binding SelectedProfile.DownloadHistory}">
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                            <VirtualizingStackPanel/>
+                                                        </ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate>
                                                             <Border Classes="row">
@@ -377,6 +391,12 @@
                 </Grid>
                 <ScrollViewer>
                     <ItemsControl ItemsSource="{Binding Rooms.AvailableRooms}">
+                        <!-- The server's full room list can run into the hundreds. -->
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <VirtualizingStackPanel/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="svc:RoomSummary">
                                 <Border Classes="row">
