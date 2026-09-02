@@ -58,11 +58,13 @@ public partial class LibraryViewModel
     public ICommand AcquireMissingTracksCommand { get; set; } = null!;
     public ICommand RenameProjectCommand { get; set; } = null!;
     public ICommand DuplicateDetectionCommand { get; set; } = null!;
-    public ICommand AutoOrganizeCommand { get; set; } = null!;
     public ICommand LoadDeletedProjectsCommand { get; set; } = null!;
     public ICommand RestoreProjectCommand { get; set; } = null!;
     public ICommand CloseRemovalHistoryCommand { get; set; } = null!;
     public ICommand CloseImportHistoryCommand { get; set; } = null!;
+    public ICommand CloseOrphanedTracksCommand { get; set; } = null!;
+    public ICommand OpenLibraryHealthCommand { get; set; } = null!;
+    public ICommand CloseLibraryHealthCommand { get; set; } = null!;
     public ICommand SyncProjectCommand { get; set; } = null!;
     public ICommand OpenSourceUrlCommand { get; set; } = null!;
     public ICommand ExportPlaylistCommand { get; set; } = null!;
@@ -99,6 +101,8 @@ public partial class LibraryViewModel
 
     // ── Batch Action FAB (Task 10.5) ────────────────────────────────────────
     public ICommand BatchTagEditCommand { get; set; } = null!;
+    public ICommand BulkRenameCommand { get; set; } = null!;
+    public ICommand BulkMoveOrCopyCommand { get; set; } = null!;
     public ICommand BatchQueueAnalysisCommand { get; set; } = null!;
     public ICommand BatchAddToPlaylistCommand { get; set; } = null!;
     public ICommand BatchExportRekordboxCommand { get; set; } = null!;
@@ -145,6 +149,13 @@ public partial class LibraryViewModel
         LoadDeletedProjectsCommand = new AsyncRelayCommand(ExecuteLoadDeletedProjectsAsync);
         RestoreProjectCommand = new AsyncRelayCommand<object>(ExecuteRestoreProjectAsync);
         CloseRemovalHistoryCommand = new RelayCommand(() => IsRemovalHistoryVisible = false);
+        CloseOrphanedTracksCommand = new RelayCommand(() => IsOrphanedTracksVisible = false);
+        OpenLibraryHealthCommand = new RelayCommand(() =>
+        {
+            IsLibraryHealthVisible = true;
+            LibraryHealthViewModel.RefreshAll();
+        });
+        CloseLibraryHealthCommand = new RelayCommand(() => IsLibraryHealthVisible = false);
         CloseImportHistoryCommand = new RelayCommand(() => IsImportHistoryVisible = false);
         ExportPlaylistCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistAsync);
         ExportPlaylistM3uCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistM3uAsync);
@@ -154,7 +165,6 @@ public partial class LibraryViewModel
         SwitchWorkspaceCommand = new RelayCommand<ActiveWorkspace>(ws => CurrentWorkspace = ws);
 
         DuplicateDetectionCommand = new AsyncRelayCommand(ExecuteDuplicateDetectionAsync);
-        AutoOrganizeCommand = new AsyncRelayCommand(ExecuteAutoOrganizeAsync);
         SyncPhysicalLibraryCommand = new AsyncRelayCommand(ExecuteSyncPhysicalLibraryAsync);
         CreateSmartPlaylistCommand = SmartPlaylists.CreateCrateCommand;
         OpenFlowBuilderCommand = new RelayCommand(ExecuteOpenFlowBuilder);
@@ -184,6 +194,8 @@ public partial class LibraryViewModel
 
         // Batch Action FAB
         BatchTagEditCommand = new AsyncRelayCommand(ExecuteBatchTagEditAsync);
+        BulkRenameCommand = new AsyncRelayCommand(ExecuteBulkRenameAsync);
+        BulkMoveOrCopyCommand = new AsyncRelayCommand(ExecuteBulkMoveOrCopyAsync);
         BatchQueueAnalysisCommand = new AsyncRelayCommand(ExecuteBatchQueueAnalysisAsync);
         BatchAddToPlaylistCommand = new AsyncRelayCommand(ExecuteBatchAddToPlaylistAsync);
         BatchExportRekordboxCommand = new AsyncRelayCommand(ExecuteBatchExportRekordboxAsync);
@@ -843,72 +855,6 @@ public partial class LibraryViewModel
             _notificationService.Show("MP3 Search Initiated", $"Queueing {onHoldTracks.Count} tracks for MP3 search.", NotificationType.Success);
         }
 
-    }
-
-    private async Task ExecuteAutoOrganizeAsync()
-    {
-        try
-        {
-            IsLoading = true;
-            _notificationService.Show("Auto-Organizer", "Scanning library for organization...", NotificationType.Information);
-            
-            var entries = await _libraryService.LoadAllLibraryEntriesAsync();
-            int movedCount = 0;
-            int errorCount = 0;
-            
-            var targetRoot = _appConfig.DownloadDirectory;
-            if (string.IsNullOrEmpty(targetRoot) && _appConfig.LibraryRootPaths.Any())
-                targetRoot = _appConfig.LibraryRootPaths.First();
-                
-            if (string.IsNullOrEmpty(targetRoot))
-            {
-                _notificationService.Show("Organizer Error", "No target directory configured.", NotificationType.Error);
-                return;
-            }
-
-            foreach (var entry in entries)
-            {
-                if (string.IsNullOrEmpty(entry.FilePath) || !System.IO.File.Exists(entry.FilePath)) continue;
-                
-                var extension = System.IO.Path.GetExtension(entry.FilePath);
-                var safeArtist = Utils.FilenameNormalizer.GetSafeFilename(entry.Artist ?? "Unknown Artist");
-                var safeAlbum = Utils.FilenameNormalizer.GetSafeFilename(entry.Album ?? "Unknown Album");
-                var safeTitle = Utils.FilenameNormalizer.GetSafeFilename(entry.Title ?? "Unknown Title");
-                
-                var newDir = System.IO.Path.Combine(targetRoot, safeArtist, safeAlbum);
-                var newPath = System.IO.Path.Combine(newDir, $"{safeArtist} - {safeTitle}{extension}");
-                
-                if (entry.FilePath == newPath) continue;
-                
-                try 
-                {
-                    if (!System.IO.Directory.Exists(newDir))
-                        System.IO.Directory.CreateDirectory(newDir);
-                        
-                    System.IO.File.Move(entry.FilePath, newPath, true);
-                    entry.FilePath = newPath;
-                    await _libraryService.SaveOrUpdateLibraryEntryAsync(entry);
-                    movedCount++;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to move file: {Path}", entry.FilePath);
-                    errorCount++;
-                }
-            }
-            
-            _notificationService.Show("Organization Complete", $"Moved {movedCount} files.", movedCount > 0 ? NotificationType.Success : NotificationType.Information);
-            await ExecuteRefreshLibraryAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Organizaton process failed");
-            _notificationService.Show("Organizer Failed", ex.Message, NotificationType.Error);
-        }
-        finally
-        {
-            IsLoading = false;
-        }
     }
 
     private async Task ExecuteSyncPhysicalLibraryAsync()
@@ -1948,9 +1894,23 @@ public partial class LibraryViewModel
             bpm = parsedBpm;
         }
 
+        int? trackNumber = null;
+        if (!string.IsNullOrWhiteSpace(result.TrackNumber) && int.TryParse(result.TrackNumber, out var parsedTrackNumber) && parsedTrackNumber > 0)
+        {
+            trackNumber = parsedTrackNumber;
+        }
+
+        int? rating = null;
+        if (!string.IsNullOrWhiteSpace(result.Rating) && int.TryParse(result.Rating, out var parsedRating) && parsedRating is >= 0 and <= 5)
+        {
+            rating = parsedRating;
+        }
+
         int tagUpdateSuccessCount = 0;
         int dbUpdateSuccessCount = 0;
         int renameFailedCount = 0;
+        var failedTagWriteTracks = new List<string>();
+        var failedRenameTracks = new List<string>();
 
         await Task.Run(async () =>
         {
@@ -1973,56 +1933,47 @@ public partial class LibraryViewModel
                 var track = trackVm.Model;
                 bool fileUpdated = false;
 
-                // 1. Update physical file tags
+                // 1. Update physical file tags — routed through the atomic, verified ITaggerService
+                // (temp-file write + post-write format check) instead of writing TagLib directly in
+                // place, so a bad write can't leave a half-tagged or corrupted file on disk. As a
+                // bonus this also writes Key/TrackNumber, which the old inline path explicitly
+                // skipped (neither has a slot in TagLib's plain Tag API, but ITaggerService writes
+                // Key via InitialKey and TrackNumber via the Metadata dictionary).
                 if (track.Status == TrackStatus.Downloaded && !string.IsNullOrEmpty(track.ResolvedFilePath) && System.IO.File.Exists(track.ResolvedFilePath))
                 {
                     try
                     {
-                        using (var tagFile = TagLib.File.Create(track.ResolvedFilePath))
+                        var taggerTrack = new Track
                         {
-                            if (tagFile.Tag != null)
-                            {
-                                if (!string.IsNullOrWhiteSpace(result.Artist))
-                                {
-                                    tagFile.Tag.Artists = new[] { result.Artist };
-                                    tagFile.Tag.Performers = new[] { result.Artist };
-                                }
-                                if (!string.IsNullOrWhiteSpace(result.Title))
-                                {
-                                    tagFile.Tag.Title = result.Title;
-                                }
-                                if (!string.IsNullOrWhiteSpace(result.Album))
-                                {
-                                    tagFile.Tag.Album = result.Album;
-                                }
-                                if (!string.IsNullOrWhiteSpace(result.Genre))
-                                {
-                                    tagFile.Tag.Genres = new[] { result.Genre };
-                                }
-                                if (!string.IsNullOrWhiteSpace(result.Year) && uint.TryParse(result.Year, out var y))
-                                {
-                                    tagFile.Tag.Year = y;
-                                }
-                                if (bpm.HasValue)
-                                {
-                                    tagFile.Tag.BeatsPerMinute = (uint)Math.Round(bpm.Value);
-                                }
-                                if (!string.IsNullOrWhiteSpace(result.Comments))
-                                {
-                                    tagFile.Tag.Comment = result.Comments;
-                                }
-                                // Key/Mood are intentionally not written to the physical file — neither
-                                // has a standard, widely-supported ID3/tag slot via TagLib's high-level
-                                // Tag API, so they stay database-only (same treatment MoodTag already got).
-                                tagFile.Save();
-                                fileUpdated = true;
-                                tagUpdateSuccessCount++;
-                            }
+                            Title = result.Title,
+                            Artist = result.Artist,
+                            Album = result.Album,
+                            Metadata = new Dictionary<string, object>(),
+                        };
+                        if (!string.IsNullOrWhiteSpace(result.Genre)) taggerTrack.Metadata["Genre"] = result.Genre;
+                        if (!string.IsNullOrWhiteSpace(result.Year)) taggerTrack.Metadata["Year"] = result.Year;
+                        if (bpm.HasValue) taggerTrack.Metadata["BPM"] = bpm.Value;
+                        if (!string.IsNullOrWhiteSpace(result.Key)) taggerTrack.Metadata["MusicalKey"] = result.Key;
+                        if (!string.IsNullOrWhiteSpace(result.Comments)) taggerTrack.Metadata["Comment"] = result.Comments;
+                        if (!string.IsNullOrWhiteSpace(result.TrackNumber)) taggerTrack.Metadata["TrackNumber"] = result.TrackNumber;
+                        // Mood is intentionally not written to the physical file — it has no
+                        // standard, widely-supported ID3/tag slot via TagLib's high-level Tag API,
+                        // so it stays database-only.
+
+                        fileUpdated = await _taggerService.TagFileAsync(taggerTrack, track.ResolvedFilePath);
+                        if (fileUpdated)
+                        {
+                            tagUpdateSuccessCount++;
+                        }
+                        else
+                        {
+                            failedTagWriteTracks.Add($"{track.Artist} - {track.Title}");
                         }
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Failed to write tag to physical file: {Path}", track.ResolvedFilePath);
+                        failedTagWriteTracks.Add($"{track.Artist} - {track.Title}");
                     }
                 }
 
@@ -2045,8 +1996,17 @@ public partial class LibraryViewModel
                         if (!string.IsNullOrWhiteSpace(result.Key)) dbTrack.MusicalKey = result.Key;
                         if (!string.IsNullOrWhiteSpace(result.Comments)) dbTrack.Comments = result.Comments;
                         if (!string.IsNullOrWhiteSpace(result.Mood)) dbTrack.MoodTag = result.Mood;
+                        if (trackNumber.HasValue) dbTrack.TrackNumber = trackNumber.Value;
 
                         context.PlaylistTracks.Update(dbTrack);
+                    }
+
+                    // 2b. Rating is global-by-hash (shared across every row for this track), so it
+                    // goes through the existing single-track rating path instead of the two entity
+                    // updates above.
+                    if (rating.HasValue && !string.IsNullOrEmpty(track.TrackUniqueHash))
+                    {
+                        await _libraryService.UpdateRatingAsync(track.TrackUniqueHash, rating.Value);
                     }
 
                     // 3. Update Library Entry if exists
@@ -2119,6 +2079,7 @@ public partial class LibraryViewModel
                                     {
                                         _logger.LogError(ex, "Failed to rename file: {Path}", sourcePath);
                                         renameFailedCount++;
+                                        failedRenameTracks.Add($"{track.Artist} - {track.Title}");
                                     }
                                 }
                                 else
@@ -2179,6 +2140,17 @@ public partial class LibraryViewModel
                     {
                         trackVm.Model.MoodTag = result.Mood;
                     }
+                    if (trackNumber.HasValue)
+                    {
+                        trackVm.Model.TrackNumber = trackNumber.Value;
+                    }
+                    if (rating.HasValue)
+                    {
+                        // Set the model directly rather than trackVm.Rating — that setter fires its
+                        // own UpdateRatingAsync call, which would double-write the DB update already
+                        // done above.
+                        trackVm.Model.Rating = rating.Value;
+                    }
                     trackVm.NotifyMetadataChanged();
                 });
             }
@@ -2190,13 +2162,243 @@ public partial class LibraryViewModel
         var message = $"Successfully edited metadata tags for {dbUpdateSuccessCount} track(s) in DB (and {tagUpdateSuccessCount} physical files).";
         if (failedCount > 0)
             message += $" {failedCount} track(s) failed and were not changed — see logs for details.";
+        if (failedTagWriteTracks.Count > 0)
+            message += $" File tag write failed for: {FormatFailedTrackList(failedTagWriteTracks)} — the DB was still updated, so it may no longer match the file's tags.";
         if (renameFailedCount > 0)
-            message += $" File rename failed for {renameFailedCount} track(s) — tags were still updated, but the file on disk keeps its old name. See logs for details.";
+            message += $" File rename failed for: {FormatFailedTrackList(failedRenameTracks)} — tags were still updated, but the file(s) on disk keep their old name.";
 
         _notificationService.Show(
             "Tags Updated",
             message,
-            failedCount > 0 || renameFailedCount > 0 ? NotificationType.Warning : NotificationType.Success);
+            failedCount > 0 || renameFailedCount > 0 || failedTagWriteTracks.Count > 0 ? NotificationType.Warning : NotificationType.Success);
+    }
+
+    /// <summary>Renders up to 5 failed-track names for a notification, collapsing the rest into a count.</summary>
+    private static string FormatFailedTrackList(List<string> names)
+    {
+        const int max = 5;
+        var shown = string.Join(", ", names.Take(max));
+        return names.Count > max ? $"{shown} (+{names.Count - max} more)" : shown;
+    }
+
+    /// <summary>
+    /// Renames every selected track's physical file according to a user-supplied pattern (e.g.
+    /// "{artist} - {title}") — unlike the single-track exact-filename rename in the tag-edit
+    /// dialog, this applies across the whole selection. Same collision rule as that rename: skip +
+    /// report rather than overwrite.
+    /// </summary>
+    private async Task ExecuteBulkRenameAsync()
+    {
+        var selected = Tracks.SelectedTracks.ToList();
+        if (selected.Count == 0) return;
+
+        var previewTracks = selected.Take(3).Select(t => new BulkRenamePreviewTrack
+        {
+            Artist = t.Model.Artist ?? "",
+            Title = t.Model.Title ?? "",
+            Album = t.Model.Album ?? "",
+            TrackNumber = t.Model.TrackNumber > 0 ? t.Model.TrackNumber.ToString() : "",
+            Year = t.Model.ReleaseDate?.Year.ToString() ?? "",
+            Genre = t.Model.Genres ?? "",
+            Extension = string.IsNullOrEmpty(t.Model.ResolvedFilePath) ? "" : System.IO.Path.GetExtension(t.Model.ResolvedFilePath),
+        }).ToList();
+
+        var result = await _dialogService.ShowBulkRenameDialogAsync(selected.Count, previewTracks);
+        if (result == null || !result.IsConfirmed || string.IsNullOrWhiteSpace(result.Pattern)) return;
+
+        _logger.LogInformation("Bulk rename for {Count} tracks starting with pattern '{Pattern}'.", selected.Count, result.Pattern);
+
+        int renamedCount = 0;
+        var skippedTracks = new List<string>();
+
+        await Task.Run(async () =>
+        {
+            await using var context = _dbFactory.CreateDbContext();
+            var trackIds = selected.Select(t => t.Model.Id).ToList();
+            var trackHashes = selected.Select(t => t.Model.TrackUniqueHash).Where(h => !string.IsNullOrEmpty(h)).ToList();
+
+            var dbTracksById = await context.PlaylistTracks
+                .Where(t => trackIds.Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id);
+            var dbEntriesByHash = await context.LibraryEntries
+                .Where(e => trackHashes.Contains(e.UniqueHash))
+                .ToDictionaryAsync(e => e.UniqueHash);
+
+            foreach (var trackVm in selected)
+            {
+                var track = trackVm.Model;
+                if (string.IsNullOrEmpty(track.ResolvedFilePath) || !System.IO.File.Exists(track.ResolvedFilePath))
+                    continue;
+
+                var resolvedBase = BulkRenameViewModel.Resolve(
+                    result.Pattern,
+                    track.Artist ?? "", track.Title ?? "", track.Album ?? "",
+                    track.TrackNumber > 0 ? track.TrackNumber.ToString() : "",
+                    track.ReleaseDate?.Year.ToString() ?? "",
+                    track.Genres ?? "");
+
+                var safeName = resolvedBase.Replace('/', '_').Replace('\\', '_').Replace(':', '_').Trim();
+                if (string.IsNullOrWhiteSpace(safeName))
+                {
+                    skippedTracks.Add($"{track.Artist} - {track.Title}");
+                    continue;
+                }
+
+                var dir = System.IO.Path.GetDirectoryName(track.ResolvedFilePath)!;
+                var ext = System.IO.Path.GetExtension(track.ResolvedFilePath);
+                var destPath = System.IO.Path.Combine(dir, safeName + ext);
+
+                if (string.Equals(destPath, track.ResolvedFilePath, StringComparison.OrdinalIgnoreCase))
+                    continue; // already matches the pattern — nothing to do
+
+                if (System.IO.File.Exists(destPath))
+                {
+                    _logger.LogWarning("Bulk rename skipped: target file already exists: {Path}", destPath);
+                    skippedTracks.Add($"{track.Artist} - {track.Title}");
+                    continue;
+                }
+
+                try
+                {
+                    System.IO.File.Move(track.ResolvedFilePath, destPath);
+                    track.ResolvedFilePath = destPath;
+
+                    if (dbTracksById.TryGetValue(track.Id, out var dbTrack))
+                    {
+                        dbTrack.ResolvedFilePath = destPath;
+                        context.PlaylistTracks.Update(dbTrack);
+                    }
+                    if (!string.IsNullOrEmpty(track.TrackUniqueHash) && dbEntriesByHash.TryGetValue(track.TrackUniqueHash, out var dbEntry))
+                    {
+                        dbEntry.FilePath = destPath;
+                        context.LibraryEntries.Update(dbEntry);
+                    }
+
+                    renamedCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Bulk rename failed for {Path}", track.ResolvedFilePath);
+                    skippedTracks.Add($"{track.Artist} - {track.Title}");
+                }
+            }
+
+            await context.SaveChangesAsync();
+        });
+
+        var message = $"Renamed {renamedCount} file(s).";
+        if (skippedTracks.Count > 0)
+            message += $" Skipped: {FormatFailedTrackList(skippedTracks)} — destination already existed or the rename failed. See logs for details.";
+
+        _notificationService.Show(
+            "Bulk Rename",
+            message,
+            skippedTracks.Count > 0 ? NotificationType.Warning : NotificationType.Success);
+    }
+
+    /// <summary>
+    /// Moves or copies every selected track's physical file into a chosen destination folder.
+    /// Move relocates the file and updates ORBIT's stored path (the reorganization case); Copy
+    /// duplicates the file for external use (e.g. staging a USB stick) and leaves the DB untouched
+    /// — a linked-library "copy" has no single unambiguous meaning otherwise, so this deliberately
+    /// doesn't create a second tracked library entry for the copy.
+    /// </summary>
+    private async Task ExecuteBulkMoveOrCopyAsync()
+    {
+        var selected = Tracks.SelectedTracks.ToList();
+        if (selected.Count == 0) return;
+
+        var modeResult = await _dialogService.ShowBulkMoveOrCopyDialogAsync(selected.Count);
+        if (modeResult == null || !modeResult.IsConfirmed) return;
+
+        var destinationFolder = await _dialogService.OpenFolderDialogAsync(
+            modeResult.IsCopy ? "Copy Selected Tracks To…" : "Move Selected Tracks To…");
+        if (string.IsNullOrWhiteSpace(destinationFolder)) return;
+
+        _logger.LogInformation(
+            "Bulk {Mode} for {Count} tracks to '{Destination}' starting.",
+            modeResult.IsCopy ? "copy" : "move", selected.Count, destinationFolder);
+
+        int processedCount = 0;
+        var skippedTracks = new List<string>();
+
+        await Task.Run(async () =>
+        {
+            await using var context = _dbFactory.CreateDbContext();
+            var trackIds = selected.Select(t => t.Model.Id).ToList();
+            var trackHashes = selected.Select(t => t.Model.TrackUniqueHash).Where(h => !string.IsNullOrEmpty(h)).ToList();
+
+            var dbTracksById = modeResult.IsCopy ? null : await context.PlaylistTracks
+                .Where(t => trackIds.Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id);
+            var dbEntriesByHash = modeResult.IsCopy ? null : await context.LibraryEntries
+                .Where(e => trackHashes.Contains(e.UniqueHash))
+                .ToDictionaryAsync(e => e.UniqueHash);
+
+            foreach (var trackVm in selected)
+            {
+                var track = trackVm.Model;
+                if (string.IsNullOrEmpty(track.ResolvedFilePath) || !System.IO.File.Exists(track.ResolvedFilePath))
+                    continue;
+
+                var fileName = System.IO.Path.GetFileName(track.ResolvedFilePath);
+                var destPath = System.IO.Path.Combine(destinationFolder, fileName);
+
+                if (string.Equals(System.IO.Path.GetFullPath(destPath), System.IO.Path.GetFullPath(track.ResolvedFilePath), StringComparison.OrdinalIgnoreCase))
+                    continue; // already there
+
+                if (System.IO.File.Exists(destPath))
+                {
+                    _logger.LogWarning("Bulk {Mode} skipped: target file already exists: {Path}", modeResult.IsCopy ? "copy" : "move", destPath);
+                    skippedTracks.Add($"{track.Artist} - {track.Title}");
+                    continue;
+                }
+
+                try
+                {
+                    if (modeResult.IsCopy)
+                    {
+                        System.IO.File.Copy(track.ResolvedFilePath, destPath);
+                    }
+                    else
+                    {
+                        System.IO.File.Move(track.ResolvedFilePath, destPath);
+                        track.ResolvedFilePath = destPath;
+
+                        if (dbTracksById != null && dbTracksById.TryGetValue(track.Id, out var dbTrack))
+                        {
+                            dbTrack.ResolvedFilePath = destPath;
+                            context.PlaylistTracks.Update(dbTrack);
+                        }
+                        if (dbEntriesByHash != null && !string.IsNullOrEmpty(track.TrackUniqueHash) && dbEntriesByHash.TryGetValue(track.TrackUniqueHash, out var dbEntry))
+                        {
+                            dbEntry.FilePath = destPath;
+                            context.LibraryEntries.Update(dbEntry);
+                        }
+                    }
+
+                    processedCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Bulk {Mode} failed for {Path}", modeResult.IsCopy ? "copy" : "move", track.ResolvedFilePath);
+                    skippedTracks.Add($"{track.Artist} - {track.Title}");
+                }
+            }
+
+            if (!modeResult.IsCopy)
+                await context.SaveChangesAsync();
+        });
+
+        var verb = modeResult.IsCopy ? "Copied" : "Moved";
+        var message = $"{verb} {processedCount} file(s) to {destinationFolder}.";
+        if (skippedTracks.Count > 0)
+            message += $" Skipped: {FormatFailedTrackList(skippedTracks)} — destination already existed or the operation failed. See logs for details.";
+
+        _notificationService.Show(
+            $"Bulk {verb}",
+            message,
+            skippedTracks.Count > 0 ? NotificationType.Warning : NotificationType.Success);
     }
 
     /// <summary>

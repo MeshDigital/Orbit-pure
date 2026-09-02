@@ -81,26 +81,9 @@
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,16">
             <StackPanel Grid.Column="0">
                 <StackPanel Orientation="Horizontal" Spacing="12">
-                    <TextBlock Text="Mission Control" FontSize="32" FontWeight="Black" Foreground="White" LetterSpacing="-0.5"/>
-                    <Border Background="#FF5252" CornerRadius="4" Padding="8,4" VerticalAlignment="Center" IsVisible="{Binding IsLockdownActive}">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="🛡️" FontSize="12" VerticalAlignment="Center"/>
-                            <TextBlock Text="FORENSIC LOCKDOWN ACTIVE" FontSize="11" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
-                        </StackPanel>
-                        <Border.Styles>
-                            <Style Selector="Border">
-                                <Style.Animations>
-                                    <Animation Duration="0:0:1" IterationCount="Infinite">
-                                        <KeyFrame KeyTime="0:0:0"><Setter Property="Opacity" Value="1"/></KeyFrame>
-                                        <KeyFrame KeyTime="0:0:0.5"><Setter Property="Opacity" Value="0.4"/></KeyFrame>
-                                        <KeyFrame KeyTime="0:0:1"><Setter Property="Opacity" Value="1"/></KeyFrame>
-                                    </Animation>
-                                </Style.Animations>
-                            </Style>
-                        </Border.Styles>
-                    </Border>
+                    <TextBlock Text="Home" FontSize="32" FontWeight="Black" Foreground="White" LetterSpacing="-0.5"/>
                 </StackPanel>
-                <TextBlock Text="System Status &amp; Intelligence Dashboard" FontSize="14" Foreground="#808080" Margin="0,4,0,0"/>
+                <TextBlock Text="Your library, downloads, and system at a glance" FontSize="14" Foreground="#808080" Margin="0,4,0,0"/>
             </StackPanel>
             
             <Button Grid.Column="1" Command="{Binding RefreshDashboardCommand}" 
@@ -116,7 +99,7 @@
                     <!-- Library Health Tile -->
                     <Border Grid.Column="0" Classes="glass" Padding="18" Margin="0,0,16,0">
                         <Grid RowDefinitions="Auto,*,Auto">
-                            <TextBlock Grid.Row="0" Text="SONIC HEALTH" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1"/>
+                            <TextBlock Grid.Row="0" Text="AUDIO QUALITY" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1"/>
                             
                             <StackPanel Grid.Row="1" VerticalAlignment="Center" Spacing="10">
                                 <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Bottom">
@@ -130,16 +113,18 @@
                                 <Border Height="8" CornerRadius="4" ClipToBounds="True" Background="#2A2A2E">
                                     <ProgressBar Value="{Binding PurityPercent}" Height="8" Foreground="#00A3FF" Background="Transparent" BorderThickness="0"/>
                                 </Border>
+
+                                <TextBlock Text="{Binding LibraryFooterText}" FontSize="9" Foreground="#555"/>
                             </StackPanel>
                             
                             <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
-                                <Button Command="{Binding NavigateLibraryCommand}" Classes="ActionBtnSmall" Padding="8,4">
+                                <Button Command="{Binding NavigateLibraryCommand}" CommandParameter="Gold" Classes="ActionBtnSmall" Padding="8,4" ToolTip.Tip="View Gold (lossless) tracks">
                                     <TextBlock Text="{Binding CurrentSnapshot.LibraryHealth.GoldCount, StringFormat='{}{0} 🏆'}" FontSize="10" Foreground="#00A3FF" FontWeight="Bold"/>
                                 </Button>
-                                <Button Command="{Binding NavigateLibraryCommand}" Classes="ActionBtnSmall" Padding="8,4">
+                                <Button Command="{Binding NavigateLibraryCommand}" CommandParameter="Silver" Classes="ActionBtnSmall" Padding="8,4" ToolTip.Tip="View Silver (320kbps+) tracks">
                                     <TextBlock Text="{Binding CurrentSnapshot.LibraryHealth.SilverCount, StringFormat='{}{0} 🥈'}" FontSize="10" Foreground="#1DB954" FontWeight="Bold"/>
                                 </Button>
-                                <Button Command="{Binding UpgradeBronzeCommand}" Classes="ActionBtnSmall" Padding="8,4" BorderBrush="#FF6B6B">
+                                <Button Command="{Binding NavigateLibraryCommand}" CommandParameter="Bronze" Classes="ActionBtnSmall" Padding="8,4" BorderBrush="#FF6B6B" ToolTip.Tip="View Bronze (below 320kbps) tracks">
                                     <TextBlock Text="{Binding CurrentSnapshot.LibraryHealth.BronzeCount, StringFormat='{}{0} 🥉'}" FontSize="10" Foreground="#FF6B6B" FontWeight="Bold"/>
                                 </Button>
                                 <Button Command="{Binding NavigateToAnalysisCommand}" Classes="ActionBtnSmall" Padding="8,4" BorderBrush="#FFCF8A" IsVisible="{Binding HasIncompleteAnalysisTracks}">
@@ -152,7 +137,7 @@
                     <!-- Command Missions -->
                     <Border Grid.Column="1" Classes="glass" Padding="16" Margin="0,0,16,0">
                         <Grid RowDefinitions="Auto,*">
-                            <TextBlock Grid.Row="0" Text="COMMAND MISSIONS" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1"/>
+                            <TextBlock Grid.Row="0" Text="SUGGESTED ACTIONS" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1"/>
                             
                             <ItemsControl Grid.Row="1" ItemsSource="{Binding ActiveMissions}" Margin="0,10,0,0">
                                 <ItemsControl.ItemTemplate>
@@ -180,18 +165,18 @@
                     <Border Grid.Column="2" Classes="glass" Padding="16">
                         <Grid RowDefinitions="Auto,*,Auto">
                             <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
-                                <TextBlock Grid.Column="0" Text="ENGINE RESILIENCE" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" Text="OPTIMAL" IsVisible="{Binding !IsLockdownActive}" FontSize="9" FontWeight="SemiBold" Foreground="#1DB954" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="0" Text="SYSTEM STATUS" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="{Binding EngineStatusText}" FontSize="9" FontWeight="SemiBold" Foreground="{Binding HealthColor}" VerticalAlignment="Center"/>
                             </Grid>
                             
                             <StackPanel Grid.Row="1" VerticalAlignment="Center" Spacing="6">
                                 <Grid ColumnDefinitions="*,Auto">
                                     <StackPanel Spacing="1">
-                                        <TextBlock Text="Zombies" FontSize="10" Foreground="#808080"/>
+                                        <TextBlock Text="Stuck Processes" FontSize="10" Foreground="#808080"/>
                                         <TextBlock Text="{Binding CurrentSnapshot.ZombieProcessCount}" FontSize="16" FontWeight="Black" Foreground="White"/>
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Spacing="1" HorizontalAlignment="Right">
-                                        <TextBlock Text="Dead Letters" FontSize="10" Foreground="#808080" HorizontalAlignment="Right"/>
+                                        <TextBlock Text="Failed Retries" FontSize="10" Foreground="#808080" HorizontalAlignment="Right"/>
                                         <TextBlock Text="{Binding CurrentSnapshot.DeadLetterCount}" FontSize="16" FontWeight="Black" Foreground="White"/>
                                     </StackPanel>
                                 </Grid>
@@ -211,11 +196,11 @@
                                 <Button Command="{Binding ClearDeadLettersCommand}"
                                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                                         Background="#1AFF5252" BorderBrush="#FF5252" BorderThickness="1" Padding="3" CornerRadius="6">
-                                    <TextBlock Text="SELF-HEAL ENGINE" FontSize="9" FontWeight="Black" Foreground="#FF5252"/>
+                                    <TextBlock Text="RETRY STALLED DOWNLOADS" FontSize="9" FontWeight="Black" Foreground="#FF5252"/>
                                 </Button>
                             </StackPanel>
 
-                            <TextBlock Grid.Row="2" Text="Bridge Operations Active" FontSize="9" Foreground="#555" FontStyle="Italic" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                            <TextBlock Grid.Row="2" Text="{Binding LastRefreshedText}" FontSize="9" Foreground="#555" FontStyle="Italic" HorizontalAlignment="Center" Margin="0,4,0,0"/>
                         </Grid>
                     </Border>
                 </Grid>
@@ -512,6 +497,9 @@
                                     <Border Background="#222" CornerRadius="4" Padding="6,2">
                                         <TextBlock Text="{Binding CurrentSnapshot.ActiveDownloads, StringFormat='{}⬇ {0}'}" FontSize="10" Foreground="#00BCD4" FontWeight="Bold"/>
                                     </Border>
+                                    <Border Background="#222" CornerRadius="4" Padding="6,2" IsVisible="{Binding CurrentSnapshot.ActiveDownloads}">
+                                        <TextBlock Text="{Binding DownloadSpeed}" FontSize="10" Foreground="#00BCD4" FontWeight="Bold"/>
+                                    </Border>
                                     <Border Background="#222" CornerRadius="4" Padding="6,2">
                                         <TextBlock Text="{Binding CurrentSnapshot.ZombieProcessCount, StringFormat='{}🧟 {0}'}" FontSize="10" Foreground="#FF5252" FontWeight="Bold"/>
                                     </Border>
@@ -558,14 +546,14 @@
                                                         </StackPanel>
 
                                                         <!-- Mini Progress -->
-                                                        <TextBlock Grid.Column="2" Text="{Binding Track.SpeedDisplay}" VerticalAlignment="Center" FontSize="11" Foreground="#A0A0A0" Margin="0,0,16,0" IsVisible="{Binding Track, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                                                        <TextBlock Grid.Column="2" Text="{Binding SpeedDisplay}" VerticalAlignment="Center" FontSize="11" Foreground="#A0A0A0" Margin="0,0,16,0" IsVisible="{Binding IsActive}"/>
 
                                                         <!-- Actions -->
                                                         <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
-                                                            <Button Classes="ActionBtnSmall" Command="{Binding Track.PauseCommand}" IsVisible="{Binding Track.IsActive}" ToolTip.Tip="Pause">
+                                                            <Button Classes="ActionBtnSmall" Command="{Binding PauseCommand}" IsVisible="{Binding IsActive}" ToolTip.Tip="Pause">
                                                                 <PathIcon Data="{StaticResource pause_regular}" Width="12" Height="12"/>
                                                             </Button>
-                                                            <Button Classes="ActionBtnSmall" Command="{Binding Track.CancelCommand}" IsVisible="{Binding CanCancel}" ToolTip.Tip="Cancel">
+                                                            <Button Classes="ActionBtnSmall" Command="{Binding CancelCommand}" IsVisible="{Binding CanCancel}" ToolTip.Tip="Cancel">
                                                                 <PathIcon Data="{StaticResource dismiss_regular}" Width="12" Height="12"/>
                                                             </Button>
                                                         </StackPanel>
@@ -587,7 +575,7 @@
                     <!-- Resilience Log -->
                     <Border Grid.Column="1" Classes="glass" Padding="16">
                         <Grid RowDefinitions="Auto,*">
-                            <TextBlock Grid.Row="0" Text="RESILIENCE LOG" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="0" Text="RECOVERY LOG" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1" Margin="0,0,0,8"/>
 
                             <ScrollViewer Grid.Row="1" MaxHeight="150" VerticalScrollBarVisibility="Auto" IsVisible="{Binding ResilienceLog.Count}">
                                 <ItemsControl ItemsSource="{Binding ResilienceLog}">
@@ -607,6 +595,58 @@
                             <TextBlock Grid.Row="1" Text="🛡️ No resilience events — system healthy." FontSize="12" Foreground="#606060" TextWrapping="Wrap"
                                        IsVisible="{Binding !ResilienceLog.Count}"/>
                         </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- Top Peers + Download Trend — both from data the app already computes
+                     elsewhere but never surfaced on the Dashboard. -->
+                <Grid ColumnDefinitions="2*,1*">
+                    <!-- Top Peers: PeerReliabilityService already aggregates swarm-wide reliability,
+                         previously only ever surfaced on the Users page's per-user detail. -->
+                    <Border Grid.Column="0" Classes="glass" Padding="16" Margin="0,0,16,0" IsVisible="{Binding HasTopPeers}">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="TOP PEERS" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1"/>
+                            <ItemsControl ItemsSource="{Binding TopPeers}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="10"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:PeerLeaderboardEntry">
+                                        <Border Background="#1E1E22" CornerRadius="6" Padding="10,6" BorderBrush="#33FFFFFF" BorderThickness="1">
+                                            <StackPanel Spacing="2">
+                                                <TextBlock Text="{Binding Username}" FontSize="11" FontWeight="SemiBold" Foreground="White"/>
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <TextBlock Text="{Binding ScoreText}" FontSize="10" Foreground="#1DB954" FontWeight="Bold"/>
+                                                    <TextBlock Text="{Binding DownloadStarts, StringFormat='{}{0} attempts'}" FontSize="10" Foreground="#606060"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Download Trend: DownloadHistoryEntity already persists this per-attempt
+                         telemetry; previously only ever read back for per-track history lookups. -->
+                    <Border Grid.Column="1" Classes="glass" Padding="16">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="LAST 7 DAYS" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1"/>
+                            <StackPanel Orientation="Horizontal" Spacing="14">
+                                <StackPanel Spacing="1">
+                                    <TextBlock Text="{Binding DownloadTrend.CompletedCount}" FontSize="18" FontWeight="Black" Foreground="#1DB954"/>
+                                    <TextBlock Text="Completed" FontSize="9" Foreground="#808080"/>
+                                </StackPanel>
+                                <StackPanel Spacing="1">
+                                    <TextBlock Text="{Binding DownloadTrend.FailedCount}" FontSize="18" FontWeight="Black" Foreground="#FF5252"/>
+                                    <TextBlock Text="Failed" FontSize="9" Foreground="#808080"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <TextBlock Text="{Binding DownloadTrend.Mp3FallbackPercent, StringFormat='{}{0:F0}% used MP3 fallback'}"
+                                       FontSize="10" Foreground="#606060" IsVisible="{Binding DownloadTrend.TotalCount}"/>
+                        </StackPanel>
                     </Border>
                 </Grid>
             </StackPanel>

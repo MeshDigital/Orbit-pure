@@ -56,6 +56,22 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private bool _isDisposed;
     private IDisposable? _libraryFoldersSubscription;
 
+    private string _settingsSearchText = string.Empty;
+    /// <summary>Drives the Settings page's search box (SettingsSearchMatchConverter) — filters
+    /// the currently active tab's sections by keyword. Not persisted; page-local UI state only.</summary>
+    public string SettingsSearchText
+    {
+        get => _settingsSearchText;
+        set
+        {
+            if (_settingsSearchText != value)
+            {
+                _settingsSearchText = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
     private readonly ILogger<SettingsViewModel> _logger;
     private readonly AppConfig _config;
     private readonly ConfigManager _configManager;
@@ -507,6 +523,197 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             }
         }
     }
+
+    public bool EnableUpdateCheck
+    {
+        get => _config.EnableUpdateCheck;
+        set
+        {
+            if (_config.EnableUpdateCheck != value)
+            {
+                _config.EnableUpdateCheck = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    /// <summary>True = Neon RGB palette, false = Classic RGB palette — two options, so a single toggle rather than a full picker.</summary>
+    public bool WaveformUseNeonPalette
+    {
+        get => string.Equals(_config.WaveformPalette, "NeonRgb", StringComparison.OrdinalIgnoreCase);
+        set
+        {
+            var newValue = value ? "NeonRgb" : "ClassicRgb";
+            if (!string.Equals(_config.WaveformPalette, newValue, StringComparison.OrdinalIgnoreCase))
+            {
+                _config.WaveformPalette = newValue;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool WaveformShowEnergyCurve
+    {
+        get => _config.WaveformShowEnergyCurve;
+        set
+        {
+            if (_config.WaveformShowEnergyCurve != value)
+            {
+                _config.WaveformShowEnergyCurve = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool WaveformShowVocalGhost
+    {
+        get => _config.WaveformShowVocalGhost;
+        set
+        {
+            if (_config.WaveformShowVocalGhost != value)
+            {
+                _config.WaveformShowVocalGhost = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool WaveformShowPhraseSections
+    {
+        get => _config.WaveformShowPhraseSections;
+        set
+        {
+            if (_config.WaveformShowPhraseSections != value)
+            {
+                _config.WaveformShowPhraseSections = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool WaveformShowBeatGrid
+    {
+        get => _config.WaveformShowBeatGrid;
+        set
+        {
+            if (_config.WaveformShowBeatGrid != value)
+            {
+                _config.WaveformShowBeatGrid = value;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    public float WaveformGain
+    {
+        get => _config.WaveformGain;
+        set
+        {
+            var normalized = Math.Clamp(value, 0.5f, 2.0f);
+            if (Math.Abs(_config.WaveformGain - normalized) > 0.001f)
+            {
+                _config.WaveformGain = normalized;
+                OnPropertyChanged();
+                SaveSettings();
+            }
+        }
+    }
+
+    // ── Waveform Appearance live preview ────────────────────────────────────
+    // A small synthetic sample — not a real analyzed track — purely so the
+    // Settings page can show what each toggle actually does instead of just
+    // flipping an abstract switch. Built once and cached; every toggle above
+    // drives this same instance via WaveformControl's own StyledProperties,
+    // so no extra plumbing is needed here beyond the sample data itself.
+    private WaveformAnalysisData? _waveformPreviewData;
+    public WaveformAnalysisData WaveformPreviewData => _waveformPreviewData ??= BuildWaveformPreviewData();
+
+    private IEnumerable<float>? _waveformPreviewEnergyCurve;
+    public IEnumerable<float> WaveformPreviewEnergyCurve => _waveformPreviewEnergyCurve ??= BuildWaveformPreviewEnergyCurve();
+
+    private IEnumerable<float>? _waveformPreviewVocalCurve;
+    public IEnumerable<float> WaveformPreviewVocalCurve => _waveformPreviewVocalCurve ??= BuildWaveformPreviewVocalCurve();
+
+    private List<PhraseSegment>? _waveformPreviewPhraseSegments;
+    public IEnumerable<PhraseSegment> WaveformPreviewPhraseSegments => _waveformPreviewPhraseSegments ??= BuildWaveformPreviewPhraseSegments();
+
+    private const int WaveformPreviewSampleCount = 300;
+    private const double WaveformPreviewDurationSeconds = 30.0;
+
+    private static WaveformAnalysisData BuildWaveformPreviewData()
+    {
+        var low = new byte[WaveformPreviewSampleCount];
+        var mid = new byte[WaveformPreviewSampleCount];
+        var high = new byte[WaveformPreviewSampleCount];
+        var peak = new byte[WaveformPreviewSampleCount];
+        var rms = new byte[WaveformPreviewSampleCount];
+
+        for (var i = 0; i < WaveformPreviewSampleCount; i++)
+        {
+            var t = (double)i / WaveformPreviewSampleCount;
+            // A gentle overall envelope (builds, drops, tails off) so the preview reads as a real
+            // track shape rather than a flat noise band, plus distinct phase offsets per band so
+            // the tri-band RGB blend actually shows visible color separation.
+            var envelope = 0.35 + 0.65 * Math.Pow(Math.Sin(t * Math.PI), 0.6);
+
+            low[i] = ToByte(envelope * (0.7 + 0.3 * Math.Sin(t * 18.0)));
+            mid[i] = ToByte(envelope * (0.6 + 0.4 * Math.Sin(t * 30.0 + 1.2)));
+            high[i] = ToByte(envelope * (0.5 + 0.5 * Math.Sin(t * 46.0 + 2.4)));
+            peak[i] = Math.Max(low[i], Math.Max(mid[i], high[i]));
+            rms[i] = ToByte(envelope * 0.6);
+        }
+
+        return new WaveformAnalysisData
+        {
+            PeakData = peak,
+            RmsData = rms,
+            LowData = low,
+            MidData = mid,
+            HighData = high,
+            DurationSeconds = WaveformPreviewDurationSeconds,
+            PointsPerSecond = (int)Math.Round(WaveformPreviewSampleCount / WaveformPreviewDurationSeconds)
+        };
+
+        static byte ToByte(double value) => (byte)Math.Clamp(value * 255.0, 0, 255);
+    }
+
+    private static IEnumerable<float> BuildWaveformPreviewEnergyCurve()
+    {
+        var curve = new float[WaveformPreviewSampleCount];
+        for (var i = 0; i < WaveformPreviewSampleCount; i++)
+        {
+            var t = (double)i / WaveformPreviewSampleCount;
+            curve[i] = (float)Math.Clamp(0.3 + 0.7 * Math.Pow(Math.Sin(t * Math.PI), 0.6), 0, 1);
+        }
+        return curve;
+    }
+
+    private static IEnumerable<float> BuildWaveformPreviewVocalCurve()
+    {
+        var curve = new float[WaveformPreviewSampleCount];
+        for (var i = 0; i < WaveformPreviewSampleCount; i++)
+        {
+            var t = (double)i / WaveformPreviewSampleCount;
+            // Vocal-density curve reads as "high vocal presence" when this value is low (see
+            // WaveformControl's vocal-ghost rendering) — dip it in the back half of the preview.
+            curve[i] = (float)Math.Clamp(0.7 - 0.6 * Math.Max(0, Math.Sin((t - 0.5) * Math.PI)), 0, 1);
+        }
+        return curve;
+    }
+
+    private static List<PhraseSegment> BuildWaveformPreviewPhraseSegments() => new()
+    {
+        new PhraseSegment { Label = "Intro", Start = 0f, Duration = 6f },
+        new PhraseSegment { Label = "Build", Start = 6f, Duration = 6f },
+        new PhraseSegment { Label = "Drop", Start = 12f, Duration = 10f },
+        new PhraseSegment { Label = "Outro", Start = 22f, Duration = 8f },
+    };
 
     public int AutoDownloadInitialWaitMs
     {
@@ -1267,6 +1474,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand RestartSpotifyAuthCommand { get; }
     public ICommand CheckFfmpegCommand { get; } // Phase 8: Dependency validation
     public ICommand ResetDatabaseCommand { get; }
+    public ICommand ResetToDefaultsCommand { get; }
     public ICommand ScanLibraryCommand { get; } // [NEW] Manual Scan
     public ICommand ReconcileLibraryCommand { get; }
     public ICommand FullLibrarySyncCommand { get; }
@@ -1712,6 +1920,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         CheckFfmpegCommand = new AsyncRelayCommand(CheckFfmpegAsync); // Phase 8
         RestartSpotifyAuthCommand = new AsyncRelayCommand(RestartSpotifyAuthAsync, () => IsSpotifyConnecting);
         ResetDatabaseCommand = new AsyncRelayCommand(ResetDatabaseAsync);
+        ResetToDefaultsCommand = new AsyncRelayCommand(ResetToDefaultsAsync);
         ScanLibraryCommand = new AsyncRelayCommand(ScanLibraryAsync, () => !IsScanning && !IsFullSyncing);
         ReconcileLibraryCommand = new AsyncRelayCommand(ReconcileLibraryAsync, () => !IsReconciling && !IsFullSyncing);
         FullLibrarySyncCommand = new AsyncRelayCommand(FullLibrarySyncAsync, () => !IsFullSyncing && !IsScanning && !IsReconciling);
@@ -2056,6 +2265,38 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             IsAuthenticating = false;
             (TestSpotifyConnectionCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
+    }
+
+    /// <summary>
+    /// Restores every setting on this page to its compiled default and saves immediately. Only
+    /// narrowly-scoped resets existed before this (DB schema reset, Spotify full re-auth) — there
+    /// was no single action to undo general customization.
+    /// Mutates the existing AppConfig instance in place (reflection over its public settable
+    /// properties) rather than swapping the reference, since other services/ViewModels hold the
+    /// same shared instance and should see the reset immediately too.
+    /// </summary>
+    private async Task ResetToDefaultsAsync()
+    {
+        var confirmed = await _dialogService.ConfirmAsync(
+            "Reset to Defaults",
+            "This resets every setting on this page back to its default value and saves immediately. This cannot be undone. Continue?",
+            confirmLabel: "Reset",
+            cancelLabel: "Cancel");
+
+        if (!confirmed) return;
+
+        var defaults = new AppConfig();
+        foreach (var prop in typeof(AppConfig).GetProperties())
+        {
+            if (prop.CanWrite && prop.CanRead)
+            {
+                prop.SetValue(_config, prop.GetValue(defaults));
+            }
+        }
+
+        SaveSettings();
+        OnPropertyChanged(string.Empty); // Refresh every binding on the page — not just one property.
+        _logger.LogInformation("Settings reset to defaults");
     }
 
     private void SaveSettings()

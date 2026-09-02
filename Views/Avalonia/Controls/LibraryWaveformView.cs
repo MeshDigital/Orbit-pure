@@ -69,6 +69,7 @@ public sealed class LibraryWaveformView : global::Avalonia.Controls.Control
         if (w <= 0 || h <= 0) return;
 
         _cts?.Cancel();
+        _cts?.Dispose();
         var cts = new CancellationTokenSource();
         _cts = cts;
         var token = cts.Token;

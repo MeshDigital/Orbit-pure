@@ -39,6 +39,10 @@ public sealed class RoomChatService
 
     public Task<IReadOnlyList<RoomSummary>> GetRoomListAsync() => _adapter.GetRoomListAsync();
 
+    /// <summary>Real-time status fetch for a room member who just joined mid-session — the
+    /// membership event itself carries no presence data, unlike the initial room-join snapshot.</summary>
+    public Task<UserStatusSnapshot> GetUserStatusAsync(string username) => _adapter.GetUserStatusAsync(username);
+
     public async Task<RoomSnapshot> JoinRoomAsync(string roomName, bool isPrivate = false)
     {
         var snapshot = await _adapter.JoinRoomAsync(roomName, isPrivate).ConfigureAwait(false);
@@ -77,6 +81,20 @@ public sealed class RoomChatService
     /// <summary>Removes a single message from local room history — local-only, the Soulseek protocol has no message recall.</summary>
     public Task DeleteMessageAsync(Guid id) => _databaseService.DeleteRoomMessageAsync(id);
 
+    /// <summary>Wipes an entire room's local history on this device — other members are unaffected.</summary>
+    public Task DeleteRoomHistoryAsync(string roomName) => _databaseService.DeleteRoomHistoryAsync(roomName);
+
+    /// <summary>Marks every message in a room as read — called when the room is opened/selected.</summary>
+    public Task MarkRoomReadAsync(string roomName) => _databaseService.MarkRoomReadAsync(roomName);
+
+    // No dedup guard here, unlike ChatService.OnPrivateMessageReceived's _seenIncomingMessageIds:
+    // investigated and confirmed this isn't reachable the same way. Private messages carry a real
+    // protocol-level message ID (SoulseekAdapter's PrivateMessageReceivedEventArgs.Id) because the
+    // server queues them for offline delivery and needs ACK/replay semantics. RoomMessageReceivedEventArgs
+    // has no ID at all — it's built purely from RoomName/Username/Message with a locally-generated
+    // timestamp (see SoulseekAdapter.cs's RoomMessageReceived handler) — because Soulseek's room
+    // chat protocol is a live-only broadcast to currently-connected members, with no server-side
+    // queue to replay from on reconnect.
     private void OnRoomMessageReceived(object? sender, RoomMessageReceivedEventArgs e)
     {
         _ = PersistAndPublishAsync(e);
@@ -93,6 +111,7 @@ public sealed class RoomChatService
                 Message = e.Message,
                 TimestampUtc = e.TimestampUtc,
                 IsOutgoing = false,
+                IsRead = false,
             };
 
             await _databaseService.RecordRoomMessageAsync(entity).ConfigureAwait(false);

@@ -172,17 +172,20 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                     Path.GetFileName(filePath));
             }
 
+            IReadOnlyList<float> rmsCurve = Array.Empty<float>();
+            float[] mono = Array.Empty<float>();
             if (pcmSamples.Length > 0)
             {
-                // Real per-second RMS energy curve — independent of Essentia, so drop/phrase
-                // detection (CuePointDetectionService, AnalyzeTrackStructureJob) gets a genuine
-                // time-series signal to work with even when the optional Essentia binary isn't
-                // installed. Previously EnergyCurveJson was never populated at analysis time, so
-                // those detectors ran against a flat placeholder curve and could only ever "find"
-                // a drop at its artificial edges.
+                // Real per-second (1.0s window) RMS energy curve — independent of Essentia, so
+                // drop/phrase detection (CuePointDetectionService, AnalyzeTrackStructureJob) gets
+                // a genuine time-series signal to work with even when the optional Essentia binary
+                // isn't installed. Previously EnergyCurveJson was never populated at analysis time,
+                // so those detectors ran against a flat placeholder curve and could only ever "find"
+                // a drop at its artificial edges. Kept in an outer-scoped variable so the novelty
+                // gating step below can reuse it instead of recomputing.
                 try
                 {
-                    var rmsCurve = _energyAnalysis.ComputeRawEnergyCurveFromPcm(pcmSamples, pcmSampleRate, pcmChannels);
+                    rmsCurve = _energyAnalysis.ComputeRawEnergyCurveFromPcm(pcmSamples, pcmSampleRate, pcmChannels);
                     if (rmsCurve.Count > 0)
                         features.EnergyCurveJson = JsonSerializer.Serialize(rmsCurve);
                 }
@@ -197,10 +200,10 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                 // DSP drop-scoring path with actual candidate timestamps (every sub-bass
                 // dropout/return, every build-confirmed novelty peak) instead of the single
                 // collapsed DropTimeSeconds/DropConfidence float pair it previously had to work with.
+                // Outer-scoped so the downbeat-phase validation step below can reuse it.
+                mono = ToMono(pcmSamples, pcmChannels);
                 try
                 {
-                    var mono = ToMono(pcmSamples, pcmChannels);
-
                     var subBassCurve = _subBassEngine.ComputeSubBassEnergyCurve(mono, pcmSampleRate);
                     var (dropouts, returns) = _subBassEngine.DetectDropoutEvents(subBassCurve);
                     features.SubBassDropoutTimestampsJson = JsonSerializer.Serialize(dropouts);
@@ -218,8 +221,18 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                         features.StructuralStrippingReturnTimestampsJson = JsonSerializer.Serialize(strippingReturns);
                     }
 
+                    const int noveltyHopSize = 512;
                     var novelty = _noveltyEngine.ComputeNoveltyFunction(mono, pcmSampleRate);
-                    var dropSignatures = _noveltyEngine.DetectDropSignatures(novelty, pcmSampleRate, 512);
+
+                    // Track-wide baseline gating: without this, a riser/snare-roll/hi-hat rush
+                    // right before a real drop can out-score the drop's own transient, since
+                    // SubtractLocalMean only ever compares novelty to a ±1s local window. Scale
+                    // by how the broadband RMS at each point compares to the track's own mean —
+                    // a spectrally-busy-but-quiet moment can no longer win against a loud one.
+                    novelty = SpectralFluxNoveltyEngine.ApplyGlobalEnergyGate(
+                        novelty, (double)noveltyHopSize / pcmSampleRate, rmsCurve.ToArray(), energyCurveWindowSeconds: 1.0);
+
+                    var dropSignatures = _noveltyEngine.DetectDropSignatures(novelty, pcmSampleRate, noveltyHopSize);
                     features.NoveltyDropSignaturesJson = JsonSerializer.Serialize(dropSignatures
                         .Select(d => new NoveltyDropSignatureDto(d.DropSeconds, d.BuildStartSeconds, d.DropStrength))
                         .ToList());
@@ -297,6 +310,31 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
                     _bpm.Detect(essentiaOutput, features);
                     _key.Detect(essentiaOutput, features);
                     _beatgrid.Detect(essentiaOutput, features);
+
+                    // Downbeat-phase validation: BeatgridDetectionService anchors on the *first*
+                    // detected beat tick, which carries no bar-phase information from a generic
+                    // beat tracker — it's not necessarily beat 1 of a bar. Every downstream
+                    // SnapToBar call in CueGenerationService anchors off this value, so a wrong
+                    // bar-phase produces a systematic, consistent-per-track offset in every cue —
+                    // exactly the "close but way off" symptom. Pick whichever of the first few
+                    // ticks actually carries the strongest kick/sub-bass energy instead.
+                    if (mono.Length > 0 && !string.IsNullOrWhiteSpace(features.BeatGridJson))
+                    {
+                        try
+                        {
+                            var beats = JsonSerializer.Deserialize<double[]>(features.BeatGridJson);
+                            if (beats is { Length: >= 2 })
+                            {
+                                int strongestIndex = SubBassDropoutEngine.FindStrongestBeatIndex(mono, pcmSampleRate, beats, candidateCount: 4);
+                                if (strongestIndex > 0)
+                                    features.DownbeatOffsetSeconds = beats[strongestIndex];
+                            }
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            _logger.LogDebug(ex, "[AudioAnalysis] Downbeat-phase validation failed for {File}; keeping the beat tracker's first tick.", Path.GetFileName(filePath));
+                        }
+                    }
 
                     if (essentiaOutput.LowLevel?.AverageLoudness is > 0 and var loudness)
                         features.LoudnessLUFS = loudness;

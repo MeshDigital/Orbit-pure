@@ -45,6 +45,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     // Child ViewModels
     public PlayerViewModel PlayerViewModel { get; }
+    public PerformanceTracker PerfTracker { get; }
     public LibraryViewModel LibraryViewModel { get; }
     public SidebarViewModel Sidebar { get; }
     private readonly IRightPanelService _rightPanelService;
@@ -112,7 +113,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         ILibraryService libraryService,
         GlobalHotkeyService globalHotkeyService,
         SidebarViewModel sidebarViewModel,
-        IRightPanelService rightPanelService)
+        IRightPanelService rightPanelService,
+        PerformanceTracker perfTracker)
 
     {
         _logger = logger;
@@ -135,7 +137,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         Sidebar = sidebarViewModel;
         _rightPanelService = rightPanelService;
-        
+        PerfTracker = perfTracker;
+
         PlayerViewModel = playerViewModel;
         LibraryViewModel = libraryViewModel;
         SearchViewModel = searchViewModel;
@@ -286,6 +289,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         // Operation Glass Console Toggles
         ToggleZenModeCommand = new RelayCommand(ToggleZenMode);
         ToggleTopBarCommand = new RelayCommand(() => IsTopCommandBarVisible = !IsTopCommandBarVisible);
+        TogglePerformanceOverlayCommand = new RelayCommand(() => IsPerformanceOverlayVisible = !IsPerformanceOverlayVisible);
         ToggleTimelinePanelCommand = new RelayCommand(() => IsTimelinePanelOpen = !IsTimelinePanelOpen);
         ToggleOverlaysPanelCommand = new RelayCommand(() => IsOverlaysPanelOpen = !IsOverlaysPanelOpen);
         ToggleAcquireCommand  = new RelayCommand(() => IsAcquireExpanded  = !IsAcquireExpanded);
@@ -565,6 +569,16 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         get => _isTopCommandBarVisible;
         set => SetProperty(ref _isTopCommandBarVisible, value);
+    }
+
+    /// <summary>Live perf overlay (F12) — MainWindow reacts to this to also toggle Avalonia's own
+    /// native FPS overlay, since RendererDiagnostics is a Window-level rendering API this ViewModel
+    /// has no direct access to.</summary>
+    private bool _isPerformanceOverlayVisible;
+    public bool IsPerformanceOverlayVisible
+    {
+        get => _isPerformanceOverlayVisible;
+        set => SetProperty(ref _isPerformanceOverlayVisible, value);
     }
 
     private bool _isAcquireVisible = true;
@@ -1084,6 +1098,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand RetryAllFailedDownloadsCommand { get; }
     public ICommand ToggleZenModeCommand { get; }
     public ICommand ToggleTopBarCommand { get; }
+    public ICommand TogglePerformanceOverlayCommand { get; }
     public ICommand ToggleTimelinePanelCommand { get; }
     public ICommand ToggleOverlaysPanelCommand { get; }
     public ICommand ToggleAcquireCommand  { get; }

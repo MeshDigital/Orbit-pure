@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Configuration;
+using SLSKDONET.Data;
 
 namespace SLSKDONET.Services;
 
@@ -22,7 +24,14 @@ public sealed class ShareIndexService
 {
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(60);
 
+    // Separate, shorter TTL for the folder *list* itself (as opposed to the file index built from
+    // it) — ResolveShareFolders() runs on every incoming browse/search/download-enqueue request via
+    // EnsureFresh()'s fingerprint check, so a DB hit there needs its own cache rather than piggybacking
+    // on the 60s index-rebuild interval, which only applies once the folder list has already changed.
+    private static readonly TimeSpan FolderListCacheInterval = TimeSpan.FromSeconds(30);
+
     private readonly AppConfig _config;
+    private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly ILogger<ShareIndexService> _logger;
     private readonly object _refreshLock = new();
 
@@ -30,9 +39,13 @@ public sealed class ShareIndexService
     private string _lastFingerprint = string.Empty;
     private DateTime _lastRefreshUtc = DateTime.MinValue;
 
-    public ShareIndexService(AppConfig config, ILogger<ShareIndexService> logger)
+    private string[] _cachedFolders = Array.Empty<string>();
+    private DateTime _foldersCachedAtUtc = DateTime.MinValue;
+
+    public ShareIndexService(AppConfig config, IDbContextFactory<AppDbContext> dbFactory, ILogger<ShareIndexService> logger)
     {
         _config = config;
+        _dbFactory = dbFactory;
         _logger = logger;
     }
 
@@ -42,7 +55,7 @@ public sealed class ShareIndexService
 
     public void EnsureFresh()
     {
-        var folders = ResolveShareFolders();
+        var folders = ResolveShareFoldersCached();
         var fingerprint = string.Join("|", folders.OrderBy(f => f, StringComparer.OrdinalIgnoreCase));
 
         if (IsFresh(fingerprint))
@@ -87,9 +100,42 @@ public sealed class ShareIndexService
         return index;
     }
 
-    private string[] ResolveShareFolders()
+    private string[] ResolveShareFoldersCached()
+    {
+        if (DateTime.UtcNow - _foldersCachedAtUtc < FolderListCacheInterval)
+            return _cachedFolders;
+
+        _cachedFolders = ResolveShareFolders();
+        _foldersCachedAtUtc = DateTime.UtcNow;
+        return _cachedFolders;
+    }
+
+    /// <summary>
+    /// Every folder ORBIT shares: all enabled Library Sources (the user's actual imported library —
+    /// previously not consulted at all here, so a library imported exclusively via Library Sources
+    /// shared nothing), plus the legacy single "Shared Folder" and the download folder as additive
+    /// extras for anyone relying on those. Queries the DB directly (not the LibrarySourcesViewModel's
+    /// in-memory list) since this runs from the Soulseek serving pipeline, independent of whether the
+    /// Library Sources page has ever been opened this session.
+    /// </summary>
+    public string[] ResolveShareFolders()
     {
         var folders = new List<string>();
+
+        try
+        {
+            using var context = _dbFactory.CreateDbContext();
+            var libraryFolders = context.LibraryFolders
+                .Where(f => f.IsEnabled)
+                .Select(f => f.FolderPath)
+                .ToList();
+
+            folders.AddRange(libraryFolders.Where(f => !string.IsNullOrWhiteSpace(f) && System.IO.Directory.Exists(f)));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load Library Sources for share-folder resolution");
+        }
 
         if (!string.IsNullOrWhiteSpace(_config.SharedFolderPath) && System.IO.Directory.Exists(_config.SharedFolderPath))
             folders.Add(_config.SharedFolderPath);

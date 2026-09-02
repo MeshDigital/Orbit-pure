@@ -276,6 +276,11 @@ public partial class App : Application
                         // regardless of whether FFmpeg/Essentia were genuinely available.
                         _ = Services.GetRequiredService<NativeDependencyHealthService>().CheckHealthAsync();
 
+                        // Fire-and-forget: a single throttled GitHub Releases check. Never awaited
+                        // so a slow/unreachable network never delays startup; all failures inside
+                        // are caught and logged, never thrown.
+                        _ = Services.GetRequiredService<IUpdateCheckService>().CheckForUpdatesAsync();
+
                         // Eager-resolve chat/notification services so they start listening for
                         // incoming Soulseek messages from app launch, not just after the user
                         // first opens Users & Contacts (these are otherwise only constructed
@@ -331,6 +336,17 @@ public partial class App : Application
                             Serilog.Log.Error(syncEx, "Start-up Library sync failed");
                         }
                         
+                        // Start watching any library folders flagged for auto-import
+                        try
+                        {
+                            var folderWatchService = Services.GetRequiredService<LibraryFolderWatchService>();
+                            await folderWatchService.StartAsync();
+                        }
+                        catch (Exception watchEx)
+                        {
+                            Serilog.Log.Warning(watchEx, "Library folder watch service failed to start (non-critical)");
+                        }
+
                         // Load projects into the LibraryViewModel
                         if (mainVm?.LibraryViewModel != null)
                         {
@@ -434,7 +450,16 @@ public partial class App : Application
         services.AddSingleton(provider =>
         {
             var configManager = provider.GetRequiredService<ConfigManager>();
-            var appConfig = configManager.Load();
+            AppConfig appConfig;
+            try
+            {
+                appConfig = configManager.Load();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to load config.ini — falling back to default settings so the app can still start");
+                appConfig = new AppConfig();
+            }
             if (string.IsNullOrEmpty(appConfig.DownloadDirectory))
                 appConfig.DownloadDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "SLSKDONET");
             return appConfig;
@@ -455,7 +480,6 @@ public partial class App : Application
         services.AddSingleton<ISavedDoublesService, SavedDoublesService>();
         
         // Session 2: Performance Optimization - Extracted services
-        services.AddSingleton<LibraryOrganizationService>();
         services.AddSingleton<IAudioIntegrityService, AudioIntegrityService>();
         services.AddSingleton<PostDownloadSpectralScanService>(); // Runs FFT analysis on completed FLAC downloads
         services.AddSingleton<PostDownloadDurationCaptureService>(); // TagLib duration probe for every completed download (any format)
@@ -467,7 +491,6 @@ public partial class App : Application
         services.AddSingleton<EngineDiagnosticsService>(); // Structured import/search audit trail — "Engine Diagnostics"
         services.AddSingleton<AvailabilityStateReconciliationService>(); // Fixes tracks stuck "FILE MISSING" despite the file existing on disk
         services.AddSingleton<DurationBackfillService>(); // One-time TagLib duration sweep for tracks that predate PostDownloadDurationCaptureService
-        services.AddSingleton<ArtworkPipeline>();
         services.AddSingleton<DragAdornerService>();
         
         // Session 3: Performance Optimization - Polymorphic taggers
@@ -593,6 +616,7 @@ public partial class App : Application
 
         // Navigation and UI services
         services.AddSingleton<INavigationService, NavigationService>();
+        services.AddSingleton<PerformanceTracker>(); // live perf overlay (Ctrl+Shift+P) — page-nav and opted-in ViewModel load timings
         services.AddSingleton<IUserInputService, UserInputService>();
         services.AddSingleton<IFileInteractionService, FileInteractionService>();
         services.AddSingleton<INotificationService, NotificationServiceAdapter>();
@@ -645,7 +669,8 @@ public partial class App : Application
 
         // [NEW] Library Scanning
         services.AddSingleton<LibraryFolderScannerService>();
-        
+        services.AddSingleton<LibraryFolderWatchService>();
+
         // Orchestration Services
         services.AddSingleton<SearchOrchestrationService>();
         services.AddSingleton<DownloadOrchestrationService>();
@@ -670,6 +695,7 @@ public partial class App : Application
         services.AddSingleton<ImportHistoryViewModel>();
         services.AddSingleton<SpotifyImportViewModel>();
         services.AddSingleton<ViewModels.LibrarySourcesViewModel>();
+        services.AddSingleton<ViewModels.Library.LibraryHealthViewModel>();
         services.AddSingleton<Services.Import.AutoCleanerService>();
 
         // Utilities
@@ -677,6 +703,9 @@ public partial class App : Application
         
         // Phase 10.5: Native Dependency Health (Reliability)
         services.AddSingleton<NativeDependencyHealthService>();
+
+        // Update check — single GET against GitHub Releases, opt-out via AppConfig.EnableUpdateCheck.
+        services.AddSingleton<IUpdateCheckService, UpdateCheckService>();
         
         // Views - Register all page controls for NavigationService
         services.AddTransient<Views.Avalonia.HomePage>();

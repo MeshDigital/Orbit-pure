@@ -422,6 +422,11 @@
                                                            Background="Transparent"
                                                            PlayheadBrush="{StaticResource BrushAccent}"
                                                            SeekCommand="{Binding SeekCommand}"
+                                                           UseNeonPalette="{Binding WaveformUseNeonPalette}"
+                                                           Gain="{Binding WaveformGain}"
+                                                           ShowEnergyCurve="{Binding WaveformShowEnergyCurve}"
+                                                           ShowVocalGhost="{Binding WaveformShowVocalGhost}"
+                                                           ShowPhraseSections="{Binding WaveformShowPhraseSections}"
                                                            VerticalAlignment="Stretch"
                                                            HorizontalAlignment="Stretch"/>
                             </Panel>

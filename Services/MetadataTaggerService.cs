@@ -215,8 +215,12 @@ public class MetadataTaggerService : ITaggerService
                 },
                 async (tempPath) =>
                 {
-                    // STEP 3: Verify tagged file is still valid
-                    var isValid = await SLSKDONET.Services.IO.FileVerificationHelper.VerifyAudioFormatAsync(tempPath);
+                    // STEP 3: Verify tagged file is still valid. tempPath's extension is a
+                    // generated "*.tmp" suffix, not the real audio format, so TagLib's own
+                    // extension-based detection would always reject it — pass the original
+                    // file's MIME type explicitly instead (same one used to write the tags above).
+                    var mimeType = GetMimeTypeFromExtension(Path.GetExtension(filePath));
+                    var isValid = await SLSKDONET.Services.IO.FileVerificationHelper.VerifyAudioFormatAsync(tempPath, mimeType);
                     if (!isValid)
                     {
                         _logger.LogWarning("Tagging verification failed: {TempPath}", tempPath);

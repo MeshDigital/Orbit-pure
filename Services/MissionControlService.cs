@@ -30,6 +30,37 @@ namespace SLSKDONET.Services
         private int _cachedZombieCount;
         private int _tickCounter = 0;
 
+        // Self-process CPU sampler — no live-CPU measurement existed anywhere in the codebase
+        // previously; CurrentCpuLoad was hardcoded to 0. Samples ORBIT's own CPU usage (more
+        // relevant to "is the app healthy" than whole-machine CPU, which would need a
+        // Windows-only PerformanceCounter and would include every other running program).
+        private TimeSpan _lastCpuTime = TimeSpan.Zero;
+        private DateTime _lastCpuSampleAtUtc = DateTime.MinValue;
+
+        private double SampleCpuLoad()
+        {
+            var now = DateTime.UtcNow;
+            var cpuTime = Process.GetCurrentProcess().TotalProcessorTime;
+
+            if (_lastCpuSampleAtUtc == DateTime.MinValue)
+            {
+                _lastCpuTime = cpuTime;
+                _lastCpuSampleAtUtc = now;
+                return 0.0;
+            }
+
+            var wallClockDelta = (now - _lastCpuSampleAtUtc).TotalMilliseconds;
+            var cpuTimeDelta = (cpuTime - _lastCpuTime).TotalMilliseconds;
+
+            _lastCpuTime = cpuTime;
+            _lastCpuSampleAtUtc = now;
+
+            if (wallClockDelta <= 0) return 0.0;
+
+            var load = cpuTimeDelta / wallClockDelta / Environment.ProcessorCount;
+            return Math.Clamp(load, 0.0, 1.0);
+        }
+
         public MissionControlService(
             IEventBus eventBus, 
             DownloadManager downloadManager,
@@ -168,27 +199,38 @@ namespace SLSKDONET.Services
             var operations = new List<MissionOperation>();
             foreach (var dl in activeDownloads.Take(5)) 
             {
-                operations.Add(new MissionOperation 
+                var globalId = dl.GlobalId;
+                operations.Add(new MissionOperation
                 {
-                    Id = dl.GlobalId,
+                    Id = globalId,
                     Type = SLSKDONET.Models.OperationType.Download,
                     Title = $"{dl.Model.Artist} - {dl.Model.Title}",
                     Subtitle = dl.State.ToString(),
                     Progress = dl.Progress / 100.0,
                     StatusText = $"{dl.Progress:F0}%",
-                    CanCancel = dl.IsActive
+                    CanCancel = dl.IsActive,
+                    IsActive = dl.IsActive,
+                    SpeedDisplay = dl.CurrentSpeed > 1024 * 1024
+                        ? $"{dl.CurrentSpeed / 1024.0 / 1024.0:F1} MB/s"
+                        : $"{dl.CurrentSpeed / 1024.0:F0} KB/s",
+                    // Pause/Cancel buttons on this row previously bound through an always-null
+                    // Track reference (DownloadContext has no ViewModel/commands of its own) —
+                    // wire them directly to the real DownloadManager methods keyed by GlobalId.
+                    PauseCommand = new Views.RelayCommand(() => _ = _downloadManager.PauseTrackAsync(globalId)),
+                    CancelCommand = new Views.RelayCommand(() => _downloadManager.CancelTrack(globalId))
                 });
             }
 
-            if (_searchOrchestrator.GetActiveSearchCount() > 0)
+            var activeSearchCount = _searchOrchestrator.GetActiveSearchCount();
+            if (activeSearchCount > 0)
             {
                 operations.Add(new MissionOperation
                 {
                     Type = SLSKDONET.Models.OperationType.Search,
-                    Title = "P2P Radar",
-                    Subtitle = $"{_searchOrchestrator.GetActiveSearchCount()} active queries",
+                    Title = $"Searching ({activeSearchCount} active)",
+                    Subtitle = $"{activeSearchCount} active queries",
                     Progress = 0.5,
-                    StatusText = "Broadcasting..."
+                    StatusText = "In progress..."
                 });
             }
             
@@ -215,8 +257,7 @@ namespace SLSKDONET.Services
                 ZombieProcessCount = _cachedZombieCount,
                 ActiveOperations = operations,
                 ResilienceLog = resilienceLog,
-                IsForensicLockdownActive = false,
-                CurrentCpuLoad = 0,
+                CurrentCpuLoad = SampleCpuLoad(),
                 Topology = SystemInfoHelper.Topology,
                 LibraryHealth = _cachedLibraryHealth,
                 AvailableFreeSpaceBytes = _cachedFreeSpace,

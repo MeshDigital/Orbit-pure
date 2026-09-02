@@ -2,7 +2,8 @@ param(
     [string]$Runtime = "win-x64",
     [string]$Configuration = "Release",
     [string]$Version = "",
-    [switch]$Lite
+    [switch]$Lite,
+    [switch]$SkipInstaller
 )
 
 $ErrorActionPreference = "Stop"
@@ -86,6 +87,34 @@ try {
     Write-Host "  Publish folder: $publishRoot"
     Write-Host "  Zip package:    $zipPath"
     Write-Host "  Manifest:       $manifestPath"
+
+    if (-not $SkipInstaller -and -not $Lite) {
+        $isccPath = $null
+        $isccCommand = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+        if ($isccCommand) { $isccPath = $isccCommand.Source }
+
+        if (-not $isccPath) {
+            $candidatePaths = @(
+                "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+                "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+                "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+            )
+            $isccPath = $candidatePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+        }
+
+        if (-not $isccPath) {
+            Write-Host "Inno Setup (ISCC.exe) not found — skipping installer build. Install via 'winget install JRSoftware.InnoSetup' to enable it." -ForegroundColor Yellow
+        }
+        else {
+            $issScript = Join-Path $PSScriptRoot "ORBIT.iss"
+            & $isccPath $issScript "/DMyAppVersion=$Version"
+            if ($LASTEXITCODE -ne 0) {
+                throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
+            }
+            $setupPath = Join-Path $artifactsRoot ("ORBIT-Setup-{0}-win-x64.exe" -f $Version)
+            Write-Host "  Installer:      $setupPath" -ForegroundColor Green
+        }
+    }
 }
 finally {
     Pop-Location

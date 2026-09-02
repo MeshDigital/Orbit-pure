@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using NAudio.Dsp;
 
 namespace SLSKDONET.Engine.Analysis;
 
 /// <summary>
-/// Isolates the sub-bass frequency band (20–120 Hz) using a 4th-order Butterworth
-/// low-pass IIR filter, then detects sub-bass dropouts and returns.
+/// Isolates the true sub-bass band (30–100 Hz, a bandpass) and detects sub-bass dropouts/returns —
+/// the primary DnB drop signature.
 ///
 /// Why this matters for DnB and EDM:
 ///   The most reliable drop signature in DnB is a "bass dropout" — the sub-bass
@@ -14,25 +15,35 @@ namespace SLSKDONET.Engine.Analysis;
 ///   at the drop. This pattern is acoustically more stable than spectral flux peaks
 ///   because it persists even when producers layer melodic content over the breakdown.
 ///
+/// Previously this used a single low-pass at 120 Hz, which lumps true sub-bass together with
+/// kick fundamental/punch (roughly 90-250 Hz) — content that often stays present through a DnB
+/// breakdown even when the sub-bass genuinely drops out, diluting the very signal this engine
+/// depends on. A proper bandpass (high-pass 30 Hz to reject DC/rumble, low-pass 100 Hz to
+/// substantially exclude kick punch) isolates the sub shelf much more cleanly.
+///
 /// Signal pipeline:
-///   Raw PCM → 4th-order Butterworth LPF @120Hz → RMS energy per 0.5s window
-///   → detect sustained low regions (dropout) → detect return spike
+///   Raw PCM → 30-100 Hz bandpass (NAudio.Dsp.BiQuadFilter, cascaded HP+LP) → RMS energy per
+///   window → detect sustained low regions (dropout) → detect return spike
 /// </summary>
 public sealed class SubBassDropoutEngine
 {
-    private const double CutoffHz = 120.0;
-    private const double DropoutThresholdRatio = 0.25; // below 25% of track-average = dropout
-    private const double ReturnThresholdRatio = 0.60;  // above 60% of track-average after dropout = return
-    private const double MinDropoutSeconds = 2.0;
-    private const double EnergyWindowSeconds = 0.5;
+    private const double LowCutHz = 30.0;
+    private const double HighCutHz = 100.0;
+    private const double DropoutThresholdRatio = 0.20; // below 20% of track-average = dropout
+    private const double ReturnThresholdRatio = 0.65;  // above 65% of track-average after dropout = return
+    private const double MinDropoutSeconds = 1.75;     // ~1 bar at typical DnB tempos
+    private const double EnergyWindowSeconds = 0.25;
 
     /// <summary>
-    /// Isolates the sub-bass band (120 Hz low-pass) and computes per-window RMS energy.
-    /// Thin wrapper over <see cref="ComputeBandEnergyCurve"/> — preserves this method's
-    /// exact prior behavior for existing callers.
+    /// Isolates the true sub-bass band (30-100 Hz bandpass) and computes per-window RMS energy.
     /// </summary>
     public float[] ComputeSubBassEnergyCurve(float[] monoSignal, int sampleRate)
-        => ComputeBandEnergyCurve(monoSignal, sampleRate, CutoffHz);
+    {
+        if (monoSignal == null || monoSignal.Length == 0) return Array.Empty<float>();
+
+        var filtered = ApplySubBassBandpass(monoSignal, sampleRate);
+        return ComputeWindowedRms(filtered, sampleRate);
+    }
 
     /// <summary>
     /// Isolates an arbitrary low-pass band and computes per-window RMS energy. Generalized
@@ -134,7 +145,88 @@ public sealed class SubBassDropoutEngine
         return (dropoutStarts, returnTimestamps);
     }
 
-    // ── 4th-order Butterworth LP filter (cascaded biquads) ──────────────────
+    /// <summary>
+    /// Given a set of candidate beat timestamps (typically the first few ticks from a beat
+    /// tracker), returns the index of whichever candidate has the strongest sub-bass/kick energy
+    /// in a short window around it — the DJ-genre-standard assumption that the true downbeat
+    /// (bar 1, beat 1) carries the most low-end emphasis. Beat trackers report beat times with no
+    /// bar-phase information, so "the first detected tick" is not reliably the actual downbeat;
+    /// this gives a real signal to pick among the first few candidates instead of blindly trusting
+    /// index 0.
+    /// </summary>
+    public static int FindStrongestBeatIndex(
+        float[] monoSignal, int sampleRate, IReadOnlyList<double> beatTimestamps, int candidateCount = 4)
+    {
+        if (monoSignal == null || monoSignal.Length == 0 || beatTimestamps == null || beatTimestamps.Count == 0 || sampleRate <= 0)
+            return 0;
+
+        int limit = Math.Min(candidateCount, beatTimestamps.Count);
+        int halfWindowSamples = Math.Max(1, (int)Math.Round(0.050 * sampleRate)); // +/- 50ms
+
+        int bestIndex = 0;
+        double bestRms = -1.0;
+
+        for (int i = 0; i < limit; i++)
+        {
+            int center = (int)Math.Round(beatTimestamps[i] * sampleRate);
+            int start = Math.Max(0, center - halfWindowSamples);
+            int end = Math.Min(monoSignal.Length, center + halfWindowSamples);
+            int count = end - start;
+            if (count <= 0) continue;
+
+            var segment = new float[count];
+            Array.Copy(monoSignal, start, segment, 0, count);
+            var filtered = ApplySubBassBandpass(segment, sampleRate);
+
+            double sumSq = 0.0;
+            foreach (var s in filtered) sumSq += s * (double)s;
+            double rms = Math.Sqrt(sumSq / count);
+
+            if (rms > bestRms)
+            {
+                bestRms = rms;
+                bestIndex = i;
+            }
+        }
+
+        return bestIndex;
+    }
+
+    // ── True sub-bass bandpass (NAudio.Dsp.BiQuadFilter, cascaded high-pass + low-pass) ─────
+
+    private static float[] ApplySubBassBandpass(float[] signal, int sampleRate)
+    {
+        var hp = BiQuadFilter.HighPassFilter(sampleRate, (float)LowCutHz, 0.7071f);
+        var lp = BiQuadFilter.LowPassFilter(sampleRate, (float)HighCutHz, 0.7071f);
+
+        var output = new float[signal.Length];
+        for (int i = 0; i < signal.Length; i++)
+        {
+            output[i] = lp.Transform(hp.Transform(signal[i]));
+        }
+        return output;
+    }
+
+    private static float[] ComputeWindowedRms(float[] filtered, int sampleRate)
+    {
+        int windowSamples = Math.Max(1, (int)(EnergyWindowSeconds * sampleRate));
+        int numWindows = filtered.Length / windowSamples;
+
+        var energyCurve = new float[numWindows];
+        for (int i = 0; i < numWindows; i++)
+        {
+            int start = i * windowSamples;
+            double sumSq = 0.0;
+            for (int j = start; j < start + windowSamples && j < filtered.Length; j++)
+                sumSq += filtered[j] * (double)filtered[j];
+            energyCurve[i] = (float)Math.Sqrt(sumSq / windowSamples);
+        }
+
+        return energyCurve;
+    }
+
+    // ── 4th-order Butterworth LP filter (cascaded biquads) — still used by ComputeBandEnergyCurve,
+    // which StructuralStrippingEngine relies on for its own, wider (250 Hz) House/Techno band ─────
 
     private static float[] ApplyButterworthLowPass(float[] signal, int sampleRate, double cutoffHz)
     {

@@ -80,6 +80,26 @@
                              CornerRadius="6" Padding="10,8"/>
                 </StackPanel>
 
+                <!-- Track Number -->
+                <StackPanel Spacing="5">
+                    <TextBlock Text="Track #" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding TrackNumber, Mode=TwoWay}" Watermark="Keep original track number"
+                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
+                             CornerRadius="6" Padding="10,8"/>
+                    <TextBlock Text="Not a valid track number" Foreground="#E06C75" FontSize="10"
+                               IsVisible="{Binding !IsTrackNumberValid}"/>
+                </StackPanel>
+
+                <!-- Rating -->
+                <StackPanel Spacing="5">
+                    <TextBlock Text="Rating (0-5)" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding Rating, Mode=TwoWay}" Watermark="Keep original rating"
+                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
+                             CornerRadius="6" Padding="10,8"/>
+                    <TextBlock Text="Must be a whole number 0-5" Foreground="#E06C75" FontSize="10"
+                               IsVisible="{Binding !IsRatingValid}"/>
+                </StackPanel>
+
                 <!-- Comments -->
                 <StackPanel Spacing="5">
                     <TextBlock Text="Comments" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>

@@ -159,15 +159,20 @@
                 
                 <Panel Grid.Column="1" Height="32" Margin="12,0">
                     <!-- High-Res Waveform Background -->
-                    <controls:WaveformControl WaveformData="{Binding CurrentTrack.WaveformData}" 
+                    <controls:WaveformControl WaveformData="{Binding CurrentTrack.WaveformData}"
                                              LowBand="{Binding CurrentTrack.LowData}"
                                              MidBand="{Binding CurrentTrack.MidData}"
                                              HighBand="{Binding CurrentTrack.HighData}"
                                              PhraseSegments="{Binding CurrentTrack.PhraseSegments}"
-                                             Progress="{Binding Position}" 
+                                             Progress="{Binding Position}"
                                              Background="#01000000"
                                              PlayheadBrush="#1DB954"
                                              SeekCommand="{Binding SeekCommand}"
+                                             UseNeonPalette="{Binding WaveformUseNeonPalette}"
+                                             Gain="{Binding WaveformGain}"
+                                             ShowEnergyCurve="{Binding WaveformShowEnergyCurve}"
+                                             ShowVocalGhost="{Binding WaveformShowVocalGhost}"
+                                             ShowPhraseSections="{Binding WaveformShowPhraseSections}"
                                              VerticalAlignment="Stretch"/>
                 </Panel>
                 

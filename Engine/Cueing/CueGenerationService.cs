@@ -260,15 +260,26 @@ public sealed class CueGenerationService
                 dropCandidates.Add((t, weights.EnergyJumpWeight * 0.75f));
         }
 
-        // Family-specific drop candidates (e.g. FourOnTheFloor's structural-stripping return —
-        // the moment the kick genuinely re-enters at full force after a real breakdown).
+        // Family-specific drop candidates (e.g. FourOnTheFloor's structural-stripping return — the
+        // moment the kick genuinely re-enters at full force after a real breakdown; Breakbeat's
+        // novelty-corroborated sub-bass returns). A candidate near an existing one raises that
+        // entry's score to the higher of the two rather than being skipped outright — a corroboration
+        // signal is, by definition, usually close to an already-known candidate (that's what makes it
+        // a corroboration), so silently dropping it as "already covered" would make it a no-op.
         if (strategy != null)
         {
             foreach (var (t, score) in strategy.GetFamilySpecificDropCandidates(analysis, bpm, downbeatAnchor))
             {
-                bool alreadyCovered = dropCandidates.Any(d => Math.Abs(d.Time - t) < bar * 2);
-                if (!alreadyCovered)
+                int nearbyIndex = dropCandidates.FindIndex(d => Math.Abs(d.Time - t) < bar * 2);
+                if (nearbyIndex >= 0)
+                {
+                    if (score > dropCandidates[nearbyIndex].Score)
+                        dropCandidates[nearbyIndex] = (dropCandidates[nearbyIndex].Time, score);
+                }
+                else
+                {
                     dropCandidates.Add((t, score));
+                }
             }
         }
 
@@ -404,11 +415,17 @@ public sealed class CueGenerationService
     /// and holds — not just a single spike — versus the level that preceded it. This is a
     /// candidate generator, not an authoritative drop decision: it feeds the same scored
     /// <c>dropCandidates</c> list as the sub-bass/novelty signals in <see cref="GenerateCuesDsp"/>.
+    ///
+    /// Requires the sustained level to also clear a fraction of the track's own mean energy, not
+    /// just the preceding 4s — a purely local 1.6x jump fires on any loud-but-transient moment
+    /// (a crash cymbal swell, a snare-roll fill) regardless of whether it's actually a drop.
     /// </summary>
-    private static List<double> FindEnergyJumpCandidates(float[] energyCurve, double duration)
+    internal static List<double> FindEnergyJumpCandidates(float[] energyCurve, double duration)
     {
         var candidates = new List<double>();
         if (energyCurve.Length < 8 || duration <= 0) return candidates;
+
+        float trackMeanEnergy = energyCurve.Average();
 
         double secPerSample = duration / energyCurve.Length;
         int precedingWindow = Math.Max(2, (int)Math.Round(4.0 / secPerSample));
@@ -420,7 +437,7 @@ public sealed class CueGenerationService
             if (precedingAvg <= 0f) continue;
 
             float sustainedAvg = AverageRange(energyCurve, i, i + sustainWindow);
-            if (sustainedAvg > precedingAvg * 1.6f)
+            if (sustainedAvg > precedingAvg * 1.6f && sustainedAvg >= trackMeanEnergy * 0.9f)
             {
                 candidates.Add(i * secPerSample);
                 i += sustainWindow; // skip past this rise before looking for the next one

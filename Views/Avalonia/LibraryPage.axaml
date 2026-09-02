@@ -151,6 +151,10 @@
                                      <MenuItem Header="Manage Sources" Command="{Binding OpenSourcesCommand}" InputGesture="Ctrl+,">
                                          <MenuItem.Icon><TextBlock Text="📁"/></MenuItem.Icon>
                                      </MenuItem>
+                                     <MenuItem Header="Library Health" Command="{Binding OpenLibraryHealthCommand}"
+                                               ToolTip.Tip="Disk usage, unplayed tracks, and files on disk ORBIT doesn't know about">
+                                         <MenuItem.Icon><TextBlock Text="🩺"/></MenuItem.Icon>
+                                     </MenuItem>
                                      <MenuItem Header="Recently Deleted Playlists" Command="{Binding LoadDeletedProjectsCommand}"
                                                ToolTip.Tip="Restore a playlist you removed from the list">
                                          <MenuItem.Icon><TextBlock Text="🗑️"/></MenuItem.Icon>
@@ -158,6 +162,10 @@
                                      <MenuItem Header="Remove Unidentified (&quot;ID&quot;) Tracks" Command="{Binding RemoveUnidentifiedTracksCommand}"
                                                ToolTip.Tip="Permanently deletes tracklist placeholder tracks like &quot;Artist - ID&quot; — leftovers from before imports filtered these out">
                                          <MenuItem.Icon><TextBlock Text="❓"/></MenuItem.Icon>
+                                     </MenuItem>
+                                     <MenuItem Header="Find Duplicates (Review)" Command="{Binding DuplicateDetectionCommand}"
+                                               ToolTip.Tip="Filters the track list to just the duplicates (exact + fuzzy match) for manual review — nothing is deleted">
+                                         <MenuItem.Icon><TextBlock Text="🔍"/></MenuItem.Icon>
                                      </MenuItem>
                                      <MenuItem Header="Remove Duplicate Tracks" Command="{Binding RemoveDuplicateTracksCommand}"
                                                ToolTip.Tip="Merges duplicate library files and removes tracks that got added to the same playlist more than once — backs up the database first">
@@ -548,6 +556,28 @@
                 </StackPanel>
             </Button>
 
+            <!-- Bulk Rename -->
+            <Button Command="{Binding BulkRenameCommand}"
+                    ToolTip.Tip="Rename selected tracks' files by pattern"
+                    Padding="10,6" CornerRadius="18" FontSize="11"
+                    Background="#1AFFFFFF" Foreground="#DDD">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="🏷️" FontSize="13"/>
+                    <TextBlock Text="Rename" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
+            <!-- Bulk Move/Copy -->
+            <Button Command="{Binding BulkMoveOrCopyCommand}"
+                    ToolTip.Tip="Move or copy selected tracks' files to a folder"
+                    Padding="10,6" CornerRadius="18" FontSize="11"
+                    Background="#1AFFFFFF" Foreground="#DDD">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="📦" FontSize="13"/>
+                    <TextBlock Text="Move/Copy" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
             <!-- Queue Analysis -->
             <Button Command="{Binding BatchQueueAnalysisCommand}"
                     ToolTip.Tip="Queue selected tracks for audio analysis"
@@ -663,6 +693,69 @@
             <views:LibrarySourcesView DataContext="{Binding LibrarySourcesViewModel}"/>
             <Button HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,8,0"
                     Command="{Binding OpenSourcesCommand}" CommandParameter="Close"
+                    Background="Transparent" BorderThickness="0" Padding="8,4">
+                <TextBlock Text="✕" FontSize="14" Foreground="#AAA"/>
+            </Button>
+        </Grid>
+    </Border>
+
+    <!-- Orphaned Tracks overlay: reviews LibraryEntries whose file no longer exists on disk,
+         populated by Sync Physical Library (🔗). Was built (ExecuteSyncPhysicalLibraryAsync
+         already fully populates OrphanedTracks/IsOrphanedTracksVisible) but had no view bound to
+         either — the "Review and remove manually" notification pointed at a panel that never
+         existed. -->
+    <Border IsVisible="{Binding IsOrphanedTracksVisible}" Background="#CC000000">
+        <Border Width="560" MaxHeight="560" HorizontalAlignment="Center" VerticalAlignment="Center"
+                Background="#252526" CornerRadius="10" BorderBrush="#3E3E42" BorderThickness="1">
+            <Grid RowDefinitions="Auto,Auto,*">
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="20,16,12,12">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="🔗" FontSize="18"/>
+                        <TextBlock Text="Orphaned Tracks" FontSize="15" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Command="{Binding CloseOrphanedTracksCommand}" Background="Transparent" BorderThickness="0" Padding="8,4">
+                        <TextBlock Text="✕" FontSize="14" Foreground="#AAA"/>
+                    </Button>
+                </Grid>
+
+                <Border Grid.Row="1" Height="1" Background="#3E3E42"/>
+
+                <TextBlock Grid.Row="2" Text="These library entries point at a file that no longer exists. Repoint to the file's new location, or remove the entry."
+                           Foreground="#888" FontSize="11" TextWrapping="Wrap" Margin="20,10,20,0"/>
+
+                <ScrollViewer Grid.Row="2" Margin="0,34,0,0" MaxHeight="440">
+                    <ItemsControl ItemsSource="{Binding OrphanedTracks}" Margin="12,8">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:OrphanedTrackViewModel">
+                                <Border Background="#2D2D30" CornerRadius="6" Padding="12,10" Margin="0,4">
+                                    <Grid ColumnDefinitions="*,Auto,Auto">
+                                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Foreground="White" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding Artist}" FontSize="11" Foreground="#AAA" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding FilePath}" FontSize="10" Foreground="#666" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="Repoint…" Command="{Binding RepointCommand}"
+                                                Padding="10,5" FontSize="11" CornerRadius="6" Margin="0,0,8,0"
+                                                Background="#1AFFFFFF" Foreground="#2DB5FF" BorderThickness="0"/>
+                                        <Button Grid.Column="2" Content="Remove" Command="{Binding RemoveCommand}"
+                                                Padding="10,5" FontSize="11" CornerRadius="6"
+                                                Background="#1AFF5555" Foreground="#FF5555" BorderThickness="0"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+    </Border>
+
+    <!-- Library Health overlay -->
+    <Border IsVisible="{Binding IsLibraryHealthVisible}" Background="#CC000000">
+        <Grid HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="720">
+            <views:LibraryHealthView DataContext="{Binding LibraryHealthViewModel}"/>
+            <Button HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,8,0"
+                    Command="{Binding CloseLibraryHealthCommand}"
                     Background="Transparent" BorderThickness="0" Padding="8,4">
                 <TextBlock Text="✕" FontSize="14" Foreground="#AAA"/>
             </Button>

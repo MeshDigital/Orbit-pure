@@ -48,6 +48,7 @@ public class AppDbContext : DbContext
     public DbSet<PrefetchQueueItem> PrefetchQueueItems { get; set; }
     public DbSet<Entities.PrivateMessageEntity> PrivateMessages { get; set; } // Social: 1:1 Soulseek chat
     public DbSet<Entities.RoomMessageEntity> RoomMessages { get; set; } // Social: Soulseek chat rooms
+    public DbSet<Entities.RekordboxExportCueSyncEntity> RekordboxExportCueSync { get; set; } // Rekordbox export: three-way cue merge tracking
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -166,6 +167,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PlaylistJobEntity>()
             .HasIndex(j => j.CreatedAt)
             .HasDatabaseName("IX_PlaylistJob_CreatedAt");
+
+        modelBuilder.Entity<Entities.RekordboxExportCueSyncEntity>()
+            .HasIndex(e => new { e.TargetPath, e.TrackUniqueHash })
+            .IsUnique()
+            .HasDatabaseName("IX_RekordboxExportCueSync_TargetPath_Hash");
 
         // Playlist Folders: nested tree, self-referencing parent
         modelBuilder.Entity<PlaylistFolderEntity>()

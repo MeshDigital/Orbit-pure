@@ -266,6 +266,10 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         // Phase 6: Library Interactions
         _eventBusSubs.Add(_eventBus.GetEvent<DownloadAlbumRequestEvent>().Subscribe(OnDownloadAlbumRequest));
         _eventBusSubs.Add(_eventBus.GetEvent<ForceStartRequestEvent>().Subscribe(e => _ = ForceStartTrack(e.TrackGlobalId)));
+        // Per-job priority state (_jobEffectivePriority/_jobBasePriority/_jobFocused/_jobManualSortOrder)
+        // was never removed when a playlist/job was deleted — every job ever created kept 4
+        // dictionary entries forever. Clean up on the existing project-deleted event.
+        _eventBusSubs.Add(_eventBus.GetEvent<ProjectDeletedEvent>().Subscribe(e => RemoveJobPriorityState(e.ProjectId)));
 
         // Phase 12: Adapter Event Subscriptions
         _soulseek.DownloadProgressChanged += OnDownloadProgressChanged;
@@ -4220,6 +4224,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                 ctx.Model.JobManualSortOrder = sortOrder;
         }
         await _databaseService.SetJobManualSortOrderAsync(jobId, sortOrder);
+    }
+
+    /// <summary>
+    /// Removes a deleted job's priority state from all four tracking dictionaries. Without this,
+    /// every playlist/job ever created (including deleted ones) kept 4 dictionary entries forever.
+    /// </summary>
+    private void RemoveJobPriorityState(Guid jobId)
+    {
+        _jobEffectivePriority.TryRemove(jobId, out _);
+        _jobBasePriority.TryRemove(jobId, out _);
+        _jobFocused.TryRemove(jobId, out _);
+        _jobManualSortOrder.TryRemove(jobId, out _);
     }
 
     // ── Private priority helpers ──────────────────────────────────────────

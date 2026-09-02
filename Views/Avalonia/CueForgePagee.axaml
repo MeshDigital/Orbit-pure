@@ -94,12 +94,12 @@
                     <TextBlock Grid.Column="1" Text="{Binding TrackTitle}" Foreground="#C0C0D8"
                                FontSize="12" FontWeight="SemiBold" Margin="16,0"
                                VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" IsVisible="{Binding HasTrackLoaded}">
                         <TextBlock Text="{Binding Bpm, StringFormat='{}{0} BPM'}" Foreground="#5577AA" FontSize="11"/>
                         <TextBlock Text="{Binding TrackDuration, StringFormat='{}{0:F0}s'}" Foreground="#445566" FontSize="11"/>
                         <Border Background="#1A1A30" BorderBrush="#33335A" BorderThickness="1" CornerRadius="3"
-                                Padding="7,3" IsVisible="{Binding TrackEnergyScore, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                ToolTip.Tip="MIK-compatible energy score (1–10)">
+                                Padding="7,3"
+                                ToolTip.Tip="Mixed In Key (MIK)-compatible energy score (1–10)">
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <TextBlock Text="E" Foreground="#555577" FontSize="9" FontWeight="Bold"
                                            LetterSpacing="1" VerticalAlignment="Center"/>
@@ -296,9 +296,15 @@
                                  CaretBrush="#7777AA"/>
                     </Border>
 
-                    <!-- Downloaded track list -->
+                    <!-- Downloaded track list — can be the whole downloaded library, easily
+                         thousands of tracks; same unvirtualized-freeze risk the Users page had. -->
                     <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding BrowserTracks}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <Button Command="{Binding $parent[UserControl].DataContext.LoadFromBrowserCommand}"

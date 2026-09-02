@@ -136,6 +136,22 @@ public class AutoSearchService
             diag.ExactFilenameResultsCount = exactResult.CandidatesCount;
             diag.ExactFilenameElapsedMs = (int)(DateTime.UtcNow - diag.StartedAtUtc).TotalMilliseconds;
 
+            // "Exact First Only": the exact-filename pass just came up empty — if the user wants
+            // strict mode to never accept the broader filtered-template fallback, stop here
+            // instead of running Phase 2. Previously this setting was fully wired up to AppConfig
+            // but never actually read here, so toggling it in Settings had no effect.
+            if (_config.AutoDownloadExactFirstOnly)
+            {
+                await LogDiagnosticAsync("autodownload_no_match", new
+                {
+                    trackId = track.Id,
+                    exactFilenameCount = diag.ExactFilenameResultsCount,
+                    reason = "exact_first_only",
+                    totalElapsedMs = (int)(DateTime.UtcNow - diag.StartedAtUtc).TotalMilliseconds
+                }, ct);
+                return (null, diag);
+            }
+
             // Phase 2: Filtered template search if exact failed
             var templateResult = await SearchFilteredTemplateAsync(track, normalizedQuery, ct, isBackgroundScan);
             if (templateResult.BestMatch != null)

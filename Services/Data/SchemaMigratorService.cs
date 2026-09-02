@@ -2820,6 +2820,80 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 26. Persisted read/unread state for chat — previously in-memory only, so every
+            // restart showed all history as read regardless of what arrived while closed.
+            // DEFAULT 1 backfills existing rows as already-seen, matching that prior behavior.
+            if (!ColumnExists("PrivateMessages", "IsRead"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsRead to PrivateMessages...");
+                command.CommandText = @"ALTER TABLE ""PrivateMessages"" ADD COLUMN ""IsRead"" INTEGER NOT NULL DEFAULT 1;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("RoomMessages", "IsRead"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsRead to RoomMessages...");
+                command.CommandText = @"ALTER TABLE ""RoomMessages"" ADD COLUMN ""IsRead"" INTEGER NOT NULL DEFAULT 1;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 27. Retire TechnicalDetails' dead waveform blob columns — confirmed zero write sites
+            // ever populate real bytes through them (every insert is a bare clone-init with no
+            // waveform fields set). The live waveform path is AudioFeaturesEntity.WaveformBlob,
+            // unpacked on read by LibraryService — these columns were always-empty dead schema.
+            foreach (var deadColumn in new[] { "WaveformData", "RmsData", "LowData", "MidData", "HighData" })
+            {
+                if (ColumnExists("TechnicalDetails", deadColumn))
+                {
+                    _logger.LogInformation("Patching Schema: Dropping dead column TechnicalDetails.{Column}...", deadColumn);
+                    command.CommandText = $"ALTER TABLE \"TechnicalDetails\" DROP COLUMN \"{deadColumn}\";";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            // 28. IX_DownloadHistory_PeerUsername existed only inside the CREATE TABLE branch, so
+            // it was only ever created for a brand-new database — every existing installation's
+            // DownloadHistory table (often tens/hundreds of thousands of rows: one row per download
+            // attempt, not just successes) predates this index and never actually got it. The Users
+            // page's GetDownloadedUsersSummaryAsync GROUP BY on PeerUsername was doing a full table
+            // scan on every load for exactly that reason.
+            if (TableExists("DownloadHistory"))
+            {
+                command.CommandText = @"CREATE INDEX IF NOT EXISTS ""IX_DownloadHistory_PeerUsername"" ON ""DownloadHistory"" (""PeerUsername"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 29. Rekordbox export cue-sync snapshots: enables a three-way merge so a cue edit made
+            // in Cue Forge after a track's first Rekordbox export still propagates on re-export,
+            // while a hand-edit made directly inside Rekordbox since ORBIT's last known-good sync is
+            // still preserved (previously all-or-nothing: any existing cues blocked every future
+            // ORBIT cue update for that track, forever).
+            if (!TableExists("RekordboxExportCueSync"))
+            {
+                _logger.LogInformation("Patching Schema: Creating RekordboxExportCueSync table...");
+                command.CommandText = @"
+                    CREATE TABLE ""RekordboxExportCueSync"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_RekordboxExportCueSync"" PRIMARY KEY,
+                        ""TargetPath"" TEXT NOT NULL,
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""CueSnapshot"" TEXT NOT NULL DEFAULT '',
+                        ""UpdatedAtUtc"" TEXT NOT NULL
+                    );
+                    CREATE UNIQUE INDEX ""IX_RekordboxExportCueSync_TargetPath_Hash"" ON ""RekordboxExportCueSync"" (""TargetPath"", ""TrackUniqueHash"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ RekordboxExportCueSync table created.");
+            }
+
+            // 30. Watch-folder auto-import: lets LibraryFolderWatchService know which registered
+            // library folders should get a live FileSystemWatcher instead of relying entirely on
+            // manual "Scan All" clicks.
+            if (TableExists("LibraryFolders") && !ColumnExists("LibraryFolders", "IsWatched"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsWatched to LibraryFolders...");
+                command.CommandText = @"ALTER TABLE ""LibraryFolders"" ADD COLUMN ""IsWatched"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

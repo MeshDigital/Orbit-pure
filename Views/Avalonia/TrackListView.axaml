@@ -240,7 +240,7 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="60"/>
                         <ColumnDefinition Width="44"/>
-                        <ColumnDefinition Width="124"/>
+                        <ColumnDefinition Width="32"/>
                         <ColumnDefinition Width="150"/>
                         <ColumnDefinition Width="*" MinWidth="150"/>
                         <ColumnDefinition Width="90"/>
@@ -253,8 +253,10 @@
                     <!-- Column 0: Artwork/Status (Empty) -->
                     <!-- Column 1: Q -->
                     <TextBlock Grid.Column="1" Text="Q" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                    <!-- Column 2: INSERT -->
-                    <TextBlock Grid.Column="2" Text="INSERT" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="2,0,0,0"/>
+                    <!-- Column 2: Insert-between affordance — no header label; it's a narrow
+                         hover-only utility column, not a data column (see the row template's
+                         Button.insert-affordance for what it does). -->
+
                     <!-- Column 3: Artist -->
                     <Button Grid.Column="3" Classes="sortableHeader" Margin="12,0"
                             Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Artist}">
@@ -393,7 +395,7 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="60"/>
                                 <ColumnDefinition Width="44"/>
-                                <ColumnDefinition Width="124"/>
+                                <ColumnDefinition Width="32"/>
                                 <ColumnDefinition Width="150"/>
                                 <ColumnDefinition Width="*" MinWidth="150"/>
                                 <ColumnDefinition Width="90"/>
@@ -435,24 +437,31 @@
                                 <TextBlock Text="＋" FontSize="11" Foreground="#6F8192" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Button>
 
-                            <!-- Column 2: INSERT Button -->
+                            <!-- Column 2: Smart Insert affordance. Was a permanently-reserved
+                                 124px "+ Add here" pill on every row — visually dominated the
+                                 whole tracklist. Shrunk to an icon-only button matching the Q
+                                 button's footprint (Column 2 is now 32px, same order of size as
+                                 Column 1's 44px); Classes="insert-affordance" still gates it to
+                                 opacity 0 / non-hit-testable until the row is hovered (see the
+                                 Button.insert-affordance styles above), so it stays invisible
+                                 until needed either way — this only fixes its size when visible
+                                 and the dead space it always reserved. -->
                             <Button Grid.Column="2"
                                     Command="{Binding $parent[views:LibraryPage].DataContext.PrepareSmartInsertAfterTrackCommand}"
                                     CommandParameter="{Binding}"
                                     Classes="insert-affordance"
-                                    Padding="8,4"
-                                    Margin="2,0,0,0"
+                                    Width="22"
+                                    Height="22"
+                                    Padding="0"
+                                    Margin="5,0,0,0"
                                     HorizontalAlignment="Left"
                                     VerticalAlignment="Center"
                                     Background="#143A4A"
                                     BorderBrush="#2D7D93"
                                     BorderThickness="1"
-                                    CornerRadius="10"
+                                    CornerRadius="11"
                                     ToolTip.Tip="Add track that fits between this row and the next row">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <TextBlock Text="+" FontSize="11" FontWeight="SemiBold" Foreground="#9ED9C8"/>
-                                    <TextBlock Text="Add here" FontSize="10" Foreground="#9ED9C8"/>
-                                </StackPanel>
+                                <TextBlock Text="+" FontSize="12" FontWeight="SemiBold" Foreground="#9ED9C8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Button>
 
                             <!-- Column 3: Artist -->

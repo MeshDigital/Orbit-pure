@@ -44,6 +44,16 @@ namespace SLSKDONET.Views.Avalonia
         {
             if (e.PropertyName == nameof(MainViewModel.IsZenMode) && sender is MainViewModel vm)
                 OnZenModeChanged(vm.IsZenMode);
+
+            if (e.PropertyName == nameof(MainViewModel.IsPerformanceOverlayVisible) && sender is MainViewModel mvm)
+            {
+                // Avalonia's own live FPS overlay (real compositor frame timing, not a hand-rolled
+                // counter) — RendererDiagnostics is a Window/TopLevel-level rendering API, so it's
+                // set here in the View rather than plumbing a Window reference into the ViewModel.
+                RendererDiagnostics.DebugOverlays = mvm.IsPerformanceOverlayVisible
+                    ? global::Avalonia.Rendering.RendererDebugOverlays.Fps
+                    : global::Avalonia.Rendering.RendererDebugOverlays.None;
+            }
         }
 
         /// <summary>

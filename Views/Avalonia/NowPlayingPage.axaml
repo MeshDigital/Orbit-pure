@@ -231,6 +231,11 @@
                                                   Background="#01000000"
                                                   PlayheadBrush="#1DB954"
                                                   SeekCommand="{Binding SeekCommand}"
+                                                  UseNeonPalette="{Binding WaveformUseNeonPalette}"
+                                                  Gain="{Binding WaveformGain}"
+                                                  ShowEnergyCurve="{Binding WaveformShowEnergyCurve}"
+                                                  ShowVocalGhost="{Binding WaveformShowVocalGhost}"
+                                                  ShowPhraseSections="{Binding WaveformShowPhraseSections}"
                                                   Height="76"
                                                   IsVisible="{Binding IsPlaying}"/>
                         <TextBlock Grid.Column="2" Text="{Binding TotalTimeStr}" FontSize="12" Foreground="#8FA5B8" VerticalAlignment="Center" Margin="12,0,0,0"/>

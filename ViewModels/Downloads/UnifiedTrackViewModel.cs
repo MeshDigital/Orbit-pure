@@ -1575,35 +1575,44 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
     private void GhostStallCheck_Tick(object? sender, EventArgs e)
     {
-        // Only care if we are supposedly downloading
-        if (State != PlaylistTrackState.Downloading) return;
+        try
+        {
+            // Only care if we are supposedly downloading
+            if (State != PlaylistTrackState.Downloading) return;
 
-        // If explicitly set speed to 0 by logic
-        if (DownloadSpeed == 0)
-        {
-             // Check how long since last activity
-             var secondsSince = (DateTime.UtcNow - LastActivity).TotalSeconds;
-             
-             // If > 30s of silence, mark as visually stalled
-             if (secondsSince > 30)
-             {
-                 State = PlaylistTrackState.Stalled;
-                 // We set a custom StalledReason if none exists, to hint it's a timeout
-                 Model.StalledReason = "Connection Timeout (Ghost)";
-                 this.RaisePropertyChanged(nameof(StalledReason));
-                 this.RaisePropertyChanged(nameof(StatusText)); // Refresh text
-             }
-        }
-        else
-        {
-            // If speed > 0, we aren't stalled.
-            // But if we haven't had progress in a while, decay speed to 0.
-            var secondsSince = (DateTime.UtcNow - LastActivity).TotalSeconds;
-            if (secondsSince > 5)
+            // If explicitly set speed to 0 by logic
+            if (DownloadSpeed == 0)
             {
-                DownloadSpeed = 0; // Decay speed display
-                // Next tick will catch the stall counter if it persists
+                 // Check how long since last activity
+                 var secondsSince = (DateTime.UtcNow - LastActivity).TotalSeconds;
+
+                 // If > 30s of silence, mark as visually stalled
+                 if (secondsSince > 30)
+                 {
+                     State = PlaylistTrackState.Stalled;
+                     // We set a custom StalledReason if none exists, to hint it's a timeout
+                     Model.StalledReason = "Connection Timeout (Ghost)";
+                     this.RaisePropertyChanged(nameof(StalledReason));
+                     this.RaisePropertyChanged(nameof(StatusText)); // Refresh text
+                 }
             }
+            else
+            {
+                // If speed > 0, we aren't stalled.
+                // But if we haven't had progress in a while, decay speed to 0.
+                var secondsSince = (DateTime.UtcNow - LastActivity).TotalSeconds;
+                if (secondsSince > 5)
+                {
+                    DownloadSpeed = 0; // Decay speed display
+                    // Next tick will catch the stall counter if it persists
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // One timer instance per download row — a race during a fast add/remove cycle
+            // must not be allowed to crash the whole app.
+            Serilog.Log.Warning(ex, "UnifiedTrackViewModel: ghost-stall tick failed — skipping");
         }
     }
     
@@ -1611,16 +1620,10 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     {
          if (string.IsNullOrEmpty(Model.ResolvedFilePath)) return;
          try {
-             await Task.Run(() => {
-                 var dir = System.IO.Path.GetDirectoryName(Model.ResolvedFilePath);
-                 var name = System.IO.Path.GetFileNameWithoutExtension(Model.ResolvedFilePath);
-                 if (string.IsNullOrEmpty(dir)) return;
-                 var path = System.IO.Path.Combine(dir, $"{name}_Stems");
-                 var found = System.IO.Directory.Exists(path) && System.IO.Directory.GetFiles(path).Length > 0;
-                 Avalonia.Threading.Dispatcher.UIThread.Post(() => {
-                     _hasStems = found;
-                     this.RaisePropertyChanged(nameof(HasStems));
-                 });
+             var found = await Services.StemAvailabilityProbe.HasStemsAsync(Model.ResolvedFilePath);
+             Avalonia.Threading.Dispatcher.UIThread.Post(() => {
+                 _hasStems = found;
+                 this.RaisePropertyChanged(nameof(HasStems));
              });
          } catch {}
     }

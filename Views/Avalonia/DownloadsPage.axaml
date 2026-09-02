@@ -1255,6 +1255,11 @@
 
                 <ScrollViewer Grid.Row="1" Padding="16">
                     <ItemsControl ItemsSource="{Binding EngineLogs}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <VirtualizingStackPanel/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Grid ColumnDefinitions="80, 80, 80, *" Margin="0,0,0,4">

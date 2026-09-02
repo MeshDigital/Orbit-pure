@@ -1866,24 +1866,10 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
         return normalized.Length >= 2;
     }
 
-    private string[] ResolveShareFolders()
-    {
-        var folders = new List<string>();
-
-        if (!string.IsNullOrWhiteSpace(_config.SharedFolderPath) && System.IO.Directory.Exists(_config.SharedFolderPath))
-        {
-            folders.Add(_config.SharedFolderPath);
-        }
-
-        if (!string.IsNullOrWhiteSpace(_config.DownloadDirectory) && System.IO.Directory.Exists(_config.DownloadDirectory))
-        {
-            folders.Add(_config.DownloadDirectory);
-        }
-
-        return folders
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-    }
+    // Delegates to ShareIndexService — the single source of truth for share-folder resolution
+    // (Library Sources + the legacy SharedFolderPath/DownloadDirectory extras), so the count
+    // announced to the server always matches what the serving pipeline actually indexes.
+    private string[] ResolveShareFolders() => _shareIndex.ResolveShareFolders();
 
     public async Task<bool> DownloadAsync(
         string username,

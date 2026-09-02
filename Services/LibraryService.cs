@@ -28,6 +28,7 @@ public class LibraryService : ILibraryService
     private readonly IEventBus _eventBus;
     private readonly LibraryCacheService _cache; // Session 1: Performance cache
     private readonly EngineDiagnosticsService? _diagnostics;
+    private readonly AudioAnalysis.TrackFingerprintStore? _fingerprintStore;
 
     // Events now published via IEventBus (ProjectDeletedEvent, ProjectUpdatedEvent)
 
@@ -39,7 +40,8 @@ public class LibraryService : ILibraryService
         AppConfig appConfig,
         IEventBus eventBus,
         LibraryCacheService cache, // Session 1: Inject cache
-        EngineDiagnosticsService? diagnostics = null)
+        EngineDiagnosticsService? diagnostics = null,
+        AudioAnalysis.TrackFingerprintStore? fingerprintStore = null)
     {
         _logger = logger;
         _databaseService = databaseService;
@@ -47,6 +49,7 @@ public class LibraryService : ILibraryService
         _eventBus = eventBus;
         _cache = cache;
         _diagnostics = diagnostics;
+        _fingerprintStore = fingerprintStore;
 
         _logger.LogDebug("LibraryService initialized (Data Only) with caching enabled");
     }
@@ -455,8 +458,12 @@ public class LibraryService : ILibraryService
             
             // I'll check DatabaseService.RemoveTrackAsync implementation.
             await _databaseService.RemoveTrackAsync(trackHash);
-            
+
             _cache.InvalidateGlobalLibrary();
+            // TrackFingerprintStore's in-memory cache is unbounded by design (fingerprints are
+            // small), but a deleted track's fingerprint has no reason to stick around — the
+            // Invalidate/InvalidateAll API existed but had zero production callers until now.
+            _fingerprintStore?.Invalidate(trackHash);
         }
         catch (Exception ex)
         {
@@ -976,16 +983,16 @@ public class LibraryService : ILibraryService
         }
     }
 
-    public async Task<int> GetTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
+    public async Task<int> GetTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, string? qualityTier = null)
     {
         try
         {
             if (playlistId == Guid.Empty)
             {
-                return await _databaseService.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter).ConfigureAwait(false);
+                return await _databaseService.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier).ConfigureAwait(false);
             }
 
-            return await _databaseService.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter).ConfigureAwait(false);
+            return await _databaseService.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -994,17 +1001,17 @@ public class LibraryService : ILibraryService
         }
     }
 
-    public async Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false)
+    public async Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
     {
         try
         {
             if (playlistId == Guid.Empty)
             {
-                var globalEntities = await _databaseService.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending).ConfigureAwait(false);
+                var globalEntities = await _databaseService.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier).ConfigureAwait(false);
                 return globalEntities.Select(EntityToPlaylistTrack).ToList();
             }
 
-            var entities = await _databaseService.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending).ConfigureAwait(false);
+            var entities = await _databaseService.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier).ConfigureAwait(false);
             return entities.Select(EntityToPlaylistTrack).ToList();
         }
         catch (Exception ex)
@@ -1136,22 +1143,13 @@ public class LibraryService : ILibraryService
 
             if (libraryEntry != null)
             {
-                var libraryWaveform = ResolveWaveformBands(
-                    libraryEntry.WaveformData,
-                    libraryEntry.RmsData,
-                    libraryEntry.LowData,
-                    libraryEntry.MidData,
-                    libraryEntry.HighData,
-                    libraryEntry.AudioFeatures?.WaveformBlob);
-
+                // TrackTechnicalEntity's own waveform columns were dead (dropped in
+                // SchemaMigratorService's patch #27) — waveform bands are resolved from
+                // AudioFeaturesEntity.WaveformBlob via EntityToLibraryEntry/EntityToPlaylistTrack's
+                // own ResolveWaveformBands call instead, not through this synthesized entity.
                 return new TrackTechnicalEntity
                 {
                     PlaylistTrackId = playlistTrackId,
-                    WaveformData = libraryWaveform.PeakData,
-                    RmsData = libraryWaveform.RmsData,
-                    LowData = libraryWaveform.LowData,
-                    MidData = libraryWaveform.MidData,
-                    HighData = libraryWaveform.HighData,
                     CuePointsJson = !string.IsNullOrWhiteSpace(libraryEntry.CuePointsJson)
                         ? libraryEntry.CuePointsJson
                         : libraryEntry.AudioFeatures?.CuePointsJson,
@@ -1266,13 +1264,16 @@ public class LibraryService : ILibraryService
 
     private PlaylistTrack EntityToPlaylistTrack(PlaylistTrackEntity entity)
     {
+        // TechnicalDetails.WaveformData/RmsData/LowData/MidData/HighData were dropped (dead columns,
+        // never populated) — the real path is always AudioFeaturesEntity.WaveformBlob below.
         var playlistWaveform = ResolveWaveformBands(
-            entity.TechnicalDetails?.WaveformData,
-            entity.TechnicalDetails?.RmsData,
-            entity.TechnicalDetails?.LowData,
-            entity.TechnicalDetails?.MidData,
-            entity.TechnicalDetails?.HighData,
-            entity.AudioFeatures?.WaveformBlob);
+            null,
+            null,
+            null,
+            null,
+            null,
+            entity.AudioFeatures?.WaveformBlob,
+            entity.AudioFeatures?.WaveformBlobSampleCount ?? 0);
 
         return new PlaylistTrack
         {
@@ -1493,7 +1494,8 @@ public class LibraryService : ILibraryService
             entity.LowData,
             entity.MidData,
             entity.HighData,
-            entity.AudioFeatures?.WaveformBlob);
+            entity.AudioFeatures?.WaveformBlob,
+            entity.AudioFeatures?.WaveformBlobSampleCount ?? 0);
 
         return new LibraryEntry
         {
@@ -1572,7 +1574,8 @@ public class LibraryService : ILibraryService
         byte[]? lowData,
         byte[]? midData,
         byte[]? highData,
-        byte[]? packedWaveformBlob)
+        byte[]? packedWaveformBlob,
+        int waveformBlobSampleCount = 0)
     {
         var resolvedPeak = peakData ?? Array.Empty<byte>();
         var resolvedRms = rmsData ?? Array.Empty<byte>();
@@ -1581,7 +1584,7 @@ public class LibraryService : ILibraryService
         var resolvedHigh = highData ?? Array.Empty<byte>();
 
         var needsBlobFallback = resolvedLow.Length == 0 || resolvedMid.Length == 0 || resolvedHigh.Length == 0;
-        if (needsBlobFallback && TryUnpackWaveformBlob(packedWaveformBlob, out var unpackedLow, out var unpackedMid, out var unpackedHigh))
+        if (needsBlobFallback && TryUnpackWaveformBlob(packedWaveformBlob, waveformBlobSampleCount, out var unpackedLow, out var unpackedMid, out var unpackedHigh))
         {
             resolvedLow = unpackedLow;
             resolvedMid = unpackedMid;
@@ -1601,20 +1604,35 @@ public class LibraryService : ILibraryService
         return (resolvedPeak, resolvedRms, resolvedLow, resolvedMid, resolvedHigh);
     }
 
+    /// <summary>
+    /// Unpacks a low|mid|high packed waveform blob (see WaveformExtractionService) using the real
+    /// per-band sample count it was written with — the extractor's sample count scales with track
+    /// duration (2000-12000, not a fixed number), so a hardcoded band length here silently sliced
+    /// the wrong byte ranges for virtually every track, corrupting the mid/high bands.
+    /// </summary>
     private static bool TryUnpackWaveformBlob(
         byte[]? packedWaveformBlob,
+        int sampleCount,
         out byte[] lowBand,
         out byte[] midBand,
         out byte[] highBand)
     {
-        const int bandLength = 1000;
-        const int totalLength = bandLength * 3;
-
         lowBand = Array.Empty<byte>();
         midBand = Array.Empty<byte>();
         highBand = Array.Empty<byte>();
 
-        if (packedWaveformBlob is null || packedWaveformBlob.Length < totalLength)
+        if (packedWaveformBlob is null || packedWaveformBlob.Length < 3)
+        {
+            return false;
+        }
+
+        // Fall back to an even three-way split for rows analyzed before WaveformBlobSampleCount
+        // was populated, or if the stored count doesn't actually fit the blob (corrupt/short data).
+        int bandLength = sampleCount > 0 && packedWaveformBlob.Length >= sampleCount * 3
+            ? sampleCount
+            : packedWaveformBlob.Length / 3;
+
+        if (bandLength <= 0)
         {
             return false;
         }

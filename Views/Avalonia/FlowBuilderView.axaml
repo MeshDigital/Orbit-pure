@@ -64,7 +64,7 @@
                             </TextBlock>
                         </Border>
                         <Border Classes="fb-chip" IsVisible="{Binding IsLoading}">
-                            <TextBlock Text="Optimizing transitions..."
+                            <TextBlock Text="{Binding StatusText}"
                                        Foreground="#9CB7D9"
                                        FontSize="10"/>
                         </Border>
@@ -114,7 +114,6 @@
                     Content="◎ Suggest Flow"
                     Classes="fb-ghost"
                     Command="{Binding SuggestFlowCommand}"
-                    IsEnabled="{Binding HasTracks}"
                     Margin="4,0"
                     VerticalAlignment="Center"/>
 
@@ -122,6 +121,7 @@
                 <Button Grid.Column="6"
                         Content="↻"
                         Command="{Binding LoadPlaylistsCommand}"
+                        IsEnabled="{Binding IsNotLoading}"
                         ToolTip.Tip="Refresh playlist list"
                         Margin="4,0"
                         VerticalAlignment="Center"
@@ -205,6 +205,11 @@
                     <Border Classes="fb-chip" IsVisible="{Binding HasTracks}">
                         <TextBlock Text="{Binding TransitionFilterSummary}" FontSize="10" Foreground="#9CB7D9"/>
                     </Border>
+                    <TextBlock Text="S = Similarity · H = Harmonic · E = Energy fit"
+                               FontSize="10"
+                               Foreground="#6E7A86"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding HasTracks}"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -329,7 +334,7 @@
                         <ItemsControl ItemsSource="{Binding Tracks}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <StackPanel Orientation="Horizontal" Spacing="0"/>
+                                    <VirtualizingStackPanel Orientation="Horizontal"/>
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
@@ -363,7 +368,7 @@
                 <ItemsControl ItemsSource="{Binding Tracks}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal" Spacing="0"/>
+                            <VirtualizingStackPanel Orientation="Horizontal"/>
                         </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
 

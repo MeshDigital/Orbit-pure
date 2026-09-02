@@ -231,4 +231,38 @@ public class CueGenerationServiceTests
             new() { Timestamp = 150, ClusterClass = "Snare" },
         },
     };
+
+    // ── FindEnergyJumpCandidates: track-wide baseline gating ────────────────
+
+    [Fact]
+    public void FindEnergyJumpCandidates_RejectsLocalSpike_BelowTrackMeanEnergy()
+    {
+        // A loud section establishes a high track mean; a later quiet valley briefly rises
+        // 2x locally (0.05 -> 0.1) then settles back to quiet — a real local jump, but nowhere
+        // near the track's actual mean energy, so it should NOT be treated as a drop candidate.
+        var energyCurve = new float[40];
+        for (int i = 0; i < 10; i++) energyCurve[i] = 0.9f;  // establishes a high track mean
+        for (int i = 10; i < 20; i++) energyCurve[i] = 0.05f; // quiet valley
+        for (int i = 20; i < 26; i++) energyCurve[i] = 0.1f;  // local-only spike within the valley
+        for (int i = 26; i < 40; i++) energyCurve[i] = 0.05f; // back to quiet
+
+        var candidates = CueGenerationService.FindEnergyJumpCandidates(energyCurve, duration: 40.0);
+
+        Assert.Empty(candidates);
+    }
+
+    [Fact]
+    public void FindEnergyJumpCandidates_AcceptsLocalSpike_NearTrackMeanEnergy()
+    {
+        // A quiet section jumping to a sustained level close to the track's own mean — a
+        // genuine candidate, should still be found (this fix adds a gate, not a blanket
+        // suppression of every jump).
+        var energyCurve = new float[40];
+        for (int i = 0; i < 10; i++) energyCurve[i] = 0.1f;
+        for (int i = 10; i < 40; i++) energyCurve[i] = 0.85f;
+
+        var candidates = CueGenerationService.FindEnergyJumpCandidates(energyCurve, duration: 40.0);
+
+        Assert.Contains(candidates, t => t is >= 8.0 and <= 12.0);
+    }
 }

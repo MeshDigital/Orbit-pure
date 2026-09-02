@@ -1798,13 +1798,22 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
 
     private void RefreshGlobalSpeed()
     {
-        var totalSpeedBytes = _activeDownloads
-            .Where(d => d.State == PlaylistTrackState.Downloading)
-            .Sum(d => d.CurrentSpeedBytes);
+        try
+        {
+            var totalSpeedBytes = _activeDownloads
+                .Where(d => d.State == PlaylistTrackState.Downloading)
+                .Sum(d => d.CurrentSpeedBytes);
 
-        GlobalSpeed = totalSpeedBytes > 1024 * 1024
-            ? $"{totalSpeedBytes / 1024 / 1024:F1} MB/s"
-            : $"{totalSpeedBytes / 1024:F0} KB/s";
+            GlobalSpeed = totalSpeedBytes > 1024 * 1024
+                ? $"{totalSpeedBytes / 1024 / 1024:F1} MB/s"
+                : $"{totalSpeedBytes / 1024:F0} KB/s";
+        }
+        catch (Exception ex)
+        {
+            // Runs every 200ms on the shared UI batch timer — a transient race over
+            // _activeDownloads during add/remove must not crash the whole app.
+            Serilog.Log.Warning(ex, "DownloadCenterViewModel: RefreshGlobalSpeed failed — skipping tick");
+        }
     }
     
     private async Task PauseAll()

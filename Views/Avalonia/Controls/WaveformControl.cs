@@ -310,6 +310,43 @@ namespace SLSKDONET.Views.Avalonia.Controls
             set => SetValue(ShowVocalGhostProperty, value);
         }
 
+        // Waveform appearance settings — previously every color/overlay was a compiled-in constant.
+        public static readonly StyledProperty<bool> UseNeonPaletteProperty =
+            AvaloniaProperty.Register<WaveformControl, bool>(nameof(UseNeonPalette), true);
+
+        public bool UseNeonPalette
+        {
+            get => GetValue(UseNeonPaletteProperty);
+            set => SetValue(UseNeonPaletteProperty, value);
+        }
+
+        public static readonly StyledProperty<double> GainProperty =
+            AvaloniaProperty.Register<WaveformControl, double>(nameof(Gain), 1.0);
+
+        public double Gain
+        {
+            get => GetValue(GainProperty);
+            set => SetValue(GainProperty, value);
+        }
+
+        public static readonly StyledProperty<bool> ShowEnergyCurveProperty =
+            AvaloniaProperty.Register<WaveformControl, bool>(nameof(ShowEnergyCurve), true);
+
+        public bool ShowEnergyCurve
+        {
+            get => GetValue(ShowEnergyCurveProperty);
+            set => SetValue(ShowEnergyCurveProperty, value);
+        }
+
+        public static readonly StyledProperty<bool> ShowPhraseSectionsProperty =
+            AvaloniaProperty.Register<WaveformControl, bool>(nameof(ShowPhraseSections), true);
+
+        public bool ShowPhraseSections
+        {
+            get => GetValue(ShowPhraseSectionsProperty);
+            set => SetValue(ShowPhraseSectionsProperty, value);
+        }
+
         private DispatcherTimer? _ghostPulseTimer;
         private float _ghostOpacity = 0.6f;
         private bool _ghostPulseUp = true;
@@ -361,9 +398,21 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 change.Property == BoundsProperty ||
                 change.Property == LowBandProperty ||
                 change.Property == MidBandProperty ||
-                change.Property == HighBandProperty)
+                change.Property == HighBandProperty ||
+                change.Property == UseNeonPaletteProperty ||
+                change.Property == GainProperty ||
+                change.Property == FrequencyColorModeProperty)
             {
+                // These feed the cached base/active bitmaps (RenderStaticToContext), so a change
+                // needs a real rebuild, not just a redraw.
                 _isDirty = true;
+                InvalidateVisual();
+            }
+            else if (change.Property == ShowEnergyCurveProperty ||
+                     change.Property == ShowPhraseSectionsProperty ||
+                     change.Property == ShowVocalGhostProperty)
+            {
+                // Drawn directly in Render(), outside the cached bitmap — a redraw is enough.
                 InvalidateVisual();
             }
             // Sprint 4: Only invalidate on significant zoom changes (>5%)
@@ -869,7 +918,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 for (int i = 0; i < samples; i += stride)
                 {
                     double x = i * step;
-                    double h = (data.PeakData![i] / 255.0) * mid;
+                    double h = Math.Min((data.PeakData![i] / 255.0) * mid * (Gain > 0 ? Gain : 1.0), mid);
                     if (h < 0.5) continue;
                     ctx.BeginFigure(new Point(x, mid - h), false);
                     ctx.LineTo(new Point(x, mid + h));
@@ -893,16 +942,28 @@ namespace SLSKDONET.Views.Avalonia.Controls
             var cuesList = Cues?.OrderBy(c => c.Timestamp).ToList();
             double duration = data.DurationSeconds > 0 ? data.DurationSeconds : samples / 100.0;
 
-            // Professional Neon Palette
-            var lowColor = Color.FromRgb(255, 40, 100);    // Hot Pink / Red
-            var midColor = Color.FromRgb(0, 255, 120);    // Neon Green
-            var highColor = Color.FromRgb(0, 200, 255);   // Cyan / Blue
+            // Palette — Neon (default) or Classic RGB, per the Waveform Appearance setting.
+            Color lowColor, midColor, highColor;
+            if (UseNeonPalette)
+            {
+                lowColor = Color.FromRgb(255, 40, 100);   // Hot Pink / Red
+                midColor = Color.FromRgb(0, 255, 120);    // Neon Green
+                highColor = Color.FromRgb(0, 200, 255);   // Cyan / Blue
+            }
+            else
+            {
+                lowColor = Color.FromRgb(255, 68, 68);    // Classic red
+                midColor = Color.FromRgb(68, 255, 136);   // Classic green
+                highColor = Color.FromRgb(68, 170, 255);  // Classic blue
+            }
+
+            double gain = Gain > 0 ? Gain : 1.0;
 
             int safeLen = Math.Min(samples, Math.Min(peak.Length, Math.Min(low.Length, Math.Min(midB.Length, high.Length))));
             for (int i = 0; i < safeLen; i += stride)
             {
                 
-                double h = (peak[i] / 255.0) * mid;
+                double h = Math.Min((peak[i] / 255.0) * mid * gain, mid);
                 if (h < 0.5) continue;
 
                 double x = (i * step) + currentXOffset;
@@ -1038,6 +1099,8 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
         private void RenderPhraseSegments(DrawingContext context, double width, double height)
         {
+            if (!ShowPhraseSections) return;
+
             var segments = PhraseSegments;
             var data = WaveformData;
             if (segments == null || data == null || data.DurationSeconds <= 0) return;
@@ -1115,13 +1178,14 @@ namespace SLSKDONET.Views.Avalonia.Controls
             if (energy == null && vocals == null) return;
 
             // Draw Energy Curve (Yellow glow)
-            if (energy != null)
+            if (energy != null && ShowEnergyCurve)
             {
                 RenderCurve(context, energy, width, height, Color.FromRgb(255, 255, 0), 0.6f);
             }
 
-            // Draw Vocal Curve (Purple glow)
-            if (vocals != null)
+            // Draw Vocal Curve (Purple glow) — same toggle as the vocal ghost pulse layer, one
+            // "show vocal info" setting rather than splitting it into two.
+            if (vocals != null && ShowVocalGhost)
             {
                 RenderCurve(context, vocals, width, height, Color.FromRgb(189, 16, 224), 0.5f);
             }
@@ -1226,12 +1290,14 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
         public void Render(ImmediateDrawingContext context)
         {
+            try
+            {
             var lease = context.TryGetFeature<ISkiaSharpApiLease>();
             if (lease == null) return;
 
             using var canvas = lease.SkCanvas;
             canvas.Save();
-            
+
             var width = (float)Bounds.Width;
             var height = (float)Bounds.Height;
             var samples = _vocalData.Count;
@@ -1304,8 +1370,15 @@ namespace SLSKDONET.Views.Avalonia.Controls
                     }
                 }
             }
-            
+
             canvas.Restore();
+            }
+            catch (Exception ex)
+            {
+                // Render-thread exceptions bypass all managed exception handling and hard-crash
+                // the process with zero trace. Skip the frame instead of taking the app down.
+                Serilog.Log.Warning(ex, "WaveformControl: vocal-ghost render tick failed — skipping frame");
+            }
         }
     }
 }

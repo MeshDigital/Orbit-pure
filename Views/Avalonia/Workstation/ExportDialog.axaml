@@ -33,34 +33,46 @@
         </Style>
     </Window.Styles>
 
-    <Grid Margin="24" RowDefinitions="Auto,16,Auto,16,Auto,16,*,16,Auto">
+    <Grid Margin="24" RowDefinitions="Auto,16,Auto,16,Auto,16,Auto,16,*,16,Auto">
 
         <!-- ── Header ── -->
         <TextBlock Grid.Row="0"
-                   Text="Export Mix to WAV"
+                   Text="{Binding SelectedFormat, StringFormat='Export Mix to {0}'}"
                    FontSize="18" FontWeight="SemiBold"
                    Foreground="White"/>
 
         <!-- ── Output path ── -->
         <StackPanel Grid.Row="2" Spacing="4">
             <TextBlock Classes="label" Text="OUTPUT FILE"/>
-            <Grid ColumnDefinitions="*,8,Auto">
-                <TextBox Grid.Column="0"
-                         Text="{Binding OutputPath}"
-                         Background="#1A1A1A" Foreground="#EEE"
-                         BorderBrush="#333" CornerRadius="4"
-                         Padding="10,6" FontSize="12"/>
-                <Button Grid.Column="2"
-                        Classes="secondary"
-                        Content="Browse…"
-                        Command="{Binding BrowseCommand}"
-                        IsVisible="False"/>
-                <!-- Browse is wired in code-behind via StorageProvider -->
+            <TextBox Text="{Binding OutputPath}"
+                     Background="#1A1A1A" Foreground="#EEE"
+                     BorderBrush="#333" CornerRadius="4"
+                     Padding="10,6" FontSize="12"/>
+        </StackPanel>
+
+        <!-- ── Format / quality ── -->
+        <StackPanel Grid.Row="4" Spacing="4">
+            <TextBlock Classes="label" Text="FORMAT"/>
+            <Grid ColumnDefinitions="Auto,16,Auto,16,Auto">
+                <ComboBox Grid.Column="0"
+                          ItemsSource="{Binding AvailableFormats}"
+                          SelectedItem="{Binding SelectedFormat}"
+                          Width="100"/>
+                <CheckBox Grid.Column="2"
+                          Content="Normalize"
+                          IsChecked="{Binding Normalize}"
+                          Foreground="#CCC"
+                          VerticalAlignment="Center"/>
+                <CheckBox Grid.Column="4"
+                          Content="Dither"
+                          IsChecked="{Binding Dither}"
+                          Foreground="#CCC"
+                          VerticalAlignment="Center"/>
             </Grid>
         </StackPanel>
 
         <!-- ── Deck list ── -->
-        <StackPanel Grid.Row="4" Spacing="4">
+        <StackPanel Grid.Row="6" Spacing="4">
             <TextBlock Classes="label" Text="SOURCES"/>
             <ItemsControl ItemsSource="{Binding Decks}">
                 <ItemsControl.ItemTemplate>
@@ -91,7 +103,7 @@
         </StackPanel>
 
         <!-- ── Progress ── -->
-        <StackPanel Grid.Row="6" Spacing="6" VerticalAlignment="Bottom">
+        <StackPanel Grid.Row="8" Spacing="6" VerticalAlignment="Bottom">
             <ProgressBar Value="{Binding ExportProgress}"
                          Minimum="0" Maximum="1"
                          Height="6"
@@ -104,13 +116,13 @@
         </StackPanel>
 
         <!-- ── Buttons ── -->
-        <StackPanel Grid.Row="8" Orientation="Horizontal"
+        <StackPanel Grid.Row="10" Orientation="Horizontal"
                     HorizontalAlignment="Right" Spacing="8">
             <Button Classes="secondary"
                     Content="Cancel"
                     Command="{Binding CancelCommand}"/>
             <Button Classes="primary"
-                    Content="Export WAV"
+                    Content="{Binding SelectedFormat, StringFormat='Export {0}'}"
                     Command="{Binding ExportCommand}"/>
         </StackPanel>
     </Grid>

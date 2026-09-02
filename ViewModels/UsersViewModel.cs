@@ -30,9 +30,18 @@ public class UsersViewModel : ReactiveObject, IDisposable
     private readonly IServiceProvider _serviceProvider;
     private readonly ISoulseekAdapter _adapter;
     private readonly ChatService _chatService;
+    private readonly UserPresenceWatchService _presenceWatch;
     private readonly IEventBus _eventBus;
     private readonly ILogger<UsersViewModel> _logger;
+    private readonly PerformanceTracker _perfTracker;
     private readonly CompositeDisposable _disposables = new();
+
+    // Presence dots: bounds how many contacts get a live server watch to what's actually visible
+    // (post-filter), not the full "everyone you've ever downloaded from" list, which could be
+    // large. Conversations is always watched in full — that list is inherently small.
+    private const int MaxPresenceWatchedContacts = 150;
+    private readonly Dictionary<string, IDisposable> _presenceHandles = new(StringComparer.OrdinalIgnoreCase);
+    private bool _disposed;
 
     /// <summary>
     /// Recent 1:1 conversations (peers you've actually exchanged messages with), most recently
@@ -123,8 +132,10 @@ public class UsersViewModel : ReactiveObject, IDisposable
         ISoulseekAdapter adapter,
         RoomsViewModel rooms,
         ChatService chatService,
+        UserPresenceWatchService presenceWatch,
         IEventBus eventBus,
         ILogger<UsersViewModel> logger,
+        PerformanceTracker perfTracker,
         FrequentSourceService? frequentSourceService = null)
     {
         _peerReliability = peerReliability;
@@ -133,8 +144,10 @@ public class UsersViewModel : ReactiveObject, IDisposable
         _serviceProvider = serviceProvider;
         _adapter = adapter;
         _chatService = chatService;
+        _presenceWatch = presenceWatch;
         _eventBus = eventBus;
         _logger = logger;
+        _perfTracker = perfTracker;
         _frequentSourceService = frequentSourceService;
         Rooms = rooms;
 
@@ -167,6 +180,20 @@ public class UsersViewModel : ReactiveObject, IDisposable
             })
             .DisposeWith(_disposables);
 
+        _eventBus.GetEvent<UserPresenceChangedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e =>
+            {
+                var row = Rows.FirstOrDefault(r => string.Equals(r.Username, e.Username, StringComparison.OrdinalIgnoreCase));
+                if (row != null)
+                    row.Presence = e.Presence;
+
+                var conversation = Conversations.FirstOrDefault(c => string.Equals(c.Username, e.Username, StringComparison.OrdinalIgnoreCase));
+                if (conversation != null)
+                    conversation.Presence = e.Presence;
+            })
+            .DisposeWith(_disposables);
+
         _ = LoadAsync();
     }
 
@@ -193,15 +220,86 @@ public class UsersViewModel : ReactiveObject, IDisposable
         else
         {
             Conversations.Insert(0, new ConversationRowViewModel(e.PeerUsername, e.Message, e.TimestampUtc, isUnread: !isActive));
+            _ = WatchOnePresenceAsync(e.PeerUsername);
         }
     }
 
-    private async Task LoadConversationsAsync()
+    /// <summary>Populates <see cref="Conversations"/> from an already-fetched summary list — split
+    /// from the fetch itself so <see cref="LoadAsync"/> can run that fetch concurrently with its
+    /// other independent DB calls instead of awaiting it in isolation.</summary>
+    private void ApplyConversations(List<ConversationSummary> recent)
     {
-        var recent = await _chatService.GetRecentConversationsAsync().ConfigureAwait(true);
         Conversations.Clear();
         foreach (var c in recent)
-            Conversations.Add(new ConversationRowViewModel(c.Username, c.LastMessage, c.LastMessageUtc, isUnread: false));
+            Conversations.Add(new ConversationRowViewModel(c.Username, c.LastMessage, c.LastMessageUtc, isUnread: c.HasUnread));
+
+        _ = RefreshPresenceWatchesAsync();
+    }
+
+    /// <summary>
+    /// Keeps presence dots live for contacts currently visible in <see cref="Rows"/> (capped —
+    /// see <see cref="MaxPresenceWatchedContacts"/>) and every row in <see cref="Conversations"/>
+    /// (always small). Diffs against the currently-held watch set rather than unwatching and
+    /// rewatching everything on every call, so filtering by a keystroke doesn't cause needless
+    /// watch/unwatch server chatter for usernames that stay in view.
+    /// </summary>
+    private async Task RefreshPresenceWatchesAsync()
+    {
+        var desired = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in Rows.Take(MaxPresenceWatchedContacts))
+            desired.Add(row.Username);
+        foreach (var conversation in Conversations)
+            desired.Add(conversation.Username);
+
+        foreach (var username in _presenceHandles.Keys.Where(u => !desired.Contains(u)).ToList())
+        {
+            _presenceHandles[username].Dispose();
+            _presenceHandles.Remove(username);
+        }
+
+        // Each watch is its own network round-trip to the Soulseek server — previously awaited
+        // one at a time, so up to MaxPresenceWatchedContacts (150) + every conversation could take
+        // 10s+ of wall-clock time to finish lighting up dots even though the page had already
+        // rendered. Running them concurrently bounds the wait to the slowest single watch.
+        var toWatch = desired.Where(u => !_presenceHandles.ContainsKey(u)).ToList();
+        if (toWatch.Count > 0)
+            await Task.WhenAll(toWatch.Select(WatchOnePresenceAsync)).ConfigureAwait(true);
+    }
+
+    /// <summary>Watches a single username's presence and seeds the matching row(s) from the
+    /// initial snapshot; later changes arrive via the UserPresenceChangedEvent subscription.</summary>
+    private async Task WatchOnePresenceAsync(string username)
+    {
+        if (_presenceHandles.ContainsKey(username))
+            return;
+
+        try
+        {
+            var (handle, snapshot) = await _presenceWatch.WatchAsync(username).ConfigureAwait(true);
+            if (_disposed)
+            {
+                // Closed while the watch request was in flight — release immediately rather than
+                // leaking the ref-count for this username forever (see UserPresenceWatchService).
+                handle.Dispose();
+                return;
+            }
+
+            _presenceHandles[username] = handle;
+            if (snapshot != null)
+            {
+                var row = Rows.FirstOrDefault(r => string.Equals(r.Username, username, StringComparison.OrdinalIgnoreCase));
+                if (row != null)
+                    row.Presence = snapshot.Presence;
+
+                var conversation = Conversations.FirstOrDefault(c => string.Equals(c.Username, username, StringComparison.OrdinalIgnoreCase));
+                if (conversation != null)
+                    conversation.Presence = snapshot.Presence;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to watch presence for {Username}", username);
+        }
     }
 
     /// <summary>Jumps straight to a conversation or room — used when a chat/room notification is clicked.</summary>
@@ -237,21 +335,28 @@ public class UsersViewModel : ReactiveObject, IDisposable
     public async Task LoadAsync()
     {
         IsLoading = true;
+        using var _ = _perfTracker.Measure("Users.LoadAsync");
         try
         {
-            var summaries = await _databaseService.GetDownloadedUsersSummaryAsync().ConfigureAwait(true);
-            var summaryByUser = summaries.ToDictionary(s => s.Username, StringComparer.OrdinalIgnoreCase);
-
-            var knownUsernames = new HashSet<string>(_peerReliability.GetKnownUsernames(), StringComparer.OrdinalIgnoreCase);
-            foreach (var username in summaryByUser.Keys)
-                knownUsernames.Add(username);
+            // Previously these ran one after another — three independent round-trips (DB summary,
+            // FrequentSources ranking, recent conversations) each waiting for the last, even though
+            // none of them depend on each other's results. Kicking them all off together and
+            // awaiting jointly cuts total wait time to whichever one is slowest, not their sum.
+            var summaryTask = _databaseService.GetDownloadedUsersSummaryAsync();
+            var conversationsTask = _chatService.GetRecentConversationsAsync();
 
             IReadOnlyDictionary<string, (bool IsFriend, bool IsPinned)> friendFlags = new Dictionary<string, (bool, bool)>(StringComparer.OrdinalIgnoreCase);
+            Task friendFlagsTask = Task.CompletedTask;
             if (_config.EnableFrequentSources && _frequentSourceService != null)
+            {
+                friendFlagsTask = LoadFriendFlagsAsync();
+            }
+
+            async Task LoadFriendFlagsAsync()
             {
                 try
                 {
-                    var ranked = await _frequentSourceService.GetRankedAsync().ConfigureAwait(true);
+                    var ranked = await _frequentSourceService!.GetRankedAsync().ConfigureAwait(true);
                     friendFlags = ranked
                         .GroupBy(r => r.SourceUsername, StringComparer.OrdinalIgnoreCase)
                         .ToDictionary(
@@ -264,6 +369,15 @@ public class UsersViewModel : ReactiveObject, IDisposable
                     _logger.LogDebug(ex, "Failed to load FrequentSources enrichment for Users page");
                 }
             }
+
+            await Task.WhenAll(summaryTask, conversationsTask, friendFlagsTask).ConfigureAwait(true);
+
+            var summaries = summaryTask.Result;
+            var summaryByUser = summaries.ToDictionary(s => s.Username, StringComparer.OrdinalIgnoreCase);
+
+            var knownUsernames = new HashSet<string>(_peerReliability.GetKnownUsernames(), StringComparer.OrdinalIgnoreCase);
+            foreach (var username in summaryByUser.Keys)
+                knownUsernames.Add(username);
 
             _allRows.Clear();
             foreach (var username in knownUsernames)
@@ -286,7 +400,9 @@ public class UsersViewModel : ReactiveObject, IDisposable
             _allRows.Sort((a, b) => b.TotalDownloads.CompareTo(a.TotalDownloads));
             ApplyFilter();
 
-            await LoadConversationsAsync().ConfigureAwait(true);
+            // conversationsTask already completed (awaited via Task.WhenAll above) — this just
+            // applies the result, no additional wait.
+            ApplyConversations(conversationsTask.Result);
         }
         finally
         {
@@ -303,6 +419,8 @@ public class UsersViewModel : ReactiveObject, IDisposable
 
         foreach (var row in query)
             Rows.Add(row);
+
+        _ = RefreshPresenceWatchesAsync();
     }
 
     private async Task OpenProfileAsync(string username)
@@ -318,11 +436,17 @@ public class UsersViewModel : ReactiveObject, IDisposable
         if (conversation != null)
             conversation.IsUnread = false;
 
+        _ = _databaseService.MarkConversationReadAsync(username);
         await profile.LoadUserAsync(username).ConfigureAwait(true);
     }
 
     public void Dispose()
     {
+        _disposed = true;
+        foreach (var handle in _presenceHandles.Values)
+            handle.Dispose();
+        _presenceHandles.Clear();
+
         _disposables.Dispose();
         SelectedProfile?.Dispose();
         Rooms.Dispose();
@@ -353,6 +477,13 @@ public class ConversationRowViewModel : ReactiveObject
     {
         get => _isUnread;
         set => this.RaiseAndSetIfChanged(ref _isUnread, value);
+    }
+
+    private UserPresenceState _presence = UserPresenceState.Unknown;
+    public UserPresenceState Presence
+    {
+        get => _presence;
+        set => this.RaiseAndSetIfChanged(ref _presence, value);
     }
 
     public ConversationRowViewModel(string username, string lastMessage, DateTime lastMessageUtc, bool isUnread)
