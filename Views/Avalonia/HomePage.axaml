@@ -81,26 +81,9 @@
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,16">
             <StackPanel Grid.Column="0">
                 <StackPanel Orientation="Horizontal" Spacing="12">
-                    <TextBlock Text="Mission Control" FontSize="32" FontWeight="Black" Foreground="White" LetterSpacing="-0.5"/>
-                    <Border Background="#FF5252" CornerRadius="4" Padding="8,4" VerticalAlignment="Center" IsVisible="{Binding IsLockdownActive}">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="🛡️" FontSize="12" VerticalAlignment="Center"/>
-                            <TextBlock Text="FORENSIC LOCKDOWN ACTIVE" FontSize="11" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
-                        </StackPanel>
-                        <Border.Styles>
-                            <Style Selector="Border">
-                                <Style.Animations>
-                                    <Animation Duration="0:0:1" IterationCount="Infinite">
-                                        <KeyFrame KeyTime="0:0:0"><Setter Property="Opacity" Value="1"/></KeyFrame>
-                                        <KeyFrame KeyTime="0:0:0.5"><Setter Property="Opacity" Value="0.4"/></KeyFrame>
-                                        <KeyFrame KeyTime="0:0:1"><Setter Property="Opacity" Value="1"/></KeyFrame>
-                                    </Animation>
-                                </Style.Animations>
-                            </Style>
-                        </Border.Styles>
-                    </Border>
+                    <TextBlock Text="Home" FontSize="32" FontWeight="Black" Foreground="White" LetterSpacing="-0.5"/>
                 </StackPanel>
-                <TextBlock Text="System Status &amp; Intelligence Dashboard" FontSize="14" Foreground="#808080" Margin="0,4,0,0"/>
+                <TextBlock Text="Your library, downloads, and system at a glance" FontSize="14" Foreground="#808080" Margin="0,4,0,0"/>
             </StackPanel>
             
             <Button Grid.Column="1" Command="{Binding RefreshDashboardCommand}" 
@@ -180,8 +163,8 @@
                     <Border Grid.Column="2" Classes="glass" Padding="16">
                         <Grid RowDefinitions="Auto,*,Auto">
                             <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
-                                <TextBlock Grid.Column="0" Text="ENGINE RESILIENCE" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" Text="OPTIMAL" IsVisible="{Binding !IsLockdownActive}" FontSize="9" FontWeight="SemiBold" Foreground="#1DB954" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="0" Text="SYSTEM STATUS" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="{Binding EngineStatusText}" FontSize="9" FontWeight="SemiBold" Foreground="{Binding HealthColor}" VerticalAlignment="Center"/>
                             </Grid>
                             
                             <StackPanel Grid.Row="1" VerticalAlignment="Center" Spacing="6">
@@ -215,7 +198,7 @@
                                 </Button>
                             </StackPanel>
 
-                            <TextBlock Grid.Row="2" Text="Bridge Operations Active" FontSize="9" Foreground="#555" FontStyle="Italic" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                            <TextBlock Grid.Row="2" Text="{Binding LastRefreshedText}" FontSize="9" Foreground="#555" FontStyle="Italic" HorizontalAlignment="Center" Margin="0,4,0,0"/>
                         </Grid>
                     </Border>
                 </Grid>
@@ -558,14 +541,14 @@
                                                         </StackPanel>
 
                                                         <!-- Mini Progress -->
-                                                        <TextBlock Grid.Column="2" Text="{Binding Track.SpeedDisplay}" VerticalAlignment="Center" FontSize="11" Foreground="#A0A0A0" Margin="0,0,16,0" IsVisible="{Binding Track, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                                                        <TextBlock Grid.Column="2" Text="{Binding SpeedDisplay}" VerticalAlignment="Center" FontSize="11" Foreground="#A0A0A0" Margin="0,0,16,0" IsVisible="{Binding IsActive}"/>
 
                                                         <!-- Actions -->
                                                         <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
-                                                            <Button Classes="ActionBtnSmall" Command="{Binding Track.PauseCommand}" IsVisible="{Binding Track.IsActive}" ToolTip.Tip="Pause">
+                                                            <Button Classes="ActionBtnSmall" Command="{Binding PauseCommand}" IsVisible="{Binding IsActive}" ToolTip.Tip="Pause">
                                                                 <PathIcon Data="{StaticResource pause_regular}" Width="12" Height="12"/>
                                                             </Button>
-                                                            <Button Classes="ActionBtnSmall" Command="{Binding Track.CancelCommand}" IsVisible="{Binding CanCancel}" ToolTip.Tip="Cancel">
+                                                            <Button Classes="ActionBtnSmall" Command="{Binding CancelCommand}" IsVisible="{Binding CanCancel}" ToolTip.Tip="Cancel">
                                                                 <PathIcon Data="{StaticResource dismiss_regular}" Width="12" Height="12"/>
                                                             </Button>
                                                         </StackPanel>

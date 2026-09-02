@@ -261,8 +261,8 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
                 OnPropertyChanged(nameof(PurityPercent));
                 OnPropertyChanged(nameof(PurityStatus));
                 OnPropertyChanged(nameof(CurrentCpuLoad));
-                OnPropertyChanged(nameof(IsLockdownActive));
-                OnPropertyChanged(nameof(LockdownStatusText));
+                OnPropertyChanged(nameof(HealthColor));
+                OnPropertyChanged(nameof(EngineStatusText));
             });
         });
 
@@ -306,8 +306,6 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     public bool IsSoulseekConnected => _connectionViewModel.IsConnected;
     public string DownloadSpeed => _downloadCenter?.GlobalSpeedDisplay ?? "0 KB/s";
 
-    public string LockdownStatusText => IsLockdownActive ? "🛡️ ACTIVE" : "✅ NOMINAL";
-    public bool IsLockdownActive => CurrentSnapshot.IsForensicLockdownActive;
     public double CurrentCpuLoad => CurrentSnapshot.CurrentCpuLoad;
 
     public string HealthColor => CurrentSnapshot.SystemHealth switch
@@ -319,12 +317,42 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         _ => "#808080"
     };
 
+    /// <summary>
+    /// Real system-status badge, replacing a badge that was previously bound to
+    /// "!IsLockdownActive" — a dead-code flag (IsForensicLockdownActive) that was always false,
+    /// making the badge permanently read "OPTIMAL" regardless of actual health.
+    /// </summary>
+    public string EngineStatusText => CurrentSnapshot.SystemHealth switch
+    {
+        SystemHealth.Excellent or SystemHealth.Good => "OPTIMAL",
+        SystemHealth.Warning => "ATTENTION",
+        SystemHealth.Critical => "CRITICAL",
+        _ => "OPTIMAL"
+    };
+
     private void UpdateResilienceLog(List<string> newLog)
     {
         if (ResilienceLog.SequenceEqual(newLog)) return;
         
         ResilienceLog.Clear();
         foreach (var l in newLog) ResilienceLog.Add(l);
+    }
+
+    private DateTime? _lastRefreshedAtUtc;
+    /// <summary>
+    /// Replaces the previous static "Bridge Operations Active" filler text, which was decorative
+    /// and didn't correspond to anything real.
+    /// </summary>
+    public string LastRefreshedText => _lastRefreshedAtUtc is null
+        ? "Not yet refreshed"
+        : $"Updated {FormatRelativeTime(DateTime.UtcNow - _lastRefreshedAtUtc.Value)}";
+
+    private static string FormatRelativeTime(TimeSpan elapsed)
+    {
+        if (elapsed.TotalSeconds < 60) return "just now";
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes} min ago";
+        if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours} hr ago";
+        return $"{(int)elapsed.TotalDays} days ago";
     }
 
     public async Task RefreshDashboardAsync()
@@ -338,6 +366,9 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
             var intelligenceTask = LoadIntelligenceStatsAsync();
 
             await Task.WhenAll(healthTask, recentTask, recentDownloadsTask, spotifyTask, intelligenceTask);
+
+            _lastRefreshedAtUtc = DateTime.UtcNow;
+            OnPropertyChanged(nameof(LastRefreshedText));
         }
         catch (Exception ex)
         {
