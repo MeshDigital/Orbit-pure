@@ -37,6 +37,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     private readonly ArtworkCacheService _artworkCacheService;
     private readonly PlaylistMosaicService _mosaicService;
     private readonly AnalysisPageViewModel _analysisPageViewModel;
+    private readonly PeerReliabilityService _peerReliabilityService;
     private IDisposable? _eventSubscription;
     private PropertyChangedEventHandler? _connectionChangedHandler;
     private bool _isDisposed;
@@ -54,6 +55,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
             {
                 OnPropertyChanged(nameof(PurityPercent));
                 OnPropertyChanged(nameof(PurityStatus));
+                OnPropertyChanged(nameof(LibraryFooterText));
             }
         }
     }
@@ -78,6 +80,20 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     public ObservableCollection<PlaylistCardViewModel> RecentPlaylists { get; } = new();
     public ObservableCollection<RecentDownloadedTrackCardViewModel> RecentDownloads { get; } = new();
     public ObservableCollection<SpotifyTrackViewModel> SpotifyRecommendations { get; } = new();
+
+    /// <summary>
+    /// Top peers by reliability score — data PeerReliabilityService already aggregates
+    /// swarm-wide, but which previously only ever reached the Users page's per-user detail.
+    /// </summary>
+    public ObservableCollection<PeerLeaderboardEntry> TopPeers { get; } = new();
+    public bool HasTopPeers => TopPeers.Count > 0;
+
+    private DownloadTrendSummary _downloadTrend = new(7, 0, 0, 0.0);
+    public DownloadTrendSummary DownloadTrend
+    {
+        get => _downloadTrend;
+        private set => SetProperty(ref _downloadTrend, value);
+    }
 
     // --- Library Intelligence ---
     private int _intelligenceTotalTracks;
@@ -217,7 +233,8 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         SearchViewModel searchViewModel,
         ArtworkCacheService artworkCacheService,
         PlaylistMosaicService mosaicService,
-        AnalysisPageViewModel analysisPageViewModel)
+        AnalysisPageViewModel analysisPageViewModel,
+        PeerReliabilityService peerReliabilityService)
     {
         _logger = logger;
         _dashboardService = dashboardService;
@@ -236,6 +253,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         _libraryViewModel = libraryViewModel;
         _searchViewModel = searchViewModel;
         _analysisPageViewModel = analysisPageViewModel;
+        _peerReliabilityService = peerReliabilityService;
 
         // Subscribe to Mission Control Updates (Smart Throttled & IEquatable)
         _eventSubscription = _eventBus.GetEvent<DashboardSnapshot>().Subscribe(snapshot =>
@@ -265,6 +283,11 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
                 OnPropertyChanged(nameof(CurrentCpuLoad));
                 OnPropertyChanged(nameof(HealthColor));
                 OnPropertyChanged(nameof(EngineStatusText));
+                OnPropertyChanged(nameof(LibraryFooterText));
+                // DownloadSpeed was computed but never bound anywhere in the XAML, and had no
+                // change notification wired up at all — refresh it on the same tick as the rest
+                // of this snapshot-driven block now that it's actually displayed.
+                OnPropertyChanged(nameof(DownloadSpeed));
             });
         });
 
@@ -331,6 +354,18 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     };
 
     /// <summary>
+    /// Combines two real, already-computed values that were never shown anywhere on the
+    /// dashboard: LibraryHealth.HealthStatus (from crash-journal data — "Requires Attention",
+    /// "Recovering (N)", etc., set in LoadLibraryHealthAsync) and available disk space
+    /// (DashboardService.GetStorageInsight, piped into CurrentSnapshot.AvailableFreeSpaceBytes).
+    /// Kept to one compact line deliberately — this tile's row height was tuned tightly in an
+    /// earlier compaction pass, and a second line risks the same overflow regression documented
+    /// there.
+    /// </summary>
+    public string LibraryFooterText =>
+        $"{LibraryHealth?.HealthStatus ?? "Healthy"} · {Utils.FileFormattingUtils.FormatBytes(CurrentSnapshot.AvailableFreeSpaceBytes)} free";
+
+    /// <summary>
     /// Real system-status badge, replacing a badge that was previously bound to
     /// "!IsLockdownActive" — a dead-code flag (IsForensicLockdownActive) that was always false,
     /// making the badge permanently read "OPTIMAL" regardless of actual health.
@@ -342,6 +377,48 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         SystemHealth.Critical => "CRITICAL",
         _ => "OPTIMAL"
     };
+
+    private async Task LoadDownloadTrendAsync()
+    {
+        try
+        {
+            var trend = await _dashboardService.GetDownloadTrendAsync(7);
+            Dispatcher.UIThread.Post(() => DownloadTrend = trend);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load download trend summary");
+        }
+    }
+
+    private const int MinAttemptsForLeaderboard = 3;
+    private const int TopPeersCount = 5;
+
+    private void RefreshTopPeers()
+    {
+        try
+        {
+            var top = _peerReliabilityService.GetKnownUsernames()
+                .Select(u => _peerReliabilityService.GetSnapshot(u))
+                .Where(s => s.HasValue && s.Value.DownloadStarts >= MinAttemptsForLeaderboard)
+                .Select(s => s!.Value)
+                .Select(s => new PeerLeaderboardEntry(s.Username, _peerReliabilityService.GetReliabilityScore(s.Username), s.DownloadStarts))
+                .OrderByDescending(p => p.Score)
+                .Take(TopPeersCount)
+                .ToList();
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                TopPeers.Clear();
+                foreach (var p in top) TopPeers.Add(p);
+                OnPropertyChanged(nameof(HasTopPeers));
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to refresh top-peers leaderboard");
+        }
+    }
 
     private void UpdateResilienceLog(List<string> newLog)
     {
@@ -377,8 +454,11 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
             var recentDownloadsTask = LoadRecentDownloadsAsync();
             var spotifyTask = LoadSpotifyRecommendationsAsync();
             var intelligenceTask = LoadIntelligenceStatsAsync();
+            var trendTask = LoadDownloadTrendAsync();
 
-            await Task.WhenAll(healthTask, recentTask, recentDownloadsTask, spotifyTask, intelligenceTask);
+            await Task.WhenAll(healthTask, recentTask, recentDownloadsTask, spotifyTask, intelligenceTask, trendTask);
+
+            RefreshTopPeers();
 
             _lastRefreshedAtUtc = DateTime.UtcNow;
             OnPropertyChanged(nameof(LastRefreshedText));
@@ -869,4 +949,11 @@ public record EnergyBucketViewModel(string Label, int Count, double RelativeHeig
 {
     public double BarHeight => Math.Max(2, RelativeHeight * 80);
     public string TooltipText => $"{Label}: {Count} tracks";
+}
+
+/// <summary>One row of the Dashboard's "Top Peers" mini-leaderboard, built from
+/// PeerReliabilityService data that previously only ever reached the Users page.</summary>
+public record PeerLeaderboardEntry(string Username, double Score, long DownloadStarts)
+{
+    public string ScoreText => $"{Score:P0}";
 }

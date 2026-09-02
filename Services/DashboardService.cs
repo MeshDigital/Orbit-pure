@@ -21,6 +21,12 @@ public record LibraryIntelligenceStats(
     Dictionary<string, int> KeyCounts,
     int[] EnergyBuckets);
 
+/// <summary>Rolling-window download outcome summary for the Dashboard's "Last N Days" tile.</summary>
+public record DownloadTrendSummary(int Days, int CompletedCount, int FailedCount, double Mp3FallbackPercent)
+{
+    public int TotalCount => CompletedCount + FailedCount;
+}
+
 /// <summary>
 /// Aggregates library health metrics for the dashboard/mission control.
 /// 
@@ -306,6 +312,47 @@ public class DashboardService
         {
             _logger.LogError(ex, "Failed to fetch recent downloaded tracks");
             return new List<PlaylistTrack>();
+        }
+    }
+
+    /// <summary>
+    /// Aggregates DownloadHistoryEntity (rich per-attempt telemetry already persisted, but
+    /// previously only ever read back for per-track history lookups) into a small "Last N Days"
+    /// trend for the dashboard: completed/failed counts and how often MP3 fallback was needed.
+    /// One GroupBy query, not per-row — same aggregate-query pattern as GetRecentPlaylistsAsync.
+    /// </summary>
+    public async Task<DownloadTrendSummary> GetDownloadTrendAsync(int days = 7)
+    {
+        try
+        {
+            using var context = new AppDbContext();
+            var since = DateTime.UtcNow.AddDays(-days);
+
+            var rows = await context.DownloadHistory
+                .AsNoTracking()
+                .Where(h => h.RecordedAt >= since)
+                .GroupBy(h => 1)
+                .Select(g => new
+                {
+                    Completed = g.Count(h => h.FinalState == "Completed"),
+                    Failed = g.Count(h => h.FinalState == "Failed"),
+                    Total = g.Count(),
+                    Mp3FallbackCount = g.Count(h => h.UsedMp3Fallback)
+                })
+                .FirstOrDefaultAsync();
+
+            if (rows == null || rows.Total == 0)
+            {
+                return new DownloadTrendSummary(days, 0, 0, 0.0);
+            }
+
+            var fallbackPercent = rows.Total > 0 ? (double)rows.Mp3FallbackCount / rows.Total * 100.0 : 0.0;
+            return new DownloadTrendSummary(days, rows.Completed, rows.Failed, fallbackPercent);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to compute download trend summary");
+            return new DownloadTrendSummary(days, 0, 0, 0.0);
         }
     }
 
