@@ -1557,6 +1557,11 @@
                                   IsVisible="{Binding SecurityAuditFeed.Count}"
                                   VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding SecurityAuditFeed}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <!-- Each audit row -->
@@ -1803,6 +1808,11 @@
                                   VerticalScrollBarVisibility="Auto"
                                   IsVisible="{Binding NetworkActivityFeed.Count}">
                         <ItemsControl ItemsSource="{Binding NetworkActivityFeed}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <Border Background="#111F2F"
@@ -1890,6 +1900,11 @@
                                   VerticalScrollBarVisibility="Auto"
                                   IsVisible="{Binding EngineDiagnosticsFeed.Count}">
                         <ItemsControl ItemsSource="{Binding EngineDiagnosticsFeed}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <Border Background="#111F2F"
