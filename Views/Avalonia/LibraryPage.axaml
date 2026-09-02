@@ -563,6 +563,17 @@
                 </StackPanel>
             </Button>
 
+            <!-- Bulk Move/Copy -->
+            <Button Command="{Binding BulkMoveOrCopyCommand}"
+                    ToolTip.Tip="Move or copy selected tracks' files to a folder"
+                    Padding="10,6" CornerRadius="18" FontSize="11"
+                    Background="#1AFFFFFF" Foreground="#DDD">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="📦" FontSize="13"/>
+                    <TextBlock Text="Move/Copy" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
             <!-- Queue Analysis -->
             <Button Command="{Binding BatchQueueAnalysisCommand}"
                     ToolTip.Tip="Queue selected tracks for audio analysis"

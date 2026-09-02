@@ -242,6 +242,21 @@ public class DialogService : IDialogService
         });
     }
 
+    public async Task<BulkMoveOrCopyResult?> ShowBulkMoveOrCopyDialogAsync(int trackCount)
+    {
+        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var vm = new BulkMoveOrCopyViewModel(trackCount);
+            var dialog = new Views.Avalonia.Dialogs.BulkMoveOrCopyDialog(vm);
+            var owner = GetOwnerWindow();
+            if (owner != null)
+            {
+                return await dialog.ShowDialog<BulkMoveOrCopyResult?>(owner);
+            }
+            return null;
+        });
+    }
+
     public async Task<string?> OpenFolderDialogAsync(string title)
     {
         return await Dispatcher.UIThread.InvokeAsync(async () =>

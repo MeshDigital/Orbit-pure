@@ -99,6 +99,7 @@ public partial class LibraryViewModel
     // ── Batch Action FAB (Task 10.5) ────────────────────────────────────────
     public ICommand BatchTagEditCommand { get; set; } = null!;
     public ICommand BulkRenameCommand { get; set; } = null!;
+    public ICommand BulkMoveOrCopyCommand { get; set; } = null!;
     public ICommand BatchQueueAnalysisCommand { get; set; } = null!;
     public ICommand BatchAddToPlaylistCommand { get; set; } = null!;
     public ICommand BatchExportRekordboxCommand { get; set; } = null!;
@@ -184,6 +185,7 @@ public partial class LibraryViewModel
         // Batch Action FAB
         BatchTagEditCommand = new AsyncRelayCommand(ExecuteBatchTagEditAsync);
         BulkRenameCommand = new AsyncRelayCommand(ExecuteBulkRenameAsync);
+        BulkMoveOrCopyCommand = new AsyncRelayCommand(ExecuteBulkMoveOrCopyAsync);
         BatchQueueAnalysisCommand = new AsyncRelayCommand(ExecuteBatchQueueAnalysisAsync);
         BatchAddToPlaylistCommand = new AsyncRelayCommand(ExecuteBatchAddToPlaylistAsync);
         BatchExportRekordboxCommand = new AsyncRelayCommand(ExecuteBatchExportRekordboxAsync);
@@ -2280,6 +2282,111 @@ public partial class LibraryViewModel
 
         _notificationService.Show(
             "Bulk Rename",
+            message,
+            skippedTracks.Count > 0 ? NotificationType.Warning : NotificationType.Success);
+    }
+
+    /// <summary>
+    /// Moves or copies every selected track's physical file into a chosen destination folder.
+    /// Move relocates the file and updates ORBIT's stored path (the reorganization case); Copy
+    /// duplicates the file for external use (e.g. staging a USB stick) and leaves the DB untouched
+    /// — a linked-library "copy" has no single unambiguous meaning otherwise, so this deliberately
+    /// doesn't create a second tracked library entry for the copy.
+    /// </summary>
+    private async Task ExecuteBulkMoveOrCopyAsync()
+    {
+        var selected = Tracks.SelectedTracks.ToList();
+        if (selected.Count == 0) return;
+
+        var modeResult = await _dialogService.ShowBulkMoveOrCopyDialogAsync(selected.Count);
+        if (modeResult == null || !modeResult.IsConfirmed) return;
+
+        var destinationFolder = await _dialogService.OpenFolderDialogAsync(
+            modeResult.IsCopy ? "Copy Selected Tracks To…" : "Move Selected Tracks To…");
+        if (string.IsNullOrWhiteSpace(destinationFolder)) return;
+
+        _logger.LogInformation(
+            "Bulk {Mode} for {Count} tracks to '{Destination}' starting.",
+            modeResult.IsCopy ? "copy" : "move", selected.Count, destinationFolder);
+
+        int processedCount = 0;
+        var skippedTracks = new List<string>();
+
+        await Task.Run(async () =>
+        {
+            await using var context = _dbFactory.CreateDbContext();
+            var trackIds = selected.Select(t => t.Model.Id).ToList();
+            var trackHashes = selected.Select(t => t.Model.TrackUniqueHash).Where(h => !string.IsNullOrEmpty(h)).ToList();
+
+            var dbTracksById = modeResult.IsCopy ? null : await context.PlaylistTracks
+                .Where(t => trackIds.Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id);
+            var dbEntriesByHash = modeResult.IsCopy ? null : await context.LibraryEntries
+                .Where(e => trackHashes.Contains(e.UniqueHash))
+                .ToDictionaryAsync(e => e.UniqueHash);
+
+            foreach (var trackVm in selected)
+            {
+                var track = trackVm.Model;
+                if (string.IsNullOrEmpty(track.ResolvedFilePath) || !System.IO.File.Exists(track.ResolvedFilePath))
+                    continue;
+
+                var fileName = System.IO.Path.GetFileName(track.ResolvedFilePath);
+                var destPath = System.IO.Path.Combine(destinationFolder, fileName);
+
+                if (string.Equals(System.IO.Path.GetFullPath(destPath), System.IO.Path.GetFullPath(track.ResolvedFilePath), StringComparison.OrdinalIgnoreCase))
+                    continue; // already there
+
+                if (System.IO.File.Exists(destPath))
+                {
+                    _logger.LogWarning("Bulk {Mode} skipped: target file already exists: {Path}", modeResult.IsCopy ? "copy" : "move", destPath);
+                    skippedTracks.Add($"{track.Artist} - {track.Title}");
+                    continue;
+                }
+
+                try
+                {
+                    if (modeResult.IsCopy)
+                    {
+                        System.IO.File.Copy(track.ResolvedFilePath, destPath);
+                    }
+                    else
+                    {
+                        System.IO.File.Move(track.ResolvedFilePath, destPath);
+                        track.ResolvedFilePath = destPath;
+
+                        if (dbTracksById != null && dbTracksById.TryGetValue(track.Id, out var dbTrack))
+                        {
+                            dbTrack.ResolvedFilePath = destPath;
+                            context.PlaylistTracks.Update(dbTrack);
+                        }
+                        if (dbEntriesByHash != null && !string.IsNullOrEmpty(track.TrackUniqueHash) && dbEntriesByHash.TryGetValue(track.TrackUniqueHash, out var dbEntry))
+                        {
+                            dbEntry.FilePath = destPath;
+                            context.LibraryEntries.Update(dbEntry);
+                        }
+                    }
+
+                    processedCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Bulk {Mode} failed for {Path}", modeResult.IsCopy ? "copy" : "move", track.ResolvedFilePath);
+                    skippedTracks.Add($"{track.Artist} - {track.Title}");
+                }
+            }
+
+            if (!modeResult.IsCopy)
+                await context.SaveChangesAsync();
+        });
+
+        var verb = modeResult.IsCopy ? "Copied" : "Moved";
+        var message = $"{verb} {processedCount} file(s) to {destinationFolder}.";
+        if (skippedTracks.Count > 0)
+            message += $" Skipped: {FormatFailedTrackList(skippedTracks)} — destination already existed or the operation failed. See logs for details.";
+
+        _notificationService.Show(
+            $"Bulk {verb}",
             message,
             skippedTracks.Count > 0 ? NotificationType.Warning : NotificationType.Success);
     }

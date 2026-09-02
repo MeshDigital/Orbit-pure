@@ -79,6 +79,12 @@ public interface IDialogService
         int trackCount, System.Collections.Generic.IReadOnlyList<ViewModels.Library.BulkRenamePreviewTrack> previewTracks);
 
     /// <summary>
+    /// Shows the Move/Copy mode-choice dialog for <paramref name="trackCount"/> selected tracks.
+    /// The destination folder is picked separately afterward via <see cref="OpenFolderDialogAsync"/>.
+    /// </summary>
+    Task<ViewModels.Library.BulkMoveOrCopyResult?> ShowBulkMoveOrCopyDialogAsync(int trackCount);
+
+    /// <summary>
     /// Shows a folder selection dialog.
     /// </summary>
     /// <returns>Selected folder path or null if cancelled.</returns>
