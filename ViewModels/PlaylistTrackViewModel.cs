@@ -1929,6 +1929,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         OnPropertyChanged(nameof(ReleaseDate));
         OnPropertyChanged(nameof(ReleaseYear));
         OnPropertyChanged(nameof(YearDisplay));
+        OnPropertyChanged(nameof(Rating));
     }
 
     protected bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)

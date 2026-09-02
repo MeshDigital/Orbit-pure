@@ -159,6 +159,10 @@
                                                ToolTip.Tip="Permanently deletes tracklist placeholder tracks like &quot;Artist - ID&quot; — leftovers from before imports filtered these out">
                                          <MenuItem.Icon><TextBlock Text="❓"/></MenuItem.Icon>
                                      </MenuItem>
+                                     <MenuItem Header="Find Duplicates (Review)" Command="{Binding DuplicateDetectionCommand}"
+                                               ToolTip.Tip="Filters the track list to just the duplicates (exact + fuzzy match) for manual review — nothing is deleted">
+                                         <MenuItem.Icon><TextBlock Text="🔍"/></MenuItem.Icon>
+                                     </MenuItem>
                                      <MenuItem Header="Remove Duplicate Tracks" Command="{Binding RemoveDuplicateTracksCommand}"
                                                ToolTip.Tip="Merges duplicate library files and removes tracks that got added to the same playlist more than once — backs up the database first">
                                          <MenuItem.Icon><TextBlock Text="🧹"/></MenuItem.Icon>

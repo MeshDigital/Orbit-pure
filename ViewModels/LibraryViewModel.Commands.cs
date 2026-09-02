@@ -58,7 +58,6 @@ public partial class LibraryViewModel
     public ICommand AcquireMissingTracksCommand { get; set; } = null!;
     public ICommand RenameProjectCommand { get; set; } = null!;
     public ICommand DuplicateDetectionCommand { get; set; } = null!;
-    public ICommand AutoOrganizeCommand { get; set; } = null!;
     public ICommand LoadDeletedProjectsCommand { get; set; } = null!;
     public ICommand RestoreProjectCommand { get; set; } = null!;
     public ICommand CloseRemovalHistoryCommand { get; set; } = null!;
@@ -154,7 +153,6 @@ public partial class LibraryViewModel
         SwitchWorkspaceCommand = new RelayCommand<ActiveWorkspace>(ws => CurrentWorkspace = ws);
 
         DuplicateDetectionCommand = new AsyncRelayCommand(ExecuteDuplicateDetectionAsync);
-        AutoOrganizeCommand = new AsyncRelayCommand(ExecuteAutoOrganizeAsync);
         SyncPhysicalLibraryCommand = new AsyncRelayCommand(ExecuteSyncPhysicalLibraryAsync);
         CreateSmartPlaylistCommand = SmartPlaylists.CreateCrateCommand;
         OpenFlowBuilderCommand = new RelayCommand(ExecuteOpenFlowBuilder);
@@ -843,72 +841,6 @@ public partial class LibraryViewModel
             _notificationService.Show("MP3 Search Initiated", $"Queueing {onHoldTracks.Count} tracks for MP3 search.", NotificationType.Success);
         }
 
-    }
-
-    private async Task ExecuteAutoOrganizeAsync()
-    {
-        try
-        {
-            IsLoading = true;
-            _notificationService.Show("Auto-Organizer", "Scanning library for organization...", NotificationType.Information);
-            
-            var entries = await _libraryService.LoadAllLibraryEntriesAsync();
-            int movedCount = 0;
-            int errorCount = 0;
-            
-            var targetRoot = _appConfig.DownloadDirectory;
-            if (string.IsNullOrEmpty(targetRoot) && _appConfig.LibraryRootPaths.Any())
-                targetRoot = _appConfig.LibraryRootPaths.First();
-                
-            if (string.IsNullOrEmpty(targetRoot))
-            {
-                _notificationService.Show("Organizer Error", "No target directory configured.", NotificationType.Error);
-                return;
-            }
-
-            foreach (var entry in entries)
-            {
-                if (string.IsNullOrEmpty(entry.FilePath) || !System.IO.File.Exists(entry.FilePath)) continue;
-                
-                var extension = System.IO.Path.GetExtension(entry.FilePath);
-                var safeArtist = Utils.FilenameNormalizer.GetSafeFilename(entry.Artist ?? "Unknown Artist");
-                var safeAlbum = Utils.FilenameNormalizer.GetSafeFilename(entry.Album ?? "Unknown Album");
-                var safeTitle = Utils.FilenameNormalizer.GetSafeFilename(entry.Title ?? "Unknown Title");
-                
-                var newDir = System.IO.Path.Combine(targetRoot, safeArtist, safeAlbum);
-                var newPath = System.IO.Path.Combine(newDir, $"{safeArtist} - {safeTitle}{extension}");
-                
-                if (entry.FilePath == newPath) continue;
-                
-                try 
-                {
-                    if (!System.IO.Directory.Exists(newDir))
-                        System.IO.Directory.CreateDirectory(newDir);
-                        
-                    System.IO.File.Move(entry.FilePath, newPath, true);
-                    entry.FilePath = newPath;
-                    await _libraryService.SaveOrUpdateLibraryEntryAsync(entry);
-                    movedCount++;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to move file: {Path}", entry.FilePath);
-                    errorCount++;
-                }
-            }
-            
-            _notificationService.Show("Organization Complete", $"Moved {movedCount} files.", movedCount > 0 ? NotificationType.Success : NotificationType.Information);
-            await ExecuteRefreshLibraryAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Organizaton process failed");
-            _notificationService.Show("Organizer Failed", ex.Message, NotificationType.Error);
-        }
-        finally
-        {
-            IsLoading = false;
-        }
     }
 
     private async Task ExecuteSyncPhysicalLibraryAsync()
@@ -1948,9 +1880,23 @@ public partial class LibraryViewModel
             bpm = parsedBpm;
         }
 
+        int? trackNumber = null;
+        if (!string.IsNullOrWhiteSpace(result.TrackNumber) && int.TryParse(result.TrackNumber, out var parsedTrackNumber) && parsedTrackNumber > 0)
+        {
+            trackNumber = parsedTrackNumber;
+        }
+
+        int? rating = null;
+        if (!string.IsNullOrWhiteSpace(result.Rating) && int.TryParse(result.Rating, out var parsedRating) && parsedRating is >= 0 and <= 5)
+        {
+            rating = parsedRating;
+        }
+
         int tagUpdateSuccessCount = 0;
         int dbUpdateSuccessCount = 0;
         int renameFailedCount = 0;
+        var failedTagWriteTracks = new List<string>();
+        var failedRenameTracks = new List<string>();
 
         await Task.Run(async () =>
         {
@@ -1973,56 +1919,47 @@ public partial class LibraryViewModel
                 var track = trackVm.Model;
                 bool fileUpdated = false;
 
-                // 1. Update physical file tags
+                // 1. Update physical file tags — routed through the atomic, verified ITaggerService
+                // (temp-file write + post-write format check) instead of writing TagLib directly in
+                // place, so a bad write can't leave a half-tagged or corrupted file on disk. As a
+                // bonus this also writes Key/TrackNumber, which the old inline path explicitly
+                // skipped (neither has a slot in TagLib's plain Tag API, but ITaggerService writes
+                // Key via InitialKey and TrackNumber via the Metadata dictionary).
                 if (track.Status == TrackStatus.Downloaded && !string.IsNullOrEmpty(track.ResolvedFilePath) && System.IO.File.Exists(track.ResolvedFilePath))
                 {
                     try
                     {
-                        using (var tagFile = TagLib.File.Create(track.ResolvedFilePath))
+                        var taggerTrack = new Track
                         {
-                            if (tagFile.Tag != null)
-                            {
-                                if (!string.IsNullOrWhiteSpace(result.Artist))
-                                {
-                                    tagFile.Tag.Artists = new[] { result.Artist };
-                                    tagFile.Tag.Performers = new[] { result.Artist };
-                                }
-                                if (!string.IsNullOrWhiteSpace(result.Title))
-                                {
-                                    tagFile.Tag.Title = result.Title;
-                                }
-                                if (!string.IsNullOrWhiteSpace(result.Album))
-                                {
-                                    tagFile.Tag.Album = result.Album;
-                                }
-                                if (!string.IsNullOrWhiteSpace(result.Genre))
-                                {
-                                    tagFile.Tag.Genres = new[] { result.Genre };
-                                }
-                                if (!string.IsNullOrWhiteSpace(result.Year) && uint.TryParse(result.Year, out var y))
-                                {
-                                    tagFile.Tag.Year = y;
-                                }
-                                if (bpm.HasValue)
-                                {
-                                    tagFile.Tag.BeatsPerMinute = (uint)Math.Round(bpm.Value);
-                                }
-                                if (!string.IsNullOrWhiteSpace(result.Comments))
-                                {
-                                    tagFile.Tag.Comment = result.Comments;
-                                }
-                                // Key/Mood are intentionally not written to the physical file — neither
-                                // has a standard, widely-supported ID3/tag slot via TagLib's high-level
-                                // Tag API, so they stay database-only (same treatment MoodTag already got).
-                                tagFile.Save();
-                                fileUpdated = true;
-                                tagUpdateSuccessCount++;
-                            }
+                            Title = result.Title,
+                            Artist = result.Artist,
+                            Album = result.Album,
+                            Metadata = new Dictionary<string, object>(),
+                        };
+                        if (!string.IsNullOrWhiteSpace(result.Genre)) taggerTrack.Metadata["Genre"] = result.Genre;
+                        if (!string.IsNullOrWhiteSpace(result.Year)) taggerTrack.Metadata["Year"] = result.Year;
+                        if (bpm.HasValue) taggerTrack.Metadata["BPM"] = bpm.Value;
+                        if (!string.IsNullOrWhiteSpace(result.Key)) taggerTrack.Metadata["MusicalKey"] = result.Key;
+                        if (!string.IsNullOrWhiteSpace(result.Comments)) taggerTrack.Metadata["Comment"] = result.Comments;
+                        if (!string.IsNullOrWhiteSpace(result.TrackNumber)) taggerTrack.Metadata["TrackNumber"] = result.TrackNumber;
+                        // Mood is intentionally not written to the physical file — it has no
+                        // standard, widely-supported ID3/tag slot via TagLib's high-level Tag API,
+                        // so it stays database-only.
+
+                        fileUpdated = await _taggerService.TagFileAsync(taggerTrack, track.ResolvedFilePath);
+                        if (fileUpdated)
+                        {
+                            tagUpdateSuccessCount++;
+                        }
+                        else
+                        {
+                            failedTagWriteTracks.Add($"{track.Artist} - {track.Title}");
                         }
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Failed to write tag to physical file: {Path}", track.ResolvedFilePath);
+                        failedTagWriteTracks.Add($"{track.Artist} - {track.Title}");
                     }
                 }
 
@@ -2045,8 +1982,17 @@ public partial class LibraryViewModel
                         if (!string.IsNullOrWhiteSpace(result.Key)) dbTrack.MusicalKey = result.Key;
                         if (!string.IsNullOrWhiteSpace(result.Comments)) dbTrack.Comments = result.Comments;
                         if (!string.IsNullOrWhiteSpace(result.Mood)) dbTrack.MoodTag = result.Mood;
+                        if (trackNumber.HasValue) dbTrack.TrackNumber = trackNumber.Value;
 
                         context.PlaylistTracks.Update(dbTrack);
+                    }
+
+                    // 2b. Rating is global-by-hash (shared across every row for this track), so it
+                    // goes through the existing single-track rating path instead of the two entity
+                    // updates above.
+                    if (rating.HasValue && !string.IsNullOrEmpty(track.TrackUniqueHash))
+                    {
+                        await _libraryService.UpdateRatingAsync(track.TrackUniqueHash, rating.Value);
                     }
 
                     // 3. Update Library Entry if exists
@@ -2119,6 +2065,7 @@ public partial class LibraryViewModel
                                     {
                                         _logger.LogError(ex, "Failed to rename file: {Path}", sourcePath);
                                         renameFailedCount++;
+                                        failedRenameTracks.Add($"{track.Artist} - {track.Title}");
                                     }
                                 }
                                 else
@@ -2179,6 +2126,17 @@ public partial class LibraryViewModel
                     {
                         trackVm.Model.MoodTag = result.Mood;
                     }
+                    if (trackNumber.HasValue)
+                    {
+                        trackVm.Model.TrackNumber = trackNumber.Value;
+                    }
+                    if (rating.HasValue)
+                    {
+                        // Set the model directly rather than trackVm.Rating — that setter fires its
+                        // own UpdateRatingAsync call, which would double-write the DB update already
+                        // done above.
+                        trackVm.Model.Rating = rating.Value;
+                    }
                     trackVm.NotifyMetadataChanged();
                 });
             }
@@ -2190,13 +2148,23 @@ public partial class LibraryViewModel
         var message = $"Successfully edited metadata tags for {dbUpdateSuccessCount} track(s) in DB (and {tagUpdateSuccessCount} physical files).";
         if (failedCount > 0)
             message += $" {failedCount} track(s) failed and were not changed — see logs for details.";
+        if (failedTagWriteTracks.Count > 0)
+            message += $" File tag write failed for: {FormatFailedTrackList(failedTagWriteTracks)} — the DB was still updated, so it may no longer match the file's tags.";
         if (renameFailedCount > 0)
-            message += $" File rename failed for {renameFailedCount} track(s) — tags were still updated, but the file on disk keeps its old name. See logs for details.";
+            message += $" File rename failed for: {FormatFailedTrackList(failedRenameTracks)} — tags were still updated, but the file(s) on disk keep their old name.";
 
         _notificationService.Show(
             "Tags Updated",
             message,
-            failedCount > 0 || renameFailedCount > 0 ? NotificationType.Warning : NotificationType.Success);
+            failedCount > 0 || renameFailedCount > 0 || failedTagWriteTracks.Count > 0 ? NotificationType.Warning : NotificationType.Success);
+    }
+
+    /// <summary>Renders up to 5 failed-track names for a notification, collapsing the rest into a count.</summary>
+    private static string FormatFailedTrackList(List<string> names)
+    {
+        const int max = 5;
+        var shown = string.Join(", ", names.Take(max));
+        return names.Count > max ? $"{shown} (+{names.Count - max} more)" : shown;
     }
 
     /// <summary>

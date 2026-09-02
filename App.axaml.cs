@@ -469,7 +469,6 @@ public partial class App : Application
         services.AddSingleton<ISavedDoublesService, SavedDoublesService>();
         
         // Session 2: Performance Optimization - Extracted services
-        services.AddSingleton<LibraryOrganizationService>();
         services.AddSingleton<IAudioIntegrityService, AudioIntegrityService>();
         services.AddSingleton<PostDownloadSpectralScanService>(); // Runs FFT analysis on completed FLAC downloads
         services.AddSingleton<PostDownloadDurationCaptureService>(); // TagLib duration probe for every completed download (any format)

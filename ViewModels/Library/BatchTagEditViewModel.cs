@@ -15,6 +15,8 @@ public class BatchTagEditResult
     public string? Key { get; set; }
     public string? Comments { get; set; }
     public string? Mood { get; set; }
+    public string? TrackNumber { get; set; }
+    public string? Rating { get; set; }
 }
 
 public sealed class BatchTagEditViewModel : ReactiveObject
@@ -29,6 +31,8 @@ public sealed class BatchTagEditViewModel : ReactiveObject
     private string _key = string.Empty;
     private string _comments = string.Empty;
     private string _mood = string.Empty;
+    private string _trackNumber = string.Empty;
+    private string _rating = string.Empty;
 
     public bool IsSingleTrack { get; }
     public string FileNameWatermark { get; }
@@ -142,11 +146,38 @@ public sealed class BatchTagEditViewModel : ReactiveObject
         }
     }
 
+    public string TrackNumber
+    {
+        get => _trackNumber;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _trackNumber, value);
+            this.RaisePropertyChanged(nameof(CanSave));
+        }
+    }
+
+    /// <summary>Rekordbox-style 0-5 star rating, as text so a blank value means "leave unchanged".</summary>
+    public string Rating
+    {
+        get => _rating;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _rating, value);
+            this.RaisePropertyChanged(nameof(CanSave));
+        }
+    }
+
     /// <summary>True once a BPM value is present and parses as a valid positive number — gates Save so a typo can't silently no-op or write garbage.</summary>
     public bool IsBpmValid => string.IsNullOrWhiteSpace(Bpm) || (double.TryParse(Bpm, out var bpm) && bpm > 0);
 
+    /// <summary>True unless TrackNumber is present and doesn't parse as a positive integer.</summary>
+    public bool IsTrackNumberValid => string.IsNullOrWhiteSpace(TrackNumber) || (int.TryParse(TrackNumber, out var n) && n > 0);
+
+    /// <summary>True unless Rating is present and doesn't parse as an integer 0-5.</summary>
+    public bool IsRatingValid => string.IsNullOrWhiteSpace(Rating) || (int.TryParse(Rating, out var r) && r is >= 0 and <= 5);
+
     public bool CanSave =>
-        IsBpmValid &&
+        IsBpmValid && IsTrackNumberValid && IsRatingValid &&
         (!string.IsNullOrWhiteSpace(Artist) ||
         !string.IsNullOrWhiteSpace(Title) ||
         !string.IsNullOrWhiteSpace(Album) ||
@@ -156,5 +187,7 @@ public sealed class BatchTagEditViewModel : ReactiveObject
         !string.IsNullOrWhiteSpace(Key) ||
         !string.IsNullOrWhiteSpace(Comments) ||
         !string.IsNullOrWhiteSpace(Mood) ||
+        !string.IsNullOrWhiteSpace(TrackNumber) ||
+        !string.IsNullOrWhiteSpace(Rating) ||
         (IsSingleTrack && !string.IsNullOrWhiteSpace(NewFileName)));
 }

@@ -37,6 +37,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     private readonly ImportHistoryViewModel _importHistoryViewModel;
     private readonly ILibraryService _libraryService;
     internal ILibraryService LibraryService => _libraryService;
+    private readonly ITaggerService _taggerService;
     private ILifecycleProjectionService _lifecycleProjectionService;
     private readonly IEventBus _eventBus;
     private readonly IDialogService _dialogService;
@@ -505,6 +506,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         INavigationService navigationService,
         ImportHistoryViewModel importHistoryViewModel,
         ILibraryService libraryService,
+        ITaggerService taggerService,
         ILifecycleProjectionService lifecycleProjectionService,
         IEventBus eventBus,
         PlayerViewModel playerViewModel,
@@ -535,6 +537,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         _navigationService = navigationService;
         _importHistoryViewModel = importHistoryViewModel;
         _libraryService = libraryService;
+        _taggerService = taggerService;
         _lifecycleProjectionService = lifecycleProjectionService;
         _eventBus = eventBus;
         _dialogService = dialogService;

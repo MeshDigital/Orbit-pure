@@ -32,14 +32,24 @@ namespace SLSKDONET.Services.IO
         /// Verifies audio file can be opened and has valid metadata.
         /// Prevents corrupted files from being committed.
         /// </summary>
-        public static async Task<bool> VerifyAudioFormatAsync(string filePath)
+        /// <param name="mimeTypeHint">
+        /// Optional explicit MIME type (e.g. "audio/wav") to use instead of TagLib's own
+        /// extension-based format detection. Needed when <paramref name="filePath"/> is a temp
+        /// file whose extension doesn't reflect its real audio format (e.g. SafeWriteService's
+        /// "{name}.{guid}.tmp" staging files) — TagLib.File.Create(path) has no content-sniffing
+        /// fallback and throws UnsupportedFormatException for an unrecognized extension like
+        /// ".tmp" even though the file's actual contents are perfectly valid audio.
+        /// </param>
+        public static async Task<bool> VerifyAudioFormatAsync(string filePath, string? mimeTypeHint = null)
         {
             return await Task.Run(() =>
             {
                 try
                 {
                     // Use TagLib to verify file structure
-                    using var file = TagLib.File.Create(filePath);
+                    using var file = mimeTypeHint != null
+                        ? TagLib.File.Create(new TagLib.File.LocalFileAbstraction(filePath), mimeTypeHint, ReadStyle.Average)
+                        : TagLib.File.Create(filePath);
                     
                     // Check basic validity
                     if (file.Properties == null)
