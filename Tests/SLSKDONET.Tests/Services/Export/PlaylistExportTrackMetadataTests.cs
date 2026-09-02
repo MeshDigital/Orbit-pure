@@ -123,6 +123,100 @@ public class PlaylistExportTrackMetadataTests : IDisposable
         Assert.Null(element.Attribute("Colour"));
     }
 
+    [Theory]
+    [InlineData("track.mp3", "MP3 File")]
+    [InlineData("track.flac", "FLAC File")]
+    [InlineData("track.wav", "WAV File")]
+    [InlineData("track.m4a", "M4A File")]
+    [InlineData("track.aiff", "AIFF File")]
+    [InlineData("track.ogg", "OGG File")]
+    public async Task ExportToRekordboxXmlAsync_Kind_ReflectsRealFileExtension(string fileName, string expectedKind)
+    {
+        var file = CreateAudioFile(fileName);
+        var track = new PlaylistTrack { Id = Guid.NewGuid(), Title = "T", Artist = "A", ResolvedFilePath = file };
+
+        var element = await ExportSingleTrackAndGetElementAsync(track);
+
+        Assert.Equal(expectedKind, element.Attribute("Kind")?.Value);
+    }
+
+    [Fact]
+    public async Task ExportToRekordboxXmlAsync_RealSampleRate_IsWrittenVerbatim()
+    {
+        var file = CreateAudioFile("track.flac");
+        var track = new PlaylistTrack { Id = Guid.NewGuid(), Title = "T", Artist = "A", ResolvedFilePath = file, SpectralSampleRateHz = 48000 };
+
+        var element = await ExportSingleTrackAndGetElementAsync(track);
+
+        Assert.Equal("48000", element.Attribute("SampleRate")?.Value);
+    }
+
+    [Fact]
+    public async Task ExportToRekordboxXmlAsync_UnknownSampleRate_FallsBackTo44100()
+    {
+        var file = CreateAudioFile("track.mp3");
+        var track = new PlaylistTrack { Id = Guid.NewGuid(), Title = "T", Artist = "A", ResolvedFilePath = file, SpectralSampleRateHz = null };
+
+        var element = await ExportSingleTrackAndGetElementAsync(track);
+
+        Assert.Equal("44100", element.Attribute("SampleRate")?.Value);
+    }
+
+    [Fact]
+    public async Task ExportToRekordboxXmlAsync_Label_IsWrittenVerbatim()
+    {
+        var file = CreateAudioFile("track.mp3");
+        var track = new PlaylistTrack { Id = Guid.NewGuid(), Title = "T", Artist = "A", ResolvedFilePath = file, Label = "Hospital Records" };
+
+        var element = await ExportSingleTrackAndGetElementAsync(track);
+
+        Assert.Equal("Hospital Records", element.Attribute("Label")?.Value);
+    }
+
+    [Fact]
+    public async Task ExportToRekordboxXmlAsync_TrackNumberSet_WritesTrackNumberAttribute()
+    {
+        var file = CreateAudioFile("track.mp3");
+        var track = new PlaylistTrack { Id = Guid.NewGuid(), Title = "T", Artist = "A", ResolvedFilePath = file, TrackNumber = 4 };
+
+        var element = await ExportSingleTrackAndGetElementAsync(track);
+
+        Assert.Equal("4", element.Attribute("TrackNumber")?.Value);
+    }
+
+    [Fact]
+    public async Task ExportToRekordboxXmlAsync_TrackNumberUnset_OmitsTrackNumberAttribute()
+    {
+        var file = CreateAudioFile("track.mp3");
+        var track = new PlaylistTrack { Id = Guid.NewGuid(), Title = "T", Artist = "A", ResolvedFilePath = file, TrackNumber = 0 };
+
+        var element = await ExportSingleTrackAndGetElementAsync(track);
+
+        Assert.Null(element.Attribute("TrackNumber"));
+    }
+
+    [Fact]
+    public async Task ExportToRekordboxXmlAsync_ReleaseDateSet_WritesYearAttribute()
+    {
+        var file = CreateAudioFile("track.mp3");
+        var track = new PlaylistTrack { Id = Guid.NewGuid(), Title = "T", Artist = "A", ResolvedFilePath = file, ReleaseDate = new DateTime(2018, 5, 16) };
+
+        var element = await ExportSingleTrackAndGetElementAsync(track);
+
+        Assert.Equal("2018", element.Attribute("Year")?.Value);
+    }
+
+    [Fact]
+    public async Task ExportToRekordboxXmlAsync_ReleaseDateNull_OmitsYearAttribute()
+    {
+        var file = CreateAudioFile("track.mp3");
+        var track = new PlaylistTrack { Id = Guid.NewGuid(), Title = "T", Artist = "A", ResolvedFilePath = file, ReleaseDate = null };
+
+        var element = await ExportSingleTrackAndGetElementAsync(track);
+
+        Assert.Null(element.Attribute("Year"));
+    }
+
     private sealed class TestDbContextFactory : IDbContextFactory<AppDbContext>
     {
         private readonly DbContextOptions<AppDbContext> _options;

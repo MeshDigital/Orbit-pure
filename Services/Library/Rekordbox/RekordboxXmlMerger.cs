@@ -19,6 +19,7 @@ public static class RekordboxXmlMerger
     {
         "Name", "Artist", "Album", "Genre", "Kind", "Size", "TotalTime",
         "BitRate", "SampleRate", "AverageBpm", "Tonality", "Location",
+        "Label", "TrackNumber", "Year",
     };
 
     /// <param name="playlistPathChain">

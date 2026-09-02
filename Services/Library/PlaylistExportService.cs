@@ -134,12 +134,17 @@ public class PlaylistExportService
                     Artist = track.Artist ?? "Unknown Artist",
                     Album = track.Album ?? "Unknown Album",
                     Genre = track.Genres ?? "",
+                    Kind = ResolveKind(effectivePath),
                     Size = fileInfo.Length,
                     TotalTime = Math.Max(0, track.CanonicalDuration.GetValueOrDefault() / 1000),
                     DateAdded = track.AddedAt.ToString("yyyy-MM-dd"),
                     BitRate = track.Bitrate ?? 0,
+                    SampleRate = track.SpectralSampleRateHz.GetValueOrDefault() > 0 ? track.SpectralSampleRateHz!.Value : 44100,
                     AverageBpm = track.BPM ?? 0,
                     Tonality = track.MusicalKey ?? "",
+                    Label = track.Label ?? "",
+                    TrackNumber = Math.Max(0, track.TrackNumber),
+                    Year = track.ReleaseDate?.Year ?? 0,
                     Location = BuildLocationUri(effectivePath),
                     Rating = Math.Clamp(track.Rating, 0, 5) * 51,
                     Comments = track.Comments ?? "",
@@ -295,6 +300,27 @@ public class PlaylistExportService
     }
 
     /// <summary>
+    /// Maps a file extension to Rekordbox's real Kind string (e.g. "MP3 File"), confirmed against
+    /// actual rekordbox-exported XML rather than guessed — Rekordbox does not use a numeric code
+    /// here despite some third-party tools assuming otherwise. Unrecognized extensions get a
+    /// best-effort "{EXT} File" label rather than a silently wrong guess.
+    /// </summary>
+    private static string ResolveKind(string filePath)
+    {
+        var ext = Path.GetExtension(filePath).TrimStart('.').ToUpperInvariant();
+        return ext switch
+        {
+            "MP3" => "MP3 File",
+            "WAV" => "WAV File",
+            "AIFF" or "AIF" => "AIFF File",
+            "FLAC" => "FLAC File",
+            "M4A" or "AAC" => "M4A File",
+            "" => "Unknown File Type",
+            _ => $"{ext} File",
+        };
+    }
+
+    /// <summary>
     /// Resolves a deterministic Rekordbox TrackID for <paramref name="track"/> so the same track
     /// gets the same ID across separate export runs (enables re-importing an updated XML without
     /// Rekordbox treating every track as brand new). Falls back through TrackUniqueHash → resolved
@@ -348,7 +374,8 @@ public class PlaylistExportService
             new XAttribute("Tonality", t.Tonality),
             new XAttribute("Location", t.Location),
             new XAttribute("Rating", t.Rating),
-            new XAttribute("Comments", t.Comments)
+            new XAttribute("Comments", t.Comments),
+            new XAttribute("Label", t.Label)
         );
 
         // Track-level colour tag — omitted entirely when unset (no UI to set it yet; this is
@@ -357,6 +384,12 @@ public class PlaylistExportService
         {
             trackElem.Add(new XAttribute("Colour", t.Colour.TrimStart('#')));
         }
+
+        // TrackNumber/Year: omitted entirely when unknown (0) rather than writing a misleading "0".
+        if (t.TrackNumber > 0)
+            trackElem.Add(new XAttribute("TrackNumber", t.TrackNumber));
+        if (t.Year > 0)
+            trackElem.Add(new XAttribute("Year", t.Year));
 
         // TEMPO node(s) — derived from the track's real beat grid when available (multiple
         // anchors for a track with genuine tempo drift), otherwise a single anchor at the real
