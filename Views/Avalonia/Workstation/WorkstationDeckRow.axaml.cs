@@ -6,6 +6,7 @@ using Avalonia.VisualTree;
 using SLSKDONET.Models;
 using SLSKDONET.ViewModels;
 using SLSKDONET.ViewModels.Workstation;
+using System;
 using System.Reactive.Linq;
 
 namespace SLSKDONET.Views.Avalonia.Workstation;
@@ -87,41 +88,51 @@ public partial class WorkstationDeckRow : UserControl
 
     private async void OnDeckDrop(object? sender, DragEventArgs e)
     {
-        _dropZone?.Classes.Remove("drag-over");
-
-        if (!e.Data.Contains(WorkstationPage.WorkstationPlaylistTrackFormat))
+        try
         {
-            return;
-        }
+            _dropZone?.Classes.Remove("drag-over");
 
-        if (e.Data.Get(WorkstationPage.WorkstationPlaylistTrackFormat) is not PlaylistTrack track)
-        {
-            return;
-        }
+            if (!e.Data.Contains(WorkstationPage.WorkstationPlaylistTrackFormat))
+            {
+                return;
+            }
 
-        if (DataContext is not WorkstationDeckViewModel deckVm)
-        {
-            return;
-        }
+            if (e.Data.Get(WorkstationPage.WorkstationPlaylistTrackFormat) is not PlaylistTrack track)
+            {
+                return;
+            }
 
-        if (deckVm.IsLocked)
-        {
+            if (DataContext is not WorkstationDeckViewModel deckVm)
+            {
+                return;
+            }
+
+            if (deckVm.IsLocked)
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (this.FindAncestorOfType<WorkstationPage>()?.DataContext is WorkstationViewModel workstationVm)
+            {
+                workstationVm.FocusedDeck = deckVm;
+            }
+
+            await deckVm.LoadPlaylistTrackCommand.Execute(track).FirstAsync();
+
+            if (this.FindAncestorOfType<WorkstationPage>()?.DataContext is WorkstationViewModel vmAfterLoad)
+            {
+                vmAfterLoad.ApplySmartSnapForDeckDrop(deckVm);
+            }
+
             e.Handled = true;
-            return;
         }
-
-        if (this.FindAncestorOfType<WorkstationPage>()?.DataContext is WorkstationViewModel workstationVm)
+        catch (Exception ex)
         {
-            workstationVm.FocusedDeck = deckVm;
+            // Loading a corrupt/missing/undecodable file here must not crash the whole app —
+            // this is the mainline "drag a track onto a deck" gesture.
+            Serilog.Log.Error(ex, "WorkstationDeckRow: failed to load dropped track onto deck");
+            e.Handled = true;
         }
-
-        await deckVm.LoadPlaylistTrackCommand.Execute(track).FirstAsync();
-
-        if (this.FindAncestorOfType<WorkstationPage>()?.DataContext is WorkstationViewModel vmAfterLoad)
-        {
-            vmAfterLoad.ApplySmartSnapForDeckDrop(deckVm);
-        }
-
-        e.Handled = true;
     }
 }
