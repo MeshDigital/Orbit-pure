@@ -674,13 +674,28 @@
             </Border>
 
             <!-- Waveform Appearance -->
-            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#00CFFF" BorderThickness="1">
+            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#00CFFF" BorderThickness="1"
+                    Tag="Waveform Appearance||Controls the RGB tri-band waveform on the player and Now Playing view — the preview above shows the effect of each toggle live, using a sample waveform rather than a real track.">
                 <StackPanel Spacing="16">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <TextBlock Text="🌈" FontSize="20" VerticalAlignment="Center"/>
                         <TextBlock Text="Waveform Appearance" FontSize="16" FontWeight="SemiBold" Foreground="#00CFFF"/>
                     </StackPanel>
                     <TextBlock Text="Controls the RGB tri-band waveform on the player and Now Playing view. Applies the next time a waveform is loaded." Foreground="#AAA" FontSize="12" TextWrapping="Wrap"/>
+
+                    <Border Background="#000000" CornerRadius="6" ClipToBounds="True">
+                        <controls:WaveformControl Height="90"
+                                                   WaveformData="{Binding WaveformPreviewData}"
+                                                   UseNeonPalette="{Binding WaveformUseNeonPalette}"
+                                                   Gain="{Binding WaveformGain}"
+                                                   ShowEnergyCurve="{Binding WaveformShowEnergyCurve}"
+                                                   ShowVocalGhost="{Binding WaveformShowVocalGhost}"
+                                                   ShowPhraseSections="{Binding WaveformShowPhraseSections}"
+                                                   EnergyCurve="{Binding WaveformPreviewEnergyCurve}"
+                                                   VocalDensityCurve="{Binding WaveformPreviewVocalCurve}"
+                                                   PhraseSegments="{Binding WaveformPreviewPhraseSegments}"
+                                                   Progress="0.4"/>
+                    </Border>
 
                     <Grid ColumnDefinitions="*,Auto">
                         <TextBlock Grid.Column="0" Text="Neon palette (off = classic RGB)" Foreground="#DDD" VerticalAlignment="Center"/>
@@ -711,7 +726,8 @@
             </Border>
 
             <!-- Frequent Sources (local-only, opt-in) -->
-            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
+                    Tag="Frequent Sources||Tracks repeated source/folder pairs and prefetches staging locally, entirely on-device — disabled by default and never uploads any telemetry.">
                 <StackPanel Spacing="16">
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Grid.Column="0" Spacing="4">

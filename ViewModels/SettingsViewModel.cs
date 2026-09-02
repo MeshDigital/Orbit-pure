@@ -609,6 +609,96 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    // ── Waveform Appearance live preview ────────────────────────────────────
+    // A small synthetic sample — not a real analyzed track — purely so the
+    // Settings page can show what each toggle actually does instead of just
+    // flipping an abstract switch. Built once and cached; every toggle above
+    // drives this same instance via WaveformControl's own StyledProperties,
+    // so no extra plumbing is needed here beyond the sample data itself.
+    private WaveformAnalysisData? _waveformPreviewData;
+    public WaveformAnalysisData WaveformPreviewData => _waveformPreviewData ??= BuildWaveformPreviewData();
+
+    private IEnumerable<float>? _waveformPreviewEnergyCurve;
+    public IEnumerable<float> WaveformPreviewEnergyCurve => _waveformPreviewEnergyCurve ??= BuildWaveformPreviewEnergyCurve();
+
+    private IEnumerable<float>? _waveformPreviewVocalCurve;
+    public IEnumerable<float> WaveformPreviewVocalCurve => _waveformPreviewVocalCurve ??= BuildWaveformPreviewVocalCurve();
+
+    private List<PhraseSegment>? _waveformPreviewPhraseSegments;
+    public IEnumerable<PhraseSegment> WaveformPreviewPhraseSegments => _waveformPreviewPhraseSegments ??= BuildWaveformPreviewPhraseSegments();
+
+    private const int WaveformPreviewSampleCount = 300;
+    private const double WaveformPreviewDurationSeconds = 30.0;
+
+    private static WaveformAnalysisData BuildWaveformPreviewData()
+    {
+        var low = new byte[WaveformPreviewSampleCount];
+        var mid = new byte[WaveformPreviewSampleCount];
+        var high = new byte[WaveformPreviewSampleCount];
+        var peak = new byte[WaveformPreviewSampleCount];
+        var rms = new byte[WaveformPreviewSampleCount];
+
+        for (var i = 0; i < WaveformPreviewSampleCount; i++)
+        {
+            var t = (double)i / WaveformPreviewSampleCount;
+            // A gentle overall envelope (builds, drops, tails off) so the preview reads as a real
+            // track shape rather than a flat noise band, plus distinct phase offsets per band so
+            // the tri-band RGB blend actually shows visible color separation.
+            var envelope = 0.35 + 0.65 * Math.Pow(Math.Sin(t * Math.PI), 0.6);
+
+            low[i] = ToByte(envelope * (0.7 + 0.3 * Math.Sin(t * 18.0)));
+            mid[i] = ToByte(envelope * (0.6 + 0.4 * Math.Sin(t * 30.0 + 1.2)));
+            high[i] = ToByte(envelope * (0.5 + 0.5 * Math.Sin(t * 46.0 + 2.4)));
+            peak[i] = Math.Max(low[i], Math.Max(mid[i], high[i]));
+            rms[i] = ToByte(envelope * 0.6);
+        }
+
+        return new WaveformAnalysisData
+        {
+            PeakData = peak,
+            RmsData = rms,
+            LowData = low,
+            MidData = mid,
+            HighData = high,
+            DurationSeconds = WaveformPreviewDurationSeconds,
+            PointsPerSecond = (int)Math.Round(WaveformPreviewSampleCount / WaveformPreviewDurationSeconds)
+        };
+
+        static byte ToByte(double value) => (byte)Math.Clamp(value * 255.0, 0, 255);
+    }
+
+    private static IEnumerable<float> BuildWaveformPreviewEnergyCurve()
+    {
+        var curve = new float[WaveformPreviewSampleCount];
+        for (var i = 0; i < WaveformPreviewSampleCount; i++)
+        {
+            var t = (double)i / WaveformPreviewSampleCount;
+            curve[i] = (float)Math.Clamp(0.3 + 0.7 * Math.Pow(Math.Sin(t * Math.PI), 0.6), 0, 1);
+        }
+        return curve;
+    }
+
+    private static IEnumerable<float> BuildWaveformPreviewVocalCurve()
+    {
+        var curve = new float[WaveformPreviewSampleCount];
+        for (var i = 0; i < WaveformPreviewSampleCount; i++)
+        {
+            var t = (double)i / WaveformPreviewSampleCount;
+            // Vocal-density curve reads as "high vocal presence" when this value is low (see
+            // WaveformControl's vocal-ghost rendering) — dip it in the back half of the preview.
+            curve[i] = (float)Math.Clamp(0.7 - 0.6 * Math.Max(0, Math.Sin((t - 0.5) * Math.PI)), 0, 1);
+        }
+        return curve;
+    }
+
+    private static List<PhraseSegment> BuildWaveformPreviewPhraseSegments() => new()
+    {
+        new PhraseSegment { Label = "Intro", Start = 0f, Duration = 6f },
+        new PhraseSegment { Label = "Build", Start = 6f, Duration = 6f },
+        new PhraseSegment { Label = "Drop", Start = 12f, Duration = 10f },
+        new PhraseSegment { Label = "Outro", Start = 22f, Duration = 8f },
+    };
+
     public int AutoDownloadInitialWaitMs
     {
         get => _config.AutoDownloadInitialWaitMs;
