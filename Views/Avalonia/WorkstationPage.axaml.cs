@@ -10,6 +10,7 @@ using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.ViewModels.Workstation;
 using SLSKDONET.Views.Avalonia.Controls;
+using System;
 using System.Linq;
 using System.Reactive;
 using System.Reactive.Linq;
@@ -988,6 +989,8 @@ public partial class WorkstationPage : UserControl
 
     private async void OnCockpitKeyDown(object? sender, KeyEventArgs e)
     {
+        try
+        {
         if (DataContext is not WorkstationViewModel vm)
         {
             return;
@@ -1146,6 +1149,13 @@ public partial class WorkstationPage : UserControl
                 await ExecuteStemToggle(vm.FocusedDeck.ToggleOtherCommand);
                 e.Handled = true;
             }
+        }
+        }
+        catch (Exception ex)
+        {
+            // Fires on nearly every cockpit keystroke — a bad command execution must not
+            // be allowed to crash the whole app.
+            Serilog.Log.Error(ex, "WorkstationPage: cockpit key handler failed for key {Key}", e.Key);
         }
     }
 
