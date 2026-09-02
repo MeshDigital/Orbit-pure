@@ -2884,6 +2884,16 @@ public class SchemaMigratorService
                 _logger.LogInformation("✅ RekordboxExportCueSync table created.");
             }
 
+            // 30. Watch-folder auto-import: lets LibraryFolderWatchService know which registered
+            // library folders should get a live FileSystemWatcher instead of relying entirely on
+            // manual "Scan All" clicks.
+            if (TableExists("LibraryFolders") && !ColumnExists("LibraryFolders", "IsWatched"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsWatched to LibraryFolders...");
+                command.CommandText = @"ALTER TABLE ""LibraryFolders"" ADD COLUMN ""IsWatched"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

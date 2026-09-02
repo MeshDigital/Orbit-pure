@@ -25,12 +25,20 @@
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Border Background="#333" CornerRadius="4" Padding="8" Margin="0,0,0,8">
-                            <Grid ColumnDefinitions="*,Auto">
+                            <Grid ColumnDefinitions="*,Auto,Auto">
                                 <StackPanel Grid.Column="0" Spacing="2">
                                     <TextBlock Text="{Binding FolderPath}" Foreground="White" FontWeight="Medium"/>
                                     <TextBlock Text="Local Folder" Foreground="#888" FontSize="10"/>
                                 </StackPanel>
-                                <Button Grid.Column="1" 
+                                <ToggleButton Grid.Column="1"
+                                              IsChecked="{Binding IsWatched, Mode=OneWay}"
+                                              Command="{Binding DataContext.ToggleWatchCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              CommandParameter="{Binding}"
+                                              Padding="8,4" Margin="0,0,8,0"
+                                              ToolTip.Tip="Auto-import new files dropped into this folder without waiting for a manual scan">
+                                    <TextBlock Text="👁 Watch" FontSize="11"/>
+                                </ToggleButton>
+                                <Button Grid.Column="2"
                                         Command="{Binding DataContext.RemoveLibraryFolderCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                         CommandParameter="{Binding}"
                                         Content="Remove"

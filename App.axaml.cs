@@ -336,6 +336,17 @@ public partial class App : Application
                             Serilog.Log.Error(syncEx, "Start-up Library sync failed");
                         }
                         
+                        // Start watching any library folders flagged for auto-import
+                        try
+                        {
+                            var folderWatchService = Services.GetRequiredService<LibraryFolderWatchService>();
+                            await folderWatchService.StartAsync();
+                        }
+                        catch (Exception watchEx)
+                        {
+                            Serilog.Log.Warning(watchEx, "Library folder watch service failed to start (non-critical)");
+                        }
+
                         // Load projects into the LibraryViewModel
                         if (mainVm?.LibraryViewModel != null)
                         {
@@ -658,7 +669,8 @@ public partial class App : Application
 
         // [NEW] Library Scanning
         services.AddSingleton<LibraryFolderScannerService>();
-        
+        services.AddSingleton<LibraryFolderWatchService>();
+
         // Orchestration Services
         services.AddSingleton<SearchOrchestrationService>();
         services.AddSingleton<DownloadOrchestrationService>();
