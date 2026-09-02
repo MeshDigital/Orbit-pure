@@ -1290,12 +1290,14 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
         public void Render(ImmediateDrawingContext context)
         {
+            try
+            {
             var lease = context.TryGetFeature<ISkiaSharpApiLease>();
             if (lease == null) return;
 
             using var canvas = lease.SkCanvas;
             canvas.Save();
-            
+
             var width = (float)Bounds.Width;
             var height = (float)Bounds.Height;
             var samples = _vocalData.Count;
@@ -1368,8 +1370,15 @@ namespace SLSKDONET.Views.Avalonia.Controls
                     }
                 }
             }
-            
+
             canvas.Restore();
+            }
+            catch (Exception ex)
+            {
+                // Render-thread exceptions bypass all managed exception handling and hard-crash
+                // the process with zero trace. Skip the frame instead of taking the app down.
+                Serilog.Log.Warning(ex, "WaveformControl: vocal-ghost render tick failed — skipping frame");
+            }
         }
     }
 }

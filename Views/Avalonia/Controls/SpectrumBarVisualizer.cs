@@ -146,43 +146,52 @@ public sealed class SpectrumBarVisualizer : Control, IDisposable
 
         public void Render(ImmediateDrawingContext context)
         {
-            var lease = context.TryGetFeature(typeof(ISkiaSharpApiLease)) as ISkiaSharpApiLease;
-            if (lease is null) return;
-            var canvas = lease.SkCanvas;
-
-            float w     = (float)_bounds.Width;
-            float h     = (float)_bounds.Height;
-            float halfH = h * 0.5f;
-
-            canvas.Clear(SKColors.Transparent);
-
-            if (_spectrum == null) return;
-
-            int binCount = Math.Min(_spectrum.Length, BinCount);
-            float barW   = w / binCount;
-
-            using var paint = new SKPaint { IsAntialias = false, Style = SKPaintStyle.Fill };
-
-            for (int i = 0; i < binCount; i++)
+            try
             {
-                // Log-dB normalisation: maps [0.0001–1] → [0–1] over 60 dB range
-                float db   = 20f * MathF.Log10(_spectrum[i] + 0.0001f);
-                float norm = Math.Clamp((db + 60f) / 60f, 0f, 1f);
+                var lease = context.TryGetFeature(typeof(ISkiaSharpApiLease)) as ISkiaSharpApiLease;
+                if (lease is null) return;
+                var canvas = lease.SkCanvas;
 
-                float barHalf = norm * halfH * 0.95f;
-                if (barHalf < 0.5f) continue;
+                float w     = (float)_bounds.Width;
+                float h     = (float)_bounds.Height;
+                float halfH = h * 0.5f;
 
-                // Linear colour gradient: primary (low freq) → secondary (high freq)
-                float t = (float)i / binCount;
-                paint.Color = new SKColor(
-                    Lerp(_primary.Red,   _secondary.Red,   t),
-                    Lerp(_primary.Green, _secondary.Green, t),
-                    Lerp(_primary.Blue,  _secondary.Blue,  t));
+                canvas.Clear(SKColors.Transparent);
 
-                float x = i * barW;
+                if (_spectrum == null) return;
 
-                // Symmetrical mirror bars from centre axis
-                canvas.DrawRect(x, halfH - barHalf, barW - 0.5f, barHalf * 2f, paint);
+                int binCount = Math.Min(_spectrum.Length, BinCount);
+                float barW   = w / binCount;
+
+                using var paint = new SKPaint { IsAntialias = false, Style = SKPaintStyle.Fill };
+
+                for (int i = 0; i < binCount; i++)
+                {
+                    // Log-dB normalisation: maps [0.0001–1] → [0–1] over 60 dB range
+                    float db   = 20f * MathF.Log10(_spectrum[i] + 0.0001f);
+                    float norm = Math.Clamp((db + 60f) / 60f, 0f, 1f);
+
+                    float barHalf = norm * halfH * 0.95f;
+                    if (barHalf < 0.5f) continue;
+
+                    // Linear colour gradient: primary (low freq) → secondary (high freq)
+                    float t = (float)i / binCount;
+                    paint.Color = new SKColor(
+                        Lerp(_primary.Red,   _secondary.Red,   t),
+                        Lerp(_primary.Green, _secondary.Green, t),
+                        Lerp(_primary.Blue,  _secondary.Blue,  t));
+
+                    float x = i * barW;
+
+                    // Symmetrical mirror bars from centre axis
+                    canvas.DrawRect(x, halfH - barHalf, barW - 0.5f, barHalf * 2f, paint);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Render-thread exceptions bypass all managed exception handling and hard-crash
+                // the process with zero trace. Skip the frame instead of taking the app down.
+                Serilog.Log.Warning(ex, "SpectrumBarVisualizer: render tick failed — skipping frame");
             }
         }
 

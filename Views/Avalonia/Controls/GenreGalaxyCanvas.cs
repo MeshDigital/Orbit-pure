@@ -189,9 +189,12 @@ namespace SLSKDONET.Views.Avalonia.Controls
             private readonly Rect _bounds;
             private readonly List<PositionedGenre> _nodes;
 
-            private static readonly SKPaint OrbPaint = new() { IsAntialias = true, Style = SKPaintStyle.Fill };
+            // Instance-owned (not static): a shared static SKPaint mutated per-frame (Shader/Color)
+            // is unsafe the moment more than one draw operation can be in flight concurrently —
+            // same "no single clear owner" fragility class already fixed in LiveBackground.
+            private readonly SKPaint _orbPaint = new() { IsAntialias = true, Style = SKPaintStyle.Fill };
 
-            private static readonly SKPaint OrbStrokePaint = new()
+            private readonly SKPaint _orbStrokePaint = new()
             {
                 IsAntialias = true,
                 Style = SKPaintStyle.Stroke,
@@ -199,13 +202,13 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 Color = SKColors.White.WithAlpha(70)
             };
 
-            private static readonly SKPaint GlowPaint = new()
+            private readonly SKPaint _glowPaint = new()
             {
                 IsAntialias = true,
                 Style = SKPaintStyle.Fill,
             };
 
-            private static readonly SKPaint TextPaint = new()
+            private readonly SKPaint _textPaint = new()
             {
                 IsAntialias = true,
                 Color = SKColors.White,
@@ -214,7 +217,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 TextAlign = SKTextAlign.Center
             };
 
-            private static readonly SKPaint CountTextPaint = new()
+            private readonly SKPaint _countTextPaint = new()
             {
                 IsAntialias = true,
                 Color = SKColors.White.WithAlpha(220),
@@ -223,7 +226,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 TextAlign = SKTextAlign.Center
             };
 
-            private static readonly SKPaint LinkPaint = new()
+            private readonly SKPaint _linkPaint = new()
             {
                 IsAntialias = true,
                 Style = SKPaintStyle.Stroke,
@@ -236,7 +239,15 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 _nodes = nodes;
             }
 
-            public void Dispose() { }
+            public void Dispose()
+            {
+                _orbPaint.Dispose();
+                _orbStrokePaint.Dispose();
+                _glowPaint.Dispose();
+                _textPaint.Dispose();
+                _countTextPaint.Dispose();
+                _linkPaint.Dispose();
+            }
             public bool Equals(ICustomDrawOperation? other) => false;
             public Rect Bounds => _bounds;
             // Unlike the purely decorative visualizers this was templated from, the galaxy is
@@ -246,75 +257,84 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
             public void Render(ImmediateDrawingContext context)
             {
-                var lease = context.TryGetFeature<ISkiaSharpApiLeaseFeature>();
-                if (lease == null) return;
-
-                using var skiaContext = lease.Lease();
-                var canvas = skiaContext.SkCanvas;
-
-                float centerX = (float)_bounds.Width / 2f;
-                float centerY = (float)_bounds.Height / 2f;
-
-                canvas.Save();
-
-                // Faint orbit rings, one per genre, fading out for the outer (larger) rings.
-                for (int i = 0; i < _nodes.Count; i++)
+                try
                 {
-                    using var ringPaint = new SKPaint
+                    var lease = context.TryGetFeature<ISkiaSharpApiLeaseFeature>();
+                    if (lease == null) return;
+
+                    using var skiaContext = lease.Lease();
+                    var canvas = skiaContext.SkCanvas;
+
+                    float centerX = (float)_bounds.Width / 2f;
+                    float centerY = (float)_bounds.Height / 2f;
+
+                    canvas.Save();
+
+                    // Faint orbit rings, one per genre, fading out for the outer (larger) rings.
+                    for (int i = 0; i < _nodes.Count; i++)
                     {
-                        IsAntialias = true,
-                        Style = SKPaintStyle.Stroke,
-                        StrokeWidth = 1,
-                        Color = SKColors.White.WithAlpha((byte)Math.Max(2, 12 - (i * 2)))
-                    };
-                    var ringRect = new SKRect(
-                        centerX - _nodes[i].OrbitRadiusX, centerY - _nodes[i].OrbitRadiusY,
-                        centerX + _nodes[i].OrbitRadiusX, centerY + _nodes[i].OrbitRadiusY);
-                    canvas.DrawOval(ringRect, ringPaint);
-                }
-
-                foreach (var node in _nodes)
-                {
-                    var color = ParseColor(node.Genre.Color);
-
-                    // Soft glow behind the planet — a larger, low-alpha copy of the same colour.
-                    GlowPaint.Color = color.WithAlpha(50);
-                    canvas.DrawCircle(node.X, node.Y, node.NodeSize * 1.8f, GlowPaint);
-
-                    OrbPaint.Shader = SKShader.CreateRadialGradient(
-                        new SKPoint(node.X - node.NodeSize * 0.3f, node.Y - node.NodeSize * 0.3f),
-                        node.NodeSize * 1.3f,
-                        new[] { color.WithAlpha(235), color.WithAlpha(160) },
-                        null,
-                        SKShaderTileMode.Clamp);
-                    canvas.DrawCircle(node.X, node.Y, node.NodeSize, OrbPaint);
-                    OrbPaint.Shader = null;
-
-                    OrbStrokePaint.Color = color.WithAlpha(120);
-                    canvas.DrawCircle(node.X, node.Y, node.NodeSize, OrbStrokePaint);
-
-                    canvas.DrawText(node.Genre.Name, node.X, node.Y - node.NodeSize - 8, TextPaint);
-                    canvas.DrawText(node.Genre.Count.ToString(), node.X, node.Y + 4, CountTextPaint);
-                }
-
-                // Constellation links between nearby planets.
-                for (int i = 0; i < _nodes.Count; i++)
-                {
-                    for (int j = i + 1; j < _nodes.Count; j++)
-                    {
-                        float dx = _nodes[i].X - _nodes[j].X;
-                        float dy = _nodes[i].Y - _nodes[j].Y;
-                        float dist = (float)Math.Sqrt(dx * dx + dy * dy);
-                        if (dist < 100)
+                        using var ringPaint = new SKPaint
                         {
-                            byte alpha = (byte)Math.Clamp(80 - (dist * 0.8f), 0, 80);
-                            LinkPaint.Color = SKColors.White.WithAlpha(alpha);
-                            canvas.DrawLine(_nodes[i].X, _nodes[i].Y, _nodes[j].X, _nodes[j].Y, LinkPaint);
+                            IsAntialias = true,
+                            Style = SKPaintStyle.Stroke,
+                            StrokeWidth = 1,
+                            Color = SKColors.White.WithAlpha((byte)Math.Max(2, 12 - (i * 2)))
+                        };
+                        var ringRect = new SKRect(
+                            centerX - _nodes[i].OrbitRadiusX, centerY - _nodes[i].OrbitRadiusY,
+                            centerX + _nodes[i].OrbitRadiusX, centerY + _nodes[i].OrbitRadiusY);
+                        canvas.DrawOval(ringRect, ringPaint);
+                    }
+
+                    foreach (var node in _nodes)
+                    {
+                        var color = ParseColor(node.Genre.Color);
+
+                        // Soft glow behind the planet — a larger, low-alpha copy of the same colour.
+                        _glowPaint.Color = color.WithAlpha(50);
+                        canvas.DrawCircle(node.X, node.Y, node.NodeSize * 1.8f, _glowPaint);
+
+                        _orbPaint.Shader = SKShader.CreateRadialGradient(
+                            new SKPoint(node.X - node.NodeSize * 0.3f, node.Y - node.NodeSize * 0.3f),
+                            node.NodeSize * 1.3f,
+                            new[] { color.WithAlpha(235), color.WithAlpha(160) },
+                            null,
+                            SKShaderTileMode.Clamp);
+                        canvas.DrawCircle(node.X, node.Y, node.NodeSize, _orbPaint);
+                        _orbPaint.Shader = null;
+
+                        _orbStrokePaint.Color = color.WithAlpha(120);
+                        canvas.DrawCircle(node.X, node.Y, node.NodeSize, _orbStrokePaint);
+
+                        canvas.DrawText(node.Genre.Name, node.X, node.Y - node.NodeSize - 8, _textPaint);
+                        canvas.DrawText(node.Genre.Count.ToString(), node.X, node.Y + 4, _countTextPaint);
+                    }
+
+                    // Constellation links between nearby planets.
+                    for (int i = 0; i < _nodes.Count; i++)
+                    {
+                        for (int j = i + 1; j < _nodes.Count; j++)
+                        {
+                            float dx = _nodes[i].X - _nodes[j].X;
+                            float dy = _nodes[i].Y - _nodes[j].Y;
+                            float dist = (float)Math.Sqrt(dx * dx + dy * dy);
+                            if (dist < 100)
+                            {
+                                byte alpha = (byte)Math.Clamp(80 - (dist * 0.8f), 0, 80);
+                                _linkPaint.Color = SKColors.White.WithAlpha(alpha);
+                                canvas.DrawLine(_nodes[i].X, _nodes[i].Y, _nodes[j].X, _nodes[j].Y, _linkPaint);
+                            }
                         }
                     }
-                }
 
-                canvas.Restore();
+                    canvas.Restore();
+                }
+                catch (Exception ex)
+                {
+                    // Render-thread exceptions bypass all managed exception handling and hard-crash
+                    // the process with zero trace. Skip the frame instead of taking the app down.
+                    Serilog.Log.Warning(ex, "GenreGalaxyCanvas: render tick failed — skipping frame");
+                }
             }
 
             private static SKColor ParseColor(string hex)
