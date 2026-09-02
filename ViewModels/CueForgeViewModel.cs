@@ -41,6 +41,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private readonly AppConfig _config;
     private readonly ConfigManager _configManager;
     private readonly DatabaseService _databaseService;
+    private readonly IDialogService _dialogService;
     private readonly CompositeDisposable _disposables = new();
 
     private const double SnapThreshold = 0.05;
@@ -60,8 +61,16 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public string? TrackHash
     {
         get => _trackHash;
-        private set => this.RaiseAndSetIfChanged(ref _trackHash, value);
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _trackHash, value);
+            this.RaisePropertyChanged(nameof(HasTrackLoaded));
+        }
     }
+
+    /// <summary>Gates the BPM/duration/energy header readouts so they don't show stale defaults
+    /// (120 BPM, 300s, energy 0) as if they were real metadata before any track has loaded.</summary>
+    public bool HasTrackLoaded => TrackHash != null;
 
     private string _trackTitle = "No track loaded";
     public string TrackTitle
@@ -410,7 +419,6 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     public ReactiveCommand<Unit, Unit> AddCueAtPlayheadCommand { get; }
     public ReactiveCommand<Unit, Unit> AutoGenerateCuesCommand { get; }
-    public ReactiveCommand<OrbitCue, Unit> UpdateCueCommand { get; }
     public ReactiveCommand<OrbitCue, Unit> DeleteCueCommand { get; }
     public ReactiveCommand<Unit, Unit> SetLoopInCommand { get; }
     public ReactiveCommand<Unit, Unit> SetLoopOutCommand { get; }
@@ -520,11 +528,13 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         ILogger<CueForgeViewModel> logger,
         AppConfig config,
         ConfigManager configManager,
-        DatabaseService databaseService)
+        DatabaseService databaseService,
+        IDialogService dialogService)
     {
         _cueService = cueService;
         _libraryService = libraryService;
         _engineCueService = engineCueService;
+        _dialogService = dialogService;
         _playerViewModel = playerViewModel;
         _camelotKeyService = camelotKeyService;
         _logger = logger;
@@ -538,12 +548,11 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         AddCueAtPlayheadCommand = ReactiveCommand.CreateFromTask(AddCueAtPlayheadAsync, canAct);
         AutoGenerateCuesCommand = ReactiveCommand.CreateFromTask(AutoGenerateCuesAsync, canAct);
-        UpdateCueCommand = ReactiveCommand.CreateFromTask<OrbitCue>(UpdateCueAsync, canAct);
         DeleteCueCommand = ReactiveCommand.CreateFromTask<OrbitCue>(DeleteCueAsync, canAct);
         SetLoopInCommand = ReactiveCommand.CreateFromTask(SetLoopInAsync, canAct);
         SetLoopOutCommand = ReactiveCommand.CreateFromTask(SetLoopOutAsync, canAct);
-        LoopHalfCommand = ReactiveCommand.Create(HalveLoop);
-        LoopDoubleCommand = ReactiveCommand.Create(DoubleLoop);
+        LoopHalfCommand = ReactiveCommand.Create(HalveLoop, canAct);
+        LoopDoubleCommand = ReactiveCommand.Create(DoubleLoop, canAct);
         ClearLoopCommand = ReactiveCommand.CreateFromTask(ClearLoopAsync, canAct);
         CommitChangesCommand = ReactiveCommand.CreateFromTask(CommitChangesAsync);
         DiscardChangesCommand = ReactiveCommand.CreateFromTask(DiscardChangesAsync);
@@ -729,8 +738,12 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
                 WorkingCues.Clear();
-                HasUncommittedChanges = false;
                 foreach (var c in cues) WorkingCues.Add(c);
+                // Reset AFTER populating, not before — each Add() above flips this back to true
+                // via the WorkingCues.CollectionChanged handler, so resetting first meant opening
+                // any track with saved cues immediately showed "UNSAVED CHANGES" before anything
+                // was actually edited. Matches DiscardChangesAsync's (correct) ordering.
+                HasUncommittedChanges = false;
             });
 
             this.RaisePropertyChanged(nameof(IsExportReady));
@@ -762,6 +775,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         EnergyCurveData = null; VocalDensityCurveData = null; OnsetDensityCurveData = null;
         LoopInSeconds = null; LoopOutSeconds = null;
         IsInVocalRegion = false;
+        Bpm = 120; TrackDuration = 300.0; TrackEnergyScore = 0;
     }
 
     public void UpdateCamelotKeyDisplay(string camelotKey)
@@ -854,7 +868,6 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         finally { IsGenerating = false; }
     }
 
-    private async Task UpdateCueAsync(OrbitCue cue) { if (TrackHash is null) return; PushSnapshot(); cue.Source = CueSource.User; await Task.CompletedTask; }
 
     private async Task DeleteCueAsync(OrbitCue cue) { if (TrackHash is null) return; PushSnapshot(); WorkingCues.Remove(cue); await Task.CompletedTask; }
 
@@ -965,6 +978,16 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private async Task DiscardChangesAsync()
     {
         if (TrackHash is null) return;
+
+        // Unlike Delete Cue (recoverable via Undo), Discard also wipes the undo/redo stacks below
+        // — on a genuinely dirty session this is unrecoverable, so confirm before doing it.
+        var confirmed = await _dialogService.ConfirmAsync(
+            "Discard Changes",
+            "This discards every unsaved cue/loop edit for this track and cannot be undone afterward. Continue?",
+            confirmLabel: "Discard",
+            cancelLabel: "Cancel");
+        if (!confirmed) return;
+
         try
         {
             var entities = await _cueService.GetByTrackIdAsync(TrackHash);
