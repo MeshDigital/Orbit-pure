@@ -439,7 +439,16 @@ public partial class App : Application
         services.AddSingleton(provider =>
         {
             var configManager = provider.GetRequiredService<ConfigManager>();
-            var appConfig = configManager.Load();
+            AppConfig appConfig;
+            try
+            {
+                appConfig = configManager.Load();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to load config.ini — falling back to default settings so the app can still start");
+                appConfig = new AppConfig();
+            }
             if (string.IsNullOrEmpty(appConfig.DownloadDirectory))
                 appConfig.DownloadDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "SLSKDONET");
             return appConfig;
