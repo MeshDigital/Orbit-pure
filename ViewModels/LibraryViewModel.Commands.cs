@@ -98,6 +98,7 @@ public partial class LibraryViewModel
 
     // ── Batch Action FAB (Task 10.5) ────────────────────────────────────────
     public ICommand BatchTagEditCommand { get; set; } = null!;
+    public ICommand BulkRenameCommand { get; set; } = null!;
     public ICommand BatchQueueAnalysisCommand { get; set; } = null!;
     public ICommand BatchAddToPlaylistCommand { get; set; } = null!;
     public ICommand BatchExportRekordboxCommand { get; set; } = null!;
@@ -182,6 +183,7 @@ public partial class LibraryViewModel
 
         // Batch Action FAB
         BatchTagEditCommand = new AsyncRelayCommand(ExecuteBatchTagEditAsync);
+        BulkRenameCommand = new AsyncRelayCommand(ExecuteBulkRenameAsync);
         BatchQueueAnalysisCommand = new AsyncRelayCommand(ExecuteBatchQueueAnalysisAsync);
         BatchAddToPlaylistCommand = new AsyncRelayCommand(ExecuteBatchAddToPlaylistAsync);
         BatchExportRekordboxCommand = new AsyncRelayCommand(ExecuteBatchExportRekordboxAsync);
@@ -2165,6 +2167,121 @@ public partial class LibraryViewModel
         const int max = 5;
         var shown = string.Join(", ", names.Take(max));
         return names.Count > max ? $"{shown} (+{names.Count - max} more)" : shown;
+    }
+
+    /// <summary>
+    /// Renames every selected track's physical file according to a user-supplied pattern (e.g.
+    /// "{artist} - {title}") — unlike the single-track exact-filename rename in the tag-edit
+    /// dialog, this applies across the whole selection. Same collision rule as that rename: skip +
+    /// report rather than overwrite.
+    /// </summary>
+    private async Task ExecuteBulkRenameAsync()
+    {
+        var selected = Tracks.SelectedTracks.ToList();
+        if (selected.Count == 0) return;
+
+        var previewTracks = selected.Take(3).Select(t => new BulkRenamePreviewTrack
+        {
+            Artist = t.Model.Artist ?? "",
+            Title = t.Model.Title ?? "",
+            Album = t.Model.Album ?? "",
+            TrackNumber = t.Model.TrackNumber > 0 ? t.Model.TrackNumber.ToString() : "",
+            Year = t.Model.ReleaseDate?.Year.ToString() ?? "",
+            Genre = t.Model.Genres ?? "",
+            Extension = string.IsNullOrEmpty(t.Model.ResolvedFilePath) ? "" : System.IO.Path.GetExtension(t.Model.ResolvedFilePath),
+        }).ToList();
+
+        var result = await _dialogService.ShowBulkRenameDialogAsync(selected.Count, previewTracks);
+        if (result == null || !result.IsConfirmed || string.IsNullOrWhiteSpace(result.Pattern)) return;
+
+        _logger.LogInformation("Bulk rename for {Count} tracks starting with pattern '{Pattern}'.", selected.Count, result.Pattern);
+
+        int renamedCount = 0;
+        var skippedTracks = new List<string>();
+
+        await Task.Run(async () =>
+        {
+            await using var context = _dbFactory.CreateDbContext();
+            var trackIds = selected.Select(t => t.Model.Id).ToList();
+            var trackHashes = selected.Select(t => t.Model.TrackUniqueHash).Where(h => !string.IsNullOrEmpty(h)).ToList();
+
+            var dbTracksById = await context.PlaylistTracks
+                .Where(t => trackIds.Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id);
+            var dbEntriesByHash = await context.LibraryEntries
+                .Where(e => trackHashes.Contains(e.UniqueHash))
+                .ToDictionaryAsync(e => e.UniqueHash);
+
+            foreach (var trackVm in selected)
+            {
+                var track = trackVm.Model;
+                if (string.IsNullOrEmpty(track.ResolvedFilePath) || !System.IO.File.Exists(track.ResolvedFilePath))
+                    continue;
+
+                var resolvedBase = BulkRenameViewModel.Resolve(
+                    result.Pattern,
+                    track.Artist ?? "", track.Title ?? "", track.Album ?? "",
+                    track.TrackNumber > 0 ? track.TrackNumber.ToString() : "",
+                    track.ReleaseDate?.Year.ToString() ?? "",
+                    track.Genres ?? "");
+
+                var safeName = resolvedBase.Replace('/', '_').Replace('\\', '_').Replace(':', '_').Trim();
+                if (string.IsNullOrWhiteSpace(safeName))
+                {
+                    skippedTracks.Add($"{track.Artist} - {track.Title}");
+                    continue;
+                }
+
+                var dir = System.IO.Path.GetDirectoryName(track.ResolvedFilePath)!;
+                var ext = System.IO.Path.GetExtension(track.ResolvedFilePath);
+                var destPath = System.IO.Path.Combine(dir, safeName + ext);
+
+                if (string.Equals(destPath, track.ResolvedFilePath, StringComparison.OrdinalIgnoreCase))
+                    continue; // already matches the pattern — nothing to do
+
+                if (System.IO.File.Exists(destPath))
+                {
+                    _logger.LogWarning("Bulk rename skipped: target file already exists: {Path}", destPath);
+                    skippedTracks.Add($"{track.Artist} - {track.Title}");
+                    continue;
+                }
+
+                try
+                {
+                    System.IO.File.Move(track.ResolvedFilePath, destPath);
+                    track.ResolvedFilePath = destPath;
+
+                    if (dbTracksById.TryGetValue(track.Id, out var dbTrack))
+                    {
+                        dbTrack.ResolvedFilePath = destPath;
+                        context.PlaylistTracks.Update(dbTrack);
+                    }
+                    if (!string.IsNullOrEmpty(track.TrackUniqueHash) && dbEntriesByHash.TryGetValue(track.TrackUniqueHash, out var dbEntry))
+                    {
+                        dbEntry.FilePath = destPath;
+                        context.LibraryEntries.Update(dbEntry);
+                    }
+
+                    renamedCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Bulk rename failed for {Path}", track.ResolvedFilePath);
+                    skippedTracks.Add($"{track.Artist} - {track.Title}");
+                }
+            }
+
+            await context.SaveChangesAsync();
+        });
+
+        var message = $"Renamed {renamedCount} file(s).";
+        if (skippedTracks.Count > 0)
+            message += $" Skipped: {FormatFailedTrackList(skippedTracks)} — destination already existed or the rename failed. See logs for details.";
+
+        _notificationService.Show(
+            "Bulk Rename",
+            message,
+            skippedTracks.Count > 0 ? NotificationType.Warning : NotificationType.Success);
     }
 
     /// <summary>

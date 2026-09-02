@@ -226,6 +226,22 @@ public class DialogService : IDialogService
         });
     }
 
+    public async Task<BulkRenameResult?> ShowBulkRenameDialogAsync(
+        int trackCount, System.Collections.Generic.IReadOnlyList<BulkRenamePreviewTrack> previewTracks)
+    {
+        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var vm = new BulkRenameViewModel(trackCount, previewTracks);
+            var dialog = new Views.Avalonia.Dialogs.BulkRenameDialog(vm);
+            var owner = GetOwnerWindow();
+            if (owner != null)
+            {
+                return await dialog.ShowDialog<BulkRenameResult?>(owner);
+            }
+            return null;
+        });
+    }
+
     public async Task<string?> OpenFolderDialogAsync(string title)
     {
         return await Dispatcher.UIThread.InvokeAsync(async () =>

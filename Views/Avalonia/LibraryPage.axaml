@@ -552,6 +552,17 @@
                 </StackPanel>
             </Button>
 
+            <!-- Bulk Rename -->
+            <Button Command="{Binding BulkRenameCommand}"
+                    ToolTip.Tip="Rename selected tracks' files by pattern"
+                    Padding="10,6" CornerRadius="18" FontSize="11"
+                    Background="#1AFFFFFF" Foreground="#DDD">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="🏷️" FontSize="13"/>
+                    <TextBlock Text="Rename" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
             <!-- Queue Analysis -->
             <Button Command="{Binding BatchQueueAnalysisCommand}"
                     ToolTip.Tip="Queue selected tracks for audio analysis"

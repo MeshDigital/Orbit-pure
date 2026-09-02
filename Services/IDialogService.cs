@@ -72,6 +72,13 @@ public interface IDialogService
     Task<ViewModels.Library.BatchTagEditResult?> ShowBatchTagEditDialogAsync(string? initialFileName = null);
 
     /// <summary>
+    /// Shows the bulk-rename-by-pattern dialog for <paramref name="trackCount"/> selected tracks,
+    /// previewing the pattern against up to a few sample tracks.
+    /// </summary>
+    Task<ViewModels.Library.BulkRenameResult?> ShowBulkRenameDialogAsync(
+        int trackCount, System.Collections.Generic.IReadOnlyList<ViewModels.Library.BulkRenamePreviewTrack> previewTracks);
+
+    /// <summary>
     /// Shows a folder selection dialog.
     /// </summary>
     /// <returns>Selected folder path or null if cancelled.</returns>
