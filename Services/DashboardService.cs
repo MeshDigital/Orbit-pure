@@ -223,25 +223,53 @@ public class DashboardService
                 
             // For better accuracy on dashboard, we can refresh counts from the track table
             // though this might be slower. Let's do it for the recent ones.
+            var playlistIds = entities.Select(e => e.Id).ToList();
+
+            // One aggregate query for total/downloaded counts across all playlists, instead of
+            // 2 CountAsync round-trips per playlist.
+            var countsByPlaylist = await context.PlaylistTracks
+                .Where(t => playlistIds.Contains(t.PlaylistId))
+                .GroupBy(t => t.PlaylistId)
+                .Select(g => new
+                {
+                    PlaylistId = g.Key,
+                    Total = g.Count(),
+                    Downloaded = g.Count(t => t.Status == TrackStatus.Downloaded)
+                })
+                .ToDictionaryAsync(g => g.PlaylistId);
+
+            // Most playlists have no dedicated cover (AlbumArtUrl), only their tracks do — fetch
+            // distinct track art URLs for all of them in one round-trip instead of one query per
+            // playlist, then take the first few per playlist in memory.
+            var missingArtIds = entities.Where(e => string.IsNullOrEmpty(e.AlbumArtUrl)).Select(e => e.Id).ToList();
+            var artUrlsByPlaylist = missingArtIds.Count == 0
+                ? new Dictionary<Guid, List<string>>()
+                : (await context.PlaylistTracks
+                    .Where(t => missingArtIds.Contains(t.PlaylistId) && t.AlbumArtUrl != null && t.AlbumArtUrl != "")
+                    .Select(t => new { t.PlaylistId, t.AlbumArtUrl })
+                    .Distinct()
+                    .ToListAsync())
+                    .GroupBy(t => t.PlaylistId)
+                    .ToDictionary(g => g.Key, g => g.Select(t => t.AlbumArtUrl).Take(4).ToList());
+
             var models = new List<PlaylistJob>();
             foreach (var entity in entities)
             {
                 var model = MapToModel(entity);
-                // Dynamically fetch counts to ensure dashboard is 100% accurate
-                model.SuccessfulCount = await context.PlaylistTracks.CountAsync(t => t.PlaylistId == entity.Id && t.Status == TrackStatus.Downloaded);
-                model.TotalTracks = await context.PlaylistTracks.CountAsync(t => t.PlaylistId == entity.Id);
 
-                // Most playlists have no dedicated cover (AlbumArtUrl), only their tracks do —
-                // fetch a few distinct track art URLs so the dashboard card can build a mosaic.
-                if (string.IsNullOrEmpty(model.AlbumArtUrl))
+                if (countsByPlaylist.TryGetValue(entity.Id, out var counts))
                 {
-                    var trackArtUrls = await context.PlaylistTracks
-                        .Where(t => t.PlaylistId == entity.Id && t.AlbumArtUrl != null && t.AlbumArtUrl != "")
-                        .Select(t => t.AlbumArtUrl)
-                        .Distinct()
-                        .Take(4)
-                        .ToListAsync();
+                    model.SuccessfulCount = counts.Downloaded;
+                    model.TotalTracks = counts.Total;
+                }
+                else
+                {
+                    model.SuccessfulCount = 0;
+                    model.TotalTracks = 0;
+                }
 
+                if (string.IsNullOrEmpty(model.AlbumArtUrl) && artUrlsByPlaylist.TryGetValue(entity.Id, out var trackArtUrls))
+                {
                     model.PlaylistTracks = trackArtUrls
                         .Select(url => new PlaylistTrack { PlaylistId = entity.Id, AlbumArtUrl = url })
                         .ToList();
