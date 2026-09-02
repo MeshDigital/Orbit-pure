@@ -107,6 +107,14 @@ public class PlaylistExportService
                 }
             }
 
+            // Prior cue-sync snapshots for this exact target file, keyed by track hash — feeds the
+            // three-way cue merge below (see RekordboxXmlMerger.MergeCuePoints).
+            var normalizedTargetPath = Path.GetFullPath(targetPath);
+            var priorCueSnapshotsByHash = await db.RekordboxExportCueSync
+                .AsNoTracking()
+                .Where(s => s.TargetPath == normalizedTargetPath)
+                .ToDictionaryAsync(s => s.TrackUniqueHash, s => s.CueSnapshot, StringComparer.Ordinal);
+
             // Build parallel lists so cue look-up stays correct even when some tracks
             // are skipped (file not found). Using a separate source list avoids the
             // index-mismatch bug that occurs when iterating rbTracks by index into trackList.
@@ -194,7 +202,8 @@ public class PlaylistExportService
                         playlistPathChain.AddRange(Enumerable.Reverse(folderChainLeafToRoot));
                         playlistPathChain.Add(playlistName);
 
-                        finalDoc = RekordboxXmlMerger.MergeIntoExisting(existingDoc, doc, playlistPathChain, _logger);
+                        var priorCueSnapshotByTrackId = BuildPriorCueSnapshotByTrackId(rbTracks, rbSources, priorCueSnapshotsByHash);
+                        finalDoc = RekordboxXmlMerger.MergeIntoExisting(existingDoc, doc, playlistPathChain, _logger, priorCueSnapshotByTrackId);
                         _logger.LogInformation("Merged export into existing Rekordbox XML at {Path}", targetPath);
                     }
                     else
@@ -207,6 +216,8 @@ public class PlaylistExportService
                     _logger.LogWarning(ex, "Failed to parse existing file at {Path} for merge — overwriting with a fresh export.", targetPath);
                 }
             }
+
+            await PersistCueSyncSnapshotsAsync(db, normalizedTargetPath, finalDoc, rbTracks, rbSources);
 
             await Task.Run(() => finalDoc.Save(targetPath));
             _logger.LogInformation("Rekordbox XML export completed successfully.");
@@ -297,6 +308,86 @@ public class PlaylistExportService
         }
 
         return chainLeafToRoot;
+    }
+
+    /// <summary>
+    /// Rekeys the per-track cue-sync snapshots loaded for this export target (by track hash) onto
+    /// this run's freshly-assigned TrackIDs — the shape <see cref="RekordboxXmlMerger.MergeIntoExisting"/>
+    /// needs, since it matches tracks by TrackID/Location and has no concept of ORBIT's hash.
+    /// </summary>
+    private static Dictionary<string, string> BuildPriorCueSnapshotByTrackId(
+        List<RekordboxTrack> rbTracks, List<PlaylistTrack> rbSources, Dictionary<string, string> priorCueSnapshotsByHash)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (priorCueSnapshotsByHash.Count == 0) return result;
+
+        for (int i = 0; i < rbTracks.Count; i++)
+        {
+            var hash = rbSources[i].TrackUniqueHash;
+            if (!string.IsNullOrEmpty(hash) && priorCueSnapshotsByHash.TryGetValue(hash, out var snapshot))
+                result[rbTracks[i].TrackID.ToString(CultureInfo.InvariantCulture)] = snapshot;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Records, per exported track, the cue set that actually ended up in <paramref name="finalDoc"/>
+    /// (whichever the three-way merge decided on — fresh, preserved, or unchanged) as the new
+    /// baseline for the next export's comparison. Runs for every export (merged or fresh-write) so
+    /// a brand-new file's first export seeds a valid baseline for its second export to compare
+    /// against, not just merges into an already-existing file.
+    /// </summary>
+    private async Task PersistCueSyncSnapshotsAsync(
+        AppDbContext db, string targetPath, XDocument finalDoc, List<RekordboxTrack> rbTracks, List<PlaylistTrack> rbSources)
+    {
+        var collection = finalDoc.Root?.Element("COLLECTION");
+        if (collection == null) return;
+
+        var tracksById = collection.Elements("TRACK")
+            .ToDictionary(t => (string?)t.Attribute("TrackID") ?? "", t => t, StringComparer.Ordinal);
+
+        var existingRows = await db.RekordboxExportCueSync
+            .Where(s => s.TargetPath == targetPath)
+            .ToDictionaryAsync(s => s.TrackUniqueHash, StringComparer.Ordinal);
+
+        for (int i = 0; i < rbTracks.Count; i++)
+        {
+            var hash = rbSources[i].TrackUniqueHash;
+            if (string.IsNullOrEmpty(hash)) continue;
+
+            var trackIdStr = rbTracks[i].TrackID.ToString(CultureInfo.InvariantCulture);
+            if (!tracksById.TryGetValue(trackIdStr, out var trackElem)) continue;
+
+            var snapshot = RekordboxXmlMerger.CanonicalizeCues(trackElem.Elements("POSITION_MARK"));
+
+            if (existingRows.TryGetValue(hash, out var row))
+            {
+                row.CueSnapshot = snapshot;
+                row.UpdatedAtUtc = DateTime.UtcNow;
+            }
+            else
+            {
+                db.RekordboxExportCueSync.Add(new RekordboxExportCueSyncEntity
+                {
+                    TargetPath = targetPath,
+                    TrackUniqueHash = hash,
+                    CueSnapshot = snapshot,
+                    UpdatedAtUtc = DateTime.UtcNow,
+                });
+            }
+        }
+
+        try
+        {
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            // Non-fatal: worst case, the next export falls back to the conservative
+            // preserve-existing-cues rule for tracks whose snapshot failed to save.
+            _logger.LogWarning(ex, "Rekordbox export: failed to persist cue-sync snapshots for {Path} — next export will fall back to preserving existing cues for affected tracks.", targetPath);
+        }
     }
 
     /// <summary>

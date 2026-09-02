@@ -2862,6 +2862,28 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 29. Rekordbox export cue-sync snapshots: enables a three-way merge so a cue edit made
+            // in Cue Forge after a track's first Rekordbox export still propagates on re-export,
+            // while a hand-edit made directly inside Rekordbox since ORBIT's last known-good sync is
+            // still preserved (previously all-or-nothing: any existing cues blocked every future
+            // ORBIT cue update for that track, forever).
+            if (!TableExists("RekordboxExportCueSync"))
+            {
+                _logger.LogInformation("Patching Schema: Creating RekordboxExportCueSync table...");
+                command.CommandText = @"
+                    CREATE TABLE ""RekordboxExportCueSync"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_RekordboxExportCueSync"" PRIMARY KEY,
+                        ""TargetPath"" TEXT NOT NULL,
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""CueSnapshot"" TEXT NOT NULL DEFAULT '',
+                        ""UpdatedAtUtc"" TEXT NOT NULL
+                    );
+                    CREATE UNIQUE INDEX ""IX_RekordboxExportCueSync_TargetPath_Hash"" ON ""RekordboxExportCueSync"" (""TargetPath"", ""TrackUniqueHash"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ RekordboxExportCueSync table created.");
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)
