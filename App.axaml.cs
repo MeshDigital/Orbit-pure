@@ -695,6 +695,7 @@ public partial class App : Application
         services.AddSingleton<ImportHistoryViewModel>();
         services.AddSingleton<SpotifyImportViewModel>();
         services.AddSingleton<ViewModels.LibrarySourcesViewModel>();
+        services.AddSingleton<ViewModels.Library.LibraryHealthViewModel>();
         services.AddSingleton<Services.Import.AutoCleanerService>();
 
         // Utilities

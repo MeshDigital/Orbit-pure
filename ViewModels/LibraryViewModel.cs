@@ -68,6 +68,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     public Library.SmartPlaylistViewModel SmartPlaylists { get; }
     public System.Collections.ObjectModel.ObservableCollection<ColumnDefinition> AvailableColumns { get; } = new();
     public LibrarySourcesViewModel LibrarySourcesViewModel { get; }
+    public Library.LibraryHealthViewModel LibraryHealthViewModel { get; }
     public ImportHistoryViewModel ImportHistoryViewModel => _importHistoryViewModel;
     public LibraryDoubleInspectorViewModel DoubleInspector { get; }
     public LibraryTrackInspectorViewModel TrackInspector { get; }
@@ -474,6 +475,13 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         set { SetProperty(ref _isOrphanedTracksVisible, value); }
     }
 
+    private bool _isLibraryHealthVisible;
+    public bool IsLibraryHealthVisible
+    {
+        get => _isLibraryHealthVisible;
+        set { SetProperty(ref _isLibraryHealthVisible, value); }
+    }
+
     private double _sidebarWidth = 420;
     public double SidebarWidth
     {
@@ -515,6 +523,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         SpotifyEnrichmentService spotifyEnrichmentService,
         LibraryCacheService libraryCacheService,
         LibrarySourcesViewModel librarySourcesViewModel,
+        Library.LibraryHealthViewModel libraryHealthViewModel,
         IServiceProvider serviceProvider,
         DatabaseService databaseService,
         SearchFilterViewModel searchFilters,
@@ -560,6 +569,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         _similarityIndex = similarityIndex;
         _transitionStyleClassifier = transitionStyleClassifier;
         LibrarySourcesViewModel = librarySourcesViewModel;
+        LibraryHealthViewModel = libraryHealthViewModel;
 
         _isNavigationCollapsed = _appConfig.LibraryNavigationCollapsed;
 

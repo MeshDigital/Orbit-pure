@@ -62,6 +62,9 @@ public partial class LibraryViewModel
     public ICommand RestoreProjectCommand { get; set; } = null!;
     public ICommand CloseRemovalHistoryCommand { get; set; } = null!;
     public ICommand CloseImportHistoryCommand { get; set; } = null!;
+    public ICommand CloseOrphanedTracksCommand { get; set; } = null!;
+    public ICommand OpenLibraryHealthCommand { get; set; } = null!;
+    public ICommand CloseLibraryHealthCommand { get; set; } = null!;
     public ICommand SyncProjectCommand { get; set; } = null!;
     public ICommand OpenSourceUrlCommand { get; set; } = null!;
     public ICommand ExportPlaylistCommand { get; set; } = null!;
@@ -146,6 +149,13 @@ public partial class LibraryViewModel
         LoadDeletedProjectsCommand = new AsyncRelayCommand(ExecuteLoadDeletedProjectsAsync);
         RestoreProjectCommand = new AsyncRelayCommand<object>(ExecuteRestoreProjectAsync);
         CloseRemovalHistoryCommand = new RelayCommand(() => IsRemovalHistoryVisible = false);
+        CloseOrphanedTracksCommand = new RelayCommand(() => IsOrphanedTracksVisible = false);
+        OpenLibraryHealthCommand = new RelayCommand(() =>
+        {
+            IsLibraryHealthVisible = true;
+            LibraryHealthViewModel.RefreshAll();
+        });
+        CloseLibraryHealthCommand = new RelayCommand(() => IsLibraryHealthVisible = false);
         CloseImportHistoryCommand = new RelayCommand(() => IsImportHistoryVisible = false);
         ExportPlaylistCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistAsync);
         ExportPlaylistM3uCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistM3uAsync);
