@@ -304,7 +304,13 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
             _libraryViewModel.Tracks.QualityTierFilter = string.IsNullOrEmpty(tier) ? null : tier;
             if (!string.IsNullOrEmpty(tier))
             {
-                _libraryViewModel.SelectedProject = null;
+                // SelectedProject = null does NOT mean "All Tracks" in this codebase — it means
+                // "nothing selected yet", which LibraryPage.OnLoaded interprets as "pick something"
+                // and eagerly auto-selects the first project (a deliberate perf optimization),
+                // silently stomping the tier filter's intended scope. LoadAllTracksCommand is the
+                // real "All Tracks" mechanism (sets SelectedProject to the dedicated sentinel job).
+                if (_libraryViewModel.Projects.LoadAllTracksCommand.CanExecute(null))
+                    _libraryViewModel.Projects.LoadAllTracksCommand.Execute(null);
             }
             _navigationService.NavigateTo("Library");
         });
