@@ -541,14 +541,17 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             var tracks = await _spotifyEnrichment.GetRecommendationsAsync(8);
-            
-            // Check library for each track
+
+            // Check library for each track in parallel instead of awaiting one DB round-trip
+            // at a time — bounded to 8 recommendations, so this stays cheap even run every load.
+            var lookupTasks = tracks
+                .Where(t => !string.IsNullOrEmpty(t.ISRC))
+                .Select(async track => track.InLibrary = await _databaseService.FindLibraryEntryAsync(track.ISRC) != null)
+                .ToList();
+            await Task.WhenAll(lookupTasks);
+
             foreach (var track in tracks)
             {
-                if (!string.IsNullOrEmpty(track.ISRC))
-                {
-                    track.InLibrary = await _databaseService.FindLibraryEntryAsync(track.ISRC) != null;
-                }
                 track.Artwork = new ArtworkProxy(_artworkCacheService, track.ImageUrl);
             }
 
