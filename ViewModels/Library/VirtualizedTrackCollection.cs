@@ -31,6 +31,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     private readonly int _pageSize;
     private readonly IEnumerable<string>? _hashFilter;
     private readonly string? _camelotKeyFilter;
+    private readonly string? _qualityTier;
     private readonly TrackSortColumn _sortColumn;
     private readonly bool _sortDescending;
     
@@ -60,7 +61,8 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         int pageSize = 100,
         string? camelotKeyFilter = null,
         TrackSortColumn sortColumn = TrackSortColumn.Default,
-        bool sortDescending = false)
+        bool sortDescending = false,
+        string? qualityTier = null)
     {
         _logger = logger;
         _libraryService = libraryService;
@@ -74,6 +76,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         _camelotKeyFilter = camelotKeyFilter;
         _sortColumn = sortColumn;
         _sortDescending = sortDescending;
+        _qualityTier = qualityTier;
         
         // Centralized event dispatch
         SubscribeToEvents();
@@ -113,7 +116,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         try 
         {
             _logger.LogInformation("[VirtualizedTrackCollection] Starting count query...");
-            var count = await _libraryService.GetTrackCountAsync(_playlistId, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter);
+            var count = await _libraryService.GetTrackCountAsync(_playlistId, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _qualityTier);
             sw.Stop();
             _logger.LogInformation("[VirtualizedTrackCollection] Count query took {Ms}ms, returned {Count}", sw.ElapsedMilliseconds, count);
             _count = count;
@@ -254,7 +257,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             
             if (itemsToLoad <= 0) return;
             
-            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending);
+            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending, _qualityTier);
             var viewModels = tracks.Select(t => new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
             foreach (var vm in viewModels) _viewModelCache[vm.GlobalId] = vm;
 
@@ -310,7 +313,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
 
         try
         {
-            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending);
+            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending, _qualityTier);
             var viewModels = tracks.Select(t => new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
             foreach (var vm in viewModels) _viewModelCache[vm.GlobalId] = vm;
 

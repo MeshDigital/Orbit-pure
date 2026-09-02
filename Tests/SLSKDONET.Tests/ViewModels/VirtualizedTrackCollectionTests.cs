@@ -40,13 +40,13 @@ public class VirtualizedTrackCollectionTests
         var libraryServiceMock = new Mock<ILibraryService>();
 
         libraryServiceMock
-            .Setup(s => s.GetTrackCountAsync(playlistId, null, null, null, null))
+            .Setup(s => s.GetTrackCountAsync(playlistId, null, null, null, null, null))
             .ReturnsAsync(totalCount);
 
         libraryServiceMock
             .Setup(s => s.GetPagedPlaylistTracksAsync(
-                playlistId, It.IsAny<int>(), It.IsAny<int>(), null, null, null, null, TrackSortColumn.Default, false))
-            .Returns(async (Guid _, int skip, int take, string? _, bool? _, IEnumerable<string>? _, string? _, TrackSortColumn _, bool _) =>
+                playlistId, It.IsAny<int>(), It.IsAny<int>(), null, null, null, null, TrackSortColumn.Default, false, null))
+            .Returns(async (Guid _, int skip, int take, string? _, bool? _, IEnumerable<string>? _, string? _, TrackSortColumn _, bool _, string? _) =>
             {
                 if (onPageRequested != null)
                     await onPageRequested(skip, take);
@@ -145,7 +145,7 @@ public class VirtualizedTrackCollectionTests
 
         libraryServiceMock.Verify(
             s => s.GetPagedPlaylistTracksAsync(
-                It.IsAny<Guid>(), 0, 10, null, null, null, null, TrackSortColumn.Default, false),
+                It.IsAny<Guid>(), 0, 10, null, null, null, null, TrackSortColumn.Default, false, null),
             Times.Once);
     }
 

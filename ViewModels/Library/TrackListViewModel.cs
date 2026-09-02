@@ -361,6 +361,24 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         }
     }
 
+    private string? _qualityTierFilter;
+    /// <summary>
+    /// "Gold"/"Silver"/"Bronze"/null — set by the Dashboard's quality badges before navigating
+    /// here (see HomeViewModel.NavigateLibraryCommand). Uses the exact same thresholds as
+    /// DashboardService's Gold/Silver/Bronze counts (see TrackRepository.ApplyQualityTierFilter)
+    /// so the count a user clicks and the tracks they land on always match.
+    /// </summary>
+    public string? QualityTierFilter
+    {
+        get => _qualityTierFilter;
+        set
+        {
+            if (_qualityTierFilter == value) return;
+            this.RaiseAndSetIfChanged(ref _qualityTierFilter, value);
+            RefreshFilteredTracks();
+        }
+    }
+
     // Phase 22: Search 2.0 - The Bouncer
     private bool _isBouncerActive;
     public bool IsBouncerActive
@@ -939,7 +957,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
                 job.Id,
                 SearchText,
                 IsFilterDownloaded ? true : (IsFilterPending ? false : null),
-                camelotKeyFilter: CamelotKeyFilter);
+                camelotKeyFilter: CamelotKeyFilter,
+                qualityTier: QualityTierFilter);
 
             // Subscribe to update LimitedTracks when data arrives
             virtualized.CollectionChanged += (s, e) => {
@@ -1086,6 +1105,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             IsFilterDownloaded ? true : (IsFilterPending ? false : null),
             DuplicateHashesFilter,
             camelotKeyFilter: CamelotKeyFilter,
+            qualityTier: QualityTierFilter,
             sortColumn: SortColumn,
             sortDescending: SortDescending);
 
@@ -1205,6 +1225,22 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         {
             if (!string.Equals(track.CamelotDisplay, CamelotKeyFilter, StringComparison.OrdinalIgnoreCase))
                 return false;
+        }
+
+        // Quality tier filter (Gold/Silver/Bronze) — same thresholds as
+        // TrackRepository.ApplyQualityTierFilter, kept in sync deliberately.
+        if (!string.IsNullOrEmpty(QualityTierFilter))
+        {
+            var fmtUpper = track.Model.Format?.ToUpperInvariant() ?? string.Empty;
+            bool isLossless = fmtUpper == "FLAC" || fmtUpper == "WAV";
+            bool tierMatch = QualityTierFilter switch
+            {
+                "Gold" => isLossless,
+                "Silver" => !isLossless && track.Model.Bitrate >= 320,
+                "Bronze" => track.Model.Bitrate < 320 && track.Model.Bitrate > 0,
+                _ => true
+            };
+            if (!tierMatch) return false;
         }
 
         // Format Filters

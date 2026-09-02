@@ -36,6 +36,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     private readonly SearchViewModel _searchViewModel;
     private readonly ArtworkCacheService _artworkCacheService;
     private readonly PlaylistMosaicService _mosaicService;
+    private readonly AnalysisPageViewModel _analysisPageViewModel;
     private IDisposable? _eventSubscription;
     private PropertyChangedEventHandler? _connectionChangedHandler;
     private bool _isDisposed;
@@ -116,7 +117,6 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ClearDeadLettersCommand { get; }
     public ICommand NavigateLibraryCommand { get; }
     public ICommand ViewPlaylistCommand { get; }
-    public ICommand UpgradeBronzeCommand { get; }
     public ICommand RunMissionCommand { get; }
     public ICommand SelectGenreCommand { get; }
     public ICommand SelectDiscoverTabCommand { get; }
@@ -216,7 +216,8 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         LibraryViewModel libraryViewModel,
         SearchViewModel searchViewModel,
         ArtworkCacheService artworkCacheService,
-        PlaylistMosaicService mosaicService)
+        PlaylistMosaicService mosaicService,
+        AnalysisPageViewModel analysisPageViewModel)
     {
         _logger = logger;
         _dashboardService = dashboardService;
@@ -234,6 +235,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         _eventBus = eventBus;
         _libraryViewModel = libraryViewModel;
         _searchViewModel = searchViewModel;
+        _analysisPageViewModel = analysisPageViewModel;
 
         // Subscribe to Mission Control Updates (Smart Throttled & IEquatable)
         _eventSubscription = _eventBus.GetEvent<DashboardSnapshot>().Subscribe(snapshot =>
@@ -270,11 +272,22 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         RefreshDashboardCommand = new AsyncRelayCommand(RefreshDashboardAsync);
         NavigateToSearchCommand = new RelayCommand(() => _navigationService.NavigateTo("Search"));
         NavigateToAnalysisCommand = new RelayCommand(() => _navigationService.NavigateTo("Analysis"));
-        NavigateLibraryCommand = new RelayCommand(() => _navigationService.NavigateTo("Library"));
+        // Accepts an optional "Gold"/"Silver"/"Bronze" CommandParameter — sets the Library's
+        // quality-tier filter (and clears any selected playlist, to force the "All Tracks" view)
+        // before navigating, so each badge actually lands on a correctly-filtered view instead of
+        // the same generic unfiltered Library for all three.
+        NavigateLibraryCommand = new RelayCommand<string>(tier =>
+        {
+            _libraryViewModel.Tracks.QualityTierFilter = string.IsNullOrEmpty(tier) ? null : tier;
+            if (!string.IsNullOrEmpty(tier))
+            {
+                _libraryViewModel.SelectedProject = null;
+            }
+            _navigationService.NavigateTo("Library");
+        });
         ViewPlaylistCommand = new RelayCommand<PlaylistCardViewModel>(ExecuteViewPlaylist);
         QuickSearchCommand = new AsyncRelayCommand<SpotifyTrackViewModel>(ExecuteQuickSearchAsync);
         ClearDeadLettersCommand = new AsyncRelayCommand(ClearDeadLettersAsync);
-        UpgradeBronzeCommand = new RelayCommand(() => _navigationService.NavigateTo("Library"));
         RunMissionCommand = new AsyncRelayCommand<MissionOperation>(ExecuteRunMissionAsync);
         SelectGenreCommand = new RelayCommand<GenrePlanetViewModel>(ExecuteSelectGenre);
         SelectDiscoverTabCommand = new RelayCommand<string>(tab =>
@@ -631,22 +644,62 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
             _searchViewModel.UnifiedSearchCommand.Execute(null);
     }
 
-    private Task ExecuteRunMissionAsync(MissionOperation? mission)
+    private async Task ExecuteRunMissionAsync(MissionOperation? mission)
     {
-        if (mission == null) return Task.CompletedTask;
+        if (mission == null) return;
+
         switch (mission.Type)
         {
             case Models.OperationType.Download:
-                _navigationService.NavigateTo("Projects");
+                // "Upgrade Bronze Tracks" / "Re-download Low Bitrate" — deep-link into the real,
+                // already-built Upgrade Scout panel where a user reviews/queues candidates,
+                // instead of a bare unfiltered Library nav.
+                _libraryViewModel.IsUpgradeScoutVisible = true;
+                _navigationService.NavigateTo("Library");
                 break;
+
+            case Models.OperationType.System:
+                // "Repair Dead Letters" is the exact same action as the SELF-HEAL button —
+                // just a second entry point into it.
+                mission.IsRunning = true;
+                try
+                {
+                    await ClearDeadLettersAsync();
+                }
+                finally
+                {
+                    mission.IsRunning = false;
+                }
+                break;
+
             case Models.OperationType.Analysis:
+                // "Reanalyze Incomplete Tracks" — navigate, then trigger the real batch-reanalyze
+                // command Analysis already has, same navigate-then-trigger pattern as quick search.
                 _navigationService.NavigateTo("Analysis");
+                mission.IsRunning = true;
+                try
+                {
+                    await Task.Delay(50); // allow navigation frame to settle
+                    ICommand reanalyzeCommand = _analysisPageViewModel.ReanalyzeAllIncompleteCommand;
+                    if (reanalyzeCommand.CanExecute(null))
+                        reanalyzeCommand.Execute(null);
+                }
+                finally
+                {
+                    mission.IsRunning = false;
+                }
                 break;
+
+            case Models.OperationType.Enrichment:
+                // "Enrich Metadata" — no batch metadata-enrichment trigger exists anywhere in the
+                // codebase to deep-link into yet; honest navigation-only until that's built.
+                _navigationService.NavigateTo("Library");
+                break;
+
             default:
                 _navigationService.NavigateTo("Library");
                 break;
         }
-        return Task.CompletedTask;
     }
 
     private void PopulateActiveMissions()

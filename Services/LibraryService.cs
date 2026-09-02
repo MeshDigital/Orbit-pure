@@ -983,16 +983,16 @@ public class LibraryService : ILibraryService
         }
     }
 
-    public async Task<int> GetTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
+    public async Task<int> GetTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, string? qualityTier = null)
     {
         try
         {
             if (playlistId == Guid.Empty)
             {
-                return await _databaseService.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter).ConfigureAwait(false);
+                return await _databaseService.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier).ConfigureAwait(false);
             }
 
-            return await _databaseService.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter).ConfigureAwait(false);
+            return await _databaseService.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -1001,17 +1001,17 @@ public class LibraryService : ILibraryService
         }
     }
 
-    public async Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false)
+    public async Task<List<PlaylistTrack>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
     {
         try
         {
             if (playlistId == Guid.Empty)
             {
-                var globalEntities = await _databaseService.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending).ConfigureAwait(false);
+                var globalEntities = await _databaseService.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier).ConfigureAwait(false);
                 return globalEntities.Select(EntityToPlaylistTrack).ToList();
             }
 
-            var entities = await _databaseService.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending).ConfigureAwait(false);
+            var entities = await _databaseService.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier).ConfigureAwait(false);
             return entities.Select(EntityToPlaylistTrack).ToList();
         }
         catch (Exception ex)

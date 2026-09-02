@@ -116,13 +116,13 @@
                             </StackPanel>
                             
                             <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
-                                <Button Command="{Binding NavigateLibraryCommand}" Classes="ActionBtnSmall" Padding="8,4">
+                                <Button Command="{Binding NavigateLibraryCommand}" CommandParameter="Gold" Classes="ActionBtnSmall" Padding="8,4" ToolTip.Tip="View Gold (lossless) tracks">
                                     <TextBlock Text="{Binding CurrentSnapshot.LibraryHealth.GoldCount, StringFormat='{}{0} 🏆'}" FontSize="10" Foreground="#00A3FF" FontWeight="Bold"/>
                                 </Button>
-                                <Button Command="{Binding NavigateLibraryCommand}" Classes="ActionBtnSmall" Padding="8,4">
+                                <Button Command="{Binding NavigateLibraryCommand}" CommandParameter="Silver" Classes="ActionBtnSmall" Padding="8,4" ToolTip.Tip="View Silver (320kbps+) tracks">
                                     <TextBlock Text="{Binding CurrentSnapshot.LibraryHealth.SilverCount, StringFormat='{}{0} 🥈'}" FontSize="10" Foreground="#1DB954" FontWeight="Bold"/>
                                 </Button>
-                                <Button Command="{Binding UpgradeBronzeCommand}" Classes="ActionBtnSmall" Padding="8,4" BorderBrush="#FF6B6B">
+                                <Button Command="{Binding NavigateLibraryCommand}" CommandParameter="Bronze" Classes="ActionBtnSmall" Padding="8,4" BorderBrush="#FF6B6B" ToolTip.Tip="View Bronze (below 320kbps) tracks">
                                     <TextBlock Text="{Binding CurrentSnapshot.LibraryHealth.BronzeCount, StringFormat='{}{0} 🥉'}" FontSize="10" Foreground="#FF6B6B" FontWeight="Bold"/>
                                 </Button>
                                 <Button Command="{Binding NavigateToAnalysisCommand}" Classes="ActionBtnSmall" Padding="8,4" BorderBrush="#FFCF8A" IsVisible="{Binding HasIncompleteAnalysisTracks}">
