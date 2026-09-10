@@ -352,7 +352,22 @@ public partial class App : Application
                         {
                             await mainVm.LibraryViewModel.LoadProjectsAsync();
                         }
-                        
+
+                        // Mission Control's 500ms heartbeat (CPU load, zombie-process count,
+                        // dead-letter/failed-retry count, adaptive library-health audit) — started
+                        // here, after crash recovery and library sync have both already completed
+                        // above, so its very first tick reads settled state rather than racing
+                        // either of them. See the DashboardService/AddSingleton<MissionControlService>
+                        // registration above for why this was silently never running before.
+                        try
+                        {
+                            Services.GetRequiredService<MissionControlService>().Start();
+                        }
+                        catch (Exception missionControlEx)
+                        {
+                            Serilog.Log.Warning(missionControlEx, "Mission Control Service failed to start (non-critical)");
+                        }
+
                         // Update UI on completion
                         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                         {
@@ -627,6 +642,14 @@ public partial class App : Application
         // whole Flow Builder tab silently gets a null DataContext (every control dead).
         services.AddSingleton<ViewModels.FlowBuilderViewModel>();
         services.AddSingleton<DashboardService>();
+        // Never registered before — its Start() (500ms heartbeat publishing DashboardSnapshot)
+        // was consequently never called by anything, so HomeViewModel's CurrentSnapshot stayed at
+        // `new DashboardSnapshot()` (all-default) for the entire app session. The Dashboard's
+        // "System Status" tile (Stuck Processes/Failed Retries/CPU Load) and the Audio Quality
+        // tile's Gold/Silver/Bronze counts all read from CurrentSnapshot — they always rendered as
+        // 0/0/0/OPTIMAL regardless of real state, not just during a startup race. Started further
+        // down, once the background init sequence confirms the app is data-safe.
+        services.AddSingleton<MissionControlService>();
         // Keyboard mapping system (Epic #119)
         services.AddSingleton<IKeyboardMappingService, KeyboardMappingService>();
         services.AddSingleton<IKeyboardTelemetryService, KeyboardTelemetryService>();
