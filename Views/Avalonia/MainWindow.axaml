@@ -68,7 +68,12 @@
             <Setter Property="Opacity" Value="0"/>
             <Setter Property="IsVisible" Value="False"/>
         </Style>
-        <Style Selector="Border.nav-sidebar.mini Border.GroupHeader">
+        <!-- This selector used to target "Border.GroupHeader" — no such element exists (the
+             section headers are "ACQUIRE"/"SYSTEM"/"EXPERIMENTAL" Buttons with Classes=
+             "group-header", not a Border with Classes="GroupHeader") — so the rule never matched
+             anything and these labels stayed fully visible at mini width, clipped mid-word
+             ("buried" against the icon column) instead of hiding like every other nav label does. -->
+        <Style Selector="Border.nav-sidebar.mini Button.group-header">
             <Setter Property="Opacity" Value="0"/>
             <Setter Property="IsVisible" Value="False"/>
         </Style>
@@ -215,7 +220,18 @@
         -->
         <Grid Grid.Row="1" x:Name="MainLayoutGrid">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="{Binding NavSidebarWidth, Mode=TwoWay, Converter={StaticResource GridLengthPixelConverter}}" MinWidth="56" MaxWidth="320"/>
+                <!-- MinWidth used to be a static 56 with no exception for the "collapsed" state —
+                     IsNavigationCollapsed is set by Zen Mode, Theater Mode, and the narrow-window
+                     auto-collapse in MainWindow.axaml.cs, all three expecting the sidebar to fully
+                     disappear, but nothing here ever bound to that flag: the column stayed at
+                     least 56px and the Border below stayed visible regardless, so all three
+                     features silently did nothing to the nav sidebar. Binding MinWidth to the same
+                     flag (0 when collapsed, 56 otherwise) lets NavSidebarWidth's own 0 value (see
+                     the IsNavigationCollapsed setter in Views/MainViewModel.cs) actually take the
+                     column to zero width instead of being floored back up to 56. -->
+                <ColumnDefinition Width="{Binding NavSidebarWidth, Mode=TwoWay, Converter={StaticResource GridLengthPixelConverter}}"
+                                  MinWidth="{Binding !IsNavigationCollapsed, Converter={StaticResource BoolToWidthConverter}, ConverterParameter=56}"
+                                  MaxWidth="320"/>
                 <ColumnDefinition Width="4"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="4"/>
@@ -230,7 +246,8 @@
                     Background="{StaticResource DeepBackgroundBrush}"
                     BorderBrush="{StaticResource BorderBrush}"
                     Classes="nav-sidebar"
-                    Classes.mini="{Binding IsNavigationMini}">
+                    Classes.mini="{Binding IsNavigationMini}"
+                    IsVisible="{Binding !IsNavigationCollapsed}">
                 <Border.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="Show ACQUIRE" IsChecked="{Binding IsAcquireVisible}" ToggleType="CheckBox"/>

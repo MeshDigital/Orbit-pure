@@ -91,12 +91,22 @@
                  splitter would resize the Auto column but the Border's own stale-bound Width never
                  followed, so dragging looked interactive but the panel never actually scaled.
 
-                 MinWidth is a hard floor, not a suggestion — explicitly requested: playlist rows
-                 must always show every piece of info (art, name, stats, all action icons) at a
-                 glance, never hide or shrink content to cope with a narrow column. 260px is enough
-                 room for that at the row template's current sizing, so the splitter simply can't
-                 be dragged past the point where anything would need to disappear. -->
-            <ColumnDefinition Width="{Binding LibraryNavPanelWidth, Mode=TwoWay, Converter={StaticResource GridLengthPixelConverter}}" MinWidth="260" MaxWidth="560"/>
+                 MinWidth is a hard floor while expanded — explicitly requested: playlist rows must
+                 always show every piece of info (art, name, stats, all action icons) at a glance,
+                 never hide or shrink content to cope with a narrow column. 260px is enough room
+                 for that at the row template's current sizing, so the splitter can't be dragged
+                 past the point where anything would need to disappear.
+
+                 That floor was previously a static "260" with no exception — so ToggleNavigationCommand/
+                 the hover auto-hide behavior below (which sets LibraryNavPanelWidth down to
+                 CollapsedNavPanelWidth=60 and hides the panel's content via IsNavigationCollapsed)
+                 had zero visual effect: the column itself never got narrower than 260px, leaving a
+                 mostly-empty 260px gutter next to the track list regardless of "collapsed" state.
+                 Binding MinWidth to the same collapsed flag lets the rail actually narrow to 60px
+                 (just the toggle chevron) when collapsed, handing that ~200px back to the track list. -->
+            <ColumnDefinition Width="{Binding LibraryNavPanelWidth, Mode=TwoWay, Converter={StaticResource GridLengthPixelConverter}}"
+                              MinWidth="{Binding IsNavigationCollapsed, Converter={StaticResource BoolToWidthConverter}, ConverterParameter='60,260'}"
+                              MaxWidth="560"/>
             <ColumnDefinition Width="4"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
@@ -116,9 +126,14 @@
                     
                     <!-- Header / Tools -->
                     <Grid Grid.Row="0" Margin="12,16,12,8" ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto">
+                        <!-- The collapsed rail's sole visible affordance, so it needs to read as an
+                             intentional "handle" rather than an orphaned button floating in empty
+                             space — a faint always-on tint (not just on :pointerover) plus a
+                             thinner chevron than the old "▶"/"◀" block arrows. -->
                         <Button Grid.Column="0" Command="{Binding ToggleNavigationCommand}"
-                                Classes="icon-button" ToolTip.Tip="Toggle Library Navigation (Ctrl+Alt+N)" Margin="0,0,8,0">
-                            <TextBlock Text="{Binding IsNavigationCollapsed, Converter={StaticResource BoolToTextConverter}, ConverterParameter='▶,◀'}" FontSize="16" Opacity="0.8"/>
+                                Classes="icon-button" ToolTip.Tip="Toggle Library Navigation (Ctrl+Alt+N)" Margin="0,0,8,0"
+                                Background="#14FFFFFF" CornerRadius="8">
+                            <TextBlock Text="{Binding IsNavigationCollapsed, Converter={StaticResource BoolToTextConverter}, ConverterParameter='›,‹'}" FontSize="20" FontWeight="SemiBold" Opacity="0.9"/>
                         </Button>
                         <TextBlock Grid.Column="1" Text="LIBRARY" FontSize="12" FontWeight="Bold" Foreground="#888" VerticalAlignment="Center" IsVisible="{Binding !IsNavigationCollapsed}" Margin="0,0,8,0"/>
 
@@ -437,10 +452,17 @@
                         </StackPanel>
                     </ScrollViewer>
 
-                    <!-- Bottom Actions / Compact Icon Bar -->
-                    <Grid Grid.Row="2" Margin="12,12">
-                        <!-- Full Actions (when expanded) -->
-                        <StackPanel Spacing="8" IsVisible="{Binding !IsNavigationCollapsed}">
+                    <!-- Bottom Actions — expanded state only. There used to be a second "Compact
+                         Icon Bar" here that appeared at the bottom when collapsed (duplicating
+                         All Tracks/Liked/Folders/New Playlist, which already live in the header
+                         segmented bar above when expanded). Collapsing the panel used to be a
+                         no-op (MinWidth clamp bug, now fixed), so nobody had ever actually seen
+                         that bar appear — once collapse started working, it read as those icons
+                         randomly relocating from top to bottom. Removed: hovering the collapsed
+                         60px rail already auto-expands it (PointerEntered/PointerExited below),
+                         so a duplicate icon-only bar added a jump with no real benefit. -->
+                    <Grid Grid.Row="2" Margin="12,12" IsVisible="{Binding !IsNavigationCollapsed}">
+                        <StackPanel Spacing="8">
                             <Button Command="{Binding Projects.AddPlaylistCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <TextBlock Text="➕"/>
@@ -449,23 +471,6 @@
                             </Button>
                             <Button Command="{Binding Projects.DeleteProjectCommand}" CommandParameter="{Binding Projects.SelectedProject}" Classes="danger" IsVisible="{Binding !!Projects.SelectedProject}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
                                  <TextBlock Text="Delete Project"/>
-                            </Button>
-                        </StackPanel>
-
-                        <!-- Compact Icon Bar (when collapsed) -->
-                        <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" IsVisible="{Binding IsNavigationCollapsed}">
-                            <Button Command="{Binding Projects.LoadAllTracksCommand}" Classes="icon-button" ToolTip.Tip="All Tracks">
-                                <TextBlock Text="📚" FontSize="16"/>
-                            </Button>
-                            <Button Command="{Binding Projects.ImportLikedSongsCommand}" Classes="icon-button" ToolTip.Tip="Liked Songs">
-                                <TextBlock Text="❤️" FontSize="16"/>
-                            </Button>
-                            <Button Command="{Binding OpenSourcesCommand}" Classes="icon-button" ToolTip.Tip="Folders">
-                                <TextBlock Text="📁" FontSize="16"/>
-                            </Button>
-                            <Separator Background="#444" Width="1" Height="20" Margin="4,0"/>
-                            <Button Command="{Binding Projects.AddPlaylistCommand}" Classes="icon-button" ToolTip.Tip="New Playlist">
-                                <TextBlock Text="➕" FontSize="16"/>
                             </Button>
                         </StackPanel>
                     </Grid>

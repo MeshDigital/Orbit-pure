@@ -572,6 +572,17 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         LibraryHealthViewModel = libraryHealthViewModel;
 
         _isNavigationCollapsed = _appConfig.LibraryNavigationCollapsed;
+        // Every runtime toggle path (ExecuteToggleNavigation, the hover handlers) sets this flag
+        // and the panel width together via CollapseNavPanelWidth/ExpandNavPanelWidth. Restoring
+        // the flag from persisted config here is the one path that didn't — so a session that had
+        // been left collapsed would reopen with IsNavigationCollapsed=true (content hidden) but
+        // LibraryNavPanelWidth still at its unrelated 340 default, leaving a big blank gap where
+        // the column's MinWidth correctly shrank to 60 for the (now-hidden) content but its actual
+        // Width never followed.
+        if (_isNavigationCollapsed)
+        {
+            _libraryNavPanelWidth = CollapsedNavPanelWidth;
+        }
 
         Projects = projects;
         Tracks = tracks;

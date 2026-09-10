@@ -231,25 +231,22 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         NavigateFlowBuilderCommand = new RelayCommand(NavigateToFlowBuilder);
         PlayPauseCommand = new RelayCommand(() => PlayerViewModel.TogglePlayPauseCommand.Execute(null));
         FocusSearchCommand = new RelayCommand(FocusSearch);
+        // Expanded -> Mini -> Collapsed(hidden) -> Expanded. Each state's width transition is
+        // handled by the IsNavigationMini/IsNavigationCollapsed setters themselves, so this just
+        // walks the flag cycle.
         ToggleNavigationCommand = new RelayCommand(() =>
         {
             if (!IsNavigationMini && !IsNavigationCollapsed)
             {
-                _lastExpandedNavSidebarWidth = NavSidebarWidth;
                 IsNavigationMini = true;
-                IsNavigationCollapsed = false;
-                NavSidebarWidth = MiniNavSidebarWidth;
             }
             else if (IsNavigationMini)
             {
-                IsNavigationMini = false;
                 IsNavigationCollapsed = true;
             }
             else
             {
-                IsNavigationMini = false;
                 IsNavigationCollapsed = false;
-                NavSidebarWidth = _lastExpandedNavSidebarWidth;
             }
         });
         TogglePlayerCommand = new RelayCommand(() =>
@@ -515,24 +512,69 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     }
 
     // UI State
-    private bool _isNavigationCollapsed;
-    public bool IsNavigationCollapsed
-    {
-        get => _isNavigationCollapsed;
-        set => SetProperty(ref _isNavigationCollapsed, value);
-    }
-
-    private bool _isNavigationMini;
-    public bool IsNavigationMini
-    {
-        get => _isNavigationMini;
-        set => SetProperty(ref _isNavigationMini, value);
-    }
-
     private const double MiniNavSidebarWidth = 56;
     private double _lastExpandedNavSidebarWidth = 200;
 
-    /// <summary>User-drag-resizable width of the left nav sidebar; the mini/expanded toggle also drives this.</summary>
+    private bool _isNavigationCollapsed;
+    /// <summary>
+    /// Fully hides the left nav sidebar (0 width) — set by Zen Mode, Theater Mode, and the
+    /// narrow-window auto-collapse in MainWindow.axaml.cs. The width transition lives here in
+    /// the setter, not in each of those call sites, because none of them previously touched
+    /// NavSidebarWidth: they set this flag expecting the sidebar to disappear, but nothing in
+    /// MainWindow.axaml ever bound to it, so the column's actual pixel width (and MinWidth) never
+    /// changed — the "collapsed" nav stayed fully visible the whole time under all three features.
+    /// </summary>
+    public bool IsNavigationCollapsed
+    {
+        get => _isNavigationCollapsed;
+        set
+        {
+            if (!SetProperty(ref _isNavigationCollapsed, value)) return;
+
+            if (value)
+            {
+                // Only remember a genuinely-expanded width, not the mini rail's 56px — otherwise
+                // collapsing from the Mini state would clobber the real expanded width the
+                // Expanded->Mini transition already saved, and re-expanding later would land back
+                // at 56px instead of what the user actually had.
+                if (NavSidebarWidth > MiniNavSidebarWidth) _lastExpandedNavSidebarWidth = NavSidebarWidth;
+                IsNavigationMini = false;
+                NavSidebarWidth = 0;
+            }
+            else if (NavSidebarWidth <= 0)
+            {
+                NavSidebarWidth = _lastExpandedNavSidebarWidth > 0 ? _lastExpandedNavSidebarWidth : 200;
+            }
+        }
+    }
+
+    private bool _isNavigationMini;
+    /// <summary>
+    /// Icon-only rail mode (56px). Width bookkeeping lives here (mirroring
+    /// <see cref="IsNavigationCollapsed"/>) so ToggleNavigationCommand's Expanded/Mini/Collapsed
+    /// cycle only has to flip these two flags — every width transition, and remembering the real
+    /// expanded width across both mini and hidden states, happens in exactly one place each.
+    /// </summary>
+    public bool IsNavigationMini
+    {
+        get => _isNavigationMini;
+        set
+        {
+            if (!SetProperty(ref _isNavigationMini, value)) return;
+
+            if (value)
+            {
+                if (NavSidebarWidth > MiniNavSidebarWidth) _lastExpandedNavSidebarWidth = NavSidebarWidth;
+                NavSidebarWidth = MiniNavSidebarWidth;
+            }
+            else if (NavSidebarWidth <= MiniNavSidebarWidth && !IsNavigationCollapsed)
+            {
+                NavSidebarWidth = _lastExpandedNavSidebarWidth > 0 ? _lastExpandedNavSidebarWidth : 200;
+            }
+        }
+    }
+
+    /// <summary>User-drag-resizable width of the left nav sidebar; the mini/expanded/collapsed toggle also drives this.</summary>
     private double _navSidebarWidth = 200;
     public double NavSidebarWidth
     {
