@@ -131,6 +131,6 @@ public class PlayerViewModelGaplessPreloadTests
         InvokeSchedulePreloadNext(sut);
 
         playerService.Verify(p => p.CancelPreload(), Times.AtLeastOnce);
-        playerService.Verify(p => p.PreloadNext(It.IsAny<string>(), It.IsAny<double?>()), Times.Never);
+        playerService.Verify(p => p.PreloadNext(It.IsAny<string>(), It.IsAny<double?>(), It.IsAny<SLSKDONET.Models.Timeline.TransitionModel?>(), It.IsAny<double?>(), It.IsAny<double?>(), It.IsAny<double?>(), It.IsAny<string?>()), Times.Never);
     }
 }

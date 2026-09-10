@@ -181,6 +181,49 @@ namespace SLSKDONET.ViewModels
 
         public bool HasUpNext => CurrentQueueIndex + 1 < Queue.Count;
 
+        // ── Mix transition visibility ────────────────────────────────────────────────────────
+        // Previously AudioPlayerService computed all of this (whether a crossfade was active, how
+        // far through it was, which preset) with zero external visibility — no UI could show
+        // "mixing now" during real playback. Wired to AudioPlayerService.CrossfadeStarted/
+        // CrossfadeProgressChanged/CrossfadeEnded in the constructor below.
+
+        private bool _isCrossfading;
+        /// <summary>True while the engine is actively crossfading into the next track.</summary>
+        public bool IsCrossfading
+        {
+            get => _isCrossfading;
+            set => SetProperty(ref _isCrossfading, value);
+        }
+
+        private double _crossfadeProgressPercent;
+        /// <summary>0-100 progress through the active crossfade.</summary>
+        public double CrossfadeProgressPercent
+        {
+            get => _crossfadeProgressPercent;
+            set => SetProperty(ref _crossfadeProgressPercent, value);
+        }
+
+        private string? _activeCrossfadePresetName;
+        /// <summary>Preset name driving the crossfade currently in progress, or null for the
+        /// legacy fixed crossfade (no saved Mix transition for this pair).</summary>
+        public string? ActiveCrossfadePresetName
+        {
+            get => _activeCrossfadePresetName;
+            set => SetProperty(ref _activeCrossfadePresetName, value);
+        }
+
+        private string? _upcomingTransitionPresetName;
+        /// <summary>Preset name that will drive the crossfade into <see cref="UpNextPreview"/>'s
+        /// first track, resolved as soon as a saved Mix transition is found for (current, next) —
+        /// visible ahead of time, not just once the crossfade actually starts. Null when no saved
+        /// transition exists for this pair (nothing Mix-specific will happen, though the legacy
+        /// fixed crossfade may still apply if enabled).</summary>
+        public string? UpcomingTransitionPresetName
+        {
+            get => _upcomingTransitionPresetName;
+            set => SetProperty(ref _upcomingTransitionPresetName, value);
+        }
+
         private int _currentQueueIndex = -1;
         public int CurrentQueueIndex
         {
@@ -561,6 +604,12 @@ namespace SLSKDONET.ViewModels
         public ICommand AddCurrentTrackToProjectCommand { get; }
         public ICommand PlayQueueItemCommand { get; }
 
+        /// <summary>Badge-click: opens the "Mix" tab in the CONTEXT sidepanel for this queue
+        /// row's transition into the next track — the same event the Library track list's own
+        /// Mix badges publish, giving a live-session route into adjusting a transition without
+        /// navigating back to the Library page and re-finding the pair.</summary>
+        public ICommand OpenMixTransitionCommand { get; }
+
         // Entertainment Engine Commands
         public ICommand ToggleAmbientModeCommand { get; }
         public ICommand ToggleFlowModeCommand { get; }
@@ -745,6 +794,37 @@ namespace SLSKDONET.ViewModels
                 .Subscribe(_ => Dispatcher.UIThread.Post(OnTrackAdvanced))
                 .DisposeWith(_disposables);
 
+            // Mix transition visibility during real playback — see the IsCrossfading/
+            // CrossfadeProgressPercent/ActiveCrossfadePresetName properties above.
+            Observable.FromEventPattern<CrossfadeStartedEventArgs>(h => _playerService.CrossfadeStarted += h, h => _playerService.CrossfadeStarted -= h)
+                .Subscribe(e => Dispatcher.UIThread.Post(() =>
+                {
+                    IsCrossfading = true;
+                    CrossfadeProgressPercent = 0;
+                    ActiveCrossfadePresetName = e.EventArgs.PresetName;
+                }))
+                .DisposeWith(_disposables);
+
+            Observable.FromEventPattern<double>(h => _playerService.CrossfadeProgressChanged += h, h => _playerService.CrossfadeProgressChanged -= h)
+                .Sample(TimeSpan.FromMilliseconds(50))
+                .ObserveOn(RxApp.MainThreadScheduler)
+                .Subscribe(e => CrossfadeProgressPercent = e.EventArgs * 100.0)
+                .DisposeWith(_disposables);
+
+            Observable.FromEventPattern(h => _playerService.CrossfadeEnded += h, h => _playerService.CrossfadeEnded -= h)
+                .Subscribe(_ => Dispatcher.UIThread.Post(() =>
+                {
+                    IsCrossfading = false;
+                    CrossfadeProgressPercent = 0;
+                    ActiveCrossfadePresetName = null;
+                }))
+                .DisposeWith(_disposables);
+
+            // Queue-wide Mix badges (ShowMixTransitionBadge/TransitionPresetLabel/
+            // TransitionBadgeColor on each PlaylistTrackViewModel) — recomputed whenever the
+            // queue's contents change, e.g. a whole playlist loading in one track-at-a-time burst.
+            Queue.CollectionChanged += (_, __) => ScheduleUpdateQueueTransitionBadges();
+
             Observable.FromEventPattern<float>(h => _playerService.PositionChanged += h, h => _playerService.PositionChanged -= h)
                 .Sample(TimeSpan.FromMilliseconds(50)) // 20fps for progress markers
                 .ObserveOn(RxApp.MainThreadScheduler)
@@ -855,6 +935,7 @@ namespace SLSKDONET.ViewModels
             RevealCurrentTrackCommand = new RelayCommand(RevealCurrentTrack);
             AddCurrentTrackToProjectCommand = new RelayCommand(AddCurrentTrackToProject);
             PlayQueueItemCommand = new RelayCommand<PlaylistTrackViewModel>(PlayQueueItem);
+            OpenMixTransitionCommand = new RelayCommand<PlaylistTrackViewModel>(OpenMixTransition);
 
             // Entertainment Engine Commands
             ToggleAmbientModeCommand = new RelayCommand(() =>
@@ -1272,6 +1353,15 @@ namespace SLSKDONET.ViewModels
                 PlayTrackAtIndex(index);
         }
 
+        private void OpenMixTransition(PlaylistTrackViewModel? outgoing)
+        {
+            if (outgoing?.NextPlaylistTrackId is not Guid incomingId) return;
+
+            var playlistId = outgoing.Model?.PlaylistId ?? Guid.Empty;
+            ReactiveUI.MessageBus.Current.SendMessage(
+                new SLSKDONET.Events.OpenMixTransitionEvent(playlistId, outgoing.Id, incomingId));
+        }
+
         // Phase 9.3: Like Feature Implementation
         private async System.Threading.Tasks.Task ToggleLikeAsync()
         {
@@ -1521,6 +1611,10 @@ namespace SLSKDONET.ViewModels
         /// </summary>
         private void SchedulePreloadNext()
         {
+            // Cleared up front so stale info from whatever pair was previously "up next" doesn't
+            // linger on screen while the new pair's saved-transition lookup is still in flight.
+            UpcomingTransitionPresetName = null;
+
             var nextIndex = PeekNextIndex();
             if (nextIndex is int idx && idx >= 0 && idx < Queue.Count)
             {
@@ -1551,9 +1645,89 @@ namespace SLSKDONET.ViewModels
             if (saved == null) return;
 
             var bpm = incomingBpm is > 0 ? incomingBpm.Value : 128.0;
+
+            // Guard against a race: by the time this DB round-trip resolves, playback may already
+            // have moved past this pair (e.g. the user skipped ahead) — don't paint stale
+            // "up next via <preset>" visibility for a pair that's no longer relevant. Set directly
+            // (not inside the Dispatcher.Post below) so this class' own reflection-based unit
+            // tests can await it deterministically, matching UpdateQueueTransitionBadgesAsync's
+            // equivalent choice just above.
+            if (_preloadedQueueIndex is int stillPreloadedIndex && Queue.ElementAtOrDefault(stillPreloadedIndex)?.Model?.ResolvedFilePath == preloadedPath)
+            {
+                UpcomingTransitionPresetName = saved.PresetName;
+            }
+
             Dispatcher.UIThread.Post(() => _playerService.SetPendingTransitionForNext(
                 preloadedPath, saved.ToTransitionModel(), bpm,
-                saved.SourceTriggerSeconds, saved.TargetTriggerSeconds));
+                saved.SourceTriggerSeconds, saved.TargetTriggerSeconds, saved.PresetName));
+        }
+
+        private bool _queueTransitionBadgesScheduled;
+
+        /// <summary>
+        /// Debounces bursts of Queue mutations (bulk-loading a playlist adds one track at a time)
+        /// into a single badge recompute per burst, mirroring TrackListViewModel's
+        /// ScheduleUpdateMixTransitionBadges for the Library track list's own badges.
+        /// </summary>
+        private void ScheduleUpdateQueueTransitionBadges()
+        {
+            if (_queueTransitionBadgesScheduled) return;
+            _queueTransitionBadgesScheduled = true;
+            Dispatcher.UIThread.Post(() =>
+            {
+                _queueTransitionBadgesScheduled = false;
+                _ = UpdateQueueTransitionBadgesAsync();
+            }, DispatcherPriority.Background);
+        }
+
+        /// <summary>
+        /// Resolves and sets ShowMixTransitionBadge/TransitionPresetLabel/TransitionBadgeColor on
+        /// every consecutive pair in the live playback Queue — the same properties
+        /// TrackListViewModel.UpdateMixTransitionBadgesAsync computes for the Library track list,
+        /// but nothing populated them for the player's own Queue instances (a separate set of
+        /// PlaylistTrackViewModel objects), so the Up Next strip and queue panel never showed
+        /// which preset would actually drive each upcoming hop. Always shown here (not gated by
+        /// a "Mix mode" toggle — the Library page's toggle is a track-list display preference,
+        /// not a gate on whether saved transitions apply during real playback).
+        /// </summary>
+        private async Task UpdateQueueTransitionBadgesAsync()
+        {
+            if (_transitionRepository == null || Queue.Count == 0) return;
+
+            // No ConfigureAwait(false)/Dispatcher.Post marshaling — matching
+            // TrackListViewModel.UpdateMixTransitionBadgesAsync's own established pattern for the
+            // exact same kind of "await a DB lookup, then set view-model properties" method: the
+            // continuation resumes via the ambient SynchronizationContext (the UI thread, since
+            // this is always invoked from a UI-thread-originated call), so no manual marshaling
+            // is needed — and unlike Dispatcher.UIThread.Post, that continuation is exactly what
+            // this class' own reflection-based unit tests can already await deterministically.
+            var playlistId = Queue[0].Model?.PlaylistId ?? Guid.Empty;
+            var saved = playlistId != Guid.Empty
+                ? (await _transitionRepository.GetTransitionsForPlaylistAsync(playlistId))
+                    .ToDictionary(t => (t.OutgoingPlaylistTrackId, t.IncomingPlaylistTrackId))
+                : new Dictionary<(Guid, Guid), Models.Timeline.PlaylistTrackTransition>();
+
+            for (int i = 0; i < Queue.Count; i++)
+            {
+                var current = Queue[i];
+                if (i == Queue.Count - 1)
+                {
+                    current.ShowMixTransitionBadge = false;
+                    current.NextPlaylistTrackId = null;
+                    continue;
+                }
+
+                var next = Queue[i + 1];
+                current.ShowMixTransitionBadge = true;
+                current.NextPlaylistTrackId = next.Id;
+
+                var score = Services.Playlist.TrackPairCompatibilityScorer.Score(
+                    current.CamelotDisplay, next.CamelotDisplay, current.Energy, next.Energy);
+                current.TransitionBadgeColor = Services.Playlist.TrackPairCompatibilityScorer.CompatibilityColor(score.CombinedScore);
+                current.TransitionPresetLabel = saved.TryGetValue((current.Id, next.Id), out var savedTransition)
+                    ? savedTransition.PresetName
+                    : "Auto";
+            }
         }
 
         /// <summary>

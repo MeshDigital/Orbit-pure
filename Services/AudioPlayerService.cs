@@ -32,6 +32,11 @@ namespace SLSKDONET.Services
             public SLSKDONET.Models.Timeline.TransitionModel? PendingTransition;
             public double PendingTransitionBpm = 128.0;
 
+            /// <summary>Display name of the preset behind <see cref="PendingTransition"/> (e.g.
+            /// "Wave") — carried purely for UI visibility (CrossfadeStartedEventArgs.PresetName),
+            /// not consulted by the DSP itself.</summary>
+            public string? PendingTransitionPresetName;
+
             /// <summary>Absolute position (seconds) into the OUTGOING (currently-playing) deck
             /// where the crossfade into this deck should begin — the analysis-suggested or saved
             /// mix-out point, not "duration minus crossfade length". Null falls back to legacy
@@ -116,6 +121,7 @@ namespace SLSKDONET.Services
         private string? _nextFilePath;
         private bool _isCrossfading;
         private double _crossfadeElapsedSeconds;
+        private double _crossfadeProgress;
         private float _masterVolumeFraction = 1f;
 
         private bool _isInitialized;
@@ -128,6 +134,18 @@ namespace SLSKDONET.Services
         public event EventHandler<float[]>? SpectrumChanged;
         public event EventHandler? EndReached;
         public event EventHandler? PausableChanged;
+
+        /// <summary>True while an active crossfade is in progress. Previously computed
+        /// entirely internally (the <c>_isCrossfading</c> field) with no way for any ViewModel
+        /// to know a mix was even happening, let alone how far through it was or which preset.</summary>
+        public bool IsCrossfading => _isCrossfading;
+
+        /// <summary>0.0-1.0 progress through the active crossfade; 0 when none is active.</summary>
+        public double CrossfadeProgress => _crossfadeProgress;
+
+        public event EventHandler<CrossfadeStartedEventArgs>? CrossfadeStarted;
+        public event EventHandler<double>? CrossfadeProgressChanged;
+        public event EventHandler? CrossfadeEnded;
 
         /// <summary>Fired when the engine autonomously advances to a preloaded track (gapless
         /// swap or crossfade completion), so listeners can sync "now playing" state without
@@ -214,10 +232,17 @@ namespace SLSKDONET.Services
                 {
                     _isCrossfading = true;
                     _crossfadeElapsedSeconds = 0;
+                    _crossfadeProgress = 0;
                     _next.Output.Volume = 0f;
                     if (_next.Eq != null) _next.Eq.Active = pendingTransition != null;
                     if (current.Eq != null) current.Eq.Active = pendingTransition != null;
                     _next.Output.Play();
+
+                    CrossfadeStarted?.Invoke(this, new CrossfadeStartedEventArgs
+                    {
+                        PresetName = _next.PendingTransitionPresetName,
+                        DurationSeconds = effectiveCrossfadeSeconds,
+                    });
                 }
             }
         }
@@ -228,7 +253,10 @@ namespace SLSKDONET.Services
         {
             if (_next?.Output == null)
             {
+                var wasCrossfading = _isCrossfading;
                 _isCrossfading = false;
+                _crossfadeProgress = 0;
+                if (wasCrossfading) CrossfadeEnded?.Invoke(this, EventArgs.Empty);
                 return;
             }
 
@@ -276,13 +304,18 @@ namespace SLSKDONET.Services
             if (current.Output != null) current.Output.Volume = currentGain;
             _next.Output.Volume = nextGain;
 
+            _crossfadeProgress = t;
+            CrossfadeProgressChanged?.Invoke(this, t);
+
             if (t >= 1.0)
             {
                 _isCrossfading = false;
                 _crossfadeElapsedSeconds = 0;
+                _crossfadeProgress = 0;
                 if (current.Eq != null) current.Eq.Active = false;
                 if (_next.Eq != null) { _next.Eq.Active = false; _next.Eq.LowGain = _next.Eq.MidGain = _next.Eq.HighGain = 1f; }
                 if (_current != null) PromoteNextDeck(_current);
+                CrossfadeEnded?.Invoke(this, EventArgs.Empty);
             }
         }
 
@@ -341,7 +374,7 @@ namespace SLSKDONET.Services
         /// current one starts), well before playback is expected to reach it.
         /// </summary>
         public void PreloadNext(string filePath, double? trackLoudnessLufs = null, SLSKDONET.Models.Timeline.TransitionModel? transition = null, double? transitionBpm = null,
-            double? sourceTriggerSeconds = null, double? targetTriggerSeconds = null)
+            double? sourceTriggerSeconds = null, double? targetTriggerSeconds = null, string? presetName = null)
         {
             if (_current == null) return;
             if (_nextFilePath == filePath && _next != null) return; // already preloaded
@@ -354,6 +387,7 @@ namespace SLSKDONET.Services
                 deck.Output!.Volume = 0f;
                 deck.PendingTransition = transition;
                 deck.PendingTransitionBpm = transitionBpm is > 0 ? transitionBpm.Value : 128.0;
+                deck.PendingTransitionPresetName = presetName;
                 deck.PendingSourceTriggerSeconds = sourceTriggerSeconds;
                 deck.PendingTargetTriggerSeconds = targetTriggerSeconds;
                 if (targetTriggerSeconds is > 0 && deck.AudioFile != null)
@@ -381,11 +415,12 @@ namespace SLSKDONET.Services
         /// that's already preloaded.
         /// </summary>
         public void SetPendingTransitionForNext(string filePath, SLSKDONET.Models.Timeline.TransitionModel? transition, double? transitionBpm,
-            double? sourceTriggerSeconds = null, double? targetTriggerSeconds = null)
+            double? sourceTriggerSeconds = null, double? targetTriggerSeconds = null, string? presetName = null)
         {
             if (_next == null || _nextFilePath != filePath) return;
             _next.PendingTransition = transition;
             _next.PendingTransitionBpm = transitionBpm is > 0 ? transitionBpm.Value : 128.0;
+            _next.PendingTransitionPresetName = presetName;
             _next.PendingSourceTriggerSeconds = sourceTriggerSeconds;
             _next.PendingTargetTriggerSeconds = targetTriggerSeconds;
             if (targetTriggerSeconds is > 0 && _next.AudioFile != null)
