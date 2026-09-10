@@ -49,6 +49,7 @@ public class AppDbContext : DbContext
     public DbSet<Entities.PrivateMessageEntity> PrivateMessages { get; set; } // Social: 1:1 Soulseek chat
     public DbSet<Entities.RoomMessageEntity> RoomMessages { get; set; } // Social: Soulseek chat rooms
     public DbSet<Entities.RekordboxExportCueSyncEntity> RekordboxExportCueSync { get; set; } // Rekordbox export: three-way cue merge tracking
+    public DbSet<Entities.PlaylistTrackTransitionEntity> PlaylistTrackTransitions { get; set; } // Mix: saved per-track-pair transition config
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {

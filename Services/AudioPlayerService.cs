@@ -4,6 +4,7 @@ using NAudio.Wave.SampleProviders;
 using System.Timers;
 using SLSKDONET.Configuration;
 using SLSKDONET.Services.Audio;
+using SLSKDONET.Services.Timeline;
 
 namespace SLSKDONET.Services
 {
@@ -22,14 +23,91 @@ namespace SLSKDONET.Services
             public IWavePlayer? Output;
             public MeteringSampleProvider? Metering;
             public VariSpeedSampleProvider? VariSpeed;
+            public ThreeBandGainProvider? Eq;
             /// <summary>Linear gain applied on top of the master volume for loudness-normalized playback (see <see cref="AppConfig.LoudnessNormalizationEnabled"/>). 1.0 = no adjustment.</summary>
             public float LoudnessGain = 1f;
+
+            /// <summary>Mix-saved transition to apply to the crossfade into this deck (set via
+            /// PreloadNext), or null to fall back to the legacy fixed CrossfadeSeconds/curve.</summary>
+            public SLSKDONET.Models.Timeline.TransitionModel? PendingTransition;
+            public double PendingTransitionBpm = 128.0;
+
+            /// <summary>Absolute position (seconds) into the OUTGOING (currently-playing) deck
+            /// where the crossfade into this deck should begin — the analysis-suggested or saved
+            /// mix-out point, not "duration minus crossfade length". Null falls back to legacy
+            /// countdown-from-end behavior.</summary>
+            public double? PendingSourceTriggerSeconds;
+
+            /// <summary>Position (seconds) this deck's own file should be seeked to on load — the
+            /// analysis-suggested or saved mix-in point (may skip a low-energy intro straight to
+            /// the first drop). Null means start at 0 as usual.</summary>
+            public double? PendingTargetTriggerSeconds;
 
             public void Dispose()
             {
                 try { Output?.Stop(); } catch { /* already stopped/disposed */ }
                 AudioFile?.Dispose();
                 Output?.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Live per-channel 3-band gain stage (one-pole crossover split, same technique as
+        /// <see cref="SLSKDONET.Services.Timeline.TransitionDsp"/>'s EqSwapProvider/FilterSweepProvider)
+        /// inserted into each deck's chain so Mix presets that need audible EQ movement during a
+        /// transition (Blend/Wave/Melt) — not just a plain volume crossfade — actually sound
+        /// different during real queue playback. Gains default to 1.0 (a no-op fast path) outside
+        /// a transition window.
+        /// </summary>
+        private sealed class ThreeBandGainProvider : ISampleProvider
+        {
+            private readonly ISampleProvider _source;
+            private readonly float _lowCrossoverHz;
+            private readonly float _highCrossoverHz;
+            private float[] _lowState = Array.Empty<float>();
+            private float[] _midHighSplitState = Array.Empty<float>();
+
+            public volatile bool Active;
+            public float LowGain = 1f, MidGain = 1f, HighGain = 1f;
+
+            public WaveFormat WaveFormat => _source.WaveFormat;
+
+            public ThreeBandGainProvider(ISampleProvider source, float lowCrossoverHz = 250f, float highCrossoverHz = 4000f)
+            {
+                _source = source;
+                _lowCrossoverHz = lowCrossoverHz;
+                _highCrossoverHz = highCrossoverHz;
+                int channels = Math.Max(1, source.WaveFormat.Channels);
+                _lowState = new float[channels];
+                _midHighSplitState = new float[channels];
+            }
+
+            public int Read(float[] buffer, int offset, int count)
+            {
+                int read = _source.Read(buffer, offset, count);
+                if (!Active || (LowGain == 1f && MidGain == 1f && HighGain == 1f)) return read;
+
+                int channels = WaveFormat.Channels;
+                int sampleRate = WaveFormat.SampleRate;
+                float dt = 1f / sampleRate;
+                float alphaLow = dt / ((1f / (2f * MathF.PI * _lowCrossoverHz)) + dt);
+                float alphaHigh = dt / ((1f / (2f * MathF.PI * _highCrossoverHz)) + dt);
+
+                for (int i = 0; i < read; i++)
+                {
+                    int ch = i % channels;
+                    float x = buffer[offset + i];
+
+                    _lowState[ch] += alphaLow * (x - _lowState[ch]);
+                    float highPassAtLow = x - _lowState[ch];
+                    _midHighSplitState[ch] += alphaHigh * (highPassAtLow - _midHighSplitState[ch]);
+                    float high = highPassAtLow - _midHighSplitState[ch];
+                    float mid = _midHighSplitState[ch];
+
+                    buffer[offset + i] = (_lowState[ch] * LowGain) + (mid * MidGain) + (high * HighGain);
+                }
+
+                return read;
             }
         }
 
@@ -107,18 +185,44 @@ namespace SLSKDONET.Services
                 return;
             }
 
-            if (CrossfadeEnabled && _next?.Output != null)
+            // A saved Mix transition (see PlayerViewModel.SchedulePreloadNext) overrides the
+            // legacy fixed-duration global crossfade — it applies regardless of the
+            // CrossfadeEnabled toggle, since choosing a transition for this specific pair is a
+            // more specific instruction than the app-wide default.
+            var pendingTransition = _next?.PendingTransition;
+            var effectiveCrossfadeSeconds = pendingTransition != null
+                ? pendingTransition.DurationBeats * (60.0 / _next!.PendingTransitionBpm)
+                : CrossfadeSeconds;
+
+            if ((CrossfadeEnabled || pendingTransition != null) && _next?.Output != null)
             {
-                var remaining = current.AudioFile.TotalTime - current.AudioFile.CurrentTime;
-                if (remaining.TotalSeconds <= CrossfadeSeconds)
+                bool shouldStart;
+                if (_next.PendingSourceTriggerSeconds is double sourceTrigger)
+                {
+                    // Analysis-suggested/saved mix-out point: an absolute position in THIS track,
+                    // not "however many seconds are left" — a mix-out near a phrase boundary well
+                    // before the literal end of a track with a long fade-out tail, for instance.
+                    shouldStart = current.AudioFile.CurrentTime.TotalSeconds >= sourceTrigger;
+                }
+                else
+                {
+                    var remaining = current.AudioFile.TotalTime - current.AudioFile.CurrentTime;
+                    shouldStart = remaining.TotalSeconds <= effectiveCrossfadeSeconds;
+                }
+
+                if (shouldStart)
                 {
                     _isCrossfading = true;
                     _crossfadeElapsedSeconds = 0;
                     _next.Output.Volume = 0f;
+                    if (_next.Eq != null) _next.Eq.Active = pendingTransition != null;
+                    if (current.Eq != null) current.Eq.Active = pendingTransition != null;
                     _next.Output.Play();
                 }
             }
         }
+
+        private static readonly TransitionEngine _liveTransitionEngine = new();
 
         private void AdvanceCrossfade(Deck current)
         {
@@ -128,13 +232,46 @@ namespace SLSKDONET.Services
                 return;
             }
 
-            _crossfadeElapsedSeconds += TimerIntervalSeconds;
-            var t = CrossfadeSeconds > 0 ? Math.Clamp(_crossfadeElapsedSeconds / CrossfadeSeconds, 0.0, 1.0) : 1.0;
+            var pendingTransition = _next.PendingTransition;
+            var durationSeconds = pendingTransition != null
+                ? pendingTransition.DurationBeats * (60.0 / _next.PendingTransitionBpm)
+                : CrossfadeSeconds;
 
-            // Equal-power crossfade curve (constant perceived loudness through the overlap,
-            // unlike a linear fade which dips in the middle).
-            var currentGain = (float)(_masterVolumeFraction * current.LoudnessGain * Math.Cos(t * Math.PI / 2));
-            var nextGain = (float)(_masterVolumeFraction * _next.LoudnessGain * Math.Sin(t * Math.PI / 2));
+            _crossfadeElapsedSeconds += TimerIntervalSeconds;
+            var t = durationSeconds > 0 ? Math.Clamp(_crossfadeElapsedSeconds / durationSeconds, 0.0, 1.0) : 1.0;
+
+            float currentGain, nextGain;
+
+            if (pendingTransition != null)
+            {
+                // Preset-accurate automation — the same TransitionEngine math the Mix editor's
+                // waveform overlay curves are sampled from, so what plays matches what was previewed.
+                const int samplePoints = 1000;
+                var region = new SLSKDONET.Services.Audio.TransitionRegion
+                {
+                    StartSample = 0,
+                    EndSample = samplePoints,
+                    Type = pendingTransition.Type.ToAutomationType(),
+                    Curve = SLSKDONET.Services.Audio.TransitionCurve.SCurve,
+                    WaveDuckDepth = pendingTransition.WaveDuckDepth,
+                    EchoDecayFactor = pendingTransition.EchoDecayFactor,
+                };
+                var automation = _liveTransitionEngine.CalculateAutomation(region, (long)(t * samplePoints));
+
+                currentGain = _masterVolumeFraction * current.LoudnessGain * automation.OutgoingGain;
+                nextGain = _masterVolumeFraction * _next.LoudnessGain * automation.IncomingGain;
+
+                if (current.Eq != null) { current.Eq.LowGain = automation.OutgoingLowGain; current.Eq.MidGain = automation.OutgoingMidGain; current.Eq.HighGain = automation.OutgoingHighGain; }
+                if (_next.Eq != null) { _next.Eq.LowGain = automation.IncomingLowGain; _next.Eq.MidGain = automation.IncomingMidGain; _next.Eq.HighGain = automation.IncomingHighGain; }
+            }
+            else
+            {
+                // Legacy fixed equal-power crossfade curve (constant perceived loudness through
+                // the overlap, unlike a linear fade which dips in the middle) — unchanged
+                // behavior for playlists that haven't saved a Mix transition.
+                currentGain = (float)(_masterVolumeFraction * current.LoudnessGain * Math.Cos(t * Math.PI / 2));
+                nextGain = (float)(_masterVolumeFraction * _next.LoudnessGain * Math.Sin(t * Math.PI / 2));
+            }
 
             if (current.Output != null) current.Output.Volume = currentGain;
             _next.Output.Volume = nextGain;
@@ -143,6 +280,8 @@ namespace SLSKDONET.Services
             {
                 _isCrossfading = false;
                 _crossfadeElapsedSeconds = 0;
+                if (current.Eq != null) current.Eq.Active = false;
+                if (_next.Eq != null) { _next.Eq.Active = false; _next.Eq.LowGain = _next.Eq.MidGain = _next.Eq.HighGain = 1f; }
                 if (_current != null) PromoteNextDeck(_current);
             }
         }
@@ -201,7 +340,8 @@ namespace SLSKDONET.Services
         /// an audible gap. Call this as soon as the next track is known (e.g. right after the
         /// current one starts), well before playback is expected to reach it.
         /// </summary>
-        public void PreloadNext(string filePath, double? trackLoudnessLufs = null)
+        public void PreloadNext(string filePath, double? trackLoudnessLufs = null, SLSKDONET.Models.Timeline.TransitionModel? transition = null, double? transitionBpm = null,
+            double? sourceTriggerSeconds = null, double? targetTriggerSeconds = null)
         {
             if (_current == null) return;
             if (_nextFilePath == filePath && _next != null) return; // already preloaded
@@ -212,6 +352,15 @@ namespace SLSKDONET.Services
             {
                 var deck = CreateDeck(filePath, trackLoudnessLufs);
                 deck.Output!.Volume = 0f;
+                deck.PendingTransition = transition;
+                deck.PendingTransitionBpm = transitionBpm is > 0 ? transitionBpm.Value : 128.0;
+                deck.PendingSourceTriggerSeconds = sourceTriggerSeconds;
+                deck.PendingTargetTriggerSeconds = targetTriggerSeconds;
+                if (targetTriggerSeconds is > 0 && deck.AudioFile != null)
+                {
+                    deck.AudioFile.CurrentTime = TimeSpan.FromSeconds(targetTriggerSeconds.Value);
+                    deck.VariSpeed?.Reset();
+                }
                 _next = deck;
                 _nextFilePath = filePath;
             }
@@ -220,6 +369,29 @@ namespace SLSKDONET.Services
                 Console.WriteLine($"[AudioPlayerService] Preload failed for {filePath}: {ex.Message}");
                 _next = null;
                 _nextFilePath = null;
+            }
+        }
+
+        /// <summary>
+        /// Attaches (or clears) a Mix transition — including its analysis-suggested/saved
+        /// trigger points — on the already-preloaded next deck, without reopening the file. Used
+        /// when the file was already hot before the async saved-transition lookup
+        /// (<see cref="ViewModels.PlayerViewModel.SchedulePreloadNext"/>) resolves — avoids a
+        /// second PreloadNext call re-triggering CreateDeck's early-return guard for a filename
+        /// that's already preloaded.
+        /// </summary>
+        public void SetPendingTransitionForNext(string filePath, SLSKDONET.Models.Timeline.TransitionModel? transition, double? transitionBpm,
+            double? sourceTriggerSeconds = null, double? targetTriggerSeconds = null)
+        {
+            if (_next == null || _nextFilePath != filePath) return;
+            _next.PendingTransition = transition;
+            _next.PendingTransitionBpm = transitionBpm is > 0 ? transitionBpm.Value : 128.0;
+            _next.PendingSourceTriggerSeconds = sourceTriggerSeconds;
+            _next.PendingTargetTriggerSeconds = targetTriggerSeconds;
+            if (targetTriggerSeconds is > 0 && _next.AudioFile != null)
+            {
+                _next.AudioFile.CurrentTime = TimeSpan.FromSeconds(targetTriggerSeconds.Value);
+                _next.VariSpeed?.Reset();
             }
         }
 
@@ -306,9 +478,14 @@ namespace SLSKDONET.Services
             // turntable/CDJ pitch fader (as opposed to tempo-only time-stretching).
             deck.VariSpeed = new VariSpeedSampleProvider(sampleChannel) { Speed = _pitch };
 
+            // 0.5. Live per-band gain stage — inert (Active=false) outside a Mix transition
+            // window; AdvanceCrossfade turns it on and drives its gains for presets that need
+            // more than a plain volume crossfade (Blend/Wave/Melt).
+            deck.Eq = new ThreeBandGainProvider(deck.VariSpeed);
+
             // 1. Intercept for FFT (Spectrum). Only forwarded upstream while this deck is the
             // active one, so a preloaded/promoted deck seamlessly takes over the visualizer.
-            var fftProvider = new FftSampleProvider(deck.VariSpeed, 2048, magnitudes =>
+            var fftProvider = new FftSampleProvider(deck.Eq, 2048, magnitudes =>
             {
                 if (ReferenceEquals(_current, deck)) SpectrumChanged?.Invoke(this, magnitudes);
             });

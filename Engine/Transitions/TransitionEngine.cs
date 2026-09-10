@@ -40,12 +40,17 @@ public sealed class TransitionEngine
         string targetKey = target.MusicalKey ?? "8A";
         bool keysCompatible = AreCamelotKeysCompatible(sourceKey, targetKey);
 
-        // Find standard cues
-        var mixOutCue = sourceCues.FirstOrDefault(c => c.Label.Contains("Mix-Out")) ?? 
+        // Find standard cues. Match by CuePointType, not label substring — CueGenerationService's
+        // real schema labels the approach markers "32 Beats to Drop 1"/"16 Beats to Drop 1" with
+        // CuePointType.Build, and those sort chronologically BEFORE "Drop 1" itself. A
+        // Label.Contains("Drop") check (as this used to be) matches the approach marker first
+        // (cues arrive time-ordered from CuePointService), landing every "drop-in" transition on
+        // the phrase 8 bars before the actual drop instead of the drop itself.
+        var mixOutCue = sourceCues.FirstOrDefault(c => c.Label.Contains("Mix-Out")) ??
                         sourceCues.LastOrDefault(c => c.Type == CuePointType.Outro);
-        var mixInCue = targetCues.FirstOrDefault(c => c.Label.Contains("Mix-In")) ?? 
+        var mixInCue = targetCues.FirstOrDefault(c => c.Label.Contains("Mix-In")) ??
                        targetCues.FirstOrDefault(c => c.Type == CuePointType.Intro);
-        var firstDropCue = targetCues.FirstOrDefault(c => c.Label.Contains("Drop"));
+        var firstDropCue = targetCues.FirstOrDefault(c => c.Type == CuePointType.Drop);
 
         double sourceTime = mixOutCue?.TimestampInSeconds ?? (source.CanonicalDuration ?? 240.0) - 30.0;
         double targetTime = mixInCue?.TimestampInSeconds ?? 15.0;

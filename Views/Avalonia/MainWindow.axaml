@@ -435,15 +435,22 @@
                                 </Grid>
                             </Border>
 
-                            <!-- Tabbed workstation panel — full height, no player -->
-                            <TabControl Grid.Row="1">
+                            <!-- Tabbed workstation panel — full height, no player. SelectedIndex is
+                                 two-way bound to Sidebar.ActiveTabIndex so opening a panel (e.g. the
+                                 notification bell) actually jumps to the right tab, and a manual tab
+                                 click keeps ActiveTab in sync for anything else that reads it. -->
+                            <TabControl Grid.Row="1" SelectedIndex="{Binding Sidebar.ActiveTabIndex}">
                                 <TabControl.Styles>
                                     <Style Selector="TabItem">
                                         <Setter Property="Background" Value="Transparent"/>
                                         <Setter Property="Foreground" Value="#888"/>
                                         <Setter Property="FontSize" Value="11"/>
                                         <Setter Property="FontWeight" Value="Bold"/>
-                                        <Setter Property="Padding" Value="16,10"/>
+                                        <!-- Tightened from 16,10 — a 5th tab (Mix) no longer fits
+                                             one row at the original padding, silently wrapping to
+                                             a second line with no visible affordance hinting it's
+                                             there. -->
+                                        <Setter Property="Padding" Value="9,10"/>
                                         <Setter Property="BorderThickness" Value="0,0,0,2"/>
                                         <Setter Property="BorderBrush" Value="Transparent"/>
                                     </Style>
@@ -498,6 +505,24 @@
 
                                 <TabItem Header="Now Playing">
                                     <views:PlayerControl DataContext="{Binding Sidebar.PlayerVm}"/>
+                                </TabItem>
+
+                                <!-- Own tab rather than a DataTemplate case inside Inspector's
+                                     ContentControl — notifications previously rendered wherever the
+                                     Inspector tab's shared content area happened to be pointed,
+                                     since NotificationCenterService matched none of SidebarViewModel's
+                                     explicit tab-routing checks and fell into the generic Inspector
+                                     branch. Bound directly to the stable Sidebar.NotificationCenter
+                                     instance (like Similar Tracks/Now Playing above), so it's always
+                                     populated regardless of whatever else CurrentContent points to. -->
+                                <TabItem Header="Notifications">
+                                    <controls:NotificationsPanel DataContext="{Binding Sidebar.NotificationCenter}"/>
+                                </TabItem>
+
+                                <!-- Mix (Spotify-Mix-parity): transition editor for a clicked
+                                     Mix-mode badge between two adjacent playlist tracks. -->
+                                <TabItem Header="Mix">
+                                    <views:MixTransitionPanel DataContext="{Binding Sidebar.MixTransitionVm}"/>
                                 </TabItem>
 
                             </TabControl>

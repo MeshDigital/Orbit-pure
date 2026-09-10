@@ -131,6 +131,66 @@ namespace SLSKDONET.Tests.Services.Timeline
             Assert.NotNull(result);
             Assert.Equal(0.6, result!.Value, 6);
         }
+
+        // ── SnapToBeatMultiple / GetNearestBeatMultipleSeconds ──────────────
+        // Consolidated from TransientAwareSnappingEngine.SnapRawTimeToPhraseLedger (32-beat phrase
+        // snapping) and CueForgeWaveformControl's hand-rolled quantize-grid snap, so this is the
+        // single place both behaviors are proven correct.
+
+        [Fact]
+        public void SnapToBeatMultiple_SnapsToNearestBar_At4Beats()
+        {
+            // 120 BPM: beat=0.5s, bar (4 beats)=2.0s. Bars at 0, 2, 4...
+            double result = BeatGridService.SnapToBeatMultiple(2.9, 120.0, beatMultiple: 4);
+            Assert.Equal(2.0, result, 6);
+        }
+
+        [Fact]
+        public void SnapToBeatMultiple_SnapsToNearestPhrase_At32Beats()
+        {
+            // 120 BPM: beat=0.5s, 32-beat phrase=16s. Phrases at 0, 16, 32...
+            double result = BeatGridService.SnapToBeatMultiple(17.9, 120.0, beatMultiple: 32);
+            Assert.Equal(16.0, result, 6);
+        }
+
+        [Fact]
+        public void SnapToBeatMultiple_RespectsDownbeatOffset()
+        {
+            double result = BeatGridService.SnapToBeatMultiple(16.6, 120.0, beatMultiple: 32, downbeatOffsetSeconds: 1.0);
+            // Phrases anchored at 1.0: 1.0, 17.0, 33.0 ... 16.6 is nearest to 17.0
+            Assert.Equal(17.0, result, 6);
+        }
+
+        [Fact]
+        public void SnapToBeatMultiple_NeverReturnsNegative()
+        {
+            double result = BeatGridService.SnapToBeatMultiple(0.1, 120.0, beatMultiple: 32, downbeatOffsetSeconds: 5.0);
+            Assert.True(result >= 0.0);
+        }
+
+        [Fact]
+        public void SnapToBeatMultiple_InvalidBpmOrMultiple_ReturnsInputUnchanged()
+        {
+            Assert.Equal(3.3, BeatGridService.SnapToBeatMultiple(3.3, bpm: 0, beatMultiple: 4));
+            Assert.Equal(3.3, BeatGridService.SnapToBeatMultiple(3.3, bpm: 120, beatMultiple: 0));
+        }
+
+        [Fact]
+        public void GetNearestBeatMultipleSeconds_WithinRadius_ReturnsSnappedBar()
+        {
+            // 120 BPM bar = 2.0s; query 1.98s is 0.02s from the 2.0s bar line.
+            double? result = BeatGridService.GetNearestBeatMultipleSeconds(1.98, 120.0, beatMultiple: 4, snapRadiusSeconds: 0.05);
+            Assert.NotNull(result);
+            Assert.Equal(2.0, result!.Value, 6);
+        }
+
+        [Fact]
+        public void GetNearestBeatMultipleSeconds_OutsideRadius_ReturnsNull()
+        {
+            // 1.7s is 0.3s from the nearest bar line (2.0s) — well outside a 0.05s radius.
+            double? result = BeatGridService.GetNearestBeatMultipleSeconds(1.7, 120.0, beatMultiple: 4, snapRadiusSeconds: 0.05);
+            Assert.Null(result);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -391,6 +451,100 @@ namespace SLSKDONET.Tests.Services.Timeline
 
             float expected = 1.0f * 0.7071068f + 0.5f * 0.7071068f;
             Assert.Equal(expected, buf[0], precision: 2);
+        }
+
+        // ── Mix (Spotify-Mix-parity) preset DSP additions ──────────────────────
+
+        [Theory]
+        [InlineData(TransitionType.EqSwap, typeof(EqSwapProvider))]
+        [InlineData(TransitionType.WaveDuck, typeof(WaveDuckProvider))]
+        public void Build_NewMixTypes_DispatchToExpectedProvider(TransitionType type, System.Type expectedProviderType)
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+            var outProvider = new ConstantSampleProvider(fmt, 1.0f);
+            var inProvider = new ConstantSampleProvider(fmt, -1.0f);
+            var model = new TransitionModel { Type = type, DurationBeats = 16 };
+
+            var result = TransitionDsp.Build(outProvider, inProvider, model, 128.0);
+            Assert.IsType(expectedProviderType, result);
+        }
+
+        private static (float first, float last) SampleFirstAndLast(NAudio.Wave.ISampleProvider provider, long totalSamples)
+        {
+            var buffer = new float[256];
+            float first = 0, last = 0;
+            long produced = 0;
+            bool gotFirst = false;
+
+            while (produced < totalSamples)
+            {
+                int toRead = (int)System.Math.Min(buffer.Length, totalSamples - produced);
+                int read = provider.Read(buffer, 0, toRead);
+                if (read == 0) break;
+                if (!gotFirst) { first = buffer[0]; gotFirst = true; }
+                last = buffer[read - 1];
+                produced += read;
+            }
+
+            return (first, last);
+        }
+
+        [Fact]
+        public void EqSwapProvider_TrendsFromOutgoingTowardIncoming()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+            var outProvider = new ConstantSampleProvider(fmt, 1.0f);
+            var inProvider = new ConstantSampleProvider(fmt, -1.0f);
+            long durationSamples = 44100;
+
+            var provider = new EqSwapProvider(outProvider, inProvider, durationSamples);
+            var (first, last) = SampleFirstAndLast(provider, durationSamples);
+
+            Assert.True(first > last, $"Expected output to trend from outgoing (1.0) toward incoming (-1.0), got first={first}, last={last}");
+        }
+
+        [Fact]
+        public void WaveDuckProvider_TrendsFromOutgoingTowardIncoming()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+            var outProvider = new ConstantSampleProvider(fmt, 1.0f);
+            var inProvider = new ConstantSampleProvider(fmt, -1.0f);
+            long durationSamples = 44100;
+
+            var provider = new WaveDuckProvider(outProvider, inProvider, durationSamples, beatPeriodSeconds: 0.5, duckDepth: 0.3f);
+            var (first, last) = SampleFirstAndLast(provider, durationSamples);
+
+            Assert.True(first > last, $"Expected output to trend from outgoing toward incoming, got first={first}, last={last}");
+        }
+
+        [Fact]
+        public void WaveDuckProvider_PastDuration_ReturnsIncomingUnmodified()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+            var outProvider = new ConstantSampleProvider(fmt, 1.0f);
+            var inProvider = new ConstantSampleProvider(fmt, 0.5f);
+            long durationSamples = 100;
+
+            var provider = new WaveDuckProvider(outProvider, inProvider, durationSamples, beatPeriodSeconds: 0.5);
+            SampleFirstAndLast(provider, durationSamples); // consume the transition window
+
+            var buffer = new float[16];
+            provider.Read(buffer, 0, buffer.Length);
+            Assert.All(buffer, v => Assert.Equal(0.5f, v));
+        }
+
+        [Fact]
+        public void FilterSweepProvider_Rising_TrendsFromOutgoingTowardIncoming()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+            var outProvider = new ConstantSampleProvider(fmt, 1.0f);
+            var inProvider = new ConstantSampleProvider(fmt, -1.0f);
+            long durationSamples = 44100;
+
+            var provider = new FilterSweepProvider(outProvider, inProvider, durationSamples, freqStart: 20000f, freqEnd: 300f, rising: true);
+            var (first, last) = SampleFirstAndLast(provider, durationSamples);
+
+            Assert.True(first > last, $"Expected rising-mode output to trend from outgoing toward incoming, got first={first}, last={last}");
         }
     }
 

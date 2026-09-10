@@ -19,6 +19,18 @@ namespace SLSKDONET.Services.Audio
             string trackBTitle, string trackBFilePath,
             double overlapSeconds, CancellationToken ct = default);
 
+        /// <summary>
+        /// Preset-aware, analysis-driven preview — routes through the real TransitionDsp chain
+        /// (instead of a fixed triangular crossfade), starting each track at its own suggested or
+        /// saved trigger point rather than "near the literal end of A / literal start of B". See
+        /// <see cref="ISurgicalProcessingService"/>'s TransitionModel overload.
+        /// </summary>
+        Task StartTransitionPreviewAsync(
+            string trackATitle, string trackAFilePath, double sourceTriggerSeconds,
+            string trackBTitle, string trackBFilePath, double targetTriggerSeconds,
+            SLSKDONET.Models.Timeline.TransitionModel model, double projectBpm,
+            CancellationToken ct = default);
+
         void StopPreview();
     }
 
@@ -64,6 +76,26 @@ namespace SLSKDONET.Services.Audio
                 trackBFilePath, overlapSeconds,
                 overlapSeconds, ct).ConfigureAwait(false);
 
+            await PlayRenderedPreviewAsync(previewPath, ct).ConfigureAwait(false);
+        }
+
+        public async Task StartTransitionPreviewAsync(
+            string trackATitle, string trackAFilePath, double sourceTriggerSeconds,
+            string trackBTitle, string trackBFilePath, double targetTriggerSeconds,
+            SLSKDONET.Models.Timeline.TransitionModel model, double projectBpm,
+            CancellationToken ct = default)
+        {
+            _logger.LogInformation("🎧 Starting preset-aware Transition Preview: {TrackA} -> {TrackB} ({Preset}), A@{SourceT}s B@{TargetT}s",
+                trackATitle, trackBTitle, model.Type, sourceTriggerSeconds, targetTriggerSeconds);
+
+            string previewPath = await _surgicalService.RenderTransitionPreviewAsync(
+                trackAFilePath, sourceTriggerSeconds, trackBFilePath, targetTriggerSeconds, model, projectBpm, ct).ConfigureAwait(false);
+
+            await PlayRenderedPreviewAsync(previewPath, ct).ConfigureAwait(false);
+        }
+
+        private async Task PlayRenderedPreviewAsync(string previewPath, CancellationToken ct)
+        {
             await _gate.WaitAsync(ct).ConfigureAwait(false);
             try
             {

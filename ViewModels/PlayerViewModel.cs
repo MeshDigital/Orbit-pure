@@ -46,6 +46,7 @@ namespace SLSKDONET.ViewModels
         private readonly IAudioPlayerService _playerService;
         private readonly AppConfig? _config;
         private readonly ConfigManager? _configManager;
+        private readonly SLSKDONET.Services.Repositories.ITransitionRepository? _transitionRepository;
 
         // Waveform appearance pass-through — set once from AppConfig in the constructor.
         public bool WaveformUseNeonPalette { get; }
@@ -570,7 +571,7 @@ namespace SLSKDONET.ViewModels
         // Phase 5C: UI Throttling
         private DateTime _lastTimeUpdate = DateTime.MinValue;
 
-        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null, AppConfig? config = null, ConfigManager? configManager = null)
+        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null, AppConfig? config = null, ConfigManager? configManager = null, SLSKDONET.Services.Repositories.ITransitionRepository? transitionRepository = null)
         {
             _playerService = playerService;
             _databaseService = databaseService;
@@ -582,6 +583,7 @@ namespace SLSKDONET.ViewModels
             _flowModeService = flowModeService;
             _config = config;
             _configManager = configManager;
+            _transitionRepository = transitionRepository;
 
             // Restore persisted playback settings (crossfade/pitch used to reset to defaults every restart)
             if (_config != null)
@@ -1527,12 +1529,31 @@ namespace SLSKDONET.ViewModels
                 {
                     _playerService.PreloadNext(path, Queue[idx].Model?.Loudness);
                     _preloadedQueueIndex = idx;
+
+                    // Resolve any saved Mix transition for (current, next) so the crossfade the
+                    // engine performs when it reaches this pair reflects what was chosen in the
+                    // Mix editor, not the app-wide default. Attached once resolved rather than
+                    // blocking the (already-issued) file preload above on a DB round-trip.
+                    _ = AttachSavedTransitionAsync(path, CurrentTrack?.Id, Queue[idx].Id, Queue[idx].Model?.BPM);
                     return;
                 }
             }
 
             _playerService.CancelPreload();
             _preloadedQueueIndex = null;
+        }
+
+        private async Task AttachSavedTransitionAsync(string preloadedPath, Guid? outgoingId, Guid incomingId, double? incomingBpm)
+        {
+            if (_transitionRepository == null || outgoingId is not Guid outgoing) return;
+
+            var saved = await _transitionRepository.GetTransitionAsync(outgoing, incomingId).ConfigureAwait(false);
+            if (saved == null) return;
+
+            var bpm = incomingBpm is > 0 ? incomingBpm.Value : 128.0;
+            Dispatcher.UIThread.Post(() => _playerService.SetPendingTransitionForNext(
+                preloadedPath, saved.ToTransitionModel(), bpm,
+                saved.SourceTriggerSeconds, saved.TargetTriggerSeconds));
         }
 
         /// <summary>

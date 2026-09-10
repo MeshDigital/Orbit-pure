@@ -183,12 +183,17 @@ public sealed class FilterSweepProvider : ISampleProvider
     public WaveFormat WaveFormat { get; }
     public long DurationSamples { get; }
 
+    private readonly bool _rising;
+    private float _highPassPrevIn;
+    private float _highPassState;
+
     public FilterSweepProvider(
         ISampleProvider outgoing,
         ISampleProvider incoming,
         long durationSamples,
         float freqStart = 20_000f,
-        float freqEnd = 200f)
+        float freqEnd = 200f,
+        bool rising = false)
     {
         if (outgoing.WaveFormat.SampleRate != incoming.WaveFormat.SampleRate ||
             outgoing.WaveFormat.Channels != incoming.WaveFormat.Channels)
@@ -198,6 +203,7 @@ public sealed class FilterSweepProvider : ISampleProvider
         _incoming = incoming;
         _freqStart = freqStart;
         _freqEnd = freqEnd;
+        _rising = rising;
         DurationSamples = Math.Max(1, durationSamples);
         WaveFormat = outgoing.WaveFormat;
     }
@@ -222,19 +228,200 @@ public sealed class FilterSweepProvider : ISampleProvider
             double t = Math.Min(1.0, (double)_positionSamples / DurationSamples);
             float inGain = (float)t;
 
-            // Linearly interpolate cutoff frequency
-            float cutoff = _freqStart + (float)(t * (_freqEnd - _freqStart));
-            float rc = 1.0f / (2.0f * MathF.PI * cutoff);
-            float dt = 1.0f / sampleRate;
-            float alpha = dt / (rc + dt);
+            for (int ch = 0; ch < channels && (i + ch) < frames; ch++)
+            {
+                float outSample = (i + ch) < outRead ? outBuf[i + ch] : 0f;
+                float inSample = (i + ch) < inRead ? inBuf[i + ch] : 0f;
+
+                if (_rising)
+                {
+                    // "Rise" preset: sweep a high-pass filter UP on the incoming clip (low
+                    // frequency content withheld at first, opens up into the drop) while the
+                    // outgoing clip fades out normally. Cutoff sweeps freqEnd (low) -> freqStart
+                    // (high) as t goes 0->1, opposite direction of the falling low-pass below.
+                    float cutoff = _freqEnd + (float)(t * (_freqStart - _freqEnd));
+                    float rc = 1.0f / (2.0f * MathF.PI * cutoff);
+                    float dt = 1.0f / sampleRate;
+                    float alpha = rc / (rc + dt);
+                    // One-pole IIR high-pass: y[n] = alpha * (y[n-1] + x[n] - x[n-1])
+                    _highPassState = alpha * (_highPassState + inSample - _highPassPrevIn);
+                    _highPassPrevIn = inSample;
+
+                    buffer[offset + i + ch] = outSample * (1f - inGain) + _highPassState * inGain;
+                }
+                else
+                {
+                    // Falling low-pass sweep on the outgoing clip, freqStart (high) -> freqEnd (low).
+                    float cutoff = _freqStart + (float)(t * (_freqEnd - _freqStart));
+                    float rc = 1.0f / (2.0f * MathF.PI * cutoff);
+                    float dt = 1.0f / sampleRate;
+                    float alpha = dt / (rc + dt);
+                    // One-pole IIR low-pass: y[n] = y[n-1] + alpha * (x[n] - y[n-1])
+                    _filterState = _filterState + alpha * (outSample - _filterState);
+
+                    buffer[offset + i + ch] = _filterState * (1f - inGain) + inSample * inGain;
+                }
+            }
+
+            _positionSamples += channels;
+        }
+
+        return frames;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EqSwapProvider
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// <summary>
+/// Two-band bass-handover crossfade ("Blend" preset / classic DJ bass swap): the low band
+/// (below <see cref="LowCrossoverHz"/>) swaps from outgoing to incoming linearly over the
+/// window while mids/highs crossfade with an equal-power curve, avoiding the muddy bass
+/// collision a plain crossfade produces when both tracks' kicks/subs overlap.
+/// </summary>
+public sealed class EqSwapProvider : ISampleProvider
+{
+    private readonly ISampleProvider _outgoing;
+    private readonly ISampleProvider _incoming;
+    private readonly float _lowCrossoverHz;
+    private long _positionSamples;
+    private float _outLowState;
+    private float _inLowState;
+
+    public WaveFormat WaveFormat { get; }
+    public long DurationSamples { get; }
+
+    public EqSwapProvider(ISampleProvider outgoing, ISampleProvider incoming, long durationSamples, float lowCrossoverHz = 250f)
+    {
+        if (outgoing.WaveFormat.SampleRate != incoming.WaveFormat.SampleRate ||
+            outgoing.WaveFormat.Channels != incoming.WaveFormat.Channels)
+            throw new ArgumentException("Both providers must share the same WaveFormat.");
+
+        _outgoing = outgoing;
+        _incoming = incoming;
+        _lowCrossoverHz = lowCrossoverHz;
+        DurationSamples = Math.Max(1, durationSamples);
+        WaveFormat = outgoing.WaveFormat;
+    }
+
+    public int Read(float[] buffer, int offset, int count)
+    {
+        if (_positionSamples >= DurationSamples)
+            return _incoming.Read(buffer, offset, count);
+
+        var outBuf = new float[count];
+        var inBuf = new float[count];
+
+        int outRead = _outgoing.Read(outBuf, 0, count);
+        int inRead = _incoming.Read(inBuf, 0, count);
+        int frames = Math.Max(outRead, inRead);
+
+        int sampleRate = WaveFormat.SampleRate;
+        int channels = WaveFormat.Channels;
+
+        float rc = 1.0f / (2.0f * MathF.PI * _lowCrossoverHz);
+        float dt = 1.0f / sampleRate;
+        float alpha = dt / (rc + dt);
+
+        for (int i = 0; i < frames; i += channels)
+        {
+            double t = Math.Min(1.0, (double)_positionSamples / DurationSamples);
+            float lowOutGain = (float)(1.0 - t);
+            float lowInGain = (float)t;
+            float midHighOutGain = (float)Math.Cos(t * Math.PI / 2.0);
+            float midHighInGain = (float)Math.Sin(t * Math.PI / 2.0);
 
             for (int ch = 0; ch < channels && (i + ch) < frames; ch++)
             {
-                float dry = (i + ch) < outRead ? outBuf[i + ch] : 0f;
-                // One-pole IIR low-pass: y[n] = y[n-1] + alpha * (x[n] - y[n-1])
-                _filterState = _filterState + alpha * (dry - _filterState);
+                float outSample = (i + ch) < outRead ? outBuf[i + ch] : 0f;
                 float inSample = (i + ch) < inRead ? inBuf[i + ch] : 0f;
-                buffer[offset + i + ch] = _filterState * (1f - inGain) + inSample * inGain;
+
+                // One-pole low-pass split: low band + (original - low) ≈ high/mid complement.
+                _outLowState = _outLowState + alpha * (outSample - _outLowState);
+                _inLowState = _inLowState + alpha * (inSample - _inLowState);
+                float outHigh = outSample - _outLowState;
+                float inHigh = inSample - _inLowState;
+
+                buffer[offset + i + ch] =
+                    (_outLowState * lowOutGain) + (outHigh * midHighOutGain) +
+                    (_inLowState * lowInGain) + (inHigh * midHighInGain);
+            }
+
+            _positionSamples += channels;
+        }
+
+        return frames;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WaveDuckProvider
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// <summary>
+/// Rhythmic gain ducking locked to the beat grid ("Wave" preset): on top of the normal
+/// crossfade envelope, gain dips briefly on every beat, producing a pumping/sidechain-style
+/// handover instead of a smooth continuous fade.
+/// </summary>
+public sealed class WaveDuckProvider : ISampleProvider
+{
+    private readonly ISampleProvider _outgoing;
+    private readonly ISampleProvider _incoming;
+    private readonly double _beatPeriodSeconds;
+    private readonly float _duckDepth;
+    private long _positionSamples;
+
+    public WaveFormat WaveFormat { get; }
+    public long DurationSamples { get; }
+
+    public WaveDuckProvider(ISampleProvider outgoing, ISampleProvider incoming, long durationSamples, double beatPeriodSeconds, float duckDepth = 0.5f)
+    {
+        if (outgoing.WaveFormat.SampleRate != incoming.WaveFormat.SampleRate ||
+            outgoing.WaveFormat.Channels != incoming.WaveFormat.Channels)
+            throw new ArgumentException("Both providers must share the same WaveFormat.");
+
+        _outgoing = outgoing;
+        _incoming = incoming;
+        _beatPeriodSeconds = Math.Max(0.05, beatPeriodSeconds);
+        _duckDepth = Math.Clamp(duckDepth, 0f, 1f);
+        DurationSamples = Math.Max(1, durationSamples);
+        WaveFormat = outgoing.WaveFormat;
+    }
+
+    public int Read(float[] buffer, int offset, int count)
+    {
+        if (_positionSamples >= DurationSamples)
+            return _incoming.Read(buffer, offset, count);
+
+        var outBuf = new float[count];
+        var inBuf = new float[count];
+
+        int outRead = _outgoing.Read(outBuf, 0, count);
+        int inRead = _incoming.Read(inBuf, 0, count);
+        int frames = Math.Max(outRead, inRead);
+
+        int sampleRate = WaveFormat.SampleRate;
+        int channels = WaveFormat.Channels;
+
+        for (int i = 0; i < frames; i += channels)
+        {
+            double t = Math.Min(1.0, (double)_positionSamples / DurationSamples);
+            float outGain = (float)Math.Cos(t * Math.PI / 2.0);
+            float inGain = (float)Math.Sin(t * Math.PI / 2.0);
+
+            // Phase within the current beat (0 = on the downbeat, dips deepest there).
+            double elapsedSeconds = (_positionSamples / channels) / (double)sampleRate;
+            double beatPhase = (elapsedSeconds % _beatPeriodSeconds) / _beatPeriodSeconds;
+            // Raised-cosine pulse, sharply peaked near the downbeat (phase 0/1).
+            double pulse = Math.Pow(0.5 * (1.0 + Math.Cos(2.0 * Math.PI * beatPhase)), 4.0);
+            float duck = 1f - _duckDepth * (float)pulse;
+
+            for (int ch = 0; ch < channels && (i + ch) < frames; ch++)
+            {
+                float outSample = (i + ch) < outRead ? outBuf[i + ch] : 0f;
+                float inSample = (i + ch) < inRead ? inBuf[i + ch] : 0f;
+                buffer[offset + i + ch] = (outSample * outGain + inSample * inGain) * duck;
             }
 
             _positionSamples += channels;
@@ -289,7 +476,13 @@ public static class TransitionDsp
             TransitionType.FilterSweep => new FilterSweepProvider(
                 outgoing, incoming, durationSamples,
                 model.FilterStartFrequency,
-                model.FilterEndFrequency),
+                model.FilterEndFrequency,
+                model.FilterSweepRising),
+            TransitionType.EqSwap => new EqSwapProvider(outgoing, incoming, durationSamples),
+            TransitionType.WaveDuck => new WaveDuckProvider(
+                outgoing, incoming, durationSamples,
+                beatPeriodSeconds: 60.0 / projectBpm,
+                model.WaveDuckDepth),
             _ => new CrossfadeProvider(outgoing, incoming, durationSamples)
         };
     }

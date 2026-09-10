@@ -1,0 +1,172 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             x:Class="SLSKDONET.Views.Avalonia.MixTransitionPanel"
+             x:DataType="vm:MixTransitionViewModel"
+             Background="#1A1A1A" Foreground="White">
+
+    <UserControl.Styles>
+        <Style Selector="ToggleButton.preset">
+            <Setter Property="Background" Value="#242424"/>
+            <Setter Property="Foreground" Value="#CCC"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#3A3A3A"/>
+            <Setter Property="CornerRadius" Value="14"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+        <Style Selector="ToggleButton.preset:checked">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="Black"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+        <Style Selector="ToggleButton.bars">
+            <Setter Property="Background" Value="#242424"/>
+            <Setter Property="Foreground" Value="#CCC"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+        <Style Selector="ToggleButton.bars:checked">
+            <Setter Property="Background" Value="#333"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="TextBlock.section-label">
+            <Setter Property="FontSize" Value="9"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="#555"/>
+            <Setter Property="LetterSpacing" Value="1"/>
+        </Style>
+        <Style Selector="Border.custom-row">
+            <Setter Property="Background" Value="#202020"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="10,8"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Panel>
+        <!-- Reachable directly (the Mix tab is sticky, like Similar Tracks) without a track pair
+             ever having been picked — e.g. clicking the tab header itself, or the sticky tab
+             surviving a plain single-track click. Previously rendered as a silently-empty
+             TRANSITION PREVIEW panel with no indication of what to do. -->
+        <StackPanel IsVisible="{Binding !HasLoadedPair}" Spacing="10" Margin="20" VerticalAlignment="Center" HorizontalAlignment="Center">
+            <TextBlock Text="🎛" FontSize="32" HorizontalAlignment="Center" Opacity="0.4"/>
+            <TextBlock Text="No transition loaded" FontSize="13" FontWeight="SemiBold" Foreground="#CCC" HorizontalAlignment="Center"/>
+            <TextBlock Text="Turn on + Mix above a playlist's track list, then click one track and another to build a transition between them." FontSize="11" Foreground="#888" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="280"/>
+        </StackPanel>
+
+        <ScrollViewer IsVisible="{Binding HasLoadedPair}">
+        <StackPanel Spacing="14" Margin="14">
+
+            <controls:MixPreviewComponent/>
+
+            <!-- Shows the system's reasoning, not just its pick — SuggestTransitionPointsAsync's
+                 tempo/key/vocal-aware mix-out (A) / mix-in (B) points, backed by real cue-point
+                 and analysis data rather than "near the end of the file" / "track start". -->
+            <Border Background="#1A1A1A" BorderBrush="#2A2A2A" BorderThickness="1" CornerRadius="8" Padding="10,8"
+                    IsVisible="{Binding TransitionPointReasoning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="16">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="Mix-out" FontSize="10" Foreground="#00E5FF"/>
+                            <TextBlock Text="{Binding SourceTriggerDisplay}" FontSize="10" FontWeight="Bold" Foreground="White"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="Mix-in" FontSize="10" Foreground="#E040FB"/>
+                            <TextBlock Text="{Binding TargetTriggerDisplay}" FontSize="10" FontWeight="Bold" Foreground="White"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock Text="{Binding TransitionPointReasoning}" FontSize="10" Foreground="#999" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="VOORINSTELLINGEN" Classes="section-label"/>
+                <ItemsControl ItemsSource="{Binding PresetNames}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <ToggleButton Classes="preset" Margin="0,0,6,6"
+                                          Content="{Binding}"
+                                          IsChecked="{Binding $parent[ItemsControl].((vm:MixTransitionViewModel)DataContext).SelectedPreset, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={Binding}, Mode=OneWay}"
+                                          Command="{Binding $parent[ItemsControl].((vm:MixTransitionViewModel)DataContext).SelectPresetCommand}"
+                                          CommandParameter="{Binding}"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="BAR LENGTH" Classes="section-label"/>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <ItemsControl ItemsSource="{Binding DurationBarOptions}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="6"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <ToggleButton Classes="bars"
+                                              Content="{Binding StringFormat='{}{0} bars'}"
+                                              IsChecked="{Binding $parent[ItemsControl].((vm:MixTransitionViewModel)DataContext).DurationBars, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={Binding}, Mode=OneWay}"
+                                              Command="{Binding $parent[ItemsControl].((vm:MixTransitionViewModel)DataContext).SelectBarsCommand}"
+                                              CommandParameter="{Binding}"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- "Aangepast" (Custom) mode: expandable parameter rows, matching the reference UI. -->
+            <StackPanel Spacing="8" IsVisible="{Binding IsCustomMode}">
+                <TextBlock Text="AANGEPAST" Classes="section-label"/>
+
+                <Border Classes="custom-row">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="Effects (echo decay)" VerticalAlignment="Center" FontSize="12"/>
+                        <NumericUpDown Grid.Column="1" Value="{Binding CustomEchoDecayFactor, Mode=TwoWay}"
+                                       Minimum="0" Maximum="0.99" Increment="0.05" FormatString="0.00"
+                                       Width="110" FontSize="11"/>
+                    </Grid>
+                </Border>
+
+                <Border Classes="custom-row">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="Filter start (Hz)" VerticalAlignment="Center" FontSize="12"/>
+                        <NumericUpDown Grid.Column="1" Value="{Binding CustomFilterStartFrequency, Mode=TwoWay}"
+                                       Minimum="20" Maximum="20000" Increment="100" FormatString="0"
+                                       Width="110" FontSize="11"/>
+                    </Grid>
+                </Border>
+
+                <Border Classes="custom-row">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="Filter end (Hz)" VerticalAlignment="Center" FontSize="12"/>
+                        <NumericUpDown Grid.Column="1" Value="{Binding CustomFilterEndFrequency, Mode=TwoWay}"
+                                       Minimum="20" Maximum="20000" Increment="100" FormatString="0"
+                                       Width="110" FontSize="11"/>
+                    </Grid>
+                </Border>
+
+                <Border Classes="custom-row" Opacity="0.5">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="Looping" VerticalAlignment="Center" FontSize="12"/>
+                        <TextBlock Grid.Column="1" Text="Not available" FontSize="11" Foreground="#777"/>
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <Button Content="OPSLAAN" Command="{Binding SaveCommand}"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                    Background="#00E676" Foreground="Black" FontWeight="Bold"
+                    Padding="0,10" CornerRadius="18"/>
+        </StackPanel>
+        </ScrollViewer>
+    </Panel>
+</UserControl>

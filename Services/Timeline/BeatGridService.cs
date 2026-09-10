@@ -97,6 +97,48 @@ public static class BeatGridService
         return Math.Abs(positionSeconds - nearestBeat) <= snapRadiusSeconds ? nearestBeat : null;
     }
 
+    /// <summary>
+    /// Snaps <paramref name="positionSeconds"/> to the nearest grid line spaced every
+    /// <paramref name="beatMultiple"/> beats, anchored at <paramref name="downbeatOffsetSeconds"/>.
+    /// Unlike <see cref="GetNearestBeatSeconds"/>, this always snaps — there is no radius/threshold
+    /// gate — and it generalizes beyond single beats: 1 = every beat, 4 = every bar (at 4/4), 32 =
+    /// every 8-bar phrase. The always-clamped-to-0 result matches this method's prior life as
+    /// <c>TransientAwareSnappingEngine.SnapRawTimeToPhraseLedger</c>, folded in here to remove a
+    /// duplicate beat-duration/nearest-index formula that lived outside this service.
+    /// </summary>
+    public static double SnapToBeatMultiple(
+        double positionSeconds,
+        double bpm,
+        double beatMultiple,
+        double downbeatOffsetSeconds = 0.0)
+    {
+        if (bpm <= 0 || beatMultiple <= 0) return positionSeconds;
+
+        double beatDuration = 60.0 / bpm;
+        double gridDuration = beatMultiple * beatDuration;
+        double nearestIndex = Math.Round((positionSeconds - downbeatOffsetSeconds) / gridDuration);
+        return Math.Max(0.0, downbeatOffsetSeconds + nearestIndex * gridDuration);
+    }
+
+    /// <summary>
+    /// Threshold-gated counterpart to <see cref="SnapToBeatMultiple"/> — returns the snapped
+    /// position only if it's within <paramref name="snapRadiusSeconds"/>, <c>null</c> otherwise
+    /// (or if <paramref name="bpm"/>/<paramref name="beatMultiple"/> is invalid). Use this for
+    /// "magnetic" drag-to-snap UI behaviour on a coarser-than-beat grid (bars, phrases); use
+    /// <see cref="GetNearestBeatSeconds"/> directly for single-beat snapping.
+    /// </summary>
+    public static double? GetNearestBeatMultipleSeconds(
+        double positionSeconds,
+        double bpm,
+        double beatMultiple,
+        double snapRadiusSeconds = 0.05,
+        double downbeatOffsetSeconds = 0.0)
+    {
+        if (bpm <= 0 || beatMultiple <= 0) return null;
+        double snapped = SnapToBeatMultiple(positionSeconds, bpm, beatMultiple, downbeatOffsetSeconds);
+        return Math.Abs(positionSeconds - snapped) <= snapRadiusSeconds ? snapped : null;
+    }
+
     // ── Grid line generation ──────────────────────────────────────────────
 
     /// <summary>

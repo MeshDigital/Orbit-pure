@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
+using System.Reactive;
 using System.Reactive.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
@@ -38,6 +40,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     private readonly AppConfig _config;
     private readonly IBulkOperationCoordinator _bulkCoordinator;
     private readonly ILibraryPreviewPlayer _previewPlayer;
+    private readonly SLSKDONET.Services.Repositories.ITransitionRepository _transitionRepository;
 
     public TrackOperationsViewModel? Operations { get; set; }
 
@@ -147,6 +150,17 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             }
 
             UpdateLimitedTracks();
+            // FilteredTracks — not CurrentProjectTracks — is what TrackListView.axaml's ItemsControl
+            // actually renders (see its ItemsSource binding). For a real DB-backed project/playlist,
+            // RefreshFilteredTracks swaps in a brand-new VirtualizedTrackCollection loaded straight
+            // from the database — entirely separate PlaylistTrackViewModel instances from whatever
+            // CurrentProjectTracks held. UpdateMixTransitionBadgesAsync used to only ever mutate
+            // CurrentProjectTracks' instances, so toggling "+ Mix" on a real playlist (the common
+            // case — confirmed live: zero badges rendered) silently did nothing, while the in-memory
+            // smart-playlist path (which happens to reuse CurrentProjectTracks' own instances) looked
+            // fine. Scheduling here, whenever the bound collection itself changes, covers both paths
+            // uniformly.
+            ScheduleUpdateMixTransitionBadges();
         }
     }
 
@@ -154,6 +168,10 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     {
         // Throttled notification for LimitedTracks to avoid UI flooding
         _updateLimitedTracksRequest.OnNext(System.Reactive.Unit.Default);
+        // A VirtualizedTrackCollection raises this as pages load in asynchronously (Replace/Add),
+        // swapping placeholder rows for real ones — badges need recomputing as that happens, not
+        // just once when the collection is first assigned (see FilteredTracks setter above).
+        ScheduleUpdateMixTransitionBadges();
     }
     
     private readonly System.Reactive.Subjects.Subject<System.Reactive.Unit> _updateLimitedTracksRequest = new();
@@ -692,7 +710,8 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         IEventBus eventBus,
         AppConfig config,
         IBulkOperationCoordinator bulkCoordinator,
-        ILibraryPreviewPlayer previewPlayer)
+        ILibraryPreviewPlayer previewPlayer,
+        SLSKDONET.Services.Repositories.ITransitionRepository transitionRepository)
     {
         _logger = logger;
         _libraryService = libraryService;
@@ -702,6 +721,10 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         _config = config;
         _bulkCoordinator = bulkCoordinator;
         _previewPlayer = previewPlayer;
+        _transitionRepository = transitionRepository;
+
+        ToggleMixModeCommand = ReactiveCommand.Create(() => IsMixModeEnabled = !IsMixModeEnabled);
+        OpenMixTransitionCommand = ReactiveCommand.Create<PlaylistTrackViewModel?>(OpenMixTransition);
 
         Hierarchical = new HierarchicalLibraryViewModel(config, downloadManager, artworkCache, eventBus);
         
@@ -1089,6 +1112,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
              FilteredTracks = new ObservableCollection<PlaylistTrackViewModel>(filtered);
              this.RaisePropertyChanged(nameof(LimitedTracks));
              oldVtcMemory?.Dispose();
+             ScheduleUpdateMixTransitionBadges();
              return;
         }
 
@@ -1294,6 +1318,129 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         SelectedCountText = $"{count} tracks selected";
         this.RaisePropertyChanged(nameof(LeadSelectedTrack));
         ScheduleUpdateHarmonicHighlights();
+        ScheduleUpdateMixTransitionBadges();
+    }
+
+    public ReactiveCommand<Unit, bool> ToggleMixModeCommand { get; private set; } = null!;
+
+    /// <summary>Badge-click: opens the "Mix" tab in the CONTEXT sidepanel for this row's
+    /// transition into the next track.</summary>
+    public ReactiveCommand<PlaylistTrackViewModel?, Unit> OpenMixTransitionCommand { get; private set; } = null!;
+
+    private void OpenMixTransition(PlaylistTrackViewModel? outgoing)
+    {
+        if (outgoing?.NextPlaylistTrackId is not Guid incomingId) return;
+
+        var playlistId = outgoing.Model?.PlaylistId ?? Guid.Empty;
+        ReactiveUI.MessageBus.Current.SendMessage(
+            new SLSKDONET.Events.OpenMixTransitionEvent(playlistId, outgoing.Id, incomingId));
+    }
+
+    private bool _isMixModeEnabled;
+    /// <summary>"+ Mix" toggle (Spotify-Mix parity) — when on, each row shows a transition badge
+    /// to the next track, and clicking one opens the Mix tab in the CONTEXT sidepanel.</summary>
+    public bool IsMixModeEnabled
+    {
+        get => _isMixModeEnabled;
+        set
+        {
+            var changed = _isMixModeEnabled != value;
+            this.RaiseAndSetIfChanged(ref _isMixModeEnabled, value);
+            if (changed)
+            {
+                // Must run on BOTH transitions, not just turning on. UpdateMixTransitionBadgesAsync
+                // sets ShowMixTransitionBadge = IsMixModeEnabled for every row — only calling it
+                // when value is true meant toggling Mix back OFF never re-ran it, so every badge
+                // stayed stuck visible (verified live: turning "+ Mix" off left every row's "Auto"
+                // badge showing).
+                _ = UpdateMixTransitionBadgesAsync();
+            }
+        }
+    }
+
+    private bool _mixBadgesScheduled;
+
+    /// <summary>Coalesces bursts of list changes into a single badge recompute, mirroring
+    /// ScheduleUpdateHarmonicHighlights below.</summary>
+    private void ScheduleUpdateMixTransitionBadges()
+    {
+        if (!IsMixModeEnabled || _mixBadgesScheduled) return;
+        _mixBadgesScheduled = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _mixBadgesScheduled = false;
+            _ = UpdateMixTransitionBadgesAsync();
+        }, DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// Walks the current track list pairwise, resolving each row's transition badge: a saved
+    /// PlaylistTrackTransition if one exists for that (outgoing, incoming) pair, else a live
+    /// "Auto" suggestion from TrackPairCompatibilityScorer — the same harmonic/energy formulas
+    /// the Workstation Flow timeline uses (see TrackPairCompatibilityScorer's doc comment).
+    /// </summary>
+    /// <summary>
+    /// Matches LimitedTracks' materialization cap — computing badges must not force a virtualized,
+    /// DB-backed playlist to fully load just to toggle "+ Mix" on.
+    /// </summary>
+    private const int MixBadgeWindowSize = 50;
+
+    private async Task UpdateMixTransitionBadgesAsync()
+    {
+        // FilteredTracks — not CurrentProjectTracks — is what TrackListView.axaml's ItemsControl
+        // actually renders. See the FilteredTracks setter's comment for why this matters: a real
+        // DB-backed playlist's FilteredTracks is a VirtualizedTrackCollection with entirely
+        // different PlaylistTrackViewModel instances from CurrentProjectTracks, so this used to
+        // silently do nothing for that (the common) case.
+        var source = FilteredTracks;
+        int totalCount = source.Count;
+        var ordered = (source as VirtualizedTrackCollection)?.GetSubset(MixBadgeWindowSize).ToList()
+            ?? source.Take(MixBadgeWindowSize).ToList();
+        if (ordered.Count == 0) return;
+
+        var playlistId = ordered[0].Model?.PlaylistId ?? Guid.Empty;
+        var saved = playlistId != Guid.Empty
+            ? (await _transitionRepository.GetTransitionsForPlaylistAsync(playlistId))
+                .ToDictionary(t => (t.OutgoingPlaylistTrackId, t.IncomingPlaylistTrackId))
+            : new Dictionary<(Guid, Guid), Models.Timeline.PlaylistTrackTransition>();
+
+        for (int i = 0; i < ordered.Count; i++)
+        {
+            var current = ordered[i];
+            bool isLastOverall = i == totalCount - 1;
+            if (isLastOverall)
+            {
+                current.ShowMixTransitionBadge = false;
+                current.NextPlaylistTrackId = null;
+                continue;
+            }
+            if (i >= ordered.Count - 1)
+            {
+                // Last item in this materialized window, but not the last track in the playlist —
+                // its "next" hasn't loaded yet. Leave it as-is; OnFilteredTracksChanged reschedules
+                // this once the next page arrives.
+                continue;
+            }
+
+            var next = ordered[i + 1];
+            current.ShowMixTransitionBadge = IsMixModeEnabled;
+            current.NextPlaylistTrackId = next.Id;
+
+            if (saved.TryGetValue((current.Id, next.Id), out var savedTransition))
+            {
+                current.TransitionPresetLabel = savedTransition.PresetName;
+                var score = Services.Playlist.TrackPairCompatibilityScorer.Score(
+                    current.CamelotDisplay, next.CamelotDisplay, current.Energy, next.Energy);
+                current.TransitionBadgeColor = Services.Playlist.TrackPairCompatibilityScorer.CompatibilityColor(score.CombinedScore);
+            }
+            else
+            {
+                var score = Services.Playlist.TrackPairCompatibilityScorer.Score(
+                    current.CamelotDisplay, next.CamelotDisplay, current.Energy, next.Energy);
+                current.TransitionPresetLabel = "Auto";
+                current.TransitionBadgeColor = Services.Playlist.TrackPairCompatibilityScorer.CompatibilityColor(score.CombinedScore);
+            }
+        }
     }
 
     private bool _harmonicHighlightsScheduled;

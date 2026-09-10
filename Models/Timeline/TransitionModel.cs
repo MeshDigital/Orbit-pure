@@ -14,8 +14,14 @@ public enum TransitionType
     /// <summary>Decaying echo on the outgoing clip while incoming fades in.</summary>
     EchoOut,
 
-    /// <summary>Low-pass filter sweeps down on outgoing clip over the transition window.</summary>
-    FilterSweep
+    /// <summary>Low-pass (or, with <see cref="TransitionModel.FilterSweepRising"/>, high-pass) filter sweep over the transition window.</summary>
+    FilterSweep,
+
+    /// <summary>Bass handover: low band swaps from outgoing to incoming while mids/highs crossfade normally — avoids muddy bass collision.</summary>
+    EqSwap,
+
+    /// <summary>Rhythmic gain ducking on the downbeat of every bar through the window, for a pumping/sidechain-style handover.</summary>
+    WaveDuck
 }
 
 /// <summary>
@@ -46,4 +52,17 @@ public class TransitionModel
     /// Ending frequency (Hz) for <see cref="TransitionType.FilterSweep"/>.
     /// </summary>
     public float FilterEndFrequency { get; set; } = 200f;
+
+    /// <summary>
+    /// When true, <see cref="TransitionType.FilterSweep"/> runs as a rising high-pass sweep on
+    /// the incoming clip (energy build into the drop) instead of a falling low-pass sweep on
+    /// the outgoing clip. Used by the "Rise" preset.
+    /// </summary>
+    public bool FilterSweepRising { get; set; } = false;
+
+    /// <summary>
+    /// Duck depth (0-1) for <see cref="TransitionType.WaveDuck"/> — how far gain dips on each
+    /// downbeat. 0 = no ducking, 1 = full silence at the dip.
+    /// </summary>
+    public float WaveDuckDepth { get; set; } = 0.5f;
 }

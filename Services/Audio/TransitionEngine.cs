@@ -17,15 +17,18 @@ public enum TransitionType
     
     /// <summary>Cut transition (no fade).</summary>
     Cut,
-    
+
     /// <summary>Echo out with reverb tail.</summary>
     EchoOut,
-    
+
     /// <summary>Filter sweep down on outgoing track.</summary>
     FilterSweep,
-    
+
     /// <summary>Backspin effect on outgoing track.</summary>
-    Backspin
+    Backspin,
+
+    /// <summary>Rhythmic gain ducking pulses on top of the base crossfade.</summary>
+    WaveDuck
 }
 
 /// <summary>
@@ -75,6 +78,21 @@ public class TransitionRegion
     /// For EQ swap: which bands to swap (default: Low only).
     /// </summary>
     public EqBandSwapConfig EqConfig { get; set; } = new();
+
+    /// <summary>Duck depth (0-1) for <see cref="TransitionType.WaveDuck"/> — how far gain dips on
+    /// each rhythmic pulse. Mirrors <see cref="Models.Timeline.TransitionModel.WaveDuckDepth"/>.</summary>
+    public float WaveDuckDepth { get; set; } = 0.5f;
+
+    /// <summary>Number of duck dips spread evenly across the transition window (approximates
+    /// beat-locked ducking without needing real BPM/sample-clock context at this layer).</summary>
+    public int WaveDuckPulseCount { get; set; } = 8;
+
+    /// <summary>Echo feedback decay (0-1) for <see cref="TransitionType.EchoOut"/>'s repeat taps.
+    /// Mirrors <see cref="Models.Timeline.TransitionModel.EchoDecayFactor"/>.</summary>
+    public float EchoDecayFactor { get; set; } = 0.55f;
+
+    /// <summary>Number of audible echo taps spread across the transition window.</summary>
+    public int EchoRepeatCount { get; set; } = 4;
 }
 
 /// <summary>
@@ -179,6 +197,8 @@ public class TransitionEngine
             TransitionType.EqSwap => CalculateEqSwap(curved, region.EqConfig),
             TransitionType.Cut => CalculateCut(progress),
             TransitionType.FilterSweep => CalculateFilterSweep(curved),
+            TransitionType.EchoOut => CalculateEchoOut(progress, region.EchoDecayFactor, region.EchoRepeatCount),
+            TransitionType.WaveDuck => CalculateWaveDuck(progress, region.WaveDuckDepth, region.WaveDuckPulseCount),
             _ => CalculateCrossfade(curved)
         };
     }
@@ -301,6 +321,62 @@ public class TransitionEngine
             OutgoingLowGain = outLow,
             OutgoingMidGain = outMid,
             OutgoingHighGain = outHigh,
+            IncomingLowGain = 1.0f,
+            IncomingMidGain = 1.0f,
+            IncomingHighGain = 1.0f
+        };
+    }
+
+    private TransitionAutomation CalculateEchoOut(double progress, float decayFactor, int repeatCount)
+    {
+        // Linear (not S-curved) base taper — matches TransitionDsp.EchoOutProvider's own dry
+        // gain math exactly, so this is a genuinely different envelope shape from Crossfade's
+        // equal-power S-curve, not just the same fade with a label swap.
+        float outBase = (float)(1.0 - progress);
+        float inGain = (float)progress;
+
+        // Echo taps: brief dips layered on the outgoing gain, spaced evenly across the window and
+        // shrinking in depth as the transition progresses (mirrors the delay buffer's feedback
+        // decay fading out over repeats). This is what makes Melt audibly/visually distinct from
+        // a plain fade — a scalloped decay instead of one smooth taper.
+        double repeatPhase = (progress * repeatCount) % 1.0;
+        double tapShape = Math.Pow(0.5 * (1.0 + Math.Cos(2.0 * Math.PI * repeatPhase)), 6.0);
+        float tapDip = decayFactor * 0.5f * (float)tapShape * outBase;
+
+        float outGain = Math.Clamp(outBase - tapDip, 0.0f, 1.0f);
+
+        return new TransitionAutomation
+        {
+            OutgoingGain = outGain,
+            IncomingGain = inGain,
+            OutgoingLowGain = 1.0f,
+            OutgoingMidGain = 1.0f,
+            OutgoingHighGain = 1.0f,
+            IncomingLowGain = 1.0f,
+            IncomingMidGain = 1.0f,
+            IncomingHighGain = 1.0f
+        };
+    }
+
+    private TransitionAutomation CalculateWaveDuck(double progress, float duckDepth, int pulseCount)
+    {
+        // Equal-power base taper — matches TransitionDsp.WaveDuckProvider's own cos/sin gain math.
+        float outBase = (float)Math.Cos(progress * Math.PI / 2.0);
+        float inBase = (float)Math.Sin(progress * Math.PI / 2.0);
+
+        // Rhythmic duck pulses on both gains together (a pumping/sidechain-style dip), spaced
+        // evenly across the window — same raised-cosine pulse shape as the real provider.
+        double pulsePhase = (progress * pulseCount) % 1.0;
+        double pulse = Math.Pow(0.5 * (1.0 + Math.Cos(2.0 * Math.PI * pulsePhase)), 4.0);
+        float duck = 1f - duckDepth * (float)pulse;
+
+        return new TransitionAutomation
+        {
+            OutgoingGain = outBase * duck,
+            IncomingGain = inBase * duck,
+            OutgoingLowGain = 1.0f,
+            OutgoingMidGain = 1.0f,
+            OutgoingHighGain = 1.0f,
             IncomingLowGain = 1.0f,
             IncomingMidGain = 1.0f,
             IncomingHighGain = 1.0f

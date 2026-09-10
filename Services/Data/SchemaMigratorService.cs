@@ -2894,6 +2894,49 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 31. Mix (Spotify-Mix-parity): saved per-track-pair transition config, keyed by the
+            // outgoing/incoming PlaylistTracks.Id pair so the same two tracks can carry different
+            // transitions in different playlists.
+            if (!TableExists("PlaylistTrackTransitions"))
+            {
+                _logger.LogInformation("Patching Schema: Creating PlaylistTrackTransitions table...");
+                command.CommandText = @"
+                    CREATE TABLE ""PlaylistTrackTransitions"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_PlaylistTrackTransitions"" PRIMARY KEY,
+                        ""PlaylistId"" TEXT NOT NULL,
+                        ""OutgoingPlaylistTrackId"" TEXT NOT NULL,
+                        ""IncomingPlaylistTrackId"" TEXT NOT NULL,
+                        ""PresetName"" TEXT NOT NULL DEFAULT 'Auto',
+                        ""TransitionType"" TEXT NOT NULL DEFAULT 'Crossfade',
+                        ""DurationBars"" INTEGER NOT NULL DEFAULT 16,
+                        ""EchoDecayFactor"" REAL NULL,
+                        ""FilterStartFrequency"" REAL NULL,
+                        ""FilterEndFrequency"" REAL NULL,
+                        ""EqLowGain"" REAL NULL,
+                        ""EqMidGain"" REAL NULL,
+                        ""EqHighGain"" REAL NULL,
+                        ""SourceTriggerSeconds"" REAL NULL,
+                        ""TargetTriggerSeconds"" REAL NULL,
+                        ""UpdatedAtUtc"" TEXT NOT NULL
+                    );
+                    CREATE UNIQUE INDEX ""IX_PlaylistTrackTransitions_Pair"" ON ""PlaylistTrackTransitions"" (""OutgoingPlaylistTrackId"", ""IncomingPlaylistTrackId"");
+                    CREATE INDEX ""IX_PlaylistTrackTransitions_PlaylistId"" ON ""PlaylistTrackTransitions"" (""PlaylistId"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ PlaylistTrackTransitions table created.");
+            }
+
+            // 32. Mix: cue/tempo/key/vocal-aware mix-out/mix-in trigger points (TransitionEngine.
+            // OptimizeTransition), added after the table above shipped without them.
+            if (TableExists("PlaylistTrackTransitions") && !ColumnExists("PlaylistTrackTransitions", "SourceTriggerSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding SourceTriggerSeconds/TargetTriggerSeconds to PlaylistTrackTransitions...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""SourceTriggerSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""TargetTriggerSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

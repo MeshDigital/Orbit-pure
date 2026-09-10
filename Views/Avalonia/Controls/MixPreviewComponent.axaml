@@ -8,18 +8,19 @@
              x:Class="SLSKDONET.Views.Avalonia.Controls.MixPreviewComponent">
 
     <Design.DataContext>
-        <vm:MixPreviewViewModel/>
+        <vm:MixTransitionViewModel/>
     </Design.DataContext>
 
     <UserControl.Styles>
         <Style Selector="Button.PreviewAction">
             <Setter Property="Background" Value="#22FFFFFF"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="Padding" Value="10,5"/>
-            <Setter Property="Margin" Value="4"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="0,9"/>
             <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="12"/>
             <Setter Property="BorderBrush" Value="#44FFFFFF"/>
             <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="Transitions">
                 <Transitions>
                     <BrushTransition Property="Background" Duration="0:0:0.2"/>
@@ -29,32 +30,40 @@
         <Style Selector="Button.PreviewAction:pointerover">
             <Setter Property="Background" Value="#44FFFFFF"/>
         </Style>
-        <Style Selector="Button.Accept">
-            <Setter Property="Background" Value="#CC00E676"/> <!-- Neon Green -->
-            <Setter Property="BorderBrush" Value="#00E676"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-        </Style>
-         <Style Selector="Button.Nudge">
+        <Style Selector="Button.Nudge">
+            <Setter Property="Background" Value="#33000000"/>
+            <Setter Property="Foreground" Value="#CCFFFFFF"/>
             <Setter Property="FontSize" Value="10"/>
-            <Setter Property="Padding" Value="6,2"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style Selector="Button.Nudge:pointerover">
+            <Setter Property="Background" Value="#55000000"/>
         </Style>
     </UserControl.Styles>
 
-    <Border Background="#CC0A0A0A" CornerRadius="12" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="15">
+    <Border Background="#CC0A0A0A" CornerRadius="12" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="14">
         <!-- Glass Effect -->
         <Grid RowDefinitions="Auto, *, Auto, *, Auto">
-            
+
             <!-- Header -->
-            <Grid Grid.Row="0" ColumnDefinitions="Auto, *, Auto" Margin="0,0,0,10">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <PathIcon Data="{StaticResource mixer_regular}" Foreground="#00E5FF"/>
-                    <TextBlock Text="TRANSITION PREVIEW" FontWeight="SemiBold" Foreground="#00E5FF" VerticalAlignment="Center"/>
+            <Grid Grid.Row="0" ColumnDefinitions="Auto, *, Auto" Margin="0,0,0,12">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <PathIcon Data="{StaticResource mixer_regular}" Foreground="#00E5FF" Width="14" Height="14"/>
+                    <TextBlock Text="TRANSITION PREVIEW" FontWeight="SemiBold" FontSize="11" Foreground="#00E5FF" VerticalAlignment="Center"/>
                 </StackPanel>
-                
-                <TextBlock Grid.Column="1" Text="{Binding StatusMessage}" HorizontalAlignment="Center" Foreground="#AAFFFFFF" VerticalAlignment="Center"/>
-                
-                <Button Grid.Column="2" Command="{Binding CancelCommand}" Background="Transparent" BorderThickness="0">
-                     <PathIcon Data="{StaticResource dismiss_regular}" Foreground="#AAFFFFFF"/>
+
+                <TextBlock Grid.Column="1" Text="{Binding StatusMessage}"
+                           HorizontalAlignment="Right" VerticalAlignment="Center"
+                           Margin="12,0"
+                           FontSize="11"
+                           Foreground="#AAFFFFFF"
+                           TextTrimming="CharacterEllipsis"/>
+
+                <Button Grid.Column="2" Command="{Binding CancelCommand}" Background="Transparent" BorderThickness="0" Padding="4" Margin="6,0,0,0">
+                     <PathIcon Data="{StaticResource dismiss_regular}" Foreground="#AAFFFFFF" Width="14" Height="14"/>
                 </Button>
             </Grid>
 
@@ -63,11 +72,12 @@
                  <!-- Background for rail -->
                  <Rectangle Width="2" HorizontalAlignment="Center" Fill="#33FFFFFF"/>
                  
-                 <controls:WaveformControl 
+                 <controls:WaveformControl
                     WaveformData="{Binding WaveformDataA}"
                     Progress="{Binding ProgressA}"
-                    ZoomLevel="4" 
-                    ViewOffset="{Binding ProgressA, Converter={x:Static ObjectConverters.IsNull}}" 
+                    EnergyCurve="{Binding OutgoingAutomationCurve}"
+                    ZoomLevel="4"
+                    ViewOffset="{Binding ProgressA, Converter={x:Static ObjectConverters.IsNull}}"
                     Height="80"
                     Foreground="#00E5FF"
                     Background="Transparent"
@@ -77,31 +87,34 @@
             </Grid>
             
             <!-- Phase Meter (Middle) -->
-            <Grid Grid.Row="2" Height="20" Margin="0,4">
-                 <Rectangle Fill="#11FFFFFF" Height="4" VerticalAlignment="Center"/>
-                 <!-- Center Mark -->
-                 <Rectangle Width="2" Height="12" Fill="White" HorizontalAlignment="Center"/>
-                 
-                 <!-- Phase Confidence Indicator (Dynamic Width/Color based on PhaseConfidence) -->
-                 <Rectangle Height="6" RadiusX="3" RadiusY="3" HorizontalAlignment="Center" Width="{Binding PhaseConfidenceWidth}">
-                    <Rectangle.Fill>
-                        <SolidColorBrush Color="#00E676" Opacity="0.8"/> 
-                    </Rectangle.Fill>
-                 </Rectangle>
+            <Grid Grid.Row="2" RowDefinitions="Auto,Auto" Margin="0,10">
+                <Grid Grid.Row="0" Height="10">
+                     <Rectangle Fill="#11FFFFFF" Height="4" VerticalAlignment="Center"/>
+                     <!-- Center Mark -->
+                     <Rectangle Width="2" Height="10" Fill="White" HorizontalAlignment="Center"/>
 
-                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="20">
-                     <Button Classes="PreviewAction Nudge" Command="{Binding NudgeBackCommand}" Content="◄ NUDGE"/>
-                     <Button Classes="PreviewAction Nudge" Command="{Binding NudgeForwardCommand}" Content="NUDGE ►"/>
-                 </StackPanel>
+                     <!-- Phase Confidence Indicator (Dynamic Width/Color based on PhaseConfidence) -->
+                     <Rectangle Height="4" RadiusX="2" RadiusY="2" HorizontalAlignment="Center" Width="{Binding PhaseConfidenceWidth}">
+                        <Rectangle.Fill>
+                            <SolidColorBrush Color="#00E676" Opacity="0.8"/>
+                        </Rectangle.Fill>
+                     </Rectangle>
+                </Grid>
+
+                <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10" Margin="0,8,0,0">
+                     <Button Classes="Nudge" Command="{Binding NudgeBackCommand}" Content="◄ NUDGE"/>
+                     <Button Classes="Nudge" Command="{Binding NudgeForwardCommand}" Content="NUDGE ►"/>
+                </StackPanel>
             </Grid>
 
             <!-- Track B (Incoming) -->
             <Grid Grid.Row="3">
                  <Rectangle Width="2" HorizontalAlignment="Center" Fill="#33FFFFFF"/>
 
-                 <controls:WaveformControl 
+                 <controls:WaveformControl
                     WaveformData="{Binding WaveformDataB}"
                     Progress="{Binding ProgressB}"
+                    EnergyCurve="{Binding IncomingAutomationCurve}"
                     ZoomLevel="4"
                     Height="80"
                     Foreground="#E040FB"
@@ -111,34 +124,27 @@
                  <TextBlock Text="INCOMING" Foreground="#E040FB" Opacity="0.5" FontSize="10" Margin="4" HorizontalAlignment="Right" VerticalAlignment="Top"/>
             </Grid>
 
-            <!-- Controls -->
-            <Grid Grid.Row="4" ColumnDefinitions="Auto, *, Auto" Margin="0,15,0,0">
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
-                    <Button Classes="PreviewAction" Command="{Binding PlayCommand}" IsVisible="{Binding !IsPlaying}">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="{StaticResource play_regular}"/>
-                            <TextBlock Text="PREVIEW"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Classes="PreviewAction" Command="{Binding PauseCommand}" IsVisible="{Binding IsPlaying}">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="{StaticResource pause_regular}"/>
-                            <TextBlock Text="PAUSE"/>
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
-                
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10">
-                    <Button Classes="PreviewAction" Command="{Binding CancelCommand}" Content="Dismiss"/>
-                    <Button Classes="PreviewAction Accept" Command="{Binding CommitCommand}">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="{StaticResource checkmark_regular}"/>
-                            <TextBlock Text="ACCEPT TRANSITION"/>
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
+            <!-- Controls: Preview/Pause and Dismiss share the row evenly, so neither can push
+                 past the sidepanel's width. "Accept Transition" was dropped — it was a second,
+                 identically-wired save action duplicating the OPSLAAN button below it in
+                 MixTransitionPanel, and was the actual cause of this row overflowing before. -->
+            <Grid Grid.Row="4" ColumnDefinitions="*,*" Margin="0,14,0,0">
+                <Button Grid.Column="0" Classes="PreviewAction" Command="{Binding PlayCommand}" IsVisible="{Binding !IsPlaying}" Margin="0,0,5,0">
+                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                        <PathIcon Data="{StaticResource play_regular}" Width="13" Height="13"/>
+                        <TextBlock Text="PREVIEW"/>
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="0" Classes="PreviewAction" Command="{Binding PauseCommand}" IsVisible="{Binding IsPlaying}" Margin="0,0,5,0">
+                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                        <PathIcon Data="{StaticResource pause_regular}" Width="13" Height="13"/>
+                        <TextBlock Text="PAUSE"/>
+                    </StackPanel>
+                </Button>
+
+                <Button Grid.Column="1" Classes="PreviewAction" Command="{Binding CancelCommand}" Content="DISMISS" Margin="5,0,0,0"/>
             </Grid>
-            
+
             <!-- Vertical Alignment Rail Overlay (Global) -->
             <Rectangle Grid.Row="1" Grid.RowSpan="3" Width="1" HorizontalAlignment="Center" Fill="#88FFFFFF" IsHitTestVisible="False"/>
 
