@@ -180,7 +180,8 @@ public class TrackRepository : ITrackRepository
         {
             query = query.Where(t => t.PlaylistId == playlistId);
         }
-        query = ApplyFilters(query, filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier);
+        var textFilterHashes = await ResolveTextFilterHashesAsync(context, playlistId, filter);
+        query = ApplyFilters(query, textFilterHashes, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier);
         return await query.CountAsync();
     }
 
@@ -198,7 +199,8 @@ public class TrackRepository : ITrackRepository
             query = query.Where(t => t.PlaylistId == playlistId);
         }
 
-        query = ApplyFilters(query, filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier);
+        var textFilterHashes = await ResolveTextFilterHashesAsync(context, playlistId, filter);
+        query = ApplyFilters(query, textFilterHashes, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier);
         query = ApplyPlaylistTrackSort(query, sortColumn, sortDescending);
 
         var results = await query
@@ -272,23 +274,66 @@ public class TrackRepository : ITrackRepository
         };
     }
 
-    private IQueryable<PlaylistTrackEntity> ApplyFilters(IQueryable<PlaylistTrackEntity> query, string? filter, bool? downloadedOnly, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, string? qualityTier = null)
+    /// <summary>
+    /// Resolves the playlist-scoped search box (Artist/Title/Album/MusicalKey) to a set of
+    /// matching TrackUniqueHash values ahead of the main query, instead of the previous
+    /// <c>.ToLower().Contains()</c> chain applied directly in SQL. EF Core's Sqlite provider
+    /// translates <c>string.Contains</c> to <c>instr()</c> (case-sensitive by design, which is
+    /// why both sides were wrapped in <c>ToLower()</c> to fake case-insensitivity) — and even a
+    /// case-correct substring match can't use a B-tree index for an arbitrary "contains"
+    /// position, so every keystroke was a full scan of the playlist's rows.
+    ///
+    /// TracksFts (an FTS5 virtual table over the master Tracks record — Artist/Title/Key,
+    /// trigger-maintained on every Tracks insert/update, built for the "All Tracks" search path
+    /// but never actually queried by anything) gives Artist/Title/Key an index-accelerated
+    /// search for free. It doesn't include Album, so that one column is still matched with a
+    /// direct substring scan — scoped to just this one playlist's rows (not the whole library),
+    /// which keeps it cheap.
+    /// </summary>
+    private static async Task<HashSet<string>?> ResolveTextFilterHashesAsync(AppDbContext context, Guid playlistId, string? filter)
+    {
+        if (string.IsNullOrWhiteSpace(filter))
+            return null;
+
+        var hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var matchExpr = BuildFtsMatchExpression(filter);
+        if (matchExpr != null)
+        {
+            var ftsMatches = await context.Database
+                .SqlQueryRaw<string>("SELECT GlobalId AS Value FROM TracksFts WHERE TracksFts MATCH {0}", matchExpr)
+                .ToListAsync();
+            hashes.UnionWith(ftsMatches);
+        }
+
+        var lowerFilter = filter.Trim().ToLower();
+        var albumQuery = context.PlaylistTracks.AsQueryable();
+        if (playlistId != Guid.Empty)
+        {
+            albumQuery = albumQuery.Where(t => t.PlaylistId == playlistId);
+        }
+        var albumOrKeyMatches = await albumQuery
+            .Where(t => t.Album.ToLower().Contains(lowerFilter) || (t.MusicalKey != null && t.MusicalKey.ToLower().Contains(lowerFilter)))
+            .Select(t => t.TrackUniqueHash)
+            .Distinct()
+            .ToListAsync();
+        hashes.UnionWith(albumOrKeyMatches);
+
+        return hashes;
+    }
+
+    private IQueryable<PlaylistTrackEntity> ApplyFilters(IQueryable<PlaylistTrackEntity> query, ISet<string>? textFilterHashes, bool? downloadedOnly, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, string? qualityTier = null)
     {
         if (hashFilter != null)
         {
             query = query.Where(t => hashFilter.Contains(t.TrackUniqueHash));
         }
-        if (!string.IsNullOrEmpty(filter))
+        if (textFilterHashes != null)
         {
-            // Album was missing here — a playlist-scoped search only ever matched Artist/Title/
-            // MusicalKey, so a track findable by its album name in the FTS-backed "All Tracks"
-            // view (which does index Album) would silently not show up when searching inside a
-            // specific playlist. Matches Album in now for parity between the two search paths.
-            var lowerFilter = filter.ToLower();
-            query = query.Where(t => t.Artist.ToLower().Contains(lowerFilter) ||
-                                     t.Title.ToLower().Contains(lowerFilter) ||
-                                     t.Album.ToLower().Contains(lowerFilter) ||
-                                     (t.MusicalKey != null && t.MusicalKey.ToLower().Contains(lowerFilter)));
+            // Resolved ahead of time by ResolveTextFilterHashesAsync — an empty (non-null) set
+            // here correctly means "the text filter matched nothing", same as the old inline
+            // Contains() chain would have produced.
+            query = query.Where(t => textFilterHashes.Contains(t.TrackUniqueHash));
         }
         if (!string.IsNullOrEmpty(camelotKeyFilter))
         {
