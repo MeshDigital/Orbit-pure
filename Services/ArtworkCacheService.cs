@@ -26,8 +26,20 @@ namespace SLSKDONET.Services
         private readonly HttpClient _httpClient;
         private readonly string _diskCacheDir;
 
+        /// <summary>
+        /// Default decode width for artwork requested without an explicit size. Every current
+        /// on-screen use of this service (32px list rows, 100px inspector panel, 200px grid
+        /// cards, small playlist-card covers) tops out at ~200 logical px — 512px comfortably
+        /// covers that at up to ~2.5x DPI scaling. Embedded/remote cover art is frequently much
+        /// larger (600-3000px square), so decoding at native resolution for a 32px row was
+        /// spending 10-100x the pixels (and proportionally more decode time + retained memory)
+        /// than anything on screen ever uses.
+        /// </summary>
+        public const int DefaultDecodeWidth = 512;
+
         // Use WeakReferences so that if no ViewModel holds the Bitmap, it can be collected.
-        // The Key is the URL/Path.
+        // The Key is "url-or-path|decodeWidth" — full-res and thumbnail requests for the same
+        // artwork are cached separately since they're different decoded Bitmap instances.
         private readonly ConcurrentDictionary<string, WeakReference<Bitmap>> _cache = new();
 
         // Loading tasks to prevent duplicate network calls for the same URL
@@ -61,12 +73,21 @@ namespace SLSKDONET.Services
         /// Retrieves a shared Bitmap instance for the given URI or File Path.
         /// If the bitmap is already in memory, returns the existing instance.
         /// </summary>
-        public async Task<Bitmap?> GetBitmapAsync(string? uriOrPath)
+        /// <param name="uriOrPath">Remote URL or local file path.</param>
+        /// <param name="decodeWidth">
+        /// Target decode width in pixels (aspect ratio preserved). Defaults to
+        /// <see cref="DefaultDecodeWidth"/>, which covers every current on-screen size. Pass a
+        /// larger value (or a very large one, e.g. int.MaxValue, to mean "native resolution") only
+        /// for a genuinely full-size display context.
+        /// </param>
+        public async Task<Bitmap?> GetBitmapAsync(string? uriOrPath, int decodeWidth = DefaultDecodeWidth)
         {
             if (string.IsNullOrWhiteSpace(uriOrPath)) return null;
 
+            var cacheKey = $"{uriOrPath}|{decodeWidth}";
+
             // 1. Check Cache
-            if (_cache.TryGetValue(uriOrPath, out var weakRef))
+            if (_cache.TryGetValue(cacheKey, out var weakRef))
             {
                 if (weakRef.TryGetTarget(out var bitmap))
                 {
@@ -75,16 +96,16 @@ namespace SLSKDONET.Services
                 else
                 {
                     // Reference is dead, remove it (optional, safe to overwrite later)
-                    _cache.TryRemove(uriOrPath, out _);
+                    _cache.TryRemove(cacheKey, out _);
                 }
             }
 
             // 2. Load (with dedup via loadingTasks)
-            return await _loadingTasks.GetOrAdd(uriOrPath, async (k) =>
+            return await _loadingTasks.GetOrAdd(cacheKey, async (k) =>
             {
                 try
                 {
-                    var loaded = await LoadBitmapInternalAsync(k).ConfigureAwait(false);
+                    var loaded = await LoadBitmapInternalAsync(uriOrPath, decodeWidth).ConfigureAwait(false);
                     if (loaded != null)
                     {
                         // Add to Cache
@@ -120,7 +141,7 @@ namespace SLSKDONET.Services
         /// fires directly from data binding. A full-resolution JPEG/PNG decode on the UI thread per
         /// unique album is a directly visible scroll hitch.
         /// </summary>
-        private async Task<Bitmap?> LoadBitmapInternalAsync(string uriOrPath)
+        private async Task<Bitmap?> LoadBitmapInternalAsync(string uriOrPath, int decodeWidth)
         {
             try
             {
@@ -131,7 +152,12 @@ namespace SLSKDONET.Services
                 return await Task.Run(() =>
                 {
                     using var stream = new MemoryStream(bytes);
-                    return new Bitmap(stream);
+                    // Decoding directly to the target width (rather than full native resolution
+                    // then letting the Image control scale it down) is what actually saves the
+                    // memory/CPU — Skia never materializes the full-size pixel buffer at all.
+                    return decodeWidth < int.MaxValue
+                        ? Bitmap.DecodeToWidth(stream, decodeWidth)
+                        : new Bitmap(stream);
                 }).ConfigureAwait(false);
             }
             catch (Exception ex)

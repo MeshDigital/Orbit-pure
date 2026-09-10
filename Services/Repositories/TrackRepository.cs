@@ -122,8 +122,13 @@ public class TrackRepository : ITrackRepository
     public async Task<List<PlaylistTrackEntity>> LoadPlaylistTracksAsync(Guid playlistId)
     {
         using var context = new AppDbContext();
+        // AsNoTracking: this context is disposed on return, so change-tracking snapshots for
+        // every row would be built only to be discarded immediately — pure overhead on large
+        // playlists. Any caller that mutates and saves does so through its own context/repository
+        // call, not by reusing entities returned from here.
         return await context.PlaylistTracks
-            .Include(t => t.TechnicalDetails) 
+            .AsNoTracking()
+            .Include(t => t.TechnicalDetails)
             .Include(t => t.AudioFeatures) // Phase 21: Eager load Brain data
             .Where(t => t.PlaylistId == playlistId)
             .OrderBy(t => t.SortOrder)

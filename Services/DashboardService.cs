@@ -127,8 +127,9 @@ public class DashboardService
             // Calculate top genres (Simplified aggregation)
             var genreCounts = context.PlaylistTracks
                 .Where(t => !string.IsNullOrEmpty(t.Genres))
+                .Select(t => t.Genres) // Only the one column needs to leave the DB, not full track rows
                 .AsEnumerable() // Pull into memory for JSON parsing
-                .SelectMany(t => (t.Genres ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                .SelectMany(g => (g ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 .GroupBy(g => g)
                 .Select(g => new { Genre = g.Key, Count = g.Count() })
                 .OrderByDescending(g => g.Count)
@@ -362,14 +363,27 @@ public class DashboardService
         {
             using var context = new AppDbContext();
 
-            var tracks = await context.PlaylistTracks
+            // Project down to scalar columns instead of Include()-ing the full TechnicalDetails/
+            // AudioFeatures rows — the latter carries AudioFeaturesEntity.WaveformBlob, a raw byte
+            // array that was being pulled into memory for every downloaded track (thousands of
+            // them) just to read its .Length. WaveformBlobSampleCount is the same "has waveform
+            // data" signal as a plain int column, so the blob bytes never need to leave the DB.
+            var candidates = await context.PlaylistTracks
                 .AsNoTracking()
-                .Include(t => t.TechnicalDetails)
-                .Include(t => t.AudioFeatures)
                 .Where(t => t.Status == TrackStatus.Downloaded)
+                .Select(t => new
+                {
+                    t.TrackUniqueHash,
+                    t.ResolvedFilePath,
+                    t.BPM,
+                    t.MusicalKey,
+                    t.CuePointsJson,
+                    TechnicalCuePointsJson = t.TechnicalDetails != null ? t.TechnicalDetails.CuePointsJson : null,
+                    WaveformSampleCount = t.AudioFeatures != null ? t.AudioFeatures.WaveformBlobSampleCount : 0,
+                })
                 .ToListAsync();
 
-            return tracks.Count(track =>
+            return candidates.Count(track =>
             {
                 if (string.IsNullOrWhiteSpace(track.TrackUniqueHash))
                 {
@@ -384,16 +398,16 @@ public class DashboardService
                 var hasBpm = (track.BPM ?? 0) > 0;
                 var hasKey = !string.IsNullOrWhiteSpace(track.MusicalKey);
 
-                var cueJson = string.IsNullOrWhiteSpace(track.TechnicalDetails?.CuePointsJson)
+                var cueJson = string.IsNullOrWhiteSpace(track.TechnicalCuePointsJson)
                     ? track.CuePointsJson
-                    : track.TechnicalDetails!.CuePointsJson;
+                    : track.TechnicalCuePointsJson;
                 var hasCues = !string.IsNullOrWhiteSpace(cueJson);
 
                 // Previously checked TechnicalDetails.WaveformData/LowData/MidData/HighData, which
                 // were dead columns never actually populated by anything — meaning this was always
                 // false and every downloaded track got flagged "incomplete," regardless of real
                 // analysis state. The live waveform data is AudioFeaturesEntity.WaveformBlob.
-                var hasWaveform = (track.AudioFeatures?.WaveformBlob?.Length ?? 0) > 0;
+                var hasWaveform = track.WaveformSampleCount > 0;
 
                 return !(hasBpm && hasKey && hasCues && hasWaveform);
             });

@@ -1691,13 +1691,12 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             if (_libraryService is null)
                 return;
 
-            var entries = await _libraryService.LoadAllLibraryEntriesAsync();
-            var existingEntries = entries
-                .Where(e => !string.IsNullOrWhiteSpace(e.FilePath) && System.IO.File.Exists(e.FilePath))
-                .ToList();
-
-            var lifecycleMetrics = await _lifecycleProjectionService.ComputeMetricsAsync().ConfigureAwait(false);
-            ApplyLifecycleMetrics(lifecycleMetrics);
+            // One shared full-library scan (entries + File.Exists sweep) instead of loading
+            // and re-checking existence twice — ComputeSnapshotAsync does this same work
+            // internally to derive the lifecycle metrics, so reuse its result here too.
+            var snapshot = await _lifecycleProjectionService.ComputeSnapshotAsync().ConfigureAwait(false);
+            var existingEntries = snapshot.ExistingEntries;
+            ApplyLifecycleMetrics(snapshot.Metrics);
 
             LibraryTracks.Clear();
 
@@ -1709,9 +1708,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                 LibraryTracks.Add(entry);
             }
 
-            if (lifecycleMetrics.StaleIndexed > 0)
+            if (snapshot.Metrics.StaleIndexed > 0)
             {
-                AutomixStatusMessage = $"Loaded {existingEntries.Count} valid tracks; skipped {lifecycleMetrics.StaleIndexed} stale index entries.";
+                AutomixStatusMessage = $"Loaded {existingEntries.Count} valid tracks; skipped {snapshot.Metrics.StaleIndexed} stale index entries.";
             }
 
             LibraryLoadErrorMessage = null;

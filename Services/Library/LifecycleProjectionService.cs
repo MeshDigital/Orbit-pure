@@ -24,9 +24,20 @@ public sealed record LifecycleMetrics(
     int IngestionBacklog,
     int DesiredDownloads);
 
+/// <summary>
+/// Bundles the metrics with the library-entry existence scan they were computed from, so a
+/// caller that also needs the entry list (e.g. to populate a track list) doesn't have to repeat
+/// the same full-library-load + File.Exists sweep a second time.
+/// </summary>
+public sealed record LifecycleSnapshot(
+    IReadOnlyList<LibraryEntry> AllEntries,
+    IReadOnlyList<LibraryEntry> ExistingEntries,
+    LifecycleMetrics Metrics);
+
 public interface ILifecycleProjectionService
 {
     Task<LifecycleMetrics> ComputeMetricsAsync(CancellationToken cancellationToken = default);
+    Task<LifecycleSnapshot> ComputeSnapshotAsync(CancellationToken cancellationToken = default);
     LifecycleMetrics ApplyFileIngestionQueued(LifecycleMetrics current);
     LifecycleMetrics ApplyFileIngestionCompleted(LifecycleMetrics current);
     LifecycleMetrics ApplyFileMissingDetected(LifecycleMetrics current);
@@ -43,15 +54,17 @@ public sealed class LifecycleProjectionService : ILifecycleProjectionService
     }
 
     public async Task<LifecycleMetrics> ComputeMetricsAsync(CancellationToken cancellationToken = default)
+        => (await ComputeSnapshotAsync(cancellationToken).ConfigureAwait(false)).Metrics;
+
+    public async Task<LifecycleSnapshot> ComputeSnapshotAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         var entries = await _libraryService.LoadAllLibraryEntriesAsync().ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var existingEntries = entries
-            .Where(e => !string.IsNullOrWhiteSpace(e.FilePath) && File.Exists(e.FilePath))
-            .ToList();
+        var existingEntries = await FilterByFileExistsAsync(
+            entries, e => e.FilePath, cancellationToken).ConfigureAwait(false);
 
         var indexedHashes = existingEntries
             .Where(e => !string.IsNullOrWhiteSpace(e.UniqueHash))
@@ -67,19 +80,55 @@ public sealed class LifecycleProjectionService : ILifecycleProjectionService
             || t.Status == TrackStatus.OnHold
             || t.Status == TrackStatus.Failed);
 
-        var backlogCount = playlistTracks.Count(t =>
-            t.Status == TrackStatus.Downloaded
-            && !string.IsNullOrWhiteSpace(t.ResolvedFilePath)
-            && File.Exists(t.ResolvedFilePath)
-            && !string.IsNullOrWhiteSpace(t.TrackUniqueHash)
-            && !indexedHashes.Contains(t.TrackUniqueHash));
+        var backlogCandidates = playlistTracks
+            .Where(t => t.Status == TrackStatus.Downloaded
+                && !string.IsNullOrWhiteSpace(t.ResolvedFilePath)
+                && !string.IsNullOrWhiteSpace(t.TrackUniqueHash)
+                && !indexedHashes.Contains(t.TrackUniqueHash))
+            .ToList();
+        var backlogExisting = await FilterByFileExistsAsync(
+            backlogCandidates, t => t.ResolvedFilePath, cancellationToken).ConfigureAwait(false);
 
-        return Normalize(new LifecycleMetrics(
+        var metrics = Normalize(new LifecycleMetrics(
             PhysicalOnDisk: existingEntries.Count,
             IndexedCatalog: entries.Count,
             StaleIndexed: entries.Count - existingEntries.Count,
-            IngestionBacklog: backlogCount,
+            IngestionBacklog: backlogExisting.Count,
             DesiredDownloads: desiredCount));
+
+        return new LifecycleSnapshot(entries, existingEntries, metrics);
+    }
+
+    /// <summary>
+    /// Filters a list down to entries whose file path exists on disk, checking in parallel
+    /// (bounded) instead of a sequential synchronous loop — File.Exists is cheap per call but a
+    /// sequential sweep over thousands of tracks (worse on network/removable storage) is not.
+    /// </summary>
+    private static async Task<List<T>> FilterByFileExistsAsync<T>(
+        IReadOnlyList<T> items, Func<T, string?> pathSelector, CancellationToken cancellationToken)
+    {
+        if (items.Count == 0) return new List<T>();
+
+        var exists = new bool[items.Count];
+        var options = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = Math.Max(4, Environment.ProcessorCount * 4),
+            CancellationToken = cancellationToken,
+        };
+
+        await Parallel.ForEachAsync(Enumerable.Range(0, items.Count), options, (i, _) =>
+        {
+            var path = pathSelector(items[i]);
+            exists[i] = !string.IsNullOrWhiteSpace(path) && File.Exists(path);
+            return ValueTask.CompletedTask;
+        }).ConfigureAwait(false);
+
+        var result = new List<T>(items.Count);
+        for (int i = 0; i < items.Count; i++)
+        {
+            if (exists[i]) result.Add(items[i]);
+        }
+        return result;
     }
 
     public LifecycleMetrics ApplyFileIngestionQueued(LifecycleMetrics current)
