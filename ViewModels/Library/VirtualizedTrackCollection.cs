@@ -35,6 +35,16 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     private readonly TrackSortColumn _sortColumn;
     private readonly bool _sortDescending;
     
+    // PageInfo.LastAccess existed from the start (touched on every page load) but nothing ever
+    // read it — pages accumulated in _pages/_loadedItems/_viewModelCache for the life of the
+    // collection instance with no upper bound. For "All Tracks" on a large library, scrolling
+    // through the whole thing once in a session left every row's PlaylistTrackViewModel (each
+    // holding its own decoded artwork Bitmap — see ArtworkCacheService) permanently resident.
+    // 40 pages headroom (4000 items at the default page size) is several times a normal viewport,
+    // so ordinary browsing of small-to-medium libraries never triggers eviction at all; this only
+    // bites during genuinely long scroll sessions over a large library.
+    private const int MaxLoadedPages = 40;
+
     private int _count = -1;
     private readonly List<PlaylistTrackViewModel> _loadedItems = new();
     private readonly Dictionary<int, PageInfo> _pages = new();
@@ -149,6 +159,14 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             // to leak straight out of the indexer as a real null.
             if (index < _loadedItems.Count && _loadedItems[index] is { } loaded)
             {
+                // Touch LastAccess so eviction (see EvictLeastRecentlyUsedPagesIfNeeded) treats a
+                // page that's still actively being scrolled through as recently used, not just
+                // "recently loaded" — otherwise a page loaded once early and revisited constantly
+                // would look just as evictable as one loaded once and never touched again.
+                if (_pages.TryGetValue(index / _pageSize, out var pageInfo))
+                {
+                    pageInfo.LastAccess = DateTime.Now;
+                }
                 return loaded;
             }
 
@@ -285,7 +303,7 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             // Store in pages for cache management
             var pageInfo = new PageInfo { Items = viewModels, LastAccess = DateTime.Now };
             _pages[pageIndex] = pageInfo;
-            
+
             // Defer the notification so it never fires mid-layout.
             // Avalonia's ItemsRepeater calls get_Item during its layout pass, which
             // triggers LoadPageAsync.  Raising CollectionChanged synchronously here
@@ -294,10 +312,68 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             var changeArgs = new NotifyCollectionChangedEventArgs(
                 NotifyCollectionChangedAction.Replace, viewModels, viewModels, startIndex);
             Dispatcher.UIThread.Post(() => CollectionChanged?.Invoke(this, changeArgs));
+
+            EvictLeastRecentlyUsedPagesIfNeeded();
         }
         finally
         {
             _pendingPages.Remove(pageIndex);
+        }
+    }
+
+    /// <summary>
+    /// Releases the least-recently-accessed loaded pages once residency exceeds
+    /// <see cref="MaxLoadedPages"/>, so a long scroll session over a large library doesn't keep
+    /// every row's PlaylistTrackViewModel (and its decoded artwork) resident for the collection's
+    /// whole lifetime. A page is skipped — left resident — if any of its rows are currently
+    /// selected, so a selected-then-scrolled-away row never silently reverts to a loading
+    /// placeholder out from under the user's selection.
+    /// </summary>
+    private void EvictLeastRecentlyUsedPagesIfNeeded()
+    {
+        if (_pages.Count <= MaxLoadedPages) return;
+
+        var overflow = _pages.Count - MaxLoadedPages;
+        var evictionCandidates = _pages
+            .OrderBy(p => p.Value.LastAccess)
+            .Where(p => !p.Value.Items.Any(vm => vm.IsSelected))
+            .Take(overflow)
+            .Select(p => p.Key)
+            .ToList();
+
+        if (evictionCandidates.Count == 0) return;
+
+        foreach (var pageIndex in evictionCandidates)
+        {
+            if (!_pages.TryGetValue(pageIndex, out var pageInfo)) continue;
+
+            var startIndex = pageIndex * _pageSize;
+            var placeholders = new List<PlaylistTrackViewModel>(pageInfo.Items.Count);
+
+            for (int i = 0; i < pageInfo.Items.Count; i++)
+            {
+                var loadedIndex = startIndex + i;
+                if (loadedIndex >= _loadedItems.Count) break;
+
+                _viewModelCache.Remove(pageInfo.Items[i].GlobalId);
+                pageInfo.Items[i].Dispose();
+                _loadedItems[loadedIndex] = null!;
+                placeholders.Add(PlaylistTrackViewModel.Placeholder);
+            }
+
+            _pages.Remove(pageIndex);
+
+            if (placeholders.Count == 0) continue;
+
+            // One notification per page — each page's own items are a contiguous run, unlike
+            // the set of evicted pages as a whole (LRU order has no reason to be page-adjacent),
+            // and NotifyCollectionChangedEventArgs' Replace constructor only represents a single
+            // contiguous range. Same deferred-notification reasoning as the load path above —
+            // never raise CollectionChanged synchronously from inside a call that can originate
+            // from the indexer during ItemsRepeater's layout pass.
+            var changeArgs = new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Replace, placeholders, placeholders, startIndex);
+            Dispatcher.UIThread.Post(() => CollectionChanged?.Invoke(this, changeArgs));
         }
     }
 
@@ -327,6 +403,8 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
                 NotifyCollectionChangedAction.Add, viewModels, startIndex);
             Dispatcher.UIThread.Post(() => CollectionChanged?.Invoke(this, changeArgs));
 
+            EvictLeastRecentlyUsedPagesIfNeeded();
+
             return viewModels.Count;
         }
         finally
@@ -338,7 +416,11 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     public void Dispose()
     {
         _disposables.Dispose();
-        foreach (var item in _loadedItems) item.Dispose();
+        // Null entries are expected here: LoadPageAsync's capacity-padding loop can leave
+        // not-yet-loaded slots as null, and eviction (EvictLeastRecentlyUsedPagesIfNeeded) nulls
+        // out and disposes slots for pages it releases — both pre-date whether Dispose() happens
+        // to run before every slot is filled.
+        foreach (var item in _loadedItems) item?.Dispose();
         _loadedItems.Clear();
         foreach (var page in _pages.Values)
         {
