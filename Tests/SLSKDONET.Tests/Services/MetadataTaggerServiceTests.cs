@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Services.IO;
+using SLSKDONET.Tests.Helpers;
 using Xunit;
 
 namespace SLSKDONET.Tests.Services;
@@ -154,46 +155,5 @@ public class MetadataTaggerServiceTests : IDisposable
         var success = await service.TagFileAsync(new Track { Title = "X" }, path);
 
         Assert.False(success);
-    }
-
-    /// <summary>
-    /// Mirrors SafeWriteService's write-temp/verify/atomic-swap contract without its dependency on
-    /// CrashRecoveryJournal (which hardcodes the user's real AppData library.db — unsafe to touch
-    /// from a test).
-    /// </summary>
-    private sealed class FakeFileWriteService : IFileWriteService
-    {
-        public async Task<bool> WriteAtomicAsync(
-            string targetPath, Func<string, Task> writeAction, Func<string, Task<bool>>? verifyAction = null,
-            CancellationToken cancellationToken = default)
-        {
-            var tempPath = targetPath + ".tmp";
-            try
-            {
-                await writeAction(tempPath);
-                if (verifyAction != null && !await verifyAction(tempPath))
-                {
-                    File.Delete(tempPath);
-                    return false;
-                }
-                File.Copy(tempPath, targetPath, overwrite: true);
-                File.Delete(tempPath);
-                return true;
-            }
-            catch
-            {
-                if (File.Exists(tempPath)) File.Delete(tempPath);
-                return false;
-            }
-        }
-
-        public Task<bool> WriteAllBytesAtomicAsync(string targetPath, byte[] data, CancellationToken cancellationToken = default) =>
-            throw new NotImplementedException();
-
-        public Task<bool> CopyFileAtomicAsync(string sourcePath, string targetPath, bool preserveTimestamps = true, CancellationToken cancellationToken = default) =>
-            throw new NotImplementedException();
-
-        public Task<bool> MoveAtomicAsync(string sourcePath, string targetPath, CancellationToken cancellationToken = default) =>
-            throw new NotImplementedException();
     }
 }

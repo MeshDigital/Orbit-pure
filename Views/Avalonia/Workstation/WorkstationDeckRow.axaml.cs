@@ -109,6 +109,7 @@ public partial class WorkstationDeckRow : UserControl
 
             if (deckVm.IsLocked)
             {
+                deckVm.NotifyLockedDropRejected();
                 e.Handled = true;
                 return;
             }

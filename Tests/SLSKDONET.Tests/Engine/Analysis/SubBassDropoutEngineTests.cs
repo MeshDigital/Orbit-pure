@@ -78,6 +78,41 @@ public class SubBassDropoutEngineTests
     }
 
     [Fact]
+    public void ComputeBandEnergyCurve_PassesInBandTone_AtNearFullAmplitude()
+    {
+        // Regression test for a real bug: the hand-rolled Butterworth coefficient derivation had
+        // a sign error and a spurious extra term, giving the filter a DC gain as low as 0.0001
+        // instead of the mathematically-required 1.0 at realistic cutoffs — i.e. it destroyed
+        // almost the entire signal instead of passing low frequencies through. A correct lowpass
+        // must let a well-in-band tone (here, far below a 250 Hz cutoff) through at close to its
+        // original RMS level, not attenuate it to near-silence.
+        var engine = new SubBassDropoutEngine();
+        var tone = SineWave(50, 2.0, 0.8f); // well inside a 250 Hz lowpass
+        double inputRms = Rms(tone);
+
+        var curve = engine.ComputeBandEnergyCurve(tone, SampleRate, cutoffHz: 250);
+
+        Assert.NotEmpty(curve);
+        float outputRms = curve.Average();
+        Assert.True(outputRms > inputRms * 0.5f,
+            $"Expected an in-band 50 Hz tone to pass a 250 Hz lowpass at close to its input level ({inputRms}), got {outputRms} — DC-gain bug regressed.");
+    }
+
+    [Fact]
+    public void ComputeBandEnergyCurve_AttenuatesOutOfBandTone()
+    {
+        var engine = new SubBassDropoutEngine();
+        var inBand = SineWave(50, 2.0, 0.8f);
+        var outOfBand = SineWave(2000, 2.0, 0.8f); // well above a 250 Hz cutoff
+
+        var inBandCurve = engine.ComputeBandEnergyCurve(inBand, SampleRate, cutoffHz: 250);
+        var outOfBandCurve = engine.ComputeBandEnergyCurve(outOfBand, SampleRate, cutoffHz: 250);
+
+        Assert.True(inBandCurve.Average() > outOfBandCurve.Average() * 3,
+            "A 50 Hz tone should read far stronger than a 2000 Hz tone after a 250 Hz lowpass.");
+    }
+
+    [Fact]
     public void FindStrongestBeatIndex_PicksCandidateWithRealSubBassEnergy()
     {
         // 4 one-second slots: only slot 2 has real 50 Hz sub-bass energy, the others are silent

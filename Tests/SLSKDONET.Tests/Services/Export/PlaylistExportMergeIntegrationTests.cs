@@ -46,7 +46,7 @@ public class PlaylistExportMergeIntegrationTests : IDisposable
     }
 
     private static PlaylistExportService CreateService() =>
-        new(NullLogger<PlaylistExportService>.Instance, CreateInMemoryFactory());
+        new(NullLogger<PlaylistExportService>.Instance, CreateInMemoryFactory(), new SLSKDONET.Tests.Helpers.FakeFileWriteService());
 
     [Fact]
     public async Task ExportToRekordboxXmlAsync_ReExportToSamePath_PreservesHandEditedRatingAndColour()

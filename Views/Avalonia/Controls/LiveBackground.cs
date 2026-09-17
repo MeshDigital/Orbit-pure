@@ -136,8 +136,9 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 {
                     // Source can be disposed during rapid visual-tree changes; skip this frame safely.
                 }
-                catch
+                catch (Exception ex)
                 {
+                    Serilog.Log.Warning(ex, "LiveBackground: failed to capture source bitmap for blur");
                 }
             });
         }
@@ -180,11 +181,29 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
                     Dispatcher.UIThread.Post(InvalidateVisual);
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    Serilog.Log.Warning(ex, "LiveBackground: background blur processing failed");
+                }
             });
         }
 
         public override void Render(DrawingContext context)
+        {
+            try
+            {
+                RenderInternal(context);
+            }
+            catch (Exception ex)
+            {
+                // Render-thread exceptions bypass all managed exception handling and hard-crash
+                // the process with zero trace (same class of bug fixed in WaveformControl and
+                // OrbitVisualizerCanvas). Skip the frame instead of taking the app down.
+                Serilog.Log.Warning(ex, "LiveBackground: render tick failed — skipping frame");
+            }
+        }
+
+        private void RenderInternal(DrawingContext context)
         {
             UpdateBlurredBitmap(Source);
 
@@ -247,6 +266,21 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
             public void Render(ImmediateDrawingContext context)
             {
+                try
+                {
+                    RenderInternal(context);
+                }
+                catch (Exception ex)
+                {
+                    // Runs on Avalonia's dedicated render/compositor thread — an unhandled
+                    // exception here bypasses all managed exception handling and hard-crashes
+                    // the process with zero trace. Skip the frame instead of taking the app down.
+                    Serilog.Log.Warning(ex, "LiveBackground: draw operation failed — skipping frame");
+                }
+            }
+
+            private void RenderInternal(ImmediateDrawingContext context)
+            {
                 var lease = context.TryGetFeature<ISkiaSharpApiLeaseFeature>();
                 if (lease == null) return;
 
@@ -254,7 +288,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 var canvas = skiaContext.SkCanvas;
 
                 canvas.Save();
-                
+
                 // Phase 21: Dynamic Cinematic Motion
                 // Core scale to fill
                 float baseScaleX = (float)_bounds.Width / _image.Width * 1.3f;

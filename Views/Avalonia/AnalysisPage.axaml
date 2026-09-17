@@ -277,6 +277,10 @@
                                     Content="⟲ Force Reanalyze All"
                                     Command="{Binding ReanalyzeAllTracksCommand}"
                                     ToolTip.Tip="Queue every track for a fresh analysis pass, even ones that already look complete. Use this after a detection pipeline upgrade — 'incomplete' tracks alone won't catch tracks analysed with older, worse logic."/>
+                            <Button Classes="secondary"
+                                    Content="🎯 Regenerate All Cues"
+                                    Command="{Binding RegenerateAllCuesCommand}"
+                                    ToolTip.Tip="Re-map cue points for every already-analysed track from its stored data — fast, no re-analysis. Use this after a cue-detection logic change specifically, not a BPM/key/energy change."/>
                         </StackPanel>
                     </Grid>
 

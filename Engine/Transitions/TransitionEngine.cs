@@ -13,6 +13,15 @@ public sealed class TransitionSuggestion
     public double SourceTriggerTime { get; set; }
     public double TargetTriggerTime { get; set; }
     public double CompatibilityScore { get; set; } // 0 - 100
+
+    /// <summary>The analyzed cue point (if any) that <see cref="SourceTriggerTime"/> corresponds
+    /// to — null when the trigger time is a computed/ambient position (e.g. the tempo-jump
+    /// branch's VocalEndSeconds fallback) with no backing CuePointEntity. Lets a UI highlight
+    /// which cue marker the suggestion picked, rather than just showing a bare timestamp.</summary>
+    public CuePointEntity? SelectedSourceCue { get; set; }
+
+    /// <summary>Same as <see cref="SelectedSourceCue"/>, for <see cref="TargetTriggerTime"/>.</summary>
+    public CuePointEntity? SelectedTargetCue { get; set; }
 }
 
 /// <summary>
@@ -65,13 +74,20 @@ public sealed class TransitionEngine
             
             suggestion.Description = "Tempo Jump (>6%): Blend in ambient/instrumental outro zone. ";
             suggestion.SourceTriggerTime = ambientOutroStart;
+            // Ambient outro zone is a computed position (VocalEndSeconds or the standard mix-out
+            // fallback), not necessarily an analyzed cue — only attribute it to mixOutCue when its
+            // timestamp is genuinely what was used.
+            suggestion.SelectedSourceCue = mixOutCue != null && Math.Abs(mixOutCue.TimestampInSeconds - ambientOutroStart) < 0.01 ? mixOutCue : null;
             // Suggest dropping in the next track directly at its first drop (instant drop transition)
             suggestion.TargetTriggerTime = firstDropCue?.TimestampInSeconds ?? targetTime;
+            suggestion.SelectedTargetCue = firstDropCue ?? mixInCue;
         }
         else
         {
             suggestion.SourceTriggerTime = sourceTime;
+            suggestion.SelectedSourceCue = mixOutCue;
             suggestion.TargetTriggerTime = targetTime;
+            suggestion.SelectedTargetCue = mixInCue;
             suggestion.Description = "Standard Transition. ";
         }
 
@@ -90,6 +106,7 @@ public sealed class TransitionEngine
                 if (firstDropCue != null)
                 {
                     suggestion.TargetTriggerTime = firstDropCue.TimestampInSeconds;
+                    suggestion.SelectedTargetCue = firstDropCue;
                     suggestion.Description += "Harmonic Clash + Vocal Overlap: Shift target start to drop-in. ";
                 }
                 else

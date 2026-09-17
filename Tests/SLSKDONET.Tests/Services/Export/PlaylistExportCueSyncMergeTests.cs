@@ -45,7 +45,7 @@ public class PlaylistExportCueSyncMergeTests : IDisposable
             .UseInMemoryDatabase($"ExportCueSyncTest_{Guid.NewGuid():N}")
             .Options;
         factory = new TestDbContextFactory(options);
-        return new PlaylistExportService(NullLogger<PlaylistExportService>.Instance, factory);
+        return new PlaylistExportService(NullLogger<PlaylistExportService>.Instance, factory, new SLSKDONET.Tests.Helpers.FakeFileWriteService());
     }
 
     private static List<OrbitCue> SingleCue(string name, double timestamp) =>

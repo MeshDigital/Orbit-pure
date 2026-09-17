@@ -121,6 +121,10 @@ public class RoomsViewModel : ReactiveObject, IDisposable
             .Subscribe(OnIncomingRoomMessage)
             .DisposeWith(_disposables);
 
+        this.WhenAnyValue(x => x.SelectedRoom)
+            .Subscribe(room => _eventBus.Publish(new ActiveRoomChangedEvent(room?.RoomName)))
+            .DisposeWith(_disposables);
+
         _ = RefreshRoomListAsync();
     }
 

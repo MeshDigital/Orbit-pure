@@ -14,7 +14,7 @@ public partial class QueuePanel : UserControl
 {
     private readonly DragAdornerService _dragAdorner = new();
     private Point? _dragStartPoint;
-    private Control? _insertionLine;
+    private ListBoxItem? _insertionTargetContainer;
 
     public QueuePanel()
     {
@@ -188,27 +188,23 @@ public partial class QueuePanel : UserControl
 
     private void ShowInsertionLine(ListBox listBox, Point position)
     {
-        HideInsertionLine();
-        
         var targetIndex = CalculateDropIndex(listBox, position);
         var container = listBox.ContainerFromIndex(targetIndex) as ListBoxItem;
-        
+
+        if (container == _insertionTargetContainer) return;
+
+        HideInsertionLine();
+
         if (container != null)
         {
-            _insertionLine = new Border
-            {
-                Height = 2,
-                Background = global::Avalonia.Media.Brushes.Green,
-                HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Stretch
-            };
-            
-            // Position the line (simplified - would need proper adorner positioning)
-            // This is a placeholder - proper implementation would use adorner layer
+            container.Classes.Add("insert-above");
+            _insertionTargetContainer = container;
         }
     }
 
     private void HideInsertionLine()
     {
-        _insertionLine = null;
+        _insertionTargetContainer?.Classes.Remove("insert-above");
+        _insertionTargetContainer = null;
     }
 }

@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
 using Microsoft.Extensions.Logging;
+using SLSKDONET.Utils;
 
 namespace SLSKDONET.Services
 {
@@ -44,6 +45,20 @@ namespace SLSKDONET.Services
 
         // Loading tasks to prevent duplicate network calls for the same URL
         private readonly ConcurrentDictionary<string, Task<Bitmap?>> _loadingTasks = new();
+
+        /// <summary>
+        /// Bounded set of STRONG references riding on top of <see cref="_cache"/>'s WeakReferences.
+        /// A pure WeakReference cache reclaims a bitmap the instant no ViewModel currently
+        /// references it — for a virtualized list, that's every row the moment it scrolls off
+        /// screen, since VirtualizedTrackCollection evicts its own PlaylistTrackViewModel instances
+        /// for pages that scroll far enough away (see its own LRU page eviction). Scrolling back
+        /// even one row then forced a full disk-cache-hit-plus-decode again for art that was just
+        /// visible. Keeping the most recently touched 100 decoded bitmaps strongly referenced here
+        /// absorbs that churn within a fixed ~100MB worst-case budget (100 entries × up to
+        /// DefaultDecodeWidth² BGRA pixels) — bounded, unlike letting every distinct album ever
+        /// scrolled past accumulate as a live GC root.
+        /// </summary>
+        private readonly BoundedLruCache<string, Bitmap> _hotCache = new(capacity: 100);
 
         public ArtworkCacheService(ILogger<ArtworkCacheService> logger, HttpClient httpClient, string? diskCacheDirOverride = null)
         {
@@ -91,6 +106,10 @@ namespace SLSKDONET.Services
             {
                 if (weakRef.TryGetTarget(out var bitmap))
                 {
+                    // Touch the hot cache on every hit, not just on first load, so its LRU order
+                    // reflects actual recency of use rather than pure load order — a row scrolled
+                    // past repeatedly should outlast one touched once and never revisited.
+                    _hotCache.Set(cacheKey, bitmap);
                     return bitmap;
                 }
                 else
@@ -112,6 +131,7 @@ namespace SLSKDONET.Services
                         _cache.AddOrUpdate(k,
                             new WeakReference<Bitmap>(loaded),
                             (key, oldVal) => new WeakReference<Bitmap>(loaded));
+                        _hotCache.Set(k, loaded);
 
                         // Periodic cleanup (Probabilistic 1/1000 hits)
                         // Prevents dictionary content leak (Dead WeakRefs + Strings)
@@ -131,6 +151,31 @@ namespace SLSKDONET.Services
                     _loadingTasks.TryRemove(k, out _);
                 }
             });
+        }
+
+        /// <summary>
+        /// Synchronous, non-loading peek at whatever's already resident for this key — no Task,
+        /// no Dispatcher hop. <see cref="Models.ArtworkProxy.Image"/> uses this first so that a
+        /// row re-bound to artwork this service already has decoded (e.g. a virtualized row
+        /// recreated on scroll-back, or two tracks sharing the same album) paints it immediately
+        /// on the very first property-getter call, instead of always returning null for one frame
+        /// and asynchronously popping in the image a moment later regardless of whether the
+        /// decode work was actually needed again.
+        /// </summary>
+        public bool TryGetCachedBitmap(string? uriOrPath, out Bitmap? bitmap, int decodeWidth = DefaultDecodeWidth)
+        {
+            bitmap = null;
+            if (string.IsNullOrWhiteSpace(uriOrPath)) return false;
+
+            var cacheKey = $"{uriOrPath}|{decodeWidth}";
+            if (_cache.TryGetValue(cacheKey, out var weakRef) && weakRef.TryGetTarget(out var cached))
+            {
+                _hotCache.Set(cacheKey, cached);
+                bitmap = cached;
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>

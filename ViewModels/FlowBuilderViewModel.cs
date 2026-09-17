@@ -47,7 +47,7 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     private readonly IDialogService _dialogService;
     private readonly IEventBus _eventBus;
     private readonly FlowBuilderSuggestionTelemetryService _telemetryService;
-    private readonly SLSKDONET.Services.Library.PlaylistExportService? _exportService;
+    private readonly MixTransitionViewModel _mixTransitionVm;
     private readonly SLSKDONET.Services.Audio.ITransitionPreviewPlayer? _transitionPreviewPlayer;
     private readonly SLSKDONET.Services.Audio.ILibraryPreviewPlayer? _libraryPreviewPlayer;
     private FlowTrackCardViewModel? _activePreviewCard;
@@ -100,6 +100,20 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     // ── Set timeline ──────────────────────────────────────────────────────────
 
     public ObservableCollection<FlowTrackCardViewModel> Tracks { get; } = new();
+
+    // ── Transition editor (bottom slide-out) ────────────────────────────────────
+
+    /// <summary>The full-option Mix transition editor, docked into Flow Builder — same
+    /// ViewModel/persistence the compact CONTEXT-sidepanel "Mix" tab uses (see
+    /// SidebarViewModel.MixTransitionVm), just given a roomier host here.</summary>
+    public MixTransitionViewModel MixTransitionVm => _mixTransitionVm;
+
+    private bool _isTransitionEditorOpen;
+    public bool IsTransitionEditorOpen
+    {
+        get => _isTransitionEditorOpen;
+        set => this.RaiseAndSetIfChanged(ref _isTransitionEditorOpen, value);
+    }
 
     // ── UI state ──────────────────────────────────────────────────────────────
 
@@ -274,7 +288,7 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> CombinePlaylistsCommand     { get; }
     public ReactiveCommand<Unit, Unit> ClearCommand                { get; }
     public ReactiveCommand<Unit, Unit> SaveOrderToPlaylistCommand  { get; }
-    public ReactiveCommand<Unit, Unit> ExportSetCommand            { get; }
+    public ReactiveCommand<Unit, Unit> CloseTransitionEditorCommand { get; }
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
@@ -289,12 +303,13 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         IDialogService dialogService,
         IEventBus eventBus,
         FlowBuilderSuggestionTelemetryService telemetryService,
+        MixTransitionViewModel mixTransitionVm,
         SLSKDONET.Services.Similarity.SectionVectorService? sectionVectors = null,
-        SLSKDONET.Services.Library.PlaylistExportService? exportService = null,
         SLSKDONET.Services.Audio.ITransitionPreviewPlayer? transitionPreviewPlayer = null,
         SLSKDONET.Services.Audio.ILibraryPreviewPlayer? libraryPreviewPlayer = null)
     {
-        _exportService = exportService;
+        _mixTransitionVm = mixTransitionVm;
+        _mixTransitionVm.Closed += (_, _) => IsTransitionEditorOpen = false;
         _transitionPreviewPlayer = transitionPreviewPlayer;
         _libraryPreviewPlayer = libraryPreviewPlayer;
         if (_libraryPreviewPlayer != null)
@@ -366,26 +381,12 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
             this.WhenAnyValue(x => x.SelectedPlaylist, x => x.IsLoading, x => x.HasTracks, x => x.HasPendingCombine,
                 (pl, loading, hasTracks, hasPending) => (pl != null || hasPending) && !loading && hasTracks));
 
-        ExportSetCommand = ReactiveCommand.CreateFromTask(
-            ExportSetAsync,
-            this.WhenAnyValue(x => x.IsLoading, x => x.HasTracks,
-                (loading, hasTracks) => !loading && hasTracks));
-
         SaveOrderToPlaylistCommand.ThrownExceptions
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(ex =>
             {
                 IsLoading = false;
                 StatusText = $"Save order failed: {ex.Message}";
-            })
-            .DisposeWith(_disposables);
-
-        ExportSetCommand.ThrownExceptions
-            .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(ex =>
-            {
-                IsLoading = false;
-                StatusText = $"Export failed: {ex.Message}";
             })
             .DisposeWith(_disposables);
 
@@ -459,7 +460,40 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         _disposables.Add(_eventBus.GetEvent<CombinePlaylistsRequestEvent>()
             .Subscribe(evt => Dispatcher.UIThread.Post(async () => await CombinePlaylistsAsync(evt.Playlists))));
 
+        // The transition editor's BPM save edits its OWN freshly-constructed PlaylistTrackViewModel
+        // (see MixTransitionViewModel.LoadPairAsync), a separate instance from whatever card here
+        // wraps the same track — this is what keeps the on-screen card's BPM (and the bridge's BPM
+        // delta, which reads it) in sync without a full playlist reload. The event only carries the
+        // hash, not the new value, so re-fetch it — generic enough to also pick up a BPM edit made
+        // from anywhere else that publishes this same event, not just this one new code path.
+        _disposables.Add(_eventBus.GetEvent<TrackMetadataUpdatedEvent>()
+            .Subscribe(evt => Dispatcher.UIThread.Post(async () => await OnTrackMetadataUpdatedAsync(evt.TrackGlobalId))));
+
+        CloseTransitionEditorCommand = ReactiveCommand.Create(CloseTransitionEditor);
+
         _ = LoadPlaylistsAsync();
+    }
+
+    private async Task OnTrackMetadataUpdatedAsync(string trackHash)
+    {
+        var index = -1;
+        for (var i = 0; i < Tracks.Count; i++)
+        {
+            if (string.Equals(Tracks[i].TrackHash, trackHash, StringComparison.Ordinal)) { index = i; break; }
+        }
+        if (index < 0) return;
+
+        var entry = await _library.FindLibraryEntryAsync(trackHash);
+        if (entry == null) return;
+
+        Tracks[index].UpdateBpm(entry.BPM);
+        // BPM feeds the bridge's delta text on both sides — the bridge FROM this card (if any)
+        // and the bridge INTO it from the previous card (if any) both need recomputing. The
+        // no-optional-args overload is a cheap, fully synchronous recalculation (BpmDisplay/
+        // KeyDisplay/EnergyCurvePoints only) — it just won't have the async A10/style extras the
+        // full RefreshBridgesAsync pass fetches, until that next runs.
+        if (index + 1 < Tracks.Count) Tracks[index].SetBridgeTo(Tracks[index + 1]);
+        if (index > 0) Tracks[index - 1].SetBridgeTo(Tracks[index]);
     }
 
     // ── Command implementations ───────────────────────────────────────────────
@@ -1079,44 +1113,6 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         }
     }
 
-    /// <summary>
-    /// Exports the planned set — in its current on-screen order, with all saved hot cues and
-    /// loops — as a Rekordbox XML file the user can import into their DJ software.
-    /// </summary>
-    private async Task ExportSetAsync()
-    {
-        if (Tracks.Count == 0) return;
-
-        if (_exportService == null)
-        {
-            StatusText = "Export service unavailable.";
-            return;
-        }
-
-        IsLoading = true;
-        try
-        {
-            var setName = SelectedPlaylist?.SourceTitle ?? "ORBIT Set";
-            var safeName = string.Join("_", setName.Split(System.IO.Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries)).Trim();
-            if (safeName.Length == 0) safeName = "orbit-set";
-
-            var outputPath = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                $"{safeName}-set-{DateTime.Now:yyyyMMdd-HHmmss}.xml");
-
-            await _exportService.ExportToRekordboxXmlAsync(
-                setName,
-                Tracks.Select(card => card.Model),
-                outputPath);
-
-            StatusText = $"Exported set with cues → {outputPath}";
-        }
-        finally
-        {
-            IsLoading = false;
-        }
-    }
-
     private void DismissSuggestedFlow()
     {
         _ = LogSuggestedFlowTelemetryAsync("suggested_flow_dismissed");
@@ -1321,6 +1317,16 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
 
         ReactiveUI.MessageBus.Current.SendMessage(OpenInspectorEvent.Create(inspectorVm, "FlowBuilder.TransitionInspector"));
         _ = TryAttachTransitionInspectorPairwiseContextAsync(inspectorVm, currentCard, nextCard);
+
+        // The full-option transition editor — same MixTransitionViewModel/persistence the compact
+        // CONTEXT-sidepanel "Mix" tab uses, opened here for this specific adjacent pair.
+        IsTransitionEditorOpen = true;
+        _ = _mixTransitionVm.LoadPairAsync(currentCard.Model.PlaylistId, currentCard.Model.Id, nextCard.Model.Id);
+    }
+
+    private void CloseTransitionEditor()
+    {
+        IsTransitionEditorOpen = false;
     }
 
     private async Task TryAttachTransitionInspectorPairwiseContextAsync(
@@ -1550,6 +1556,21 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
             _transitionCache = transitionRecommendations;
         }
 
+        // Every adjacent-pair similarity snapshot used to be awaited one at a time here, so a
+        // single drag-reorder — which only actually changes the 1-2 edges touching the moved
+        // track — serialized N independent fingerprint/section-vector lookups end to end. Fetch
+        // them all in parallel instead; BuildSnapshotAsync is a pure read (fingerprint store +
+        // section-vector cache lookups, no shared mutable state), so concurrent calls are safe.
+        var snapshotTasks = new Task<TrackSimilaritySnapshot?>[Math.Max(0, Tracks.Count - 1)];
+        for (int i = 0; i < snapshotTasks.Length; i++)
+        {
+            snapshotTasks[i] = _trackSimilarityService.BuildSnapshotAsync(
+                Tracks[i].TrackHash,
+                Tracks[i + 1].TrackHash,
+                TrackSimilarityProfile.BlendSafe);
+        }
+        var snapshots = await Task.WhenAll(snapshotTasks).ConfigureAwait(false);
+
         for (int i = 0; i < Tracks.Count; i++)
         {
             var next = i < Tracks.Count - 1 ? Tracks[i + 1] : null;
@@ -1569,10 +1590,7 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
             var currentHash = Tracks[i].TrackHash;
             transitionRecommendations.TryGetValue((currentHash, next.TrackHash), out var recommendation);
             TransitionStyleResult? transitionStyle = null;
-            var snapshot = await _trackSimilarityService.BuildSnapshotAsync(
-                currentHash,
-                next.TrackHash,
-                TrackSimilarityProfile.BlendSafe).ConfigureAwait(false);
+            var snapshot = snapshots[i];
             if (snapshot is not null)
             {
                 transitionStyle = _transitionStyleClassifier.Classify(

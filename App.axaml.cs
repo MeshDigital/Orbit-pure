@@ -250,6 +250,14 @@ public partial class App : Application
                             mainWindow.Show();
                             splashScreen.Close();
 
+                            // GlobalHotkeyService was constructed as part of mainVm's DI graph
+                            // above, while desktop.MainWindow was still the splash screen — its
+                            // constructor-time attach bound to that (about-to-close) window.
+                            // Re-attach now that the real window is actually showing, or every DJ
+                            // keyboard shortcut (play/pause, cues, loops, beat jump, ...) would
+                            // silently never fire for the rest of the session.
+                            Services.GetRequiredService<GlobalHotkeyService>().AttachToCurrentMainWindow();
+
                             // Real OS-level notifications (Windows Action Center toasts) need the
                             // main window's native handle, which only exists after Show().
                             var toastHandle = mainWindow.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
@@ -275,6 +283,17 @@ public partial class App : Application
                         // AreDependenciesHealthy) stayed permanently disabled for the whole session
                         // regardless of whether FFmpeg/Essentia were genuinely available.
                         _ = Services.GetRequiredService<NativeDependencyHealthService>().CheckHealthAsync();
+
+                        // SpotifyAuthService.IsAuthenticated defaults to false and only ever gets
+                        // set true inside VerifyConnectionAsync()/RefreshAccessTokenAsync() — which
+                        // nothing at startup was calling; the only caller was Settings' "Test
+                        // Connection" button. Result: a genuinely-connected user (valid stored
+                        // refresh token) still read as IsAuthenticated=false for the whole session
+                        // until they happened to open Settings and click Test — so every Spotify
+                        // call elsewhere (Library's playlist Sync included) silently fell back to
+                        // Client Credentials auth, which Spotify 404s for private/collaborative
+                        // playlists (i.e. almost anyone's own playlists) as if they don't exist.
+                        _ = Services.GetRequiredService<SpotifyAuthService>().VerifyConnectionAsync();
 
                         // Fire-and-forget: a single throttled GitHub Releases check. Never awaited
                         // so a slow/unreachable network never delays startup; all failures inside
@@ -626,6 +645,7 @@ public partial class App : Application
         services.AddDbContextFactory<AppDbContext>();
         services.AddSingleton<SchemaMigratorService>();
         services.AddSingleton<SLSKDONET.Services.Repositories.ITrackRepository, SLSKDONET.Services.Repositories.TrackRepository>();
+        services.AddSingleton<SLSKDONET.Services.Repositories.ITransitionRepository, SLSKDONET.Services.Repositories.TransitionRepository>();
         services.AddSingleton<DatabaseService>();
         services.AddSingleton<IMetadataService, MetadataService>();
 
@@ -661,6 +681,13 @@ public partial class App : Application
         services.AddSingleton<IRightPanelService, RightPanelService>();
         services.AddSingleton<SimilarTracksViewModel>();
         services.AddSingleton<NotificationCenterService>();
+        // Transient (not Singleton): both SidebarViewModel's compact "Mix" tab AND
+        // FlowBuilderViewModel's full-option transition editor inject this — sharing one
+        // singleton instance meant opening a pair in one silently clobbered whatever the other
+        // had loaded. Both consumers are themselves singletons, so DI still resolves this once
+        // per consumer at construction and holds it for the app's lifetime; this just gives each
+        // consumer its own independent instance instead of one shared, fought-over one.
+        services.AddTransient<MixTransitionViewModel>();
         services.AddSingleton<SidebarViewModel>();
 
         // ViewModels
@@ -755,6 +782,9 @@ public partial class App : Application
 
         // ── EDMFormer ML phrase detection service (optional — requires local Python service on port 7774) ──
         services.AddSingleton<Services.Audio.IEdmFormerService, Services.Audio.EdmFormerService>();
+
+        // ── Rekordbox PSSI phrase analysis (optional — reads Rekordbox's own local analysis cache) ──
+        services.AddSingleton<Services.Rekordbox.IRekordboxPssiService, Services.Rekordbox.RekordboxPssiService>();
 
         // ── Auto-cue / phrase detection pipeline ──────────────────────────
         services.AddSingleton<Services.AudioAnalysis.CuePointDetectionService>();

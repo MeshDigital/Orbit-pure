@@ -65,4 +65,21 @@ public class TransitionModel
     /// downbeat. 0 = no ducking, 1 = full silence at the dip.
     /// </summary>
     public float WaveDuckDepth { get; set; } = 0.5f;
+
+    // ── EqSwap ("Blend") band config — mirrors Services.Audio.EqBandSwapConfig's defaults ──
+
+    /// <summary>Whether the Low band swaps from outgoing to incoming for <see cref="TransitionType.EqSwap"/>.</summary>
+    public bool EqSwapLow { get; set; } = true;
+
+    /// <summary>Whether the Mid band swaps.</summary>
+    public bool EqSwapMid { get; set; } = false;
+
+    /// <summary>Whether the High band swaps.</summary>
+    public bool EqSwapHigh { get; set; } = false;
+
+    /// <summary>Low/mid crossover frequency (Hz).</summary>
+    public float EqLowCrossoverHz { get; set; } = 250f;
+
+    /// <summary>Mid/high crossover frequency (Hz).</summary>
+    public float EqHighCrossoverHz { get; set; } = 4000f;
 }

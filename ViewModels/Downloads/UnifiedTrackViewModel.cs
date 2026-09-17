@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Reactive;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
+using System.Reactive.Subjects;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Windows.Input;
 using Avalonia.Threading;
 using ReactiveUI;
@@ -41,6 +44,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     private readonly AppConfig _config;
     private readonly IDbContextFactory<AppDbContext>? _dbFactory;
     private readonly CompositeDisposable _disposables = new();
+    private readonly Subject<Unit> _metadataRefreshRequests = new();
     private readonly SerialDisposable _searchClockSubscription = new();
     private bool _isSearchClockRunning;
     private string? _discoveryReasonOverride;
@@ -405,6 +409,40 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         _eventBus.GetEvent<TrackMetadataUpdatedEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(OnMetadataUpdated)
+            .DisposeWith(_disposables);
+
+        // A track can pick up TrackMetadataUpdatedEvent from more than one publisher in quick
+        // succession (e.g. duration-capture then spectral-scan completing back to back after a
+        // download) — each occurrence used to trigger its own DB round-trip plus ~50 unconditional
+        // RaisePropertyChanged calls. Coalesce into one refresh per burst; the DB re-fetch always
+        // reads whatever's current in the row, so only the LAST event in a burst needs to actually
+        // land. Throttle on the default (thread-pool) scheduler and marshal via
+        // Dispatcher.UIThread.Post rather than .ObserveOn(RxApp.MainThreadScheduler), matching the
+        // pattern established elsewhere this session to avoid relying on RxApp.MainThreadScheduler's
+        // own delayed-timer scheduling (see SearchViewModel's ranking-refresh debounce).
+        _metadataRefreshRequests
+            .Throttle(TimeSpan.FromMilliseconds(200))
+            .Subscribe(_ =>
+            {
+                try
+                {
+                    Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+                    {
+                        try
+                        {
+                            await RefreshMetadataFromDatabaseAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            Serilog.Log.Warning(ex, "UnifiedTrackViewModel: metadata refresh failed");
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Serilog.Log.Warning(ex, "UnifiedTrackViewModel: failed to schedule metadata refresh");
+                }
+            })
             .DisposeWith(_disposables);
 
         _eventBus.GetEvent<TrackQueuePositionUpdatedEvent>()
@@ -1426,6 +1464,14 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
     // Phase 12.7: Vibe Color Mapping
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Avalonia.Media.IBrush> _vibeColorCache = new();
+    // One VM instance exists per visible track row, and VibeColor's getter re-fires on every
+    // OnMetadataUpdated — without this guard, every row with an uncached genre kicked off its own
+    // full GetStyleDefinitionsAsync DB query concurrently, on every re-render before the cache
+    // warmed. Static/shared like the cache above: only one fetch needs to be in flight at a time
+    // regardless of how many rows are asking for it.
+    private static Task? _vibeStylesLoadTask;
+    private static readonly object _vibeStylesLoadLock = new();
+
     public Avalonia.Media.IBrush VibeColor => GetVibeColor(DetectedSubGenre);
 
     private Avalonia.Media.IBrush GetVibeColor(string? genre)
@@ -1433,19 +1479,34 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         if (string.IsNullOrEmpty(genre)) return Avalonia.Media.Brushes.Transparent;
         if (_vibeColorCache.TryGetValue(genre, out var brush)) return brush;
 
-        // On-demand load from Style Lab (Phase 15 integration)
-        Task.Run(async () => 
+        lock (_vibeStylesLoadLock)
         {
-            var styles = await _libraryService.GetStyleDefinitionsAsync();
-            foreach (var style in styles)
+            _vibeStylesLoadTask ??= Task.Run(async () =>
             {
-                if (Avalonia.Media.Color.TryParse(style.ColorHex, out var color))
+                try
                 {
-                    _vibeColorCache[style.Name] = new Avalonia.Media.SolidColorBrush(color);
+                    var styles = await _libraryService.GetStyleDefinitionsAsync();
+                    foreach (var style in styles)
+                    {
+                        if (Avalonia.Media.Color.TryParse(style.ColorHex, out var color))
+                        {
+                            _vibeColorCache[style.Name] = new Avalonia.Media.SolidColorBrush(color);
+                        }
+                    }
                 }
-            }
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => this.RaisePropertyChanged(nameof(VibeColor)));
-        });
+                finally
+                {
+                    lock (_vibeStylesLoadLock) { _vibeStylesLoadTask = null; }
+                }
+            });
+        }
+
+        // Every row currently showing Gray for an uncached genre needs its own notification once
+        // the shared fetch lands — this VM's own property-changed, chained onto the shared task
+        // rather than only the task that happened to start it.
+        _ = _vibeStylesLoadTask.ContinueWith(_ =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => this.RaisePropertyChanged(nameof(VibeColor))),
+            TaskScheduler.Default);
 
         return Avalonia.Media.Brushes.Gray;
     }
@@ -2139,12 +2200,17 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     private void OnMetadataUpdated(TrackMetadataUpdatedEvent e)
     {
         if (!IsSameTrackId(e.TrackGlobalId)) return;
-        
+        // The actual DB re-fetch + property-changed raising runs debounced — see the
+        // _metadataRefreshRequests subscription wired up in the constructor.
+        _metadataRefreshRequests.OnNext(Unit.Default);
+    }
+
+    private async Task RefreshMetadataFromDatabaseAsync()
+    {
         // Reload from DB to ensure Model has new IDs (SpotifyAlbumId etc.)
-        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
         {
             var updatedTrack = await _libraryService.GetPlaylistTrackByHashAsync(Model.PlaylistId, GlobalId);
-            
+
             if (updatedTrack != null)
             {
                 // Sync important fields back to Model instance
@@ -2276,7 +2342,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(Artwork));
                 this.RaisePropertyChanged(nameof(ArtworkBitmap));
             }
-        });
+        }
     }
 
     private void PlayTrack()

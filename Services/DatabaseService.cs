@@ -315,6 +315,24 @@ public class DatabaseService
         }
     }
 
+    /// <summary>
+    /// Deletes a LibraryEntries row by its real primary key. LibraryEntryEntity's <c>[Key]</c> is
+    /// UniqueHash (a string) — its Guid Id field is a secondary convenience field only, per the
+    /// entity's own doc comment — so <see cref="DeleteLibraryEntryAsync"/>'s FindAsync(Guid) can
+    /// never match a row here and silently no-ops. Use this whenever the caller has the track's
+    /// hash (the common case) rather than that Guid.
+    /// </summary>
+    public async Task DeleteLibraryEntryByHashAsync(string uniqueHash)
+    {
+        using var context = new AppDbContext();
+        var entry = await context.LibraryEntries.FindAsync(uniqueHash);
+        if (entry != null)
+        {
+            context.LibraryEntries.Remove(entry);
+            await context.SaveChangesAsync();
+        }
+    }
+
     // Helper to bulk save if needed
     public async Task SaveAllAsync(IEnumerable<TrackEntity> tracks)
     {
@@ -346,9 +364,16 @@ public class DatabaseService
         string? stalledReason = null)
     {
         return await _trackRepository.UpdatePlaylistTrackStatusAndRecalculateJobsAsync(
-            trackUniqueHash, newStatus, resolvedPath, searchRetryCount, notFoundRestartCount, 
+            trackUniqueHash, newStatus, resolvedPath, searchRetryCount, notFoundRestartCount,
             state, error, completedAt, stalledReason);
     }
+
+    public async Task<List<Guid>> BulkUpdatePlaylistTrackStatusAsync(
+        IReadOnlyList<string> trackUniqueHashes, TrackStatus? newStatus, string? state = null,
+        bool? isUserPaused = null, bool clearRetryState = false, bool? isClearedFromDownloadCenter = null,
+        int? priority = null)
+        => await _trackRepository.BulkUpdatePlaylistTrackStatusAsync(
+            trackUniqueHashes, newStatus, state, isUserPaused, clearRetryState, isClearedFromDownloadCenter, priority);
 
     // ===== LibraryEntry Methods =====
 
@@ -2396,7 +2421,11 @@ public class DatabaseService
             .ConfigureAwait(false);
         foreach (var row in playlistRows)
         {
-            row.BPM = features.Bpm;
+            // Analysis fills BPM only when nothing more authoritative is already set — a manual
+            // edit or a file-embedded tag both outrank Essentia, which has a confirmed quantization
+            // bias on breakbeat/DNB content (see TagBPM's doc comment). Every other analysis field
+            // below is untouched; only BPM was diagnosed as wrong.
+            if (row.ManualBPM is null && row.TagBPM is null) row.BPM = features.Bpm;
             row.MusicalKey = features.Key;
             row.Energy = features.Energy;
             row.Danceability = features.Danceability;
@@ -2418,7 +2447,11 @@ public class DatabaseService
             .ConfigureAwait(false);
         foreach (var row in libraryRows)
         {
-            row.BPM = features.Bpm;
+            // Analysis fills BPM only when nothing more authoritative is already set — a manual
+            // edit or a file-embedded tag both outrank Essentia, which has a confirmed quantization
+            // bias on breakbeat/DNB content (see TagBPM's doc comment). Every other analysis field
+            // below is untouched; only BPM was diagnosed as wrong.
+            if (row.ManualBPM is null && row.TagBPM is null) row.BPM = features.Bpm;
             row.MusicalKey = features.Key;
             row.Energy = features.Energy;
             row.Danceability = features.Danceability;
@@ -2440,7 +2473,11 @@ public class DatabaseService
             .ConfigureAwait(false);
         foreach (var row in masterTracks)
         {
-            row.BPM = features.Bpm;
+            // Analysis fills BPM only when nothing more authoritative is already set — a manual
+            // edit or a file-embedded tag both outrank Essentia, which has a confirmed quantization
+            // bias on breakbeat/DNB content (see TagBPM's doc comment). Every other analysis field
+            // below is untouched; only BPM was diagnosed as wrong.
+            if (row.ManualBPM is null && row.TagBPM is null) row.BPM = features.Bpm;
             row.MusicalKey = features.Key;
             row.Energy = features.Energy;
             row.Danceability = features.Danceability;

@@ -384,7 +384,10 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                             </ScrollViewer>
-                            <Border IsVisible="{Binding !RecentPlaylists.Count}" HorizontalAlignment="Center" Padding="40" Background="#0DFFFFFF" CornerRadius="12">
+                            <Border IsVisible="{Binding IsLoadingRecent}" HorizontalAlignment="Center" Padding="40" Background="#0DFFFFFF" CornerRadius="12">
+                                <TextBlock Text="Loading…" Foreground="#808080" FontSize="14" HorizontalAlignment="Center"/>
+                            </Border>
+                            <Border IsVisible="{Binding ShowRecentPlaylistsEmptyState}" HorizontalAlignment="Center" Padding="40" Background="#0DFFFFFF" CornerRadius="12">
                                 <StackPanel Spacing="10" HorizontalAlignment="Center">
                                     <TextBlock Text="No recent playlists" Foreground="#606060" FontSize="14" HorizontalAlignment="Center"/>
                                     <Button Content="Go to Search" Command="{Binding NavigateToSearchCommand}" Padding="15,8" Background="#1DB954" CornerRadius="6"/>
@@ -435,7 +438,10 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                             </ScrollViewer>
-                            <Border IsVisible="{Binding !RecentDownloads.Count}" HorizontalAlignment="Center" Padding="28,18" Background="#0DFFFFFF" CornerRadius="12">
+                            <Border IsVisible="{Binding IsLoadingRecentDownloads}" HorizontalAlignment="Center" Padding="28,18" Background="#0DFFFFFF" CornerRadius="12">
+                                <TextBlock Text="Loading…" Foreground="#808080" FontSize="13" HorizontalAlignment="Center"/>
+                            </Border>
+                            <Border IsVisible="{Binding ShowRecentDownloadsEmptyState}" HorizontalAlignment="Center" Padding="28,18" Background="#0DFFFFFF" CornerRadius="12">
                                 <TextBlock Text="No completed downloads yet." Foreground="#606060" FontSize="13" HorizontalAlignment="Center"/>
                             </Border>
                         </Grid>

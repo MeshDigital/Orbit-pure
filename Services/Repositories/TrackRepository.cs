@@ -655,6 +655,159 @@ public class TrackRepository : ITrackRepository
             await UpdateLibraryHealthAsync(context);
 
             await context.SaveChangesAsync();
+
+            // Only report jobs whose aggregate counts actually changed. Callers use this return
+            // value purely to decide which playlists need a "something changed" UI refresh
+            // (ProjectUpdatedEvent) — every non-terminal transition (Pending -> Searching ->
+            // Downloading -> Queued -> retry...) used to report the same jobs here even though
+            // nothing countable moved, which meant that event fired on essentially every state
+            // transition of every track in the playlist. Under a large active download queue that
+            // publishes continuously, driving listeners (e.g. TrackListViewModel's full
+            // VirtualizedTrackCollection rebuild) to re-run several times a second and reset the
+            // user's row selection out from under them. Per-row status is already kept live via
+            // TrackStateChangedEvent, so this only needs to fire when the job-level counts moved.
+            return needsJobRecalculation ? distinctJobIds : new List<Guid>();
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Batched analog of <see cref="UpdatePlaylistTrackStatusAndRecalculateJobsAsync"/> for group
+    /// actions (VIP Start / bulk Resume / bulk Retry) that need to flip the same status on many
+    /// tracks at once. The single-track method does one <see cref="_writeSemaphore"/> acquisition
+    /// + one <see cref="AppDbContext"/> + 2-3 queries + one commit PER CALL — fine for one track,
+    /// but calling it once per track in a loop (as group actions previously did, indirectly, by
+    /// invoking each track's own command) serializes hundreds of round-trips through the same
+    /// app-wide static semaphore, which also blocks the background download engine's own routine
+    /// per-track state writes for the whole duration. This does the equivalent work — status
+    /// update, master-track sync, job recalculation (once per distinct affected job, not once per
+    /// track), library-health touch — inside a single semaphore hold, context, and commit.
+    /// Deliberately narrower than the single-track method: no per-track resolvedPath/retry-count/
+    /// error/stalledReason variation, since group actions apply the same new status uniformly.
+    /// </summary>
+    public async Task<List<Guid>> BulkUpdatePlaylistTrackStatusAsync(
+        IReadOnlyList<string> trackUniqueHashes, TrackStatus? newStatus, string? state = null,
+        bool? isUserPaused = null, bool clearRetryState = false, bool? isClearedFromDownloadCenter = null,
+        int? priority = null)
+    {
+        if (trackUniqueHashes == null || trackUniqueHashes.Count == 0) return new List<Guid>();
+
+        await _writeSemaphore.WaitAsync();
+        try
+        {
+            using var context = new AppDbContext();
+
+            var playlistTracks = await context.PlaylistTracks
+                .Where(pt => trackUniqueHashes.Contains(pt.TrackUniqueHash))
+                .ToListAsync();
+
+            if (playlistTracks.Count == 0) return new List<Guid>();
+
+            var distinctJobIds = playlistTracks.Select(pt => pt.PlaylistId).Distinct().Cast<Guid>().ToList();
+
+            // newStatus is nullable: a group action like VIP Start/Force Start doesn't actually
+            // change each track's coarse TrackStatus (only its in-memory PlaylistTrackState/State
+            // string) — forcing every track in the batch to one shared status would be wrong for
+            // a batch containing tracks with different pre-existing statuses. Passing null skips
+            // the status write (and the recalculation it would otherwise trigger) entirely, while
+            // still doing the master-track `state` string sync below.
+            static bool IsCountedStatus(TrackStatus s) => s is TrackStatus.Downloaded or TrackStatus.Failed or TrackStatus.Skipped;
+            var needsJobRecalculation = newStatus.HasValue &&
+                (playlistTracks.Any(pt => IsCountedStatus(pt.Status)) || IsCountedStatus(newStatus.Value));
+
+            if (newStatus.HasValue)
+            {
+                foreach (var pt in playlistTracks)
+                {
+                    pt.Status = newStatus.Value;
+                }
+            }
+
+            // The remaining fields are all "reset to one fixed value for the whole batch" cases
+            // (a group Cancel/Retry/Pause applies the same new value to every track it touches),
+            // unlike resolvedPath/error/stalledReason on the single-track method above, which
+            // legitimately differ per track and so aren't supported here.
+            if (isUserPaused.HasValue)
+            {
+                foreach (var pt in playlistTracks) pt.IsUserPaused = isUserPaused.Value;
+            }
+            if (isClearedFromDownloadCenter.HasValue)
+            {
+                foreach (var pt in playlistTracks) pt.IsClearedFromDownloadCenter = isClearedFromDownloadCenter.Value;
+            }
+            if (priority.HasValue)
+            {
+                foreach (var pt in playlistTracks) pt.Priority = priority.Value;
+            }
+            if (clearRetryState)
+            {
+                // Note: PlaylistTrackEntity has no ErrorMessage column of its own — only the
+                // master Tracks record does (cleared below alongside State), matching how the
+                // single-track method above only ever applies `error` there too.
+                foreach (var pt in playlistTracks)
+                {
+                    pt.SearchRetryCount = 0;
+                    pt.NotFoundRestartCount = 0;
+                    pt.CompletedAt = null;
+                    pt.StalledReason = null;
+                }
+            }
+
+            // Sync master Track records for every distinct hash in this batch, in one query
+            // instead of one FindAsync per track. Every track in a single batch call shares the
+            // same target `state` string (they're all transitioning to the same PlaylistTrackState
+            // together, e.g. all "Pending" from a VIP Start) — unlike the single-track method,
+            // which supports per-track resolvedPath/retryCount/error variation this batch path
+            // deliberately doesn't need.
+            var distinctHashes = playlistTracks.Select(pt => pt.TrackUniqueHash).Distinct().ToList();
+            if (!string.IsNullOrEmpty(state) || clearRetryState)
+            {
+                var masterTracks = await context.Tracks
+                    .Where(t => distinctHashes.Contains(t.GlobalId))
+                    .ToListAsync();
+                foreach (var masterTrack in masterTracks)
+                {
+                    if (!string.IsNullOrEmpty(state)) masterTrack.State = state;
+                    if (clearRetryState)
+                    {
+                        masterTrack.SearchRetryCount = 0;
+                        masterTrack.NotFoundRestartCount = 0;
+                        masterTrack.ErrorMessage = null;
+                        masterTrack.CompletedAt = null;
+                        masterTrack.StalledReason = null;
+                    }
+                }
+            }
+
+            if (distinctJobIds.Count > 0 && needsJobRecalculation)
+            {
+                var jobsToUpdate = await context.Projects
+                    .Where(j => distinctJobIds.Contains(j.Id))
+                    .ToListAsync();
+
+                var allRelatedTracks = await context.PlaylistTracks
+                    .Where(t => distinctJobIds.Contains(t.PlaylistId))
+                    .AsNoTracking()
+                    .ToListAsync();
+
+                foreach (var job in jobsToUpdate)
+                {
+                    var currentJobTracks = allRelatedTracks
+                        .Where(t => t.PlaylistId == job.Id && !distinctHashes.Contains(t.TrackUniqueHash))
+                        .ToList();
+                    currentJobTracks.AddRange(playlistTracks.Where(pt => pt.PlaylistId == job.Id));
+
+                    job.SuccessfulCount = currentJobTracks.Count(t => t.Status == TrackStatus.Downloaded);
+                    job.FailedCount = currentJobTracks.Count(t => t.Status == TrackStatus.Failed || t.Status == TrackStatus.Skipped);
+                }
+            }
+
+            await UpdateLibraryHealthAsync(context);
+
+            await context.SaveChangesAsync();
             return distinctJobIds;
         }
         finally
@@ -1345,6 +1498,94 @@ public class TrackRepository : ITrackRepository
             foreach (var t in tracks)
             {
                 t.Rating = rating;
+            }
+
+            await context.SaveChangesAsync();
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    public async Task UpdateBpmAsync(string trackHash, double bpm)
+    {
+        await _writeSemaphore.WaitAsync();
+        try
+        {
+            using var context = new AppDbContext();
+
+            // Also record ManualBPM (not just the primary BPM field) so this edit survives the
+            // next re-analysis — DatabaseService.SyncDenormalizedFeaturesAsync only overwrites BPM
+            // from Essentia when ManualBPM/TagBPM are both null.
+
+            // 1. Update LibraryEntry
+            var entry = await context.LibraryEntries.FindAsync(trackHash);
+            if (entry != null)
+            {
+                entry.BPM = bpm;
+                entry.ManualBPM = bpm;
+            }
+
+            // 2. Update Master Track record
+            var tr = await context.Tracks.FindAsync(trackHash);
+            if (tr != null)
+            {
+                tr.BPM = bpm;
+                tr.ManualBPM = bpm;
+            }
+
+            // 3. Update all PlaylistTracks
+            var tracks = await context.PlaylistTracks
+                .Where(t => t.TrackUniqueHash == trackHash)
+                .ToListAsync();
+
+            foreach (var t in tracks)
+            {
+                t.BPM = bpm;
+                t.ManualBPM = bpm;
+            }
+
+            await context.SaveChangesAsync();
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    public async Task UpdateTagBpmAsync(string trackHash, double bpm)
+    {
+        await _writeSemaphore.WaitAsync();
+        try
+        {
+            using var context = new AppDbContext();
+
+            // 1. Update LibraryEntry
+            var entry = await context.LibraryEntries.FindAsync(trackHash);
+            if (entry != null)
+            {
+                entry.TagBPM = bpm;
+                if (entry.ManualBPM is null) entry.BPM = bpm; // never downgrade a manual edit
+            }
+
+            // 2. Update Master Track record
+            var tr = await context.Tracks.FindAsync(trackHash);
+            if (tr != null)
+            {
+                tr.TagBPM = bpm;
+                if (tr.ManualBPM is null) tr.BPM = bpm;
+            }
+
+            // 3. Update all PlaylistTracks
+            var tracks = await context.PlaylistTracks
+                .Where(t => t.TrackUniqueHash == trackHash)
+                .ToListAsync();
+
+            foreach (var t in tracks)
+            {
+                t.TagBPM = bpm;
+                if (t.ManualBPM is null) t.BPM = bpm;
             }
 
             await context.SaveChangesAsync();

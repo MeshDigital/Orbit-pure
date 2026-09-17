@@ -251,9 +251,6 @@
                 <Border.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="Show ACQUIRE" IsChecked="{Binding IsAcquireVisible}" ToggleType="CheckBox"/>
-                        <MenuItem Header="Show ENRICH" IsChecked="{Binding IsEnrichVisible}" ToggleType="CheckBox"/>
-                        <MenuItem Header="Show CURATE" IsChecked="{Binding IsCurateVisible}" ToggleType="CheckBox"/>
-                        <MenuItem Header="Show DELIVER" IsChecked="{Binding IsDeliverVisible}" ToggleType="CheckBox"/>
                         <MenuItem Header="Show SYSTEM" IsChecked="{Binding IsSystemVisible}" ToggleType="CheckBox"/>
                         <MenuItem Header="Show EXPERIMENTAL" IsChecked="{Binding IsCreativeVisible}" ToggleType="CheckBox"/>
                         <Separator/>
@@ -492,9 +489,6 @@
                                             <DataTemplate DataType="vmDiag:BlackBoxTerminalViewModel">
                                                 <controls:BlackBoxTerminal/>
                                             </DataTemplate>
-                                            <DataTemplate DataType="svc:NotificationCenterService">
-                                                <controls:NotificationsPanel/>
-                                            </DataTemplate>
                                         </ContentControl.DataTemplates>
                                     </ContentControl>
                                 </TabItem>
@@ -686,6 +680,12 @@
                     </Button>
                     <Button Background="Transparent" BorderThickness="0" Padding="8,4"
                             MinHeight="44" MinWidth="44"
+                            Command="{Binding Sidebar.OpenNotificationsCommand}"
+                            ToolTip.Tip="Notifications">
+                        <TextBlock Text="🔔" FontSize="12" Foreground="#FFB347"/>
+                    </Button>
+                    <Button Background="Transparent" BorderThickness="0" Padding="8,4"
+                            MinHeight="44" MinWidth="44"
                             Command="{Binding Sidebar.CloseCommand}"
                             ToolTip.Tip="Close side panel">
                         <TextBlock Text="Close" FontSize="12" Foreground="#888"/>
@@ -703,6 +703,21 @@
                         </Transitions>
                     </Border.Transitions>
                     <views:PlayerControl DataContext="{Binding Sidebar.PlayerVm}"/>
+                </Border>
+
+                <!-- Own opacity-toggled section rather than a DataTemplate case inside the
+                     Inspector ContentControl below — same bug and same fix as the desktop
+                     TabControl: notifications previously rendered wherever CurrentContent was
+                     pointed instead of having a distinct tab/section, and this bottom sheet had
+                     no button to reach it at all. -->
+                <Border Opacity="{Binding Sidebar.IsNotificationsTab, Converter={StaticResource BoolToOpacityConverter}, ConverterParameter='1;0'}"
+                        IsHitTestVisible="{Binding Sidebar.IsNotificationsTab}">
+                    <Border.Transitions>
+                        <Transitions>
+                            <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+                        </Transitions>
+                    </Border.Transitions>
+                    <controls:NotificationsPanel DataContext="{Binding Sidebar.NotificationCenter}"/>
                 </Border>
 
                 <ContentControl
@@ -739,9 +754,6 @@
                         </DataTemplate>
                         <DataTemplate DataType="vmDiag:BlackBoxTerminalViewModel">
                             <controls:BlackBoxTerminal/>
-                        </DataTemplate>
-                        <DataTemplate DataType="svc:NotificationCenterService">
-                            <controls:NotificationsPanel/>
                         </DataTemplate>
                     </ContentControl.DataTemplates>
                 </ContentControl>
@@ -859,13 +871,8 @@
                 Background="#252526" 
                 BorderBrush="#3E3E3E" 
                 BorderThickness="0,1,0,0"
-                Height="100">
-             <Border.IsVisible>
-                <MultiBinding Converter="{x:Static BoolConverters.And}">
-                    <Binding Path="IsPlayerAtBottomVisible"/>
-                    <Binding Path="PlayerViewModel.IsPlayerVisible"/>
-                </MultiBinding>
-            </Border.IsVisible>
+                Height="100"
+                IsVisible="{Binding ShowBottomPlayerDrawer}">
              <Grid>
                  <views:HorizontalPlayerControl DataContext="{Binding PlayerViewModel}"/>
                  <!-- Spectrum visualizer — overlays right edge of player bar during library preview -->

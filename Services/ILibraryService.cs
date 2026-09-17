@@ -70,6 +70,16 @@ public interface ILibraryService
     Task RemoveTrackFromLibraryAsync(string trackHash);
 
     /// <summary>
+    /// Deletes the PlaylistTrack row(s) for this hash out of every playlist that contains it.
+    /// For a genuine permanent delete — contrast with marking a track TrackStatus.Missing, which
+    /// means "not yet downloaded, queue it for search": using that status for a deliberate delete
+    /// made the track both stay visible in every playlist (a Missing row is still a real row) and
+    /// get auto re-acquired by GhostAcquisitionOrchestrator's Missing/Failed/OnHold sweep — the
+    /// app searching Soulseek for a file the user just told it to get rid of.
+    /// </summary>
+    Task RemoveTrackFromAllPlaylistsAsync(string trackHash);
+
+    /// <summary>
     /// Deletes a library entry by its ID (for orphaned entries).
     /// </summary>
     Task DeleteLibraryEntryAsync(Guid id);
@@ -273,6 +283,12 @@ public interface ILibraryService
     /// Updates the cue points for all instances of a track (Library and Playlist entries).
     /// </summary>
     Task UpdateTrackCuePointsAsync(string trackHash, string cuePointsJson);
+
+    /// <summary>
+    /// Updates the resolved file path for all instances of a track (Library and every Playlist
+    /// entry sharing the same hash), keeping them in sync after a rename/move/repoint.
+    /// </summary>
+    Task UpdateTrackFilePathAsync(string trackHash, string newFilePath);
 
     /// <summary>
     /// Phase 2: Updates the surgical structural features for a track.

@@ -18,6 +18,7 @@ using SLSKDONET.Services;
 using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.Audio.Separation;
 using SLSKDONET.Services.Similarity;
+using SLSKDONET.Views;
 
 namespace SLSKDONET.ViewModels.Workstation;
 
@@ -349,6 +350,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly ILogger<WorkstationViewModel>? _logger;
     private readonly SLSKDONET.Services.Library.PlaylistExportService? _playlistExporter;
+    private readonly IDialogService? _dialogService;
+    private readonly INotificationService? _notificationService;
     private readonly BpmSyncService           _bpmSync = new();
     private readonly Dictionary<string, double> _flowTransitionLengthOverrides = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _flowTransitionPhraseMarkerOverrides = new(StringComparer.Ordinal);
@@ -877,10 +880,14 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         AppConfig appConfig, ConfigManager configManager,
         IDbContextFactory<AppDbContext> dbFactory,
         ILogger<WorkstationViewModel>? logger = null,
-        SLSKDONET.Services.Library.PlaylistExportService? playlistExporter = null)
+        SLSKDONET.Services.Library.PlaylistExportService? playlistExporter = null,
+        IDialogService? dialogService = null,
+        INotificationService? notificationService = null)
     {
         _logger = logger;
         _playlistExporter = playlistExporter;
+        _dialogService = dialogService;
+        _notificationService = notificationService;
         _library           = library;
         _deckPair          = deckPair;
         _stemSeparator     = stemSeparator;
@@ -908,8 +915,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             .DisposeWith(_disposables);
 
         // Wrap existing DeckA / DeckB
-        var deckA = new WorkstationDeckViewModel("A", deckPair.DeckA, stemSeparator, cueService, stemPrefService, _dbFactory);
-        var deckB = new WorkstationDeckViewModel("B", deckPair.DeckB, stemSeparator, cueService, stemPrefService, _dbFactory);
+        var deckA = new WorkstationDeckViewModel("A", deckPair.DeckA, stemSeparator, cueService, stemPrefService, _dbFactory, _dialogService, _notificationService);
+        var deckB = new WorkstationDeckViewModel("B", deckPair.DeckB, stemSeparator, cueService, stemPrefService, _dbFactory, _dialogService, _notificationService);
         deckA.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); RaiseHeaderProperties(); await SaveSessionAsync(); };
         deckB.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); RaiseHeaderProperties(); await SaveSessionAsync(); };
         deckA.OnDeckStateChanged = RefreshDeckTransitionGuidance;
@@ -974,7 +981,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             string label = Decks.Count switch { 2 => "C", 3 => "D", _ => "?" };
             var engine = new DeckEngine();
             var slot   = new DeckSlotViewModel(label, engine);
-            var newDeck = new WorkstationDeckViewModel(label, slot, _stemSeparator, _cueService, _stemPrefService);
+            var newDeck = new WorkstationDeckViewModel(label, slot, _stemSeparator, _cueService, _stemPrefService, _dbFactory, _dialogService, _notificationService);
             newDeck.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); RaiseHeaderProperties(); await SaveSessionAsync(); };
             newDeck.OnDeckStateChanged = RefreshDeckTransitionGuidance;
             Decks.Add(newDeck);
@@ -985,9 +992,23 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             RaiseHeaderProperties();
         });
 
-        RemoveDeckCommand = ReactiveCommand.Create<WorkstationDeckViewModel>(deck =>
+        RemoveDeckCommand = ReactiveCommand.CreateFromTask<WorkstationDeckViewModel>(async deck =>
         {
             if (Decks.Count <= 1) return;
+
+            // Only nag when there's actually something to lose — an empty/unused deck slot is
+            // safe to remove instantly, matching how other destructive confirms in this codebase
+            // (e.g. Force Redownload) only gate on there being real state at stake.
+            if (deck.IsLoaded && _dialogService != null)
+            {
+                var confirmed = await _dialogService.ConfirmAsync(
+                    "Remove Deck",
+                    $"Deck {deck.DeckLabel} has a loaded track with its cues/loop state. Removing it discards that state — this can't be undone. Continue?",
+                    confirmLabel: "Remove Deck",
+                    cancelLabel: "Cancel");
+                if (!confirmed) return;
+            }
+
             Decks.Remove(deck);
             deck.Dispose();
             FocusedDeck = Decks.FirstOrDefault();

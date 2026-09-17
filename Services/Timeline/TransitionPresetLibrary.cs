@@ -86,10 +86,20 @@ public static class TransitionPresetLibrary
     /// <summary>Applies custom-mode overrides (nullable fields — only present ones replace the preset default) on top of a built model.</summary>
     public static void ApplyCustomOverrides(
         TransitionModel model,
-        float? echoDecayFactor, float? filterStartFrequency, float? filterEndFrequency)
+        float? echoDecayFactor, float? filterStartFrequency, float? filterEndFrequency,
+        float? waveDuckDepth = null, bool? filterSweepRising = null,
+        bool? eqSwapLow = null, bool? eqSwapMid = null, bool? eqSwapHigh = null,
+        float? eqLowCrossoverHz = null, float? eqHighCrossoverHz = null)
     {
         if (echoDecayFactor.HasValue) model.EchoDecayFactor = echoDecayFactor.Value;
         if (filterStartFrequency.HasValue) model.FilterStartFrequency = filterStartFrequency.Value;
         if (filterEndFrequency.HasValue) model.FilterEndFrequency = filterEndFrequency.Value;
+        if (waveDuckDepth.HasValue) model.WaveDuckDepth = waveDuckDepth.Value;
+        if (filterSweepRising.HasValue) model.FilterSweepRising = filterSweepRising.Value;
+        if (eqSwapLow.HasValue) model.EqSwapLow = eqSwapLow.Value;
+        if (eqSwapMid.HasValue) model.EqSwapMid = eqSwapMid.Value;
+        if (eqSwapHigh.HasValue) model.EqSwapHigh = eqSwapHigh.Value;
+        if (eqLowCrossoverHz.HasValue) model.EqLowCrossoverHz = eqLowCrossoverHz.Value;
+        if (eqHighCrossoverHz.HasValue) model.EqHighCrossoverHz = eqHighCrossoverHz.Value;
     }
 }

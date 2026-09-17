@@ -533,8 +533,13 @@ public class AutoSearchService
             .Trim();
         normalizedFilename = System.Text.RegularExpressions.Regex.Replace(normalizedFilename, @"\s+", " ");
 
-        return normalizedFilename.Equals(normalizedQuery, StringComparison.OrdinalIgnoreCase)
-               || normalizedFilename.Contains(normalizedQuery, StringComparison.OrdinalIgnoreCase);
+        // Substring containment used to also count as "exact" — for a short/generic title (e.g.
+        // "Yes", "Love"), almost any filename that merely mentions the words somewhere qualified,
+        // defeating the whole point of the exact-first phase: only a candidate whose filename is
+        // (once normalized) nothing more than the query should fast-track here. Anything with
+        // extra tokens (remix tags, "(Live)", a track-number prefix, etc.) now correctly falls
+        // through to the slower, fuzzy-scored template phase instead.
+        return normalizedFilename.Equals(normalizedQuery, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

@@ -44,6 +44,10 @@ public class TrackListViewModelMixBadgeTests
             PlaylistId = playlistId,
             Artist = "Artist",
             Title = "Title",
+            // UpdateMixTransitionBadgesAsync only scores pairs where both tracks are actually
+            // downloaded (see TrackListViewModel.cs) — a Pending/Review row has no file to
+            // beatmatch or preview, so it gets a neutral "Pending" badge instead of a real score.
+            Status = TrackStatus.Downloaded,
         });
 
     private static void SetField(object instance, string name, object? value)
@@ -125,6 +129,32 @@ public class TrackListViewModelMixBadgeTests
         await InvokeUpdateMixTransitionBadgesAsync(sut);
 
         Assert.Equal("Wave", first.TransitionPresetLabel);
+    }
+
+    [Fact]
+    public async Task UpdateMixTransitionBadgesAsync_TrackNotDownloaded_ShowsPendingNotAScore()
+    {
+        // Regression test: a Pending/Review/OnHold track has no file on disk yet — there's
+        // nothing to beatmatch or preview, and any stored BPM/key may be stale source metadata
+        // rather than analysis of a file we actually have. Scoring it anyway produced a
+        // misleading badge (e.g. "Auto" colored as if compatible) driven by 0/default values.
+        var transitionRepo = new Mock<ITransitionRepository>();
+        transitionRepo.Setup(r => r.GetTransitionsForPlaylistAsync(It.IsAny<Guid>()))
+            .ReturnsAsync(new List<PlaylistTrackTransition>());
+
+        var sut = CreateSut(transitionRepo.Object);
+        var playlistId = Guid.NewGuid();
+        var first = CreateTrack(playlistId);
+        var second = CreateTrack(playlistId);
+        second.Model.Status = TrackStatus.Pending;
+
+        SetField(sut, "_filteredTracks", new ObservableCollection<PlaylistTrackViewModel> { first, second });
+        SetField(sut, "_isMixModeEnabled", true);
+
+        await InvokeUpdateMixTransitionBadgesAsync(sut);
+
+        Assert.Equal("Pending", first.TransitionPresetLabel);
+        Assert.Equal("Not downloaded yet", first.TransitionWarningText);
     }
 
     [Fact]

@@ -2917,6 +2917,13 @@ public class SchemaMigratorService
                         ""EqHighGain"" REAL NULL,
                         ""SourceTriggerSeconds"" REAL NULL,
                         ""TargetTriggerSeconds"" REAL NULL,
+                        ""WaveDuckDepth"" REAL NULL,
+                        ""FilterSweepRising"" INTEGER NULL,
+                        ""EqSwapLow"" INTEGER NULL,
+                        ""EqSwapMid"" INTEGER NULL,
+                        ""EqSwapHigh"" INTEGER NULL,
+                        ""EqLowCrossoverHz"" REAL NULL,
+                        ""EqHighCrossoverHz"" REAL NULL,
                         ""UpdatedAtUtc"" TEXT NOT NULL
                     );
                     CREATE UNIQUE INDEX ""IX_PlaylistTrackTransitions_Pair"" ON ""PlaylistTrackTransitions"" (""OutgoingPlaylistTrackId"", ""IncomingPlaylistTrackId"");
@@ -2934,6 +2941,67 @@ public class SchemaMigratorService
                 command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""SourceTriggerSeconds"" REAL NULL;";
                 await command.ExecuteNonQueryAsync();
                 command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""TargetTriggerSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 33. Mix Custom mode: Wave preset's duck depth and Rise preset's sweep direction —
+            // TransitionModel already had both fields, but nothing persisted a custom override for
+            // either, so a saved Wave/Melt transition silently fell back to TransitionModel's
+            // hardcoded default instead of whatever TransitionPresetLibrary.Build would have
+            // produced for that preset.
+            if (TableExists("PlaylistTrackTransitions") && !ColumnExists("PlaylistTrackTransitions", "WaveDuckDepth"))
+            {
+                _logger.LogInformation("Patching Schema: Adding WaveDuckDepth/FilterSweepRising to PlaylistTrackTransitions...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""WaveDuckDepth"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""FilterSweepRising"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 34. Mix Custom mode: real EQ band-swap controls. The original EqLowGain/MidGain/
+            // HighGain columns (above) were dead weight — never set, never read — because they're
+            // shaped as gain overrides, not the swap-toggle + crossover-Hz shape the live engine's
+            // EqBandSwapConfig actually needs. These are the correctly-shaped replacement; the old
+            // columns are left in place (still unused) rather than dropped, to avoid a destructive
+            // migration for a handful of always-null columns.
+            if (TableExists("PlaylistTrackTransitions") && !ColumnExists("PlaylistTrackTransitions", "EqSwapLow"))
+            {
+                _logger.LogInformation("Patching Schema: Adding EqSwapLow/Mid/High + crossover columns to PlaylistTrackTransitions...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqSwapLow"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqSwapMid"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqSwapHigh"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqLowCrossoverHz"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqHighCrossoverHz"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 35. BPM read from the file's own embedded tag (TagLib BeatsPerMinute) at import —
+            // trusted over Essentia analysis for breakbeat/DNB tracks, where the DSP beat tracker
+            // has a confirmed quantization bias (two different DNB tracks' raw Essentia BPM
+            // converged to 172.265xx to five decimal places — a fixed internal lag/bin period, not
+            // a real per-track measurement). Sits alongside the existing SpotifyBPM/ManualBPM
+            // dual-truth columns; SyncDenormalizedFeaturesAsync's analysis-write path now skips
+            // overwriting BPM when either ManualBPM or this is set.
+            if (TableExists("LibraryEntries") && !ColumnExists("LibraryEntries", "TagBPM"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TagBPM to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""TagBPM"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("PlaylistTracks") && !ColumnExists("PlaylistTracks", "TagBPM"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TagBPM to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""TagBPM"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("Tracks") && !ColumnExists("Tracks", "TagBPM"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TagBPM to Tracks...");
+                command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""TagBPM"" REAL NULL;";
                 await command.ExecuteNonQueryAsync();
             }
 

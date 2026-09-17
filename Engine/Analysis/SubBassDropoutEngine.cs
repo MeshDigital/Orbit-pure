@@ -82,8 +82,9 @@ public sealed class SubBassDropoutEngine
 
     /// <summary>
     /// Detects sub-bass dropout and return events — the primary DnB drop signature.
-    /// A dropout is a sustained period where sub-bass energy falls below 25% of the track mean.
-    /// A return is when sub-bass energy rises above 60% of mean after a dropout.
+    /// A dropout is a sustained period where sub-bass energy falls below <see cref="DropoutThresholdRatio"/>
+    /// (20%) of the track mean. A return is when sub-bass energy rises above <see cref="ReturnThresholdRatio"/>
+    /// (65%) of mean after a dropout.
     /// </summary>
     public (List<double> DropoutStarts, List<double> ReturnTimestamps) DetectDropoutEvents(
         float[] subBassEnergyCurve)
@@ -228,55 +229,31 @@ public sealed class SubBassDropoutEngine
     // ── 4th-order Butterworth LP filter (cascaded biquads) — still used by ComputeBandEnergyCurve,
     // which StructuralStrippingEngine relies on for its own, wider (250 Hz) House/Techno band ─────
 
+    /// <summary>
+    /// Q values for the two cascaded 2nd-order sections of a proper 4th-order Butterworth lowpass:
+    /// Q = 1 / (2*cos(angle)) at pole angles π/8 and 3π/8 — the same angles a textbook 4th-order
+    /// Butterworth pole layout uses. Delegates the actual biquad math to NAudio.Dsp.BiQuadFilter
+    /// (the same trusted implementation already used a few lines above for the sub-bass bandpass)
+    /// instead of a hand-rolled bilinear-transform derivation: that derivation had a sign error in
+    /// its a1 coefficient and a spurious extra term in a2, which together made this filter's DC
+    /// gain wildly wrong (verified numerically — as low as 0.0001 instead of the required 1.0 at
+    /// realistic cutoffs), i.e. it was destroying almost all signal instead of passing it through.
+    /// </summary>
+    private static readonly float[] ButterworthStageQ =
+    {
+        (float)(1.0 / (2.0 * Math.Cos(Math.PI / 8))),
+        (float)(1.0 / (2.0 * Math.Cos(Math.PI * 3 / 8))),
+    };
+
     private static float[] ApplyButterworthLowPass(float[] signal, int sampleRate, double cutoffHz)
     {
-        // Compute normalized cutoff (0..1, where 1 = Nyquist)
-        double wc = 2.0 * Math.PI * cutoffHz / sampleRate;
-
-        // Pre-warp for bilinear transform
-        double wcAnalog = 2.0 * Math.Tan(wc / 2.0);
-
-        // 4th order = two cascaded 2nd-order sections
-        // Pole angles for 4th-order Butterworth: π/8, 3π/8 relative to unit circle
-        double[] angles = { Math.PI * 3 / 8, Math.PI / 8 };
-
         var output = (float[])signal.Clone();
-        foreach (double angle in angles)
+        foreach (var q in ButterworthStageQ)
         {
-            // Analog prototype poles
-            double realPole = -Math.Sin(angle) * wcAnalog;
-            double imagPole = Math.Cos(angle) * wcAnalog;
-
-            // Bilinear transform to digital coefficients
-            double d = (2.0 - realPole) * (2.0 - realPole) + imagPole * imagPole;
-            if (d < 1e-12) continue;
-
-            double b0 = wcAnalog * wcAnalog / d;
-            double b1 = 2.0 * b0;
-            double b2 = b0;
-            double a1 = 2.0 * (4.0 - wcAnalog * wcAnalog) / d;
-            double a2 = ((2.0 + realPole) * (2.0 + realPole) + imagPole * imagPole - 4.0 * imagPole * imagPole) / d;
-
-            output = ApplyBiquad(output, b0, b1, b2, -a1, -a2);
+            var stage = BiQuadFilter.LowPassFilter(sampleRate, (float)cutoffHz, q);
+            for (int i = 0; i < output.Length; i++)
+                output[i] = stage.Transform(output[i]);
         }
-
-        return output;
-    }
-
-    private static float[] ApplyBiquad(float[] signal, double b0, double b1, double b2, double a1, double a2)
-    {
-        var output = new float[signal.Length];
-        double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
-
-        for (int i = 0; i < signal.Length; i++)
-        {
-            double x0 = signal[i];
-            double y0 = b0 * x0 + b1 * x1 + b2 * x2 + a1 * y1 + a2 * y2;
-            output[i] = (float)Math.Clamp(y0, -1.0, 1.0);
-            x2 = x1; x1 = x0;
-            y2 = y1; y1 = y0;
-        }
-
         return output;
     }
 }

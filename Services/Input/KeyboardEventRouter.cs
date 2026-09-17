@@ -46,12 +46,23 @@ public sealed class KeyboardEventRouter : IDisposable
     // ─── Attachment ───────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Attach to <paramref name="topLevel"/> (main window) using a tunnel handler.
-    /// Safe to call multiple times — only the first call attaches.
+    /// Attach to <paramref name="topLevel"/> (main window) using a tunnel handler. Calling this
+    /// again with the SAME TopLevel is a no-op; calling it with a DIFFERENT one detaches from
+    /// the old TopLevel first and re-attaches to the new one — this matters because
+    /// GlobalHotkeyService's constructor runs while the app's splash screen is still
+    /// desktop.MainWindow (see App.axaml.cs's startup sequence), so the first Attach call binds
+    /// to a window that's about to close; GlobalHotkeyService.AttachToCurrentMainWindow() calls
+    /// this again once the real MainWindow is showing, and needs it to actually take effect.
     /// </summary>
     public void Attach(TopLevel topLevel)
     {
-        if (_topLevel != null) return;
+        if (_topLevel == topLevel) return;
+
+        if (_topLevel != null)
+        {
+            _topLevel.RemoveHandler(InputElement.KeyDownEvent, OnKeyDown);
+        }
+
         _topLevel = topLevel;
         topLevel.AddHandler(InputElement.KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
         _logger.LogInformation("[KeyboardRouter] Attached to TopLevel");

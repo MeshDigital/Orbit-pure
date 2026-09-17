@@ -170,9 +170,13 @@ public class Track
     public double FuzzyMatchScore { get; set; }
 
     /// <summary>
-    /// Unique hash for deduplication: artist-title combination (lowercase, no spaces).
+    /// Unique hash for deduplication: artist-title combination (lowercase, no spaces). Delegates
+    /// to <see cref="Utils.TrackHashUtil"/> — the canonical formula lives there so every other
+    /// place that needs this same identity (import providers building a track before a <see
+    /// cref="Track"/> instance exists) can reproduce it exactly rather than drifting into an
+    /// incompatible variant.
     /// </summary>
-    public string UniqueHash => $"{Artist?.ToLower().Replace(" ", "")}-{Title?.ToLower().Replace(" ", "")}".TrimStart('-').TrimEnd('-');
+    public string UniqueHash => Utils.TrackHashUtil.Compute(Artist, Title);
 
     /// <summary>
     /// True if the "Bouncer" (SafetyFilter) flagged this track (e.g., Fake FLAC, suspicion).

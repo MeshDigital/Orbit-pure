@@ -664,18 +664,36 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         // Cue Forge on a track that wasn't already playing elsewhere left the transport
         // pointing at whatever (if anything) was previously loaded. Skip the reload if this
         // exact file is already loaded so we don't interrupt playback that's already running.
-        try
+        //
+        // This method also fires automatically on every PlayerViewModel.CurrentTrack change (see
+        // the constructor's WhenAnyValue subscription) to keep Cue Forge in sync with whatever's
+        // now playing — including every natural track advance during real queue/Mix playback, not
+        // just an explicit "Open in Cue Forge" click. That made the file-path guard above load-
+        // bearing for something it was never designed for: a track can legitimately exist under
+        // two different resolved paths (e.g. the playlist's own ResolvedFilePath vs. this DB
+        // lookup's canonical library path for a duplicate/relocated copy of the same file), so the
+        // path string comparison fails even though the exact right track is already live — and
+        // LoadTrackPaused then reopens it as a brand-new, unstarted deck, silently killing
+        // whatever was actually playing (including mid-crossfade). Check track IDENTITY (hash)
+        // against the currently-playing track first — that's the comparison this call site
+        // actually needs — and only fall back to the path check for the "opened explicitly, not
+        // already playing anything" case.
+        var alreadyPlayingThisTrack = string.Equals(_playerViewModel.CurrentTrack?.GlobalId, trackHash, StringComparison.OrdinalIgnoreCase);
+        if (!alreadyPlayingThisTrack)
         {
-            var resolvedPath = await _databaseService.GetLocalFilePathByHashAsync(trackHash);
-            if (!string.IsNullOrEmpty(resolvedPath) &&
-                !string.Equals(_playerViewModel.CurrentFilePath, resolvedPath, StringComparison.OrdinalIgnoreCase))
+            try
             {
-                _playerViewModel.LoadTrackPaused(resolvedPath, title ?? TrackTitle, artist ?? "");
+                var resolvedPath = await _databaseService.GetLocalFilePathByHashAsync(trackHash);
+                if (!string.IsNullOrEmpty(resolvedPath) &&
+                    !string.Equals(_playerViewModel.CurrentFilePath, resolvedPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    _playerViewModel.LoadTrackPaused(resolvedPath, title ?? TrackTitle, artist ?? "");
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "CueForge: could not load audio for {Hash}; transport will have nothing to play", trackHash);
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "CueForge: could not load audio for {Hash}; transport will have nothing to play", trackHash);
+            }
         }
 
         TrackLoadError = null;
@@ -1204,6 +1222,12 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         double preRoll = Bpm > 0 ? 4.0 * 60.0 / Bpm : 2.0; // 4 beats before cue
         double seekSec = Math.Max(0, cue.Timestamp - preRoll);
         _playerViewModel.Seek((float)(seekSec * 1000.0 / _playerViewModel.LengthMs));
+
+        // "Audition" promises to actually play the pre-roll (tooltip: "plays 4 beats before
+        // this cue") — Seek only repositions a paused player, so without this the button did
+        // nothing audible unless playback happened to already be running.
+        if (!_playerViewModel.IsPlaying)
+            _playerViewModel.TogglePlayPauseCommand?.Execute(null);
     }
 
     // ── Keyboard nudge (±1 beat) ───────────────────────────────────────────

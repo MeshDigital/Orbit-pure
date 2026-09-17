@@ -22,6 +22,7 @@ using SLSKDONET.Events;
 using DynamicData;
 using DynamicData.Binding;
 using ReactiveUI;
+using System.Reactive;
 using System.Reactive.Concurrency;
 using System.Reactive.Subjects;
 using System.Reactive.Linq;
@@ -61,6 +62,7 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     
     // Cleanup
     private readonly CompositeDisposable _disposables = new();
+    private readonly Subject<Unit> _rankingRefreshRequests = new();
     private readonly SerialDisposable _searchSubscription = new();
     private readonly SerialDisposable _searchIdleMonitor = new();
     private readonly object _searchSessionGate = new();
@@ -69,7 +71,12 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     private CancellationTokenSource? _activeSearchCts;
     private Guid? _currentSearchSessionId;
 
-    public IEnumerable<string> PreferredFormats => new[] { "mp3", "flac", "m4a", "wav" }; // TODO: Load from config
+    // Was a hardcoded ["mp3","flac","m4a","wav"] regardless of the IsFlacEnabled/IsMp3Enabled/
+    // IsWavEnabled toggles — those only affected local re-ranking (GetActiveFormats, used for
+    // display/sort) while the actual network query always requested every format anyway,
+    // defeating SearchOrchestrationService.BuildNetworkQuery's lossless-only negative-token
+    // injection (which inspects this exact list). Now derives from the same toggle state.
+    public IEnumerable<string> PreferredFormats => GetActiveFormats();
 
     // Child ViewModels
     public ImportPreviewViewModel ImportPreviewViewModel { get; }
@@ -109,6 +116,11 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     public bool HasHiddenResults => HiddenResultsCount > 0;
     public int DisplayedResultsCount => SearchResultsView.Count;
     public bool HasDisplayedResults => DisplayedResultsCount > 0;
+    // The empty state used to show the same "Ready for Extraction — Initiate a search" message
+    // whether the user had never searched at all, or had a search actively streaming in with
+    // zero hits so far — the latter looked exactly like nothing was happening.
+    public bool ShowNeverSearchedEmptyState => !IsSearching && !HasDisplayedResults;
+    public bool ShowActivelySearchingEmptyState => IsSearching && !HasDisplayedResults;
     public bool AllResultsFilteredByRules => TotalResultsReceived > 0 && HiddenResultsCount >= TotalResultsReceived;
     public bool HasSelectedResults => SelectedResults.Count > 0;
     public string SelectedResultsSummary => SelectedResults.Count switch
@@ -156,7 +168,14 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     public bool IsSearching
     {
         get => _isSearching;
-        set => SetProperty(ref _isSearching, value);
+        set
+        {
+            if (SetProperty(ref _isSearching, value))
+            {
+                this.RaisePropertyChanged(nameof(ShowNeverSearchedEmptyState));
+                this.RaisePropertyChanged(nameof(ShowActivelySearchingEmptyState));
+            }
+        }
     }
 
     private bool _isListening;
@@ -275,7 +294,6 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             if (!_isApplyingPreset)
             {
                 OnRankingWeightsChanged();
-                _configManager.Save(_config);
                 SyncQualityPresetFromCurrentSettings();
             }
         }
@@ -284,14 +302,13 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     public double ReliabilityWeight
     {
         get => _config.CustomWeights.AvailabilityWeight;
-        set 
-        { 
+        set
+        {
             _config.CustomWeights.AvailabilityWeight = value;
             this.RaisePropertyChanged(); // Notify UI
             if (!_isApplyingPreset)
             {
                 OnRankingWeightsChanged();
-                _configManager.Save(_config);
                 SyncQualityPresetFromCurrentSettings();
             }
         }
@@ -310,7 +327,6 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             if (!_isApplyingPreset)
             {
                 OnRankingWeightsChanged();
-                _configManager.Save(_config);
                 SyncQualityPresetFromCurrentSettings();
             }
         }
@@ -362,6 +378,11 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         }
     }
 
+
+    /// <summary>Raised when Ctrl+F/"Focus Search" navigates here so SearchPage's code-behind can
+    /// put keyboard focus in the search box — the ViewModel has no direct handle on the Avalonia
+    /// control, so the View subscribes to this rather than the reverse.</summary>
+    public event Action? FocusRequested;
 
     // Commands
     public ICommand UnifiedSearchCommand { get; }
@@ -423,6 +444,11 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             .Subscribe(OnTrackAdded)
             .DisposeWith(_disposables);
 
+        eventBus.GetEvent<FocusSearchBoxRequestedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(_ => FocusRequested?.Invoke())
+            .DisposeWith(_disposables);
+
         eventBus.GetEvent<ExcludedSearchPhrasesUpdatedEvent>()
             .Subscribe(OnExcludedSearchPhrasesUpdated)
             .DisposeWith(_disposables);
@@ -432,6 +458,42 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         // --- Reactive Pipeline Setup ---
         _searchSubscription.DisposeWith(_disposables);
         _searchIdleMonitor.DisposeWith(_disposables);
+
+        // Format toggles (IsFlacEnabled/IsMp3Enabled/IsWavEnabled) and the quality preset slider
+        // each used to trigger RecalculateScores() (a full synchronous re-rank of every buffered
+        // search result) plus a synchronous config save directly, with no debounce — dragging the
+        // slider or flipping toggles back-to-back re-ran the whole re-rank/save once per change.
+        // Coalesce into one recompute per change-burst instead. Throttle on the default (thread-
+        // pool) scheduler and marshal to the UI thread via Dispatcher.UIThread.Post rather than
+        // .ObserveOn(RxApp.MainThreadScheduler) — matches LibraryViewModel's established debounce
+        // pattern, which avoids relying on RxApp.MainThreadScheduler's own delayed-scheduling
+        // (that scheduler can be torn down independently of this ViewModel, e.g. across test runs,
+        // which crashed the process when a pending Throttle timer fired after teardown).
+        _rankingRefreshRequests
+            .Throttle(TimeSpan.FromMilliseconds(200))
+            .Subscribe(_ =>
+            {
+                try
+                {
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        try
+                        {
+                            RecalculateScores();
+                            _configManager.Save(_config);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Ranking refresh failed");
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to schedule ranking refresh");
+                }
+            })
+            .DisposeWith(_disposables);
 
         _searchResults.Connect()
             .ObserveOn(RxApp.MainThreadScheduler)
@@ -476,6 +538,8 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
                 HiddenResultsCount = _publicSearchResults.Count(vm => vm.IsFilteredOut);
                 this.RaisePropertyChanged(nameof(DisplayedResultsCount));
                 this.RaisePropertyChanged(nameof(HasDisplayedResults));
+                this.RaisePropertyChanged(nameof(ShowNeverSearchedEmptyState));
+                this.RaisePropertyChanged(nameof(ShowActivelySearchingEmptyState));
             })
             .DisposeWith(_disposables);
 
@@ -497,6 +561,13 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
             ExecuteCancelSearch();
             SearchQuery = "";
             _searchResults.Clear();
+            // SelectedResults is a separate collection holding direct VM references, not a live
+            // view derived from _searchResults — clearing the results grid left stale selections
+            // pointing at VMs that no longer existed anywhere, so "X selected" / Download Selected
+            // kept showing/acting on results that had just been cleared. SessionDownloads is
+            // deliberately NOT cleared here — it's the "SESSION QUEUE" strip tracking downloads
+            // across the whole session, not scoped to the current search's results.
+            SelectedResults.Clear();
             ResetTelemetry();
         });
 
@@ -1218,7 +1289,6 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(IsWavEnabled));
 
         OnRankingWeightsChanged();
-        _configManager.Save(_config);
     }
 
     private void SyncQualityPresetFromCurrentSettings()
@@ -1412,7 +1482,9 @@ public partial class SearchViewModel : ReactiveObject, IDisposable
     {
         var weights = _config.CustomWeights;
         ResultSorter.SetWeights(weights);
-        RecalculateScores();
+        // RecalculateScores() + the config save both run debounced — see the
+        // _rankingRefreshRequests subscription wired up in the constructor.
+        _rankingRefreshRequests.OnNext(Unit.Default);
     }
 
     private void RecalculateScores()

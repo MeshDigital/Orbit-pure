@@ -503,6 +503,78 @@ namespace SLSKDONET.Tests.Services.Timeline
             Assert.True(first > last, $"Expected output to trend from outgoing (1.0) toward incoming (-1.0), got first={first}, last={last}");
         }
 
+        /// <summary>
+        /// Regression coverage for what EqSwapProvider used to get wrong: only the Low band ever
+        /// had a real swap/crossfade distinction — Mid/High always crossfaded together with the
+        /// same equal-power curve regardless of any "swap" intent, and there was no way to swap
+        /// Mid or High independently at all. Both source streams are DC (same sign), so the whole
+        /// signal falls in the "low" band by construction — with swapLow explicitly false, the low
+        /// band must follow the equal-power crossfade (bounded combined gain), not the old
+        /// always-on linear swap.
+        /// </summary>
+        [Fact]
+        public void EqSwapProvider_UnswappedLowBand_FollowsEqualPowerCrossfade_NotLinearSwap()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+            var outProvider = new ConstantSampleProvider(fmt, 1.0f);
+            var inProvider = new ConstantSampleProvider(fmt, 1.0f);
+            long durationSamples = 44100;
+
+            var provider = new EqSwapProvider(outProvider, inProvider, durationSamples,
+                swapLow: false, swapMid: false, swapHigh: false);
+
+            var buffer = new float[1];
+            long produced = 0;
+            float midpointValue = 0;
+            while (produced < durationSamples)
+            {
+                provider.Read(buffer, 0, 1);
+                produced++;
+                if (produced == durationSamples / 2) midpointValue = buffer[0];
+            }
+
+            // Equal-power crossfade of two identical DC=1.0 streams at the midpoint:
+            // cos(pi/4) + sin(pi/4) ≈ 1.414 — bounded, not the linear-swap sum (which stays
+            // pinned at 1.0 the whole way through since (1-t)+t=1), and nowhere near the ~2.0
+            // a naive "both full volume" bug would produce.
+            Assert.InRange(midpointValue, 1.2, 1.6);
+        }
+
+        /// <summary>Sibling to the unswapped test above: with swapMid/swapHigh explicitly true
+        /// instead, the same DC signal (all "low band" by construction) is unaffected by them —
+        /// it's still governed entirely by swapLow, so explicitly swapping the OTHER two bands
+        /// must not change the low-band DC behavior at all.</summary>
+        [Fact]
+        public void EqSwapProvider_SwappingOtherBands_DoesNotAffectDcLowBandBehavior()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+            long durationSamples = 44100;
+
+            float SampleMidpoint(bool swapMid, bool swapHigh)
+            {
+                var outProvider = new ConstantSampleProvider(fmt, 1.0f);
+                var inProvider = new ConstantSampleProvider(fmt, 1.0f);
+                var provider = new EqSwapProvider(outProvider, inProvider, durationSamples,
+                    swapLow: false, swapMid: swapMid, swapHigh: swapHigh);
+
+                var buffer = new float[1];
+                long produced = 0;
+                float midpointValue = 0;
+                while (produced < durationSamples)
+                {
+                    provider.Read(buffer, 0, 1);
+                    produced++;
+                    if (produced == durationSamples / 2) midpointValue = buffer[0];
+                }
+                return midpointValue;
+            }
+
+            var withoutMidHighSwap = SampleMidpoint(swapMid: false, swapHigh: false);
+            var withMidHighSwap = SampleMidpoint(swapMid: true, swapHigh: true);
+
+            Assert.Equal(withoutMidHighSwap, withMidHighSwap, precision: 3);
+        }
+
         [Fact]
         public void WaveDuckProvider_TrendsFromOutgoingTowardIncoming()
         {

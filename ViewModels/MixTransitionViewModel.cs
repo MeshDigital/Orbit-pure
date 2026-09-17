@@ -5,6 +5,7 @@ using System.Reactive;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
+using SLSKDONET.Data.Entities;
 using SLSKDONET.Models;
 using SLSKDONET.Models.Timeline;
 using SLSKDONET.Services;
@@ -63,6 +64,27 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         PauseCommand = ReactiveCommand.Create(() => _previewPlayer.StopPreview());
         CancelCommand = ReactiveCommand.Create(() => { _previewPlayer.StopPreview(); Closed?.Invoke(this, EventArgs.Empty); });
         SaveCommand = ReactiveCommand.CreateFromTask(SaveAsync);
+        // Also reachable from the "No transition loaded" empty state (no pair picked yet, so
+        // _playlistId is still Guid.Empty) — MainViewModel's handler treats Guid.Empty as "just
+        // navigate, nothing to preload" rather than silently no-opping here.
+        OpenInFlowBuilderCommand = ReactiveCommand.Create(() =>
+        {
+            _eventBus.Publish(new OpenFlowBuilderForPlaylistEvent(_playlistId));
+        });
+        SelectSourceCueCommand = ReactiveCommand.Create<double>(timestamp => SourceTriggerSeconds = timestamp);
+        SelectTargetCueCommand = ReactiveCommand.Create<double>(timestamp => TargetTriggerSeconds = timestamp);
+        DragSourceTriggerCommand = ReactiveCommand.Create<double>(progress =>
+        {
+            var duration = OutgoingTrack?.Model?.Duration ?? 0.0;
+            if (duration > 0) SourceTriggerSeconds = Math.Clamp(progress, 0.0, 1.0) * duration;
+        });
+        DragTargetTriggerCommand = ReactiveCommand.Create<double>(progress =>
+        {
+            var duration = IncomingTrack?.Model?.Duration ?? 0.0;
+            if (duration > 0) TargetTriggerSeconds = Math.Clamp(progress, 0.0, 1.0) * duration;
+        });
+        SaveOutgoingBpmCommand = ReactiveCommand.CreateFromTask(() => SaveBpmAsync(isOutgoing: true));
+        SaveIncomingBpmCommand = ReactiveCommand.CreateFromTask(() => SaveBpmAsync(isOutgoing: false));
     }
 
     /// <summary>Raised when the user dismisses the editor (Cancel/Dismiss button).</summary>
@@ -112,6 +134,29 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
             var duration = IncomingTrack?.Model?.Duration ?? 0.0;
             return duration > 0 ? (float)Math.Clamp(TargetTriggerSeconds / duration, 0.0, 1.0) : 0f;
         }
+    }
+
+    /// <summary>Single source of truth for both waveforms' zoom — MixPreviewComponent.axaml binds
+    /// its two WaveformControls' ZoomLevel here instead of hardcoding "4" independently, so it
+    /// can never drift out of sync with the OutgoingViewOffset/IncomingViewOffset math below,
+    /// which needs the exact same number.</summary>
+    public double WaveformZoomLevel => 4.0;
+
+    /// <summary>Scrolls the zoomed OUTGOING waveform so the current mix-out trigger point stays
+    /// centered in view. Replaces a binding that bound a bool (ObjectConverters.IsNull on a non-
+    /// nullable float) into this double property — which always evaluated to a fixed 0, showing
+    /// only the track's first 1/ZoomLevel regardless of where the actual trigger point was, often
+    /// nowhere near the real mix-out point (which usually sits well past a track's midpoint).</summary>
+    public double OutgoingViewOffset => CenteredViewOffset(ProgressA);
+
+    /// <summary>Same as <see cref="OutgoingViewOffset"/>, for the INCOMING waveform.</summary>
+    public double IncomingViewOffset => CenteredViewOffset(ProgressB);
+
+    private double CenteredViewOffset(float progress)
+    {
+        var halfWindow = 1.0 / (2.0 * WaveformZoomLevel);
+        var maxOffset = Math.Max(0.0, 1.0 - (1.0 / WaveformZoomLevel));
+        return Math.Clamp(progress - halfWindow, 0.0, maxOffset);
     }
 
     private string _statusMessage = "Select a preset to preview the transition.";
@@ -170,6 +215,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
             this.RaisePropertyChanged(nameof(EffectiveSourceTriggerSeconds));
             this.RaisePropertyChanged(nameof(SourceTriggerDisplay));
             this.RaisePropertyChanged(nameof(ProgressA));
+            this.RaisePropertyChanged(nameof(OutgoingViewOffset));
         }
     }
 
@@ -186,6 +232,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
             this.RaisePropertyChanged(nameof(EffectiveSourceTriggerSeconds));
             this.RaisePropertyChanged(nameof(SourceTriggerDisplay));
             this.RaisePropertyChanged(nameof(ProgressA));
+            this.RaisePropertyChanged(nameof(OutgoingViewOffset));
         }
     }
 
@@ -203,6 +250,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
             this.RaiseAndSetIfChanged(ref _targetTriggerSeconds, value);
             this.RaisePropertyChanged(nameof(TargetTriggerDisplay));
             this.RaisePropertyChanged(nameof(ProgressB));
+            this.RaisePropertyChanged(nameof(IncomingViewOffset));
         }
     }
 
@@ -235,6 +283,48 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     private float? _customFilterEndFrequency;
     public float? CustomFilterEndFrequency { get => _customFilterEndFrequency; set { this.RaiseAndSetIfChanged(ref _customFilterEndFrequency, value); RebuildLiveModel(); } }
 
+    private float? _customWaveDuckDepth;
+    /// <summary>Custom-mode override for the "Wave" preset's rhythmic duck depth (0-1); null = preset default.</summary>
+    public float? CustomWaveDuckDepth { get => _customWaveDuckDepth; set { this.RaiseAndSetIfChanged(ref _customWaveDuckDepth, value); RebuildLiveModel(); } }
+
+    private bool? _customFilterSweepRising;
+    /// <summary>Custom-mode override for the "Rise" preset's sweep direction — true sweeps the
+    /// incoming track up (energy build into the drop) instead of the outgoing track down; null =
+    /// preset default.</summary>
+    public bool? CustomFilterSweepRising { get => _customFilterSweepRising; set { this.RaiseAndSetIfChanged(ref _customFilterSweepRising, value); RebuildLiveModel(); } }
+
+    // ── Custom-mode EQ band swap ("Blend" preset's bass-handover technique) — which bands swap
+    // from outgoing to incoming, and where the crossovers sit. Null = preset default (Low only).
+    private bool? _customEqSwapLow;
+    public bool? CustomEqSwapLow { get => _customEqSwapLow; set { this.RaiseAndSetIfChanged(ref _customEqSwapLow, value); RebuildLiveModel(); } }
+
+    private bool? _customEqSwapMid;
+    public bool? CustomEqSwapMid { get => _customEqSwapMid; set { this.RaiseAndSetIfChanged(ref _customEqSwapMid, value); RebuildLiveModel(); } }
+
+    private bool? _customEqSwapHigh;
+    public bool? CustomEqSwapHigh { get => _customEqSwapHigh; set { this.RaiseAndSetIfChanged(ref _customEqSwapHigh, value); RebuildLiveModel(); } }
+
+    private float? _customEqLowCrossoverHz;
+    public float? CustomEqLowCrossoverHz { get => _customEqLowCrossoverHz; set { this.RaiseAndSetIfChanged(ref _customEqLowCrossoverHz, value); RebuildLiveModel(); } }
+
+    private float? _customEqHighCrossoverHz;
+    public float? CustomEqHighCrossoverHz { get => _customEqHighCrossoverHz; set { this.RaiseAndSetIfChanged(ref _customEqHighCrossoverHz, value); RebuildLiveModel(); } }
+
+    // ── Cue-point picking (click a marker on either waveform to set it as the transition's
+    // trigger point, overriding the suggestion engine) ─────────────────────────────────────
+    private IEnumerable<OrbitCue> _outgoingCues = Array.Empty<OrbitCue>();
+    public IEnumerable<OrbitCue> OutgoingCues { get => _outgoingCues; private set => this.RaiseAndSetIfChanged(ref _outgoingCues, value); }
+
+    private IEnumerable<OrbitCue> _incomingCues = Array.Empty<OrbitCue>();
+    public IEnumerable<OrbitCue> IncomingCues { get => _incomingCues; private set => this.RaiseAndSetIfChanged(ref _incomingCues, value); }
+
+    // ── BPM editing ──────────────────────────────────────────────────────────────────────
+    private double _outgoingBpm;
+    public double OutgoingBpm { get => _outgoingBpm; set => this.RaiseAndSetIfChanged(ref _outgoingBpm, value); }
+
+    private double _incomingBpm;
+    public double IncomingBpm { get => _incomingBpm; set => this.RaiseAndSetIfChanged(ref _incomingBpm, value); }
+
     /// <summary>The DSP model built from the current preset/bars/custom-overrides — what Preview and Save both act on.</summary>
     public TransitionModel LiveModel { get; private set; } = new();
 
@@ -255,6 +345,24 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> PauseCommand { get; }
     public ReactiveCommand<Unit, Unit> CancelCommand { get; }
     public ReactiveCommand<Unit, Unit> SaveCommand { get; }
+
+    /// <summary>"Open in Flow Builder" link — this editor only handles one adjacent pair at a
+    /// time; Flow Builder is the full-option editor for the whole playlist. Publishes
+    /// <see cref="OpenFlowBuilderForPlaylistEvent"/>, which MainViewModel picks up to navigate
+    /// there and preload this playlist.</summary>
+    public ReactiveCommand<Unit, Unit> OpenInFlowBuilderCommand { get; }
+    public ReactiveCommand<double, Unit> SelectSourceCueCommand { get; }
+    public ReactiveCommand<double, Unit> SelectTargetCueCommand { get; }
+
+    /// <summary>Bound to WaveformControl.SeekCommand — fires continuously while the user drags
+    /// anywhere on the waveform (not just on a cue marker), letting the trigger point land on any
+    /// arbitrary spot in the track, not only an analyzed cue. Takes a 0-1 progress fraction
+    /// (WaveformControl's own click/drag mechanic already handles the pointer capture and repeat
+    /// firing — see OnPointerMoved's _isDraggingProgress branch); this just converts it to seconds.</summary>
+    public ReactiveCommand<double, Unit> DragSourceTriggerCommand { get; }
+    public ReactiveCommand<double, Unit> DragTargetTriggerCommand { get; }
+    public ReactiveCommand<Unit, Unit> SaveOutgoingBpmCommand { get; }
+    public ReactiveCommand<Unit, Unit> SaveIncomingBpmCommand { get; }
 
     private Guid _playlistId;
 
@@ -290,10 +398,46 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
             OutgoingTrack.Energy, IncomingTrack.Energy);
         this.RaisePropertyChanged(nameof(PhaseConfidenceWidth));
 
+        OutgoingBpm = outgoing.BPM ?? 0.0;
+        IncomingBpm = incoming.BPM ?? 0.0;
+
+        // Fetched once here (not inside SuggestTransitionPointsAsync) because the cue markers
+        // need to render on both waveforms regardless of whether a saved transition already
+        // exists — a saved pair still needs to show its cues so the user can pick a different one.
+        List<CuePointEntity> sourceCues;
+        List<CuePointEntity> targetCues;
+        try
+        {
+            sourceCues = await _cuePointService.GetByTrackIdAsync(outgoing.TrackUniqueHash);
+            targetCues = await _cuePointService.GetByTrackIdAsync(incoming.TrackUniqueHash);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load cue points for {Outgoing}->{Incoming}", outgoing.TrackUniqueHash, incoming.TrackUniqueHash);
+            sourceCues = new List<CuePointEntity>();
+            targetCues = new List<CuePointEntity>();
+        }
+        OutgoingCues = sourceCues.Select(OrbitCue.FromEntity).ToList();
+        IncomingCues = targetCues.Select(OrbitCue.FromEntity).ToList();
+
         var saved = await _transitionRepository.GetTransitionAsync(outgoingPlaylistTrackId, incomingPlaylistTrackId);
         _customEchoDecayFactor = saved?.EchoDecayFactor;
         _customFilterStartFrequency = saved?.FilterStartFrequency;
         _customFilterEndFrequency = saved?.FilterEndFrequency;
+        _customWaveDuckDepth = saved?.WaveDuckDepth;
+        _customFilterSweepRising = saved?.FilterSweepRising;
+        _customEqSwapLow = saved?.EqSwapLow;
+        _customEqSwapMid = saved?.EqSwapMid;
+        _customEqSwapHigh = saved?.EqSwapHigh;
+        _customEqLowCrossoverHz = saved?.EqLowCrossoverHz;
+        _customEqHighCrossoverHz = saved?.EqHighCrossoverHz;
+        this.RaisePropertyChanged(nameof(CustomWaveDuckDepth));
+        this.RaisePropertyChanged(nameof(CustomFilterSweepRising));
+        this.RaisePropertyChanged(nameof(CustomEqSwapLow));
+        this.RaisePropertyChanged(nameof(CustomEqSwapMid));
+        this.RaisePropertyChanged(nameof(CustomEqSwapHigh));
+        this.RaisePropertyChanged(nameof(CustomEqLowCrossoverHz));
+        this.RaisePropertyChanged(nameof(CustomEqHighCrossoverHz));
         _durationBars = saved?.DurationBars ?? 16;
         this.RaisePropertyChanged(nameof(DurationBars));
         _selectedPreset = saved?.PresetName ?? "Auto";
@@ -310,7 +454,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         }
         else
         {
-            await SuggestTransitionPointsAsync(outgoing.TrackUniqueHash, incoming.TrackUniqueHash, outgoing.Duration);
+            await SuggestTransitionPointsAsync(outgoing.TrackUniqueHash, incoming.TrackUniqueHash, outgoing.Duration, sourceCues, targetCues);
         }
 
         RebuildLiveModel();
@@ -326,7 +470,9 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     /// actually drive where a Mix transition starts instead of always "near the literal end of
     /// track A / the literal start of track B".
     /// </summary>
-    private async Task SuggestTransitionPointsAsync(string outgoingHash, string incomingHash, double outgoingDurationSeconds)
+    private async Task SuggestTransitionPointsAsync(
+        string outgoingHash, string incomingHash, double outgoingDurationSeconds,
+        List<CuePointEntity> sourceCues, List<CuePointEntity> targetCues)
     {
         try
         {
@@ -341,14 +487,29 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
                 return;
             }
 
-            var sourceCues = await _cuePointService.GetByTrackIdAsync(outgoingHash);
-            var targetCues = await _cuePointService.GetByTrackIdAsync(incomingHash);
-
             var suggestion = _pointSuggestionEngine.OptimizeTransition(sourceEntity, targetEntity, sourceCues, targetCues);
 
             SourceTriggerSeconds = Math.Max(0, suggestion.SourceTriggerTime);
             TargetTriggerSeconds = Math.Max(0, suggestion.TargetTriggerTime);
             TransitionPointReasoning = suggestion.Description;
+
+            // Mark which cue (if any) the algorithm actually picked, so the waveform can
+            // distinguish "this is what Auto recommended" from wherever the live trigger point
+            // currently sits (which the playhead already shows, and which Nudge/a different cue
+            // click can move independently afterward). Only meaningful here — a saved transition's
+            // trigger points are the user's own prior choice, not an algorithm suggestion.
+            if (suggestion.SelectedSourceCue != null)
+            {
+                var match = OutgoingCues.FirstOrDefault(c => Math.Abs(c.Timestamp - suggestion.SelectedSourceCue.TimestampInSeconds) < 0.01);
+                if (match != null) match.IsSuggested = true;
+            }
+            if (suggestion.SelectedTargetCue != null)
+            {
+                var match = IncomingCues.FirstOrDefault(c => Math.Abs(c.Timestamp - suggestion.SelectedTargetCue.TimestampInSeconds) < 0.01);
+                if (match != null) match.IsSuggested = true;
+            }
+            this.RaisePropertyChanged(nameof(OutgoingCues));
+            this.RaisePropertyChanged(nameof(IncomingCues));
         }
         catch (Exception ex)
         {
@@ -364,7 +525,10 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         LiveModel = TransitionPresetLibrary.Build(SelectedPreset, _pairScore, DurationBars);
         if (IsCustomMode)
         {
-            TransitionPresetLibrary.ApplyCustomOverrides(LiveModel, CustomEchoDecayFactor, CustomFilterStartFrequency, CustomFilterEndFrequency);
+            TransitionPresetLibrary.ApplyCustomOverrides(
+                LiveModel, CustomEchoDecayFactor, CustomFilterStartFrequency, CustomFilterEndFrequency,
+                CustomWaveDuckDepth, CustomFilterSweepRising,
+                CustomEqSwapLow, CustomEqSwapMid, CustomEqSwapHigh, CustomEqLowCrossoverHz, CustomEqHighCrossoverHz);
         }
         this.RaisePropertyChanged(nameof(LiveModel));
         RebuildAutomationCurves();
@@ -387,6 +551,14 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
             Curve = SLSKDONET.Services.Audio.TransitionCurve.SCurve,
             WaveDuckDepth = LiveModel.WaveDuckDepth,
             EchoDecayFactor = LiveModel.EchoDecayFactor,
+            EqConfig = new EqBandSwapConfig
+            {
+                SwapLow = LiveModel.EqSwapLow,
+                SwapMid = LiveModel.EqSwapMid,
+                SwapHigh = LiveModel.EqSwapHigh,
+                LowCrossover = LiveModel.EqLowCrossoverHz,
+                HighCrossover = LiveModel.EqHighCrossoverHz,
+            },
         };
         engine.AddTransition(region);
 
@@ -446,11 +618,43 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
             EchoDecayFactor = IsCustomMode ? CustomEchoDecayFactor : null,
             FilterStartFrequency = IsCustomMode ? CustomFilterStartFrequency : null,
             FilterEndFrequency = IsCustomMode ? CustomFilterEndFrequency : null,
+            WaveDuckDepth = IsCustomMode ? CustomWaveDuckDepth : null,
+            FilterSweepRising = IsCustomMode ? CustomFilterSweepRising : null,
+            EqSwapLow = IsCustomMode ? CustomEqSwapLow : null,
+            EqSwapMid = IsCustomMode ? CustomEqSwapMid : null,
+            EqSwapHigh = IsCustomMode ? CustomEqSwapHigh : null,
+            EqLowCrossoverHz = IsCustomMode ? CustomEqLowCrossoverHz : null,
+            EqHighCrossoverHz = IsCustomMode ? CustomEqHighCrossoverHz : null,
             SourceTriggerSeconds = EffectiveSourceTriggerSeconds,
             TargetTriggerSeconds = TargetTriggerSeconds,
         };
 
         await _transitionRepository.UpsertTransitionAsync(transition);
         StatusMessage = "Transition saved.";
+    }
+
+    private async Task SaveBpmAsync(bool isOutgoing)
+    {
+        var track = isOutgoing ? OutgoingTrack : IncomingTrack;
+        var bpm = isOutgoing ? OutgoingBpm : IncomingBpm;
+        var hash = track?.Model?.TrackUniqueHash;
+        if (string.IsNullOrWhiteSpace(hash) || bpm <= 0) return;
+
+        try
+        {
+            await _trackRepository.UpdateBpmAsync(hash, bpm);
+            track!.ApplyBpmUpdate(bpm);
+            // Other live views of this same track (a Flow Builder card, the main track list) hold
+            // their own separate PlaylistTrackViewModel instance for it — see LoadPairAsync, which
+            // constructs OutgoingTrack/IncomingTrack fresh each time — so they need this event to
+            // pick up the change rather than the direct ApplyBpmUpdate call above.
+            _eventBus.Publish(new TrackMetadataUpdatedEvent(hash));
+            StatusMessage = $"{(isOutgoing ? "Outgoing" : "Incoming")} track BPM updated.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save BPM for {Hash}", hash);
+            StatusMessage = "Couldn't save BPM — see log.";
+        }
     }
 }

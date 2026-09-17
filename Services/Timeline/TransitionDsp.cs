@@ -275,24 +275,37 @@ public sealed class FilterSweepProvider : ISampleProvider
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// <summary>
-/// Two-band bass-handover crossfade ("Blend" preset / classic DJ bass swap): the low band
-/// (below <see cref="LowCrossoverHz"/>) swaps from outgoing to incoming linearly over the
-/// window while mids/highs crossfade with an equal-power curve, avoiding the muddy bass
-/// collision a plain crossfade produces when both tracks' kicks/subs overlap.
+/// Band-handover crossfade ("Blend" preset / classic DJ EQ swap): whichever of Low/Mid/High
+/// the caller selects swaps from outgoing to incoming linearly over the window (the classic
+/// bass-handover technique, generalized to any band), while any band NOT selected crossfades
+/// with the same equal-power curve every other preset uses — otherwise an unswapped band would
+/// play both tracks' full volume simultaneously for the whole window (a real, previously-shipped
+/// bug — see Services.Audio.TransitionEngine.CalculateEqSwap's fix for the live-automation
+/// equivalent of this same mistake). Uses the same cascaded one-pole crossover split as
+/// AudioPlayerService's ThreeBandGainProvider, applied to both sources independently.
 /// </summary>
 public sealed class EqSwapProvider : ISampleProvider
 {
     private readonly ISampleProvider _outgoing;
     private readonly ISampleProvider _incoming;
+    private readonly bool _swapLow;
+    private readonly bool _swapMid;
+    private readonly bool _swapHigh;
     private readonly float _lowCrossoverHz;
+    private readonly float _highCrossoverHz;
     private long _positionSamples;
-    private float _outLowState;
-    private float _inLowState;
+    private float[] _outLowState = Array.Empty<float>();
+    private float[] _outMidSplitState = Array.Empty<float>();
+    private float[] _inLowState = Array.Empty<float>();
+    private float[] _inMidSplitState = Array.Empty<float>();
 
     public WaveFormat WaveFormat { get; }
     public long DurationSamples { get; }
 
-    public EqSwapProvider(ISampleProvider outgoing, ISampleProvider incoming, long durationSamples, float lowCrossoverHz = 250f)
+    public EqSwapProvider(
+        ISampleProvider outgoing, ISampleProvider incoming, long durationSamples,
+        bool swapLow = true, bool swapMid = false, bool swapHigh = false,
+        float lowCrossoverHz = 250f, float highCrossoverHz = 4000f)
     {
         if (outgoing.WaveFormat.SampleRate != incoming.WaveFormat.SampleRate ||
             outgoing.WaveFormat.Channels != incoming.WaveFormat.Channels)
@@ -300,9 +313,19 @@ public sealed class EqSwapProvider : ISampleProvider
 
         _outgoing = outgoing;
         _incoming = incoming;
+        _swapLow = swapLow;
+        _swapMid = swapMid;
+        _swapHigh = swapHigh;
         _lowCrossoverHz = lowCrossoverHz;
+        _highCrossoverHz = highCrossoverHz;
         DurationSamples = Math.Max(1, durationSamples);
         WaveFormat = outgoing.WaveFormat;
+
+        int channels = Math.Max(1, WaveFormat.Channels);
+        _outLowState = new float[channels];
+        _outMidSplitState = new float[channels];
+        _inLowState = new float[channels];
+        _inMidSplitState = new float[channels];
     }
 
     public int Read(float[] buffer, int offset, int count)
@@ -320,32 +343,47 @@ public sealed class EqSwapProvider : ISampleProvider
         int sampleRate = WaveFormat.SampleRate;
         int channels = WaveFormat.Channels;
 
-        float rc = 1.0f / (2.0f * MathF.PI * _lowCrossoverHz);
         float dt = 1.0f / sampleRate;
-        float alpha = dt / (rc + dt);
+        float alphaLow = dt / ((1.0f / (2.0f * MathF.PI * _lowCrossoverHz)) + dt);
+        float alphaHigh = dt / ((1.0f / (2.0f * MathF.PI * _highCrossoverHz)) + dt);
 
         for (int i = 0; i < frames; i += channels)
         {
             double t = Math.Min(1.0, (double)_positionSamples / DurationSamples);
-            float lowOutGain = (float)(1.0 - t);
-            float lowInGain = (float)t;
-            float midHighOutGain = (float)Math.Cos(t * Math.PI / 2.0);
-            float midHighInGain = (float)Math.Sin(t * Math.PI / 2.0);
+            float swapOutGain = (float)(1.0 - t);
+            float swapInGain = (float)t;
+            float fadeOutGain = (float)Math.Cos(t * Math.PI / 2.0);
+            float fadeInGain = (float)Math.Sin(t * Math.PI / 2.0);
+
+            float outLowGain = _swapLow ? swapOutGain : fadeOutGain;
+            float inLowGain = _swapLow ? swapInGain : fadeInGain;
+            float outMidGain = _swapMid ? swapOutGain : fadeOutGain;
+            float inMidGain = _swapMid ? swapInGain : fadeInGain;
+            float outHighGain = _swapHigh ? swapOutGain : fadeOutGain;
+            float inHighGain = _swapHigh ? swapInGain : fadeInGain;
 
             for (int ch = 0; ch < channels && (i + ch) < frames; ch++)
             {
                 float outSample = (i + ch) < outRead ? outBuf[i + ch] : 0f;
                 float inSample = (i + ch) < inRead ? inBuf[i + ch] : 0f;
 
-                // One-pole low-pass split: low band + (original - low) ≈ high/mid complement.
-                _outLowState = _outLowState + alpha * (outSample - _outLowState);
-                _inLowState = _inLowState + alpha * (inSample - _inLowState);
-                float outHigh = outSample - _outLowState;
-                float inHigh = inSample - _inLowState;
+                // Cascaded one-pole split: low, then the high-pass-at-low remainder splits again
+                // into mid/high at the second crossover.
+                _outLowState[ch] += alphaLow * (outSample - _outLowState[ch]);
+                float outHighPassAtLow = outSample - _outLowState[ch];
+                _outMidSplitState[ch] += alphaHigh * (outHighPassAtLow - _outMidSplitState[ch]);
+                float outHigh = outHighPassAtLow - _outMidSplitState[ch];
+                float outMid = _outMidSplitState[ch];
+
+                _inLowState[ch] += alphaLow * (inSample - _inLowState[ch]);
+                float inHighPassAtLow = inSample - _inLowState[ch];
+                _inMidSplitState[ch] += alphaHigh * (inHighPassAtLow - _inMidSplitState[ch]);
+                float inHigh = inHighPassAtLow - _inMidSplitState[ch];
+                float inMid = _inMidSplitState[ch];
 
                 buffer[offset + i + ch] =
-                    (_outLowState * lowOutGain) + (outHigh * midHighOutGain) +
-                    (_inLowState * lowInGain) + (inHigh * midHighInGain);
+                    (_outLowState[ch] * outLowGain) + (outMid * outMidGain) + (outHigh * outHighGain) +
+                    (_inLowState[ch] * inLowGain) + (inMid * inMidGain) + (inHigh * inHighGain);
             }
 
             _positionSamples += channels;
@@ -478,7 +516,10 @@ public static class TransitionDsp
                 model.FilterStartFrequency,
                 model.FilterEndFrequency,
                 model.FilterSweepRising),
-            TransitionType.EqSwap => new EqSwapProvider(outgoing, incoming, durationSamples),
+            TransitionType.EqSwap => new EqSwapProvider(
+                outgoing, incoming, durationSamples,
+                model.EqSwapLow, model.EqSwapMid, model.EqSwapHigh,
+                model.EqLowCrossoverHz, model.EqHighCrossoverHz),
             TransitionType.WaveDuck => new WaveDuckProvider(
                 outgoing, incoming, durationSamples,
                 beatPeriodSeconds: 60.0 / projectBpm,

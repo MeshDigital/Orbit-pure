@@ -54,6 +54,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
     private bool _isApplyingSearchProfile;
     private bool _isDisposed;
+    private bool _isInitialized;
     private IDisposable? _libraryFoldersSubscription;
 
     private string _settingsSearchText = string.Empty;
@@ -1894,10 +1895,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         InstallAiEngineCommand = new AsyncRelayCommand(ExecuteInstallAiEngineAsync);
         StartAiServerCommand   = new AsyncRelayCommand(() => _aiEngine.StartServerAsync());
         CheckAiEngineCommand   = new AsyncRelayCommand(() => _aiEngine.CheckStatusAsync());
-        _ = _aiEngine.CheckStatusAsync();
-
-        try { RefreshAvailableAudioOutputDevices(); }
-        catch (Exception ex) { _logger.LogDebug(ex, "Failed to enumerate audio output devices on Settings load"); }
 
         // Ensure default Client ID is set if empty
         if (string.IsNullOrEmpty(_config.SpotifyClientId))
@@ -1967,10 +1964,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
 
         SelectStrategyCommand = new RelayCommand<RankingStrategyViewModel?>(ExecuteSelectStrategy);
         InitializeStrategies();
-        
-        _ = CheckFfmpegAsync(); // Phase 8: Check FFmpeg on startup
-        _ = LoadLibraryFoldersAsync(); // Phase 0.10
-        _ = LoadRemovalCandidatesAsync();
 
         _libraryFoldersSubscription = _eventBus.GetEvent<LibraryFoldersChangedEvent>().Subscribe(e => { _ = LoadLibraryFoldersAsync(); });
 
@@ -1985,13 +1978,35 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             RefreshNetworkActivityRates();
         }
         _networkActivitySubscription = _eventBus.GetEvent<NetworkActivityEvent>().Subscribe(OnNetworkActivityEvent);
-        _ = RefreshEngineDiagnosticsFeedAsync();
         _engineDiagnosticsSubscription = _eventBus.GetEvent<EngineDiagnosticEvent>().Subscribe(OnEngineDiagnosticEvent);
         _adaptiveLaneStatusSubscription = _eventBus.GetEvent<AdaptiveLaneStatusEvent>().Subscribe(OnAdaptiveLaneStatusEvent);
         _searchPressureSubscription = _eventBus.GetEvent<SearchPressureStatusEvent>().Subscribe(OnSearchPressureStatusEvent);
         
         // Force update of derived properties to ensure UI booleans are in sync with SpotifyState
         UpdateDerivedProperties(SpotifyState);
+    }
+
+    /// <summary>
+    /// Runs the device-enumeration/FFmpeg/library-folder/removal-candidate/AI-engine checks that
+    /// used to fire unconditionally from the constructor. SettingsViewModel is a DI singleton
+    /// constructed eagerly at app startup (it's a MainViewModel constructor parameter), so doing
+    /// this work there blocked the UI thread before the main window ever appeared. Call this once,
+    /// from SettingsPage's constructor, so it only runs on first navigation to Settings instead.
+    /// </summary>
+    public void EnsureInitialized()
+    {
+        if (_isInitialized) return;
+        _isInitialized = true;
+
+        _ = _aiEngine.CheckStatusAsync();
+
+        try { RefreshAvailableAudioOutputDevices(); }
+        catch (Exception ex) { _logger.LogDebug(ex, "Failed to enumerate audio output devices on Settings load"); }
+
+        _ = CheckFfmpegAsync(); // Phase 8: Check FFmpeg on startup
+        _ = LoadLibraryFoldersAsync(); // Phase 0.10
+        _ = LoadRemovalCandidatesAsync();
+        _ = RefreshEngineDiagnosticsFeedAsync();
     }
 
     /// <summary>

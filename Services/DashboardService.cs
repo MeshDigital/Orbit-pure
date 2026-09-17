@@ -533,6 +533,7 @@ public class DashboardService
             SpotifyKey = entity.SpotifyKey,
             ManualBPM = entity.ManualBPM,
             ManualKey = entity.ManualKey,
+            TagBPM = entity.TagBPM,
             SpectralHash = entity.SpectralHash,
             QualityConfidence = entity.QualityConfidence,
             FrequencyCutoff = entity.FrequencyCutoff,

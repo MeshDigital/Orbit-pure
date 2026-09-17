@@ -211,11 +211,11 @@ public class DialogService : IDialogService
         });
     }
 
-    public async Task<BatchTagEditResult?> ShowBatchTagEditDialogAsync(string? initialFileName = null)
+    public async Task<BatchTagEditResult?> ShowBatchTagEditDialogAsync(string? initialFileName = null, BatchTagEditSeed? seed = null)
     {
         return await Dispatcher.UIThread.InvokeAsync(async () =>
         {
-            var vm = new BatchTagEditViewModel(initialFileName);
+            var vm = new BatchTagEditViewModel(initialFileName, seed);
             var dialog = new Views.Avalonia.Dialogs.BatchTagEditDialog(vm);
             var owner = GetOwnerWindow();
             if (owner != null)

@@ -15,6 +15,7 @@ using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.Audio.Separation;
 using SLSKDONET.Models.Stem;
 using SLSKDONET.ViewModels;
+using SLSKDONET.Views;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -41,6 +42,7 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     private readonly CompositeDisposable _disposables = new();
     private readonly StemPreferenceService _stemPrefService;
     private readonly IDbContextFactory<AppDbContext>? _dbFactory;
+    private readonly INotificationService? _notificationService;
 
     /// <summary>
     /// Callback invoked whenever a track finishes loading into this deck.
@@ -167,6 +169,12 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         get => _isLocked;
         set => this.RaiseAndSetIfChanged(ref _isLocked, value);
     }
+
+    /// <summary>Called by WorkstationDeckRow's drop handler when a track is dropped onto this
+    /// deck while it's locked — dropping used to just silently no-op with no indication the drop
+    /// was even seen, let alone why it did nothing.</summary>
+    public void NotifyLockedDropRejected() =>
+        _notificationService?.Show("Deck Locked", $"Deck {DeckLabel} is locked — unlock it before loading a new track.", NotificationType.Warning);
 
     private bool _isFocusedDeck;
     public bool IsFocusedDeck
@@ -455,14 +463,17 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     public WorkstationDeckViewModel(string deckLabel, DeckSlotViewModel deck,
         CachedStemSeparator stemSeparator, ICuePointService cueService,
         StemPreferenceService stemPrefService,
-        IDbContextFactory<AppDbContext>? dbFactory = null)
+        IDbContextFactory<AppDbContext>? dbFactory = null,
+        IDialogService? dialogService = null,
+        INotificationService? notificationService = null)
     {
         DeckLabel  = deckLabel;
         Deck          = deck;
         Stems         = new StemMixerViewModel(stemSeparator);
-        CueEditor     = new CueEditorViewModel(cueService);
+        CueEditor     = new CueEditorViewModel(cueService, dialogService);
         _stemPrefService = stemPrefService;
         _dbFactory = dbFactory;
+        _notificationService = notificationService;
 
         LoadTrackCommand         = ReactiveCommand.CreateFromTask<string>(LoadTrackAsync);
         LoadPlaylistTrackCommand = ReactiveCommand.CreateFromTask<PlaylistTrack>(LoadPlaylistTrackAsync);

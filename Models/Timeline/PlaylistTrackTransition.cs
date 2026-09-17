@@ -21,6 +21,13 @@ public class PlaylistTrackTransition
     public float? EqLowGain { get; set; }
     public float? EqMidGain { get; set; }
     public float? EqHighGain { get; set; }
+    public float? WaveDuckDepth { get; set; }
+    public bool? FilterSweepRising { get; set; }
+    public bool? EqSwapLow { get; set; }
+    public bool? EqSwapMid { get; set; }
+    public bool? EqSwapHigh { get; set; }
+    public float? EqLowCrossoverHz { get; set; }
+    public float? EqHighCrossoverHz { get; set; }
 
     /// <summary>Seconds into the outgoing track where the mix-out begins — see
     /// <see cref="SLSKDONET.Engine.Transitions.TransitionEngine.OptimizeTransition"/>.</summary>
@@ -46,6 +53,13 @@ public class PlaylistTrackTransition
         if (EchoDecayFactor.HasValue) model.EchoDecayFactor = EchoDecayFactor.Value;
         if (FilterStartFrequency.HasValue) model.FilterStartFrequency = FilterStartFrequency.Value;
         if (FilterEndFrequency.HasValue) model.FilterEndFrequency = FilterEndFrequency.Value;
+        if (WaveDuckDepth.HasValue) model.WaveDuckDepth = WaveDuckDepth.Value;
+        if (FilterSweepRising.HasValue) model.FilterSweepRising = FilterSweepRising.Value;
+        if (EqSwapLow.HasValue) model.EqSwapLow = EqSwapLow.Value;
+        if (EqSwapMid.HasValue) model.EqSwapMid = EqSwapMid.Value;
+        if (EqSwapHigh.HasValue) model.EqSwapHigh = EqSwapHigh.Value;
+        if (EqLowCrossoverHz.HasValue) model.EqLowCrossoverHz = EqLowCrossoverHz.Value;
+        if (EqHighCrossoverHz.HasValue) model.EqHighCrossoverHz = EqHighCrossoverHz.Value;
 
         return model;
     }

@@ -697,6 +697,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     private readonly IClipboardService? _clipboardService;
     private readonly LibraryCorruptionScanService? _corruptionScanService;
     private readonly CorruptFileRemediationService? _remediationService;
+    private readonly AnalyzeTrackStructureJob? _cueStructureJob;
     private readonly CompositeDisposable _disposables = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Stopwatch _analysisSessionStopwatch = new();
@@ -906,6 +907,13 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
     /// </summary>
     public ReactiveCommand<Unit, Unit> ReanalyzeAllTracksCommand { get; }
 
+    /// <summary>
+    /// Re-maps cue points for every already-analysed track in the library, without touching
+    /// BPM/key/energy/vocal/embedding data — for picking up a CueGenerationService logic change
+    /// across the whole library without paying for a full re-analysis pass on every track.
+    /// </summary>
+    public ReactiveCommand<Unit, Unit> RegenerateAllCuesCommand { get; }
+
     /// <summary>Copies the full analysis JSON for a track to the clipboard.</summary>
     public ReactiveCommand<AnalysisTrackItem, Unit> CopyAnalysisJsonCommand { get; }
     public ReactiveCommand<Unit, Unit> CopyPerformanceSnapshotCommand { get; }
@@ -1019,7 +1027,8 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         ILibraryService? libraryService = null,
         IClipboardService? clipboardService = null,
         LibraryCorruptionScanService? corruptionScanService = null,
-        CorruptFileRemediationService? remediationService = null)
+        CorruptFileRemediationService? remediationService = null,
+        AnalyzeTrackStructureJob? cueStructureJob = null)
     {
         _eventBus = eventBus;
         _libraryService = libraryService;
@@ -1027,6 +1036,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         _lifecycleProjectionService = lifecycleProjectionService;
         _corruptionScanService = corruptionScanService;
         _remediationService = remediationService;
+        _cueStructureJob = cueStructureJob;
 
         if (_libraryService is null)
             LoadMockData();
@@ -1058,6 +1068,7 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         ReanalyzeCommand = ReactiveCommand.Create<AnalysisTrackItem>(Reanalyze);
         ReanalyzeAllIncompleteCommand = ReactiveCommand.CreateFromTask(ReanalyzeAllIncompleteAsync);
         ReanalyzeAllTracksCommand = ReactiveCommand.CreateFromTask(ReanalyzeAllTracksAsync);
+        RegenerateAllCuesCommand = ReactiveCommand.CreateFromTask(RegenerateAllCuesAsync);
         CopyAnalysisJsonCommand = ReactiveCommand.CreateFromTask<AnalysisTrackItem>(CopyAnalysisJsonAsync);
         CopyPerformanceSnapshotCommand = ReactiveCommand.CreateFromTask(CopyPerformanceSnapshotAsync);
         ClearPerformanceProbeHistoryCommand = ReactiveCommand.Create(ClearPerformanceProbeHistory);
@@ -1099,7 +1110,10 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
 
         _eventBus.GetEvent<TrackAnalysisFailedEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(OnTrackAnalysisFailed)
+            .Subscribe(evt =>
+            {
+                _ = OnTrackAnalysisFailedAsync(evt);
+            })
             .DisposeWith(_disposables);
 
         _eventBus.GetEvent<TrackAnalysisCompletedEvent>()
@@ -1250,6 +1264,47 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         RefreshComputedState();
     }
 
+    /// <summary>
+    /// Re-maps cue points for every already-analysed track in the library — a DB round-trip per
+    /// track via AnalyzeTrackStructureJob.RegenerateCuesOnlyAsync, not a queued full re-analysis.
+    /// Runs immediately (no "Start Analysis" step needed) since it never touches the audio-decode
+    /// concurrency-gated pipeline.
+    /// </summary>
+    public async Task RegenerateAllCuesAsync()
+    {
+        if (_cueStructureJob == null)
+        {
+            AutomixStatusMessage = "Cue regeneration service unavailable.";
+            return;
+        }
+
+        var timer = Stopwatch.StartNew();
+        var allTracks = LibraryTracks.ToList();
+
+        int succeeded = 0, skipped = 0, batchCount = 0;
+        foreach (var track in allTracks)
+        {
+            if (await _cueStructureJob.RegenerateCuesOnlyAsync(track.TrackId))
+                succeeded++;
+            else
+                skipped++;
+
+            batchCount++;
+            if (batchCount % 10 == 0)
+            {
+                await Task.Yield();
+                AutomixStatusMessage = $"Regenerating cues… {succeeded + skipped}/{allTracks.Count}";
+            }
+        }
+
+        timer.Stop();
+        AutomixStatusMessage = allTracks.Count == 0
+            ? "No tracks in library."
+            : $"Regenerated cues for {succeeded} track(s){(skipped > 0 ? $" — {skipped} skipped (not analysed yet)" : "")} in {timer.Elapsed.TotalSeconds:0.#}s.";
+
+        RefreshComputedState();
+    }
+
     private async Task CopyAnalysisJsonAsync(AnalysisTrackItem? track)
     {
         if (track?.AnalysisData is null || _clipboardService is null)
@@ -1378,11 +1433,40 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
         RefreshComputedState();
     }
 
-    private void OnTrackAnalysisFailed(TrackAnalysisFailedEvent evt)
+    /// <summary>
+    /// Reported by the user: many rows in the "incomplete/corrupt" list showed literally
+    /// "Selected Artist — Selected Track" instead of real metadata. Root cause: when a
+    /// TrackAnalysisRequestedEvent fires for a hash not yet present in LibraryTracks,
+    /// OnTrackAnalysisRequested creates a placeholder item with those literal strings as a
+    /// stand-in, meant to be replaced once real data is available — but the only place that ever
+    /// did that replacement (UpdateFrom, below) was OnTrackAnalysisCompletedAsync's SUCCESS path.
+    /// A track whose analysis fails (exactly the corrupt-file case this list exists to surface)
+    /// never got refreshed and stayed stuck on the placeholder text forever. This now attempts
+    /// the same identity lookup/refresh on failure too.
+    /// </summary>
+    private async Task OnTrackAnalysisFailedAsync(TrackAnalysisFailedEvent evt)
     {
         var track = FindTrack(evt.TrackGlobalId);
         if (track is null)
             return;
+
+        if (_libraryService is not null && track.Artist == "Selected Artist" && track.Title == "Selected Track")
+        {
+            try
+            {
+                var entry = await _libraryService.FindLibraryEntryAsync(evt.TrackGlobalId).ConfigureAwait(true);
+                if (entry is not null)
+                {
+                    var refreshedTrack = MapLibraryEntryToTrack(entry);
+                    refreshedTrack.IsInPlaylist = track.IsInPlaylist;
+                    track.UpdateFrom(refreshedTrack);
+                }
+            }
+            catch
+            {
+                // Ignore refresh lookup failures; keep status updates flowing below.
+            }
+        }
 
         track.AnalysisStatus = AnalysisRunStatus.Failed;
         track.CurrentStep = "Analysis failed";

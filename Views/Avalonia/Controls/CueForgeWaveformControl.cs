@@ -8,6 +8,7 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Linq;
 using SLSKDONET.Models;
+using SLSKDONET.Services.Timeline;
 
 namespace SLSKDONET.Views.Avalonia.Controls;
 
@@ -552,6 +553,18 @@ public class CueForgeWaveformControl : Control
         SeekCommand?.Execute(seekTime);
     }
 
+    // Dragging a cue/loop handle fires OnPointerMoved continuously (mouse-poll rate, easily
+    // 100+/sec) and each call used to invoke InvalidateStaticCache() unconditionally — forcing
+    // EnsureStaticBitmap's full 10-pass rebuild (phrase map, section bands, beat grid, onset
+    // density, RGB waveform, energy/vocal overlays, double-drop zone, loop blocks, cue markers)
+    // on every single one, with no frame-rate cap (WaveformControl.cs has one for exactly this
+    // reason; it was never applied here). Throttling the *trigger* here, rather than touching
+    // EnsureStaticBitmap's own dirty/size-change gate, keeps that method's correctness logic
+    // untouched. OnPointerReleased always forces one final, unthrottled rebuild so the settled
+    // position is never left showing a stale, mid-throttle-window frame.
+    private DateTime _lastCueDragInvalidateTime = DateTime.MinValue;
+    private const double CueDragInvalidateThrottleMs = 33.33; // ~30 FPS max
+
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
@@ -561,24 +574,37 @@ public class CueForgeWaveformControl : Control
         if (_draggedCue is not null)
         {
             _draggedCue.Timestamp = Math.Clamp(ApplySnapping(PixelToTime(pt.X, b)), 0, TrackDuration);
-            InvalidateStaticCache();
+            InvalidateStaticCacheThrottled();
         }
         else if (_draggedLoop is not null && (_isDraggingLoopStart || _isDraggingLoopEnd))
         {
             double t = Math.Clamp(ApplySnapping(PixelToTime(pt.X, b)), 0, TrackDuration);
             if (_isDraggingLoopStart) _draggedLoop.Timestamp = t; else _draggedLoop.LoopEndSeconds = t;
-            InvalidateStaticCache();
+            InvalidateStaticCacheThrottled();
         }
+    }
+
+    private void InvalidateStaticCacheThrottled()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastCueDragInvalidateTime).TotalMilliseconds < CueDragInvalidateThrottleMs) return;
+        _lastCueDragInvalidateTime = now;
+        InvalidateStaticCache();
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+        bool wasDragging = _draggedCue is not null || _draggedLoop is not null;
         _draggedCue = null;
         _draggedLoop = null;
         _isDraggingLoopStart = false;
         _isDraggingLoopEnd = false;
         e.Pointer.Capture(null);
+
+        // Guarantee the final dropped position is rendered exactly, even if the last
+        // OnPointerMoved during the drag landed inside the throttle window and got skipped.
+        if (wasDragging) InvalidateStaticCache();
     }
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
@@ -639,9 +665,12 @@ public class CueForgeWaveformControl : Control
     {
         if (!SnapToGrid || Bpm <= 0) return t;
         int q = ParseQuantize();
-        double beat = 60.0 / Bpm;
-        if (q > 0) { double grid = beat * q; double ng = Math.Round(t / grid) * grid; if (Math.Abs(t - ng) < 0.05) return ng; }
-        double nb = Math.Round(t / beat) * beat; return Math.Abs(t - nb) < 0.05 ? nb : t;
+        if (q > 0)
+        {
+            double? snappedToQuantize = BeatGridService.GetNearestBeatMultipleSeconds(t, Bpm, q, snapRadiusSeconds: 0.05);
+            if (snappedToQuantize.HasValue) return snappedToQuantize.Value;
+        }
+        return BeatGridService.GetNearestBeatSeconds(t, Bpm, snapRadiusSeconds: 0.05) ?? t;
     }
 
     private int ParseQuantize() => QuantizeBeatString switch

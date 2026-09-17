@@ -69,6 +69,7 @@ public partial class LibraryViewModel
     public ICommand OpenSourceUrlCommand { get; set; } = null!;
     public ICommand ExportPlaylistCommand { get; set; } = null!;
     public ICommand ExportPlaylistM3uCommand { get; set; } = null!;
+    public ICommand InitiateMp3SearchCommand { get; set; } = null!;
 
     public ICommand SwitchWorkspaceCommand { get; set; } = null!;
     public ICommand ToggleColumnCommand { get; set; } = null!;
@@ -158,6 +159,7 @@ public partial class LibraryViewModel
         CloseLibraryHealthCommand = new RelayCommand(() => IsLibraryHealthVisible = false);
         CloseImportHistoryCommand = new RelayCommand(() => IsImportHistoryVisible = false);
         ExportPlaylistCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistAsync);
+        InitiateMp3SearchCommand = new AsyncRelayCommand<object>(ExecuteInitiateMp3SearchAsync);
         ExportPlaylistM3uCommand = new AsyncRelayCommand<object>(ExecuteExportPlaylistM3uAsync);
 
 
@@ -461,10 +463,24 @@ public partial class LibraryViewModel
         if (param is PlaylistJob project)
         {
             var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
-            if (tracks.Any())
+
+            // Only tracks with a resolved local file can actually play — matches
+            // AlbumNode.PlayAlbum()'s own filter and PlayAlbumRequestEvent's subscriber
+            // (PlayerViewModel), which silently skips anything without ResolvedFilePath anyway.
+            var playable = tracks.Where(t => !string.IsNullOrEmpty(t.ResolvedFilePath)).ToList();
+
+            if (playable.Count == 0)
             {
-                 _notificationService.Show("Playing Album", project.SourceTitle, NotificationType.Information);
+                _notificationService.Show("Nothing to Play", $"{project.SourceTitle} has no downloaded tracks yet.", NotificationType.Warning);
+                return;
             }
+
+            // This used to stop at showing a "Playing Album" toast without ever actually queuing
+            // or starting playback — the playlist row's own Play button was a no-op. Publishing
+            // the same event AlbumNode.PlayAlbum() uses is what PlayerViewModel actually listens
+            // for to clear the queue, load every track, and start the first one.
+            _eventBus.Publish(new PlayAlbumRequestEvent(playable, Tracks.IsMixModeEnabled));
+            _notificationService.Show("Playing Album", project.SourceTitle, NotificationType.Information);
         }
     }
 
@@ -585,6 +601,11 @@ public partial class LibraryViewModel
             var tracks = await _libraryService.LoadPlaylistTracksAsync(project.Id);
             if (tracks.Any())
             {
+                bool confirm = await _dialogService.ConfirmAsync(
+                    "Force Redownload",
+                    $"This cancels any in-progress downloads and re-queues all {tracks.Count} track(s) in '{project.SourceTitle}' from scratch. Continue?");
+                if (!confirm) return;
+
                 _notificationService.Show("Force Downloading Playlist", $"Force queueing {tracks.Count} tracks from {project.SourceTitle}...", NotificationType.Information);
 
                 foreach (var t in tracks)
@@ -865,15 +886,22 @@ public partial class LibraryViewModel
             _notificationService.Show("Syncing Library", "Scanning for missing files...", NotificationType.Information);
 
             var entries = await _databaseService.GetAllLibraryEntriesAsync();
-            var orphans = new List<LibraryEntryEntity>();
 
-            foreach (var entry in entries)
+            // Thousands of synchronous File.Exists syscalls (worse yet on a slow/disconnected
+            // network share) — this command was unreachable dead code until the Orphaned Tracks
+            // panel got wired up, so this was never actually exercised on the UI thread before.
+            var orphans = await Task.Run(() =>
             {
-                if (!string.IsNullOrEmpty(entry.FilePath) && !System.IO.File.Exists(entry.FilePath))
+                var result = new List<LibraryEntryEntity>();
+                foreach (var entry in entries)
                 {
-                    orphans.Add(entry);
+                    if (!string.IsNullOrEmpty(entry.FilePath) && !System.IO.File.Exists(entry.FilePath))
+                    {
+                        result.Add(entry);
+                    }
                 }
-            }
+                return result;
+            });
 
             // Clear existing orphaned tracks
             OrphanedTracks.Clear();
@@ -1751,8 +1779,10 @@ public partial class LibraryViewModel
                 if (string.IsNullOrEmpty(folder)) return;
 
                 int total = tracks.Count;
+                Services.Export.ExportProgress? lastProgress = null;
                 var progressHandler = new Progress<Services.Export.ExportProgress>(p =>
                 {
+                    lastProgress = p;
                     if (!p.IsComplete)
                         _notificationService.Show("Exporting…",
                             $"[{p.Copied}/{total}] {p.CurrentFile}" +
@@ -1765,13 +1795,24 @@ public partial class LibraryViewModel
                     Services.Export.ExportMode.FilesAndXml,
                     progressHandler, folderId: project.FolderId);
 
-                int skipped = tracks.Count(t =>
-                    string.IsNullOrEmpty(t.ResolvedFilePath) || !System.IO.File.Exists(t.ResolvedFilePath));
+                // Use the orchestrator's own final tally rather than re-deriving "skipped" by
+                // re-checking File.Exists here — that only ever caught missing-file skips, silently
+                // missing every other reason a track can end up left out (copy verification
+                // failure, exceeding FAT32's 4GB single-file limit, disk-full mid-export). Those
+                // are exactly the failure modes a USB export needs to surface, not hide.
+                int skipped = lastProgress?.Skipped ?? 0;
                 var xmlPath = System.IO.Path.Combine(folder, "PIONEER", "rekordbox.xml");
+                // A drive with only files + rekordbox.xml is not yet CDJ-ready — CDJs read
+                // Rekordbox's own native device database (PDB+ANLZ), not this XML directly. The
+                // XML has to go through Rekordbox desktop first (Preferences → Advanced →
+                // rekordbox xml → import), and only Rekordbox's own device-export from there
+                // actually prepares the drive for CDJ hardware. Spelling this out here so it isn't
+                // discovered the hard way at a gig.
                 _notificationService.Show("Export Complete",
-                    $"rekordbox.xml written to {xmlPath}" +
-                    (skipped > 0 ? $" · {skipped} tracks skipped (not downloaded)" : ""),
-                    NotificationType.Success);
+                    $"{xmlPath}" +
+                    (skipped > 0 ? $" · {skipped} track(s) skipped — see logs for why" : "") +
+                    " · Next: import this XML into Rekordbox desktop, then use Rekordbox's own USB export to make this drive CDJ-ready.",
+                    skipped > 0 ? NotificationType.Warning : NotificationType.Success);
             }
             else
             {
@@ -1877,7 +1918,31 @@ public partial class LibraryViewModel
                 initialFileName = System.IO.Path.GetFileNameWithoutExtension(singlePath);
         }
 
-        var result = await _dialogService.ShowBatchTagEditDialogAsync(initialFileName);
+        // Prefill the dialog with the selection's actual current values instead of leaving every
+        // field blank — a field comes back null (shown as "multiple values") only when the
+        // selected tracks disagree on it, which is impossible for a single track.
+        string? CommonOrNull(Func<SLSKDONET.Models.PlaylistTrack, string?> selector)
+        {
+            var values = selected.Select(t => selector(t.Model) ?? string.Empty).Distinct().ToList();
+            return values.Count == 1 ? values[0] : null;
+        }
+
+        var seed = new BatchTagEditSeed
+        {
+            Artist = CommonOrNull(m => m.Artist),
+            Title = CommonOrNull(m => m.Title),
+            Album = CommonOrNull(m => m.Album),
+            Genre = CommonOrNull(m => m.PrimaryGenre),
+            Year = CommonOrNull(m => m.ReleaseDate?.Year.ToString()),
+            Bpm = CommonOrNull(m => m.BPM is > 0 ? m.BPM.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) : null),
+            Key = CommonOrNull(m => m.MusicalKey),
+            Comments = CommonOrNull(m => m.Comments),
+            Mood = CommonOrNull(m => m.MoodTag),
+            TrackNumber = CommonOrNull(m => m.TrackNumber > 0 ? m.TrackNumber.ToString() : null),
+            Rating = CommonOrNull(m => m.Rating > 0 ? m.Rating.ToString() : null),
+        };
+
+        var result = await _dialogService.ShowBatchTagEditDialogAsync(initialFileName, seed);
         if (result == null || !result.IsConfirmed) return;
 
         _logger.LogInformation("Batch tag edit for {Count} tracks starting.", selected.Count);
@@ -2210,16 +2275,25 @@ public partial class LibraryViewModel
 
         int renamedCount = 0;
         var skippedTracks = new List<string>();
+        var touchedHashes = new HashSet<string>();
 
         await Task.Run(async () =>
         {
             await using var context = _dbFactory.CreateDbContext();
-            var trackIds = selected.Select(t => t.Model.Id).ToList();
             var trackHashes = selected.Select(t => t.Model.TrackUniqueHash).Where(h => !string.IsNullOrEmpty(h)).ToList();
 
-            var dbTracksById = await context.PlaylistTracks
-                .Where(t => trackIds.Contains(t.Id))
-                .ToDictionaryAsync(t => t.Id);
+            // Keyed by TrackUniqueHash, not PlaylistTrack.Id — the same physical file can be
+            // referenced by rows in multiple playlists, and every one of them denormalizes its
+            // own ResolvedFilePath (read back verbatim by LibraryService.EntityToPlaylistTrack,
+            // never re-resolved from LibraryEntries). Scoping this to only the selected rows'
+            // Ids left every other playlist's copy pointing at the old, now-moved path — same
+            // class of bug already fixed once for cue points (see UpdateTrackCuePointsAsync).
+            var dbTracksByHash = (await context.PlaylistTracks
+                .Where(t => trackHashes.Contains(t.TrackUniqueHash))
+                .ToListAsync())
+                .Where(t => !string.IsNullOrEmpty(t.TrackUniqueHash))
+                .GroupBy(t => t.TrackUniqueHash!)
+                .ToDictionary(g => g.Key, g => g.ToList());
             var dbEntriesByHash = await context.LibraryEntries
                 .Where(e => trackHashes.Contains(e.UniqueHash))
                 .ToDictionaryAsync(e => e.UniqueHash);
@@ -2263,15 +2337,22 @@ public partial class LibraryViewModel
                     System.IO.File.Move(track.ResolvedFilePath, destPath);
                     track.ResolvedFilePath = destPath;
 
-                    if (dbTracksById.TryGetValue(track.Id, out var dbTrack))
+                    if (!string.IsNullOrEmpty(track.TrackUniqueHash))
                     {
-                        dbTrack.ResolvedFilePath = destPath;
-                        context.PlaylistTracks.Update(dbTrack);
-                    }
-                    if (!string.IsNullOrEmpty(track.TrackUniqueHash) && dbEntriesByHash.TryGetValue(track.TrackUniqueHash, out var dbEntry))
-                    {
-                        dbEntry.FilePath = destPath;
-                        context.LibraryEntries.Update(dbEntry);
+                        if (dbTracksByHash.TryGetValue(track.TrackUniqueHash, out var dbTracks))
+                        {
+                            foreach (var dbTrack in dbTracks)
+                            {
+                                dbTrack.ResolvedFilePath = destPath;
+                                context.PlaylistTracks.Update(dbTrack);
+                            }
+                        }
+                        if (dbEntriesByHash.TryGetValue(track.TrackUniqueHash, out var dbEntry))
+                        {
+                            dbEntry.FilePath = destPath;
+                            context.LibraryEntries.Update(dbEntry);
+                        }
+                        touchedHashes.Add(track.TrackUniqueHash);
                     }
 
                     renamedCount++;
@@ -2285,6 +2366,12 @@ public partial class LibraryViewModel
 
             await context.SaveChangesAsync();
         });
+
+        // Other open playlists may hold PlaylistTrackViewModel instances for the same hash with
+        // the now-stale ResolvedFilePath baked in — a full refresh re-reads from the DB rows we
+        // just updated above rather than leaving them silently pointing at a moved-away file.
+        if (touchedHashes.Count > 0)
+            await ExecuteRefreshLibraryAsync();
 
         var message = $"Renamed {renamedCount} file(s).";
         if (skippedTracks.Count > 0)
@@ -2321,16 +2408,22 @@ public partial class LibraryViewModel
 
         int processedCount = 0;
         var skippedTracks = new List<string>();
+        var touchedHashes = new HashSet<string>();
 
         await Task.Run(async () =>
         {
             await using var context = _dbFactory.CreateDbContext();
-            var trackIds = selected.Select(t => t.Model.Id).ToList();
             var trackHashes = selected.Select(t => t.Model.TrackUniqueHash).Where(h => !string.IsNullOrEmpty(h)).ToList();
 
-            var dbTracksById = modeResult.IsCopy ? null : await context.PlaylistTracks
-                .Where(t => trackIds.Contains(t.Id))
-                .ToDictionaryAsync(t => t.Id);
+            // Keyed by TrackUniqueHash, not PlaylistTrack.Id — see ExecuteBulkRenameAsync for why:
+            // the same physical file can be referenced by rows in multiple playlists, each with
+            // its own denormalized ResolvedFilePath that must all move together.
+            var dbTracksByHash = modeResult.IsCopy ? null : (await context.PlaylistTracks
+                .Where(t => trackHashes.Contains(t.TrackUniqueHash))
+                .ToListAsync())
+                .Where(t => !string.IsNullOrEmpty(t.TrackUniqueHash))
+                .GroupBy(t => t.TrackUniqueHash!)
+                .ToDictionary(g => g.Key, g => g.ToList());
             var dbEntriesByHash = modeResult.IsCopy ? null : await context.LibraryEntries
                 .Where(e => trackHashes.Contains(e.UniqueHash))
                 .ToDictionaryAsync(e => e.UniqueHash);
@@ -2365,15 +2458,22 @@ public partial class LibraryViewModel
                         System.IO.File.Move(track.ResolvedFilePath, destPath);
                         track.ResolvedFilePath = destPath;
 
-                        if (dbTracksById != null && dbTracksById.TryGetValue(track.Id, out var dbTrack))
+                        if (!string.IsNullOrEmpty(track.TrackUniqueHash))
                         {
-                            dbTrack.ResolvedFilePath = destPath;
-                            context.PlaylistTracks.Update(dbTrack);
-                        }
-                        if (dbEntriesByHash != null && !string.IsNullOrEmpty(track.TrackUniqueHash) && dbEntriesByHash.TryGetValue(track.TrackUniqueHash, out var dbEntry))
-                        {
-                            dbEntry.FilePath = destPath;
-                            context.LibraryEntries.Update(dbEntry);
+                            if (dbTracksByHash != null && dbTracksByHash.TryGetValue(track.TrackUniqueHash, out var dbTracks))
+                            {
+                                foreach (var dbTrack in dbTracks)
+                                {
+                                    dbTrack.ResolvedFilePath = destPath;
+                                    context.PlaylistTracks.Update(dbTrack);
+                                }
+                            }
+                            if (dbEntriesByHash != null && dbEntriesByHash.TryGetValue(track.TrackUniqueHash, out var dbEntry))
+                            {
+                                dbEntry.FilePath = destPath;
+                                context.LibraryEntries.Update(dbEntry);
+                            }
+                            touchedHashes.Add(track.TrackUniqueHash);
                         }
                     }
 
@@ -2389,6 +2489,13 @@ public partial class LibraryViewModel
             if (!modeResult.IsCopy)
                 await context.SaveChangesAsync();
         });
+
+        // Other open playlists may hold PlaylistTrackViewModel instances for the same hash with
+        // the now-stale ResolvedFilePath baked in — refresh so they re-read the updated DB rows
+        // rather than silently pointing at a moved-away file. Copy never touches the DB, so
+        // touchedHashes stays empty and this is a no-op for that mode.
+        if (touchedHashes.Count > 0)
+            await ExecuteRefreshLibraryAsync();
 
         var verb = modeResult.IsCopy ? "Copied" : "Moved";
         var message = $"{verb} {processedCount} file(s) to {destinationFolder}.";

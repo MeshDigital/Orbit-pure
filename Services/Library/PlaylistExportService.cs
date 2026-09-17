@@ -21,13 +21,16 @@ public class PlaylistExportService
 {
     private readonly ILogger<PlaylistExportService> _logger;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly SLSKDONET.Services.IO.IFileWriteService _fileWriteService;
 
     public PlaylistExportService(
         ILogger<PlaylistExportService> logger,
-        IDbContextFactory<AppDbContext> dbFactory)
+        IDbContextFactory<AppDbContext> dbFactory,
+        SLSKDONET.Services.IO.IFileWriteService fileWriteService)
     {
         _logger = logger;
         _dbFactory = dbFactory;
+        _fileWriteService = fileWriteService;
     }
 
     /// <param name="pathMap">
@@ -219,7 +222,33 @@ public class PlaylistExportService
 
             await PersistCueSyncSnapshotsAsync(db, normalizedTargetPath, finalDoc, rbTracks, rbSources);
 
-            await Task.Run(() => finalDoc.Save(targetPath));
+            // Atomic write (temp file in the same directory, verified, then renamed into place) —
+            // a direct XDocument.Save(targetPath) truncates the target file before streaming the
+            // new content out, so a crash, a killed process, or (very plausible for a USB export)
+            // the drive being unplugged mid-write leaves a corrupted, truncated rekordbox.xml. For
+            // a first-time export that's just a failed export; for a merge-mode re-export it would
+            // destroy the EXISTING file — including whatever ratings/colours/cues the user had
+            // already edited in Rekordbox, which the whole merge feature exists to protect.
+            bool writeOk = await _fileWriteService.WriteAtomicAsync(
+                targetPath,
+                writeAction: tempPath => { finalDoc.Save(tempPath); return Task.CompletedTask; },
+                verifyAction: tempPath =>
+                {
+                    try
+                    {
+                        var check = XDocument.Load(tempPath);
+                        return Task.FromResult(check.Root?.Name.LocalName == "DJ_PLAYLISTS");
+                    }
+                    catch
+                    {
+                        return Task.FromResult(false);
+                    }
+                });
+
+            if (!writeOk)
+            {
+                throw new IOException($"Failed to write Rekordbox XML to {targetPath} (atomic write/verification failed — original file, if any, was left untouched).");
+            }
             _logger.LogInformation("Rekordbox XML export completed successfully.");
         }
         catch (Exception ex)
@@ -549,6 +578,37 @@ public class PlaylistExportService
                     new XAttribute("Red", r),
                     new XAttribute("Green", g),
                     new XAttribute("Blue", b)
+                ));
+            }
+        }
+
+        // Phrase-countdown memory cues: a memory-cue-only marker 16 bars before each Drop, purely
+        // so Rekordbox/CDJs show an on-screen "bars remaining" countdown heading into the drop —
+        // the same pattern the open-source "djcues" project uses (memory cues at phrase markers,
+        // separate from the hot cue at the trigger point itself, so they don't consume a hot-cue
+        // pad). Skipped if it would land before the track start or within 2 bars of another cue —
+        // early drops are common (short radio edits, DnB tracks with Drop 1 around bar 9-17), and
+        // a countdown marker jammed right next to the cue it's counting down to (or the Intro/
+        // First-Beat cue) is worse than no countdown marker at all.
+        if (bpm > 0)
+        {
+            double barSeconds = 60.0 / bpm * 4;
+            foreach (var cue in pointCues.Where(c => c.Role == CueRole.Drop))
+            {
+                double countdownAt = cue.Timestamp - barSeconds * 16;
+                if (countdownAt < 0) continue;
+                bool tooClose = allCues.Any(c => Math.Abs(c.Timestamp - countdownAt) < barSeconds * 2);
+                if (tooClose) continue;
+
+                var (cr, cg, cb) = HexToRgb(cue.Color, t.Name);
+                trackElem.Add(new XElement("POSITION_MARK",
+                    new XAttribute("Name", $"16 bars to {cue.Name}"),
+                    new XAttribute("Type", "0"),
+                    new XAttribute("Start", countdownAt.ToString("F3", CultureInfo.InvariantCulture)),
+                    new XAttribute("Num", "-1"),
+                    new XAttribute("Red", cr),
+                    new XAttribute("Green", cg),
+                    new XAttribute("Blue", cb)
                 ));
             }
         }

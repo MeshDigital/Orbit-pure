@@ -70,6 +70,46 @@ public class TransitionPresetLibraryTests
         Assert.Equal(originalFilterEnd, model.FilterEndFrequency);
     }
 
+    [Fact]
+    public void ApplyCustomOverrides_WaveDuckDepthAndFilterSweepRising_OnlyOverrideWhenProvided()
+    {
+        var model = TransitionPresetLibrary.Build("Wave");
+        var originalDepth = model.WaveDuckDepth;
+
+        TransitionPresetLibrary.ApplyCustomOverrides(model, null, null, null);
+        Assert.Equal(originalDepth, model.WaveDuckDepth); // untouched when not supplied
+        Assert.False(model.FilterSweepRising);
+
+        TransitionPresetLibrary.ApplyCustomOverrides(model, null, null, null, waveDuckDepth: 0.8f, filterSweepRising: true);
+        Assert.Equal(0.8f, model.WaveDuckDepth);
+        Assert.True(model.FilterSweepRising);
+    }
+
+    [Fact]
+    public void ApplyCustomOverrides_EqSwapBands_OnlyOverrideWhenProvided()
+    {
+        var model = TransitionPresetLibrary.Build("Blend");
+        Assert.True(model.EqSwapLow); // preset default
+        Assert.False(model.EqSwapMid);
+        Assert.False(model.EqSwapHigh);
+
+        TransitionPresetLibrary.ApplyCustomOverrides(model, null, null, null);
+        Assert.True(model.EqSwapLow); // untouched when not supplied
+        Assert.Equal(250f, model.EqLowCrossoverHz);
+        Assert.Equal(4000f, model.EqHighCrossoverHz);
+
+        TransitionPresetLibrary.ApplyCustomOverrides(
+            model, null, null, null,
+            eqSwapLow: false, eqSwapMid: true, eqSwapHigh: true,
+            eqLowCrossoverHz: 300f, eqHighCrossoverHz: 5000f);
+
+        Assert.False(model.EqSwapLow);
+        Assert.True(model.EqSwapMid);
+        Assert.True(model.EqSwapHigh);
+        Assert.Equal(300f, model.EqLowCrossoverHz);
+        Assert.Equal(5000f, model.EqHighCrossoverHz);
+    }
+
     [Theory]
     [InlineData(TransitionType.Cut, SLSKDONET.Services.Audio.TransitionType.Cut)]
     [InlineData(TransitionType.Crossfade, SLSKDONET.Services.Audio.TransitionType.Crossfade)]

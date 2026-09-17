@@ -96,7 +96,8 @@ public class LibraryEntry
     public string? SpotifyKey { get; set; }
     public double? ManualBPM { get; set; }
     public string? ManualKey { get; set; }
-    
+    public double? TagBPM { get; set; }
+
     public bool IsEnriched { get; set; } = false;
 
     // Phase 8: Sonic Integrity & Spectral Analysis

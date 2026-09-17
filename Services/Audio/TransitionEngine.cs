@@ -263,22 +263,29 @@ public class TransitionEngine
     {
         // EQ Swap: The key DJ technique
         // As progress increases, we fade OUT the bass on track A and fade IN the bass on track B
-        // This prevents muddy bass collision during the transition
-        
+        // This prevents muddy bass collision during the transition. The swapped bands only
+        // control which band is "muddy" during the overlap — the main gains still have to
+        // follow an equal-power crossfade underneath, same as a plain Crossfade, otherwise any
+        // band that ISN'T swapped (mid/high stay at 1.0 on both decks with the default
+        // bass-only config) plays both full tracks at full volume simultaneously for the whole
+        // transition — an audible loudness spike right before every track ends, previously
+        // followed by a "mute" the next track only sounds like by contrast.
+
         float outLow = config.SwapLow ? (float)(1.0 - progress) : 1.0f;
         float inLow = config.SwapLow ? (float)progress : 1.0f;
-        
+
         float outMid = config.SwapMid ? (float)(1.0 - progress) : 1.0f;
         float inMid = config.SwapMid ? (float)progress : 1.0f;
-        
+
         float outHigh = config.SwapHigh ? (float)(1.0 - progress) : 1.0f;
         float inHigh = config.SwapHigh ? (float)progress : 1.0f;
-        
+
+        var powerCurve = CalculateCrossfade(progress);
+
         return new TransitionAutomation
         {
-            // Main gains stay at 1.0 during EQ swap - the EQ bands do the work
-            OutgoingGain = 1.0f,
-            IncomingGain = 1.0f,
+            OutgoingGain = powerCurve.OutgoingGain,
+            IncomingGain = powerCurve.IncomingGain,
             OutgoingLowGain = outLow,
             OutgoingMidGain = outMid,
             OutgoingHighGain = outHigh,

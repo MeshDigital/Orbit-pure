@@ -25,6 +25,13 @@
             <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
 
+        <!-- Drag-reorder was fully functional (MoveCardToIndex genuinely worked) but gave zero
+             visual indication of where a dragged card would land — same "drag-over" highlight
+             pattern used by WorkstationDeckRow's drop zone. -->
+        <Style Selector="Border.flow-card.drag-over">
+            <Setter Property="BorderBrush" Value="#00D7FF"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
         <Style Selector="Button.fb-ghost">
             <Setter Property="Background" Value="#171C22"/>
             <Setter Property="BorderBrush" Value="#2A333D"/>
@@ -36,7 +43,7 @@
         </Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="Auto,Auto,Auto,*">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
 
         <!-- ── Header bar ───────────────────────────────────────────────── -->
         <Border Grid.Row="0"
@@ -44,7 +51,7 @@
                 BorderBrush="#3E3E3E"
                 BorderThickness="0,0,0,1"
                 Padding="20,12">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
 
                 <!-- Title block -->
                 <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
@@ -144,17 +151,8 @@
                         Margin="12,0,4,0"
                         VerticalAlignment="Center"/>
 
-                <!-- Finish: hand off to DJ software -->
-                <Button Grid.Column="9"
-                        Content="⇪ Export Set"
-                        Classes="fb-primary"
-                        Command="{Binding ExportSetCommand}"
-                        ToolTip.Tip="Export this set in order — with all saved hot cues and loops — as Rekordbox XML"
-                        Margin="4,0"
-                        VerticalAlignment="Center"/>
-
                 <!-- Combine multiple playlists into a new, auto-arranged one -->
-                <Button Grid.Column="10"
+                <Button Grid.Column="9"
                         Content="⛙ Combine Playlists…"
                         Classes="fb-ghost"
                         Command="{Binding CombinePlaylistsCommand}"
@@ -379,6 +377,7 @@
 
                                 <!-- ── Track card ──────────────────────── -->
                                 <Border Grid.Column="0"
+                                        Classes="flow-card"
                                         Width="192"
                                         Background="#1E1E1E"
                                         BorderBrush="#3C3C3C"
@@ -387,6 +386,7 @@
                                         Margin="2,0,2,4"
                                         DragDrop.AllowDrop="True"
                                         DragDrop.DragOver="OnCardDragOver"
+                                        DragDrop.DragLeave="OnCardDragLeave"
                                         DragDrop.Drop="OnCardDrop">
                                     <Grid RowDefinitions="4,Auto,Auto,36,Auto,Auto">
 
@@ -569,5 +569,10 @@
                 </StackPanel>
             </ScrollViewer>
         </Grid>
+
+        <!-- Bottom slide-out: the full-option transition editor, opened by clicking a bridge
+             between two adjacent cards (FlowTrackCardViewModel.SelectTransitionInspectorCommand →
+             FlowBuilderViewModel.OpenTransitionInspector). -->
+        <controls:FlowTransitionEditorPanel Grid.Row="4" IsVisible="{Binding IsTransitionEditorOpen}"/>
     </Grid>
 </UserControl>

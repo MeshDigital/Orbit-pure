@@ -170,6 +170,10 @@ public class UsersViewModel : ReactiveObject, IDisposable
             .Subscribe(OnIncomingMessage)
             .DisposeWith(_disposables);
 
+        this.WhenAnyValue(x => x.SelectedProfile)
+            .Subscribe(profile => _eventBus.Publish(new ActiveConversationChangedEvent(profile?.Username)))
+            .DisposeWith(_disposables);
+
         _eventBus.GetEvent<ConversationClearedEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(e =>

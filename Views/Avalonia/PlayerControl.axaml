@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
 
              mc:Ignorable="d" d:DesignWidth="300" d:DesignHeight="800"
              x:Class="SLSKDONET.Views.Avalonia.PlayerControl"
@@ -51,6 +52,56 @@
         </Style>
         <Style Selector="Button.phraseTab:pointerover">
             <Setter Property="Background" Value="{StaticResource BrushGlass}"/>
+        </Style>
+
+        <!-- Inline Mix module — collapsed status row that expands into the full transition
+             editor without leaving Now Playing. Glows accent-teal while a crossfade is actually
+             in progress so it reads as "alive", not just another static card. -->
+        <Style Selector="Border.mix-module">
+            <Setter Property="Background" Value="{StaticResource BrushBg2}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder1}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
+            <Setter Property="ClipToBounds" Value="True"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.3"/>
+                    <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.3"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.mix-module.mixing">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="BoxShadow" Value="{StaticResource ShadowAccent}"/>
+        </Style>
+        <Style Selector="Border.mix-icon-bubble">
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusFull}"/>
+            <Setter Property="Background" Value="{StaticResource BrushGlass}"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.3"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.mix-module.mixing Border.mix-icon-bubble">
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
+        </Style>
+        <Style Selector="Button.mixHeader">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="{StaticResource PaddingMd}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
+        <Style Selector="Button.mixHeader:pointerover">
+            <Setter Property="Background" Value="{StaticResource BrushGlassThin}"/>
+        </Style>
+        <Style Selector="TextBlock.mix-chevron">
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText2}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
     </UserControl.Styles>
 
@@ -411,21 +462,56 @@
                         <TextBlock Text="{Binding CurrentTrackCueBadge}" FontSize="10" Foreground="{StaticResource BrushText2}"/>
                     </StackPanel>
 
-                    <!-- Live Mix crossfade indicator — AudioPlayerService used to compute all of
-                         this (whether a crossfade was active, how far through it was, which
-                         preset) with zero visibility outside the engine itself; nothing on screen
-                         could ever show "mixing now". -->
-                    <Border Classes="card" IsVisible="{Binding IsCrossfading}">
-                        <StackPanel Spacing="{StaticResource SpaceXs}">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="🔀" FontSize="12"/>
-                                <TextBlock Text="Mixing now" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource BrushAccent}"/>
-                                <TextBlock Text="{Binding ActiveCrossfadePresetName}"
-                                           FontSize="11" Foreground="{StaticResource BrushText1}"
-                                           IsVisible="{Binding ActiveCrossfadePresetName, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-                            </StackPanel>
-                            <ProgressBar Value="{Binding CrossfadeProgressPercent}" Maximum="100" Height="4"
-                                         Foreground="{StaticResource BrushAccent}" Background="Transparent"/>
+                    <!-- MIX module — lives on the Now Playing screen itself instead of only in a
+                         separate CONTEXT-sidepanel tab. Collapsed, it's a compact status row: idle
+                         with nothing upcoming, "Next: via <preset>" once one's resolved, or a live
+                         glowing progress row while a crossfade is actually in flight. Expanded, it
+                         hosts the exact same dual-waveform/preset/trigger editor the sidepanel's
+                         "Mix" tab uses (same shared MixTransitionVm instance) — so tuning how the
+                         current track mixes into the next never requires leaving this screen. -->
+                    <Border Classes="mix-module" Classes.mixing="{Binding IsCrossfading}" IsVisible="{Binding HasUpNext}">
+                        <StackPanel Spacing="0">
+                            <Button Classes="mixHeader" Command="{Binding ToggleMixPanelCommand}">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <Border Grid.Column="0" Classes="mix-icon-bubble" Margin="0,0,10,0">
+                                        <Panel>
+                                            <TextBlock FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       IsVisible="{Binding IsCrossfading}"
+                                                       Text="{Binding ActiveCrossfadePresetName, Converter={StaticResource MixPresetIconConverter}}"/>
+                                            <TextBlock FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       IsVisible="{Binding !IsCrossfading}"
+                                                       Text="{Binding UpcomingTransitionPresetName, Converter={StaticResource MixPresetIconConverter}}"/>
+                                        </Panel>
+                                    </Border>
+
+                                    <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                        <StackPanel IsVisible="{Binding IsCrossfading}" Spacing="3">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Text="MIXING NOW" Classes="caption" Foreground="{StaticResource BrushAccent}"/>
+                                                <TextBlock Text="{Binding ActiveCrossfadePresetName}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource BrushText0}"/>
+                                            </StackPanel>
+                                            <ProgressBar Value="{Binding CrossfadeProgressPercent}" Maximum="100" Height="3"
+                                                         Foreground="{StaticResource BrushAccent}" Background="{StaticResource BrushBg3}"/>
+                                        </StackPanel>
+
+                                        <StackPanel IsVisible="{Binding !IsCrossfading}" Spacing="1">
+                                            <TextBlock Text="MIX" Classes="caption"/>
+                                            <TextBlock FontSize="11" Foreground="{StaticResource BrushText1}">
+                                                <Run Text="Next: via "/>
+                                                <Run Text="{Binding UpcomingTransitionPresetName, FallbackValue='Auto', TargetNullValue='Auto'}" FontWeight="SemiBold" Foreground="{StaticResource BrushText0}"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </StackPanel>
+
+                                    <TextBlock Grid.Column="2" Classes="mix-chevron"
+                                               Text="{Binding IsMixPanelExpanded, Converter={StaticResource BoolToTextConverter}, ConverterParameter='⌃|⌄'}"/>
+                                </Grid>
+                            </Button>
+
+                            <Border IsVisible="{Binding IsMixPanelExpanded}"
+                                    BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,1,0,0">
+                                <views:MixTransitionPanel DataContext="{Binding MixTransitionVm}" Height="440" Background="Transparent"/>
+                            </Border>
                         </StackPanel>
                     </Border>
 

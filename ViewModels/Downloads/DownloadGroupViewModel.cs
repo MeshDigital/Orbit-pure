@@ -253,65 +253,91 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
 
         RecalculateAggregates(); // Initial calc
 
-        // Group Commands
-        PauseCommand = ReactiveCommand.Create(() =>
+        // Group Commands — all four batched through dedicated DownloadManager methods (see their
+        // doc comments): looping each track's own command here used to serialize one DB
+        // round-trip per track through TrackRepository's app-wide static write semaphore, which is
+        // what actually froze the UI on any playlist with more than a handful of tracks. That
+        // freeze wasn't unique to VIP Start — every one of Pause/Resume/Retry/Cancel had the exact
+        // same shape.
+        PauseCommand = ReactiveCommand.CreateFromTask(async () =>
         {
             var items = Tracks.ToList().Where(x => x.IsActive).ToList();
-            foreach (var t in items)
+            if (items.Count > 0)
             {
-                ExecuteIfAllowed(t.PauseCommand);
+                await _downloadManager.PauseTracksAsync(items.Select(t => t.GlobalId));
             }
             NotifyGroupAction(items.Count, "Paused {0} download(s)", "Nothing to pause — no active downloads in this playlist");
         });
 
-        ResumeCommand = ReactiveCommand.Create(() =>
+        ResumeCommand = ReactiveCommand.CreateFromTask(async () =>
         {
             var items = Tracks.ToList();
             int affected = 0;
-            foreach (var t in items)
+
+            // Pending/Stalled -> ForceStartTracksAsync (same batched path as VipStartCommand).
+            var toForceStart = items.Where(t => t.State == PlaylistTrackState.Pending || t.State == PlaylistTrackState.Stalled).ToList();
+            if (toForceStart.Count > 0)
             {
-                if (t.State == PlaylistTrackState.Paused)
-                {
-                    ExecuteIfAllowed(t.ResumeCommand);
-                    affected++;
-                    continue;
-                }
-
-                // "Initiate/continue" for queued or stalled items in a group action.
-                if (t.State == PlaylistTrackState.Pending || t.State == PlaylistTrackState.Stalled)
-                {
-                    ExecuteIfAllowed(t.ForceStartCommand);
-                    affected++;
-                    continue;
-                }
-
-                // "Restart" for failed items in a group action.
-                if (t.State == PlaylistTrackState.Failed)
-                {
-                    ExecuteIfAllowed(t.RetryCommand);
-                    affected++;
-                }
+                await _downloadManager.ForceStartTracksAsync(toForceStart.Select(t => t.GlobalId));
+                affected += toForceStart.Count;
             }
+
+            // Paused -> ResumePausedTracksAsync, Failed -> HardRetryTracksAsync. Each does
+            // meaningfully different per-track work (retry counter resets, search-attempt-log
+            // clearing for the latter) than a plain state flip, so each gets its own dedicated
+            // batched method rather than reusing ForceStartTracksAsync.
+            var toResume = items.Where(t => t.State == PlaylistTrackState.Paused).ToList();
+            if (toResume.Count > 0)
+            {
+                await _downloadManager.ResumePausedTracksAsync(toResume.Select(t => t.GlobalId));
+                affected += toResume.Count;
+            }
+
+            var toRetry = items.Where(t => t.State == PlaylistTrackState.Failed).ToList();
+            if (toRetry.Count > 0)
+            {
+                await _downloadManager.HardRetryTracksAsync(toRetry.Select(t => t.GlobalId));
+                affected += toRetry.Count;
+            }
+
             NotifyGroupAction(affected, "Resumed {0} track(s)", "Nothing to resume — no paused, queued, or failed tracks");
         });
 
-        // Explicit queue-bypass group action for playlist cards.
-        VipStartCommand = ReactiveCommand.Create(() =>
+        // Explicit queue-bypass group action for playlist cards. Batched — see
+        // DownloadManager.ForceStartTracksAsync's doc comment: looping each track's own
+        // ForceStartCommand here used to serialize one DB round-trip per track through an
+        // app-wide static write semaphore, which is what actually froze the UI on any playlist
+        // with more than a handful of pending tracks.
+        VipStartCommand = ReactiveCommand.CreateFromTask(async () =>
         {
             var items = Tracks.ToList().Where(x =>
                          x.State == PlaylistTrackState.Pending ||
                          x.State == PlaylistTrackState.Stalled ||
                          x.State == PlaylistTrackState.Paused).ToList();
-            foreach (var t in items)
+            if (items.Count > 0)
             {
-                ExecuteIfAllowed(t.ForceStartCommand);
+                await _downloadManager.ForceStartTracksAsync(items.Select(t => t.GlobalId));
             }
             NotifyGroupAction(items.Count, "Bumped {0} track(s) to the front of the queue", "Nothing to bump — no queued or paused tracks");
         });
 
         CancelCommand = ReactiveCommand.CreateFromTask(async () =>
         {
+            // NOTE on scope: unlike Pause/Resume/Retry above, this deliberately does NOT move to a
+            // single batched DB write. DownloadCenterSoftClearContractTests pins a real contract —
+            // the soft-clear flag persists via one ILibraryService.UpdatePlaylistTrackAsync(t.Model)
+            // call per track, independently mockable/verifiable — and collapsing that into
+            // DownloadManager's internal batched writer would silently drop that guarantee. What
+            // IS fixed: CancelTrack's own DB write (via UpdateStateAsync) was already fire-and-forget,
+            // not the bottleneck; the actual serialization was this loop `await`-ing each track's
+            // UpdatePlaylistTrackAsync one at a time before starting the next. Task.WhenAll still
+            // issues exactly one call per track (same call count Moq verifies), but lets them all
+            // reach TrackRepository's write semaphore back-to-back instead of one full round-trip
+            // apart, which is what let a handful of dispatcher continuations pile up and make the
+            // UI feel frozen on a large playlist.
             var items = Tracks.ToList();
+            var saveTasks = new List<Task>(items.Count);
+
             foreach (var t in items)
             {
                 // Status Reset Safety Check: if not already in a terminal state, make sure the
@@ -343,9 +369,11 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
                 t.IsClearedFromDownloadCenter = true;
                 t.Model.IsClearedFromDownloadCenter = true;
 
-                // Persist soft clear
-                await _libraryService.UpdatePlaylistTrackAsync(t.Model);
+                // Persist soft clear — collected, not awaited here (see comment above).
+                saveTasks.Add(_libraryService.UpdatePlaylistTrackAsync(t.Model));
             }
+
+            await Task.WhenAll(saveTasks);
             NotifyGroupAction(items.Count, "Cancelled {0} track(s) from " + Title, null);
         });
 

@@ -74,6 +74,50 @@ public class TransitionEngineTests
         Assert.Equal(2, suggestion.TargetTriggerTime);
     }
 
+    /// <summary>
+    /// SelectedSourceCue/SelectedTargetCue let a UI highlight WHICH analyzed cue the suggestion
+    /// picked (not just show a bare timestamp) — added for the Flow Builder/Mix editor cue-picker.
+    /// Must point at the actual CuePointEntity instances passed in, not just match by value.
+    /// </summary>
+    [Fact]
+    public void OptimizeTransition_StandardCase_ExposesTheSelectedCueEntities()
+    {
+        var engine = new TransitionEngine();
+        var source = MakeTrack(bpm: 174.0);
+        var target = MakeTrack(bpm: 175.0);
+
+        var outroCue = Cue(210, CuePointType.Outro, "Outro");
+        var introCue = Cue(2, CuePointType.Intro, "Intro");
+        var sourceCues = new List<CuePointEntity> { outroCue };
+        var targetCues = new List<CuePointEntity> { introCue };
+
+        var suggestion = engine.OptimizeTransition(source, target, sourceCues, targetCues);
+
+        Assert.Same(outroCue, suggestion.SelectedSourceCue);
+        Assert.Same(introCue, suggestion.SelectedTargetCue);
+    }
+
+    [Fact]
+    public void OptimizeTransition_TempoJump_SelectedTargetCueIsTheRealDrop_NotTheApproachMarker()
+    {
+        var engine = new TransitionEngine();
+        var source = MakeTrack(bpm: 174.0);
+        var target = MakeTrack(bpm: 130.0);
+
+        var dropCue = Cue(44, CuePointType.Drop, "Drop 1");
+        var sourceCues = new List<CuePointEntity> { Cue(210, CuePointType.Outro, "Outro") };
+        var targetCues = new List<CuePointEntity>
+        {
+            Cue(0, CuePointType.Intro, "Intro"),
+            Cue(33, CuePointType.Build, "32 Beats to Drop 1"),
+            dropCue,
+        };
+
+        var suggestion = engine.OptimizeTransition(source, target, sourceCues, targetCues);
+
+        Assert.Same(dropCue, suggestion.SelectedTargetCue);
+    }
+
     [Fact]
     public void OptimizeTransition_IncompatibleKeysWithVocalOverlap_ShiftsTargetToRealDropCue()
     {

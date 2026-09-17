@@ -46,7 +46,7 @@
 
     <Border Background="#CC0A0A0A" CornerRadius="12" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="14">
         <!-- Glass Effect -->
-        <Grid RowDefinitions="Auto, *, Auto, *, Auto">
+        <Grid RowDefinitions="Auto, Auto, *, Auto, *, Auto">
 
             <!-- Header -->
             <Grid Grid.Row="0" ColumnDefinitions="Auto, *, Auto" Margin="0,0,0,12">
@@ -62,32 +62,58 @@
                            Foreground="#AAFFFFFF"
                            TextTrimming="CharacterEllipsis"/>
 
-                <Button Grid.Column="2" Command="{Binding CancelCommand}" Background="Transparent" BorderThickness="0" Padding="4" Margin="6,0,0,0">
-                     <PathIcon Data="{StaticResource dismiss_regular}" Foreground="#AAFFFFFF" Width="14" Height="14"/>
-                </Button>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+                    <Button Command="{Binding OpenInFlowBuilderCommand}" Background="Transparent" BorderThickness="0" Padding="6,2"
+                            ToolTip.Tip="Open this playlist in Flow Builder for full-option editing">
+                        <TextBlock Text="↗ Flow Builder" FontSize="10" Foreground="#00E5FF"/>
+                    </Button>
+                    <Button Command="{Binding CancelCommand}" Background="Transparent" BorderThickness="0" Padding="4" Margin="6,0,0,0">
+                         <PathIcon Data="{StaticResource dismiss_regular}" Foreground="#AAFFFFFF" Width="14" Height="14"/>
+                    </Button>
+                </StackPanel>
             </Grid>
 
+            <!-- Affordance legend: the waveform has two different gestures (snap-to-cue vs.
+                 free-drag) with zero built-in visual hint otherwise — this is the one line that
+                 tells a first-time user both exist, and what the gold star means. -->
+            <Border Grid.Row="1" Background="#14FFFFFF" CornerRadius="4" Padding="8,4" Margin="0,0,0,8">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <TextBlock Text="Click a cue to snap" FontSize="10" Foreground="#AAFFFFFF"/>
+                    <TextBlock Text="•" FontSize="10" Foreground="#55FFFFFF"/>
+                    <TextBlock Text="Drag anywhere to place freely" FontSize="10" Foreground="#AAFFFFFF"/>
+                    <TextBlock Text="•" FontSize="10" Foreground="#55FFFFFF"/>
+                    <StackPanel Orientation="Horizontal" Spacing="3">
+                        <TextBlock Text="★" FontSize="10" Foreground="Gold" FontWeight="Bold"/>
+                        <TextBlock Text="= what Auto suggested" FontSize="10" Foreground="#AAFFFFFF"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
             <!-- Track A (Outgoing) -->
-            <Grid Grid.Row="1">
+            <Grid Grid.Row="2">
                  <!-- Background for rail -->
                  <Rectangle Width="2" HorizontalAlignment="Center" Fill="#33FFFFFF"/>
-                 
+
                  <controls:WaveformControl
                     WaveformData="{Binding WaveformDataA}"
                     Progress="{Binding ProgressA}"
                     EnergyCurve="{Binding OutgoingAutomationCurve}"
-                    ZoomLevel="4"
-                    ViewOffset="{Binding ProgressA, Converter={x:Static ObjectConverters.IsNull}}"
+                    Cues="{Binding OutgoingCues}"
+                    CueClickedCommand="{Binding SelectSourceCueCommand}"
+                    CuesAreDraggable="False"
+                    SeekCommand="{Binding DragSourceTriggerCommand}"
+                    ZoomLevel="{Binding WaveformZoomLevel}"
+                    ViewOffset="{Binding OutgoingViewOffset}"
                     Height="80"
                     Foreground="#00E5FF"
                     Background="Transparent"
                     PlayheadBrush="#88FFFFFF"/>
-                    
+
                  <TextBlock Text="OUTGOING" Foreground="#00E5FF" Opacity="0.5" FontSize="10" Margin="4" HorizontalAlignment="Right" VerticalAlignment="Top"/>
             </Grid>
             
             <!-- Phase Meter (Middle) -->
-            <Grid Grid.Row="2" RowDefinitions="Auto,Auto" Margin="0,10">
+            <Grid Grid.Row="3" RowDefinitions="Auto,Auto" Margin="0,10">
                 <Grid Grid.Row="0" Height="10">
                      <Rectangle Fill="#11FFFFFF" Height="4" VerticalAlignment="Center"/>
                      <!-- Center Mark -->
@@ -108,14 +134,19 @@
             </Grid>
 
             <!-- Track B (Incoming) -->
-            <Grid Grid.Row="3">
+            <Grid Grid.Row="4">
                  <Rectangle Width="2" HorizontalAlignment="Center" Fill="#33FFFFFF"/>
 
                  <controls:WaveformControl
                     WaveformData="{Binding WaveformDataB}"
                     Progress="{Binding ProgressB}"
                     EnergyCurve="{Binding IncomingAutomationCurve}"
-                    ZoomLevel="4"
+                    Cues="{Binding IncomingCues}"
+                    CueClickedCommand="{Binding SelectTargetCueCommand}"
+                    CuesAreDraggable="False"
+                    SeekCommand="{Binding DragTargetTriggerCommand}"
+                    ZoomLevel="{Binding WaveformZoomLevel}"
+                    ViewOffset="{Binding IncomingViewOffset}"
                     Height="80"
                     Foreground="#E040FB"
                     Background="Transparent"
@@ -128,7 +159,7 @@
                  past the sidepanel's width. "Accept Transition" was dropped — it was a second,
                  identically-wired save action duplicating the OPSLAAN button below it in
                  MixTransitionPanel, and was the actual cause of this row overflowing before. -->
-            <Grid Grid.Row="4" ColumnDefinitions="*,*" Margin="0,14,0,0">
+            <Grid Grid.Row="5" ColumnDefinitions="*,*" Margin="0,14,0,0">
                 <Button Grid.Column="0" Classes="PreviewAction" Command="{Binding PlayCommand}" IsVisible="{Binding !IsPlaying}" Margin="0,0,5,0">
                     <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
                         <PathIcon Data="{StaticResource play_regular}" Width="13" Height="13"/>
@@ -146,7 +177,7 @@
             </Grid>
 
             <!-- Vertical Alignment Rail Overlay (Global) -->
-            <Rectangle Grid.Row="1" Grid.RowSpan="3" Width="1" HorizontalAlignment="Center" Fill="#88FFFFFF" IsHitTestVisible="False"/>
+            <Rectangle Grid.Row="2" Grid.RowSpan="3" Width="1" HorizontalAlignment="Center" Fill="#88FFFFFF" IsHitTestVisible="False"/>
 
         </Grid>
     </Border>

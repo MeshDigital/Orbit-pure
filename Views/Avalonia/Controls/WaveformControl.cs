@@ -4,6 +4,8 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using SLSKDONET.Models;
 using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.Timeline;
@@ -81,6 +83,21 @@ namespace SLSKDONET.Views.Avalonia.Controls
         {
             get => GetValue(CuesProperty);
             set => SetValue(CuesProperty, value);
+        }
+
+        /// <summary>Whether a pointer-down hit on a cue marker starts a drag (CueForge's normal
+        /// "reposition this cue" behavior). Default true preserves existing behavior everywhere
+        /// this control is already used. A consumer that only wants click-to-select (e.g. the Mix
+        /// transition editor picking a cue as a trigger point, never rewriting the track's real
+        /// shared CuePointEntity row) sets this false — CueClickedCommand still fires on the
+        /// initial hit either way, only the drag-and-persist path is suppressed.</summary>
+        public static readonly StyledProperty<bool> CuesAreDraggableProperty =
+            AvaloniaProperty.Register<WaveformControl, bool>(nameof(CuesAreDraggable), defaultValue: true);
+
+        public bool CuesAreDraggable
+        {
+            get => GetValue(CuesAreDraggableProperty);
+            set => SetValue(CuesAreDraggableProperty, value);
         }
 
         public static readonly StyledProperty<System.Collections.Generic.IEnumerable<PhraseSegment>?> PhraseSegmentsProperty =
@@ -354,30 +371,39 @@ namespace SLSKDONET.Views.Avalonia.Controls
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
         {
             base.OnAttachedToVisualTree(e);
-            if (_ghostPulseTimer == null)
+            // ShowVocalGhost defaults to false and most waveforms on screen at once (every deck
+            // row, both Mix-editor waveforms, CueForge) never turn it on — this used to start an
+            // unconditional 33ms DispatcherTimer on every single instance regardless, idling for
+            // its whole lifetime. Only start it when actually needed; OnPropertyChanged below
+            // starts/stops it as the property flips instead.
+            if (ShowVocalGhost) EnsureGhostPulseTimer();
+        }
+
+        private void EnsureGhostPulseTimer()
+        {
+            if (_ghostPulseTimer != null) return;
+
+            _ghostPulseTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(33), DispatcherPriority.Render, (s, ev) =>
             {
-                _ghostPulseTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(33), DispatcherPriority.Render, (s, ev) =>
+                if (ShowVocalGhost)
                 {
-                    if (ShowVocalGhost)
+                    // Sine wave pulse logic
+                    // Simple linear approximation for now or actual sine
+                    // 0.6 to 1.0
+                    if (_ghostPulseUp)
                     {
-                        // Sine wave pulse logic
-                        // Simple linear approximation for now or actual sine
-                        // 0.6 to 1.0
-                        if (_ghostPulseUp)
-                        {
-                            _ghostOpacity += 0.02f;
-                            if (_ghostOpacity >= 1.0f) { _ghostOpacity = 1.0f; _ghostPulseUp = false; }
-                        }
-                        else
-                        {
-                            _ghostOpacity -= 0.02f;
-                            if (_ghostOpacity <= 0.6f) { _ghostOpacity = 0.6f; _ghostPulseUp = true; }
-                        }
-                        InvalidateVisual();
+                        _ghostOpacity += 0.02f;
+                        if (_ghostOpacity >= 1.0f) { _ghostOpacity = 1.0f; _ghostPulseUp = false; }
                     }
-                });
-                _ghostPulseTimer.Start();
-            }
+                    else
+                    {
+                        _ghostOpacity -= 0.02f;
+                        if (_ghostOpacity <= 0.6f) { _ghostOpacity = 0.6f; _ghostPulseUp = true; }
+                    }
+                    InvalidateVisual();
+                }
+            });
+            _ghostPulseTimer.Start();
         }
 
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -413,6 +439,11 @@ namespace SLSKDONET.Views.Avalonia.Controls
                      change.Property == ShowVocalGhostProperty)
             {
                 // Drawn directly in Render(), outside the cached bitmap — a redraw is enough.
+                if (change.Property == ShowVocalGhostProperty)
+                {
+                    if ((bool)(change.NewValue ?? false)) EnsureGhostPulseTimer();
+                    else { _ghostPulseTimer?.Stop(); _ghostPulseTimer = null; }
+                }
                 InvalidateVisual();
             }
             // Sprint 4: Only invalidate on significant zoom changes (>5%)
@@ -487,9 +518,12 @@ namespace SLSKDONET.Views.Avalonia.Controls
                         {
                             CueClickedCommand.Execute(cue.Timestamp);
                         }
-                        _draggedCue = cue;
-                        _isDraggingCue = true;
-                        e.Pointer.Capture(this);
+                        if (CuesAreDraggable)
+                        {
+                            _draggedCue = cue;
+                            _isDraggingCue = true;
+                            e.Pointer.Capture(this);
+                        }
                         e.Handled = true;
                         return;
                     }
@@ -714,6 +748,21 @@ namespace SLSKDONET.Views.Avalonia.Controls
         }
 
         public override void Render(DrawingContext context)
+        {
+            try
+            {
+                RenderInternal(context);
+            }
+            catch (Exception ex)
+            {
+                // Render-thread exceptions bypass all managed exception handling and hard-crash
+                // the process with zero trace (same class of bug as VocalGhostDrawOperation
+                // below). Skip the frame instead of taking the app down.
+                Serilog.Log.Warning(ex, "WaveformControl: render tick failed — skipping frame");
+            }
+        }
+
+        private void RenderInternal(DrawingContext context)
         {
             var data = WaveformData;
             if (data == null || data.IsEmpty || data.PeakData == null || Bounds.Width <= 0 || Bounds.Height <= 0)
@@ -1011,9 +1060,30 @@ namespace SLSKDONET.Views.Avalonia.Controls
                         float opacity = isPlayed ? 1.0f : 0.35f;
                     
                     var col = Color.FromArgb((byte)(opacity * 255), r, g, b);
-                    context.DrawLine(new Pen(new SolidColorBrush(col), 1), new Point(x, mid - h), new Point(x, mid + h));
+                    context.DrawLine(GetOrCreateRgbColumnPen(col), new Point(x, mid - h), new Point(x, mid + h));
                 }
             }
+        }
+
+        // RenderTrueRgb draws one column at a time, each with its own (continuously blended, so
+        // rarely identical to its neighbor) color — `new Pen(new SolidColorBrush(col), 1)` inside
+        // that loop allocated two objects per column, up to ~1000+ per bitmap rebuild (this method
+        // only runs on an actual _isDirty rebuild — data/zoom change or an active cue drag — not
+        // every frame, but those rebuilds can happen up to 30x/sec while dragging). Caching by
+        // exact color reuses the same Pen for any repeat, at zero visual difference. Capped since
+        // colors are a continuous blend — an unbounded cache from one long zoom/drag session could
+        // otherwise grow without limit.
+        private readonly Dictionary<Color, Pen> _rgbColumnPenCache = new();
+        private const int MaxRgbColumnPenCacheEntries = 4096;
+
+        private Pen GetOrCreateRgbColumnPen(Color color)
+        {
+            if (_rgbColumnPenCache.TryGetValue(color, out var pen)) return pen;
+
+            pen = new Pen(new SolidColorBrush(color), 1);
+            if (_rgbColumnPenCache.Count >= MaxRgbColumnPenCacheEntries) _rgbColumnPenCache.Clear();
+            _rgbColumnPenCache[color] = pen;
+            return pen;
         }
         private void DrawBandBatch(DrawingContext context, byte[] data, int samples, double step, double mid, int playedLimit, Pen basePen, Pen playedPen)
         {
@@ -1097,6 +1167,14 @@ namespace SLSKDONET.Views.Avalonia.Controls
             }
         }
 
+        // Caches RenderPhraseSegments' sorted-by-start list, keyed by reference to the source
+        // IEnumerable — PhraseSegments only gets reassigned when the underlying data actually
+        // changes, so a reference-equality check is enough to skip re-sorting. Without this, every
+        // single render call re-sorted and reallocated the list, including every hover-triggered
+        // InvalidateVisual() from OnPointerMoved (segments don't change between hover frames).
+        private System.Collections.Generic.IEnumerable<PhraseSegment>? _sortedPhraseSegmentsSource;
+        private List<PhraseSegment>? _sortedPhraseSegmentsCache;
+
         private void RenderPhraseSegments(DrawingContext context, double width, double height)
         {
             if (!ShowPhraseSections) return;
@@ -1118,7 +1196,17 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 }
             }
 
-            var sorted = System.Linq.Enumerable.OrderBy(segments, s => s.Start).ToList();
+            List<PhraseSegment> sorted;
+            if (ReferenceEquals(segments, _sortedPhraseSegmentsSource) && _sortedPhraseSegmentsCache != null)
+            {
+                sorted = _sortedPhraseSegmentsCache;
+            }
+            else
+            {
+                sorted = System.Linq.Enumerable.OrderBy(segments, s => s.Start).ToList();
+                _sortedPhraseSegmentsSource = segments;
+                _sortedPhraseSegmentsCache = sorted;
+            }
             for (int i = 0; i < sorted.Count; i++)
             {
                 var s = sorted[i];
@@ -1219,43 +1307,100 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
             var typeface = new Typeface(FontFamily.Default, FontStyle.Normal, FontWeight.Bold);
 
+            // Loop regions first (their in/out lines + label are wide apart by nature — the
+            // collision problem below is specific to regular point cues, which cluster tightly
+            // right before a drop).
             foreach (var cue in cues)
             {
+                if (!(cue.IsLoop && cue.LoopEndSeconds > cue.Timestamp)) continue;
                 double x = GetCueX(cue, data);
                 if (x > width) continue;
 
                 var color = Color.Parse(cue.Color ?? "#FFFFFF");
-
-                if (cue.IsLoop && cue.LoopEndSeconds > cue.Timestamp)
+                double xEnd = cue.LoopEndSeconds / data.DurationSeconds * width;
+                if (x < 0) x = 0;
+                if (xEnd > width) xEnd = width;
+                double bandWidth = xEnd - x;
+                if (bandWidth > 0)
                 {
-                    // Draw loop region as a semi-transparent band between in and out points
-                    double xEnd = cue.LoopEndSeconds / data.DurationSeconds * width;
-                    if (x < 0) x = 0;
-                    if (xEnd > width) xEnd = width;
-                    double bandWidth = xEnd - x;
-                    if (bandWidth > 0)
-                    {
-                        context.DrawRectangle(new SolidColorBrush(color, 0.18), null, new Rect(x, 0, bandWidth, height));
-                        // In-point line (bright)
-                        context.DrawLine(new Pen(new SolidColorBrush(color, 1.0), 2), new Point(x, 0), new Point(x, height));
-                        // Out-point line (dimmer)
-                        context.DrawLine(new Pen(new SolidColorBrush(color, 0.7), 2), new Point(xEnd, 0), new Point(xEnd, height));
-                        // Label
-                        var ft = new FormattedText(cue.Name ?? "Loop", System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 10, new SolidColorBrush(color));
-                        context.DrawRectangle(new SolidColorBrush(Colors.Black, 0.6), null, new Rect(x + 4, 2, ft.Width + 4, ft.Height));
-                        context.DrawText(ft, new Point(x + 6, 2));
-                    }
-                }
-                else
-                {
-                    if (x < 0) continue;
-                    // Regular cue point: vertical line + label
-                    context.DrawLine(new Pen(new SolidColorBrush(color, 0.8), 2), new Point(x, 0), new Point(x, height));
-                    var ft = new FormattedText(cue.Name ?? cue.Role.ToString(), System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 10, new SolidColorBrush(color));
+                    context.DrawRectangle(new SolidColorBrush(color, 0.18), null, new Rect(x, 0, bandWidth, height));
+                    context.DrawLine(new Pen(new SolidColorBrush(color, 1.0), 2), new Point(x, 0), new Point(x, height));
+                    context.DrawLine(new Pen(new SolidColorBrush(color, 0.7), 2), new Point(xEnd, 0), new Point(xEnd, height));
+                    var ft = new FormattedText(cue.Name ?? "Loop", System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 10, new SolidColorBrush(color));
                     context.DrawRectangle(new SolidColorBrush(Colors.Black, 0.6), null, new Rect(x + 4, 2, ft.Width + 4, ft.Height));
                     context.DrawText(ft, new Point(x + 6, 2));
                 }
             }
+
+            // Regular cue points: draw every vertical line first, at its true timestamp — line
+            // position must never move to make room for a label. Label PLACEMENT is a separate
+            // pass afterward, sorted left-to-right regardless of the Cues collection's own order,
+            // so tier assignment is stable and cues that cluster right before a drop (the classic
+            // "32 Beats to Drop 1" / "16 Beats to Drop 1" / "Drop 1" trio, a few seconds apart)
+            // stagger onto separate rows instead of stacking into illegible mush.
+            var regular = new List<(double X, OrbitCue Cue, Color Color)>();
+            foreach (var cue in cues)
+            {
+                if (cue.IsLoop && cue.LoopEndSeconds > cue.Timestamp) continue;
+                double x = GetCueX(cue, data);
+                if (x > width || x < 0) continue;
+
+                var color = Color.Parse(cue.Color ?? "#FFFFFF");
+                bool suggested = cue.IsSuggested;
+                context.DrawLine(new Pen(new SolidColorBrush(color, suggested ? 1.0 : 0.8), suggested ? 3 : 2), new Point(x, 0), new Point(x, height));
+                regular.Add((x, cue, color));
+            }
+
+            const double tierHeight = 13.0;
+            const int maxTiers = 3;
+            const double labelGap = 4.0;
+            var tierRightEdge = new double[maxTiers];
+            for (int i = 0; i < maxTiers; i++) tierRightEdge[i] = double.NegativeInfinity;
+
+            foreach (var (x, cue, color) in regular.OrderBy(c => c.X))
+            {
+                bool suggested = cue.IsSuggested;
+                var label = ShortenApproachMarkerLabel(cue.Name ?? cue.Role.ToString());
+                if (suggested) label = $"★ {label}";
+
+                IBrush labelBrush = suggested ? Brushes.Gold : new SolidColorBrush(color);
+                var ft = new FormattedText(label, System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 10, labelBrush);
+
+                int tier = 0;
+                while (tier < maxTiers - 1 && x < tierRightEdge[tier] + labelGap) tier++;
+
+                double labelX = x + 4;
+                if (labelX < tierRightEdge[tier] + labelGap) labelX = tierRightEdge[tier] + labelGap;
+
+                double y = 2 + tier * tierHeight;
+
+                // Micro-stem: only needed when the label had to slide sideways to dodge a
+                // collision — a thin connector back to the cue's true x position, so an offset
+                // label still reads as "belongs to that line", not "belongs to wherever it landed".
+                if (labelX > x + 4 + 0.5)
+                {
+                    context.DrawLine(new Pen(new SolidColorBrush(color, 0.5), 1),
+                        new Point(x, y + ft.Height), new Point(labelX, y + ft.Height));
+                }
+
+                context.DrawRectangle(new SolidColorBrush(suggested ? Color.Parse("#553D2E") : Colors.Black, suggested ? 0.85 : 0.6), null, new Rect(labelX, y, ft.Width + 4, ft.Height));
+                context.DrawText(ft, new Point(labelX + 2, y));
+
+                tierRightEdge[tier] = labelX + ft.Width + 4;
+            }
+        }
+
+        /// <summary>CueGenerationService's real schema labels the beats-out-from-a-drop approach
+        /// markers "32 Beats to Drop 1" / "16 Beats to Drop 1" — descriptive, but three of these
+        /// (the two approach markers plus the actual "Drop 1" cue they lead into) land within a
+        /// few seconds of each other, which is exactly the case RenderCues most needs to keep
+        /// legible. Shortens the pattern to DJ shorthand ("-32", "-16"); leaves the destination
+        /// cue's own label ("Drop 1") untouched — that one still needs its full name.</summary>
+        private static string ShortenApproachMarkerLabel(string label)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(
+                label, @"^(\d+)\s+Beats?\s+to\s+.+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return match.Success ? $"-{match.Groups[1].Value}" : label;
         }
     }
 

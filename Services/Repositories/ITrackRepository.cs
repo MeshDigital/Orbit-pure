@@ -30,6 +30,9 @@ public interface ITrackRepository
     /// <summary>
     /// Consolidated Update: Synchronizes status across all playlist instances AND the master track record.
     /// Phase 3D: High-Efficiency Core - reduces DB transactions by 50% during download loops.
+    /// Returns the playlist/job IDs whose aggregate SuccessfulCount/FailedCount actually changed
+    /// (i.e. this transition entered or left a counted status) — empty for purely intermediate
+    /// state transitions (Searching/Downloading/Queued/retry) that don't move those counts.
     /// </summary>
     Task<List<Guid>> UpdatePlaylistTrackStatusAndRecalculateJobsAsync(
         string trackUniqueHash, 
@@ -41,6 +44,19 @@ public interface ITrackRepository
         string? error = null,
         DateTime? completedAt = null,
         string? stalledReason = null);
+    /// <summary>
+    /// Batched analog for group actions (VIP Start / bulk Pause / bulk Resume / bulk Retry / bulk
+    /// Cancel) that flip the same status on many tracks at once — one semaphore hold, DbContext,
+    /// and commit for the whole batch instead of one per track. See implementation doc comment for
+    /// the full rationale. <paramref name="isUserPaused"/>, <paramref name="isClearedFromDownloadCenter"/>,
+    /// and <paramref name="priority"/> apply the same fixed value to every track in the batch;
+    /// <paramref name="clearRetryState"/> resets each track's retry counters/error/stalled-reason
+    /// to a clean slate (mirrors DownloadManager.HardRetryTrack's single-track resets).
+    /// </summary>
+    Task<List<Guid>> BulkUpdatePlaylistTrackStatusAsync(
+        IReadOnlyList<string> trackUniqueHashes, TrackStatus? newStatus, string? state = null,
+        bool? isUserPaused = null, bool clearRetryState = false, bool? isClearedFromDownloadCenter = null,
+        int? priority = null);
     Task SavePlaylistTracksAsync(IEnumerable<PlaylistTrackEntity> tracks);
     Task DeletePlaylistTracksAsync(Guid playlistId);
     Task UpdatePlaylistTracksPriorityAsync(Guid playlistId, int newPriority);
@@ -69,6 +85,8 @@ public interface ITrackRepository
     Task UpdateLikeStatusAsync(string trackHash, bool isLiked);
     Task UpdateRatingAsync(string trackHash, int rating);
     Task UpdateColorTagAsync(string trackHash, string? colorTag);
+    Task UpdateBpmAsync(string trackHash, double bpm);
+    Task UpdateTagBpmAsync(string trackHash, double bpm);
 
     /// <summary>
     /// Searches tracks across all playlists.

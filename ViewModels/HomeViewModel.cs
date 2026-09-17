@@ -176,15 +176,30 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     public bool IsLoadingRecent
     {
         get => _isLoadingRecent;
-        set => SetProperty(ref _isLoadingRecent, value);
+        set
+        {
+            if (SetProperty(ref _isLoadingRecent, value))
+                OnPropertyChanged(nameof(ShowRecentPlaylistsEmptyState));
+        }
     }
 
     private bool _isLoadingRecentDownloads;
     public bool IsLoadingRecentDownloads
     {
         get => _isLoadingRecentDownloads;
-        set => SetProperty(ref _isLoadingRecentDownloads, value);
+        set
+        {
+            if (SetProperty(ref _isLoadingRecentDownloads, value))
+                OnPropertyChanged(nameof(ShowRecentDownloadsEmptyState));
+        }
     }
+
+    // Both empty-state borders used to show purely off RecentPlaylists/RecentDownloads.Count,
+    // with no regard for whether the async load was still in flight — on every app launch, the
+    // brief window before that first load resolves showed "No recent playlists"/"No completed
+    // downloads yet" as if the library were genuinely empty, when it just hadn't loaded yet.
+    public bool ShowRecentPlaylistsEmptyState => !IsLoadingRecent && RecentPlaylists.Count == 0;
+    public bool ShowRecentDownloadsEmptyState => !IsLoadingRecentDownloads && RecentDownloads.Count == 0;
 
     private bool _isLoadingSpotify;
     public bool IsLoadingSpotify
@@ -254,6 +269,9 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         _searchViewModel = searchViewModel;
         _analysisPageViewModel = analysisPageViewModel;
         _peerReliabilityService = peerReliabilityService;
+
+        RecentPlaylists.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowRecentPlaylistsEmptyState));
+        RecentDownloads.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowRecentDownloadsEmptyState));
 
         // Subscribe to Mission Control Updates (Smart Throttled & IEquatable)
         _eventSubscription = _eventBus.GetEvent<DashboardSnapshot>().Subscribe(snapshot =>
@@ -336,7 +354,8 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         };
         _connectionViewModel.PropertyChanged += _connectionChangedHandler;
 
-        // Initial load
+        // Initial load — see RefreshDashboardAsync's doc comment for why this is safe to fire
+        // directly from the constructor (which itself runs on the UI thread) without blocking it.
         _ = RefreshDashboardAsync();
         
         // Listen for Spotify changes
@@ -451,7 +470,18 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         return $"{(int)elapsed.TotalDays} days ago";
     }
 
-    public async Task RefreshDashboardAsync()
+    /// <summary>
+    /// Safe to call from the UI thread (the Refresh button's command does exactly that) — the real
+    /// work always runs on a thread-pool thread via <see cref="RefreshDashboardCoreAsync"/>, since
+    /// Microsoft.Data.Sqlite's "async" queries underneath actually run synchronously to completion
+    /// on whichever thread calls them (SQLite's C library has no real async I/O), and this method
+    /// runs six of them. Without this indirection, calling it directly from the UI thread — as the
+    /// constructor, the Refresh button, and the dead-letter-retry flow all do — would freeze the
+    /// whole app for as long as those queries take against the full library.
+    /// </summary>
+    public Task RefreshDashboardAsync() => Task.Run(RefreshDashboardCoreAsync);
+
+    private async Task RefreshDashboardCoreAsync()
     {
         try
         {
@@ -466,8 +496,11 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
 
             RefreshTopPeers();
 
-            _lastRefreshedAtUtc = DateTime.UtcNow;
-            OnPropertyChanged(nameof(LastRefreshedText));
+            Dispatcher.UIThread.Post(() =>
+            {
+                _lastRefreshedAtUtc = DateTime.UtcNow;
+                OnPropertyChanged(nameof(LastRefreshedText));
+            });
         }
         catch (Exception ex)
         {
@@ -545,45 +578,53 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task LoadLibraryHealthAsync()
     {
-        IsLoadingHealth = true;
+        Dispatcher.UIThread.Post(() => IsLoadingHealth = true);
         try
         {
-            LibraryHealth = await _dashboardService.GetLibraryHealthAsync();
-            if (LibraryHealth == null)
+            var health = await _dashboardService.GetLibraryHealthAsync();
+            if (health == null)
             {
                 // Trigger an initial calculation if cache is empty
                 await _dashboardService.RecalculateLibraryHealthAsync();
-                LibraryHealth = await _dashboardService.GetLibraryHealthAsync();
+                health = await _dashboardService.GetLibraryHealthAsync();
             }
 
             // Phase 3A (Transparency): Inject real Journal Health data (Recovery Status)
-            if (LibraryHealth != null)
+            if (health != null)
             {
-                UpdateTopGenres(LibraryHealth.TopGenresJson);
-
                 var journalStats = await _crashJournal.GetSystemHealthAsync();
-                
+
                 if (journalStats.DeadLetterCount > 0)
                 {
-                    LibraryHealth.HealthScore = 85; // Penalty for dead letters
-                    LibraryHealth.HealthStatus = "Requires Attention";
-                    LibraryHealth.IssuesCount = journalStats.DeadLetterCount;
+                    health.HealthScore = 85; // Penalty for dead letters
+                    health.HealthStatus = "Requires Attention";
+                    health.IssuesCount = journalStats.DeadLetterCount;
                     // We could add a more specific message property if the view supported it,
                     // but for now, 'Issues Count' drives the orange UI state.
                 }
                 else if (journalStats.ActiveCount > 0)
                 {
-                    LibraryHealth.HealthStatus = $"Recovering ({journalStats.ActiveCount})";
+                    health.HealthStatus = $"Recovering ({journalStats.ActiveCount})";
                     // Active recovery is good, so keep score high
                 }
             }
 
-            IncompleteAnalysisCount = await _dashboardService.GetIncompleteAnalysisTrackCountAsync();
+            var incompleteCount = await _dashboardService.GetIncompleteAnalysisTrackCountAsync();
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                LibraryHealth = health;
+                if (health != null) UpdateTopGenres(health.TopGenresJson);
+                IncompleteAnalysisCount = incompleteCount;
+            });
         }
         finally
         {
-            IsLoadingHealth = false;
-            Dispatcher.UIThread.Post(PopulateActiveMissions);
+            Dispatcher.UIThread.Post(() =>
+            {
+                IsLoadingHealth = false;
+                PopulateActiveMissions();
+            });
         }
     }
 
@@ -611,7 +652,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task LoadRecentPlaylistsAsync()
     {
-        IsLoadingRecent = true;
+        Dispatcher.UIThread.Post(() => IsLoadingRecent = true);
         try
         {
             var recent = await _dashboardService.GetRecentPlaylistsAsync(10); // Show more for horizontal scroll
@@ -627,13 +668,13 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         }
         finally
         {
-            IsLoadingRecent = false;
+            Dispatcher.UIThread.Post(() => IsLoadingRecent = false);
         }
     }
 
     private async Task LoadRecentDownloadsAsync()
     {
-        IsLoadingRecentDownloads = true;
+        Dispatcher.UIThread.Post(() => IsLoadingRecentDownloads = true);
         try
         {
             var downloads = await _dashboardService.GetRecentDownloadedTracksAsync(8);
@@ -662,12 +703,15 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     {
         if (!_spotifyAuth.IsAuthenticated)
         {
-            Dispatcher.UIThread.Post(() => SpotifyRecommendations.Clear());
-            IsLoadingSpotify = false;
+            Dispatcher.UIThread.Post(() =>
+            {
+                SpotifyRecommendations.Clear();
+                IsLoadingSpotify = false;
+            });
             return;
         }
 
-        IsLoadingSpotify = true;
+        Dispatcher.UIThread.Post(() => IsLoadingSpotify = true);
         try
         {
             var tracks = await _spotifyEnrichment.GetRecommendationsAsync(8);

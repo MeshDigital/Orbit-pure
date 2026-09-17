@@ -122,6 +122,52 @@ public class TransitionEngineAutomationTests
         Assert.True(endWindowAvgIn > startWindowAvgIn, "Incoming gain should trend up toward the end of the transition.");
     }
 
+    /// <summary>
+    /// Regression coverage for a real, live-verified bug: EqSwap ("Blend", and the mid-compatibility
+    /// "Auto" pick) pinned OutgoingGain/IncomingGain at a constant 1.0 for the whole transition,
+    /// reasoning the swapped EQ bands alone would prevent buildup — but the default config only
+    /// swaps the Low band (SwapMid/SwapHigh default false), so both decks' mid/high frequencies
+    /// played at full volume simultaneously for the entire crossfade. Reported as "by end of track
+    /// audio gets super loud suddenly, then upon change track it gets muted" (the loud overlap,
+    /// then a perceptually quiet single track by contrast once it ended).
+    /// </summary>
+    [Fact]
+    public void EqSwap_MainGains_StayPowerBounded_NeverBothFull()
+    {
+        var engine = new TransitionEngine();
+        var region = MakeRegion(TransitionType.EqSwap);
+
+        for (int i = 0; i <= SamplePoints; i += 10)
+        {
+            var automation = engine.CalculateAutomation(region, i);
+
+            // Same equal-power envelope as a plain Crossfade underneath the EQ swap — never both
+            // decks at (anywhere near) full main gain at once.
+            Assert.InRange(automation.OutgoingGain, 0.0f, 1.0f);
+            Assert.InRange(automation.IncomingGain, 0.0f, 1.0f);
+            Assert.True(automation.OutgoingGain + automation.IncomingGain <= 1.05f,
+                $"EqSwap main gains should sum to ~1 (equal-power crossfade), not stack toward 2 — " +
+                $"got Outgoing={automation.OutgoingGain}, Incoming={automation.IncomingGain} at sample {i}");
+        }
+    }
+
+    [Fact]
+    public void EqSwap_MatchesCrossfade_MainGainEnvelope()
+    {
+        var engine = new TransitionEngine();
+        var crossfadeRegion = MakeRegion(TransitionType.Crossfade);
+        var eqSwapRegion = MakeRegion(TransitionType.EqSwap);
+
+        for (int i = 0; i <= SamplePoints; i += 25)
+        {
+            var crossfade = engine.CalculateAutomation(crossfadeRegion, i);
+            var eqSwap = engine.CalculateAutomation(eqSwapRegion, i);
+
+            Assert.Equal(crossfade.OutgoingGain, eqSwap.OutgoingGain, precision: 4);
+            Assert.Equal(crossfade.IncomingGain, eqSwap.IncomingGain, precision: 4);
+        }
+    }
+
     private static double Average(TransitionEngine engine, TransitionRegion region, int fromInclusive, int toExclusive, Func<TransitionAutomation, float> select)
     {
         double sum = 0;

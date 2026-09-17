@@ -59,10 +59,29 @@ public class PlaylistTrackTransitionEntity
     /// <summary>Custom-mode override for <see cref="SLSKDONET.Models.Timeline.TransitionModel.FilterEndFrequency"/>; null = preset default.</summary>
     public float? FilterEndFrequency { get; set; }
 
-    /// <summary>Custom-mode EQ band gain overrides (0-1); null = preset default (no override).</summary>
+    /// <summary>Dead weight — shaped as gain overrides (0-1), which never matched what the live
+    /// engine's EQ Custom config actually needs (EqBandSwapConfig: SwapLow/SwapMid/SwapHigh
+    /// booleans + crossover Hz, not gains). Never set, never read. Left in place rather than
+    /// dropped to avoid a destructive migration for a few always-null columns — see
+    /// EqSwapLow/Mid/High + EqLowCrossoverHz/EqHighCrossoverHz below for the real thing.</summary>
     public float? EqLowGain { get; set; }
     public float? EqMidGain { get; set; }
     public float? EqHighGain { get; set; }
+
+    /// <summary>Custom-mode override for <see cref="SLSKDONET.Models.Timeline.TransitionModel.WaveDuckDepth"/>; null = preset default.</summary>
+    public float? WaveDuckDepth { get; set; }
+
+    /// <summary>Custom-mode override for <see cref="SLSKDONET.Models.Timeline.TransitionModel.FilterSweepRising"/>; null = preset default.</summary>
+    public bool? FilterSweepRising { get; set; }
+
+    /// <summary>Custom-mode overrides for the "Blend" preset's EQ band swap — which bands swap
+    /// from outgoing to incoming (bass-handover technique) and where the crossovers sit. Null =
+    /// preset default (Low only, 250Hz/4000Hz crossovers — see TransitionModel's own defaults).</summary>
+    public bool? EqSwapLow { get; set; }
+    public bool? EqSwapMid { get; set; }
+    public bool? EqSwapHigh { get; set; }
+    public float? EqLowCrossoverHz { get; set; }
+    public float? EqHighCrossoverHz { get; set; }
 
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }

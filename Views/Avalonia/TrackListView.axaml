@@ -94,7 +94,7 @@
         </Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*">
 
         <!-- Search Bar -->
         <Border Grid.Row="0" Background="#252526" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="16,12">
@@ -174,33 +174,70 @@
                     </Button>
                 </StackPanel>
 
-                <!-- Columns flyout (right-aligned) -->
-                <DropDownButton Grid.Column="1" Classes="tool" Padding="8,5" FontSize="11" CornerRadius="6"
-                                ToolTip.Tip="Toggle column visibility">
-                    <StackPanel Orientation="Horizontal" Spacing="5">
-                        <TextBlock Text="⚙" FontSize="13" VerticalAlignment="Center"/>
-                        <TextBlock Text="Columns" FontSize="11" VerticalAlignment="Center"/>
-                    </StackPanel>
-                    <DropDownButton.Flyout>
-                        <Flyout Placement="BottomEdgeAlignedRight">
-                            <Border Background="#1E1E2A" BorderBrush="#2E3040" BorderThickness="1" CornerRadius="8" Padding="14,12">
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="SHOW COLUMNS" FontSize="9" FontWeight="Bold" Foreground="#555" LetterSpacing="1"/>
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <ToggleButton Content="Format" IsChecked="{Binding IsFormatColumnVisible, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Toggle Format column"/>
-                                        <ToggleButton Content="Forensics" IsChecked="{Binding IsForensicsColumnVisible, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Toggle Forensics column"/>
-                                        <ToggleButton Content="Duration" IsChecked="{Binding IsDurationColumnVisible, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Toggle Duration column"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                    <!-- Mix (Spotify-Mix-parity): toggles per-row transition badges below each track. -->
+                    <ToggleButton Classes="tool" Padding="8,5" FontSize="11" CornerRadius="6"
+                                  IsChecked="{Binding IsMixModeEnabled, Mode=TwoWay}"
+                                  ToolTip.Tip="Toggle Mix transition badges">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <TextBlock Text="🎛" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Text="Mix" FontSize="11" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ToggleButton>
+
+                    <!-- Columns flyout (right-aligned) -->
+                    <DropDownButton Classes="tool" Padding="8,5" FontSize="11" CornerRadius="6"
+                                    ToolTip.Tip="Toggle column visibility">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <TextBlock Text="⚙" FontSize="13" VerticalAlignment="Center"/>
+                            <TextBlock Text="Columns" FontSize="11" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <DropDownButton.Flyout>
+                            <Flyout Placement="BottomEdgeAlignedRight">
+                                <Border Background="#1E1E2A" BorderBrush="#2E3040" BorderThickness="1" CornerRadius="8" Padding="14,12">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="SHOW COLUMNS" FontSize="9" FontWeight="Bold" Foreground="#555" LetterSpacing="1"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <ToggleButton Content="Format" IsChecked="{Binding IsFormatColumnVisible, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Toggle Format column"/>
+                                            <ToggleButton Content="Forensics" IsChecked="{Binding IsForensicsColumnVisible, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Toggle Forensics column"/>
+                                            <ToggleButton Content="Duration" IsChecked="{Binding IsDurationColumnVisible, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Toggle Duration column"/>
+                                        </StackPanel>
                                     </StackPanel>
-                                </StackPanel>
-                            </Border>
-                        </Flyout>
-                    </DropDownButton.Flyout>
-                </DropDownButton>
+                                </Border>
+                            </Flyout>
+                        </DropDownButton.Flyout>
+                    </DropDownButton>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Mix flow-health banner: shown when Mix mode notices several rough adjacent
+             transitions in the current order (see TrackListViewModel.UpdateMixTransitionBadgesAsync
+             / ShowFlowWarningBanner). Offers a one-click reorder via the same BPM/harmonic/
+             energy/genre-aware engine the Library's Automix feature already uses. -->
+        <Border Grid.Row="3"
+                Background="#331A1A1D"
+                BorderBrush="#FFA94B"
+                BorderThickness="0,0,0,1"
+                Padding="16,8"
+                IsVisible="{Binding ShowFlowWarningBanner}">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                <TextBlock Grid.Column="0" Text="⚠" FontSize="13" Foreground="#FFA94B" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock Grid.Column="1" Text="{Binding FlowWarningSummary, StringFormat='This playlist isn\'t in ideal mix order — {0}.'}"
+                           VerticalAlignment="Center" FontSize="12" Foreground="#DDDDDD"/>
+                <Button Grid.Column="2" Command="{Binding SuggestReorderForBetterFlowCommand}"
+                        Content="Reorder for better flow"
+                        Padding="10,5" FontSize="11" Margin="0,0,8,0"
+                        Background="#FFA94B" Foreground="#1A1A1D" BorderThickness="0" CornerRadius="6" Cursor="Hand"/>
+                <Button Grid.Column="3" Command="{Binding DismissFlowWarningCommand}"
+                        Content="Dismiss"
+                        Padding="10,5" FontSize="11"
+                        Background="Transparent" Foreground="#AAAAAA" BorderThickness="1" BorderBrush="#444" CornerRadius="6" Cursor="Hand"/>
             </Grid>
         </Border>
 
         <!-- Inline Column Filters (Task 10.4) -->
-        <Border Grid.Row="3"
+        <Border Grid.Row="4"
                 Background="#1A1A1E"
                 BorderBrush="#3E3E3E"
                 BorderThickness="0,0,0,1"
@@ -234,7 +271,7 @@
             </StackPanel>
         </Border>
         <!-- Column Header -->
-        <controls:VirtualGridHeader Grid.Row="4">
+        <controls:VirtualGridHeader Grid.Row="5">
             <controls:VirtualGridHeader.HeaderContent>
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -309,7 +346,7 @@
             </controls:VirtualGridHeader.HeaderContent>
         </controls:VirtualGridHeader>
 
-        <controls:VirtualGrid Grid.Row="5" Name="TrackGrid" 
+        <controls:VirtualGrid Grid.Row="6" Name="TrackGrid"
                               ItemsSource="{Binding FilteredTracks}"
                               SelectionMode="Multiple"
                               SelectionChanged="OnTrackGridSelectionChanged">
@@ -327,6 +364,14 @@
                     <Separator/>
                     <MenuItem Header="Analyse Track" Command="{Binding Operations.AnalyseTrackCommand}" IsEnabled="{Binding Operations.AreDependenciesHealthy}">
                          <MenuItem.Icon><TextBlock Text="🔬" FontSize="12"/></MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="Regenerate Cues" Command="{Binding Operations.RegenerateCuesCommand}"
+                              ToolTip.Tip="Re-maps cue points from this track's (or all selected tracks') already-analysed data — fast, no re-analysis.">
+                         <MenuItem.Icon><TextBlock Text="🎯" FontSize="12"/></MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="Refresh BPM from Tags" Command="{Binding Operations.RefreshBpmFromTagsCommand}"
+                              ToolTip.Tip="Re-reads the file's own embedded BPM tag (this track, or all selected) and trusts it over ORBIT's analysis — fixes breakbeat/DNB tracks Essentia's beat tracker consistently misreads.">
+                         <MenuItem.Icon><TextBlock Text="🥁" FontSize="12"/></MenuItem.Icon>
                     </MenuItem>
                     <MenuItem Header="Hard Retry" Command="{Binding Operations.HardRetryCommand}" IsEnabled="{Binding Operations.AreDependenciesHealthy}">
                          <MenuItem.Icon><TextBlock Text="🔄" FontSize="12"/></MenuItem.Icon>
@@ -389,9 +434,9 @@
                 <DataTemplate DataType="vm:PlaylistTrackViewModel">
                     <Border Classes="track-row"
                             Classes.harmonic-match="{Binding IsHarmonicMatch}"
-                            Height="48"
                             Focusable="True">
-                        <Grid>
+                        <Grid RowDefinitions="48,Auto">
+                        <Grid Grid.Row="0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="60"/>
                                 <ColumnDefinition Width="44"/>
@@ -407,13 +452,18 @@
                             </Grid.ColumnDefinitions>
                             <!-- Column 0: Artwork/Status -->
                             <Panel Grid.Column="0" Margin="12,0,0,0">
-                                <Border Width="32" Height="32" CornerRadius="4" Background="#2A2A2E" ClipToBounds="True">
+                                <Border Width="32" Height="32" CornerRadius="4" ClipToBounds="True">
                                     <Panel>
                                         <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-                                        <TextBlock Text="🎵" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.3" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNull}}"/>
-                                        
+                                        <!-- No real art: a color+letter tile instead of the old flat gray square with a faint
+                                             note glyph — every missing-art row used to look identical at a glance. -->
+                                        <Border Background="{Binding FallbackArtBrush}" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNull}}">
+                                            <TextBlock Text="{Binding FallbackArtLetter}" FontSize="13" FontWeight="Bold" Foreground="#DDFFFFFF"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+
                                         <!-- Status Overlay -->
-                                        <Border VerticalAlignment="Bottom" HorizontalAlignment="Right" Width="8" Height="8" Margin="0,0,2,2" CornerRadius="4" 
+                                        <Border VerticalAlignment="Bottom" HorizontalAlignment="Right" Width="8" Height="8" Margin="0,0,2,2" CornerRadius="4"
                                                 Background="{Binding State, Converter={StaticResource TrackStateToColorConverter}}"
                                                 BorderBrush="#1E1E1E" BorderThickness="1"/>
                                     </Panel>
@@ -542,13 +592,37 @@
                                 </ToggleButton>
                             </StackPanel>
                         </Grid>
+
+                        <!-- Mix (Spotify-Mix-parity) transition badge: shown between this row and
+                             the next when Mix mode is on. Anchored left under the artwork/queue
+                             columns, matching Spotify's badge placement. -->
+                        <Button Grid.Row="1"
+                                IsVisible="{Binding ShowMixTransitionBadge}"
+                                Command="{Binding $parent[UserControl].DataContext.OpenMixTransitionCommand}"
+                                CommandParameter="{Binding}"
+                                Classes="mix-transition-badge"
+                                Margin="60,2,0,6"
+                                Padding="8,3"
+                                CornerRadius="10"
+                                HorizontalAlignment="Left"
+                                Background="{Binding TransitionBadgeColor}"
+                                BorderThickness="0"
+                                Cursor="Hand"
+                                ToolTip.Tip="{Binding TransitionTooltip}">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="⚠" FontSize="9" Foreground="White" IsVisible="{Binding HasTransitionWarning}"/>
+                                <TextBlock Text="✎" FontSize="9" Foreground="White" Opacity="0.85" IsVisible="{Binding !HasTransitionWarning}"/>
+                                <TextBlock Text="{Binding TransitionPresetLabel}" FontSize="10" FontWeight="SemiBold" Foreground="White"/>
+                            </StackPanel>
+                        </Button>
+                        </Grid>
                     </Border>
                 </DataTemplate>
             </controls:VirtualGrid.ItemTemplate>
         </controls:VirtualGrid>
 
         <!-- Empty state — shown when the selected playlist has no tracks -->
-        <StackPanel Grid.Row="5"
+        <StackPanel Grid.Row="6"
                     IsVisible="{Binding IsLibraryEmpty}"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"

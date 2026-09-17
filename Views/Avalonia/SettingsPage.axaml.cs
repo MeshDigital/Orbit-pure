@@ -19,6 +19,7 @@ namespace SLSKDONET.Views.Avalonia
         public SettingsPage(SettingsViewModel viewModel) : this()
         {
             DataContext = viewModel;
+            viewModel.EnsureInitialized();
         }
 
         private void OnAnyControlFocused(object? sender, GotFocusEventArgs e)

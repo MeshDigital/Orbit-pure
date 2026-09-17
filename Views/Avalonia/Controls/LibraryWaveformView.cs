@@ -147,10 +147,22 @@ public sealed class LibraryWaveformView : global::Avalonia.Controls.Control
 
     public override void Render(DrawingContext context)
     {
-        if (_bitmap is null) return;
+        try
+        {
+            if (_bitmap is null) return;
 
-        var src = new Rect(0, 0, _bitmap.PixelSize.Width, _bitmap.PixelSize.Height);
-        var dst = new Rect(Bounds.Size);
-        context.DrawImage(_bitmap, src, dst);
+            var src = new Rect(0, 0, _bitmap.PixelSize.Width, _bitmap.PixelSize.Height);
+            var dst = new Rect(Bounds.Size);
+            context.DrawImage(_bitmap, src, dst);
+        }
+        catch (Exception ex)
+        {
+            // Same defensive guard applied to WaveformControl/LiveBackground this session: an
+            // unhandled render-path exception can silently hard-crash the whole process with zero
+            // trace. This control swaps/disposes _bitmap on every WaveformData or >8px width
+            // change — exactly the kind of frequent churn (constant during virtualized-row
+            // recycling while scrolling the Library grid) that class of bug tends to surface on.
+            Serilog.Log.Warning(ex, "LibraryWaveformView: render tick failed — skipping frame");
+        }
     }
 }

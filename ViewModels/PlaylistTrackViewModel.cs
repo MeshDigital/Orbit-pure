@@ -340,6 +340,20 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     
     public double BPM => Model.BPM ?? 0.0;
     public string MusicalKey => Model.MusicalKey ?? "—";
+
+    /// <summary>Applies a BPM edit already persisted elsewhere (e.g. TrackRepository.UpdateBpmAsync)
+    /// to THIS view-model instance and re-raises the properties that read it. Callers that hold a
+    /// different PlaylistTrackViewModel instance for the same track (e.g. a Flow Builder card,
+    /// which wraps its own separate instance — see MixTransitionViewModel.LoadPairAsync's
+    /// freshly-constructed pair) won't see this change; publish TrackMetadataUpdatedEvent for
+    /// those to pick up.</summary>
+    public void ApplyBpmUpdate(double bpm)
+    {
+        Model.BPM = bpm;
+        OnPropertyChanged(nameof(BPM));
+        OnPropertyChanged(nameof(BpmDisplay));
+        OnPropertyChanged(nameof(HasBpm));
+    }
     
     public string GlobalId { get; set; } // TrackUniqueHash
     
@@ -439,8 +453,16 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     public string? SourceProvenance => Model.SourceProvenance;
 
     public ArtworkProxy Artwork => _artwork;
-    
+
     public Avalonia.Media.Imaging.Bitmap? ArtworkBitmap => _artwork?.Image;
+
+    // Deterministic color + monogram shown in place of real artwork wherever it's still loading
+    // or was never found — every "no art" row used to render as the exact same flat gray tile
+    // with a faint music-note glyph, giving no visual distinction between rows at a glance.
+    // Same Artist/Title seed always produces the same color, so a track's tile stays stable
+    // across scrolls and sessions rather than flickering.
+    public Avalonia.Media.IBrush FallbackArtBrush => Utils.ArtworkFallback.GetBrush($"{Artist}{Title}");
+    public string FallbackArtLetter => Utils.ArtworkFallback.GetLetter(Title ?? Artist);
 
     // Status Properties for StandardTrackRow
     public bool IsActive => (State == PlaylistTrackState.Downloading || State == PlaylistTrackState.Searching || State == PlaylistTrackState.Queued || State == PlaylistTrackState.Pending) && State != PlaylistTrackState.Stalled;
@@ -700,6 +722,56 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     }
 
     public string CamelotDisplay => !string.IsNullOrEmpty(Model.MusicalKey) ? Utils.KeyConverter.ToCamelot(Model.MusicalKey) : "—";
+
+    // Mix (Spotify-Mix-parity) transition badge — set externally by TrackListViewModel's
+    // UpdateMixTransitionBadges(), mirroring how IsHarmonicMatch/IsExactKeyMatch above are
+    // computed relative to sibling rows rather than owned by this row in isolation.
+    private bool _showMixTransitionBadge;
+    public bool ShowMixTransitionBadge
+    {
+        get => _showMixTransitionBadge;
+        set => SetProperty(ref _showMixTransitionBadge, value);
+    }
+
+    private string _transitionPresetLabel = "Auto";
+    public string TransitionPresetLabel
+    {
+        get => _transitionPresetLabel;
+        set => SetProperty(ref _transitionPresetLabel, value);
+    }
+
+    private string _transitionBadgeColor = "#66888888";
+    public string TransitionBadgeColor
+    {
+        get => _transitionBadgeColor;
+        set => SetProperty(ref _transitionBadgeColor, value);
+    }
+
+    // Set alongside TransitionBadgeColor by TrackListViewModel.UpdateMixTransitionBadgesAsync —
+    // human-readable reasons (BPM gap, genre drift, harmonic risk, energy jump) the transition
+    // into the next track scored poorly, joined for the badge tooltip. Empty when the transition
+    // is fine.
+    private string _transitionWarningText = string.Empty;
+    public string TransitionWarningText
+    {
+        get => _transitionWarningText;
+        set
+        {
+            SetProperty(ref _transitionWarningText, value);
+            OnPropertyChanged(nameof(HasTransitionWarning));
+            OnPropertyChanged(nameof(TransitionTooltip));
+        }
+    }
+
+    public bool HasTransitionWarning => !string.IsNullOrEmpty(TransitionWarningText);
+
+    public string TransitionTooltip => HasTransitionWarning
+        ? TransitionWarningText
+        : "Edit transition into the next track";
+
+    /// <summary>The next track's PlaylistTracks.Id, i.e. the "incoming" side of this row's
+    /// transition badge — null when this is the last row or Mix mode is off.</summary>
+    public Guid? NextPlaylistTrackId { get; set; }
 
 
     public Avalonia.Media.IBrush ColorBrush

@@ -69,7 +69,7 @@ public interface IDialogService
     /// <summary>
     /// Shows a batch tag editor dialog.
     /// </summary>
-    Task<ViewModels.Library.BatchTagEditResult?> ShowBatchTagEditDialogAsync(string? initialFileName = null);
+    Task<ViewModels.Library.BatchTagEditResult?> ShowBatchTagEditDialogAsync(string? initialFileName = null, ViewModels.Library.BatchTagEditSeed? seed = null);
 
     /// <summary>
     /// Shows the bulk-rename-by-pattern dialog for <paramref name="trackCount"/> selected tracks,

@@ -19,6 +19,27 @@ public class BatchTagEditResult
     public string? Rating { get; set; }
 }
 
+/// <summary>
+/// The current field values to prefill the dialog with, computed by the caller from the
+/// selected track(s). A null field means the selection doesn't agree on one value for it
+/// (only possible with &gt;1 track selected) — the dialog leaves that field blank and shows
+/// a "multiple values" hint instead of guessing which track's value to show.
+/// </summary>
+public sealed class BatchTagEditSeed
+{
+    public string? Artist { get; set; }
+    public string? Title { get; set; }
+    public string? Album { get; set; }
+    public string? Genre { get; set; }
+    public string? Year { get; set; }
+    public string? Bpm { get; set; }
+    public string? Key { get; set; }
+    public string? Comments { get; set; }
+    public string? Mood { get; set; }
+    public string? TrackNumber { get; set; }
+    public string? Rating { get; set; }
+}
+
 public sealed class BatchTagEditViewModel : ReactiveObject
 {
     private string _artist = string.Empty;
@@ -37,13 +58,55 @@ public sealed class BatchTagEditViewModel : ReactiveObject
     public bool IsSingleTrack { get; }
     public string FileNameWatermark { get; }
 
-    public BatchTagEditViewModel(string? initialFileName = null)
+    /// <summary>
+    /// Per-field watermark shown when the selection doesn't share one value for that field
+    /// (e.g. two tracks with different genres) — the field is left blank rather than guessing.
+    /// </summary>
+    private const string MixedValuesHint = "(Multiple values — leave blank to keep each)";
+
+    public string ArtistWatermark { get; }
+    public string TitleWatermark { get; }
+    public string AlbumWatermark { get; }
+    public string GenreWatermark { get; }
+    public string YearWatermark { get; }
+    public string BpmWatermark { get; }
+    public string KeyWatermark { get; }
+    public string CommentsWatermark { get; }
+    public string MoodWatermark { get; }
+    public string TrackNumberWatermark { get; }
+    public string RatingWatermark { get; }
+
+    public BatchTagEditViewModel(string? initialFileName = null, BatchTagEditSeed? seed = null)
     {
         IsSingleTrack = initialFileName is not null;
         FileNameWatermark = IsSingleTrack
             ? initialFileName!
             : "(Multiple tracks selected — filename editing not available)";
         _newFileName = initialFileName ?? string.Empty;
+
+        _artist = seed?.Artist ?? string.Empty;
+        _title = seed?.Title ?? string.Empty;
+        _album = seed?.Album ?? string.Empty;
+        _genre = seed?.Genre ?? string.Empty;
+        _year = seed?.Year ?? string.Empty;
+        _bpm = seed?.Bpm ?? string.Empty;
+        _key = seed?.Key ?? string.Empty;
+        _comments = seed?.Comments ?? string.Empty;
+        _mood = seed?.Mood ?? string.Empty;
+        _trackNumber = seed?.TrackNumber ?? string.Empty;
+        _rating = seed?.Rating ?? string.Empty;
+
+        ArtistWatermark = seed is { Artist: null } ? MixedValuesHint : "Keep original artist";
+        TitleWatermark = seed is { Title: null } ? MixedValuesHint : "Keep original title";
+        AlbumWatermark = seed is { Album: null } ? MixedValuesHint : "Keep original album";
+        GenreWatermark = seed is { Genre: null } ? MixedValuesHint : "Keep original genre";
+        YearWatermark = seed is { Year: null } ? MixedValuesHint : "Keep original year (e.g. 2026)";
+        BpmWatermark = seed is { Bpm: null } ? MixedValuesHint : "Keep original BPM (e.g. 128)";
+        KeyWatermark = seed is { Key: null } ? MixedValuesHint : "Keep original key (e.g. 8A)";
+        CommentsWatermark = seed is { Comments: null } ? MixedValuesHint : "Keep original comments";
+        MoodWatermark = seed is { Mood: null } ? MixedValuesHint : "Keep original mood tag";
+        TrackNumberWatermark = seed is { TrackNumber: null } ? MixedValuesHint : "Keep original track number";
+        RatingWatermark = seed is { Rating: null } ? MixedValuesHint : "Keep original rating";
     }
 
     public string Artist

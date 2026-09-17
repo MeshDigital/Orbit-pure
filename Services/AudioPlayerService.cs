@@ -24,6 +24,17 @@ namespace SLSKDONET.Services
             public MeteringSampleProvider? Metering;
             public VariSpeedSampleProvider? VariSpeed;
             public ThreeBandGainProvider? Eq;
+            /// <summary>In-process gain stage for master volume/crossfade/loudness automation.
+            /// Deliberately NOT <see cref="IWavePlayer.Volume"/> — on WASAPI that setter writes
+            /// through to the OS-level per-app session volume (the same control behind the
+            /// Windows Volume Mixer slider for this process), not an internal signal multiply.
+            /// Driving that ~20x/sec from the crossfade timer was a real bug: it round-trips
+            /// through the Windows Audio Session API on every tick, and any dropped/out-of-order
+            /// update (process suspend, COM call failure, a deck disposed mid-write) leaves the
+            /// OS-visible session sitting at whatever the last write was — reported as "audio
+            /// gets muted in Windows". <see cref="Output"/>'s own Volume is pinned to 1.0 once at
+            /// creation and never touched again; all real gain changes go through this instead.</summary>
+            public NAudio.Wave.SampleProviders.VolumeSampleProvider? Gain;
             /// <summary>Linear gain applied on top of the master volume for loudness-normalized playback (see <see cref="AppConfig.LoudnessNormalizationEnabled"/>). 1.0 = no adjustment.</summary>
             public float LoudnessGain = 1f;
 
@@ -233,7 +244,7 @@ namespace SLSKDONET.Services
                     _isCrossfading = true;
                     _crossfadeElapsedSeconds = 0;
                     _crossfadeProgress = 0;
-                    _next.Output.Volume = 0f;
+                    if (_next.Gain != null) _next.Gain.Volume = 0f;
                     if (_next.Eq != null) _next.Eq.Active = pendingTransition != null;
                     if (current.Eq != null) current.Eq.Active = pendingTransition != null;
                     _next.Output.Play();
@@ -283,6 +294,14 @@ namespace SLSKDONET.Services
                     Curve = SLSKDONET.Services.Audio.TransitionCurve.SCurve,
                     WaveDuckDepth = pendingTransition.WaveDuckDepth,
                     EchoDecayFactor = pendingTransition.EchoDecayFactor,
+                    EqConfig = new SLSKDONET.Services.Audio.EqBandSwapConfig
+                    {
+                        SwapLow = pendingTransition.EqSwapLow,
+                        SwapMid = pendingTransition.EqSwapMid,
+                        SwapHigh = pendingTransition.EqSwapHigh,
+                        LowCrossover = pendingTransition.EqLowCrossoverHz,
+                        HighCrossover = pendingTransition.EqHighCrossoverHz,
+                    },
                 };
                 var automation = _liveTransitionEngine.CalculateAutomation(region, (long)(t * samplePoints));
 
@@ -301,8 +320,8 @@ namespace SLSKDONET.Services
                 nextGain = (float)(_masterVolumeFraction * _next.LoudnessGain * Math.Sin(t * Math.PI / 2));
             }
 
-            if (current.Output != null) current.Output.Volume = currentGain;
-            _next.Output.Volume = nextGain;
+            if (current.Gain != null) current.Gain.Volume = currentGain;
+            if (_next.Gain != null) _next.Gain.Volume = nextGain;
 
             _crossfadeProgress = t;
             CrossfadeProgressChanged?.Invoke(this, t);
@@ -346,9 +365,9 @@ namespace SLSKDONET.Services
                 _masterVolumeFraction = Math.Clamp(value / 100f, 0f, 1f);
                 // While crossfading, the fade envelope owns each deck's volume; the new
                 // master level takes effect once the crossfade finishes (see AdvanceCrossfade).
-                if (_current?.Output != null && !_isCrossfading)
+                if (_current?.Gain != null && !_isCrossfading)
                 {
-                    _current.Output.Volume = _masterVolumeFraction * _current.LoudnessGain;
+                    _current.Gain.Volume = _masterVolumeFraction * _current.LoudnessGain;
                 }
             }
         }
@@ -384,7 +403,7 @@ namespace SLSKDONET.Services
             try
             {
                 var deck = CreateDeck(filePath, trackLoudnessLufs);
-                deck.Output!.Volume = 0f;
+                deck.Gain!.Volume = 0f;
                 deck.PendingTransition = transition;
                 deck.PendingTransitionBpm = transitionBpm is > 0 ? transitionBpm.Value : 128.0;
                 deck.PendingTransitionPresetName = presetName;
@@ -423,10 +442,26 @@ namespace SLSKDONET.Services
             _next.PendingTransitionPresetName = presetName;
             _next.PendingSourceTriggerSeconds = sourceTriggerSeconds;
             _next.PendingTargetTriggerSeconds = targetTriggerSeconds;
-            if (targetTriggerSeconds is > 0 && _next.AudioFile != null)
+
+            // Guarded against re-seeking a deck that's already actively playing: this method is
+            // called once the async saved/suggested-transition lookup resolves (see
+            // PlayerViewModel.SchedulePreloadNext), which can land well after the crossfade has
+            // already started for this exact deck if that lookup takes long enough (a real risk
+            // now that the Auto-suggestion path does its own DB round-trips — see
+            // PlayerViewModel.AttachSavedTransitionAsync). Seeking AudioFile.CurrentTime on a
+            // NAudio device that's mid-playback doesn't just jump the position cleanly — it can
+            // corrupt/stall the live output entirely, which showed up as "the incoming track sits
+            // there and stops" right around when the crossfade finished. Once _isCrossfading is
+            // true for this deck, it's too late to safely reposition it — better to let it keep
+            // playing from wherever it already is than risk killing it.
+            if (!_isCrossfading && targetTriggerSeconds is > 0 && _next.AudioFile != null)
             {
-                _next.AudioFile.CurrentTime = TimeSpan.FromSeconds(targetTriggerSeconds.Value);
-                _next.VariSpeed?.Reset();
+                var total = _next.AudioFile.TotalTime.TotalSeconds;
+                if (targetTriggerSeconds.Value < total)
+                {
+                    _next.AudioFile.CurrentTime = TimeSpan.FromSeconds(targetTriggerSeconds.Value);
+                    _next.VariSpeed?.Reset();
+                }
             }
         }
 
@@ -447,7 +482,7 @@ namespace SLSKDONET.Services
             try
             {
                 _current = CreateDeck(filePath, trackLoudnessLufs);
-                _current.Output!.Volume = _masterVolumeFraction * _current.LoudnessGain;
+                _current.Gain!.Volume = _masterVolumeFraction * _current.LoudnessGain;
                 if (autoPlay) _current.Output.Play();
                 LengthChanged?.Invoke(this, (long)_current.AudioFile!.TotalTime.TotalMilliseconds);
                 PausableChanged?.Invoke(this, EventArgs.Empty);
@@ -518,9 +553,13 @@ namespace SLSKDONET.Services
             // more than a plain volume crossfade (Blend/Wave/Melt).
             deck.Eq = new ThreeBandGainProvider(deck.VariSpeed);
 
+            // 0.75. In-process gain stage — see the Deck.Gain field doc for why this, and not
+            // Output.Volume, is what master volume/crossfade/loudness-normalization drive.
+            deck.Gain = new NAudio.Wave.SampleProviders.VolumeSampleProvider(deck.Eq) { Volume = 1f };
+
             // 1. Intercept for FFT (Spectrum). Only forwarded upstream while this deck is the
             // active one, so a preloaded/promoted deck seamlessly takes over the visualizer.
-            var fftProvider = new FftSampleProvider(deck.Eq, 2048, magnitudes =>
+            var fftProvider = new FftSampleProvider(deck.Gain, 2048, magnitudes =>
             {
                 if (ReferenceEquals(_current, deck)) SpectrumChanged?.Invoke(this, magnitudes);
             });
@@ -546,6 +585,9 @@ namespace SLSKDONET.Services
 
             deck.Output = CreateConfiguredOutputDevice();
             deck.Output.Init(deck.Metering);
+            // Pinned forever — see Deck.Gain field doc. All real gain automation goes through
+            // deck.Gain (an in-process sample multiply), never through the OS session volume.
+            deck.Output.Volume = 1f;
             deck.Output.PlaybackStopped += (s, e) =>
             {
                 if (!ReferenceEquals(_current, deck)) return; // stale event from a deck we've already advanced past
@@ -570,17 +612,44 @@ namespace SLSKDONET.Services
             var promoted = _next;
             _next = null;
             _nextFilePath = null;
-            if (promoted?.Output == null) return;
+            if (promoted?.Output == null)
+            {
+                return;
+            }
 
             _current = promoted;
-            promoted.Output.Volume = _masterVolumeFraction * promoted.LoudnessGain;
+            if (promoted.Gain != null) promoted.Gain.Volume = _masterVolumeFraction * promoted.LoudnessGain;
             if (promoted.Output.PlaybackState != PlaybackState.Playing)
             {
                 promoted.Output.Play();
             }
 
             LengthChanged?.Invoke(this, (long)(promoted.AudioFile?.TotalTime.TotalMilliseconds ?? 0));
-            finishedDeck.Dispose();
+
+            // Disposing the finished deck's WasapiOut synchronously, here, on the timer thread —
+            // in the same call stack that just started/confirmed the newly-promoted deck's own
+            // WasapiOut is playing — has been observed to silently kill the PROMOTED deck's
+            // playback moments later: its PlaybackState keeps reporting Playing and its volume
+            // stays at 1, but AudioFile.CurrentTime simply stops advancing forever (confirmed via
+            // live logging — position frozen at the exact promotion timestamp, five-plus minutes
+            // later, with no further PlaybackStopped/EndReached ever firing). Deck.Dispose() calls
+            // Output.Stop() first, which blocks waiting for that WasapiOut's dedicated event-sync
+            // thread to exit — doing that immediately adjacent to another WasapiOut instance
+            // starting up on the timer thread is exactly the kind of ordering NAudio/WASAPI is
+            // fragile about. Deferring disposal to a background thread, decoupled from this call
+            // stack, avoids whatever race that ordering was hitting.
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    finishedDeck.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[AudioPlayerService] Deferred disposal of finished deck failed: {ex.Message}");
+                }
+            });
+
             TrackAdvanced?.Invoke(this, EventArgs.Empty);
         }
 
