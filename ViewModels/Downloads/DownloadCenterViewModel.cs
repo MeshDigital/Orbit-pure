@@ -134,6 +134,39 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
     private readonly ReadOnlyObservableCollection<DownloadGroupViewModel> _activeGroups;
     public ReadOnlyObservableCollection<DownloadGroupViewModel> ActiveGroups => _activeGroups;
 
+    /// <summary>
+    /// Drag-reorder for the "Group by playlist" Active view. ActiveGroups otherwise auto-sorts by
+    /// most-recent activity with no way to override it. Called from DownloadsPage's drag handlers
+    /// with the dragged group and the group it was dropped onto. Snapshots the current visual
+    /// order, moves the dragged item to just before the drop target, then stamps every group's
+    /// ManualOrder with its new sequential index — the AutoRefresh(ManualOrder) hooked into the
+    /// ActiveGroups sort pipeline picks that up and resorts immediately. A group that isn't part
+    /// of this snapshot yet (freshly appeared) keeps ManualOrder == null until it's dragged too,
+    /// so it sorts after every manually-placed group, most-recently-active first among those.
+    /// </summary>
+    public void ReorderActiveGroup(DownloadGroupViewModel dragged, DownloadGroupViewModel dropTarget)
+    {
+        if (ReferenceEquals(dragged, dropTarget)) return;
+
+        var ordered = _activeGroups.ToList();
+        if (!ordered.Remove(dragged)) return;
+
+        var targetIndex = ordered.IndexOf(dropTarget);
+        if (targetIndex < 0)
+        {
+            // Drop target no longer present (e.g. its last track just completed) — append instead
+            // of silently dropping the reorder.
+            ordered.Add(dragged);
+        }
+        else
+        {
+            ordered.Insert(targetIndex, dragged);
+        }
+
+        for (var i = 0; i < ordered.Count; i++)
+            ordered[i].ManualOrder = i;
+    }
+
     // Beta 2026: Peer Lane Dashboard — group active tracks by source peer
     private readonly ReadOnlyObservableCollection<PeerLaneViewModel> _byPeerGroups;
     public ReadOnlyObservableCollection<PeerLaneViewModel> ByPeerGroups => _byPeerGroups;
@@ -1041,7 +1074,14 @@ public class DownloadCenterViewModel : ReactiveObject, IDisposable
             .Group(x => x.Model.SourcePlaylistId ?? x.Model.PlaylistId)
             .Transform((IGroup<UnifiedTrackViewModel, string, Guid> group) => new DownloadGroupViewModel(group, _downloadManager, _libraryService, _notificationService, row => SelectedHubRow = row))
             .DisposeMany()
-            .SortAndBind(out _activeGroups, SortExpressionComparer<DownloadGroupViewModel>.Descending(x => x.LastActivity))
+            // AutoRefresh(ManualOrder): a drag-reorder (ReorderActiveGroup) only changes this one
+            // property on already-present VMs, not the underlying track changeset, so without this
+            // the resort would never actually fire — same "re-sort when this specific field changes"
+            // pattern already used for Priority below.
+            .AutoRefresh(x => x.ManualOrder)
+            .SortAndBind(out _activeGroups, SortExpressionComparer<DownloadGroupViewModel>
+                .Ascending(x => x.ManualOrder ?? int.MaxValue)
+                .ThenByDescending(x => x.LastActivity))
             .Subscribe()
             .DisposeWith(_subscriptions);
 

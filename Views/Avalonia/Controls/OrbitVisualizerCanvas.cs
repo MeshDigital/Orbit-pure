@@ -122,12 +122,21 @@ public sealed class OrbitVisualizerCanvas : Control
     {
         base.OnAttachedToVisualTree(e);
         _renderTimer.Start();
+        ResolvePlayerService()?.NotifyVisualizerAttached();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
         _renderTimer.Stop();
+        ResolvePlayerService()?.NotifyVisualizerDetached();
+    }
+
+    private static SLSKDONET.Services.IAudioPlayerService? ResolvePlayerService()
+    {
+        if (Design.IsDesignMode) return null;
+        if (Application.Current is not SLSKDONET.App app || app.Services == null) return null;
+        return app.Services.GetService(typeof(SLSKDONET.Services.IAudioPlayerService)) as SLSKDONET.Services.IAudioPlayerService;
     }
 
     private void OnRenderTick(object? sender, EventArgs e)

@@ -85,6 +85,14 @@ public interface IDialogService
     Task<ViewModels.Library.BulkMoveOrCopyResult?> ShowBulkMoveOrCopyDialogAsync(int trackCount);
 
     /// <summary>
+    /// Shows the Export Playlist choice dialog — Copy Files + XML / XML Only / Cancel. Unlike
+    /// <see cref="ConfirmAsync"/>, dismissing the window (X / Alt+F4 / Escape) returns null,
+    /// which callers must treat identically to an explicit Cancel — it must NOT fall through to
+    /// either export path.
+    /// </summary>
+    Task<Views.Avalonia.Dialogs.ExportPlaylistChoice?> ShowExportPlaylistChoiceAsync(string playlistTitle);
+
+    /// <summary>
     /// Shows a folder selection dialog.
     /// </summary>
     /// <returns>Selected folder path or null if cancelled.</returns>

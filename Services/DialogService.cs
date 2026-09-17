@@ -257,6 +257,20 @@ public class DialogService : IDialogService
         });
     }
 
+    public async Task<Views.Avalonia.Dialogs.ExportPlaylistChoice?> ShowExportPlaylistChoiceAsync(string playlistTitle)
+    {
+        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            var dialog = new Views.Avalonia.Dialogs.ExportPlaylistChoiceDialog(playlistTitle);
+            var owner = GetOwnerWindow();
+            if (owner != null)
+            {
+                return await dialog.ShowDialog<Views.Avalonia.Dialogs.ExportPlaylistChoice?>(owner);
+            }
+            return null;
+        });
+    }
+
     public async Task<string?> OpenFolderDialogAsync(string title)
     {
         return await Dispatcher.UIThread.InvokeAsync(async () =>

@@ -11,7 +11,15 @@ namespace SLSKDONET.Services
         long Time { get; }   // Current time in ms
         float Position { get; set; } // 0.0 to 1.0
         int Volume { get; set; }     // 0 to 100
-        bool IsVisualizerActive { get; set; } // Phase 2: High-Performance rendering coordination
+        bool IsVisualizerActive { get; } // Phase 2: High-Performance rendering coordination
+
+        /// <summary>Call from a visualizer control's OnAttachedToVisualTree. Reference-counted —
+        /// safe to call from multiple simultaneously-visible visualizer instances.</summary>
+        void NotifyVisualizerAttached();
+
+        /// <summary>Call from a visualizer control's OnDetachedFromVisualTree (must pair 1:1 with
+        /// a prior NotifyVisualizerAttached call).</summary>
+        void NotifyVisualizerDetached();
 
         event EventHandler<long> TimeChanged;
         event EventHandler<float> PositionChanged;

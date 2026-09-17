@@ -703,6 +703,31 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- Crossfade duration — CrossfadeSeconds was already fully built/persisted on
+                         the ViewModel, but had no control anywhere; only the on/off toggle above
+                         was reachable. Shown only while crossfade is actually enabled, matching
+                         the "Up next" card's same conditional-visibility pattern below. -->
+                    <Border Classes="card" IsVisible="{Binding IsCrossfadeEnabled}">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <TextBlock Grid.Column="0" Text="CROSSFADE" Classes="caption" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <Slider Grid.Column="1"
+                                    Minimum="1" Maximum="15"
+                                    Value="{Binding CrossfadeSeconds, Mode=TwoWay}"
+                                    Height="20"
+                                    ToolTip.Tip="Crossfade overlap length in seconds">
+                                <Slider.Styles>
+                                    <Style Selector="Slider /template/ Thumb">
+                                        <Setter Property="Background" Value="{StaticResource BrushAccent}"/>
+                                        <Setter Property="Width" Value="12"/>
+                                        <Setter Property="Height" Value="12"/>
+                                        <Setter Property="CornerRadius" Value="6"/>
+                                    </Style>
+                                </Slider.Styles>
+                            </Slider>
+                            <TextBlock Grid.Column="2" Text="{Binding CrossfadeSeconds, StringFormat={}{0:0.0}s}" FontSize="10" Foreground="{StaticResource BrushText2}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                        </Grid>
+                    </Border>
+
                     <!-- Up next — a glanceable preview so you don't have to open the full queue
                          panel just to see what's coming. The full list (with reorder/remove) is
                          still one click away via the ☰ queue toggle in the header. -->

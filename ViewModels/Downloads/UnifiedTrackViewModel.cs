@@ -677,7 +677,12 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(IsPaused));
                 this.RaisePropertyChanged(nameof(IsStalled));
                 this.RaisePropertyChanged(nameof(IsCompleted));
-                
+                this.RaisePropertyChanged(nameof(ForensicVerdict));
+                this.RaisePropertyChanged(nameof(BitrateLed));
+                this.RaisePropertyChanged(nameof(KeyLed));
+                this.RaisePropertyChanged(nameof(PeakLed));
+                this.RaisePropertyChanged(nameof(ForensicDetails));
+
                 // Action enablement
                 this.RaisePropertyChanged(nameof(CanForceStart));
                 this.RaisePropertyChanged(nameof(CanRetry));
@@ -1443,22 +1448,52 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public bool HasKey => !string.IsNullOrEmpty(Model.MusicalKey) && Model.MusicalKey != "—";
     public bool HasGenre => !string.IsNullOrEmpty(DetectedSubGenre) || !string.IsNullOrEmpty(PrimaryGenre);
 
-    // Phase 2: In-Flight Forensics
-    private string _forensicVerdict = "Initializing Probe...";
-    public string ForensicVerdict 
-    { 
-        get => _forensicVerdict; 
-        private set => this.RaiseAndSetIfChanged(ref _forensicVerdict, value); 
+    // Phase 2: In-Flight Forensics — these were permanently stuck at their constructor defaults
+    // ("Initializing Probe...", "○" x3) because nothing anywhere ever set them. Real in-flight
+    // (mid-stream) probing while bytes are still arriving would need a genuinely new pipeline;
+    // what this class already has, post-download, is real per-track signal — fake-lossless
+    // detection (IsTranscoded, from PostDownloadSpectralScanService), key-detection success
+    // (HasKey), and a real measured true-peak level (Model.TruePeak) — so these three LEDs now
+    // reflect those instead of staying permanently dark. All read "○ pending" until the track is
+    // Completed and its post-download analysis has actually run, then light up for real.
+    public string ForensicVerdict
+    {
+        get
+        {
+            if (!IsCompleted) return "Awaiting download…";
+            if (!HasSpectralVerdict) return "Analysis pending…";
+            return Model.IsTranscoded ? "⚠️ Likely transcode" : "✅ Verified";
+        }
     }
 
-    private string _bitrateLed = "○"; // LED States: ○ (off), ● (active), ⚠️ (warning), ✅ (good)
-    public string BitrateLed { get => _bitrateLed; private set => this.RaiseAndSetIfChanged(ref _bitrateLed, value); }
-    
-    private string _keyLed = "○";
-    public string KeyLed { get => _keyLed; private set => this.RaiseAndSetIfChanged(ref _keyLed, value); }
-    
-    private string _peakLed = "○";
-    public string PeakLed { get => _peakLed; private set => this.RaiseAndSetIfChanged(ref _peakLed, value); }
+    // LED glyphs: ○ (pending/not yet known), ⚠️ (warning), ✅ (good)
+    public string BitrateLed
+    {
+        get
+        {
+            if (!IsCompleted || !HasSpectralVerdict) return "○";
+            return Model.IsTranscoded ? "⚠️" : "✅";
+        }
+    }
+
+    public string KeyLed
+    {
+        get
+        {
+            if (!IsCompleted) return "○";
+            return HasKey ? "✅" : "⚠️";
+        }
+    }
+
+    public string PeakLed
+    {
+        get
+        {
+            if (!IsCompleted || !Model.TruePeak.HasValue) return "○";
+            // Above -1.0 dBTP is tight enough headroom to risk audible clipping on playback.
+            return Model.TruePeak.Value > -1.0 ? "⚠️" : "✅";
+        }
+    }
 
     public string ForensicDetails => $"Verdict: {ForensicVerdict}\nBIT: {BitrateLed}\nKEY: {KeyLed}\nPEAK: {PeakLed}";
 
@@ -2298,6 +2333,12 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(SpectralVerdictColor));
                 this.RaisePropertyChanged(nameof(SpectralVerdictBadgeText));
                 this.RaisePropertyChanged(nameof(ForensicBadgeText));
+                this.RaisePropertyChanged(nameof(ForensicVerdict));
+                this.RaisePropertyChanged(nameof(BitrateLed));
+                this.RaisePropertyChanged(nameof(KeyLed));
+                this.RaisePropertyChanged(nameof(PeakLed));
+                this.RaisePropertyChanged(nameof(ForensicDetails));
+                this.RaisePropertyChanged(nameof(HasKey));
                 // Spectral Inspector properties
                 this.RaisePropertyChanged(nameof(HasSpectralDetails));
                 this.RaisePropertyChanged(nameof(SpectralSampleRateDisplay));

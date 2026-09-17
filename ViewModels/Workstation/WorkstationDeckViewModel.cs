@@ -148,20 +148,10 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
         }
     }
 
-    /// <summary>Placeholder meter signal until full metering is integrated.</summary>
-    public double VuLevel
-    {
-        get
-        {
-            if (!Deck.IsPlaying)
-            {
-                return 0;
-            }
-
-            var movement = 0.15 + (PlaybackProgress * 0.75);
-            return Math.Clamp(movement, 0, 1);
-        }
-    }
+    /// <summary>Real peak level (0..1) read straight from DeckEngine's own audio callback —
+    /// replaces the old "0.15 + progress*0.75" placeholder ramp, which just tracked playback
+    /// position rather than anything about the actual audio.</summary>
+    public double VuLevel => Deck.IsPlaying ? Deck.Engine.CurrentLevel : 0;
 
     private bool _isLocked;
     public bool IsLocked

@@ -372,7 +372,36 @@ namespace SLSKDONET.Services
             }
         }
 
-        public bool IsVisualizerActive { get; set; }
+        public bool IsVisualizerActive { get; private set; }
+
+        private int _visualizerAttachCount;
+
+        /// <summary>
+        /// Was never called from anywhere, which is why IsVisualizerActive stayed permanently
+        /// false — the FFT/spectrum computation it gates ran unconditionally for every playing
+        /// track regardless of whether a visualizer control was ever going to render it. Wired
+        /// from VibeVisualizer/OrbitVisualizerCanvas's OnAttachedToVisualTree. Reference-counted
+        /// so two simultaneously-visible visualizer instances don't have one's detach turn the
+        /// flag off while the other is still showing.
+        /// </summary>
+        public void NotifyVisualizerAttached()
+        {
+            IsVisualizerActive = System.Threading.Interlocked.Increment(ref _visualizerAttachCount) > 0;
+        }
+
+        public void NotifyVisualizerDetached()
+        {
+            var count = System.Threading.Interlocked.Decrement(ref _visualizerAttachCount);
+            if (count < 0)
+            {
+                // Defensive: an unmatched Detached call (shouldn't happen if every control pairs
+                // Attached/Detached correctly) — clamp so a stray extra call can't push future
+                // legitimate attach/detach pairs permanently out of sync.
+                System.Threading.Interlocked.Exchange(ref _visualizerAttachCount, 0);
+                count = 0;
+            }
+            IsVisualizerActive = count > 0;
+        }
 
         public void Play(string filePath, double? trackLoudnessLufs = null) => OpenDevice(filePath, autoPlay: true, trackLoudnessLufs);
 
@@ -562,7 +591,7 @@ namespace SLSKDONET.Services
             var fftProvider = new FftSampleProvider(deck.Gain, 2048, magnitudes =>
             {
                 if (ReferenceEquals(_current, deck)) SpectrumChanged?.Invoke(this, magnitudes);
-            });
+            }, isActive: () => IsVisualizerActive);
 
             // 2. Wrap in Metering for VU
             deck.Metering = new MeteringSampleProvider(fftProvider);
@@ -664,10 +693,11 @@ namespace SLSKDONET.Services
             private int _pos;
             private readonly System.Numerics.Complex[] _complexBuffer;
             private int _fftBusy = 0;
+            private readonly Func<bool> _isActive;
 
             public WaveFormat WaveFormat => _source.WaveFormat;
 
-            public FftSampleProvider(ISampleProvider source, int fftSize, Action<float[]> onFftCalculated)
+            public FftSampleProvider(ISampleProvider source, int fftSize, Action<float[]> onFftCalculated, Func<bool>? isActive = null)
             {
                 _source = source;
                 _fftSize = fftSize;
@@ -675,11 +705,23 @@ namespace SLSKDONET.Services
                 _buffer = new float[fftSize];
                 _processingBuffer = new float[fftSize];
                 _complexBuffer = new System.Numerics.Complex[fftSize];
+                _isActive = isActive ?? (() => true);
             }
 
             public int Read(float[] buffer, int offset, int count)
             {
                 int read = _source.Read(buffer, offset, count);
+
+                // No visualizer control is attached/visible right now — skip the windowing +
+                // MathNet FFT dispatch entirely (this ran unconditionally for every playing
+                // track before, whether or not anything was ever going to render it). Keep
+                // _pos at 0 while inactive so re-activating starts a clean window instead of
+                // bursting out a stale, partially-filled buffer from whenever it was last active.
+                if (!_isActive())
+                {
+                    _pos = 0;
+                    return read;
+                }
 
                 for (int i = 0; i < read; i++)
                 {

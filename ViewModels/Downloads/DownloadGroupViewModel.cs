@@ -49,7 +49,24 @@ public class DownloadGroupViewModel : ReactiveObject, IDisposable
     public ReadOnlyObservableCollection<DownloadRowViewModel> Rows { get; }
 
     public DateTime LastActivity { get; private set; }
-    
+
+    private int? _manualOrder;
+    /// <summary>
+    /// Explicit position set by dragging this group in the "Group by playlist" Active view.
+    /// Null means "not manually placed" — the group sorts by <see cref="LastActivity"/> instead.
+    /// Once any group in the list is dragged, DownloadCenterViewModel.ReorderActiveGroup assigns
+    /// sequential values to every currently-visible group, "freezing" that order; a group that
+    /// disappears and later reappears (all its tracks left and a new batch arrived) starts back
+    /// at null since this is deliberately in-memory/session-scoped state, not persisted — once a
+    /// playlist finishes downloading and drops out of the active list, its manual position no
+    /// longer means anything.
+    /// </summary>
+    public int? ManualOrder
+    {
+        get => _manualOrder;
+        set => this.RaiseAndSetIfChanged(ref _manualOrder, value);
+    }
+
     // Aggregate Properties
     public double TotalProgress
     {

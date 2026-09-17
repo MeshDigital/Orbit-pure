@@ -1761,19 +1761,18 @@ public partial class LibraryViewModel
 
         try
         {
-            // Ask user: copy files to USB/folder, or XML only?
-            bool copyFiles = await _dialogService.ConfirmAsync(
-                "Export Playlist",
-                $"How do you want to export \"{project.SourceTitle}\"?\n\n" +
-                "Yes — copy audio files + write Rekordbox XML (USB / folder export)\n" +
-                "No  — Rekordbox XML only (no file copy)",
-                confirmLabel: "Copy Files + XML",
-                cancelLabel: "XML Only");
+            // Ask user: copy files to USB/folder, XML only, or cancel entirely. Dismissing this
+            // dialog (X / Alt+F4 / Escape) returns null here, which is handled the same as an
+            // explicit Cancel below — unlike the old ConfirmAsync-based version, dismissing no
+            // longer silently falls through to an XML-only export the user never asked for.
+            var choice = await _dialogService.ShowExportPlaylistChoiceAsync(project.SourceTitle);
+            if (choice is null or Views.Avalonia.Dialogs.ExportPlaylistChoice.Cancelled)
+                return;
 
             IsLoading = true;
             var tracks = (await _libraryService.LoadPlaylistTracksAsync(project.Id)).ToList();
 
-            if (copyFiles)
+            if (choice == Views.Avalonia.Dialogs.ExportPlaylistChoice.CopyFilesAndXml)
             {
                 var folder = await _dialogService.OpenFolderDialogAsync("Choose export folder or USB drive root");
                 if (string.IsNullOrEmpty(folder)) return;
