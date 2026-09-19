@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -6,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SLSKDONET.Models;
+using SLSKDONET.Services.IO;
 using SLSKDONET.Services.Library;
 
 namespace SLSKDONET.Services.Export;
@@ -19,19 +21,29 @@ public record ExportProgress(int Total, int Copied, int Skipped, string CurrentF
 ///   Phase A — copy audio files to destination
 ///   Phase B — write Rekordbox XML with destination paths
 ///
-/// For USB export the XML is written to {dest}/PIONEER/rekordbox.xml,
-/// which Pioneer CDJs detect automatically when the drive is inserted.
+/// The XML is written to {dest}/PIONEER/rekordbox.xml — matching where Rekordbox itself places
+/// device-exported metadata, so it's easy to find, but this is NOT a CDJ-native database. CDJ
+/// hardware reads Pioneer's own binary PDB+ANLZ device library (written only by Rekordbox
+/// desktop's own "Export to Device" feature) — it does not parse XML directly, and writing that
+/// binary format is a deliberate non-goal here (see DOCS/REKORDBOX_EXPORT_ARCHITECTURE.md — an
+/// encrypted, reverse-engineered format with no .NET precedent). The real, required workflow is:
+/// this export → open Rekordbox desktop → Preferences → Advanced → rekordbox xml → import this
+/// file → then use Rekordbox's own device-export feature to actually prepare a CDJ-ready USB. A
+/// drive containing only what this class writes will not play on a CDJ if plugged in directly.
 /// </summary>
 public sealed class UsbExportOrchestrator
 {
     private readonly PlaylistExportService _exportService;
+    private readonly IFileWriteService _fileWriteService;
     private readonly ILogger<UsbExportOrchestrator> _logger;
 
     public UsbExportOrchestrator(
         PlaylistExportService exportService,
+        IFileWriteService fileWriteService,
         ILogger<UsbExportOrchestrator> logger)
     {
         _exportService = exportService;
+        _fileWriteService = fileWriteService;
         _logger = logger;
     }
 
@@ -73,10 +85,46 @@ public sealed class UsbExportOrchestrator
         string audioDir = Path.Combine(usbRoot, "OrbitAudio", Sanitize(playlistName));
         Directory.CreateDirectory(audioDir);
 
-        // Phase A: copy files, building a map from local path → destination path
-        var pathMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        int copied = 0, skipped = 0;
+        // Pre-flight: estimate total size vs. free space so a large export warns up front instead
+        // of failing silently partway through a long copy with no indication of why. Also detects
+        // FAT32 (still required by some older CDJ models) to catch its hard 4GB single-file limit
+        // per-track below, rather than letting File-copy fail with an opaque IOException.
+        long totalBytes = 0;
+        foreach (var t in tracks)
+        {
+            if (string.IsNullOrEmpty(t.ResolvedFilePath) || !File.Exists(t.ResolvedFilePath)) continue;
+            try { totalBytes += new FileInfo(t.ResolvedFilePath).Length; } catch { /* counted during the real copy below instead */ }
+        }
+        string driveFormat = "";
+        try
+        {
+            var drive = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(usbRoot)) ?? usbRoot);
+            driveFormat = drive.DriveFormat;
+            if (drive.AvailableFreeSpace < totalBytes)
+            {
+                _logger.LogWarning(
+                    "Export destination may not have enough free space: need ~{NeedMb}MB, {FreeMb}MB available on {Root}.",
+                    totalBytes / 1024 / 1024, drive.AvailableFreeSpace / 1024 / 1024, usbRoot);
+                progress?.Report(new(tracks.Count, 0, 0,
+                    $"Warning: ~{totalBytes / 1024 / 1024}MB needed, only {drive.AvailableFreeSpace / 1024 / 1024}MB free", false));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not check free space / filesystem type for {Root}", usbRoot);
+        }
+        bool isFat32 = string.Equals(driveFormat, "FAT32", StringComparison.OrdinalIgnoreCase);
+        const long Fat32MaxFileSize = 4_294_967_295L; // 4GiB - 1 byte, FAT32's hard per-file limit
 
+        // Phase A: copy files, building a map from local path → destination path
+        var pathMap = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        int copied = 0, skipped = 0, reused = 0;
+
+        // Cheap, sequential pre-pass: missing-file/FAT32-oversize skips and the same-size-already-
+        // there reuse fast path are all local stat checks (no actual copy I/O), so there's nothing
+        // to gain from parallelizing them — only the tracks that genuinely need copying go into
+        // toCopy below.
+        var toCopy = new List<(PlaylistTrack Track, string DestPath)>();
         foreach (var track in tracks)
         {
             ct.ThrowIfCancellationRequested();
@@ -89,19 +137,71 @@ public sealed class UsbExportOrchestrator
                 continue;
             }
 
-            var ext = Path.GetExtension(track.ResolvedFilePath);
-            var safeName = Sanitize($"{track.Artist} - {track.Title}") + ext;
-            // Deduplicate file names (two tracks from different artists might share a name)
-            var destPath = UniqueDestPath(audioDir, safeName);
+            var sourceInfo = new FileInfo(track.ResolvedFilePath);
 
-            progress?.Report(new(tracks.Count, copied, skipped, safeName, false));
+            if (isFat32 && sourceInfo.Length > Fat32MaxFileSize)
+            {
+                skipped++;
+                progress?.Report(new(tracks.Count, copied, skipped, track.Title ?? "—", false));
+                _logger.LogWarning(
+                    "Skipping '{Title}' ({SizeMb}MB) — exceeds FAT32's 4GB file size limit on {Root}. Reformat the drive as exFAT to include it (check your CDJ model's supported filesystems first).",
+                    track.Title, sourceInfo.Length / 1024 / 1024, usbRoot);
+                continue;
+            }
 
-            await Task.Run(() => File.Copy(track.ResolvedFilePath, destPath, overwrite: true), ct);
-            pathMap[track.ResolvedFilePath] = destPath;
-            copied++;
+            var destPath = BuildDeterministicDestPath(audioDir, track);
 
-            _logger.LogDebug("Copied {Src} → {Dest}", track.ResolvedFilePath, destPath);
+            // Re-export fast path: a same-size file already at the deterministic destination is
+            // treated as already correctly copied — skips re-writing the entire playlist's worth
+            // of files (and the USB wear that goes with it) on every re-export after new downloads.
+            if (File.Exists(destPath) && new FileInfo(destPath).Length == sourceInfo.Length)
+            {
+                pathMap[track.ResolvedFilePath] = destPath;
+                reused++;
+                progress?.Report(new(tracks.Count, copied, skipped, Path.GetFileName(destPath), false));
+                continue;
+            }
+
+            toCopy.Add((track, destPath));
         }
+
+        // Copy the files that actually need it with bounded parallelism. USB/removable media
+        // write throughput is the real bottleneck (SafeWriteService funnels every write through
+        // one shared background writer), but each copy's read + crash-journal checkpoint + post-
+        // copy verification + atomic rename can now overlap across files instead of one file's
+        // entire copy completing before the next one's even starts reading.
+        const int MaxConcurrentCopies = 4;
+        using var copySemaphore = new SemaphoreSlim(MaxConcurrentCopies);
+        var copyTasks = toCopy.Select(async item =>
+        {
+            await copySemaphore.WaitAsync(ct);
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+                progress?.Report(new(tracks.Count, copied, skipped, Path.GetFileName(item.DestPath), false));
+
+                bool ok = await _fileWriteService.CopyFileAtomicAsync(item.Track.ResolvedFilePath!, item.DestPath, preserveTimestamps: true, ct);
+                if (!ok)
+                {
+                    // CopyFileAtomicAsync already logged the specific cause (disk full, access
+                    // denied, verification failure, etc.) — one bad file must not abort the export.
+                    Interlocked.Increment(ref skipped);
+                    progress?.Report(new(tracks.Count, copied, skipped, item.Track.Title ?? "—", false));
+                    _logger.LogWarning("Failed to copy '{Title}' to {Dest} — skipping, see prior log entry for cause.", item.Track.Title, item.DestPath);
+                    return;
+                }
+
+                pathMap[item.Track.ResolvedFilePath!] = item.DestPath;
+                Interlocked.Increment(ref copied);
+                _logger.LogDebug("Copied {Src} → {Dest}", item.Track.ResolvedFilePath, item.DestPath);
+            }
+            finally
+            {
+                copySemaphore.Release();
+            }
+        });
+
+        await Task.WhenAll(copyTasks);
 
         // Phase B: write XML with dest paths instead of local paths
         var pioneerDir = Path.Combine(usbRoot, "PIONEER");
@@ -113,8 +213,8 @@ public sealed class UsbExportOrchestrator
 
         progress?.Report(new(tracks.Count, copied, skipped, "Done", true));
         _logger.LogInformation(
-            "FilesAndXml export complete: {Copied} copied, {Skipped} skipped. XML → {Xml}",
-            copied, skipped, xmlPath);
+            "FilesAndXml export complete: {Copied} copied, {Reused} already up to date, {Skipped} skipped. XML → {Xml}",
+            copied, reused, skipped, xmlPath);
     }
 
     // ─── XmlOnly ─────────────────────────────────────────────────────────────
@@ -140,19 +240,24 @@ public sealed class UsbExportOrchestrator
     private static string Sanitize(string name) =>
         string.Concat(name.Select(c => _invalidChars.Contains(c) ? '_' : c)).Trim();
 
-    private static string UniqueDestPath(string dir, string safeName)
+    /// <summary>
+    /// Deterministic per-track destination filename, stable across repeated exports of the same
+    /// playlist — a short suffix from the track's own content hash keeps two same-named tracks
+    /// apart without depending on "does a file with this name already exist." A prior version did
+    /// depend on that (appending "(2)", "(3)"... to the first available name), which meant every
+    /// re-export of the same playlist to the same destination piled a fresh duplicate copy of
+    /// every track on top of the previous export's files, since those files already existed —
+    /// orphaning the old copies on the drive forever instead of updating them in place.
+    /// Internal (not private) so UsbExportOrchestratorTests can verify determinism directly.
+    /// </summary>
+    internal static string BuildDeterministicDestPath(string audioDir, PlaylistTrack track)
     {
-        var candidate = Path.Combine(dir, safeName);
-        if (!File.Exists(candidate)) return candidate;
-
-        var nameOnly = Path.GetFileNameWithoutExtension(safeName);
-        var ext = Path.GetExtension(safeName);
-        int n = 2;
-        while (File.Exists(candidate))
-        {
-            candidate = Path.Combine(dir, $"{nameOnly} ({n}){ext}");
-            n++;
-        }
-        return candidate;
+        var ext = Path.GetExtension(track.ResolvedFilePath ?? "");
+        var stableSuffix = string.IsNullOrEmpty(track.TrackUniqueHash)
+            ? ""
+            : " [" + track.TrackUniqueHash.Substring(0, Math.Min(8, track.TrackUniqueHash.Length)) + "]";
+        var safeName = Sanitize($"{track.Artist} - {track.Title}{stableSuffix}") + ext;
+        return Path.Combine(audioDir, safeName);
     }
+
 }

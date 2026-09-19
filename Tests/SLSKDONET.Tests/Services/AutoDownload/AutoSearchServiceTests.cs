@@ -910,6 +910,30 @@ public class AutoSearchServiceTests
         Assert.Null(filteredResult.BestMatch);
     }
 
+    /// <summary>
+    /// ARRANGE: A short/generic query ("Yes") plus a candidate filename that merely contains it
+    /// somewhere in a much longer, unrelated string
+    /// ACT: Call the private static IsExactFilenameMatch directly
+    /// ASSERT: No longer matches — substring containment used to also count as "exact", so almost
+    /// any filename mentioning the word anywhere defeated the whole point of the exact-first phase
+    /// for short/generic titles. A genuinely exact (post-normalization) filename still matches.
+    /// </summary>
+    [Fact]
+    public void IsExactFilenameMatch_RejectsSubstringContainment_ButAcceptsTrueExactMatch()
+    {
+        var method = typeof(AutoSearchService).GetMethod("IsExactFilenameMatch", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Could not find private static method IsExactFilenameMatch.");
+
+        bool Invoke(string filename, string normalizedQuery)
+        {
+            var candidate = new Track { Filename = filename };
+            return (bool)(method.Invoke(null, new object[] { candidate, normalizedQuery }) ?? false);
+        }
+
+        Assert.False(Invoke("Someone Else - Yes Or No (Extended Mix).flac", "yes"));
+        Assert.True(Invoke("Yes.flac", "yes"));
+    }
+
     private T InvokePrivate<T>(string methodName, params object[] args)
     {
         var method = typeof(AutoSearchService).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)

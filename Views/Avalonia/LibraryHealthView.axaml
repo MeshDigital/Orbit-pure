@@ -1,0 +1,135 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:SLSKDONET.ViewModels.Library"
+             mc:Ignorable="d" d:DesignWidth="700" d:DesignHeight="560"
+             x:Class="SLSKDONET.Views.Avalonia.LibraryHealthView"
+             x:DataType="vm:LibraryHealthViewModel">
+
+    <Border Background="#252526" CornerRadius="10" BorderBrush="#3E3E42" BorderThickness="1"
+            Width="700" MaxHeight="640" Padding="20">
+        <Grid RowDefinitions="Auto,Auto,*">
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
+                <TextBlock Text="🩺" FontSize="18"/>
+                <TextBlock Text="Library Health" FontSize="15" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+            </StackPanel>
+            <TextBlock Grid.Row="1" Text="Disk usage, stale tracks, and files ORBIT hasn't indexed yet."
+                       Foreground="#888" FontSize="11" Margin="0,0,0,12"/>
+
+            <ScrollViewer Grid.Row="2" MaxHeight="540">
+                <StackPanel Spacing="18">
+
+                    <!-- ── Disk usage ─────────────────────────────────────────── -->
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Text="DISK USAGE" FontSize="11" FontWeight="Bold" Foreground="#666" VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Content="Refresh" Command="{Binding RefreshDiskUsageCommand}"
+                                    Padding="10,4" FontSize="11" CornerRadius="6" Background="#1AFFFFFF" Foreground="#DDD" BorderThickness="0"/>
+                        </Grid>
+
+                        <TextBlock Text="{Binding TotalLibrarySizeDisplay, StringFormat='Total: {0}'}"
+                                   Foreground="White" FontSize="20" FontWeight="SemiBold"/>
+                        <TextBlock Text="Computing…" Foreground="#888" FontSize="11" IsVisible="{Binding IsDiskUsageLoading}"/>
+
+                        <ItemsControl ItemsSource="{Binding FormatBreakdown}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:FormatBreakdownRowViewModel">
+                                    <Grid ColumnDefinitions="80,*,Auto" Margin="0,2">
+                                        <TextBlock Grid.Column="0" Text="{Binding Format}" Foreground="#CCC" FontSize="12" FontWeight="SemiBold"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding TrackCount, StringFormat='{}{0} tracks'}" Foreground="#888" FontSize="11" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding TotalSizeDisplay}" Foreground="#AAA" FontSize="11"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Text="LARGEST FILES" FontSize="10" FontWeight="Bold" Foreground="#666" Margin="0,8,0,0"/>
+                        <ItemsControl ItemsSource="{Binding LargestFiles}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:LargestFileRowViewModel">
+                                    <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,3">
+                                        <StackPanel Grid.Column="0" Spacing="0">
+                                            <TextBlock Text="{Binding Title}" Foreground="#DDD" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding Artist}" Foreground="#777" FontSize="10" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding SizeDisplay}" Foreground="#AAA" FontSize="11" VerticalAlignment="Center" Margin="8,0"/>
+                                        <Button Grid.Column="2" Content="Reveal" Command="{Binding $parent[UserControl].DataContext.RevealFileCommand}"
+                                                CommandParameter="{Binding FilePath}"
+                                                Padding="8,4" FontSize="10" CornerRadius="6" Background="#1AFFFFFF" Foreground="#DDD" BorderThickness="0"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <Separator Background="#333" Height="1"/>
+
+                    <!-- ── Unplayed tracks ────────────────────────────────────── -->
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
+                            <TextBlock Grid.Column="0" Text="UNPLAYED TRACKS" FontSize="11" FontWeight="Bold" Foreground="#666" VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Content="30d" Command="{Binding SetUnplayedThresholdCommand}" CommandParameter="30"
+                                    Padding="8,4" FontSize="11" CornerRadius="6" Margin="0,0,4,0" Background="#1AFFFFFF" Foreground="#DDD" BorderThickness="0"/>
+                            <Button Grid.Column="2" Content="90d" Command="{Binding SetUnplayedThresholdCommand}" CommandParameter="90"
+                                    Padding="8,4" FontSize="11" CornerRadius="6" Margin="0,0,4,0" Background="#1AFFFFFF" Foreground="#DDD" BorderThickness="0"/>
+                            <Button Grid.Column="3" Content="180d" Command="{Binding SetUnplayedThresholdCommand}" CommandParameter="180"
+                                    Padding="8,4" FontSize="11" CornerRadius="6" Margin="0,0,8,0" Background="#1AFFFFFF" Foreground="#DDD" BorderThickness="0"/>
+                            <Button Grid.Column="4" Content="Refresh" Command="{Binding RefreshUnplayedCommand}"
+                                    Padding="10,4" FontSize="11" CornerRadius="6" Background="#1AFFFFFF" Foreground="#DDD" BorderThickness="0"/>
+                        </Grid>
+                        <TextBlock Text="{Binding UnplayedThresholdDays, StringFormat='Threshold: {0} days'}" Foreground="#666" FontSize="10"/>
+                        <TextBlock Text="Computing…" Foreground="#888" FontSize="11" IsVisible="{Binding IsUnplayedLoading}"/>
+                        <TextBlock Text="{Binding UnplayedTracks.Count, StringFormat='{}{0} track(s) never played or stale (showing up to 200)'}"
+                                   Foreground="#888" FontSize="11"/>
+
+                        <ItemsControl ItemsSource="{Binding UnplayedTracks}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:UnplayedTrackRowViewModel">
+                                    <Grid ColumnDefinitions="*,Auto" Margin="0,3">
+                                        <StackPanel Grid.Column="0" Spacing="0">
+                                            <TextBlock Text="{Binding Title}" Foreground="#DDD" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding Artist}" Foreground="#777" FontSize="10" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding LastPlayedDisplay, StringFormat='Last played: {0}'}"
+                                                   Foreground="#AAA" FontSize="11" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <Separator Background="#333" Height="1"/>
+
+                    <!-- ── Untracked files ────────────────────────────────────── -->
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Text="FILES NOT IN ORBIT" FontSize="11" FontWeight="Bold" Foreground="#666" VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Content="Refresh" Command="{Binding RefreshUntrackedCommand}"
+                                    Padding="10,4" FontSize="11" CornerRadius="6" Background="#1AFFFFFF" Foreground="#DDD" BorderThickness="0"/>
+                        </Grid>
+                        <TextBlock Text="Files sitting inside a registered library folder that ORBIT hasn't imported yet — the reverse of Orphaned Tracks."
+                                   Foreground="#888" FontSize="11" TextWrapping="Wrap"/>
+                        <TextBlock Text="Computing…" Foreground="#888" FontSize="11" IsVisible="{Binding IsUntrackedLoading}"/>
+                        <TextBlock Text="No untracked files found." Foreground="#4EC9B0" FontSize="11"
+                                   IsVisible="{Binding !UntrackedFiles.Count}"/>
+
+                        <ItemsControl ItemsSource="{Binding UntrackedFiles}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:UntrackedFileRowViewModel">
+                                    <Grid ColumnDefinitions="*,Auto" Margin="0,3">
+                                        <TextBlock Grid.Column="0" Text="{Binding FilePath}" Foreground="#DDD" FontSize="11" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                        <Button Grid.Column="1" Content="Scan Now" Command="{Binding $parent[UserControl].DataContext.ScanFolderCommand}"
+                                                CommandParameter="{Binding}"
+                                                Padding="8,4" FontSize="10" CornerRadius="6" Background="#1A4EC9B0" Foreground="#4EC9B0" BorderThickness="0"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Border>
+</UserControl>

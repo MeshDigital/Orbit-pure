@@ -13,6 +13,15 @@ public sealed class TransitionSuggestion
     public double SourceTriggerTime { get; set; }
     public double TargetTriggerTime { get; set; }
     public double CompatibilityScore { get; set; } // 0 - 100
+
+    /// <summary>The analyzed cue point (if any) that <see cref="SourceTriggerTime"/> corresponds
+    /// to — null when the trigger time is a computed/ambient position (e.g. the tempo-jump
+    /// branch's VocalEndSeconds fallback) with no backing CuePointEntity. Lets a UI highlight
+    /// which cue marker the suggestion picked, rather than just showing a bare timestamp.</summary>
+    public CuePointEntity? SelectedSourceCue { get; set; }
+
+    /// <summary>Same as <see cref="SelectedSourceCue"/>, for <see cref="TargetTriggerTime"/>.</summary>
+    public CuePointEntity? SelectedTargetCue { get; set; }
 }
 
 /// <summary>
@@ -40,12 +49,17 @@ public sealed class TransitionEngine
         string targetKey = target.MusicalKey ?? "8A";
         bool keysCompatible = AreCamelotKeysCompatible(sourceKey, targetKey);
 
-        // Find standard cues
-        var mixOutCue = sourceCues.FirstOrDefault(c => c.Label.Contains("Mix-Out")) ?? 
+        // Find standard cues. Match by CuePointType, not label substring — CueGenerationService's
+        // real schema labels the approach markers "32 Beats to Drop 1"/"16 Beats to Drop 1" with
+        // CuePointType.Build, and those sort chronologically BEFORE "Drop 1" itself. A
+        // Label.Contains("Drop") check (as this used to be) matches the approach marker first
+        // (cues arrive time-ordered from CuePointService), landing every "drop-in" transition on
+        // the phrase 8 bars before the actual drop instead of the drop itself.
+        var mixOutCue = sourceCues.FirstOrDefault(c => c.Label.Contains("Mix-Out")) ??
                         sourceCues.LastOrDefault(c => c.Type == CuePointType.Outro);
-        var mixInCue = targetCues.FirstOrDefault(c => c.Label.Contains("Mix-In")) ?? 
+        var mixInCue = targetCues.FirstOrDefault(c => c.Label.Contains("Mix-In")) ??
                        targetCues.FirstOrDefault(c => c.Type == CuePointType.Intro);
-        var firstDropCue = targetCues.FirstOrDefault(c => c.Label.Contains("Drop"));
+        var firstDropCue = targetCues.FirstOrDefault(c => c.Type == CuePointType.Drop);
 
         double sourceTime = mixOutCue?.TimestampInSeconds ?? (source.CanonicalDuration ?? 240.0) - 30.0;
         double targetTime = mixInCue?.TimestampInSeconds ?? 15.0;
@@ -60,13 +74,20 @@ public sealed class TransitionEngine
             
             suggestion.Description = "Tempo Jump (>6%): Blend in ambient/instrumental outro zone. ";
             suggestion.SourceTriggerTime = ambientOutroStart;
+            // Ambient outro zone is a computed position (VocalEndSeconds or the standard mix-out
+            // fallback), not necessarily an analyzed cue — only attribute it to mixOutCue when its
+            // timestamp is genuinely what was used.
+            suggestion.SelectedSourceCue = mixOutCue != null && Math.Abs(mixOutCue.TimestampInSeconds - ambientOutroStart) < 0.01 ? mixOutCue : null;
             // Suggest dropping in the next track directly at its first drop (instant drop transition)
             suggestion.TargetTriggerTime = firstDropCue?.TimestampInSeconds ?? targetTime;
+            suggestion.SelectedTargetCue = firstDropCue ?? mixInCue;
         }
         else
         {
             suggestion.SourceTriggerTime = sourceTime;
+            suggestion.SelectedSourceCue = mixOutCue;
             suggestion.TargetTriggerTime = targetTime;
+            suggestion.SelectedTargetCue = mixInCue;
             suggestion.Description = "Standard Transition. ";
         }
 
@@ -85,6 +106,7 @@ public sealed class TransitionEngine
                 if (firstDropCue != null)
                 {
                     suggestion.TargetTriggerTime = firstDropCue.TimestampInSeconds;
+                    suggestion.SelectedTargetCue = firstDropCue;
                     suggestion.Description += "Harmonic Clash + Vocal Overlap: Shift target start to drop-in. ";
                 }
                 else

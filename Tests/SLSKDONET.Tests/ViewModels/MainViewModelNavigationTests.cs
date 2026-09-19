@@ -184,5 +184,87 @@ public class MainViewModelNavigationTests
         Assert.True(shouldClose);
     }
 
+    /// <summary>
+    /// Regression coverage for a real bug: Zen Mode, Theater Mode, and the narrow-window
+    /// auto-collapse (MainWindow.axaml.cs) all set IsNavigationCollapsed=true expecting the left
+    /// nav sidebar to disappear, but nothing in MainWindow.axaml ever bound to that flag — the
+    /// column's Width stayed at whatever NavSidebarWidth last was and MinWidth stayed a static 56,
+    /// so the sidebar never actually hid under any of those three features. The fix moves the
+    /// width transition into the IsNavigationCollapsed property setter itself so every caller gets
+    /// correct behavior automatically, and MainWindow.axaml now binds the column's MinWidth/the
+    /// nav Border's IsVisible to the same flag.
+    /// </summary>
+    private static MainViewModel CreateUninitializedMainViewModel()
+        => (MainViewModel)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(MainViewModel));
+
+    [Fact]
+    public void IsNavigationCollapsed_SetTrue_CollapsesSidebarWidthToZero()
+    {
+        var sut = CreateUninitializedMainViewModel();
+        sut.NavSidebarWidth = 220;
+
+        sut.IsNavigationCollapsed = true;
+
+        Assert.Equal(0, sut.NavSidebarWidth);
+    }
+
+    [Fact]
+    public void IsNavigationCollapsed_SetFalse_RestoresThePreCollapseWidth()
+    {
+        var sut = CreateUninitializedMainViewModel();
+        sut.NavSidebarWidth = 220;
+
+        sut.IsNavigationCollapsed = true;
+        sut.IsNavigationCollapsed = false;
+
+        Assert.Equal(220, sut.NavSidebarWidth);
+    }
+
+    [Fact]
+    public void NavSidebarCycle_ExpandedToMiniToCollapsedAndBack_RoundTripsTheOriginalWidth()
+    {
+        // Simulates ToggleNavigationCommand's real 3-state cycle: Expanded(220) -> Mini(56) ->
+        // Collapsed(0) -> Expanded again. The collapsed-width capture must not clobber the
+        // remembered expanded width with the mini rail's 56px along the way.
+        var sut = CreateUninitializedMainViewModel();
+        sut.NavSidebarWidth = 220;
+
+        sut.IsNavigationMini = true;
+        Assert.Equal(56, sut.NavSidebarWidth);
+
+        sut.IsNavigationCollapsed = true;
+        Assert.Equal(0, sut.NavSidebarWidth);
+        Assert.False(sut.IsNavigationMini, "Going fully hidden should clear the mini rail state too.");
+
+        sut.IsNavigationCollapsed = false;
+        Assert.Equal(220, sut.NavSidebarWidth);
+    }
+
+    [Fact]
+    public void IsNavigationCollapsed_SetTrue_AlsoClearsMiniState()
+    {
+        var sut = CreateUninitializedMainViewModel();
+        sut.NavSidebarWidth = 220;
+        sut.IsNavigationMini = true;
+        sut.NavSidebarWidth = 56;
+
+        sut.IsNavigationCollapsed = true;
+
+        Assert.False(sut.IsNavigationMini);
+    }
+
+    [Fact]
+    public void IsNavigationCollapsed_SettingSameValueTwice_IsANoOp()
+    {
+        var sut = CreateUninitializedMainViewModel();
+        sut.NavSidebarWidth = 220;
+
+        sut.IsNavigationCollapsed = true;
+        sut.NavSidebarWidth = 999; // simulate something else touching width while collapsed
+        sut.IsNavigationCollapsed = true; // redundant set — must not re-run the transition
+
+        Assert.Equal(999, sut.NavSidebarWidth);
+    }
+
     private sealed class TestPage : global::Avalonia.Controls.UserControl;
 }

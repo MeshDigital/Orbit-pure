@@ -40,13 +40,13 @@ public class VirtualizedTrackCollectionTests
         var libraryServiceMock = new Mock<ILibraryService>();
 
         libraryServiceMock
-            .Setup(s => s.GetTrackCountAsync(playlistId, null, null, null, null))
+            .Setup(s => s.GetTrackCountAsync(playlistId, null, null, null, null, null))
             .ReturnsAsync(totalCount);
 
         libraryServiceMock
             .Setup(s => s.GetPagedPlaylistTracksAsync(
-                playlistId, It.IsAny<int>(), It.IsAny<int>(), null, null, null, null, TrackSortColumn.Default, false))
-            .Returns(async (Guid _, int skip, int take, string? _, bool? _, IEnumerable<string>? _, string? _, TrackSortColumn _, bool _) =>
+                playlistId, It.IsAny<int>(), It.IsAny<int>(), null, null, null, null, TrackSortColumn.Default, false, null))
+            .Returns(async (Guid _, int skip, int take, string? _, bool? _, IEnumerable<string>? _, string? _, TrackSortColumn _, bool _, string? _) =>
             {
                 if (onPageRequested != null)
                     await onPageRequested(skip, take);
@@ -145,7 +145,7 @@ public class VirtualizedTrackCollectionTests
 
         libraryServiceMock.Verify(
             s => s.GetPagedPlaylistTracksAsync(
-                It.IsAny<Guid>(), 0, 10, null, null, null, null, TrackSortColumn.Default, false),
+                It.IsAny<Guid>(), 0, 10, null, null, null, null, TrackSortColumn.Default, false, null),
             Times.Once);
     }
 
@@ -190,5 +190,104 @@ public class VirtualizedTrackCollectionTests
         });
 
         Assert.Null(ex);
+    }
+
+    /// <summary>
+    /// Regression coverage for a real, confirmed-by-code-reading bug: PageInfo.LastAccess was
+    /// populated on every page load but nothing ever read it — _pages/_loadedItems/
+    /// _viewModelCache grew without bound for the life of the collection instance, so a long
+    /// scroll session over a large "All Tracks" view kept every row's PlaylistTrackViewModel
+    /// (and its decoded artwork) permanently resident. pageSize=2 keeps the per-page track count
+    /// tiny while still exercising the real MaxLoadedPages=40 threshold with a manageable total
+    /// track count (82+), rather than needing a multi-thousand-row fixture.
+    /// </summary>
+    private const int PagesToExceedCap = 45; // > MaxLoadedPages (40)
+
+    [Fact]
+    public async Task Eviction_DoesNotTrigger_WhenLoadedPagesStayUnderTheCap()
+    {
+        const int pageSize = 2;
+        var (sut, _) = BuildSut(totalCount: 30 * pageSize, pageSize: pageSize); // 30 pages, under the 40-page cap
+        await WaitForCountAsync(sut, TimeSpan.FromSeconds(2));
+
+        for (int page = 0; page < 30; page++)
+        {
+            await sut.LoadPageAsync(page);
+        }
+
+        // Every previously-loaded page must still be resolvable as real data — no eviction
+        // should have touched anything below the cap.
+        for (int page = 0; page < 30; page += 5)
+        {
+            var item = sut[page * pageSize];
+            Assert.False(item.IsPlaceholder, $"Index {page * pageSize} (page {page}) was evicted despite staying under the cap.");
+        }
+    }
+
+    [Fact]
+    public async Task Eviction_ReleasesLeastRecentlyAccessedPage_OnceCapIsExceeded()
+    {
+        const int pageSize = 2;
+        var (sut, _) = BuildSut(totalCount: (PagesToExceedCap + 1) * pageSize, pageSize: pageSize);
+        await WaitForCountAsync(sut, TimeSpan.FromSeconds(2));
+
+        // Load page 0 first, then never touch it again while loading enough further pages to
+        // exceed MaxLoadedPages — it should end up the least-recently-accessed and get evicted.
+        await sut.LoadPageAsync(0);
+        for (int page = 1; page <= PagesToExceedCap; page++)
+        {
+            await sut.LoadPageAsync(page);
+        }
+
+        var evictedItem = sut[0];
+        Assert.True(evictedItem.IsPlaceholder, "Page 0 should have been evicted as the least-recently-accessed page once the cap was exceeded.");
+
+        // The most-recently-loaded page must still be resident.
+        var freshItem = sut[PagesToExceedCap * pageSize];
+        Assert.False(freshItem.IsPlaceholder, "The most recently loaded page should not have been evicted.");
+    }
+
+    [Fact]
+    public async Task Eviction_ReloadsAnEvictedPage_OnReaccess()
+    {
+        const int pageSize = 2;
+        var (sut, _) = BuildSut(totalCount: (PagesToExceedCap + 1) * pageSize, pageSize: pageSize);
+        await WaitForCountAsync(sut, TimeSpan.FromSeconds(2));
+
+        await sut.LoadPageAsync(0);
+        for (int page = 1; page <= PagesToExceedCap; page++)
+        {
+            await sut.LoadPageAsync(page);
+        }
+
+        Assert.True(sut[0].IsPlaceholder, "Precondition: page 0 should have been evicted.");
+
+        // Re-accessing an evicted index must behave exactly like a fresh cache miss — kick off a
+        // real reload rather than staying permanently stuck on the placeholder.
+        await sut.LoadPageAsync(0);
+        var reloaded = sut[0];
+
+        Assert.False(reloaded.IsPlaceholder);
+        Assert.Equal("hash-0", reloaded.GlobalId);
+    }
+
+    [Fact]
+    public async Task Eviction_NeverEvictsAPageContainingASelectedItem()
+    {
+        const int pageSize = 2;
+        var (sut, _) = BuildSut(totalCount: (PagesToExceedCap + 1) * pageSize, pageSize: pageSize);
+        await WaitForCountAsync(sut, TimeSpan.FromSeconds(2));
+
+        await sut.LoadPageAsync(0);
+        sut[0].IsSelected = true; // The row a user has clicked/selected, then scrolled away from.
+
+        for (int page = 1; page <= PagesToExceedCap; page++)
+        {
+            await sut.LoadPageAsync(page);
+        }
+
+        var selectedItem = sut[0];
+        Assert.False(selectedItem.IsPlaceholder, "A page containing a currently-selected item must never be evicted.");
+        Assert.True(selectedItem.IsSelected);
     }
 }

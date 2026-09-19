@@ -54,12 +54,35 @@ public sealed class BreakbeatAnalysisStrategy : IGenreFamilyAnalysisStrategy
     public DropSignalWeights GetSignalWeights()
         => new(SubBassWeight: 0.85f, EnergyJumpWeight: 0.35f, SpectralFluxWeight: 0.55f);
 
+    /// <summary>
+    /// DnB has no independent drop-time signal beyond what sub-bass-return/novelty already
+    /// supply — but a sub-bass return that's also confirmed by a spectral-flux novelty peak
+    /// nearby (both signals agreeing something structurally significant happens there) is a
+    /// stronger drop candidate than either alone. Boosts those corroborated returns; a bare
+    /// sub-bass return with no nearby novelty confirmation is left as-is (its default weighted
+    /// score already stands from GenerateCuesDsp's initial pass — this only ever raises a
+    /// score, per CueGenerationService's merge, never lowers one).
+    /// </summary>
     public IReadOnlyList<(double Time, float Score)> GetFamilySpecificDropCandidates(
         AnalysisPipelineResult analysis, double bpm, double downbeatAnchor)
-        // DnB has no independent drop signal beyond what sub-bass-return/novelty already supply —
-        // the resurrected DnB subsystem's real value is breakdown-valley detection (below) and
-        // cue labeling, not a competing drop-time guess.
-        => Array.Empty<(double, float)>();
+    {
+        if (analysis.SubBassReturnTimestamps == null || analysis.SubBassReturnTimestamps.Count == 0 || bpm <= 0)
+            return Array.Empty<(double, float)>();
+
+        double beatDuration = 60.0 / bpm;
+        var candidates = new List<(double, float)>();
+
+        foreach (var returnTime in analysis.SubBassReturnTimestamps)
+        {
+            bool corroboratedByNovelty = analysis.NoveltyDropSignatures != null &&
+                analysis.NoveltyDropSignatures.Any(sig => Math.Abs(sig.DropSeconds - returnTime) <= beatDuration);
+
+            if (corroboratedByNovelty)
+                candidates.Add((returnTime, 0.90f));
+        }
+
+        return candidates;
+    }
 
     public IReadOnlyList<double> GetFamilySpecificBreakdownCandidates(
         AnalysisPipelineResult analysis, double bpm, double downbeatAnchor)

@@ -46,7 +46,7 @@ public class PlaylistExportTempoTests : IDisposable
             .Options;
 
     private static PlaylistExportService CreateService(DbContextOptions<AppDbContext> options) =>
-        new(NullLogger<PlaylistExportService>.Instance, new TestDbContextFactory(options));
+        new(NullLogger<PlaylistExportService>.Instance, new TestDbContextFactory(options), new SLSKDONET.Tests.Helpers.FakeFileWriteService());
 
     private static List<double> BuildBeatGrid(params (int Count, double Bpm)[] segments)
     {

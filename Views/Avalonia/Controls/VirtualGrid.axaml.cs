@@ -1,9 +1,11 @@
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Linq;
+using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
@@ -75,6 +77,24 @@ namespace SLSKDONET.Views.Avalonia.Controls
         private int _dragCandidateIndex = -1;
         private object? _dragCandidateItem;
 
+        /// <summary>
+        /// VirtualGrid is bound to several unrelated item types (PlaylistTrackViewModel,
+        /// SelectableTrack, AnalyzedSearchResultViewModel, ...) with no shared interface, so it
+        /// looks up an "IsSelected" bool property by name via reflection instead. That lookup was
+        /// previously done fresh — a full member-name search — for every item on every selection
+        /// sync and every incrementally-loaded page; for a large virtualized playlist that's
+        /// thousands of repeated reflection lookups per scroll session. Cached per-Type here since
+        /// there are only ever a handful of distinct item types bound across the whole app.
+        /// </summary>
+        private static readonly ConcurrentDictionary<Type, PropertyInfo?> _isSelectedPropertyCache = new();
+
+        private static PropertyInfo? GetIsSelectedProperty(Type type) =>
+            _isSelectedPropertyCache.GetOrAdd(type, t =>
+            {
+                var prop = t.GetProperty("IsSelected");
+                return prop != null && prop.PropertyType == typeof(bool) && prop.CanRead && prop.CanWrite ? prop : null;
+            });
+
         public VirtualGrid()
         {
             InitializeComponent();
@@ -106,8 +126,8 @@ namespace SLSKDONET.Views.Avalonia.Controls
                     foreach (var item in newSource)
                     {
                         if (item == null) continue;
-                        var prop = item.GetType().GetProperty("IsSelected");
-                        if (prop != null && prop.PropertyType == typeof(bool))
+                        var prop = GetIsSelectedProperty(item.GetType());
+                        if (prop != null)
                         {
                             try
                             {
@@ -187,8 +207,8 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 foreach (var item in e.NewItems)
                 {
                     if (item == null) continue;
-                    var prop = item.GetType().GetProperty("IsSelected");
-                    if (prop != null && prop.PropertyType == typeof(bool))
+                    var prop = GetIsSelectedProperty(item.GetType());
+                    if (prop != null)
                     {
                         try
                         {
@@ -209,7 +229,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
         {
             if (e.PropertyName == "IsSelected" && sender != null)
             {
-                var prop = sender.GetType().GetProperty("IsSelected");
+                var prop = GetIsSelectedProperty(sender.GetType());
                 if (prop != null)
                 {
                     try
@@ -563,8 +583,8 @@ namespace SLSKDONET.Views.Avalonia.Controls
             _isUpdatingSelection = true;
             try
             {
-                var prop = item.GetType().GetProperty("IsSelected");
-                if (prop != null && prop.CanWrite && prop.PropertyType == typeof(bool))
+                var prop = GetIsSelectedProperty(item.GetType());
+                if (prop != null)
                 {
                     prop.SetValue(item, value);
                 }

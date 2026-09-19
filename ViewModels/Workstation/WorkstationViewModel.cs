@@ -18,6 +18,7 @@ using SLSKDONET.Services;
 using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.Audio.Separation;
 using SLSKDONET.Services.Similarity;
+using SLSKDONET.Views;
 
 namespace SLSKDONET.ViewModels.Workstation;
 
@@ -349,6 +350,8 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly ILogger<WorkstationViewModel>? _logger;
     private readonly SLSKDONET.Services.Library.PlaylistExportService? _playlistExporter;
+    private readonly IDialogService? _dialogService;
+    private readonly INotificationService? _notificationService;
     private readonly BpmSyncService           _bpmSync = new();
     private readonly Dictionary<string, double> _flowTransitionLengthOverrides = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _flowTransitionPhraseMarkerOverrides = new(StringComparer.Ordinal);
@@ -746,9 +749,9 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     // ── Inline Export panel (shown in Export mode) ────────────────────────────
 
     /// <summary>
-    /// Shared Export configuration shown in the inline Export mode panel.
-    /// The same instance also populates the popup Export dialog when
-    /// <see cref="ExportMixCommand"/> is invoked from the toolbar.
+    /// Export configuration used to gate header actions (e.g. <see cref="CanUseExportLaneActions"/>).
+    /// <see cref="ExportMixCommand"/> constructs its own separate <c>ExportDialogViewModel</c> for
+    /// the popup dialog rather than reusing this instance.
     /// </summary>
     public ExportDialogViewModel ExportPanel { get; }
 
@@ -803,7 +806,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit>          Loop8Command          { get; }
     /// <summary>Exit the active loop on the focused deck.</summary>
     public ReactiveCommand<Unit, Unit>          ExitLoopFocusedCommand { get; }
-    /// <summary>Switch to a Workstation mode (Waveform / Flow / Stems / Export).</summary>
+    /// <summary>Switch to a Workstation mode (Waveform / Flow).</summary>
     public ReactiveCommand<WorkstationMode, Unit> SetModeCommand      { get; }
     public ReactiveCommand<FlowTransitionOverlayViewModel, Unit> SelectFlowTransitionCommand { get; }
     public ReactiveCommand<Unit, Unit>          ClearFlowTransitionSelectionCommand { get; }
@@ -861,6 +864,9 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
     /// <summary>Queue all hidden tracks with incomplete analysis data for full reanalysis.</summary>
     public ReactiveCommand<Unit, Unit> ReanalyzeAllIncompleteCommand { get; }
 
+    /// <summary>Whether another deck can be added (max 4, mirrors AddDeckCommand's own guard).</summary>
+    public bool CanAddDeck => Decks.Count < 4;
+
     private CancellationTokenSource? _analysisCts;
 
     // ── Constructor ───────────────────────────────────────────────────────────
@@ -874,10 +880,14 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
         AppConfig appConfig, ConfigManager configManager,
         IDbContextFactory<AppDbContext> dbFactory,
         ILogger<WorkstationViewModel>? logger = null,
-        SLSKDONET.Services.Library.PlaylistExportService? playlistExporter = null)
+        SLSKDONET.Services.Library.PlaylistExportService? playlistExporter = null,
+        IDialogService? dialogService = null,
+        INotificationService? notificationService = null)
     {
         _logger = logger;
         _playlistExporter = playlistExporter;
+        _dialogService = dialogService;
+        _notificationService = notificationService;
         _library           = library;
         _deckPair          = deckPair;
         _stemSeparator     = stemSeparator;
@@ -905,10 +915,10 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             .DisposeWith(_disposables);
 
         // Wrap existing DeckA / DeckB
-        var deckA = new WorkstationDeckViewModel("A", deckPair.DeckA, stemSeparator, cueService, stemPrefService, _dbFactory);
-        var deckB = new WorkstationDeckViewModel("B", deckPair.DeckB, stemSeparator, cueService, stemPrefService, _dbFactory);
-        deckA.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); await SaveSessionAsync(); };
-        deckB.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); await SaveSessionAsync(); };
+        var deckA = new WorkstationDeckViewModel("A", deckPair.DeckA, stemSeparator, cueService, stemPrefService, _dbFactory, _dialogService, _notificationService);
+        var deckB = new WorkstationDeckViewModel("B", deckPair.DeckB, stemSeparator, cueService, stemPrefService, _dbFactory, _dialogService, _notificationService);
+        deckA.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); RaiseHeaderProperties(); await SaveSessionAsync(); };
+        deckB.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); RaiseHeaderProperties(); await SaveSessionAsync(); };
         deckA.OnDeckStateChanged = RefreshDeckTransitionGuidance;
         deckB.OnDeckStateChanged = RefreshDeckTransitionGuidance;
         Decks.Add(deckA);
@@ -971,24 +981,40 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             string label = Decks.Count switch { 2 => "C", 3 => "D", _ => "?" };
             var engine = new DeckEngine();
             var slot   = new DeckSlotViewModel(label, engine);
-            var newDeck = new WorkstationDeckViewModel(label, slot, _stemSeparator, _cueService, _stemPrefService);
-            newDeck.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); await SaveSessionAsync(); };
+            var newDeck = new WorkstationDeckViewModel(label, slot, _stemSeparator, _cueService, _stemPrefService, _dbFactory, _dialogService, _notificationService);
+            newDeck.OnTrackLoaded = async () => { RefreshDeckTransitionGuidance(); RaiseHeaderProperties(); await SaveSessionAsync(); };
             newDeck.OnDeckStateChanged = RefreshDeckTransitionGuidance;
             Decks.Add(newDeck);
             newDeck.UpdateWaveformViewport(TimelineWindowSeconds, TimelineOffsetSeconds);
             RefreshDeckTransitionGuidance();
             this.RaisePropertyChanged(nameof(MaxTimelineOffsetSeconds));
+            this.RaisePropertyChanged(nameof(CanAddDeck));
             RaiseHeaderProperties();
         });
 
-        RemoveDeckCommand = ReactiveCommand.Create<WorkstationDeckViewModel>(deck =>
+        RemoveDeckCommand = ReactiveCommand.CreateFromTask<WorkstationDeckViewModel>(async deck =>
         {
             if (Decks.Count <= 1) return;
+
+            // Only nag when there's actually something to lose — an empty/unused deck slot is
+            // safe to remove instantly, matching how other destructive confirms in this codebase
+            // (e.g. Force Redownload) only gate on there being real state at stake.
+            if (deck.IsLoaded && _dialogService != null)
+            {
+                var confirmed = await _dialogService.ConfirmAsync(
+                    "Remove Deck",
+                    $"Deck {deck.DeckLabel} has a loaded track with its cues/loop state. Removing it discards that state — this can't be undone. Continue?",
+                    confirmLabel: "Remove Deck",
+                    cancelLabel: "Cancel");
+                if (!confirmed) return;
+            }
+
             Decks.Remove(deck);
             deck.Dispose();
             FocusedDeck = Decks.FirstOrDefault();
             RefreshDeckTransitionGuidance();
             this.RaisePropertyChanged(nameof(MaxTimelineOffsetSeconds));
+            this.RaisePropertyChanged(nameof(CanAddDeck));
             TimelineOffsetSeconds = TimelineOffsetSeconds;
             RaiseHeaderProperties();
         });

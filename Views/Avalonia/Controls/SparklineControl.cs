@@ -68,6 +68,23 @@ public sealed class SparklineControl : Control
 
     public override void Render(DrawingContext ctx)
     {
+        try
+        {
+            RenderInternal(ctx);
+        }
+        catch (Exception ex)
+        {
+            // Same defensive guard applied to WaveformControl/LiveBackground/LibraryWaveformView
+            // this session: an unhandled render-path exception can silently hard-crash the whole
+            // process with zero trace. No live crash confirmed here, but this control is bound to
+            // externally-owned collections (e.g. EnergyCurvePoints) with no guard at all — cheap
+            // insurance against a future collection-mutated-during-render race.
+            Serilog.Log.Warning(ex, "SparklineControl: render tick failed — skipping frame");
+        }
+    }
+
+    private void RenderInternal(DrawingContext ctx)
+    {
         base.Render(ctx);
 
         // Points takes priority; fall back to Values

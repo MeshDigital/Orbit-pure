@@ -136,6 +136,22 @@ public class AutoSearchService
             diag.ExactFilenameResultsCount = exactResult.CandidatesCount;
             diag.ExactFilenameElapsedMs = (int)(DateTime.UtcNow - diag.StartedAtUtc).TotalMilliseconds;
 
+            // "Exact First Only": the exact-filename pass just came up empty — if the user wants
+            // strict mode to never accept the broader filtered-template fallback, stop here
+            // instead of running Phase 2. Previously this setting was fully wired up to AppConfig
+            // but never actually read here, so toggling it in Settings had no effect.
+            if (_config.AutoDownloadExactFirstOnly)
+            {
+                await LogDiagnosticAsync("autodownload_no_match", new
+                {
+                    trackId = track.Id,
+                    exactFilenameCount = diag.ExactFilenameResultsCount,
+                    reason = "exact_first_only",
+                    totalElapsedMs = (int)(DateTime.UtcNow - diag.StartedAtUtc).TotalMilliseconds
+                }, ct);
+                return (null, diag);
+            }
+
             // Phase 2: Filtered template search if exact failed
             var templateResult = await SearchFilteredTemplateAsync(track, normalizedQuery, ct, isBackgroundScan);
             if (templateResult.BestMatch != null)
@@ -517,8 +533,13 @@ public class AutoSearchService
             .Trim();
         normalizedFilename = System.Text.RegularExpressions.Regex.Replace(normalizedFilename, @"\s+", " ");
 
-        return normalizedFilename.Equals(normalizedQuery, StringComparison.OrdinalIgnoreCase)
-               || normalizedFilename.Contains(normalizedQuery, StringComparison.OrdinalIgnoreCase);
+        // Substring containment used to also count as "exact" — for a short/generic title (e.g.
+        // "Yes", "Love"), almost any filename that merely mentions the words somewhere qualified,
+        // defeating the whole point of the exact-first phase: only a candidate whose filename is
+        // (once normalized) nothing more than the query should fast-track here. Anything with
+        // extra tokens (remix tags, "(Live)", a track-number prefix, etc.) now correctly falls
+        // through to the slower, fuzzy-scored template phase instead.
+        return normalizedFilename.Equals(normalizedQuery, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

@@ -64,6 +64,7 @@ public class MetadataService : IMetadataService
             if (spotifyUrl != null)
             {
                 _cache[key] = spotifyUrl;
+                TrimCacheIfOverCap();
                 return spotifyUrl;
             }
         }
@@ -71,7 +72,22 @@ public class MetadataService : IMetadataService
         // Fall back to MusicBrainz Cover Art Archive (free, no auth required)
         var mbUrl = await GetAlbumArtFromMusicBrainzAsync(artist, album);
         _cache[key] = mbUrl;
+        TrimCacheIfOverCap();
         return mbUrl;
+    }
+
+    private const int MaxCacheEntries = 5000;
+
+    // Small entries (a string per unique artist/album pair), but genuinely unbounded otherwise —
+    // trim the oldest-inserted batch once the cap is hit rather than growing forever.
+    private void TrimCacheIfOverCap()
+    {
+        if (_cache.Count <= MaxCacheEntries) return;
+
+        foreach (var key in _cache.Keys.Take(_cache.Count - MaxCacheEntries))
+        {
+            _cache.TryRemove(key, out _);
+        }
     }
 
     /// <summary>

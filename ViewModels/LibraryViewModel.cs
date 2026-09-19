@@ -30,6 +30,8 @@ namespace SLSKDONET.ViewModels;
 public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly CompositeDisposable _disposables = new();
+    private readonly System.Reactive.Subjects.Subject<System.Reactive.Unit> _intelligenceContextRefreshRequests = new();
+    private readonly System.Reactive.Subjects.Subject<System.Reactive.Unit> _selectionInspectorRefreshRequests = new();
     private bool _isDisposed;
 
     private readonly ILogger<LibraryViewModel> _logger;
@@ -37,6 +39,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     private readonly ImportHistoryViewModel _importHistoryViewModel;
     private readonly ILibraryService _libraryService;
     internal ILibraryService LibraryService => _libraryService;
+    private readonly ITaggerService _taggerService;
     private ILifecycleProjectionService _lifecycleProjectionService;
     private readonly IEventBus _eventBus;
     private readonly IDialogService _dialogService;
@@ -67,6 +70,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
     public Library.SmartPlaylistViewModel SmartPlaylists { get; }
     public System.Collections.ObjectModel.ObservableCollection<ColumnDefinition> AvailableColumns { get; } = new();
     public LibrarySourcesViewModel LibrarySourcesViewModel { get; }
+    public Library.LibraryHealthViewModel LibraryHealthViewModel { get; }
     public ImportHistoryViewModel ImportHistoryViewModel => _importHistoryViewModel;
     public LibraryDoubleInspectorViewModel DoubleInspector { get; }
     public LibraryTrackInspectorViewModel TrackInspector { get; }
@@ -473,6 +477,13 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         set { SetProperty(ref _isOrphanedTracksVisible, value); }
     }
 
+    private bool _isLibraryHealthVisible;
+    public bool IsLibraryHealthVisible
+    {
+        get => _isLibraryHealthVisible;
+        set { SetProperty(ref _isLibraryHealthVisible, value); }
+    }
+
     private double _sidebarWidth = 420;
     public double SidebarWidth
     {
@@ -505,6 +516,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         INavigationService navigationService,
         ImportHistoryViewModel importHistoryViewModel,
         ILibraryService libraryService,
+        ITaggerService taggerService,
         ILifecycleProjectionService lifecycleProjectionService,
         IEventBus eventBus,
         PlayerViewModel playerViewModel,
@@ -513,6 +525,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         SpotifyEnrichmentService spotifyEnrichmentService,
         LibraryCacheService libraryCacheService,
         LibrarySourcesViewModel librarySourcesViewModel,
+        Library.LibraryHealthViewModel libraryHealthViewModel,
         IServiceProvider serviceProvider,
         DatabaseService databaseService,
         SearchFilterViewModel searchFilters,
@@ -535,6 +548,7 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         _navigationService = navigationService;
         _importHistoryViewModel = importHistoryViewModel;
         _libraryService = libraryService;
+        _taggerService = taggerService;
         _lifecycleProjectionService = lifecycleProjectionService;
         _eventBus = eventBus;
         _dialogService = dialogService;
@@ -557,8 +571,20 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         _similarityIndex = similarityIndex;
         _transitionStyleClassifier = transitionStyleClassifier;
         LibrarySourcesViewModel = librarySourcesViewModel;
+        LibraryHealthViewModel = libraryHealthViewModel;
 
         _isNavigationCollapsed = _appConfig.LibraryNavigationCollapsed;
+        // Every runtime toggle path (ExecuteToggleNavigation, the hover handlers) sets this flag
+        // and the panel width together via CollapseNavPanelWidth/ExpandNavPanelWidth. Restoring
+        // the flag from persisted config here is the one path that didn't — so a session that had
+        // been left collapsed would reopen with IsNavigationCollapsed=true (content hidden) but
+        // LibraryNavPanelWidth still at its unrelated 340 default, leaving a big blank gap where
+        // the column's MinWidth correctly shrank to 60 for the (now-hidden) content but its actual
+        // Width never followed.
+        if (_isNavigationCollapsed)
+        {
+            _libraryNavPanelWidth = CollapsedNavPanelWidth;
+        }
 
         Projects = projects;
         Tracks = tracks;
@@ -581,6 +607,19 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         Projects.ProjectSelected += OnProjectSelected;
         SmartPlaylists.SmartPlaylistSelected += OnSmartPlaylistSelected;
         Tracks.SelectedTracks.CollectionChanged += OnTrackSelectionChanged;
+        WireIntelligenceRefreshDebounce();
+        WireSelectionInspectorRefreshDebounce();
+
+        // Turning "+ Mix" on mid-playback should surface the current pair's transition settings
+        // immediately (same as pressing Play with Mix already on) — not silently do nothing until
+        // the next time Play happens to be pressed.
+        Tracks.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(Tracks.IsMixModeEnabled) && Tracks.IsMixModeEnabled && _playerViewModel.HasCurrentTrack)
+            {
+                _playerViewModel.ShowMixPanelForCurrentPair();
+            }
+        };
         _playerViewModel.PropertyChanged += OnPlayerViewModelPropertyChanged;
         _playerViewModel.Queue.CollectionChanged += OnPlayerQueueCollectionChanged;
         SavedDoubles.CollectionChanged += OnSavedDoublesCollectionChanged;
@@ -624,6 +663,100 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
         _ = Intelligence.RefreshOverviewStatsAsync();
 
         _ = RefreshSavedDoublesAsync();
+    }
+
+    /// <summary>
+    /// RefreshSuggestNextCandidatesAsync/RefreshPlaylistUpgradeCandidatesAsync (both invoked from
+    /// OnTrackSelectionChanged, see LibraryViewModel.Events.cs) each walk up to 120-140 candidate
+    /// tracks with a sequential awaited similarity lookup — clicking rapidly through the track
+    /// list used to fire a fresh pair of these scans on every single click with no debounce, so
+    /// overlapping stale scans piled up (their internal version-counter guard only checks between
+    /// loop iterations, it doesn't stop in-flight work) and visibly delayed the CONTEXT sidepanel
+    /// reacting to whichever track is actually selected now. Collapsed to one recompute per
+    /// click-burst, matching the Throttle pattern TrackListViewModel already uses for search.
+    /// </summary>
+    private void WireIntelligenceRefreshDebounce()
+    {
+        _disposables.Add(_intelligenceContextRefreshRequests
+            .Throttle(TimeSpan.FromMilliseconds(200))
+            .Subscribe(__ =>
+            {
+                // Throttle's timer fires on a raw ThreadPool thread with no synchronization
+                // context safety net — an exception here (e.g. Dispatcher.UIThread.Post throwing
+                // when no Avalonia dispatcher loop is running, such as inside a headless test host)
+                // propagates unhandled through Rx and has been observed to crash the entire
+                // process/test run rather than just this one operation. Guarded defensively since
+                // "one click's refresh failed" must never be allowed to take down the whole app.
+                try
+                {
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        // Guarded separately from the Post(...) call itself: this delegate runs
+                        // later/elsewhere (the real UI-thread dispatcher loop in production, but
+                        // synchronously or on some other thread in a headless/test host with no
+                        // dispatcher loop pumping), so an exception thrown here is NOT inside the
+                        // outer try's dynamic scope and would otherwise still escape unhandled.
+                        try
+                        {
+                            _ = Intelligence.RefreshSuggestNextCandidatesAsync();
+                            _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Intelligence candidate refresh failed");
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to schedule Intelligence candidate refresh");
+                }
+            }));
+    }
+
+    /// <summary>
+    /// Shift-click range selection and marquee drag-select fire one CollectionChanged event per
+    /// row as the DataGrid's selection grows/shrinks — without this debounce, each of those raw
+    /// events used to synchronously kick off DoubleInspector's pairwise DB/similarity lookup and
+    /// TrackInspector's enhancement fetch (both real per-row DB work), piling up overlapping,
+    /// mostly-stale async calls for selection states the user never actually settled on. Collapsed
+    /// to one recompute per selection-burst, reading the settled selection fresh when the throttle
+    /// fires rather than the stale snapshot from whichever intermediate event triggered it — same
+    /// pattern as WireIntelligenceRefreshDebounce above. The cheap, immediately-user-visible parts
+    /// of OnTrackSelectionChanged (Mix-mode click-through pairing, opening the right sidepanel via
+    /// the message bus) stay synchronous/undebounced since they're what the user directly sees.
+    /// </summary>
+    private void WireSelectionInspectorRefreshDebounce()
+    {
+        _disposables.Add(_selectionInspectorRefreshRequests
+            .Throttle(TimeSpan.FromMilliseconds(200))
+            .Subscribe(__ =>
+            {
+                try
+                {
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        try
+                        {
+                            var current = Tracks.SelectedTracks.ToList();
+                            _ = DoubleInspector.HandleSelectionChangedAsync(current);
+                            if (current.Count == 1)
+                            {
+                                _ = TryAttachInspectorPairwiseContextAsync(current[0]);
+                                _ = TrackInspector.TryAttachEnhancementsAsync(current[0]);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Selection inspector refresh failed");
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to schedule selection inspector refresh");
+                }
+            }));
     }
 
     public void Dispose()

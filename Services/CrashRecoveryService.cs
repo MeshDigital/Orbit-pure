@@ -94,15 +94,18 @@ namespace SLSKDONET.Services
                     return await RecoverTagWriteAsync(checkpoint);
                 
                 case OperationType.Download:
-                    // TODO: Implement Download Resume logic
-                    // For now, checks if .part file is valid and maybe notifies DownloadManager?
-                    // Currently DownloadManager handles its own resume via file existence check, 
-                    // but we could clean up zombies here.
-                    // Mark as handled for now to clear journal? Or leave it?
-                    // Actually, for downloads, the journal should probably be cleared if we assume the DownloadManager 
-                    // picked it up or started fresh. Let's just log it.
-                    _logger.LogDebug("Download checkpoint found - deferring to DownloadManager scan.");
-                    return true;
+                    // DownloadManager.InitAsync() ("Issue #48") already has a real recovery path for
+                    // these: it re-reads GetPendingCheckpointsAsync() itself, marks each Download
+                    // checkpoint dead-letter, and resets the corresponding track to Missing so it
+                    // retries. This used to return true here, which called CompleteCheckpointAsync
+                    // immediately — and since DownloadManager.StartAsync() is fired fire-and-forget
+                    // (App.axaml.cs) just before this method's caller is awaited, this class's much
+                    // shorter async path (no DB hydration work first) almost always won the race and
+                    // consumed the checkpoint before DownloadManager's own scan ever saw it, silently
+                    // defeating that real recovery logic. Returning false leaves the checkpoint
+                    // pending so DownloadManager's own scan is the one that actually resolves it.
+                    _logger.LogDebug("Download checkpoint found - leaving pending for DownloadManager's own recovery scan.");
+                    return false;
 
                 default:
                     _logger.LogWarning("Unknown operation type: {Type}", checkpoint.OperationType);

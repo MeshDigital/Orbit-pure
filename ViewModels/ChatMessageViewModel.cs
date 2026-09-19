@@ -137,8 +137,9 @@ public sealed class ChatMessageViewModel : ReactiveObject
             await using var stream = File.OpenRead(localPath);
             Image = new Bitmap(stream);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            Serilog.Log.Warning(ex, "Failed to load chat image attachment {FileName} from {RemoteUsername}", ImageFileName, _remoteUsername);
             ImageError = "Couldn't load image";
         }
         finally

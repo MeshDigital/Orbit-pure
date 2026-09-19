@@ -34,6 +34,8 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     private readonly IDialogService _dialogService;
     private readonly CueForgeViewModel _cueForgeViewModel;
     private readonly INotificationService _notificationService;
+    private readonly AnalyzeTrackStructureJob? _cueStructureJob;
+    private readonly Services.Repositories.ITrackRepository _trackRepository;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -55,6 +57,8 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand OpenAuditLogCommand { get; }
     public System.Windows.Input.ICommand OpenInCueForgeCommand { get; }
     public System.Windows.Input.ICommand SetColorTagCommand { get; }
+    public System.Windows.Input.ICommand RegenerateCuesCommand { get; }
+    public System.Windows.Input.ICommand RefreshBpmFromTagsCommand { get; }
 
     // Phase 10.5: Dependency Warning Property
     public bool AreDependenciesHealthy => _dependencyHealthService.IsHealthy;
@@ -72,7 +76,9 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         IEventBus eventBus,
         IDialogService dialogService,
         CueForgeViewModel cueForgeViewModel,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        Services.Repositories.ITrackRepository trackRepository,
+        AnalyzeTrackStructureJob? cueStructureJob = null)
     {
         _logger = logger;
         _downloadManager = downloadManager;
@@ -86,6 +92,8 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         _dialogService = dialogService;
         _cueForgeViewModel = cueForgeViewModel;
         _notificationService = notificationService;
+        _trackRepository = trackRepository;
+        _cueStructureJob = cueStructureJob;
 
         // Subscribe to dynamic health updates
         _healthChangedHandler = (s, healthy) =>
@@ -114,6 +122,8 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         AddToQueueCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteAddToQueue);
         AddSelectedToQueueCommand = new RelayCommand(ExecuteAddSelectedToQueue);
         AnalyseTrackCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteAnalyseTrack);
+        RegenerateCuesCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteRegenerateCues);
+        RefreshBpmFromTagsCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteRefreshBpmFromTags);
         OpenAuditLogCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteOpenAuditLog);
         OpenInCueForgeCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteOpenInCueForge);
         SetColorTagCommand = new RelayCommand<string>(ExecuteSetColorTag);
@@ -305,6 +315,102 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
+    /// Re-maps cue points from this track's (or, if multiple rows are selected, every selected
+    /// track's) already-persisted analysis data — no full re-analysis. The fast path for picking
+    /// up a CueGenerationService logic change without re-decoding audio; see
+    /// AnalyzeTrackStructureJob.RegenerateCuesOnlyAsync. Tracks that have never been fully
+    /// analysed are skipped (nothing to re-map cues from) and counted separately.
+    /// </summary>
+    private async Task ExecuteRegenerateCues(PlaylistTrackViewModel? track)
+    {
+        if (_cueStructureJob == null) return;
+
+        var selectedTracks = LibraryViewModel?.Tracks.SelectedTracks?.ToList() ?? [];
+        var operateOnSelection = track != null && selectedTracks.Count > 1 && selectedTracks.Contains(track);
+        var targets = operateOnSelection
+            ? selectedTracks
+            : (track ?? LibraryViewModel?.Tracks.LeadSelectedTrack) is { } single
+                ? new List<PlaylistTrackViewModel> { single }
+                : new List<PlaylistTrackViewModel>();
+
+        if (targets.Count == 0) return;
+
+        if (targets.Count == 1)
+        {
+            var ok = await _cueStructureJob.RegenerateCuesOnlyAsync(targets[0].GlobalId);
+            _notificationService.Show("Regenerate Cues",
+                ok ? $"Regenerated cues for '{targets[0].Title}'." : $"'{targets[0].Title}' hasn't been analysed yet — nothing to regenerate from.",
+                ok ? Views.NotificationType.Success : Views.NotificationType.Warning);
+            return;
+        }
+
+        if (_bulkCoordinator.IsRunning) return;
+        await _bulkCoordinator.RunOperationAsync(
+            targets,
+            (t, ct) => _cueStructureJob.RegenerateCuesOnlyAsync(t.GlobalId, ct),
+            "Regenerate Cues");
+    }
+
+    /// <summary>
+    /// Re-reads each track's file-embedded BPM tag (TagLib BeatsPerMinute) and, when present and
+    /// plausible, stores it as TagBPM and (unless the track has a manual override) the primary
+    /// BPM — the backfill path for tracks imported before file-tag BPM was trusted over Essentia.
+    /// See LibraryFolderScannerService.CreateLibraryEntry for the same read at fresh import, and
+    /// TrackRepository.UpdateTagBpmAsync/DatabaseService.SyncDenormalizedFeaturesAsync for why this
+    /// sticks across future re-analysis. Tracks with no BPM tag on the file are skipped and counted
+    /// separately (mirrors ExecuteRegenerateCues's "nothing to do" handling above).
+    /// </summary>
+    private async Task ExecuteRefreshBpmFromTags(PlaylistTrackViewModel? track)
+    {
+        var selectedTracks = LibraryViewModel?.Tracks.SelectedTracks?.ToList() ?? [];
+        var operateOnSelection = track != null && selectedTracks.Count > 1 && selectedTracks.Contains(track);
+        var targets = operateOnSelection
+            ? selectedTracks
+            : (track ?? LibraryViewModel?.Tracks.LeadSelectedTrack) is { } single
+                ? new List<PlaylistTrackViewModel> { single }
+                : new List<PlaylistTrackViewModel>();
+
+        if (targets.Count == 0) return;
+
+        if (targets.Count == 1)
+        {
+            var ok = await TryRefreshBpmFromTagAsync(targets[0]);
+            _notificationService.Show("Refresh BPM from Tags",
+                ok ? $"Updated BPM for '{targets[0].Title}' from its file tag." : $"'{targets[0].Title}' has no BPM tag on file — nothing to update.",
+                ok ? Views.NotificationType.Success : Views.NotificationType.Warning);
+            return;
+        }
+
+        if (_bulkCoordinator.IsRunning) return;
+        await _bulkCoordinator.RunOperationAsync(
+            targets,
+            (t, ct) => TryRefreshBpmFromTagAsync(t),
+            "Refresh BPM from Tags");
+    }
+
+    private async Task<bool> TryRefreshBpmFromTagAsync(PlaylistTrackViewModel track)
+    {
+        var filePath = track.Model?.ResolvedFilePath;
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath)) return false;
+
+        try
+        {
+            using var file = TagLib.File.Create(filePath);
+            var rawTagBpm = file.Tag.BeatsPerMinute; // uint — same bound as LibraryFolderScannerService.CreateLibraryEntry
+            if (rawTagBpm is < 60 or > 220) return false;
+
+            await _trackRepository.UpdateTagBpmAsync(track.GlobalId, rawTagBpm);
+            _eventBus.Publish(new Models.TrackMetadataUpdatedEvent(track.GlobalId));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Refresh BPM from tags failed for {Title}", track.Title);
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Reported directly by the user: clicking "Hard Retry" on a bad-content track (e.g. a
     /// download that completed but is only 30 seconds long) did nothing visible — no error, no
     /// confirmation, nothing. Two stacked causes: (1) no notification was ever shown for either
@@ -476,6 +582,10 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
                 try
                 {
                     _logger.LogInformation("Deleting track from disk and history: {Title}", track.Title);
+                    // Must happen first and finish (synchronous, not fire-and-forget) — NAudio
+                    // keeps the file open for as long as it's the loaded/playing track, so
+                    // deleting before this releases the handle fails silently.
+                    _playerViewModel.StopIfCurrentTrack(track.GlobalId);
                     await _downloadManager.DeleteTrackFromDiskAndHistoryAsync(track.GlobalId);
                     _logger.LogInformation("Track deleted successfully");
                 }

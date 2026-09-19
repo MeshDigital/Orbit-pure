@@ -25,6 +25,12 @@
         <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
         </Style>
+
+        <!-- Drag-reorder insertion indicator — shows where a dropped track would land -->
+        <Style Selector="ListBoxItem.insert-above">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="BorderThickness" Value="0,2,0,0"/>
+        </Style>
     </UserControl.Styles>
     
     <Border Background="{DynamicResource BackgroundBrush}" CornerRadius="8" Padding="16">

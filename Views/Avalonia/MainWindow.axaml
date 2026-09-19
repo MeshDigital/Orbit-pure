@@ -45,6 +45,7 @@
         <KeyBinding Gesture="Ctrl+N" Command="{Binding ToggleNavigationCommand}"/>
         <KeyBinding Gesture="F10" Command="{Binding ToggleZenModeCommand}"/>
         <KeyBinding Gesture="F11" Command="{Binding ToggleTopBarCommand}"/>
+        <KeyBinding Gesture="F12" Command="{Binding TogglePerformanceOverlayCommand}"/>
     </Window.KeyBindings>
 
     <Window.Styles>
@@ -67,7 +68,12 @@
             <Setter Property="Opacity" Value="0"/>
             <Setter Property="IsVisible" Value="False"/>
         </Style>
-        <Style Selector="Border.nav-sidebar.mini Border.GroupHeader">
+        <!-- This selector used to target "Border.GroupHeader" — no such element exists (the
+             section headers are "ACQUIRE"/"SYSTEM"/"EXPERIMENTAL" Buttons with Classes=
+             "group-header", not a Border with Classes="GroupHeader") — so the rule never matched
+             anything and these labels stayed fully visible at mini width, clipped mid-word
+             ("buried" against the icon column) instead of hiding like every other nav label does. -->
+        <Style Selector="Border.nav-sidebar.mini Button.group-header">
             <Setter Property="Opacity" Value="0"/>
             <Setter Property="IsVisible" Value="False"/>
         </Style>
@@ -214,7 +220,18 @@
         -->
         <Grid Grid.Row="1" x:Name="MainLayoutGrid">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="{Binding NavSidebarWidth, Mode=TwoWay, Converter={StaticResource GridLengthPixelConverter}}" MinWidth="56" MaxWidth="320"/>
+                <!-- MinWidth used to be a static 56 with no exception for the "collapsed" state —
+                     IsNavigationCollapsed is set by Zen Mode, Theater Mode, and the narrow-window
+                     auto-collapse in MainWindow.axaml.cs, all three expecting the sidebar to fully
+                     disappear, but nothing here ever bound to that flag: the column stayed at
+                     least 56px and the Border below stayed visible regardless, so all three
+                     features silently did nothing to the nav sidebar. Binding MinWidth to the same
+                     flag (0 when collapsed, 56 otherwise) lets NavSidebarWidth's own 0 value (see
+                     the IsNavigationCollapsed setter in Views/MainViewModel.cs) actually take the
+                     column to zero width instead of being floored back up to 56. -->
+                <ColumnDefinition Width="{Binding NavSidebarWidth, Mode=TwoWay, Converter={StaticResource GridLengthPixelConverter}}"
+                                  MinWidth="{Binding !IsNavigationCollapsed, Converter={StaticResource BoolToWidthConverter}, ConverterParameter=56}"
+                                  MaxWidth="320"/>
                 <ColumnDefinition Width="4"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="4"/>
@@ -229,13 +246,11 @@
                     Background="{StaticResource DeepBackgroundBrush}"
                     BorderBrush="{StaticResource BorderBrush}"
                     Classes="nav-sidebar"
-                    Classes.mini="{Binding IsNavigationMini}">
+                    Classes.mini="{Binding IsNavigationMini}"
+                    IsVisible="{Binding !IsNavigationCollapsed}">
                 <Border.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="Show ACQUIRE" IsChecked="{Binding IsAcquireVisible}" ToggleType="CheckBox"/>
-                        <MenuItem Header="Show ENRICH" IsChecked="{Binding IsEnrichVisible}" ToggleType="CheckBox"/>
-                        <MenuItem Header="Show CURATE" IsChecked="{Binding IsCurateVisible}" ToggleType="CheckBox"/>
-                        <MenuItem Header="Show DELIVER" IsChecked="{Binding IsDeliverVisible}" ToggleType="CheckBox"/>
                         <MenuItem Header="Show SYSTEM" IsChecked="{Binding IsSystemVisible}" ToggleType="CheckBox"/>
                         <MenuItem Header="Show EXPERIMENTAL" IsChecked="{Binding IsCreativeVisible}" ToggleType="CheckBox"/>
                         <Separator/>
@@ -417,15 +432,22 @@
                                 </Grid>
                             </Border>
 
-                            <!-- Tabbed workstation panel — full height, no player -->
-                            <TabControl Grid.Row="1">
+                            <!-- Tabbed workstation panel — full height, no player. SelectedIndex is
+                                 two-way bound to Sidebar.ActiveTabIndex so opening a panel (e.g. the
+                                 notification bell) actually jumps to the right tab, and a manual tab
+                                 click keeps ActiveTab in sync for anything else that reads it. -->
+                            <TabControl Grid.Row="1" SelectedIndex="{Binding Sidebar.ActiveTabIndex}">
                                 <TabControl.Styles>
                                     <Style Selector="TabItem">
                                         <Setter Property="Background" Value="Transparent"/>
                                         <Setter Property="Foreground" Value="#888"/>
                                         <Setter Property="FontSize" Value="11"/>
                                         <Setter Property="FontWeight" Value="Bold"/>
-                                        <Setter Property="Padding" Value="16,10"/>
+                                        <!-- Tightened from 16,10 — a 5th tab (Mix) no longer fits
+                                             one row at the original padding, silently wrapping to
+                                             a second line with no visible affordance hinting it's
+                                             there. -->
+                                        <Setter Property="Padding" Value="9,10"/>
                                         <Setter Property="BorderThickness" Value="0,0,0,2"/>
                                         <Setter Property="BorderBrush" Value="Transparent"/>
                                     </Style>
@@ -467,9 +489,6 @@
                                             <DataTemplate DataType="vmDiag:BlackBoxTerminalViewModel">
                                                 <controls:BlackBoxTerminal/>
                                             </DataTemplate>
-                                            <DataTemplate DataType="svc:NotificationCenterService">
-                                                <controls:NotificationsPanel/>
-                                            </DataTemplate>
                                         </ContentControl.DataTemplates>
                                     </ContentControl>
                                 </TabItem>
@@ -480,6 +499,24 @@
 
                                 <TabItem Header="Now Playing">
                                     <views:PlayerControl DataContext="{Binding Sidebar.PlayerVm}"/>
+                                </TabItem>
+
+                                <!-- Own tab rather than a DataTemplate case inside Inspector's
+                                     ContentControl — notifications previously rendered wherever the
+                                     Inspector tab's shared content area happened to be pointed,
+                                     since NotificationCenterService matched none of SidebarViewModel's
+                                     explicit tab-routing checks and fell into the generic Inspector
+                                     branch. Bound directly to the stable Sidebar.NotificationCenter
+                                     instance (like Similar Tracks/Now Playing above), so it's always
+                                     populated regardless of whatever else CurrentContent points to. -->
+                                <TabItem Header="Notifications">
+                                    <controls:NotificationsPanel DataContext="{Binding Sidebar.NotificationCenter}"/>
+                                </TabItem>
+
+                                <!-- Mix (Spotify-Mix-parity): transition editor for a clicked
+                                     Mix-mode badge between two adjacent playlist tracks. -->
+                                <TabItem Header="Mix">
+                                    <views:MixTransitionPanel DataContext="{Binding Sidebar.MixTransitionVm}"/>
                                 </TabItem>
 
                             </TabControl>
@@ -643,6 +680,12 @@
                     </Button>
                     <Button Background="Transparent" BorderThickness="0" Padding="8,4"
                             MinHeight="44" MinWidth="44"
+                            Command="{Binding Sidebar.OpenNotificationsCommand}"
+                            ToolTip.Tip="Notifications">
+                        <TextBlock Text="🔔" FontSize="12" Foreground="#FFB347"/>
+                    </Button>
+                    <Button Background="Transparent" BorderThickness="0" Padding="8,4"
+                            MinHeight="44" MinWidth="44"
                             Command="{Binding Sidebar.CloseCommand}"
                             ToolTip.Tip="Close side panel">
                         <TextBlock Text="Close" FontSize="12" Foreground="#888"/>
@@ -660,6 +703,21 @@
                         </Transitions>
                     </Border.Transitions>
                     <views:PlayerControl DataContext="{Binding Sidebar.PlayerVm}"/>
+                </Border>
+
+                <!-- Own opacity-toggled section rather than a DataTemplate case inside the
+                     Inspector ContentControl below — same bug and same fix as the desktop
+                     TabControl: notifications previously rendered wherever CurrentContent was
+                     pointed instead of having a distinct tab/section, and this bottom sheet had
+                     no button to reach it at all. -->
+                <Border Opacity="{Binding Sidebar.IsNotificationsTab, Converter={StaticResource BoolToOpacityConverter}, ConverterParameter='1;0'}"
+                        IsHitTestVisible="{Binding Sidebar.IsNotificationsTab}">
+                    <Border.Transitions>
+                        <Transitions>
+                            <DoubleTransition Property="Opacity" Duration="0:0:0.2"/>
+                        </Transitions>
+                    </Border.Transitions>
+                    <controls:NotificationsPanel DataContext="{Binding Sidebar.NotificationCenter}"/>
                 </Border>
 
                 <ContentControl
@@ -696,9 +754,6 @@
                         </DataTemplate>
                         <DataTemplate DataType="vmDiag:BlackBoxTerminalViewModel">
                             <controls:BlackBoxTerminal/>
-                        </DataTemplate>
-                        <DataTemplate DataType="svc:NotificationCenterService">
-                            <controls:NotificationsPanel/>
                         </DataTemplate>
                     </ContentControl.DataTemplates>
                 </ContentControl>
@@ -816,13 +871,8 @@
                 Background="#252526" 
                 BorderBrush="#3E3E3E" 
                 BorderThickness="0,1,0,0"
-                Height="100">
-             <Border.IsVisible>
-                <MultiBinding Converter="{x:Static BoolConverters.And}">
-                    <Binding Path="IsPlayerAtBottomVisible"/>
-                    <Binding Path="PlayerViewModel.IsPlayerVisible"/>
-                </MultiBinding>
-            </Border.IsVisible>
+                Height="100"
+                IsVisible="{Binding ShowBottomPlayerDrawer}">
              <Grid>
                  <views:HorizontalPlayerControl DataContext="{Binding PlayerViewModel}"/>
                  <!-- Spectrum visualizer — overlays right edge of player bar during library preview -->
@@ -885,6 +935,44 @@
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
         </ItemsControl>
+
+        <!-- Live perf overlay (F12). Avalonia's own native FPS counter (RendererDiagnostics,
+             toggled in MainWindow.axaml.cs) renders top-left; this panel — page navigation and
+             opted-in ViewModel load timings — sits bottom-right to stay out of its way. -->
+        <Border Grid.RowSpan="3"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                Margin="0,0,16,16"
+                Padding="12,10"
+                CornerRadius="6"
+                Background="#CC101418"
+                BorderBrush="#3A4A5A"
+                BorderThickness="1"
+                IsHitTestVisible="False"
+                ZIndex="2000"
+                IsVisible="{Binding IsPerformanceOverlayVisible}"
+                MaxWidth="320">
+            <StackPanel Spacing="4">
+                <TextBlock Text="PERF (F12 to hide)" FontSize="10" FontWeight="Bold" Foreground="#6FCF97"/>
+                <ItemsControl ItemsSource="{Binding PerfTracker.RecentTimings}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Vertical"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="svc:PerfTiming">
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,1">
+                                <TextBlock Grid.Column="0" Text="{Binding Label}" FontSize="10" Foreground="#B7C4D1"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Duration.TotalMilliseconds, StringFormat={}{0:0}ms}"
+                                           FontSize="10" FontFamily="Consolas,monospace" Foreground="White" Margin="8,0,0,0"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
 
         </Grid>
 </Window>

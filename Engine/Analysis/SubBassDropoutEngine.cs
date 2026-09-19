@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using NAudio.Dsp;
 
 namespace SLSKDONET.Engine.Analysis;
 
 /// <summary>
-/// Isolates the sub-bass frequency band (20–120 Hz) using a 4th-order Butterworth
-/// low-pass IIR filter, then detects sub-bass dropouts and returns.
+/// Isolates the true sub-bass band (30–100 Hz, a bandpass) and detects sub-bass dropouts/returns —
+/// the primary DnB drop signature.
 ///
 /// Why this matters for DnB and EDM:
 ///   The most reliable drop signature in DnB is a "bass dropout" — the sub-bass
@@ -14,25 +15,35 @@ namespace SLSKDONET.Engine.Analysis;
 ///   at the drop. This pattern is acoustically more stable than spectral flux peaks
 ///   because it persists even when producers layer melodic content over the breakdown.
 ///
+/// Previously this used a single low-pass at 120 Hz, which lumps true sub-bass together with
+/// kick fundamental/punch (roughly 90-250 Hz) — content that often stays present through a DnB
+/// breakdown even when the sub-bass genuinely drops out, diluting the very signal this engine
+/// depends on. A proper bandpass (high-pass 30 Hz to reject DC/rumble, low-pass 100 Hz to
+/// substantially exclude kick punch) isolates the sub shelf much more cleanly.
+///
 /// Signal pipeline:
-///   Raw PCM → 4th-order Butterworth LPF @120Hz → RMS energy per 0.5s window
-///   → detect sustained low regions (dropout) → detect return spike
+///   Raw PCM → 30-100 Hz bandpass (NAudio.Dsp.BiQuadFilter, cascaded HP+LP) → RMS energy per
+///   window → detect sustained low regions (dropout) → detect return spike
 /// </summary>
 public sealed class SubBassDropoutEngine
 {
-    private const double CutoffHz = 120.0;
-    private const double DropoutThresholdRatio = 0.25; // below 25% of track-average = dropout
-    private const double ReturnThresholdRatio = 0.60;  // above 60% of track-average after dropout = return
-    private const double MinDropoutSeconds = 2.0;
-    private const double EnergyWindowSeconds = 0.5;
+    private const double LowCutHz = 30.0;
+    private const double HighCutHz = 100.0;
+    private const double DropoutThresholdRatio = 0.20; // below 20% of track-average = dropout
+    private const double ReturnThresholdRatio = 0.65;  // above 65% of track-average after dropout = return
+    private const double MinDropoutSeconds = 1.75;     // ~1 bar at typical DnB tempos
+    private const double EnergyWindowSeconds = 0.25;
 
     /// <summary>
-    /// Isolates the sub-bass band (120 Hz low-pass) and computes per-window RMS energy.
-    /// Thin wrapper over <see cref="ComputeBandEnergyCurve"/> — preserves this method's
-    /// exact prior behavior for existing callers.
+    /// Isolates the true sub-bass band (30-100 Hz bandpass) and computes per-window RMS energy.
     /// </summary>
     public float[] ComputeSubBassEnergyCurve(float[] monoSignal, int sampleRate)
-        => ComputeBandEnergyCurve(monoSignal, sampleRate, CutoffHz);
+    {
+        if (monoSignal == null || monoSignal.Length == 0) return Array.Empty<float>();
+
+        var filtered = ApplySubBassBandpass(monoSignal, sampleRate);
+        return ComputeWindowedRms(filtered, sampleRate);
+    }
 
     /// <summary>
     /// Isolates an arbitrary low-pass band and computes per-window RMS energy. Generalized
@@ -71,8 +82,9 @@ public sealed class SubBassDropoutEngine
 
     /// <summary>
     /// Detects sub-bass dropout and return events — the primary DnB drop signature.
-    /// A dropout is a sustained period where sub-bass energy falls below 25% of the track mean.
-    /// A return is when sub-bass energy rises above 60% of mean after a dropout.
+    /// A dropout is a sustained period where sub-bass energy falls below <see cref="DropoutThresholdRatio"/>
+    /// (20%) of the track mean. A return is when sub-bass energy rises above <see cref="ReturnThresholdRatio"/>
+    /// (65%) of mean after a dropout.
     /// </summary>
     public (List<double> DropoutStarts, List<double> ReturnTimestamps) DetectDropoutEvents(
         float[] subBassEnergyCurve)
@@ -123,7 +135,26 @@ public sealed class SubBassDropoutEngine
                 // In dropout — watch for bass return
                 if (subBassEnergyCurve[i] >= returnThreshold)
                 {
-                    returnTimestamps.Add(ts);
+                    // Linear interpolation between this 250ms window and the previous one
+                    // recovers the actual threshold-crossing instant instead of reporting
+                    // this whole window's start — the energy curve doesn't jump from below
+                    // to above threshold in a single window boundary, so the true "bass
+                    // hits" moment usually sits partway through it. This only refines the
+                    // timestamp using data already computed; it doesn't change which window
+                    // is detected as the return, so it carries none of the drop-selection
+                    // regression risk documented in CueGenerationService.
+                    double preciseTs = ts;
+                    if (i > 0)
+                    {
+                        float prev = subBassEnergyCurve[i - 1];
+                        float curr = subBassEnergyCurve[i];
+                        if (curr > prev)
+                        {
+                            double frac = Math.Clamp((returnThreshold - prev) / (curr - prev), 0.0, 1.0);
+                            preciseTs = (i - 1 + frac) * EnergyWindowSeconds;
+                        }
+                    }
+                    returnTimestamps.Add(preciseTs);
                     inDropout = false;
                     consecutiveLow = 0;
                     dropoutStartWindow = -1;
@@ -134,57 +165,114 @@ public sealed class SubBassDropoutEngine
         return (dropoutStarts, returnTimestamps);
     }
 
-    // ── 4th-order Butterworth LP filter (cascaded biquads) ──────────────────
-
-    private static float[] ApplyButterworthLowPass(float[] signal, int sampleRate, double cutoffHz)
+    /// <summary>
+    /// Given a set of candidate beat timestamps (typically the first few ticks from a beat
+    /// tracker), returns the index of whichever candidate has the strongest sub-bass/kick energy
+    /// in a short window around it — the DJ-genre-standard assumption that the true downbeat
+    /// (bar 1, beat 1) carries the most low-end emphasis. Beat trackers report beat times with no
+    /// bar-phase information, so "the first detected tick" is not reliably the actual downbeat;
+    /// this gives a real signal to pick among the first few candidates instead of blindly trusting
+    /// index 0.
+    /// </summary>
+    public static int FindStrongestBeatIndex(
+        float[] monoSignal, int sampleRate, IReadOnlyList<double> beatTimestamps, int candidateCount = 4)
     {
-        // Compute normalized cutoff (0..1, where 1 = Nyquist)
-        double wc = 2.0 * Math.PI * cutoffHz / sampleRate;
+        if (monoSignal == null || monoSignal.Length == 0 || beatTimestamps == null || beatTimestamps.Count == 0 || sampleRate <= 0)
+            return 0;
 
-        // Pre-warp for bilinear transform
-        double wcAnalog = 2.0 * Math.Tan(wc / 2.0);
+        int limit = Math.Min(candidateCount, beatTimestamps.Count);
+        int halfWindowSamples = Math.Max(1, (int)Math.Round(0.050 * sampleRate)); // +/- 50ms
 
-        // 4th order = two cascaded 2nd-order sections
-        // Pole angles for 4th-order Butterworth: π/8, 3π/8 relative to unit circle
-        double[] angles = { Math.PI * 3 / 8, Math.PI / 8 };
+        int bestIndex = 0;
+        double bestRms = -1.0;
 
-        var output = (float[])signal.Clone();
-        foreach (double angle in angles)
+        for (int i = 0; i < limit; i++)
         {
-            // Analog prototype poles
-            double realPole = -Math.Sin(angle) * wcAnalog;
-            double imagPole = Math.Cos(angle) * wcAnalog;
+            int center = (int)Math.Round(beatTimestamps[i] * sampleRate);
+            int start = Math.Max(0, center - halfWindowSamples);
+            int end = Math.Min(monoSignal.Length, center + halfWindowSamples);
+            int count = end - start;
+            if (count <= 0) continue;
 
-            // Bilinear transform to digital coefficients
-            double d = (2.0 - realPole) * (2.0 - realPole) + imagPole * imagPole;
-            if (d < 1e-12) continue;
+            var segment = new float[count];
+            Array.Copy(monoSignal, start, segment, 0, count);
+            var filtered = ApplySubBassBandpass(segment, sampleRate);
 
-            double b0 = wcAnalog * wcAnalog / d;
-            double b1 = 2.0 * b0;
-            double b2 = b0;
-            double a1 = 2.0 * (4.0 - wcAnalog * wcAnalog) / d;
-            double a2 = ((2.0 + realPole) * (2.0 + realPole) + imagPole * imagPole - 4.0 * imagPole * imagPole) / d;
+            double sumSq = 0.0;
+            foreach (var s in filtered) sumSq += s * (double)s;
+            double rms = Math.Sqrt(sumSq / count);
 
-            output = ApplyBiquad(output, b0, b1, b2, -a1, -a2);
+            if (rms > bestRms)
+            {
+                bestRms = rms;
+                bestIndex = i;
+            }
         }
 
+        return bestIndex;
+    }
+
+    // ── True sub-bass bandpass (NAudio.Dsp.BiQuadFilter, cascaded high-pass + low-pass) ─────
+
+    private static float[] ApplySubBassBandpass(float[] signal, int sampleRate)
+    {
+        var hp = BiQuadFilter.HighPassFilter(sampleRate, (float)LowCutHz, 0.7071f);
+        var lp = BiQuadFilter.LowPassFilter(sampleRate, (float)HighCutHz, 0.7071f);
+
+        var output = new float[signal.Length];
+        for (int i = 0; i < signal.Length; i++)
+        {
+            output[i] = lp.Transform(hp.Transform(signal[i]));
+        }
         return output;
     }
 
-    private static float[] ApplyBiquad(float[] signal, double b0, double b1, double b2, double a1, double a2)
+    private static float[] ComputeWindowedRms(float[] filtered, int sampleRate)
     {
-        var output = new float[signal.Length];
-        double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+        int windowSamples = Math.Max(1, (int)(EnergyWindowSeconds * sampleRate));
+        int numWindows = filtered.Length / windowSamples;
 
-        for (int i = 0; i < signal.Length; i++)
+        var energyCurve = new float[numWindows];
+        for (int i = 0; i < numWindows; i++)
         {
-            double x0 = signal[i];
-            double y0 = b0 * x0 + b1 * x1 + b2 * x2 + a1 * y1 + a2 * y2;
-            output[i] = (float)Math.Clamp(y0, -1.0, 1.0);
-            x2 = x1; x1 = x0;
-            y2 = y1; y1 = y0;
+            int start = i * windowSamples;
+            double sumSq = 0.0;
+            for (int j = start; j < start + windowSamples && j < filtered.Length; j++)
+                sumSq += filtered[j] * (double)filtered[j];
+            energyCurve[i] = (float)Math.Sqrt(sumSq / windowSamples);
         }
 
+        return energyCurve;
+    }
+
+    // ── 4th-order Butterworth LP filter (cascaded biquads) — still used by ComputeBandEnergyCurve,
+    // which StructuralStrippingEngine relies on for its own, wider (250 Hz) House/Techno band ─────
+
+    /// <summary>
+    /// Q values for the two cascaded 2nd-order sections of a proper 4th-order Butterworth lowpass:
+    /// Q = 1 / (2*cos(angle)) at pole angles π/8 and 3π/8 — the same angles a textbook 4th-order
+    /// Butterworth pole layout uses. Delegates the actual biquad math to NAudio.Dsp.BiQuadFilter
+    /// (the same trusted implementation already used a few lines above for the sub-bass bandpass)
+    /// instead of a hand-rolled bilinear-transform derivation: that derivation had a sign error in
+    /// its a1 coefficient and a spurious extra term in a2, which together made this filter's DC
+    /// gain wildly wrong (verified numerically — as low as 0.0001 instead of the required 1.0 at
+    /// realistic cutoffs), i.e. it was destroying almost all signal instead of passing it through.
+    /// </summary>
+    private static readonly float[] ButterworthStageQ =
+    {
+        (float)(1.0 / (2.0 * Math.Cos(Math.PI / 8))),
+        (float)(1.0 / (2.0 * Math.Cos(Math.PI * 3 / 8))),
+    };
+
+    private static float[] ApplyButterworthLowPass(float[] signal, int sampleRate, double cutoffHz)
+    {
+        var output = (float[])signal.Clone();
+        foreach (var q in ButterworthStageQ)
+        {
+            var stage = BiQuadFilter.LowPassFilter(sampleRate, (float)cutoffHz, q);
+            for (int i = 0; i < output.Length; i++)
+                output[i] = stage.Transform(output[i]);
+        }
         return output;
     }
 }

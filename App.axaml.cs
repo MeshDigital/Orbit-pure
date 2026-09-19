@@ -233,14 +233,31 @@ public partial class App : Application
                         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => splashScreen.UpdateStatus("Starting UI..."));
                         await Task.Delay(50);
 
-                        // Create main window and show it immediately on the UI thread
-                        // We resolve MainViewModel on the UI thread because it creates UI-bound components (like TreeDataGridSource)
+                        // We resolve MainViewModel on the UI thread because it creates UI-bound
+                        // components (like TreeDataGridSource). This single DI resolve constructs
+                        // ~15 ViewModels' worth of constructor work (Player/Library/Search/
+                        // Settings/Home/Timeline/Sidebar/FlowBuilder/...), and constructing the
+                        // MainWindow's whole visual tree is its own non-trivial chunk of work too.
+                        // Previously both happened inside one atomic Dispatcher.InvokeAsync call —
+                        // since a dispatched callback runs to completion before the UI thread gets
+                        // to process anything else (paint included), the splash screen's status
+                        // text and progress bar sat frozen on "Starting UI..." for the whole
+                        // duration, which read as the app having hung. Splitting this into two
+                        // separate InvokeAsync calls with a real status update and a yield between
+                        // them lets the dispatcher actually pump a paint pass in between, so the
+                        // splash visibly keeps moving instead of appearing stuck.
                         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                         {
                             mainVm = Services.GetRequiredService<MainViewModel>();
                             mainVm.StatusText = "Finalizing UI...";
                             mainVm.IsInitializing = true;
-                            
+                            splashScreen.UpdateStatus("Loading interface...");
+                        });
+
+                        await Task.Delay(1);
+
+                        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                        {
                             var mainWindow = new Views.Avalonia.MainWindow
                             {
                                 DataContext = mainVm
@@ -249,6 +266,14 @@ public partial class App : Application
                             desktop.MainWindow = mainWindow;
                             mainWindow.Show();
                             splashScreen.Close();
+
+                            // GlobalHotkeyService was constructed as part of mainVm's DI graph
+                            // above, while desktop.MainWindow was still the splash screen — its
+                            // constructor-time attach bound to that (about-to-close) window.
+                            // Re-attach now that the real window is actually showing, or every DJ
+                            // keyboard shortcut (play/pause, cues, loops, beat jump, ...) would
+                            // silently never fire for the rest of the session.
+                            Services.GetRequiredService<GlobalHotkeyService>().AttachToCurrentMainWindow();
 
                             // Real OS-level notifications (Windows Action Center toasts) need the
                             // main window's native handle, which only exists after Show().
@@ -275,6 +300,22 @@ public partial class App : Application
                         // AreDependenciesHealthy) stayed permanently disabled for the whole session
                         // regardless of whether FFmpeg/Essentia were genuinely available.
                         _ = Services.GetRequiredService<NativeDependencyHealthService>().CheckHealthAsync();
+
+                        // SpotifyAuthService.IsAuthenticated defaults to false and only ever gets
+                        // set true inside VerifyConnectionAsync()/RefreshAccessTokenAsync() — which
+                        // nothing at startup was calling; the only caller was Settings' "Test
+                        // Connection" button. Result: a genuinely-connected user (valid stored
+                        // refresh token) still read as IsAuthenticated=false for the whole session
+                        // until they happened to open Settings and click Test — so every Spotify
+                        // call elsewhere (Library's playlist Sync included) silently fell back to
+                        // Client Credentials auth, which Spotify 404s for private/collaborative
+                        // playlists (i.e. almost anyone's own playlists) as if they don't exist.
+                        _ = Services.GetRequiredService<SpotifyAuthService>().VerifyConnectionAsync();
+
+                        // Fire-and-forget: a single throttled GitHub Releases check. Never awaited
+                        // so a slow/unreachable network never delays startup; all failures inside
+                        // are caught and logged, never thrown.
+                        _ = Services.GetRequiredService<IUpdateCheckService>().CheckForUpdatesAsync();
 
                         // Eager-resolve chat/notification services so they start listening for
                         // incoming Soulseek messages from app launch, not just after the user
@@ -331,12 +372,38 @@ public partial class App : Application
                             Serilog.Log.Error(syncEx, "Start-up Library sync failed");
                         }
                         
+                        // Start watching any library folders flagged for auto-import
+                        try
+                        {
+                            var folderWatchService = Services.GetRequiredService<LibraryFolderWatchService>();
+                            await folderWatchService.StartAsync();
+                        }
+                        catch (Exception watchEx)
+                        {
+                            Serilog.Log.Warning(watchEx, "Library folder watch service failed to start (non-critical)");
+                        }
+
                         // Load projects into the LibraryViewModel
                         if (mainVm?.LibraryViewModel != null)
                         {
                             await mainVm.LibraryViewModel.LoadProjectsAsync();
                         }
-                        
+
+                        // Mission Control's 500ms heartbeat (CPU load, zombie-process count,
+                        // dead-letter/failed-retry count, adaptive library-health audit) — started
+                        // here, after crash recovery and library sync have both already completed
+                        // above, so its very first tick reads settled state rather than racing
+                        // either of them. See the DashboardService/AddSingleton<MissionControlService>
+                        // registration above for why this was silently never running before.
+                        try
+                        {
+                            Services.GetRequiredService<MissionControlService>().Start();
+                        }
+                        catch (Exception missionControlEx)
+                        {
+                            Serilog.Log.Warning(missionControlEx, "Mission Control Service failed to start (non-critical)");
+                        }
+
                         // Update UI on completion
                         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                         {
@@ -434,7 +501,16 @@ public partial class App : Application
         services.AddSingleton(provider =>
         {
             var configManager = provider.GetRequiredService<ConfigManager>();
-            var appConfig = configManager.Load();
+            AppConfig appConfig;
+            try
+            {
+                appConfig = configManager.Load();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to load config.ini — falling back to default settings so the app can still start");
+                appConfig = new AppConfig();
+            }
             if (string.IsNullOrEmpty(appConfig.DownloadDirectory))
                 appConfig.DownloadDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "SLSKDONET");
             return appConfig;
@@ -455,7 +531,6 @@ public partial class App : Application
         services.AddSingleton<ISavedDoublesService, SavedDoublesService>();
         
         // Session 2: Performance Optimization - Extracted services
-        services.AddSingleton<LibraryOrganizationService>();
         services.AddSingleton<IAudioIntegrityService, AudioIntegrityService>();
         services.AddSingleton<PostDownloadSpectralScanService>(); // Runs FFT analysis on completed FLAC downloads
         services.AddSingleton<PostDownloadDurationCaptureService>(); // TagLib duration probe for every completed download (any format)
@@ -467,7 +542,6 @@ public partial class App : Application
         services.AddSingleton<EngineDiagnosticsService>(); // Structured import/search audit trail — "Engine Diagnostics"
         services.AddSingleton<AvailabilityStateReconciliationService>(); // Fixes tracks stuck "FILE MISSING" despite the file existing on disk
         services.AddSingleton<DurationBackfillService>(); // One-time TagLib duration sweep for tracks that predate PostDownloadDurationCaptureService
-        services.AddSingleton<ArtworkPipeline>();
         services.AddSingleton<DragAdornerService>();
         
         // Session 3: Performance Optimization - Polymorphic taggers
@@ -588,11 +662,13 @@ public partial class App : Application
         services.AddDbContextFactory<AppDbContext>();
         services.AddSingleton<SchemaMigratorService>();
         services.AddSingleton<SLSKDONET.Services.Repositories.ITrackRepository, SLSKDONET.Services.Repositories.TrackRepository>();
+        services.AddSingleton<SLSKDONET.Services.Repositories.ITransitionRepository, SLSKDONET.Services.Repositories.TransitionRepository>();
         services.AddSingleton<DatabaseService>();
         services.AddSingleton<IMetadataService, MetadataService>();
 
         // Navigation and UI services
         services.AddSingleton<INavigationService, NavigationService>();
+        services.AddSingleton<PerformanceTracker>(); // live perf overlay (Ctrl+Shift+P) — page-nav and opted-in ViewModel load timings
         services.AddSingleton<IUserInputService, UserInputService>();
         services.AddSingleton<IFileInteractionService, FileInteractionService>();
         services.AddSingleton<INotificationService, NotificationServiceAdapter>();
@@ -603,6 +679,14 @@ public partial class App : Application
         // whole Flow Builder tab silently gets a null DataContext (every control dead).
         services.AddSingleton<ViewModels.FlowBuilderViewModel>();
         services.AddSingleton<DashboardService>();
+        // Never registered before — its Start() (500ms heartbeat publishing DashboardSnapshot)
+        // was consequently never called by anything, so HomeViewModel's CurrentSnapshot stayed at
+        // `new DashboardSnapshot()` (all-default) for the entire app session. The Dashboard's
+        // "System Status" tile (Stuck Processes/Failed Retries/CPU Load) and the Audio Quality
+        // tile's Gold/Silver/Bronze counts all read from CurrentSnapshot — they always rendered as
+        // 0/0/0/OPTIMAL regardless of real state, not just during a startup race. Started further
+        // down, once the background init sequence confirms the app is data-safe.
+        services.AddSingleton<MissionControlService>();
         // Keyboard mapping system (Epic #119)
         services.AddSingleton<IKeyboardMappingService, KeyboardMappingService>();
         services.AddSingleton<IKeyboardTelemetryService, KeyboardTelemetryService>();
@@ -614,6 +698,13 @@ public partial class App : Application
         services.AddSingleton<IRightPanelService, RightPanelService>();
         services.AddSingleton<SimilarTracksViewModel>();
         services.AddSingleton<NotificationCenterService>();
+        // Transient (not Singleton): both SidebarViewModel's compact "Mix" tab AND
+        // FlowBuilderViewModel's full-option transition editor inject this — sharing one
+        // singleton instance meant opening a pair in one silently clobbered whatever the other
+        // had loaded. Both consumers are themselves singletons, so DI still resolves this once
+        // per consumer at construction and holds it for the app's lifetime; this just gives each
+        // consumer its own independent instance instead of one shared, fought-over one.
+        services.AddTransient<MixTransitionViewModel>();
         services.AddSingleton<SidebarViewModel>();
 
         // ViewModels
@@ -645,7 +736,8 @@ public partial class App : Application
 
         // [NEW] Library Scanning
         services.AddSingleton<LibraryFolderScannerService>();
-        
+        services.AddSingleton<LibraryFolderWatchService>();
+
         // Orchestration Services
         services.AddSingleton<SearchOrchestrationService>();
         services.AddSingleton<DownloadOrchestrationService>();
@@ -670,6 +762,7 @@ public partial class App : Application
         services.AddSingleton<ImportHistoryViewModel>();
         services.AddSingleton<SpotifyImportViewModel>();
         services.AddSingleton<ViewModels.LibrarySourcesViewModel>();
+        services.AddSingleton<ViewModels.Library.LibraryHealthViewModel>();
         services.AddSingleton<Services.Import.AutoCleanerService>();
 
         // Utilities
@@ -677,6 +770,9 @@ public partial class App : Application
         
         // Phase 10.5: Native Dependency Health (Reliability)
         services.AddSingleton<NativeDependencyHealthService>();
+
+        // Update check — single GET against GitHub Releases, opt-out via AppConfig.EnableUpdateCheck.
+        services.AddSingleton<IUpdateCheckService, UpdateCheckService>();
         
         // Views - Register all page controls for NavigationService
         services.AddTransient<Views.Avalonia.HomePage>();
@@ -703,6 +799,9 @@ public partial class App : Application
 
         // ── EDMFormer ML phrase detection service (optional — requires local Python service on port 7774) ──
         services.AddSingleton<Services.Audio.IEdmFormerService, Services.Audio.EdmFormerService>();
+
+        // ── Rekordbox PSSI phrase analysis (optional — reads Rekordbox's own local analysis cache) ──
+        services.AddSingleton<Services.Rekordbox.IRekordboxPssiService, Services.Rekordbox.RekordboxPssiService>();
 
         // ── Auto-cue / phrase detection pipeline ──────────────────────────
         services.AddSingleton<Services.AudioAnalysis.CuePointDetectionService>();
