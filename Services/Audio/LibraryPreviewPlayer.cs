@@ -20,8 +20,10 @@ public interface ILibraryPreviewPlayer : IDisposable
     /// it, or natural end-of-file — lets callers with a play/stop toggle reset their UI state.</summary>
     event EventHandler? PreviewStopped;
 
-    // Hover over a library row — debounced 250ms, then starts playback.
-    void RequestPreview(string filePath, double? bpm = null);
+    // Hover over a library row — debounced 250ms, then starts playback. startSeconds > 0 is a
+    // deliberate seek (e.g. clicking the Mix Transition Editor's waveform) — see the
+    // implementation's doc comment for how that differs from the plain hover-preview default.
+    void RequestPreview(string filePath, double? bpm = null, double startSeconds = 0);
 
     // Mouse left the library surface or a Stop button was pressed.
     void StopPreview();
@@ -62,7 +64,13 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
         _logger = logger;
     }
 
-    public void RequestPreview(string filePath, double? bpm = null)
+    /// <param name="startSeconds">0 = hover-preview default (plays from the top, debounced so it
+    /// doesn't fire on every transient mouse-over). A positive value is a deliberate seek — e.g.
+    /// clicking a spot on the Mix Transition Editor's waveform to audition that part of the
+    /// track — and skips the debounce for immediate feedback, and always repositions even if
+    /// this exact file is already playing (the hover-preview "already playing, do nothing"
+    /// short-circuit below only applies to startSeconds == 0).</param>
+    public void RequestPreview(string filePath, double? bpm = null, double startSeconds = 0)
     {
         // Cancel any pending debounce for the previous hover target
         _debounceCts?.Cancel();
@@ -74,8 +82,8 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
         {
             try
             {
-                await Task.Delay(HoverDebounceMs, token);
-                await StartPreviewAsync(filePath, token);
+                if (startSeconds <= 0) await Task.Delay(HoverDebounceMs, token);
+                await StartPreviewAsync(filePath, token, startSeconds);
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
@@ -91,7 +99,7 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
         _ = Task.Run(async () => await FadeOutAndDisposeAsync());
     }
 
-    private async Task StartPreviewAsync(string filePath, CancellationToken ct)
+    private async Task StartPreviewAsync(string filePath, CancellationToken ct, double startSeconds = 0)
     {
         if (!File.Exists(filePath))
         {
@@ -99,8 +107,9 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
             return;
         }
 
-        // If we are already previewing this exact file, do nothing
-        if (string.Equals(CurrentPreviewPath, filePath, StringComparison.OrdinalIgnoreCase) && IsPreviewPlaying)
+        // If we are already previewing this exact file, do nothing — except for a deliberate
+        // seek request (startSeconds > 0), which must always reposition even mid-playback.
+        if (startSeconds <= 0 && string.Equals(CurrentPreviewPath, filePath, StringComparison.OrdinalIgnoreCase) && IsPreviewPlaying)
             return;
 
         await _gate.WaitAsync(ct);
@@ -114,6 +123,11 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
             ct.ThrowIfCancellationRequested();
 
             _reader = new AudioFileReader(filePath);
+            if (startSeconds > 0)
+            {
+                var safeStart = Math.Clamp(startSeconds, 0, Math.Max(0, _reader.TotalTime.TotalSeconds - 0.25));
+                _reader.CurrentTime = TimeSpan.FromSeconds(safeStart);
+            }
             _volumeProvider = new VolumeSampleProvider(_reader) { Volume = 1f };
 
             var fftProvider = new PreviewFftSampleProvider(_volumeProvider, FftSize, magnitudes =>

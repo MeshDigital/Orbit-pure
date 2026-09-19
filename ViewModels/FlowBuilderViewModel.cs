@@ -112,7 +112,11 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     public bool IsTransitionEditorOpen
     {
         get => _isTransitionEditorOpen;
-        set => this.RaiseAndSetIfChanged(ref _isTransitionEditorOpen, value);
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _isTransitionEditorOpen, value);
+            this.RaisePropertyChanged(nameof(ShowTrackList));
+        }
     }
 
     // ── UI state ──────────────────────────────────────────────────────────────
@@ -132,6 +136,13 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
 
     public bool HasTracks    => Tracks.Count > 0;
     public bool HasNoTracks  => Tracks.Count == 0;
+
+    /// <summary>Gates the SET ARC graph + track card carousel: while the Transition Editor is
+    /// open it's hidden entirely (not just shrunk) so the editor gets the whole remaining page
+    /// height instead of splitting it with a timeline the user isn't looking at mid-edit — this
+    /// is what makes both waveforms (cues, trigger markers, Fix-in-Cue-Forge links) fit without
+    /// scrolling instead of only getting whatever scraps of height the timeline left over.</summary>
+    public bool ShowTrackList => HasTracks && !IsTransitionEditorOpen;
 
     public IReadOnlyList<string> TransitionStyleFilters { get; } =
     [
@@ -1612,6 +1623,7 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     {
         this.RaisePropertyChanged(nameof(HasTracks));
         this.RaisePropertyChanged(nameof(HasNoTracks));
+        this.RaisePropertyChanged(nameof(ShowTrackList));
         this.RaisePropertyChanged(nameof(TransitionFilterSummary));
     }
 

@@ -428,14 +428,24 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
     /// <summary>Clear the staged loop in/out and remove any saved loop cue from DB.</summary>
     public ReactiveCommand<Unit, Unit> ClearStagedLoopCommand { get; }
 
-    /// <summary>Set a loop of N bars from the current position (auto-loop). 0.5 = half bar.</summary>
-    public ReactiveCommand<double, Unit> AutoLoopBarsCommand { get; }
+    /// <summary>Set a loop of N bars from the current position (auto-loop). 0.5 = half bar.
+    /// <string, Unit>, not <double, Unit>: WorkstationPage.axaml's ½/1/2/4/8-bar preset buttons
+    /// set CommandParameter="0.5"/"1"/etc as plain XAML string literals, which Avalonia never
+    /// auto-converts to double — a typed <double> command's own ICommand.Execute type-check
+    /// throws an unhandled, AppDomain-fatal InvalidOperationException on click (same bug class
+    /// found and fixed in CueForgeViewModel.NudgeCueCommand).</summary>
+    public ReactiveCommand<string, Unit> AutoLoopBarsCommand { get; }
 
     /// <summary>Drop a memory cue (Num=-1) at the current playhead, persisted to DB.</summary>
     public ReactiveCommand<Unit, Unit> AddMemoryCueCommand { get; }
 
-    /// <summary>Remove the cue assigned to hot-cue pad slot 0–7. Clears pad + removes from DB.</summary>
-    public ReactiveCommand<int, Unit> DeleteHotCueAtSlotCommand { get; }
+    /// <summary>Remove the cue assigned to hot-cue pad slot 0–7. Clears pad + removes from DB.
+    /// <string, Unit>, not <int, Unit>: WorkstationPage.axaml's "Clear pad" context-menu items
+    /// set CommandParameter="0".."7" as plain XAML string literals, which Avalonia never
+    /// auto-converts to int — a typed <int> command's own ICommand.Execute type-check throws an
+    /// unhandled, AppDomain-fatal InvalidOperationException on click (same bug class found and
+    /// fixed in CueForgeViewModel.NudgeCueCommand).</summary>
+    public ReactiveCommand<string, Unit> DeleteHotCueAtSlotCommand { get; }
 
     public ReactiveCommand<Unit, Unit> ViewWaveformCommand { get; }
     public ReactiveCommand<Unit, Unit> JumpToIntroCommand { get; }
@@ -574,9 +584,10 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
             await CueEditor.ClearLoopCommand.Execute().FirstAsync();
         }, hasTrack);
 
-        AutoLoopBarsCommand = ReactiveCommand.CreateFromTask<double>(async bars =>
+        AutoLoopBarsCommand = ReactiveCommand.CreateFromTask<string>(async barsText =>
         {
             if (!IsLoaded || DisplayBpm <= 0) return;
+            double bars = double.Parse(barsText, System.Globalization.CultureInfo.InvariantCulture);
             double barLength = 240.0 / DisplayBpm;
             double loopLength = bars * barLength;
             double inPt  = Deck.PositionSeconds;
@@ -592,9 +603,9 @@ public sealed class WorkstationDeckViewModel : ReactiveObject, IDisposable
             await CueEditor.AddCueAtPositionCommand.Execute(Deck.PositionSeconds).FirstAsync();
         }, hasTrack);
 
-        DeleteHotCueAtSlotCommand = ReactiveCommand.CreateFromTask<int>(async slot =>
+        DeleteHotCueAtSlotCommand = ReactiveCommand.CreateFromTask<string>(async slot =>
         {
-            await CueEditor.DeleteHotCueAtSlotCommand.Execute(slot).FirstAsync();
+            await CueEditor.DeleteHotCueAtSlotCommand.Execute(int.Parse(slot)).FirstAsync();
             ApplySuggestedHotCues(CueEditor.Cues);
         }, hasTrack);
 

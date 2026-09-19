@@ -237,9 +237,12 @@ public class CueGenerationServiceTests
     {
         // Breakdown-signal-derived placement (SubBassDropoutTimestamps overriding a bar-math
         // default) was removed in favor of the DJ's actual cueing convention: the two cues
-        // leading into a drop are always exactly 32 and 16 beats before it, not a separately
-        // (and therefore separately fallible) detected structural landmark. A planted dropout
-        // signal — even one right at the old default position — must have zero effect now.
+        // leading into a drop are always exactly 64 and 32 beats (16 and 8 bars) before it, not a
+        // separately (and therefore separately fallible) detected structural landmark. Confirmed
+        // directly against 312 real Rekordbox-cued tracks: every countdown pair to an actual drop
+        // sits 16 bars and 8 bars before it (previously modeled here as 8/4 bars — half that). A
+        // planted dropout signal — even one right at the old default position — must have zero
+        // effect now.
         var service = CreateService();
         double dropTime = 100.0;
         double beat = 60.0 / Bpm;
@@ -254,8 +257,8 @@ public class CueGenerationServiceTests
             .OrderBy(c => c.TimestampInSeconds).ToList();
 
         Assert.Equal(2, builds.Count);
-        Assert.InRange(builds[0].TimestampInSeconds, drop1.TimestampInSeconds - 32 * beat - 0.01, drop1.TimestampInSeconds - 32 * beat + 0.01);
-        Assert.InRange(builds[1].TimestampInSeconds, drop1.TimestampInSeconds - 16 * beat - 0.01, drop1.TimestampInSeconds - 16 * beat + 0.01);
+        Assert.InRange(builds[0].TimestampInSeconds, drop1.TimestampInSeconds - 64 * beat - 0.01, drop1.TimestampInSeconds - 64 * beat + 0.01);
+        Assert.InRange(builds[1].TimestampInSeconds, drop1.TimestampInSeconds - 32 * beat - 0.01, drop1.TimestampInSeconds - 32 * beat + 0.01);
         Assert.DoesNotContain(cues, c => c.Type == CuePointType.Breakdown);
     }
 

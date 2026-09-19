@@ -149,8 +149,8 @@ public sealed class KeyboardEventRouter : IDisposable
             case KeyboardAction.LoopExit:        return ExecUnit(_workstation.ExitLoopFocusedCommand);
             case KeyboardAction.HalfLoop:        return ExecUnit(slot?.HalfLoopCommand);
             case KeyboardAction.DoubleLoop:      return ExecUnit(slot?.DoubleLoopCommand);
-            case KeyboardAction.LoopMoveForward: return ExecParam(slot?.MoveLoopCommand, 1);
-            case KeyboardAction.LoopMoveBack:    return ExecParam(slot?.MoveLoopCommand, -1);
+            case KeyboardAction.LoopMoveForward: return ExecParam(slot?.MoveLoopCommand, "1");
+            case KeyboardAction.LoopMoveBack:    return ExecParam(slot?.MoveLoopCommand, "-1");
             case KeyboardAction.LoopRoll1:  return ActivateLoopRoll(slot, 1);
             case KeyboardAction.LoopRoll2:  return ActivateLoopRoll(slot, 2);
             case KeyboardAction.LoopRoll4:  return ActivateLoopRoll(slot, 4);

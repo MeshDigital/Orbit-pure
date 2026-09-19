@@ -233,14 +233,31 @@ public partial class App : Application
                         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => splashScreen.UpdateStatus("Starting UI..."));
                         await Task.Delay(50);
 
-                        // Create main window and show it immediately on the UI thread
-                        // We resolve MainViewModel on the UI thread because it creates UI-bound components (like TreeDataGridSource)
+                        // We resolve MainViewModel on the UI thread because it creates UI-bound
+                        // components (like TreeDataGridSource). This single DI resolve constructs
+                        // ~15 ViewModels' worth of constructor work (Player/Library/Search/
+                        // Settings/Home/Timeline/Sidebar/FlowBuilder/...), and constructing the
+                        // MainWindow's whole visual tree is its own non-trivial chunk of work too.
+                        // Previously both happened inside one atomic Dispatcher.InvokeAsync call —
+                        // since a dispatched callback runs to completion before the UI thread gets
+                        // to process anything else (paint included), the splash screen's status
+                        // text and progress bar sat frozen on "Starting UI..." for the whole
+                        // duration, which read as the app having hung. Splitting this into two
+                        // separate InvokeAsync calls with a real status update and a yield between
+                        // them lets the dispatcher actually pump a paint pass in between, so the
+                        // splash visibly keeps moving instead of appearing stuck.
                         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                         {
                             mainVm = Services.GetRequiredService<MainViewModel>();
                             mainVm.StatusText = "Finalizing UI...";
                             mainVm.IsInitializing = true;
-                            
+                            splashScreen.UpdateStatus("Loading interface...");
+                        });
+
+                        await Task.Delay(1);
+
+                        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                        {
                             var mainWindow = new Views.Avalonia.MainWindow
                             {
                                 DataContext = mainVm

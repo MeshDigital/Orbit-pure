@@ -1141,8 +1141,11 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         }
 
         // Standard Path: Virtualization for DB Projects or "All Tracks"
-        // Combine global SearchText with per-column filters into a single query token
-        var effectiveFilter = BuildEffectiveFilter();
+        // Combine global SearchText with per-column filters into a single query token.
+        // In Mix mode, every other filter is bypassed and only downloaded tracks show — same
+        // "dedicated view" rule as FilterTracks's early return above, applied to the DB-backed
+        // path (real playlists, not just in-memory Smart Playlists).
+        var effectiveFilter = IsMixModeEnabled ? string.Empty : BuildEffectiveFilter();
         var virtualized = new VirtualizedTrackCollection(
             _logger,
             _libraryService,
@@ -1150,10 +1153,10 @@ public class TrackListViewModel : ReactiveObject, IDisposable
             _artworkCache,
             selectedProjectId,
             effectiveFilter,
-            IsFilterDownloaded ? true : (IsFilterPending ? false : null),
-            DuplicateHashesFilter,
-            camelotKeyFilter: CamelotKeyFilter,
-            qualityTier: QualityTierFilter,
+            IsMixModeEnabled ? true : (IsFilterDownloaded ? true : (IsFilterPending ? false : null)),
+            IsMixModeEnabled ? null : DuplicateHashesFilter,
+            camelotKeyFilter: IsMixModeEnabled ? null : CamelotKeyFilter,
+            qualityTier: IsMixModeEnabled ? null : QualityTierFilter,
             sortColumn: SortColumn,
             sortDescending: SortDescending);
 
@@ -1210,6 +1213,13 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     private bool FilterTracks(object obj, System.Collections.Generic.List<StyleFilterItem> selectedStyles)
     {
         if (obj is not PlaylistTrackViewModel track) return false;
+
+        // "+ Mix" is a dedicated build-transitions view — every other active filter (search,
+        // style, quality tier, etc.) is bypassed while it's on, and only downloaded tracks show,
+        // since a track that isn't on disk can't be previewed/mixed. Filters resume normally the
+        // moment Mix mode turns back off (see IsMixModeEnabled's setter, which re-runs
+        // RefreshFilteredTracks on both transitions).
+        if (IsMixModeEnabled) return track.State == PlaylistTrackState.Completed;
 
         // Apply state filter first
         if (!IsFilterAll)
@@ -1386,6 +1396,11 @@ public class TrackListViewModel : ReactiveObject, IDisposable
                 // badge showing).
                 if (value) FlowWarningDismissed = false;
                 this.RaisePropertyChanged(nameof(ShowFlowWarningBanner));
+                // Only downloaded tracks show, and every other active filter is bypassed, while
+                // Mix mode is on (FilterTracks/RefreshFilteredTracks's IsMixModeEnabled checks) —
+                // must re-run on both transitions so turning Mix off restores the user's actual
+                // filters exactly as they left them, not just hides the badges.
+                RefreshFilteredTracks();
                 _ = UpdateMixTransitionBadgesAsync();
             }
         }

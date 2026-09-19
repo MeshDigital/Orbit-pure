@@ -50,6 +50,14 @@ namespace SLSKDONET.ViewModels
         private readonly SLSKDONET.Services.Repositories.ITrackRepository? _trackRepository;
         private readonly ICuePointService? _cuePointService;
         private readonly IDialogService? _dialogService;
+        private readonly SLSKDONET.Services.AnalysisQueueService? _analysisQueueService;
+        // Singletons — stopped whenever real queue/playlist playback starts (see LoadTrackCore),
+        // so a Mix Editor waveform click-preview or a Library row hover-preview never keeps
+        // playing underneath the track the user actually pressed play on. Both are self-contained
+        // WASAPI outputs (never hijack this main player), so nothing crashes if they overlap —
+        // they'd just audibly mix together, which is the actual problem this prevents.
+        private readonly SLSKDONET.Services.Audio.ILibraryPreviewPlayer? _libraryPreviewPlayer;
+        private readonly SLSKDONET.Services.Audio.ITransitionPreviewPlayer? _transitionPreviewPlayer;
         private static readonly SLSKDONET.Engine.Transitions.TransitionEngine _pointSuggestionEngine = new();
 
         /// <summary>The same singleton instance the CONTEXT sidepanel's "Mix" tab uses (see
@@ -99,7 +107,19 @@ namespace SLSKDONET.ViewModels
         public bool IsPlaying
         {
             get => _isPlaying;
-            set => SetProperty(ref _isPlaying, value);
+            set
+            {
+                if (SetProperty(ref _isPlaying, value))
+                {
+                    // AnalysisQueueService.StealthMode (throttled dispatch, halved worker count)
+                    // already existed fully built but was never actually turned on by anything —
+                    // background track analysis ran at full ProcessorCount/2 parallelism
+                    // regardless of whether audio was playing, competing with the real-time audio
+                    // thread for CPU and causing exactly the "performance drops while playing and
+                    // analysing" symptom. Now follows playback state directly.
+                    _analysisQueueService?.SetStealthMode(value);
+                }
+            }
         }
 
         private float _position; // 0.0 to 1.0
@@ -646,7 +666,7 @@ namespace SLSKDONET.ViewModels
         // Phase 5C: UI Throttling
         private DateTime _lastTimeUpdate = DateTime.MinValue;
 
-        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null, AppConfig? config = null, ConfigManager? configManager = null, SLSKDONET.Services.Repositories.ITransitionRepository? transitionRepository = null, MixTransitionViewModel? mixTransitionViewModel = null, SLSKDONET.Services.Repositories.ITrackRepository? trackRepository = null, ICuePointService? cuePointService = null, IDialogService? dialogService = null)
+        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null, AppConfig? config = null, ConfigManager? configManager = null, SLSKDONET.Services.Repositories.ITransitionRepository? transitionRepository = null, MixTransitionViewModel? mixTransitionViewModel = null, SLSKDONET.Services.Repositories.ITrackRepository? trackRepository = null, ICuePointService? cuePointService = null, IDialogService? dialogService = null, SLSKDONET.Services.AnalysisQueueService? analysisQueueService = null, SLSKDONET.Services.Audio.ILibraryPreviewPlayer? libraryPreviewPlayer = null, SLSKDONET.Services.Audio.ITransitionPreviewPlayer? transitionPreviewPlayer = null)
         {
             _playerService = playerService;
             _databaseService = databaseService;
@@ -663,6 +683,9 @@ namespace SLSKDONET.ViewModels
             _trackRepository = trackRepository;
             _cuePointService = cuePointService;
             _dialogService = dialogService;
+            _analysisQueueService = analysisQueueService;
+            _libraryPreviewPlayer = libraryPreviewPlayer;
+            _transitionPreviewPlayer = transitionPreviewPlayer;
 
             // Restore persisted playback settings (crossfade/pitch used to reset to defaults every restart)
             if (_config != null)
@@ -2332,6 +2355,8 @@ namespace SLSKDONET.ViewModels
                     
                     if (canResume)
                     {
+                        _libraryPreviewPlayer?.StopPreview();
+                        _transitionPreviewPlayer?.StopPreview();
                         _playerService.Pause(); // Resume
                         IsPlaying = true; // Assume success
                     }
@@ -2562,7 +2587,14 @@ namespace SLSKDONET.ViewModels
                 TrackTitle = title;
                 TrackArtist = artist;
 
-                if (autoPlay) _playerService.Play(filePath, loudnessLufs);
+                if (autoPlay)
+                {
+                    // Real playback starting — cannot have several sources racing for the audio
+                    // output, so any waveform-click or hover preview stops first.
+                    _libraryPreviewPlayer?.StopPreview();
+                    _transitionPreviewPlayer?.StopPreview();
+                    _playerService.Play(filePath, loudnessLufs);
+                }
                 else _playerService.LoadWithoutPlaying(filePath, loudnessLufs);
                 IsPlaying = autoPlay;
 

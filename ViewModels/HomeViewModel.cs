@@ -201,6 +201,30 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
     public bool ShowRecentPlaylistsEmptyState => !IsLoadingRecent && RecentPlaylists.Count == 0;
     public bool ShowRecentDownloadsEmptyState => !IsLoadingRecentDownloads && RecentDownloads.Count == 0;
 
+    // Only Recent Playlists/Downloads (above) had a loading story — every other dashboard section
+    // (Library Health, System Status, Analysis Coverage, Format Split, Key Distribution, Energy
+    // Profile, Genre Galaxy, ...) has no concept of "still loading" at all, so on launch each one
+    // just sat at its zero/default value until RefreshDashboardCoreAsync's six parallel loaders
+    // happened to land — all around the same moment, right as the window becomes visible — which
+    // reads as "blank, then everything pops in at once." One shared flag (rather than a dozen
+    // per-section ones) is enough since these all come from the same Task.WhenAll batch: gate the
+    // whole stats grid behind it, so every refresh shows one clean loading state and then one
+    // coordinated reveal instead of a scattered pop-in.
+    //
+    // This used to be gated to only the *first-ever* load (a "_hasLoadedDashboardOnce" flag), on
+    // the theory that re-hiding the whole dashboard on every later refresh would be worse UX than
+    // a one-time launch flash. In practice that meant every refresh AFTER the first — the Refresh
+    // button, the dead-letter-retry flow, and simply navigating away and back — got zero loading-
+    // state coverage, so the exact scattered-pop-in bug this flag exists to prevent came right
+    // back on the second (and every later) visit. Toggling it on every refresh, not just the
+    // first, is what actually keeps the "one clean reveal" promise.
+    private bool _isLoadingDashboard = true;
+    public bool IsLoadingDashboard
+    {
+        get => _isLoadingDashboard;
+        set => SetProperty(ref _isLoadingDashboard, value);
+    }
+
     private bool _isLoadingSpotify;
     public bool IsLoadingSpotify
     {
@@ -483,6 +507,7 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task RefreshDashboardCoreAsync()
     {
+        Dispatcher.UIThread.Post(() => IsLoadingDashboard = true);
         try
         {
             var healthTask = LoadLibraryHealthAsync();
@@ -505,6 +530,10 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to refresh dashboard");
+        }
+        finally
+        {
+            Dispatcher.UIThread.Post(() => IsLoadingDashboard = false);
         }
     }
 

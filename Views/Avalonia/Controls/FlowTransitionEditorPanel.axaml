@@ -3,13 +3,15 @@
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
              x:Class="SLSKDONET.Views.Avalonia.Controls.FlowTransitionEditorPanel"
-             x:DataType="vm:FlowBuilderViewModel"
-             MaxHeight="440">
+             x:DataType="vm:FlowBuilderViewModel">
 
-    <!-- Bottom slide-out: the full-option Mix transition editor, docked under the Flow Builder
-         timeline. Same MixTransitionViewModel/persistence the compact CONTEXT-sidepanel "Mix" tab
-         uses (SidebarViewModel.MixTransitionVm) — just a roomier host, reached by clicking a
-         bridge between two adjacent cards instead of a track-list badge. -->
+    <!-- Full-option Mix transition editor. Same MixTransitionViewModel/persistence the compact
+         CONTEXT-sidepanel "Mix" tab uses (SidebarViewModel.MixTransitionVm) — just a roomier host,
+         reached by clicking a bridge between two adjacent cards instead of a track-list badge.
+         Lives in FlowBuilderView's row-3 Panel alongside the (now-hidden-while-open) card
+         carousel, so it stretches to fill that row's full height — no MaxHeight cap here
+         (previously 600, before that 440) since it no longer has to share the page with the
+         timeline while open. -->
     <Border Background="#1A1E24" BorderBrush="#2F3E4C" BorderThickness="0,1,0,0">
         <Grid RowDefinitions="Auto,*">
             <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="16,10">
@@ -21,9 +23,11 @@
             </Grid>
 
             <!-- MixTransitionPanel scrolls itself internally (it's already a ScrollViewer over a
-                 StackPanel) — no outer scroller needed, just cap its width so the presets/custom
-                 rows don't stretch edge-to-edge on a wide page. -->
-            <Border Grid.Row="1" MaxWidth="900" Margin="16,0,16,16" HorizontalAlignment="Center">
+                 StackPanel) — no outer scroller needed. Stretches to the full width of this panel
+                 (previously capped at MaxWidth 1400 and centered, which left a large dead strip on
+                 wide/high-DPI screens instead of giving the waveform the horizontal room it needs
+                 to show song structure). -->
+            <Border Grid.Row="1" Margin="16,0,16,16">
                 <views:MixTransitionPanel DataContext="{Binding MixTransitionVm}"/>
             </Border>
         </Grid>

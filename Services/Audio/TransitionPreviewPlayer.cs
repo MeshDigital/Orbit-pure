@@ -99,7 +99,7 @@ namespace SLSKDONET.Services.Audio
             await _gate.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                DisposePlaybackResources(deleteRenderedFile: true);
+                DisposePlaybackResources(deleteRenderedFile: true, stopOutput: true);
 
                 _reader = new AudioFileReader(previewPath);
                 _output = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
@@ -117,16 +117,27 @@ namespace SLSKDONET.Services.Audio
         public void StopPreview()
         {
             _logger.LogInformation("⏹️ Stopping Transition Preview");
-            _gate.Wait();
-            try
+            // Runs off the calling thread — StopPreview is invoked directly from
+            // MixTransitionViewModel.PauseCommand on the UI thread, and WasapiOut.Stop() blocks
+            // until its internal audio-render thread acknowledges the stop. If that thread was
+            // *already* mid-shutdown (natural end-of-file racing the user's Pause click) and
+            // OnPlaybackStopped below was holding _gate at that exact moment, the UI thread's
+            // synchronous _gate.Wait() froze the whole app waiting for a gate release that could
+            // itself be waiting on a NAudio thread transition. Task.Run keeps any blocking here
+            // off the UI thread entirely, whichever side wins the race.
+            Task.Run(() =>
             {
-                DisposePlaybackResources(deleteRenderedFile: true);
-            }
-            finally
-            {
-                _gate.Release();
-            }
-            PreviewStopped?.Invoke(this, EventArgs.Empty);
+                _gate.Wait();
+                try
+                {
+                    DisposePlaybackResources(deleteRenderedFile: true, stopOutput: true);
+                }
+                finally
+                {
+                    _gate.Release();
+                }
+                PreviewStopped?.Invoke(this, EventArgs.Empty);
+            });
         }
 
         private void OnPlaybackStopped(object? sender, StoppedEventArgs e)
@@ -137,7 +148,11 @@ namespace SLSKDONET.Services.Audio
             _gate.Wait();
             try
             {
-                DisposePlaybackResources(deleteRenderedFile: true);
+                // stopOutput: false — playback has already stopped (that's why this event fired),
+                // and this callback can itself run on WasapiOut's own audio-render thread. Calling
+                // Stop() again here would make that thread join itself and hang forever; Dispose()
+                // alone is enough to release the device.
+                DisposePlaybackResources(deleteRenderedFile: true, stopOutput: false);
             }
             finally
             {
@@ -146,9 +161,12 @@ namespace SLSKDONET.Services.Audio
             PreviewStopped?.Invoke(this, EventArgs.Empty);
         }
 
-        private void DisposePlaybackResources(bool deleteRenderedFile)
+        private void DisposePlaybackResources(bool deleteRenderedFile, bool stopOutput)
         {
-            try { _output?.Stop(); } catch { /* already stopped/disposed */ }
+            if (stopOutput)
+            {
+                try { _output?.Stop(); } catch { /* already stopped/disposed */ }
+            }
             try { _output?.Dispose(); } catch { }
             try { _reader?.Dispose(); } catch { }
             _output = null;
@@ -167,7 +185,7 @@ namespace SLSKDONET.Services.Audio
             _gate.Wait();
             try
             {
-                DisposePlaybackResources(deleteRenderedFile: true);
+                DisposePlaybackResources(deleteRenderedFile: true, stopOutput: true);
             }
             finally
             {

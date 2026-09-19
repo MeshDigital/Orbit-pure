@@ -1,8 +1,10 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using SLSKDONET.Models;
 using SLSKDONET.Models.Timeline;
@@ -31,6 +33,13 @@ public class TrackListViewModelMixBadgeTests
     {
         var sut = (TrackListViewModel)RuntimeHelpers_GetUninitializedObject(typeof(TrackListViewModel));
         SetField(sut, "_transitionRepository", transitionRepository);
+        // RefreshFilteredTracks (now also invoked by the IsMixModeEnabled setter) logs
+        // unconditionally on the in-memory path, and reads StyleFilters (a get-only
+        // auto-property backed field) — GetUninitializedObject skips every field
+        // initializer/constructor, so both are otherwise null here.
+        SetField(sut, "_logger", NullLogger<TrackListViewModel>.Instance);
+        SetField(sut, "<StyleFilters>k__BackingField", new ObservableCollection<StyleFilterItem>());
+        SetField(sut, "_limitedTracks", Enumerable.Empty<PlaylistTrackViewModel>());
         return sut;
     }
 
@@ -174,7 +183,12 @@ public class TrackListViewModelMixBadgeTests
         var second = CreateTrack(playlistId);
 
         SetField(sut, "_filteredTracks", new ObservableCollection<PlaylistTrackViewModel> { first, second });
-        SetField(sut, "_currentProjectTracks", new ObservableCollection<PlaylistTrackViewModel>());
+        // Non-empty and _mainViewModel stays null (uninitialized SUT) so RefreshFilteredTracks —
+        // now also invoked by the IsMixModeEnabled setter itself, to actually apply/lift the
+        // "Mix mode only shows downloaded tracks" filter — takes the in-memory branch instead of
+        // constructing a real DB-backed VirtualizedTrackCollection (which needs a live
+        // ILibraryService/IEventBus this minimal test never sets up).
+        SetField(sut, "_currentProjectTracks", new ObservableCollection<PlaylistTrackViewModel> { first, second });
 
         // Simulate the state right before the user clicks "+ Mix" again to turn it off: mode was
         // on, and the badge was already showing.

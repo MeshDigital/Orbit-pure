@@ -46,7 +46,7 @@
             <Setter Property="BorderBrush" Value="{StaticResource BrushBorder0}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
-            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="Padding" Value="10,6"/>
         </Style>
     </UserControl.Styles>
 
@@ -66,14 +66,14 @@
         </StackPanel>
 
         <ScrollViewer IsVisible="{Binding HasLoadedPair}">
-        <StackPanel Spacing="14" Margin="14">
+        <StackPanel Spacing="10" Margin="14,10">
 
             <controls:MixPreviewComponent/>
 
             <!-- Shows the system's reasoning, not just its pick — SuggestTransitionPointsAsync's
                  tempo/key/vocal-aware mix-out (A) / mix-in (B) points, backed by real cue-point
                  and analysis data rather than "near the end of the file" / "track start". -->
-            <Border Background="{StaticResource BrushBg2}" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="1" CornerRadius="{StaticResource RadiusMd}" Padding="10,8"
+            <Border Background="{StaticResource BrushBg2}" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="1" CornerRadius="{StaticResource RadiusMd}" Padding="10,6"
                     IsVisible="{Binding TransitionPointReasoning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                 <StackPanel Spacing="4">
                     <StackPanel Orientation="Horizontal" Spacing="16">
@@ -263,7 +263,7 @@
             <Button Content="SAVE" Command="{Binding SaveCommand}"
                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                     Background="{StaticResource BrushAccent}" Foreground="{StaticResource BrushBg0}" FontWeight="Bold"
-                    Padding="0,10" CornerRadius="{StaticResource RadiusXl}"/>
+                    Padding="0,8" CornerRadius="{StaticResource RadiusXl}"/>
 
             <TextBlock Text="{Binding StatusMessage}" FontSize="10" Foreground="{StaticResource BrushText1}"
                        HorizontalAlignment="Center" TextWrapping="Wrap"

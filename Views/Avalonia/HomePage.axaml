@@ -94,6 +94,24 @@
         
         <ScrollViewer Grid.Row="1">
             <StackPanel Spacing="14">
+                <!-- Coordinated loading state for the whole stats grid below (Audio Quality through
+                     Genre Galaxy) — these all come from the same RefreshDashboardCoreAsync
+                     Task.WhenAll batch in HomeViewModel, which previously had no loading state at
+                     all: each section just sat at its zero/default value until its slice of data
+                     landed, and since all six loaders finish around the same moment (right as the
+                     window becomes visible), the sections appeared to "pop in all at once" rather
+                     than loading progressively. One shared flag + one placeholder here replaces
+                     that with a single coordinated reveal. Recent Playlists/Downloads inside the
+                     Discover panel below already have their own correct per-section loading state
+                     (IsLoadingRecent/IsLoadingRecentDownloads) and are deliberately left alone. -->
+                <Border Classes="glass" Padding="40" IsVisible="{Binding IsLoadingDashboard}" HorizontalAlignment="Stretch">
+                    <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
+                        <TextBlock Text="⏳" FontSize="20" Classes="pulsing"/>
+                        <TextBlock Text="Loading dashboard…" FontSize="13" Foreground="#808080" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Spacing="14" IsVisible="{Binding !IsLoadingDashboard}">
                 <!-- Top Bento Row: Core Metrics -->
                 <Grid ColumnDefinitions="*,*,*" RowDefinitions="155">
                     <!-- Library Health Tile -->
@@ -317,6 +335,7 @@
                         <TextBlock Grid.Row="0" Text="GENRE GALAXY" FontSize="11" FontWeight="Bold" Foreground="#606060" LetterSpacing="1" Margin="0,0,0,16"/>
                     </Grid>
                 </Border>
+                </StackPanel>
 
                 <!-- Discover: Recently Added / Downloaded / For You, unified into one tabbed panel -->
                 <Border Classes="glass" Padding="18">

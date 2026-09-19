@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reactive;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using SLSKDONET.Data.Entities;
@@ -33,6 +34,20 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     private readonly ITransitionPreviewPlayer _previewPlayer;
     private readonly SLSKDONET.Services.Repositories.ITrackRepository _trackRepository;
     private readonly ICuePointService _cuePointService;
+    // Resolved lazily via IServiceProvider, not constructor-injected: CueForgeViewModel itself
+    // depends on PlayerViewModel, which depends on this ViewModel (MixTransitionViewModel is part
+    // of the player's Mix sidepanel), so a direct constructor dependency here closes a cycle —
+    // PlayerViewModel -> MixTransitionViewModel -> CueForgeViewModel -> PlayerViewModel — that
+    // Microsoft.Extensions.DependencyInjection refuses to resolve at startup. IServiceProvider
+    // itself has no dependency edges, so this breaks the cycle; same lazy-resolution pattern
+    // already used by LibraryViewModel for the same kind of cross-feature reference.
+    private readonly IServiceProvider _serviceProvider;
+    // Optional: a click on the waveform background (not a cue, not a drag) previews that exact
+    // point of the individual track — separate from _previewPlayer, which only ever plays the
+    // rendered crossfade between both tracks, not either one alone. Nullable/optional (matching
+    // FlowBuilderViewModel's own trailing-optional injection of the same service) so this never
+    // becomes a hard DI dependency for a "nice to have" audition feature.
+    private readonly SLSKDONET.Services.Audio.ILibraryPreviewPlayer? _libraryPreviewPlayer;
     private static readonly SLSKDONET.Engine.Transitions.TransitionEngine _pointSuggestionEngine = new();
 
     public MixTransitionViewModel(
@@ -43,7 +58,9 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         ITransitionRepository transitionRepository,
         ITransitionPreviewPlayer previewPlayer,
         SLSKDONET.Services.Repositories.ITrackRepository trackRepository,
-        ICuePointService cuePointService)
+        ICuePointService cuePointService,
+        IServiceProvider serviceProvider,
+        SLSKDONET.Services.Audio.ILibraryPreviewPlayer? libraryPreviewPlayer = null)
     {
         _logger = logger;
         _libraryService = libraryService;
@@ -53,8 +70,11 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         _previewPlayer = previewPlayer;
         _trackRepository = trackRepository;
         _cuePointService = cuePointService;
+        _serviceProvider = serviceProvider;
+        _libraryPreviewPlayer = libraryPreviewPlayer;
 
         _previewPlayer.PreviewStopped += OnPreviewStopped;
+        if (_libraryPreviewPlayer != null) _libraryPreviewPlayer.PreviewStopped += OnLibraryPreviewStopped;
 
         SelectPresetCommand = ReactiveCommand.Create<string>(preset => SelectedPreset = preset);
         SelectBarsCommand = ReactiveCommand.Create<int>(bars => DurationBars = bars);
@@ -71,18 +91,29 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         {
             _eventBus.Publish(new OpenFlowBuilderForPlaylistEvent(_playlistId));
         });
+        // "Fix in Cue Forge" — same load-then-navigate sequence TrackOperationsViewModel uses to
+        // jump into Cue Forge for a specific track (ExecuteOpenInCueForge), so a mix that looks
+        // wrong here has a one-click path back to the tool that actually edits cue points.
+        OpenOutgoingInCueForgeCommand = ReactiveCommand.CreateFromTask(() => OpenTrackInCueForgeAsync(OutgoingTrack));
+        OpenIncomingInCueForgeCommand = ReactiveCommand.CreateFromTask(() => OpenTrackInCueForgeAsync(IncomingTrack));
+        // Waveform right-click → "Add cue here": jumps to Cue Forge, adds a real cue at the
+        // clicked time, and selects it — a purely ad-hoc waveform click can't set a *good*
+        // transition point (it's not beat/phrase aligned), but it's exactly how a user finds
+        // where a good cue point SHOULD go, so this is the bridge from "I found the spot" to
+        // "now it's a real, manageable cue."
+        AddCueToOutgoingInCueForgeCommand = ReactiveCommand.CreateFromTask<double>(seconds => OpenTrackInCueForgeAsync(OutgoingTrack, seconds));
+        AddCueToIncomingInCueForgeCommand = ReactiveCommand.CreateFromTask<double>(seconds => OpenTrackInCueForgeAsync(IncomingTrack, seconds));
         SelectSourceCueCommand = ReactiveCommand.Create<double>(timestamp => SourceTriggerSeconds = timestamp);
         SelectTargetCueCommand = ReactiveCommand.Create<double>(timestamp => TargetTriggerSeconds = timestamp);
-        DragSourceTriggerCommand = ReactiveCommand.Create<double>(progress =>
-        {
-            var duration = OutgoingTrack?.Model?.Duration ?? 0.0;
-            if (duration > 0) SourceTriggerSeconds = Math.Clamp(progress, 0.0, 1.0) * duration;
-        });
-        DragTargetTriggerCommand = ReactiveCommand.Create<double>(progress =>
-        {
-            var duration = IncomingTrack?.Model?.Duration ?? 0.0;
-            if (duration > 0) TargetTriggerSeconds = Math.Clamp(progress, 0.0, 1.0) * duration;
-        });
+        // Plain click (not a drag, not a cue hit) on either waveform's background — auditions
+        // that exact point of the individual track so the user can find where a drop/phrase
+        // actually lands before deciding where a cue belongs. Independent of the trigger point
+        // and of the full crossfade Preview/Pause transport below.
+        PreviewSeekOutgoingCommand = ReactiveCommand.Create<double>(seconds => PreviewSeekTrack(OutgoingTrack, seconds));
+        PreviewSeekIncomingCommand = ReactiveCommand.Create<double>(seconds => PreviewSeekTrack(IncomingTrack, seconds));
+        StopPreviewSeekCommand = ReactiveCommand.Create(StopPreviewSeek);
+        ZoomInCommand = ReactiveCommand.Create(() => { WaveformZoomLevel *= 1.5; });
+        ZoomOutCommand = ReactiveCommand.Create(() => { WaveformZoomLevel /= 1.5; });
         SaveOutgoingBpmCommand = ReactiveCommand.CreateFromTask(() => SaveBpmAsync(isOutgoing: true));
         SaveIncomingBpmCommand = ReactiveCommand.CreateFromTask(() => SaveBpmAsync(isOutgoing: false));
     }
@@ -97,9 +128,17 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     private void OnPreviewStopped(object? sender, EventArgs e) =>
         Avalonia.Threading.Dispatcher.UIThread.Post(() => IsPlaying = false);
 
+    private void OnLibraryPreviewStopped(object? sender, EventArgs e) =>
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            IsPreviewSeekPlaying = false;
+            PreviewSeekStatusText = string.Empty;
+        });
+
     public void Dispose()
     {
         _previewPlayer.PreviewStopped -= OnPreviewStopped;
+        if (_libraryPreviewPlayer != null) _libraryPreviewPlayer.PreviewStopped -= OnLibraryPreviewStopped;
     }
 
     public PlaylistTrackViewModel? OutgoingTrack { get; private set; }
@@ -136,21 +175,62 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         }
     }
 
+    private double _waveformZoomLevel = 4.0;
     /// <summary>Single source of truth for both waveforms' zoom — MixPreviewComponent.axaml binds
-    /// its two WaveformControls' ZoomLevel here instead of hardcoding "4" independently, so it
-    /// can never drift out of sync with the OutgoingViewOffset/IncomingViewOffset math below,
-    /// which needs the exact same number.</summary>
-    public double WaveformZoomLevel => 4.0;
+    /// its two WaveformControls' ZoomLevel here instead of each managing its own, so it can never
+    /// drift out of sync with the OutgoingViewOffset/IncomingViewOffset math below (which needs
+    /// the exact same number), and the two tracks stay directly comparable at the same zoom when
+    /// lined up via their independent pan sliders. User-adjustable via ZoomInCommand/
+    /// ZoomOutCommand (and the zoom slider in MixPreviewComponent.axaml), clamped to
+    /// WaveformControl's own [1,16] range.</summary>
+    public double WaveformZoomLevel
+    {
+        get => _waveformZoomLevel;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _waveformZoomLevel, Math.Clamp(value, 1.0, 16.0));
+            this.RaisePropertyChanged(nameof(WaveformViewOffsetMaximum));
+            this.RaisePropertyChanged(nameof(OutgoingViewOffset));
+            this.RaisePropertyChanged(nameof(IncomingViewOffset));
+        }
+    }
 
-    /// <summary>Scrolls the zoomed OUTGOING waveform so the current mix-out trigger point stays
-    /// centered in view. Replaces a binding that bound a bool (ObjectConverters.IsNull on a non-
+    /// <summary>Highest valid ViewOffset at the current zoom — the pan slider's Maximum.</summary>
+    public double WaveformViewOffsetMaximum => Math.Max(0.0, 1.0 - (1.0 / WaveformZoomLevel));
+
+    private double? _outgoingManualOffset;
+    /// <summary>Scrolls the zoomed OUTGOING waveform. Defaults to centering on the current mix-out
+    /// trigger point (replacing a binding that bound a bool (ObjectConverters.IsNull on a non-
     /// nullable float) into this double property — which always evaluated to a fixed 0, showing
-    /// only the track's first 1/ZoomLevel regardless of where the actual trigger point was, often
-    /// nowhere near the real mix-out point (which usually sits well past a track's midpoint).</summary>
-    public double OutgoingViewOffset => CenteredViewOffset(ProgressA);
+    /// only the track's first 1/ZoomLevel regardless of where the actual trigger point was), but
+    /// the user can drag the pan slider under the waveform (MixPreviewComponent.axaml) to scroll
+    /// it independently and line up a feature against the INCOMING waveform below for a by-eye
+    /// alignment check. Any new trigger point (cue click/Nudge) clears the manual pan so the view
+    /// re-centers rather than leaving a stale scroll position pointing at the old trigger.</summary>
+    public double OutgoingViewOffset
+    {
+        // Re-clamped on read, not just on write: a manual offset set at one zoom level can exceed
+        // WaveformViewOffsetMaximum after the user zooms back out, since ZoomInCommand/
+        // ZoomOutCommand change zoom without touching the stored offset.
+        get => _outgoingManualOffset.HasValue ? Math.Clamp(_outgoingManualOffset.Value, 0.0, WaveformViewOffsetMaximum) : CenteredViewOffset(ProgressA);
+        set
+        {
+            _outgoingManualOffset = Math.Clamp(value, 0.0, WaveformViewOffsetMaximum);
+            this.RaisePropertyChanged();
+        }
+    }
 
+    private double? _incomingManualOffset;
     /// <summary>Same as <see cref="OutgoingViewOffset"/>, for the INCOMING waveform.</summary>
-    public double IncomingViewOffset => CenteredViewOffset(ProgressB);
+    public double IncomingViewOffset
+    {
+        get => _incomingManualOffset.HasValue ? Math.Clamp(_incomingManualOffset.Value, 0.0, WaveformViewOffsetMaximum) : CenteredViewOffset(ProgressB);
+        set
+        {
+            _incomingManualOffset = Math.Clamp(value, 0.0, WaveformViewOffsetMaximum);
+            this.RaisePropertyChanged();
+        }
+    }
 
     private double CenteredViewOffset(float progress)
     {
@@ -171,6 +251,24 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     {
         get => _isPlaying;
         set => this.RaiseAndSetIfChanged(ref _isPlaying, value);
+    }
+
+    // ── Waveform click-to-audition (distinct from IsPlaying/PlayCommand above, which is the
+    // full rendered crossfade Preview) ──────────────────────────────────────────────────────
+    private bool _isPreviewSeekPlaying;
+    public bool IsPreviewSeekPlaying
+    {
+        get => _isPreviewSeekPlaying;
+        set => this.RaiseAndSetIfChanged(ref _isPreviewSeekPlaying, value);
+    }
+
+    private string _previewSeekStatusText = string.Empty;
+    /// <summary>Which track/time is currently auditioning — shown next to the Stop button so it's
+    /// never ambiguous where the sound is coming from.</summary>
+    public string PreviewSeekStatusText
+    {
+        get => _previewSeekStatusText;
+        set => this.RaiseAndSetIfChanged(ref _previewSeekStatusText, value);
     }
 
     private TrackPairCompatibilityScorer.PairScore? _pairScore;
@@ -212,6 +310,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         set
         {
             this.RaiseAndSetIfChanged(ref _nudgeSeconds, value);
+            _outgoingManualOffset = null;
             this.RaisePropertyChanged(nameof(EffectiveSourceTriggerSeconds));
             this.RaisePropertyChanged(nameof(SourceTriggerDisplay));
             this.RaisePropertyChanged(nameof(ProgressA));
@@ -229,6 +328,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         set
         {
             this.RaiseAndSetIfChanged(ref _sourceTriggerSeconds, value);
+            _outgoingManualOffset = null;
             this.RaisePropertyChanged(nameof(EffectiveSourceTriggerSeconds));
             this.RaisePropertyChanged(nameof(SourceTriggerDisplay));
             this.RaisePropertyChanged(nameof(ProgressA));
@@ -248,6 +348,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         set
         {
             this.RaiseAndSetIfChanged(ref _targetTriggerSeconds, value);
+            _incomingManualOffset = null;
             this.RaisePropertyChanged(nameof(TargetTriggerDisplay));
             this.RaisePropertyChanged(nameof(ProgressB));
             this.RaisePropertyChanged(nameof(IncomingViewOffset));
@@ -351,16 +452,25 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     /// <see cref="OpenFlowBuilderForPlaylistEvent"/>, which MainViewModel picks up to navigate
     /// there and preload this playlist.</summary>
     public ReactiveCommand<Unit, Unit> OpenInFlowBuilderCommand { get; }
+
+    /// <summary>"Fix in Cue Forge" links — load the outgoing/incoming track into the CueForgeViewModel
+    /// singleton and navigate there, for when this transition's trigger points look wrong and the
+    /// underlying cue data needs hand-correcting.</summary>
+    public ReactiveCommand<Unit, Unit> OpenOutgoingInCueForgeCommand { get; }
+    public ReactiveCommand<Unit, Unit> OpenIncomingInCueForgeCommand { get; }
+    public ReactiveCommand<double, Unit> AddCueToOutgoingInCueForgeCommand { get; }
+    public ReactiveCommand<double, Unit> AddCueToIncomingInCueForgeCommand { get; }
+    public ReactiveCommand<double, Unit> PreviewSeekOutgoingCommand { get; }
+    public ReactiveCommand<double, Unit> PreviewSeekIncomingCommand { get; }
+    public ReactiveCommand<Unit, Unit> StopPreviewSeekCommand { get; }
     public ReactiveCommand<double, Unit> SelectSourceCueCommand { get; }
     public ReactiveCommand<double, Unit> SelectTargetCueCommand { get; }
 
-    /// <summary>Bound to WaveformControl.SeekCommand — fires continuously while the user drags
-    /// anywhere on the waveform (not just on a cue marker), letting the trigger point land on any
-    /// arbitrary spot in the track, not only an analyzed cue. Takes a 0-1 progress fraction
-    /// (WaveformControl's own click/drag mechanic already handles the pointer capture and repeat
-    /// firing — see OnPointerMoved's _isDraggingProgress branch); this just converts it to seconds.</summary>
-    public ReactiveCommand<double, Unit> DragSourceTriggerCommand { get; }
-    public ReactiveCommand<double, Unit> DragTargetTriggerCommand { get; }
+    /// <summary>Waveform zoom — shared between both tracks (see <see cref="WaveformZoomLevel"/>)
+    /// so a comparison stays apples-to-apples; each ×1.5/÷1.5 step is clamped by the property
+    /// setter to WaveformControl's own [1,16] zoom range.</summary>
+    public ReactiveCommand<Unit, Unit> ZoomInCommand { get; }
+    public ReactiveCommand<Unit, Unit> ZoomOutCommand { get; }
     public ReactiveCommand<Unit, Unit> SaveOutgoingBpmCommand { get; }
     public ReactiveCommand<Unit, Unit> SaveIncomingBpmCommand { get; }
 
@@ -586,6 +696,10 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
 
         var projectBpm = OutgoingTrack.Model.BPM is > 0 ? OutgoingTrack.Model.BPM.Value : 128.0;
 
+        // Only one audio source at a time — a waveform click-preview must not keep playing
+        // underneath the real crossfade preview.
+        StopPreviewSeek();
+
         IsPlaying = true;
         StatusMessage = $"Previewing {SelectedPreset}…";
         try
@@ -656,5 +770,53 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
             _logger.LogError(ex, "Failed to save BPM for {Hash}", hash);
             StatusMessage = "Couldn't save BPM — see log.";
         }
+    }
+
+    /// <param name="addCueAtSeconds">When set (the waveform's right-click "Add cue here"), a new
+    /// cue is added at this exact time and selected before navigating, so it's ready to manage
+    /// the moment Cue Forge opens.</param>
+    private async Task OpenTrackInCueForgeAsync(PlaylistTrackViewModel? track, double? addCueAtSeconds = null)
+    {
+        var hash = track?.Model?.TrackUniqueHash;
+        if (string.IsNullOrWhiteSpace(hash)) return;
+
+        var cueForgeViewModel = _serviceProvider.GetRequiredService<CueForgeViewModel>();
+        await cueForgeViewModel.LoadTrackAsync(hash, track!.Title, track.Artist);
+
+        if (addCueAtSeconds.HasValue)
+        {
+            await cueForgeViewModel.AddCueAtTimeAsync(addCueAtSeconds.Value);
+        }
+
+        // Gives Cue Forge a "← Back to Mix Transition" link instead of a dead end — both
+        // OutgoingTrack/IncomingTrack are already loaded regardless of which side's "Fix in Cue
+        // Forge" button was clicked.
+        if (OutgoingTrack != null && IncomingTrack != null)
+        {
+            cueForgeViewModel.SetMixTransitionOrigin(_playlistId, OutgoingTrack.Id, IncomingTrack.Id);
+        }
+
+        _eventBus.Publish(new NavigateToPageEvent("CueForge"));
+    }
+
+    private void PreviewSeekTrack(PlaylistTrackViewModel? track, double seconds)
+    {
+        var path = track?.Model?.ResolvedFilePath;
+        if (string.IsNullOrEmpty(path)) return;
+
+        // Only one audio source at a time — the real crossfade preview must stop if the user
+        // starts auditioning an arbitrary waveform point instead.
+        if (IsPlaying) _previewPlayer.StopPreview();
+
+        _libraryPreviewPlayer?.RequestPreview(path, track!.Model?.BPM, seconds);
+        IsPreviewSeekPlaying = true;
+        PreviewSeekStatusText = $"▶ Previewing {track.Title} @ {FormatTimestamp(seconds)}";
+    }
+
+    private void StopPreviewSeek()
+    {
+        _libraryPreviewPlayer?.StopPreview();
+        IsPreviewSeekPlaying = false;
+        PreviewSeekStatusText = string.Empty;
     }
 }

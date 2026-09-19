@@ -43,7 +43,7 @@
         </Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+    <Grid RowDefinitions="Auto,Auto,Auto,*">
 
         <!-- ── Header bar ───────────────────────────────────────────────── -->
         <Border Grid.Row="0"
@@ -316,8 +316,10 @@
                            MaxWidth="500"/>
             </StackPanel>
 
-            <!-- Horizontal timeline -->
-            <ScrollViewer IsVisible="{Binding HasTracks}"
+            <!-- Horizontal timeline — hidden (not just shrunk) while the Transition Editor is
+                 open, so the editor gets this whole row's height instead of splitting it with a
+                 card carousel the user isn't looking at mid-edit. -->
+            <ScrollViewer IsVisible="{Binding ShowTrackList}"
                           HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Disabled"
                           Padding="20,12,20,20">
@@ -568,11 +570,14 @@
 
                 </StackPanel>
             </ScrollViewer>
-        </Grid>
 
-        <!-- Bottom slide-out: the full-option transition editor, opened by clicking a bridge
-             between two adjacent cards (FlowTrackCardViewModel.SelectTransitionInspectorCommand →
-             FlowBuilderViewModel.OpenTransitionInspector). -->
-        <controls:FlowTransitionEditorPanel Grid.Row="4" IsVisible="{Binding IsTransitionEditorOpen}"/>
+            <!-- Transition editor, opened by clicking a bridge between two adjacent cards
+                 (FlowTrackCardViewModel.SelectTransitionInspectorCommand →
+                 FlowBuilderViewModel.OpenTransitionInspector). Lives in this same cell (not its
+                 own row) so it gets the full remaining page height instead of whatever the card
+                 carousel above it left over — the previous split-row layout was what made the
+                 editor feel cramped and scroll-heavy. -->
+            <controls:FlowTransitionEditorPanel IsVisible="{Binding IsTransitionEditorOpen}"/>
+        </Grid>
     </Grid>
 </UserControl>

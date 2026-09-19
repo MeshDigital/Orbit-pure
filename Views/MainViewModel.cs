@@ -220,6 +220,9 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _disposables.Add(_eventBus.GetEvent<OpenFlowBuilderForPlaylistEvent>()
             .Subscribe(evt => Dispatcher.UIThread.Post(() => HandleOpenFlowBuilderForPlaylist(evt))));
 
+        _disposables.Add(_eventBus.GetEvent<OpenLibraryForPlaylistEvent>()
+            .Subscribe(evt => Dispatcher.UIThread.Post(() => HandleOpenLibraryForPlaylist(evt))));
+
         // Initialize commands
         NavigateHomeCommand = new RelayCommand(NavigateToHome); // Phase 6D
         NavigateSearchCommand = new RelayCommand(NavigateToSearch);
@@ -1374,6 +1377,42 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             _logger.LogWarning(ex, "Failed to preload playlist {PlaylistId} into Flow Builder", evt.PlaylistId);
         }
+    }
+
+    /// <summary>
+    /// Round-trip half of MixTransitionViewModel's "Fix in Cue Forge" link: Cue Forge's own
+    /// "Back to Mix Transition" button (CueForgeViewModel.BackToMixTransitionCommand) publishes
+    /// this to get back to exactly the playlist + track pair the user came from, instead of a
+    /// dead end once they're done fixing a cue.
+    /// </summary>
+    private async void HandleOpenLibraryForPlaylist(OpenLibraryForPlaylistEvent evt)
+    {
+        NavigateToLibrary();
+
+        try
+        {
+            var playlist = LibraryViewModel.Projects.AllProjects.FirstOrDefault(p => p.Id == evt.PlaylistId);
+            if (playlist == null)
+            {
+                await LibraryViewModel.Projects.LoadProjectsAsync();
+                playlist = LibraryViewModel.Projects.AllProjects.FirstOrDefault(p => p.Id == evt.PlaylistId);
+            }
+
+            if (playlist != null)
+            {
+                LibraryViewModel.SelectedProject = playlist;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to preload playlist {PlaylistId} into Library for Mix Transition round-trip", evt.PlaylistId);
+        }
+
+        // Reopens the CONTEXT sidepanel's Mix tab on the exact pair — same event the Library
+        // track list's own transition badge publishes (see TrackListViewModel), so this behaves
+        // identically to the user clicking that badge themselves.
+        ReactiveUI.MessageBus.Current.SendMessage(
+            new SLSKDONET.Events.OpenMixTransitionEvent(evt.PlaylistId, evt.OutgoingPlaylistTrackId, evt.IncomingPlaylistTrackId));
     }
 
     private void UpdateFontSizeResources()

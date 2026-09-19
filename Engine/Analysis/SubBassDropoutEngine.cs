@@ -135,7 +135,26 @@ public sealed class SubBassDropoutEngine
                 // In dropout — watch for bass return
                 if (subBassEnergyCurve[i] >= returnThreshold)
                 {
-                    returnTimestamps.Add(ts);
+                    // Linear interpolation between this 250ms window and the previous one
+                    // recovers the actual threshold-crossing instant instead of reporting
+                    // this whole window's start — the energy curve doesn't jump from below
+                    // to above threshold in a single window boundary, so the true "bass
+                    // hits" moment usually sits partway through it. This only refines the
+                    // timestamp using data already computed; it doesn't change which window
+                    // is detected as the return, so it carries none of the drop-selection
+                    // regression risk documented in CueGenerationService.
+                    double preciseTs = ts;
+                    if (i > 0)
+                    {
+                        float prev = subBassEnergyCurve[i - 1];
+                        float curr = subBassEnergyCurve[i];
+                        if (curr > prev)
+                        {
+                            double frac = Math.Clamp((returnThreshold - prev) / (curr - prev), 0.0, 1.0);
+                            preciseTs = (i - 1 + frac) * EnergyWindowSeconds;
+                        }
+                    }
+                    returnTimestamps.Add(preciseTs);
                     inDropout = false;
                     consecutiveLow = 0;
                     dropoutStartWindow = -1;
