@@ -470,6 +470,191 @@ public sealed class WaveDuckProvider : ISampleProvider
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// DoubleDropProvider
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// <summary>
+/// "Double drop" DJ technique: loops a bar-aligned tail of the outgoing clip (captured once, live,
+/// from its current position — i.e. from the transition's trigger point, same as every other
+/// provider here) one or more extra times, then crossfades the final loop repeat into the incoming
+/// clip so the incoming track's own drop lands right as the outgoing loop ends — feels like two
+/// drops landing together rather than a plain fade.
+/// </summary>
+public sealed class DoubleDropProvider : ISampleProvider
+{
+    private readonly ISampleProvider _outgoing;
+    private readonly ISampleProvider _incoming;
+    private float[] _loopBuffer;
+    private readonly int _totalPlays;
+    private readonly long _handoffSamples;
+
+    private int _captured;
+    private int _playsCompleted;
+    private int _playbackPos;
+    private long _handoffPos;
+    private bool _inHandoff;
+    private bool _handoffDone;
+
+    // Short linear micro-fade at the start/end of every loop play — masks the waveform
+    // discontinuity where one play's end doesn't sample-match the next play's start (the loop
+    // boundary is a musical phrase edge, not a designed-to-loop sample point). ~10ms per channel
+    // at 44.1kHz stereo.
+    private const int SeamFadeSamples = 882;
+
+    public WaveFormat WaveFormat { get; }
+    public long DurationSamples { get; }
+
+    /// <param name="outgoing">Sample provider for the ending clip, already positioned at the
+    /// transition's trigger point.</param>
+    /// <param name="incoming">Sample provider for the starting clip.</param>
+    /// <param name="loopSamples">Length of ONE loop play-through, in interleaved samples.</param>
+    /// <param name="totalPlays">Total number of times the loop segment plays, including the
+    /// first (live-captured) play-through — i.e. LoopRepeats + 1.</param>
+    /// <param name="handoffSamples">Final crossfade-into-incoming window, in interleaved samples.</param>
+    public DoubleDropProvider(
+        ISampleProvider outgoing, ISampleProvider incoming,
+        long loopSamples, int totalPlays, long handoffSamples)
+    {
+        if (outgoing.WaveFormat.SampleRate != incoming.WaveFormat.SampleRate ||
+            outgoing.WaveFormat.Channels != incoming.WaveFormat.Channels)
+            throw new ArgumentException("Both providers must share the same WaveFormat.");
+
+        _outgoing = outgoing;
+        _incoming = incoming;
+        int channels = Math.Max(1, outgoing.WaveFormat.Channels);
+        _totalPlays = Math.Max(1, totalPlays);
+        _handoffSamples = Math.Max(1, handoffSamples);
+        WaveFormat = outgoing.WaveFormat;
+
+        long frames = Math.Max(1, loopSamples / channels);
+        _loopBuffer = new float[frames * channels];
+        DurationSamples = _loopBuffer.Length * (long)_totalPlays + _handoffSamples;
+    }
+
+    public int Read(float[] buffer, int offset, int count)
+    {
+        if (_handoffDone)
+            return _incoming.Read(buffer, offset, count);
+
+        int written = 0;
+        while (written < count)
+        {
+            if (_inHandoff)
+            {
+                long remainingInWindow = _handoffSamples - _handoffPos;
+                if (remainingInWindow <= 0) { _handoffDone = true; break; }
+                int chunk = (int)Math.Min(count - written, remainingInWindow);
+                written += ReadHandoffChunk(buffer, offset + written, chunk);
+                if (_handoffPos >= _handoffSamples) { _handoffDone = true; break; }
+                continue;
+            }
+
+            if (_playsCompleted == 0 && _captured < _loopBuffer.Length)
+            {
+                // First play: read live from the outgoing clip, capture it into the loop buffer,
+                // and pass it straight through as normal audio.
+                int need = Math.Min(count - written, _loopBuffer.Length - _captured);
+                int read = _outgoing.Read(buffer, offset + written, need);
+                if (read <= 0)
+                {
+                    // Source exhausted before a full loop's worth was available — treat whatever
+                    // was captured as the whole loop rather than looping silence/garbage.
+                    if (_captured == 0) { _handoffDone = true; break; }
+                    Array.Resize(ref _loopBuffer, _captured);
+                    CompleteAPlay();
+                    continue;
+                }
+                Array.Copy(buffer, offset + written, _loopBuffer, _captured, read);
+                ApplySeamFade(_loopBuffer, _captured, read);
+                // Mirror the (possibly just-applied) fade back into the actual output too — the
+                // first, live play must sound consistent with every later repeat instead of only
+                // the replayed buffer being faded at its seams while the live pass-through plays
+                // those same positions at full, unfaded volume.
+                Array.Copy(_loopBuffer, _captured, buffer, offset + written, read);
+                _captured += read;
+                written += read;
+                if (_captured >= _loopBuffer.Length) CompleteAPlay();
+                continue;
+            }
+
+            int remaining = _loopBuffer.Length - _playbackPos;
+            int playChunk = Math.Min(count - written, remaining);
+            Array.Copy(_loopBuffer, _playbackPos, buffer, offset + written, playChunk);
+            _playbackPos += playChunk;
+            written += playChunk;
+
+            if (_playbackPos >= _loopBuffer.Length)
+            {
+                _playsCompleted++;
+                _playbackPos = 0;
+                if (_playsCompleted >= _totalPlays) { _inHandoff = true; _handoffPos = 0; }
+            }
+        }
+
+        if (_handoffDone && written < count)
+            written += _incoming.Read(buffer, offset + written, count - written);
+
+        return written;
+    }
+
+    /// <summary>Marks the first (live-captured) play as finished and, if that already satisfies
+    /// <see cref="_totalPlays"/> (e.g. totalPlays == 1 — no extra repeats requested), enters the
+    /// handoff immediately instead of incorrectly replaying the buffer once more before checking.</summary>
+    private void CompleteAPlay()
+    {
+        _playsCompleted = 1;
+        _playbackPos = 0;
+        if (_playsCompleted >= _totalPlays) { _inHandoff = true; _handoffPos = 0; }
+    }
+
+    /// <summary>Applies the seam micro-fade directly to the captured loop buffer (once, at capture
+    /// time) so every subsequent replay of that buffer already carries it — cheaper than
+    /// re-applying it on every play, and correct since the buffer's content never changes.</summary>
+    private void ApplySeamFade(float[] loopBuffer, int captureOffset, int count)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            int pos = captureOffset + i;
+            float gain = 1f;
+            if (pos < SeamFadeSamples)
+                gain = (float)pos / SeamFadeSamples;
+            else if (pos >= loopBuffer.Length - SeamFadeSamples)
+                gain = (float)(loopBuffer.Length - pos) / SeamFadeSamples;
+            if (gain < 1f)
+                loopBuffer[pos] *= Math.Clamp(gain, 0f, 1f);
+        }
+    }
+
+    private int ReadHandoffChunk(float[] buffer, int offset, int count)
+    {
+        var outBuf = new float[count];
+        int loopReadPos = (int)(_handoffPos % _loopBuffer.Length);
+        int firstSpan = Math.Min(count, _loopBuffer.Length - loopReadPos);
+        Array.Copy(_loopBuffer, loopReadPos, outBuf, 0, firstSpan);
+        if (firstSpan < count)
+        {
+            int secondSpan = Math.Min(count - firstSpan, _loopBuffer.Length);
+            Array.Copy(_loopBuffer, 0, outBuf, firstSpan, secondSpan);
+        }
+
+        var inBuf = new float[count];
+        int inRead = _incoming.Read(inBuf, 0, count);
+
+        for (int i = 0; i < count; i++)
+        {
+            double t = Math.Min(1.0, (double)_handoffPos / _handoffSamples);
+            float outGain = (float)Math.Cos(t * Math.PI / 2.0);
+            float inGain = (float)Math.Sin(t * Math.PI / 2.0);
+            float inSample = i < inRead ? inBuf[i] : 0f;
+            buffer[offset + i] = outBuf[i] * outGain + inSample * inGain;
+            _handoffPos++;
+        }
+
+        return count;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // TransitionDsp  (factory)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -524,6 +709,14 @@ public static class TransitionDsp
                 outgoing, incoming, durationSamples,
                 beatPeriodSeconds: 60.0 / projectBpm,
                 model.WaveDuckDepth),
+            // DurationBeats still drives the final crossfade-into-incoming window here (same
+            // meaning as every other preset); LoopBars/LoopRepeats add the extra looped material
+            // before that window, on top of it.
+            TransitionType.DoubleDrop => new DoubleDropProvider(
+                outgoing, incoming,
+                loopSamples: BeatsToSamples(model.LoopBars * 4.0, projectBpm, sampleRate, channels),
+                totalPlays: Math.Max(1, model.LoopRepeats) + 1,
+                handoffSamples: durationSamples),
             _ => new CrossfadeProvider(outgoing, incoming, durationSamples)
         };
     }

@@ -28,6 +28,8 @@ public class PlaylistTrackTransition
     public bool? EqSwapHigh { get; set; }
     public float? EqLowCrossoverHz { get; set; }
     public float? EqHighCrossoverHz { get; set; }
+    public int? LoopBars { get; set; }
+    public int? LoopRepeats { get; set; }
 
     /// <summary>Seconds into the outgoing track where the mix-out begins — see
     /// <see cref="SLSKDONET.Engine.Transitions.TransitionEngine.OptimizeTransition"/>.</summary>
@@ -60,6 +62,8 @@ public class PlaylistTrackTransition
         if (EqSwapHigh.HasValue) model.EqSwapHigh = EqSwapHigh.Value;
         if (EqLowCrossoverHz.HasValue) model.EqLowCrossoverHz = EqLowCrossoverHz.Value;
         if (EqHighCrossoverHz.HasValue) model.EqHighCrossoverHz = EqHighCrossoverHz.Value;
+        if (LoopBars.HasValue) model.LoopBars = LoopBars.Value;
+        if (LoopRepeats.HasValue) model.LoopRepeats = LoopRepeats.Value;
 
         return model;
     }

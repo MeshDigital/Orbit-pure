@@ -83,5 +83,12 @@ public class PlaylistTrackTransitionEntity
     public float? EqLowCrossoverHz { get; set; }
     public float? EqHighCrossoverHz { get; set; }
 
+    /// <summary>"Double Drop" loop config — see <see cref="SLSKDONET.Models.Timeline.TransitionModel.LoopBars"/>/
+    /// <see cref="SLSKDONET.Models.Timeline.TransitionModel.LoopRepeats"/>. Whether looping is
+    /// enabled isn't a separate column — <see cref="TransitionType"/> itself is "DoubleDrop" when
+    /// it is, same as every other preset here.</summary>
+    public int? LoopBars { get; set; }
+    public int? LoopRepeats { get; set; }
+
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }

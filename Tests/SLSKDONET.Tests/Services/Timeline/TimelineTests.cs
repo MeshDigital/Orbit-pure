@@ -618,6 +618,120 @@ namespace SLSKDONET.Tests.Services.Timeline
 
             Assert.True(first > last, $"Expected rising-mode output to trend from outgoing toward incoming, got first={first}, last={last}");
         }
+
+        // ── DoubleDropProvider ("double drop" loop-then-fade-into-incoming) ────
+
+        /// <summary>Reads a fixed total in small, irregular chunks (not one big Read() call) to
+        /// stress the capture -> replay -> handoff -> pure-incoming state machine across many
+        /// mid-phase Read() boundaries, the way real NAudio playback would call it.</summary>
+        private static float[] ReadAllChunked(NAudio.Wave.ISampleProvider provider, int totalSamples, int chunkSize)
+        {
+            var result = new float[totalSamples];
+            int written = 0;
+            while (written < totalSamples)
+            {
+                int chunk = System.Math.Min(chunkSize, totalSamples - written);
+                var buf = new float[chunk];
+                int read = provider.Read(buf, 0, chunk);
+                Assert.True(read > 0, "Provider must never return 0/negative from an unbounded source.");
+                System.Array.Copy(buf, 0, result, written, read);
+                written += read;
+            }
+            return result;
+        }
+
+        [Fact]
+        public void DoubleDropProvider_LoopRepeatsExactlyReproduceTheCapturedFirstPlay()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(1000, 1);
+            const int loopSamples = 2000;
+            const int totalPlays = 2;
+            const int handoffSamples = 500;
+            var provider = new DoubleDropProvider(
+                new RampSampleProvider(fmt), new ConstantSampleProvider(fmt, -100_000f),
+                loopSamples, totalPlays, handoffSamples);
+
+            long total = provider.DurationSamples;
+            Assert.Equal((long)loopSamples * totalPlays + handoffSamples, total);
+
+            var output = ReadAllChunked(provider, (int)total, chunkSize: 137);
+
+            // Position 1000 sits well outside the ~882-sample seam micro-fade zone at both ends of
+            // a 2000-sample loop (fade zone is [0,882) and [1118,2000)), so it's untouched
+            // (gain 1.0) and should equal the raw ramp value captured there during the first play.
+            Assert.Equal(1000f, output[1000], precision: 3);
+
+            // The second play replays the exact same captured buffer, so the same in-loop
+            // position (2000 samples later) must reproduce the identical value, not a fresh read
+            // from the (long since advanced) ramp source.
+            Assert.Equal(output[1000], output[loopSamples + 1000], precision: 5);
+
+            // Inside the fade-in zone (position 100 < 882), the raw ramp value (100) is
+            // attenuated by position/882.
+            float expectedFaded = 100f * (100f / 882f);
+            Assert.Equal(expectedFaded, output[100], precision: 2);
+        }
+
+        [Fact]
+        public void DoubleDropProvider_HandoffWindowBlendsIntoIncoming_ThenPassesThroughPurely()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(1000, 1);
+            const int loopSamples = 2000;
+            const int totalPlays = 1;
+            const int handoffSamples = 500;
+            const float incomingValue = -100_000f;
+            var provider = new DoubleDropProvider(
+                new RampSampleProvider(fmt), new ConstantSampleProvider(fmt, incomingValue),
+                loopSamples, totalPlays, handoffSamples);
+
+            long total = provider.DurationSamples;
+            var output = ReadAllChunked(provider, (int)total, chunkSize: 211);
+
+            // Near the very end of the handoff window, incoming gain (sin(t*pi/2), t->1)
+            // dominates — the (bounded, much smaller magnitude) looped outgoing content can't
+            // compete with a -100,000 incoming constant once t is close to 1.
+            float lastSample = output[(int)total - 1];
+            Assert.True(lastSample < incomingValue * 0.9f,
+                $"Expected the final handoff sample ({lastSample}) to be dominated by the incoming constant ({incomingValue}).");
+
+            // Once the handoff window is fully consumed, further reads must be pure incoming —
+            // no more looping, no residual blend.
+            var extra = new float[50];
+            int read = provider.Read(extra, 0, extra.Length);
+            Assert.Equal(extra.Length, read);
+            Assert.All(extra, v => Assert.Equal(incomingValue, v, precision: 1));
+        }
+
+        [Fact]
+        public void Build_DoubleDropType_ProducesDoubleDropProvider()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 2);
+            var model = new TransitionModel
+            {
+                Type = TransitionType.DoubleDrop,
+                LoopBars = 8,
+                LoopRepeats = 1,
+                DurationBeats = 8,
+            };
+
+            var result = TransitionDsp.Build(new ConstantSampleProvider(fmt, 1f), new ConstantSampleProvider(fmt, 0f), model, projectBpm: 150.0);
+
+            Assert.IsType<DoubleDropProvider>(result);
+        }
+    }
+
+    // ── Helper: generates an unbounded ramp (value == running sample index) ───
+    internal sealed class RampSampleProvider : NAudio.Wave.ISampleProvider
+    {
+        private int _position;
+        public NAudio.Wave.WaveFormat WaveFormat { get; }
+        public RampSampleProvider(NAudio.Wave.WaveFormat fmt) => WaveFormat = fmt;
+        public int Read(float[] buffer, int offset, int count)
+        {
+            for (int i = 0; i < count; i++) buffer[offset + i] = _position + i;
+            _position += count;
+            return count;
+        }
     }
 
     // ── Helper: generates a constant sample value ─────────────────────────────

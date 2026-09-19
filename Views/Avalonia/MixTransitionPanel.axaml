@@ -252,10 +252,35 @@
                     </Grid>
                 </Border>
 
-                <Border Classes="custom-row" Opacity="0.5">
+                <!-- "Double Drop": loops a bar-aligned tail of the outgoing track once or twice,
+                     then crossfades into the incoming track's own drop — feels like two drops
+                     landing together instead of a plain fade. Enabling this switches the
+                     transition's effective type to DoubleDrop, same as picking a different preset
+                     would (it isn't layered on top of another effect). -->
+                <Border Classes="custom-row">
                     <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Text="Looping" VerticalAlignment="Center" FontSize="12"/>
-                        <TextBlock Grid.Column="1" Text="Not available" FontSize="11" Foreground="{StaticResource BrushText2}"/>
+                        <TextBlock Text="Double Drop (loop before drop)" VerticalAlignment="Center" FontSize="12"
+                                   ToolTip.Tip="Loop a bar-aligned tail of the outgoing track once or twice, then crossfade into the incoming track's drop — a longer transition that feels like two drops landing together."/>
+                        <CheckBox Grid.Column="1" IsChecked="{Binding CustomLoopEnabled, Mode=TwoWay}" IsThreeState="False"/>
+                    </Grid>
+                </Border>
+
+                <Border Classes="custom-row" IsVisible="{Binding CustomLoopEnabled}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="Loop length (bars)" VerticalAlignment="Center" FontSize="12"/>
+                        <NumericUpDown Grid.Column="1" Value="{Binding CustomLoopBars, Mode=TwoWay}"
+                                       Minimum="8" Maximum="16" Increment="8" FormatString="0"
+                                       Width="140" FontSize="11"/>
+                    </Grid>
+                </Border>
+
+                <Border Classes="custom-row" IsVisible="{Binding CustomLoopEnabled}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="Loop repeats" VerticalAlignment="Center" FontSize="12"
+                                   ToolTip.Tip="How many extra times the loop plays before dropping into the incoming track (1 or 2)."/>
+                        <NumericUpDown Grid.Column="1" Value="{Binding CustomLoopRepeats, Mode=TwoWay}"
+                                       Minimum="1" Maximum="2" Increment="1" FormatString="0"
+                                       Width="140" FontSize="11"/>
                     </Grid>
                 </Border>
             </StackPanel>

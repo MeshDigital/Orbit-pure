@@ -89,7 +89,8 @@ public static class TransitionPresetLibrary
         float? echoDecayFactor, float? filterStartFrequency, float? filterEndFrequency,
         float? waveDuckDepth = null, bool? filterSweepRising = null,
         bool? eqSwapLow = null, bool? eqSwapMid = null, bool? eqSwapHigh = null,
-        float? eqLowCrossoverHz = null, float? eqHighCrossoverHz = null)
+        float? eqLowCrossoverHz = null, float? eqHighCrossoverHz = null,
+        bool? loopEnabled = null, int? loopBars = null, int? loopRepeats = null)
     {
         if (echoDecayFactor.HasValue) model.EchoDecayFactor = echoDecayFactor.Value;
         if (filterStartFrequency.HasValue) model.FilterStartFrequency = filterStartFrequency.Value;
@@ -101,5 +102,12 @@ public static class TransitionPresetLibrary
         if (eqSwapHigh.HasValue) model.EqSwapHigh = eqSwapHigh.Value;
         if (eqLowCrossoverHz.HasValue) model.EqLowCrossoverHz = eqLowCrossoverHz.Value;
         if (eqHighCrossoverHz.HasValue) model.EqHighCrossoverHz = eqHighCrossoverHz.Value;
+        // Loop is a distinct TransitionType (not a flag layered on top of another preset's type,
+        // matching how every other Custom-mode effect here already works — Crossfade/EchoOut/
+        // FilterSweep/EqSwap/WaveDuck are all mutually exclusive Type selections too), so enabling
+        // it switches Type outright rather than adding an orthogonal field.
+        if (loopEnabled == true) model.Type = TransitionType.DoubleDrop;
+        if (loopBars.HasValue) model.LoopBars = loopBars.Value;
+        if (loopRepeats.HasValue) model.LoopRepeats = loopRepeats.Value;
     }
 }

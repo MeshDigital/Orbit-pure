@@ -21,7 +21,13 @@ public enum TransitionType
     EqSwap,
 
     /// <summary>Rhythmic gain ducking on the downbeat of every bar through the window, for a pumping/sidechain-style handover.</summary>
-    WaveDuck
+    WaveDuck,
+
+    /// <summary>Loops a bar-aligned tail of the outgoing clip once or twice ("double drop" DJ
+    /// technique) before crossfading into the incoming clip, so the incoming track's own drop
+    /// lands right as the outgoing loop ends — feels like two drops landing together rather than
+    /// a plain fade.</summary>
+    DoubleDrop
 }
 
 /// <summary>
@@ -82,4 +88,14 @@ public class TransitionModel
 
     /// <summary>Mid/high crossover frequency (Hz).</summary>
     public float EqHighCrossoverHz { get; set; } = 4000f;
+
+    // ── DoubleDrop loop config ──────────────────────────────────────────
+
+    /// <summary>Bar length of the looped tail for <see cref="TransitionType.DoubleDrop"/> — 8 or
+    /// 16 bars, matching how DJs actually mark pre-drop countdown phrases.</summary>
+    public int LoopBars { get; set; } = 8;
+
+    /// <summary>How many extra times the loop repeats beyond its first play-through, for
+    /// <see cref="TransitionType.DoubleDrop"/> — 1 or 2.</summary>
+    public int LoopRepeats { get; set; } = 1;
 }

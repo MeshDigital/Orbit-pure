@@ -288,9 +288,13 @@
             </Grid>
         </Border>
 
-        <!-- Row 3: Waveform navigation bar (zoom + scroll) -->
+        <!-- Row 3: Waveform navigation bar (zoom + scroll). The step left/right buttons that used
+             to sit at the end of this row were dropped — they did nothing scrolling the mouse
+             wheel over the waveform doesn't already do more naturally; the zoom buttons stay as a
+             discoverability aid for the (less obvious) Ctrl+scroll gesture, and the slider stays
+             since it's the only direct-jump-to-position control (wheel/keys are relative nudges). -->
         <Border Grid.Row="3" Background="#1A1E24" BorderBrush="#2F3E4C" BorderThickness="0,0,0,1" Padding="10,4">
-            <Grid ColumnDefinitions="Auto,4,Auto,4,Auto,10,*,10,Auto,4,Auto">
+            <Grid ColumnDefinitions="Auto,4,Auto,4,Auto,10,*">
                 <Button Grid.Column="0" Classes="cmd-secondary" Command="{Binding ZoomOutCommand}" Padding="9,3" ToolTip.Tip="Zoom out (Ctrl+scroll)">
                     <PathIcon Data="{StaticResource ws_zoom_out_regular}" Width="12" Height="12"/>
                 </Button>
@@ -307,12 +311,6 @@
                         SmallChange="0.01" LargeChange="0.1"
                         VerticalAlignment="Center"
                         ToolTip.Tip="Scroll position — or scroll with mouse wheel on the waveform"/>
-                <Button Grid.Column="8" Classes="cmd-secondary" Command="{Binding ScrollLeftCommand}" Padding="8,3" ToolTip.Tip="Scroll left">
-                    <PathIcon Data="{StaticResource ws_pan_left_regular}" Width="10" Height="10"/>
-                </Button>
-                <Button Grid.Column="10" Classes="cmd-secondary" Command="{Binding ScrollRightCommand}" Padding="8,3" ToolTip.Tip="Scroll right">
-                    <PathIcon Data="{StaticResource ws_pan_right_regular}" Width="10" Height="10"/>
-                </Button>
             </Grid>
         </Border>
 

@@ -3005,6 +3005,19 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 36. Mix "Double Drop" transition: loops a bar-aligned tail of the outgoing track
+            // once or twice before crossfading into the incoming track's drop. LoopEnabled isn't
+            // a separate column — TransitionType itself carries "DoubleDrop" as one of its
+            // values, same as every other preset here.
+            if (TableExists("PlaylistTrackTransitions") && !ColumnExists("PlaylistTrackTransitions", "LoopBars"))
+            {
+                _logger.LogInformation("Patching Schema: Adding LoopBars/LoopRepeats to PlaylistTrackTransitions...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""LoopBars"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""LoopRepeats"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

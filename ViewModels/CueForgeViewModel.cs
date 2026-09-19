@@ -688,17 +688,16 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                                _config.CueForgeLastTrackTitle,
                                _config.CueForgeLastTrackArtist);
 
-        // Auto-load when PlayerViewModel.CurrentTrack changes
+        // Auto-load when PlayerViewModel.CurrentTrack changes — including a natural playlist
+        // advance during live Mix playback while this page just happens to be open, not only an
+        // explicit "Open in Cue Forge" click. If the OLD track has an uncommitted draft, silently
+        // commit it first (never lose work) rather than the previous behavior of discarding it
+        // with zero warning — and never a blocking confirm dialog here, since that could pop up
+        // mid-song during live playback. Mirrors CommitChangesCommand's own save path.
         this.WhenAnyValue(x => x._playerViewModel.CurrentTrack)
             .DistinctUntilChanged()
             .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(track =>
-            {
-                if (track?.GlobalId is { Length: > 0 } hash)
-                    _ = LoadTrackAsync(hash, track.Title, track.Artist);
-                else
-                    ClearWorkingDraft();
-            })
+            .Subscribe(track => _ = SwitchTrackAsync(track))
             .DisposeWith(_disposables);
 
         // Playhead sync at ~30 fps
@@ -718,6 +717,29 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 }
             })
             .DisposeWith(_disposables);
+    }
+
+    /// <summary>
+    /// Handles PlayerViewModel.CurrentTrack changing — auto-committing an uncommitted draft for
+    /// whichever track was previously loaded before switching, instead of silently discarding it
+    /// (the previous, buggy behavior). The old track's title is captured before CommitChangesAsync
+    /// runs (which is keyed off the still-current TrackHash/TrackTitle at that point) so the
+    /// status message can name it after TrackTitle has already moved on to the new track.
+    /// </summary>
+    private async Task SwitchTrackAsync(PlaylistTrackViewModel? track)
+    {
+        if (HasUncommittedChanges && TrackHash is not null)
+        {
+            string previousTitle = TrackTitle;
+            await CommitChangesAsync();
+            if (!HasCommitError)
+                LastCommitMessage = $"✓ Auto-saved cues for \"{previousTitle}\" (track changed)";
+        }
+
+        if (track?.GlobalId is { Length: > 0 } hash)
+            await LoadTrackAsync(hash, track.Title, track.Artist);
+        else
+            ClearWorkingDraft();
     }
 
     // ── Public API ─────────────────────────────────────────────────────────

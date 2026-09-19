@@ -411,6 +411,18 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     private float? _customEqHighCrossoverHz;
     public float? CustomEqHighCrossoverHz { get => _customEqHighCrossoverHz; set { this.RaiseAndSetIfChanged(ref _customEqHighCrossoverHz, value); RebuildLiveModel(); } }
 
+    // ── Custom-mode "Double Drop" loop — loops a bar-aligned tail of the outgoing track once or
+    // twice before crossfading into the incoming track's own drop. Null/false = off (plain
+    // crossfade at this window). ──────────────────────────────────────────────────────────
+    private bool? _customLoopEnabled;
+    public bool? CustomLoopEnabled { get => _customLoopEnabled; set { this.RaiseAndSetIfChanged(ref _customLoopEnabled, value); RebuildLiveModel(); } }
+
+    private int? _customLoopBars;
+    public int? CustomLoopBars { get => _customLoopBars; set { this.RaiseAndSetIfChanged(ref _customLoopBars, value); RebuildLiveModel(); } }
+
+    private int? _customLoopRepeats;
+    public int? CustomLoopRepeats { get => _customLoopRepeats; set { this.RaiseAndSetIfChanged(ref _customLoopRepeats, value); RebuildLiveModel(); } }
+
     // ── Cue-point picking (click a marker on either waveform to set it as the transition's
     // trigger point, overriding the suggestion engine) ─────────────────────────────────────
     private IEnumerable<OrbitCue> _outgoingCues = Array.Empty<OrbitCue>();
@@ -541,6 +553,11 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         _customEqSwapHigh = saved?.EqSwapHigh;
         _customEqLowCrossoverHz = saved?.EqLowCrossoverHz;
         _customEqHighCrossoverHz = saved?.EqHighCrossoverHz;
+        // LoopEnabled isn't its own saved field — Type=="DoubleDrop" IS the saved "loop was on"
+        // signal, same as every other preset here.
+        _customLoopEnabled = saved?.Type == SLSKDONET.Models.Timeline.TransitionType.DoubleDrop;
+        _customLoopBars = saved?.LoopBars;
+        _customLoopRepeats = saved?.LoopRepeats;
         this.RaisePropertyChanged(nameof(CustomWaveDuckDepth));
         this.RaisePropertyChanged(nameof(CustomFilterSweepRising));
         this.RaisePropertyChanged(nameof(CustomEqSwapLow));
@@ -548,6 +565,9 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(CustomEqSwapHigh));
         this.RaisePropertyChanged(nameof(CustomEqLowCrossoverHz));
         this.RaisePropertyChanged(nameof(CustomEqHighCrossoverHz));
+        this.RaisePropertyChanged(nameof(CustomLoopEnabled));
+        this.RaisePropertyChanged(nameof(CustomLoopBars));
+        this.RaisePropertyChanged(nameof(CustomLoopRepeats));
         _durationBars = saved?.DurationBars ?? 16;
         this.RaisePropertyChanged(nameof(DurationBars));
         _selectedPreset = saved?.PresetName ?? "Auto";
@@ -638,7 +658,8 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
             TransitionPresetLibrary.ApplyCustomOverrides(
                 LiveModel, CustomEchoDecayFactor, CustomFilterStartFrequency, CustomFilterEndFrequency,
                 CustomWaveDuckDepth, CustomFilterSweepRising,
-                CustomEqSwapLow, CustomEqSwapMid, CustomEqSwapHigh, CustomEqLowCrossoverHz, CustomEqHighCrossoverHz);
+                CustomEqSwapLow, CustomEqSwapMid, CustomEqSwapHigh, CustomEqLowCrossoverHz, CustomEqHighCrossoverHz,
+                CustomLoopEnabled, CustomLoopBars, CustomLoopRepeats);
         }
         this.RaisePropertyChanged(nameof(LiveModel));
         RebuildAutomationCurves();
@@ -739,6 +760,8 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
             EqSwapHigh = IsCustomMode ? CustomEqSwapHigh : null,
             EqLowCrossoverHz = IsCustomMode ? CustomEqLowCrossoverHz : null,
             EqHighCrossoverHz = IsCustomMode ? CustomEqHighCrossoverHz : null,
+            LoopBars = IsCustomMode ? CustomLoopBars : null,
+            LoopRepeats = IsCustomMode ? CustomLoopRepeats : null,
             SourceTriggerSeconds = EffectiveSourceTriggerSeconds,
             TargetTriggerSeconds = TargetTriggerSeconds,
         };
