@@ -48,6 +48,18 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
     public ObservableCollection<DownloadHistoryEntity> DownloadHistory { get; } = new();
     public ObservableCollection<ChatMessageViewModel> Messages { get; } = new();
 
+    /// <summary>Client-side, case-insensitive filter over <see cref="Messages"/> for the already-loaded
+    /// thread — mirrors <see cref="Messages"/> 1:1 when <see cref="SearchText"/> is empty. Not a
+    /// database search: scope is deliberately limited to what's already in memory for this conversation.</summary>
+    public ObservableCollection<ChatMessageViewModel> FilteredMessages { get; } = new();
+
+    private string _searchText = string.Empty;
+    public string SearchText
+    {
+        get => _searchText;
+        set => this.RaiseAndSetIfChanged(ref _searchText, value);
+    }
+
     private string _username = string.Empty;
     public string Username
     {
@@ -184,6 +196,11 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
         DeleteMessageCommand = ReactiveCommand.CreateFromTask<ChatMessageViewModel>(DeleteMessageAsync);
         ClearConversationCommand = ReactiveCommand.CreateFromTask(ClearConversationAsync);
 
+        this.WhenAnyValue(x => x.SearchText)
+            .Throttle(TimeSpan.FromMilliseconds(200), RxApp.MainThreadScheduler)
+            .Subscribe(_ => ApplySearchFilter())
+            .DisposeWith(_disposables);
+
         _eventBus.GetEvent<PrivateMessageReceivedEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
             .Where(e => string.Equals(e.PeerUsername, Username, StringComparison.OrdinalIgnoreCase))
@@ -192,6 +209,7 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
                 Messages.Add(new ChatMessageViewModel(e.Id, e.IsOutgoing ? "You" : e.PeerUsername, e.Message, e.TimestampUtc, e.IsOutgoing, _chatAttachments, Username));
                 ChatGroupingHelper.Apply(Messages);
                 TrimLiveMessagesIfNeeded();
+                ApplySearchFilter();
             })
             .DisposeWith(_disposables);
 
@@ -209,6 +227,7 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
     public async Task LoadUserAsync(string username)
     {
         Username = username;
+        SearchText = string.Empty; // a stale filter from the previously-open conversation would otherwise carry over
         IsLoading = true;
         HasMoreHistory = false; // avoid a flash of "Load earlier" before the first page has actually loaded
         try
@@ -235,6 +254,7 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
             foreach (var message in conversation)
                 Messages.Add(new ChatMessageViewModel(message.Id, message.IsOutgoing ? "You" : username, message.Message, message.TimestampUtc, message.IsOutgoing, _chatAttachments, username));
             ChatGroupingHelper.Apply(Messages);
+            ApplySearchFilter();
             HasMoreHistory = conversation.Count >= MessagePageSize;
         }
         catch (Exception ex)
@@ -286,6 +306,17 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
         await Browser.LoadUserAsync(Username).ConfigureAwait(true);
     }
 
+    /// <summary>Rebuilds <see cref="FilteredMessages"/> from <see cref="Messages"/> — call after any mutation of <see cref="Messages"/> or a <see cref="SearchText"/> change.</summary>
+    private void ApplySearchFilter()
+    {
+        FilteredMessages.Clear();
+        var query = string.IsNullOrWhiteSpace(SearchText)
+            ? (IEnumerable<ChatMessageViewModel>)Messages
+            : Messages.Where(m => m.Message.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+        foreach (var message in query)
+            FilteredMessages.Add(message);
+    }
+
     /// <summary>Drops the oldest messages once live traffic pushes the collection past <see cref="MaxLiveMessages"/>. Re-opens "Load earlier" since the trimmed rows are still in the DB.</summary>
     private void TrimLiveMessagesIfNeeded()
     {
@@ -317,6 +348,7 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
                 Messages.Insert(0, new ChatMessageViewModel(message.Id, message.IsOutgoing ? "You" : Username, message.Message, message.TimestampUtc, message.IsOutgoing, _chatAttachments, Username));
             }
             ChatGroupingHelper.Apply(Messages);
+            ApplySearchFilter();
         }
         catch (Exception ex)
         {
@@ -336,6 +368,7 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
             await _chatService.DeleteMessageAsync(message.Id).ConfigureAwait(true);
             Messages.Remove(message);
             ChatGroupingHelper.Apply(Messages); // group boundaries/date separators may shift once the removed message's neighbors are adjacent
+            ApplySearchFilter();
         }
         catch (Exception ex)
         {
@@ -361,6 +394,7 @@ public class UserProfileViewModel : ReactiveObject, IDisposable
         {
             await _chatService.DeleteConversationAsync(Username).ConfigureAwait(true);
             Messages.Clear();
+            FilteredMessages.Clear();
             _eventBus.Publish(new ConversationClearedEvent(Username));
         }
         catch (Exception ex)

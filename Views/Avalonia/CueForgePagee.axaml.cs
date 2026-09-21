@@ -47,11 +47,11 @@ public partial class CueForgePagee : UserControl
         {
             // Shift+Left/Right → nudge selected cue by ±1 beat
             case Key.Left when shift:
-                vm.NudgeCueCommand.Execute(-1).Subscribe();
+                vm.NudgeCueCommand.Execute("-1").Subscribe();
                 e.Handled = true;
                 break;
             case Key.Right when shift:
-                vm.NudgeCueCommand.Execute(1).Subscribe();
+                vm.NudgeCueCommand.Execute("1").Subscribe();
                 e.Handled = true;
                 break;
 

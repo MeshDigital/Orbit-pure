@@ -30,6 +30,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     private readonly ArtworkCacheService? _artworkCacheService;
     private readonly PlaylistMosaicService? _mosaicService;
     private readonly IEventBus _eventBus;
+    private readonly AnalyzeTrackStructureJob? _cueStructureJob;
 
     // Master List: All import jobs/projects
     private ObservableCollection<PlaylistJob> _allProjects = new();
@@ -210,6 +211,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand SyncProjectCommand { get; }
     public System.Windows.Input.ICommand OpenSourceUrlCommand { get; }
     public System.Windows.Input.ICommand GenerateCuesCommand { get; }
+    public System.Windows.Input.ICommand GenerateCuesForSelectedPlaylistsCommand { get; }
     public System.Windows.Input.ICommand ExportProjectCommand { get; }
 
     // Playlist Folder commands
@@ -251,7 +253,8 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         IEventBus eventBus,
         INotificationService notificationService,
         ArtworkCacheService? artworkCacheService = null,
-        PlaylistMosaicService? mosaicService = null)
+        PlaylistMosaicService? mosaicService = null,
+        AnalyzeTrackStructureJob? cueStructureJob = null)
     {
         _logger = logger;
         _libraryService = libraryService;
@@ -265,6 +268,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         _artworkCacheService = artworkCacheService;
         _mosaicService = mosaicService;
         _eventBus = eventBus;
+        _cueStructureJob = cueStructureJob;
 
         // Initialize commands
         OpenProjectCommand = new RelayCommand<PlaylistJob>(project => SelectedProject = project);
@@ -276,6 +280,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         SyncProjectCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteSyncProjectAsync);
         OpenSourceUrlCommand = new RelayCommand<PlaylistJob>(ExecuteOpenSourceUrl);
         GenerateCuesCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteGenerateCuesAsync);
+        GenerateCuesForSelectedPlaylistsCommand = new AsyncRelayCommand(ExecuteGenerateCuesForSelectedPlaylistsAsync);
         ExportProjectCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteExportProjectAsync);
 
         CreateFolderCommand = new AsyncRelayCommand(() => ExecuteCreateFolderAsync(null));
@@ -858,34 +863,100 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// Re-maps cue points for every already-analysed track in the playlist, without re-running
+    /// the full analysis pipeline. Previously this published a TrackAnalysisRequestedEvent per
+    /// track — despite being labeled "Generate Auto-Cues", that queued a FULL re-analysis
+    /// (corruption scan, BPM/key/energy/vocal/embedding, EDMFormer) for every track just to get
+    /// at the cue-mapping step buried at the end of it — exactly what you'd want to avoid when
+    /// only CueGenerationService's own logic changed. AnalyzeTrackStructureJob.RegenerateCuesOnlyAsync
+    /// re-maps cues from each track's already-persisted analysis data instead — a DB round-trip
+    /// per track, not an audio-decode + DSP pass.
+    /// </summary>
     private async Task ExecuteGenerateCuesAsync(PlaylistJob? job)
     {
         if (job == null) return;
+        if (_cueStructureJob == null)
+        {
+            _notificationService.Show("Generate Cues", "Cue regeneration service unavailable.", Views.NotificationType.Error);
+            return;
+        }
+
         try
         {
             var tracks = await _libraryService.LoadPlaylistTracksAsync(job.Id);
             var eligible = tracks
-                .Where(t => !string.IsNullOrEmpty(t.ResolvedFilePath) && System.IO.File.Exists(t.ResolvedFilePath))
+                .Where(t => !string.IsNullOrEmpty(t.TrackUniqueHash))
                 .ToList();
 
             if (eligible.Count == 0)
             {
                 _notificationService.Show("Generate Cues",
-                    "No downloaded tracks found in this playlist. Download tracks first.",
+                    "No tracks found in this playlist.",
                     Views.NotificationType.Warning);
                 return;
             }
 
+            int succeeded = 0, skippedNoAnalysis = 0;
             foreach (var track in eligible)
-                _eventBus.Publish(new Models.TrackAnalysisRequestedEvent(track.TrackUniqueHash));
+            {
+                if (await _cueStructureJob.RegenerateCuesOnlyAsync(track.TrackUniqueHash))
+                    succeeded++;
+                else
+                    skippedNoAnalysis++;
+            }
 
-            _notificationService.Show("Generate Cues",
-                $"Queued {eligible.Count} track(s) in '{job.SourceTitle}' for cue generation.",
-                Views.NotificationType.Success);
+            var message = skippedNoAnalysis == 0
+                ? $"Regenerated cues for {succeeded} track(s) in '{job.SourceTitle}'."
+                : $"Regenerated cues for {succeeded} track(s) in '{job.SourceTitle}' — {skippedNoAnalysis} skipped (not analysed yet).";
+            _notificationService.Show("Generate Cues", message, Views.NotificationType.Success);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "GenerateCues failed for playlist {Id}", job.Id);
+            _notificationService.Show("Generate Cues Failed", ex.Message, Views.NotificationType.Error);
+        }
+    }
+
+    /// <summary>Same cues-only regeneration as <see cref="ExecuteGenerateCuesAsync"/>, fanned out
+    /// across every track in every currently multi-selected playlist (Ctrl/Shift-click in the
+    /// tree) — the "multiple playlists" scope.</summary>
+    private async Task ExecuteGenerateCuesForSelectedPlaylistsAsync()
+    {
+        if (_cueStructureJob == null)
+        {
+            _notificationService.Show("Generate Cues", "Cue regeneration service unavailable.", Views.NotificationType.Error);
+            return;
+        }
+
+        var jobs = SelectedTreeNodes.OfType<PlaylistTreeCardNodeViewModel>().Select(n => n.Card.Model).ToList();
+        if (jobs.Count == 0) return;
+
+        try
+        {
+            var hashes = new HashSet<string>();
+            foreach (var job in jobs)
+            {
+                var tracks = await _libraryService.LoadPlaylistTracksAsync(job.Id);
+                foreach (var t in tracks)
+                    if (!string.IsNullOrEmpty(t.TrackUniqueHash)) hashes.Add(t.TrackUniqueHash);
+            }
+
+            int succeeded = 0, skipped = 0;
+            foreach (var hash in hashes)
+            {
+                if (await _cueStructureJob.RegenerateCuesOnlyAsync(hash)) succeeded++; else skipped++;
+            }
+
+            _notificationService.Show("Generate Cues",
+                skipped == 0
+                    ? $"Regenerated cues for {succeeded} track(s) across {jobs.Count} playlist(s)."
+                    : $"Regenerated cues for {succeeded} track(s) across {jobs.Count} playlist(s) — {skipped} skipped (not analysed yet).",
+                Views.NotificationType.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GenerateCues failed for {Count} selected playlists", jobs.Count);
             _notificationService.Show("Generate Cues Failed", ex.Message, Views.NotificationType.Error);
         }
     }

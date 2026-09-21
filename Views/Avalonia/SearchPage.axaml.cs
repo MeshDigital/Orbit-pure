@@ -84,6 +84,10 @@ namespace SLSKDONET.Views.Avalonia
         public SearchPage(SearchViewModel viewModel) : this()
         {
             DataContext = viewModel;
+            viewModel.FocusRequested += () => global::Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                this.FindControl<TextBox>("SearchQueryTextBox")?.Focus();
+            });
         }
 
         private void OnDragOver(object? sender, DragEventArgs e)

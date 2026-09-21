@@ -45,7 +45,10 @@ public sealed class PostDownloadDurationCaptureService : IDisposable
         var subscription = _eventBus.GetEvent<TrackStateChangedEvent>()
             .Subscribe(evt =>
             {
-                if (evt.State == PlaylistTrackState.Completed)
+                // See PostDownloadSpectralScanService's identical guard: WasAlreadyPresent means
+                // this is the same file re-linked, not a fresh transfer, so it's already been
+                // probed once and re-probing on every playlist resync is wasted work.
+                if (evt.State == PlaylistTrackState.Completed && !evt.WasAlreadyPresent)
                     _ = ProbeAsync(evt);
             });
         _disposables.Add(subscription);

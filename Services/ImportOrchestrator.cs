@@ -92,7 +92,8 @@ public class ImportOrchestrator
                      // - Idempotent imports (safe to retry)
                      // - "Refresh" feature (re-import updates metadata)
                      // - Storage efficiency (no duplicate playlist entries)
-                     var normalizedInput = NormalizeImportInput(input);
+                     var canonicalInput = CanonicalizeUrl(input);
+                     var normalizedInput = canonicalInput.ToLowerInvariant();
                      var newJobId = Utils.GuidGenerator.CreateFromUrl(normalizedInput);
                      _logger.LogInformation("Generated Job ID: {Id} for input: {Input}", newJobId, input);
                      
@@ -132,8 +133,13 @@ public class ImportOrchestrator
                          }
                      }
 
-                     // Initialize UI
-                     _previewViewModel.InitializeStreamingPreview(providerName, providerName, newJobId, normalizedInput, existingJob);
+                     // Initialize UI — pass the case-preserved canonical form, since this becomes
+                     // PlaylistJob.SourceUrl on confirm (ImportPreviewViewModel._sourceUrl) and a
+                     // Spotify playlist/album/track id is case-sensitive base62; normalizedInput is
+                     // lowercased purely for the hash/lookup calls above and must never be stored
+                     // as a URL that gets re-fetched later (that was the actual bug: every synced
+                     // Spotify playlist's id was silently and permanently lowercased on import).
+                     _previewViewModel.InitializeStreamingPreview(providerName, providerName, newJobId, canonicalInput, existingJob);
                      
                      // Clean/Setup Callbacks
                      SetupPreviewCallbacks();
@@ -184,7 +190,8 @@ public class ImportOrchestrator
 
             if (provider is IStreamingImportProvider streamProvider)
             {
-                var normalizedInput = NormalizeImportInput(input);
+                var canonicalInput = CanonicalizeUrl(input);
+                var normalizedInput = canonicalInput.ToLowerInvariant();
                 var newJobId = Utils.GuidGenerator.CreateFromUrl(normalizedInput);
                 var existingJob = await _libraryService.FindPlaylistJobAsync(newJobId);
 
@@ -259,6 +266,15 @@ public class ImportOrchestrator
 
                     tracksToQueue = new System.Collections.Generic.List<PlaylistTrack>();
 
+                    // Dedupe the incoming batch against ITSELF, not just against what's already in
+                    // the DB — existingByHash only reflects rows that existed before this sync
+                    // started, so if the source yields the same track twice in one fetch (a real,
+                    // observed Spotify paginated-API quirk), both copies passed the existingByHash
+                    // check and both got queued. FRESH IMPORT MODE below already guarded against
+                    // this; SYNC MODE didn't, despite a comment claiming it did.
+                    var seenHashesInBatch = new HashSet<string>(StringComparer.Ordinal);
+                    int duplicatesInBatch = 0;
+
                     foreach (var incoming in incomingTracks)
                     {
                         if (string.IsNullOrEmpty(incoming.TrackUniqueHash))
@@ -266,6 +282,12 @@ public class ImportOrchestrator
                             // No hash = can't deduplicate, add as new
                             tracksToQueue.Add(incoming);
                             newCount++;
+                            continue;
+                        }
+
+                        if (!seenHashesInBatch.Add(incoming.TrackUniqueHash))
+                        {
+                            duplicatesInBatch++;
                             continue;
                         }
 
@@ -302,8 +324,8 @@ public class ImportOrchestrator
                     }
 
                     _logger.LogInformation(
-                        "Sync merge for '{Title}': {New} new, {Retried} retried, {Skipped} already downloaded (preserved).",
-                        sourceTitle, newCount, retriedCount, skippedCount);
+                        "Sync merge for '{Title}': {New} new, {Retried} retried, {Skipped} already downloaded (preserved), {Duplicates} in-batch duplicates skipped.",
+                        sourceTitle, newCount, retriedCount, skippedCount, duplicatesInBatch);
                 }
                 else
                 {
@@ -338,7 +360,7 @@ public class ImportOrchestrator
                 var job = new PlaylistJob
                 {
                     Id = newJobId,
-                    SourceUrl = normalizedInput,
+                    SourceUrl = canonicalInput,
                     SourceTitle = sourceTitle,
                     SourceType = sourceType,
                     PlaylistTracks = tracksToQueue,
@@ -373,24 +395,39 @@ public class ImportOrchestrator
         }
     }
 
-    private static string NormalizeImportInput(string input)
+    /// <summary>
+    /// Strips tracking query params and a trailing slash, WITHOUT touching case — this is what
+    /// must be stored as <see cref="PlaylistJob.SourceUrl"/> and re-sent to a streaming provider,
+    /// since a Spotify playlist/album/track id is case-sensitive base62 (e.g. mixed upper/lower
+    /// like "37i9dQZF1DXcBWIGoYBM5M"). <see cref="NormalizeImportInput"/> exists separately for
+    /// job-id hashing/lookup only, where case-folding is fine because that comparison was already
+    /// case-insensitive anyway — but it used to ALSO be what got stored as SourceUrl, silently
+    /// lowercasing every synced Spotify playlist/album id into something Spotify's API 404s on
+    /// forever after. Confirmed against this environment's real database: both stored Spotify
+    /// SourceUrls were fully-lowercase 22-char ids, which is not a real Spotify id — every "Sync"
+    /// on those two playlists was refetching a URL that could never have existed.
+    /// </summary>
+    private static string CanonicalizeUrl(string input)
     {
         if (string.IsNullOrWhiteSpace(input)) return string.Empty;
 
         var value = input.Trim();
         if (value.StartsWith("spotify:", StringComparison.OrdinalIgnoreCase))
         {
-            return value.ToLowerInvariant();
+            return value;
         }
 
         if (Uri.TryCreate(value, UriKind.Absolute, out var uri))
         {
-            var withoutQuery = uri.GetLeftPart(UriPartial.Path).TrimEnd('/');
-            return withoutQuery.ToLowerInvariant();
+            return uri.GetLeftPart(UriPartial.Path).TrimEnd('/');
         }
 
-        return value.ToLowerInvariant();
+        return value;
     }
+
+    /// <summary>Case-folded form of <see cref="CanonicalizeUrl"/>, for job-id hashing and
+    /// case-insensitive lookups only — never store this as a URL to be re-fetched later.</summary>
+    private static string NormalizeImportInput(string input) => CanonicalizeUrl(input).ToLowerInvariant();
 
     private async Task<PlaylistJob?> FindExistingSpotifyJobByPlaylistIdAsync(string input)
     {

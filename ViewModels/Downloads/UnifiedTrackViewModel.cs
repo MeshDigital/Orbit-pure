@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Reactive;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
+using System.Reactive.Subjects;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Windows.Input;
 using Avalonia.Threading;
 using ReactiveUI;
@@ -41,6 +44,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     private readonly AppConfig _config;
     private readonly IDbContextFactory<AppDbContext>? _dbFactory;
     private readonly CompositeDisposable _disposables = new();
+    private readonly Subject<Unit> _metadataRefreshRequests = new();
     private readonly SerialDisposable _searchClockSubscription = new();
     private bool _isSearchClockRunning;
     private string? _discoveryReasonOverride;
@@ -407,6 +411,40 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             .Subscribe(OnMetadataUpdated)
             .DisposeWith(_disposables);
 
+        // A track can pick up TrackMetadataUpdatedEvent from more than one publisher in quick
+        // succession (e.g. duration-capture then spectral-scan completing back to back after a
+        // download) — each occurrence used to trigger its own DB round-trip plus ~50 unconditional
+        // RaisePropertyChanged calls. Coalesce into one refresh per burst; the DB re-fetch always
+        // reads whatever's current in the row, so only the LAST event in a burst needs to actually
+        // land. Throttle on the default (thread-pool) scheduler and marshal via
+        // Dispatcher.UIThread.Post rather than .ObserveOn(RxApp.MainThreadScheduler), matching the
+        // pattern established elsewhere this session to avoid relying on RxApp.MainThreadScheduler's
+        // own delayed-timer scheduling (see SearchViewModel's ranking-refresh debounce).
+        _metadataRefreshRequests
+            .Throttle(TimeSpan.FromMilliseconds(200))
+            .Subscribe(_ =>
+            {
+                try
+                {
+                    Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+                    {
+                        try
+                        {
+                            await RefreshMetadataFromDatabaseAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            Serilog.Log.Warning(ex, "UnifiedTrackViewModel: metadata refresh failed");
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Serilog.Log.Warning(ex, "UnifiedTrackViewModel: failed to schedule metadata refresh");
+                }
+            })
+            .DisposeWith(_disposables);
+
         _eventBus.GetEvent<TrackQueuePositionUpdatedEvent>()
             .Where(e => IsSameTrackId(e.TrackGlobalId))
             .ObserveOn(RxApp.MainThreadScheduler)
@@ -639,7 +677,12 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(IsPaused));
                 this.RaisePropertyChanged(nameof(IsStalled));
                 this.RaisePropertyChanged(nameof(IsCompleted));
-                
+                this.RaisePropertyChanged(nameof(ForensicVerdict));
+                this.RaisePropertyChanged(nameof(BitrateLed));
+                this.RaisePropertyChanged(nameof(KeyLed));
+                this.RaisePropertyChanged(nameof(PeakLed));
+                this.RaisePropertyChanged(nameof(ForensicDetails));
+
                 // Action enablement
                 this.RaisePropertyChanged(nameof(CanForceStart));
                 this.RaisePropertyChanged(nameof(CanRetry));
@@ -1405,27 +1448,65 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public bool HasKey => !string.IsNullOrEmpty(Model.MusicalKey) && Model.MusicalKey != "—";
     public bool HasGenre => !string.IsNullOrEmpty(DetectedSubGenre) || !string.IsNullOrEmpty(PrimaryGenre);
 
-    // Phase 2: In-Flight Forensics
-    private string _forensicVerdict = "Initializing Probe...";
-    public string ForensicVerdict 
-    { 
-        get => _forensicVerdict; 
-        private set => this.RaiseAndSetIfChanged(ref _forensicVerdict, value); 
+    // Phase 2: In-Flight Forensics — these were permanently stuck at their constructor defaults
+    // ("Initializing Probe...", "○" x3) because nothing anywhere ever set them. Real in-flight
+    // (mid-stream) probing while bytes are still arriving would need a genuinely new pipeline;
+    // what this class already has, post-download, is real per-track signal — fake-lossless
+    // detection (IsTranscoded, from PostDownloadSpectralScanService), key-detection success
+    // (HasKey), and a real measured true-peak level (Model.TruePeak) — so these three LEDs now
+    // reflect those instead of staying permanently dark. All read "○ pending" until the track is
+    // Completed and its post-download analysis has actually run, then light up for real.
+    public string ForensicVerdict
+    {
+        get
+        {
+            if (!IsCompleted) return "Awaiting download…";
+            if (!HasSpectralVerdict) return "Analysis pending…";
+            return Model.IsTranscoded ? "⚠️ Likely transcode" : "✅ Verified";
+        }
     }
 
-    private string _bitrateLed = "○"; // LED States: ○ (off), ● (active), ⚠️ (warning), ✅ (good)
-    public string BitrateLed { get => _bitrateLed; private set => this.RaiseAndSetIfChanged(ref _bitrateLed, value); }
-    
-    private string _keyLed = "○";
-    public string KeyLed { get => _keyLed; private set => this.RaiseAndSetIfChanged(ref _keyLed, value); }
-    
-    private string _peakLed = "○";
-    public string PeakLed { get => _peakLed; private set => this.RaiseAndSetIfChanged(ref _peakLed, value); }
+    // LED glyphs: ○ (pending/not yet known), ⚠️ (warning), ✅ (good)
+    public string BitrateLed
+    {
+        get
+        {
+            if (!IsCompleted || !HasSpectralVerdict) return "○";
+            return Model.IsTranscoded ? "⚠️" : "✅";
+        }
+    }
+
+    public string KeyLed
+    {
+        get
+        {
+            if (!IsCompleted) return "○";
+            return HasKey ? "✅" : "⚠️";
+        }
+    }
+
+    public string PeakLed
+    {
+        get
+        {
+            if (!IsCompleted || !Model.TruePeak.HasValue) return "○";
+            // Above -1.0 dBTP is tight enough headroom to risk audible clipping on playback.
+            return Model.TruePeak.Value > -1.0 ? "⚠️" : "✅";
+        }
+    }
 
     public string ForensicDetails => $"Verdict: {ForensicVerdict}\nBIT: {BitrateLed}\nKEY: {KeyLed}\nPEAK: {PeakLed}";
 
     // Phase 12.7: Vibe Color Mapping
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Avalonia.Media.IBrush> _vibeColorCache = new();
+    // One VM instance exists per visible track row, and VibeColor's getter re-fires on every
+    // OnMetadataUpdated — without this guard, every row with an uncached genre kicked off its own
+    // full GetStyleDefinitionsAsync DB query concurrently, on every re-render before the cache
+    // warmed. Static/shared like the cache above: only one fetch needs to be in flight at a time
+    // regardless of how many rows are asking for it.
+    private static Task? _vibeStylesLoadTask;
+    private static readonly object _vibeStylesLoadLock = new();
+
     public Avalonia.Media.IBrush VibeColor => GetVibeColor(DetectedSubGenre);
 
     private Avalonia.Media.IBrush GetVibeColor(string? genre)
@@ -1433,19 +1514,34 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         if (string.IsNullOrEmpty(genre)) return Avalonia.Media.Brushes.Transparent;
         if (_vibeColorCache.TryGetValue(genre, out var brush)) return brush;
 
-        // On-demand load from Style Lab (Phase 15 integration)
-        Task.Run(async () => 
+        lock (_vibeStylesLoadLock)
         {
-            var styles = await _libraryService.GetStyleDefinitionsAsync();
-            foreach (var style in styles)
+            _vibeStylesLoadTask ??= Task.Run(async () =>
             {
-                if (Avalonia.Media.Color.TryParse(style.ColorHex, out var color))
+                try
                 {
-                    _vibeColorCache[style.Name] = new Avalonia.Media.SolidColorBrush(color);
+                    var styles = await _libraryService.GetStyleDefinitionsAsync();
+                    foreach (var style in styles)
+                    {
+                        if (Avalonia.Media.Color.TryParse(style.ColorHex, out var color))
+                        {
+                            _vibeColorCache[style.Name] = new Avalonia.Media.SolidColorBrush(color);
+                        }
+                    }
                 }
-            }
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => this.RaisePropertyChanged(nameof(VibeColor)));
-        });
+                finally
+                {
+                    lock (_vibeStylesLoadLock) { _vibeStylesLoadTask = null; }
+                }
+            });
+        }
+
+        // Every row currently showing Gray for an uncached genre needs its own notification once
+        // the shared fetch lands — this VM's own property-changed, chained onto the shared task
+        // rather than only the task that happened to start it.
+        _ = _vibeStylesLoadTask.ContinueWith(_ =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => this.RaisePropertyChanged(nameof(VibeColor))),
+            TaskScheduler.Default);
 
         return Avalonia.Media.Brushes.Gray;
     }
@@ -1575,35 +1671,44 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
 
     private void GhostStallCheck_Tick(object? sender, EventArgs e)
     {
-        // Only care if we are supposedly downloading
-        if (State != PlaylistTrackState.Downloading) return;
+        try
+        {
+            // Only care if we are supposedly downloading
+            if (State != PlaylistTrackState.Downloading) return;
 
-        // If explicitly set speed to 0 by logic
-        if (DownloadSpeed == 0)
-        {
-             // Check how long since last activity
-             var secondsSince = (DateTime.UtcNow - LastActivity).TotalSeconds;
-             
-             // If > 30s of silence, mark as visually stalled
-             if (secondsSince > 30)
-             {
-                 State = PlaylistTrackState.Stalled;
-                 // We set a custom StalledReason if none exists, to hint it's a timeout
-                 Model.StalledReason = "Connection Timeout (Ghost)";
-                 this.RaisePropertyChanged(nameof(StalledReason));
-                 this.RaisePropertyChanged(nameof(StatusText)); // Refresh text
-             }
-        }
-        else
-        {
-            // If speed > 0, we aren't stalled.
-            // But if we haven't had progress in a while, decay speed to 0.
-            var secondsSince = (DateTime.UtcNow - LastActivity).TotalSeconds;
-            if (secondsSince > 5)
+            // If explicitly set speed to 0 by logic
+            if (DownloadSpeed == 0)
             {
-                DownloadSpeed = 0; // Decay speed display
-                // Next tick will catch the stall counter if it persists
+                 // Check how long since last activity
+                 var secondsSince = (DateTime.UtcNow - LastActivity).TotalSeconds;
+
+                 // If > 30s of silence, mark as visually stalled
+                 if (secondsSince > 30)
+                 {
+                     State = PlaylistTrackState.Stalled;
+                     // We set a custom StalledReason if none exists, to hint it's a timeout
+                     Model.StalledReason = "Connection Timeout (Ghost)";
+                     this.RaisePropertyChanged(nameof(StalledReason));
+                     this.RaisePropertyChanged(nameof(StatusText)); // Refresh text
+                 }
             }
+            else
+            {
+                // If speed > 0, we aren't stalled.
+                // But if we haven't had progress in a while, decay speed to 0.
+                var secondsSince = (DateTime.UtcNow - LastActivity).TotalSeconds;
+                if (secondsSince > 5)
+                {
+                    DownloadSpeed = 0; // Decay speed display
+                    // Next tick will catch the stall counter if it persists
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // One timer instance per download row — a race during a fast add/remove cycle
+            // must not be allowed to crash the whole app.
+            Serilog.Log.Warning(ex, "UnifiedTrackViewModel: ghost-stall tick failed — skipping");
         }
     }
     
@@ -1611,16 +1716,10 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     {
          if (string.IsNullOrEmpty(Model.ResolvedFilePath)) return;
          try {
-             await Task.Run(() => {
-                 var dir = System.IO.Path.GetDirectoryName(Model.ResolvedFilePath);
-                 var name = System.IO.Path.GetFileNameWithoutExtension(Model.ResolvedFilePath);
-                 if (string.IsNullOrEmpty(dir)) return;
-                 var path = System.IO.Path.Combine(dir, $"{name}_Stems");
-                 var found = System.IO.Directory.Exists(path) && System.IO.Directory.GetFiles(path).Length > 0;
-                 Avalonia.Threading.Dispatcher.UIThread.Post(() => {
-                     _hasStems = found;
-                     this.RaisePropertyChanged(nameof(HasStems));
-                 });
+             var found = await Services.StemAvailabilityProbe.HasStemsAsync(Model.ResolvedFilePath);
+             Avalonia.Threading.Dispatcher.UIThread.Post(() => {
+                 _hasStems = found;
+                 this.RaisePropertyChanged(nameof(HasStems));
              });
          } catch {}
     }
@@ -2136,12 +2235,17 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     private void OnMetadataUpdated(TrackMetadataUpdatedEvent e)
     {
         if (!IsSameTrackId(e.TrackGlobalId)) return;
-        
+        // The actual DB re-fetch + property-changed raising runs debounced — see the
+        // _metadataRefreshRequests subscription wired up in the constructor.
+        _metadataRefreshRequests.OnNext(Unit.Default);
+    }
+
+    private async Task RefreshMetadataFromDatabaseAsync()
+    {
         // Reload from DB to ensure Model has new IDs (SpotifyAlbumId etc.)
-        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
         {
             var updatedTrack = await _libraryService.GetPlaylistTrackByHashAsync(Model.PlaylistId, GlobalId);
-            
+
             if (updatedTrack != null)
             {
                 // Sync important fields back to Model instance
@@ -2229,6 +2333,12 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(SpectralVerdictColor));
                 this.RaisePropertyChanged(nameof(SpectralVerdictBadgeText));
                 this.RaisePropertyChanged(nameof(ForensicBadgeText));
+                this.RaisePropertyChanged(nameof(ForensicVerdict));
+                this.RaisePropertyChanged(nameof(BitrateLed));
+                this.RaisePropertyChanged(nameof(KeyLed));
+                this.RaisePropertyChanged(nameof(PeakLed));
+                this.RaisePropertyChanged(nameof(ForensicDetails));
+                this.RaisePropertyChanged(nameof(HasKey));
                 // Spectral Inspector properties
                 this.RaisePropertyChanged(nameof(HasSpectralDetails));
                 this.RaisePropertyChanged(nameof(SpectralSampleRateDisplay));
@@ -2273,7 +2383,7 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
                 this.RaisePropertyChanged(nameof(Artwork));
                 this.RaisePropertyChanged(nameof(ArtworkBitmap));
             }
-        });
+        }
     }
 
     private void PlayTrack()

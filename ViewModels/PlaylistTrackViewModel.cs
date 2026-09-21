@@ -340,6 +340,20 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     
     public double BPM => Model.BPM ?? 0.0;
     public string MusicalKey => Model.MusicalKey ?? "—";
+
+    /// <summary>Applies a BPM edit already persisted elsewhere (e.g. TrackRepository.UpdateBpmAsync)
+    /// to THIS view-model instance and re-raises the properties that read it. Callers that hold a
+    /// different PlaylistTrackViewModel instance for the same track (e.g. a Flow Builder card,
+    /// which wraps its own separate instance — see MixTransitionViewModel.LoadPairAsync's
+    /// freshly-constructed pair) won't see this change; publish TrackMetadataUpdatedEvent for
+    /// those to pick up.</summary>
+    public void ApplyBpmUpdate(double bpm)
+    {
+        Model.BPM = bpm;
+        OnPropertyChanged(nameof(BPM));
+        OnPropertyChanged(nameof(BpmDisplay));
+        OnPropertyChanged(nameof(HasBpm));
+    }
     
     public string GlobalId { get; set; } // TrackUniqueHash
     
@@ -439,8 +453,16 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
     public string? SourceProvenance => Model.SourceProvenance;
 
     public ArtworkProxy Artwork => _artwork;
-    
+
     public Avalonia.Media.Imaging.Bitmap? ArtworkBitmap => _artwork?.Image;
+
+    // Deterministic color + monogram shown in place of real artwork wherever it's still loading
+    // or was never found — every "no art" row used to render as the exact same flat gray tile
+    // with a faint music-note glyph, giving no visual distinction between rows at a glance.
+    // Same Artist/Title seed always produces the same color, so a track's tile stays stable
+    // across scrolls and sessions rather than flickering.
+    public Avalonia.Media.IBrush FallbackArtBrush => Utils.ArtworkFallback.GetBrush($"{Artist}{Title}");
+    public string FallbackArtLetter => Utils.ArtworkFallback.GetLetter(Title ?? Artist);
 
     // Status Properties for StandardTrackRow
     public bool IsActive => (State == PlaylistTrackState.Downloading || State == PlaylistTrackState.Searching || State == PlaylistTrackState.Queued || State == PlaylistTrackState.Pending) && State != PlaylistTrackState.Stalled;
@@ -701,6 +723,56 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
 
     public string CamelotDisplay => !string.IsNullOrEmpty(Model.MusicalKey) ? Utils.KeyConverter.ToCamelot(Model.MusicalKey) : "—";
 
+    // Mix (Spotify-Mix-parity) transition badge — set externally by TrackListViewModel's
+    // UpdateMixTransitionBadges(), mirroring how IsHarmonicMatch/IsExactKeyMatch above are
+    // computed relative to sibling rows rather than owned by this row in isolation.
+    private bool _showMixTransitionBadge;
+    public bool ShowMixTransitionBadge
+    {
+        get => _showMixTransitionBadge;
+        set => SetProperty(ref _showMixTransitionBadge, value);
+    }
+
+    private string _transitionPresetLabel = "Auto";
+    public string TransitionPresetLabel
+    {
+        get => _transitionPresetLabel;
+        set => SetProperty(ref _transitionPresetLabel, value);
+    }
+
+    private string _transitionBadgeColor = "#66888888";
+    public string TransitionBadgeColor
+    {
+        get => _transitionBadgeColor;
+        set => SetProperty(ref _transitionBadgeColor, value);
+    }
+
+    // Set alongside TransitionBadgeColor by TrackListViewModel.UpdateMixTransitionBadgesAsync —
+    // human-readable reasons (BPM gap, genre drift, harmonic risk, energy jump) the transition
+    // into the next track scored poorly, joined for the badge tooltip. Empty when the transition
+    // is fine.
+    private string _transitionWarningText = string.Empty;
+    public string TransitionWarningText
+    {
+        get => _transitionWarningText;
+        set
+        {
+            SetProperty(ref _transitionWarningText, value);
+            OnPropertyChanged(nameof(HasTransitionWarning));
+            OnPropertyChanged(nameof(TransitionTooltip));
+        }
+    }
+
+    public bool HasTransitionWarning => !string.IsNullOrEmpty(TransitionWarningText);
+
+    public string TransitionTooltip => HasTransitionWarning
+        ? TransitionWarningText
+        : "Edit transition into the next track";
+
+    /// <summary>The next track's PlaylistTracks.Id, i.e. the "incoming" side of this row's
+    /// transition badge — null when this is the last row or Mix mode is off.</summary>
+    public Guid? NextPlaylistTrackId { get; set; }
+
 
     public Avalonia.Media.IBrush ColorBrush
     {
@@ -858,16 +930,18 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         {
             if (_cachedWaveformData != null) return _cachedWaveformData;
 
-             // Use lazy loaded entity if available, checking cached array logic
-             var waveData = _technicalEntity?.WaveformData ?? Model.WaveformData ?? Array.Empty<byte>();
-             
-             _cachedWaveformData = new WaveformAnalysisData 
-             { 
-                 PeakData = waveData, 
-                 RmsData = _technicalEntity?.RmsData ?? Model.RmsData ?? Array.Empty<byte>(),
-                 LowData = _technicalEntity?.LowData ?? Model.LowData ?? Array.Empty<byte>(),
-                 MidData = _technicalEntity?.MidData ?? Model.MidData ?? Array.Empty<byte>(),
-                 HighData = _technicalEntity?.HighData ?? Model.HighData ?? Array.Empty<byte>(),
+             // TrackTechnicalEntity's own waveform columns were dead (never populated — dropped in
+             // SchemaMigratorService's patch #27); Model's bands are the real, live source, resolved
+             // from AudioFeaturesEntity.WaveformBlob by LibraryService.ResolveWaveformBands.
+             var waveData = Model.WaveformData ?? Array.Empty<byte>();
+
+             _cachedWaveformData = new WaveformAnalysisData
+             {
+                 PeakData = waveData,
+                 RmsData = Model.RmsData ?? Array.Empty<byte>(),
+                 LowData = Model.LowData ?? Array.Empty<byte>(),
+                 MidData = Model.MidData ?? Array.Empty<byte>(),
+                 HighData = Model.HighData ?? Array.Empty<byte>(),
                  DurationSeconds = (Model.CanonicalDuration ?? 0) / 1000.0
              };
 
@@ -953,7 +1027,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
 
     private async Task CheckStemsAsync()
     {
-        if (string.IsNullOrEmpty(Model.ResolvedFilePath)) 
+        if (string.IsNullOrEmpty(Model.ResolvedFilePath))
         {
             Avalonia.Threading.Dispatcher.UIThread.Post(() => HasStems = false);
             return;
@@ -961,31 +1035,11 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
 
         try
         {
-            await Task.Run(() =>
+            var found = await Services.StemAvailabilityProbe.HasStemsAsync(Model.ResolvedFilePath);
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                var trackDir = System.IO.Path.GetDirectoryName(Model.ResolvedFilePath);
-                var trackName = System.IO.Path.GetFileNameWithoutExtension(Model.ResolvedFilePath);
-                
-                if (string.IsNullOrEmpty(trackDir)) return;
-
-                // Strategy A: /Music/Techno/Track.mp3 -> /Music/Techno/Stems/Track/
-                var stemPathA = System.IO.Path.Combine(trackDir, "Stems", trackName);
-                
-                // Strategy B: /Music/Techno/Track.mp3 -> /Music/Techno/Track_Stems/
-                var stemPathB = System.IO.Path.Combine(trackDir, $"{trackName}_Stems");
-                
-                // Strategy C: Check for _stems folder (Legacy)
-                var stemPathC = System.IO.Path.Combine(trackDir, "_stems");
-
-                bool found = (System.IO.Directory.Exists(stemPathA) && System.IO.Directory.GetFiles(stemPathA).Length > 0) || 
-                             (System.IO.Directory.Exists(stemPathB) && System.IO.Directory.GetFiles(stemPathB).Length > 0) ||
-                             (System.IO.Directory.Exists(stemPathC) && System.IO.Directory.GetFiles(stemPathC).Length > 0);
-
-                Avalonia.Threading.Dispatcher.UIThread.Post(() => 
-                {
-                    _hasStems = found;
-                    OnPropertyChanged(nameof(HasStems));
-                });
+                _hasStems = found;
+                OnPropertyChanged(nameof(HasStems));
             });
         }
         catch { /* Fail silently */ }
@@ -1947,6 +2001,7 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         OnPropertyChanged(nameof(ReleaseDate));
         OnPropertyChanged(nameof(ReleaseYear));
         OnPropertyChanged(nameof(YearDisplay));
+        OnPropertyChanged(nameof(Rating));
     }
 
     protected bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)

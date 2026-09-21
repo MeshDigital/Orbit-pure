@@ -131,6 +131,66 @@ namespace SLSKDONET.Tests.Services.Timeline
             Assert.NotNull(result);
             Assert.Equal(0.6, result!.Value, 6);
         }
+
+        // ── SnapToBeatMultiple / GetNearestBeatMultipleSeconds ──────────────
+        // Consolidated from TransientAwareSnappingEngine.SnapRawTimeToPhraseLedger (32-beat phrase
+        // snapping) and CueForgeWaveformControl's hand-rolled quantize-grid snap, so this is the
+        // single place both behaviors are proven correct.
+
+        [Fact]
+        public void SnapToBeatMultiple_SnapsToNearestBar_At4Beats()
+        {
+            // 120 BPM: beat=0.5s, bar (4 beats)=2.0s. Bars at 0, 2, 4...
+            double result = BeatGridService.SnapToBeatMultiple(2.9, 120.0, beatMultiple: 4);
+            Assert.Equal(2.0, result, 6);
+        }
+
+        [Fact]
+        public void SnapToBeatMultiple_SnapsToNearestPhrase_At32Beats()
+        {
+            // 120 BPM: beat=0.5s, 32-beat phrase=16s. Phrases at 0, 16, 32...
+            double result = BeatGridService.SnapToBeatMultiple(17.9, 120.0, beatMultiple: 32);
+            Assert.Equal(16.0, result, 6);
+        }
+
+        [Fact]
+        public void SnapToBeatMultiple_RespectsDownbeatOffset()
+        {
+            double result = BeatGridService.SnapToBeatMultiple(16.6, 120.0, beatMultiple: 32, downbeatOffsetSeconds: 1.0);
+            // Phrases anchored at 1.0: 1.0, 17.0, 33.0 ... 16.6 is nearest to 17.0
+            Assert.Equal(17.0, result, 6);
+        }
+
+        [Fact]
+        public void SnapToBeatMultiple_NeverReturnsNegative()
+        {
+            double result = BeatGridService.SnapToBeatMultiple(0.1, 120.0, beatMultiple: 32, downbeatOffsetSeconds: 5.0);
+            Assert.True(result >= 0.0);
+        }
+
+        [Fact]
+        public void SnapToBeatMultiple_InvalidBpmOrMultiple_ReturnsInputUnchanged()
+        {
+            Assert.Equal(3.3, BeatGridService.SnapToBeatMultiple(3.3, bpm: 0, beatMultiple: 4));
+            Assert.Equal(3.3, BeatGridService.SnapToBeatMultiple(3.3, bpm: 120, beatMultiple: 0));
+        }
+
+        [Fact]
+        public void GetNearestBeatMultipleSeconds_WithinRadius_ReturnsSnappedBar()
+        {
+            // 120 BPM bar = 2.0s; query 1.98s is 0.02s from the 2.0s bar line.
+            double? result = BeatGridService.GetNearestBeatMultipleSeconds(1.98, 120.0, beatMultiple: 4, snapRadiusSeconds: 0.05);
+            Assert.NotNull(result);
+            Assert.Equal(2.0, result!.Value, 6);
+        }
+
+        [Fact]
+        public void GetNearestBeatMultipleSeconds_OutsideRadius_ReturnsNull()
+        {
+            // 1.7s is 0.3s from the nearest bar line (2.0s) — well outside a 0.05s radius.
+            double? result = BeatGridService.GetNearestBeatMultipleSeconds(1.7, 120.0, beatMultiple: 4, snapRadiusSeconds: 0.05);
+            Assert.Null(result);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -391,6 +451,286 @@ namespace SLSKDONET.Tests.Services.Timeline
 
             float expected = 1.0f * 0.7071068f + 0.5f * 0.7071068f;
             Assert.Equal(expected, buf[0], precision: 2);
+        }
+
+        // ── Mix (Spotify-Mix-parity) preset DSP additions ──────────────────────
+
+        [Theory]
+        [InlineData(TransitionType.EqSwap, typeof(EqSwapProvider))]
+        [InlineData(TransitionType.WaveDuck, typeof(WaveDuckProvider))]
+        public void Build_NewMixTypes_DispatchToExpectedProvider(TransitionType type, System.Type expectedProviderType)
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+            var outProvider = new ConstantSampleProvider(fmt, 1.0f);
+            var inProvider = new ConstantSampleProvider(fmt, -1.0f);
+            var model = new TransitionModel { Type = type, DurationBeats = 16 };
+
+            var result = TransitionDsp.Build(outProvider, inProvider, model, 128.0);
+            Assert.IsType(expectedProviderType, result);
+        }
+
+        private static (float first, float last) SampleFirstAndLast(NAudio.Wave.ISampleProvider provider, long totalSamples)
+        {
+            var buffer = new float[256];
+            float first = 0, last = 0;
+            long produced = 0;
+            bool gotFirst = false;
+
+            while (produced < totalSamples)
+            {
+                int toRead = (int)System.Math.Min(buffer.Length, totalSamples - produced);
+                int read = provider.Read(buffer, 0, toRead);
+                if (read == 0) break;
+                if (!gotFirst) { first = buffer[0]; gotFirst = true; }
+                last = buffer[read - 1];
+                produced += read;
+            }
+
+            return (first, last);
+        }
+
+        [Fact]
+        public void EqSwapProvider_TrendsFromOutgoingTowardIncoming()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+            var outProvider = new ConstantSampleProvider(fmt, 1.0f);
+            var inProvider = new ConstantSampleProvider(fmt, -1.0f);
+            long durationSamples = 44100;
+
+            var provider = new EqSwapProvider(outProvider, inProvider, durationSamples);
+            var (first, last) = SampleFirstAndLast(provider, durationSamples);
+
+            Assert.True(first > last, $"Expected output to trend from outgoing (1.0) toward incoming (-1.0), got first={first}, last={last}");
+        }
+
+        /// <summary>
+        /// Regression coverage for what EqSwapProvider used to get wrong: only the Low band ever
+        /// had a real swap/crossfade distinction — Mid/High always crossfaded together with the
+        /// same equal-power curve regardless of any "swap" intent, and there was no way to swap
+        /// Mid or High independently at all. Both source streams are DC (same sign), so the whole
+        /// signal falls in the "low" band by construction — with swapLow explicitly false, the low
+        /// band must follow the equal-power crossfade (bounded combined gain), not the old
+        /// always-on linear swap.
+        /// </summary>
+        [Fact]
+        public void EqSwapProvider_UnswappedLowBand_FollowsEqualPowerCrossfade_NotLinearSwap()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+            var outProvider = new ConstantSampleProvider(fmt, 1.0f);
+            var inProvider = new ConstantSampleProvider(fmt, 1.0f);
+            long durationSamples = 44100;
+
+            var provider = new EqSwapProvider(outProvider, inProvider, durationSamples,
+                swapLow: false, swapMid: false, swapHigh: false);
+
+            var buffer = new float[1];
+            long produced = 0;
+            float midpointValue = 0;
+            while (produced < durationSamples)
+            {
+                provider.Read(buffer, 0, 1);
+                produced++;
+                if (produced == durationSamples / 2) midpointValue = buffer[0];
+            }
+
+            // Equal-power crossfade of two identical DC=1.0 streams at the midpoint:
+            // cos(pi/4) + sin(pi/4) ≈ 1.414 — bounded, not the linear-swap sum (which stays
+            // pinned at 1.0 the whole way through since (1-t)+t=1), and nowhere near the ~2.0
+            // a naive "both full volume" bug would produce.
+            Assert.InRange(midpointValue, 1.2, 1.6);
+        }
+
+        /// <summary>Sibling to the unswapped test above: with swapMid/swapHigh explicitly true
+        /// instead, the same DC signal (all "low band" by construction) is unaffected by them —
+        /// it's still governed entirely by swapLow, so explicitly swapping the OTHER two bands
+        /// must not change the low-band DC behavior at all.</summary>
+        [Fact]
+        public void EqSwapProvider_SwappingOtherBands_DoesNotAffectDcLowBandBehavior()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+            long durationSamples = 44100;
+
+            float SampleMidpoint(bool swapMid, bool swapHigh)
+            {
+                var outProvider = new ConstantSampleProvider(fmt, 1.0f);
+                var inProvider = new ConstantSampleProvider(fmt, 1.0f);
+                var provider = new EqSwapProvider(outProvider, inProvider, durationSamples,
+                    swapLow: false, swapMid: swapMid, swapHigh: swapHigh);
+
+                var buffer = new float[1];
+                long produced = 0;
+                float midpointValue = 0;
+                while (produced < durationSamples)
+                {
+                    provider.Read(buffer, 0, 1);
+                    produced++;
+                    if (produced == durationSamples / 2) midpointValue = buffer[0];
+                }
+                return midpointValue;
+            }
+
+            var withoutMidHighSwap = SampleMidpoint(swapMid: false, swapHigh: false);
+            var withMidHighSwap = SampleMidpoint(swapMid: true, swapHigh: true);
+
+            Assert.Equal(withoutMidHighSwap, withMidHighSwap, precision: 3);
+        }
+
+        [Fact]
+        public void WaveDuckProvider_TrendsFromOutgoingTowardIncoming()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+            var outProvider = new ConstantSampleProvider(fmt, 1.0f);
+            var inProvider = new ConstantSampleProvider(fmt, -1.0f);
+            long durationSamples = 44100;
+
+            var provider = new WaveDuckProvider(outProvider, inProvider, durationSamples, beatPeriodSeconds: 0.5, duckDepth: 0.3f);
+            var (first, last) = SampleFirstAndLast(provider, durationSamples);
+
+            Assert.True(first > last, $"Expected output to trend from outgoing toward incoming, got first={first}, last={last}");
+        }
+
+        [Fact]
+        public void WaveDuckProvider_PastDuration_ReturnsIncomingUnmodified()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+            var outProvider = new ConstantSampleProvider(fmt, 1.0f);
+            var inProvider = new ConstantSampleProvider(fmt, 0.5f);
+            long durationSamples = 100;
+
+            var provider = new WaveDuckProvider(outProvider, inProvider, durationSamples, beatPeriodSeconds: 0.5);
+            SampleFirstAndLast(provider, durationSamples); // consume the transition window
+
+            var buffer = new float[16];
+            provider.Read(buffer, 0, buffer.Length);
+            Assert.All(buffer, v => Assert.Equal(0.5f, v));
+        }
+
+        [Fact]
+        public void FilterSweepProvider_Rising_TrendsFromOutgoingTowardIncoming()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+            var outProvider = new ConstantSampleProvider(fmt, 1.0f);
+            var inProvider = new ConstantSampleProvider(fmt, -1.0f);
+            long durationSamples = 44100;
+
+            var provider = new FilterSweepProvider(outProvider, inProvider, durationSamples, freqStart: 20000f, freqEnd: 300f, rising: true);
+            var (first, last) = SampleFirstAndLast(provider, durationSamples);
+
+            Assert.True(first > last, $"Expected rising-mode output to trend from outgoing toward incoming, got first={first}, last={last}");
+        }
+
+        // ── DoubleDropProvider ("double drop" loop-then-fade-into-incoming) ────
+
+        /// <summary>Reads a fixed total in small, irregular chunks (not one big Read() call) to
+        /// stress the capture -> replay -> handoff -> pure-incoming state machine across many
+        /// mid-phase Read() boundaries, the way real NAudio playback would call it.</summary>
+        private static float[] ReadAllChunked(NAudio.Wave.ISampleProvider provider, int totalSamples, int chunkSize)
+        {
+            var result = new float[totalSamples];
+            int written = 0;
+            while (written < totalSamples)
+            {
+                int chunk = System.Math.Min(chunkSize, totalSamples - written);
+                var buf = new float[chunk];
+                int read = provider.Read(buf, 0, chunk);
+                Assert.True(read > 0, "Provider must never return 0/negative from an unbounded source.");
+                System.Array.Copy(buf, 0, result, written, read);
+                written += read;
+            }
+            return result;
+        }
+
+        [Fact]
+        public void DoubleDropProvider_LoopRepeatsExactlyReproduceTheCapturedFirstPlay()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(1000, 1);
+            const int loopSamples = 2000;
+            const int totalPlays = 2;
+            const int handoffSamples = 500;
+            var provider = new DoubleDropProvider(
+                new RampSampleProvider(fmt), new ConstantSampleProvider(fmt, -100_000f),
+                loopSamples, totalPlays, handoffSamples);
+
+            long total = provider.DurationSamples;
+            Assert.Equal((long)loopSamples * totalPlays + handoffSamples, total);
+
+            var output = ReadAllChunked(provider, (int)total, chunkSize: 137);
+
+            // Position 1000 sits well outside the ~882-sample seam micro-fade zone at both ends of
+            // a 2000-sample loop (fade zone is [0,882) and [1118,2000)), so it's untouched
+            // (gain 1.0) and should equal the raw ramp value captured there during the first play.
+            Assert.Equal(1000f, output[1000], precision: 3);
+
+            // The second play replays the exact same captured buffer, so the same in-loop
+            // position (2000 samples later) must reproduce the identical value, not a fresh read
+            // from the (long since advanced) ramp source.
+            Assert.Equal(output[1000], output[loopSamples + 1000], precision: 5);
+
+            // Inside the fade-in zone (position 100 < 882), the raw ramp value (100) is
+            // attenuated by position/882.
+            float expectedFaded = 100f * (100f / 882f);
+            Assert.Equal(expectedFaded, output[100], precision: 2);
+        }
+
+        [Fact]
+        public void DoubleDropProvider_HandoffWindowBlendsIntoIncoming_ThenPassesThroughPurely()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(1000, 1);
+            const int loopSamples = 2000;
+            const int totalPlays = 1;
+            const int handoffSamples = 500;
+            const float incomingValue = -100_000f;
+            var provider = new DoubleDropProvider(
+                new RampSampleProvider(fmt), new ConstantSampleProvider(fmt, incomingValue),
+                loopSamples, totalPlays, handoffSamples);
+
+            long total = provider.DurationSamples;
+            var output = ReadAllChunked(provider, (int)total, chunkSize: 211);
+
+            // Near the very end of the handoff window, incoming gain (sin(t*pi/2), t->1)
+            // dominates — the (bounded, much smaller magnitude) looped outgoing content can't
+            // compete with a -100,000 incoming constant once t is close to 1.
+            float lastSample = output[(int)total - 1];
+            Assert.True(lastSample < incomingValue * 0.9f,
+                $"Expected the final handoff sample ({lastSample}) to be dominated by the incoming constant ({incomingValue}).");
+
+            // Once the handoff window is fully consumed, further reads must be pure incoming —
+            // no more looping, no residual blend.
+            var extra = new float[50];
+            int read = provider.Read(extra, 0, extra.Length);
+            Assert.Equal(extra.Length, read);
+            Assert.All(extra, v => Assert.Equal(incomingValue, v, precision: 1));
+        }
+
+        [Fact]
+        public void Build_DoubleDropType_ProducesDoubleDropProvider()
+        {
+            var fmt = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 2);
+            var model = new TransitionModel
+            {
+                Type = TransitionType.DoubleDrop,
+                LoopBars = 8,
+                LoopRepeats = 1,
+                DurationBeats = 8,
+            };
+
+            var result = TransitionDsp.Build(new ConstantSampleProvider(fmt, 1f), new ConstantSampleProvider(fmt, 0f), model, projectBpm: 150.0);
+
+            Assert.IsType<DoubleDropProvider>(result);
+        }
+    }
+
+    // ── Helper: generates an unbounded ramp (value == running sample index) ───
+    internal sealed class RampSampleProvider : NAudio.Wave.ISampleProvider
+    {
+        private int _position;
+        public NAudio.Wave.WaveFormat WaveFormat { get; }
+        public RampSampleProvider(NAudio.Wave.WaveFormat fmt) => WaveFormat = fmt;
+        public int Read(float[] buffer, int offset, int count)
+        {
+            for (int i = 0; i < count; i++) buffer[offset + i] = _position + i;
+            _position += count;
+            return count;
         }
     }
 

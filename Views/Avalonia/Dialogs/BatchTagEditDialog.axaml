@@ -25,7 +25,7 @@
                 <!-- Artist -->
                 <StackPanel Spacing="5">
                     <TextBlock Text="Artist" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Artist, Mode=TwoWay}" Watermark="Keep original artist"
+                    <TextBox Text="{Binding Artist, Mode=TwoWay}" Watermark="{Binding ArtistWatermark}"
                              Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
                              CornerRadius="6" Padding="10,8"/>
                 </StackPanel>
@@ -33,7 +33,7 @@
                 <!-- Title -->
                 <StackPanel Spacing="5">
                     <TextBlock Text="Track Title" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Title, Mode=TwoWay}" Watermark="Keep original title"
+                    <TextBox Text="{Binding Title, Mode=TwoWay}" Watermark="{Binding TitleWatermark}"
                              Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
                              CornerRadius="6" Padding="10,8"/>
                 </StackPanel>
@@ -41,7 +41,7 @@
                 <!-- Album -->
                 <StackPanel Spacing="5">
                     <TextBlock Text="Album" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Album, Mode=TwoWay}" Watermark="Keep original album"
+                    <TextBox Text="{Binding Album, Mode=TwoWay}" Watermark="{Binding AlbumWatermark}"
                              Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
                              CornerRadius="6" Padding="10,8"/>
                 </StackPanel>
@@ -49,7 +49,7 @@
                 <!-- Genre -->
                 <StackPanel Spacing="5">
                     <TextBlock Text="Genre" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Genre, Mode=TwoWay}" Watermark="Keep original genre"
+                    <TextBox Text="{Binding Genre, Mode=TwoWay}" Watermark="{Binding GenreWatermark}"
                              Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
                              CornerRadius="6" Padding="10,8"/>
                 </StackPanel>
@@ -57,7 +57,7 @@
                 <!-- Year -->
                 <StackPanel Spacing="5">
                     <TextBlock Text="Year" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Year, Mode=TwoWay}" Watermark="Keep original year (e.g. 2026)"
+                    <TextBox Text="{Binding Year, Mode=TwoWay}" Watermark="{Binding YearWatermark}"
                              Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
                              CornerRadius="6" Padding="10,8"/>
                 </StackPanel>
@@ -65,7 +65,7 @@
                 <!-- BPM -->
                 <StackPanel Spacing="5">
                     <TextBlock Text="BPM" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Bpm, Mode=TwoWay}" Watermark="Keep original BPM (e.g. 128)"
+                    <TextBox Text="{Binding Bpm, Mode=TwoWay}" Watermark="{Binding BpmWatermark}"
                              Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
                              CornerRadius="6" Padding="10,8"/>
                     <TextBlock Text="Not a valid number" Foreground="#E06C75" FontSize="10"
@@ -75,15 +75,35 @@
                 <!-- Key -->
                 <StackPanel Spacing="5">
                     <TextBlock Text="Key (Camelot)" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Key, Mode=TwoWay}" Watermark="Keep original key (e.g. 8A)"
+                    <TextBox Text="{Binding Key, Mode=TwoWay}" Watermark="{Binding KeyWatermark}"
                              Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
                              CornerRadius="6" Padding="10,8"/>
+                </StackPanel>
+
+                <!-- Track Number -->
+                <StackPanel Spacing="5">
+                    <TextBlock Text="Track #" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding TrackNumber, Mode=TwoWay}" Watermark="{Binding TrackNumberWatermark}"
+                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
+                             CornerRadius="6" Padding="10,8"/>
+                    <TextBlock Text="Not a valid track number" Foreground="#E06C75" FontSize="10"
+                               IsVisible="{Binding !IsTrackNumberValid}"/>
+                </StackPanel>
+
+                <!-- Rating -->
+                <StackPanel Spacing="5">
+                    <TextBlock Text="Rating (0-5)" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding Rating, Mode=TwoWay}" Watermark="{Binding RatingWatermark}"
+                             Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
+                             CornerRadius="6" Padding="10,8"/>
+                    <TextBlock Text="Must be a whole number 0-5" Foreground="#E06C75" FontSize="10"
+                               IsVisible="{Binding !IsRatingValid}"/>
                 </StackPanel>
 
                 <!-- Comments -->
                 <StackPanel Spacing="5">
                     <TextBlock Text="Comments" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Comments, Mode=TwoWay}" Watermark="Keep original comments"
+                    <TextBox Text="{Binding Comments, Mode=TwoWay}" Watermark="{Binding CommentsWatermark}"
                              Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
                              CornerRadius="6" Padding="10,8"/>
                 </StackPanel>
@@ -91,7 +111,7 @@
                 <!-- Mood -->
                 <StackPanel Spacing="5">
                     <TextBlock Text="Mood" Foreground="#AAA" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox Text="{Binding Mood, Mode=TwoWay}" Watermark="Keep original mood tag"
+                    <TextBox Text="{Binding Mood, Mode=TwoWay}" Watermark="{Binding MoodWatermark}"
                              Background="#1E1E2E" Foreground="White" BorderThickness="1" BorderBrush="#3E3E42"
                              CornerRadius="6" Padding="10,8"/>
                 </StackPanel>

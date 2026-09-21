@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
 
              mc:Ignorable="d" d:DesignWidth="300" d:DesignHeight="800"
              x:Class="SLSKDONET.Views.Avalonia.PlayerControl"
@@ -51,6 +52,56 @@
         </Style>
         <Style Selector="Button.phraseTab:pointerover">
             <Setter Property="Background" Value="{StaticResource BrushGlass}"/>
+        </Style>
+
+        <!-- Inline Mix module — collapsed status row that expands into the full transition
+             editor without leaving Now Playing. Glows accent-teal while a crossfade is actually
+             in progress so it reads as "alive", not just another static card. -->
+        <Style Selector="Border.mix-module">
+            <Setter Property="Background" Value="{StaticResource BrushBg2}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder1}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
+            <Setter Property="ClipToBounds" Value="True"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.3"/>
+                    <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.3"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.mix-module.mixing">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="BoxShadow" Value="{StaticResource ShadowAccent}"/>
+        </Style>
+        <Style Selector="Border.mix-icon-bubble">
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusFull}"/>
+            <Setter Property="Background" Value="{StaticResource BrushGlass}"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.3"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.mix-module.mixing Border.mix-icon-bubble">
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
+        </Style>
+        <Style Selector="Button.mixHeader">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="{StaticResource PaddingMd}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
+        <Style Selector="Button.mixHeader:pointerover">
+            <Setter Property="Background" Value="{StaticResource BrushGlassThin}"/>
+        </Style>
+        <Style Selector="TextBlock.mix-chevron">
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText2}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
     </UserControl.Styles>
 
@@ -100,44 +151,62 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="vm:PlaylistTrackViewModel">
                                         <Border Classes="card" Margin="0,0,0,6" Padding="8">
-                                            <Grid ColumnDefinitions="*,Auto,Auto">
-                                                <Button Grid.Column="0"
-                                                        Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
+                                            <StackPanel Spacing="4">
+                                                <Grid ColumnDefinitions="*,Auto,Auto">
+                                                    <Button Grid.Column="0"
+                                                            Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            Background="Transparent"
+                                                            BorderThickness="0"
+                                                            HorizontalContentAlignment="Stretch"
+                                                            ToolTip.Tip="Play this queued track now">
+                                                        <StackPanel Spacing="2">
+                                                            <TextBlock Text="{Binding TrackTitle}"
+                                                                       FontSize="11"
+                                                                       Foreground="{StaticResource BrushText0}"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       MaxWidth="130"/>
+                                                            <TextBlock Text="{Binding ArtistName}"
+                                                                       FontSize="10"
+                                                                       Foreground="{StaticResource BrushText1}"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       MaxWidth="130"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                    <Button Grid.Column="1"
+                                                            Classes="iconGhost"
+                                                            Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            Width="24" Height="24"
+                                                            ToolTip.Tip="Play queued track">
+                                                        <TextBlock Text="▶" FontSize="9" Foreground="{StaticResource BrushAccent}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    </Button>
+                                                    <Button Grid.Column="2"
+                                                            Classes="iconGhost"
+                                                            Command="{Binding $parent[UserControl].DataContext.RemoveFromQueueCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            Width="24" Height="24"
+                                                            ToolTip.Tip="Remove from queue">
+                                                        <TextBlock Text="✕" FontSize="10" Foreground="{StaticResource BrushError}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    </Button>
+                                                </Grid>
+                                                <!-- This row's transition into the next one — same Spotify-Mix-parity
+                                                     badge/data as the Library track list; click to open the Mix tab. -->
+                                                <Button IsVisible="{Binding ShowMixTransitionBadge}"
+                                                        Command="{Binding $parent[UserControl].DataContext.OpenMixTransitionCommand}"
                                                         CommandParameter="{Binding}"
-                                                        Background="Transparent"
+                                                        Padding="6,2" CornerRadius="8"
+                                                        HorizontalAlignment="Left"
+                                                        Background="{Binding TransitionBadgeColor}"
                                                         BorderThickness="0"
-                                                        HorizontalContentAlignment="Stretch"
-                                                        ToolTip.Tip="Play this queued track now">
-                                                    <StackPanel Spacing="2">
-                                                        <TextBlock Text="{Binding TrackTitle}"
-                                                                   FontSize="11"
-                                                                   Foreground="{StaticResource BrushText0}"
-                                                                   TextTrimming="CharacterEllipsis"
-                                                                   MaxWidth="130"/>
-                                                        <TextBlock Text="{Binding ArtistName}"
-                                                                   FontSize="10"
-                                                                   Foreground="{StaticResource BrushText1}"
-                                                                   TextTrimming="CharacterEllipsis"
-                                                                   MaxWidth="130"/>
+                                                        Cursor="Hand"
+                                                        ToolTip.Tip="Edit transition into the next track">
+                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <TextBlock Text="✎" FontSize="8" Foreground="White" Opacity="0.85"/>
+                                                        <TextBlock Text="{Binding TransitionPresetLabel}" FontSize="9" FontWeight="SemiBold" Foreground="White"/>
                                                     </StackPanel>
                                                 </Button>
-                                                <Button Grid.Column="1"
-                                                        Classes="iconGhost"
-                                                        Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
-                                                        CommandParameter="{Binding}"
-                                                        Width="24" Height="24"
-                                                        ToolTip.Tip="Play queued track">
-                                                    <TextBlock Text="▶" FontSize="9" Foreground="{StaticResource BrushAccent}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                </Button>
-                                                <Button Grid.Column="2"
-                                                        Classes="iconGhost"
-                                                        Command="{Binding $parent[UserControl].DataContext.RemoveFromQueueCommand}"
-                                                        CommandParameter="{Binding}"
-                                                        Width="24" Height="24"
-                                                        ToolTip.Tip="Remove from queue">
-                                                    <TextBlock Text="✕" FontSize="10" Foreground="{StaticResource BrushError}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                </Button>
-                                            </Grid>
+                                            </StackPanel>
                                         </Border>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
@@ -393,6 +462,59 @@
                         <TextBlock Text="{Binding CurrentTrackCueBadge}" FontSize="10" Foreground="{StaticResource BrushText2}"/>
                     </StackPanel>
 
+                    <!-- MIX module — lives on the Now Playing screen itself instead of only in a
+                         separate CONTEXT-sidepanel tab. Collapsed, it's a compact status row: idle
+                         with nothing upcoming, "Next: via <preset>" once one's resolved, or a live
+                         glowing progress row while a crossfade is actually in flight. Expanded, it
+                         hosts the exact same dual-waveform/preset/trigger editor the sidepanel's
+                         "Mix" tab uses (same shared MixTransitionVm instance) — so tuning how the
+                         current track mixes into the next never requires leaving this screen. -->
+                    <Border Classes="mix-module" Classes.mixing="{Binding IsCrossfading}" IsVisible="{Binding HasUpNext}">
+                        <StackPanel Spacing="0">
+                            <Button Classes="mixHeader" Command="{Binding ToggleMixPanelCommand}">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <Border Grid.Column="0" Classes="mix-icon-bubble" Margin="0,0,10,0">
+                                        <Panel>
+                                            <TextBlock FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       IsVisible="{Binding IsCrossfading}"
+                                                       Text="{Binding ActiveCrossfadePresetName, Converter={StaticResource MixPresetIconConverter}}"/>
+                                            <TextBlock FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       IsVisible="{Binding !IsCrossfading}"
+                                                       Text="{Binding UpcomingTransitionPresetName, Converter={StaticResource MixPresetIconConverter}}"/>
+                                        </Panel>
+                                    </Border>
+
+                                    <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                        <StackPanel IsVisible="{Binding IsCrossfading}" Spacing="3">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Text="MIXING NOW" Classes="caption" Foreground="{StaticResource BrushAccent}"/>
+                                                <TextBlock Text="{Binding ActiveCrossfadePresetName}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource BrushText0}"/>
+                                            </StackPanel>
+                                            <ProgressBar Value="{Binding CrossfadeProgressPercent}" Maximum="100" Height="3"
+                                                         Foreground="{StaticResource BrushAccent}" Background="{StaticResource BrushBg3}"/>
+                                        </StackPanel>
+
+                                        <StackPanel IsVisible="{Binding !IsCrossfading}" Spacing="1">
+                                            <TextBlock Text="MIX" Classes="caption"/>
+                                            <TextBlock FontSize="11" Foreground="{StaticResource BrushText1}">
+                                                <Run Text="Next: via "/>
+                                                <Run Text="{Binding UpcomingTransitionPresetName, FallbackValue='Auto', TargetNullValue='Auto'}" FontWeight="SemiBold" Foreground="{StaticResource BrushText0}"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </StackPanel>
+
+                                    <TextBlock Grid.Column="2" Classes="mix-chevron"
+                                               Text="{Binding IsMixPanelExpanded, Converter={StaticResource BoolToTextConverter}, ConverterParameter='⌃|⌄'}"/>
+                                </Grid>
+                            </Button>
+
+                            <Border IsVisible="{Binding IsMixPanelExpanded}"
+                                    BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,1,0,0">
+                                <views:MixTransitionPanel DataContext="{Binding MixTransitionVm}" Height="440" Background="Transparent"/>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
                     <!-- Workflow/routing detail — collapsed by default -->
                     <Expander Header="Track Details" IsExpanded="False" Padding="0" Margin="0"
                               HorizontalAlignment="Stretch"
@@ -422,6 +544,11 @@
                                                            Background="Transparent"
                                                            PlayheadBrush="{StaticResource BrushAccent}"
                                                            SeekCommand="{Binding SeekCommand}"
+                                                           UseNeonPalette="{Binding WaveformUseNeonPalette}"
+                                                           Gain="{Binding WaveformGain}"
+                                                           ShowEnergyCurve="{Binding WaveformShowEnergyCurve}"
+                                                           ShowVocalGhost="{Binding WaveformShowVocalGhost}"
+                                                           ShowPhraseSections="{Binding WaveformShowPhraseSections}"
                                                            VerticalAlignment="Stretch"
                                                            HorizontalAlignment="Stretch"/>
                             </Panel>
@@ -576,14 +703,48 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- Crossfade duration — CrossfadeSeconds was already fully built/persisted on
+                         the ViewModel, but had no control anywhere; only the on/off toggle above
+                         was reachable. Shown only while crossfade is actually enabled, matching
+                         the "Up next" card's same conditional-visibility pattern below. -->
+                    <Border Classes="card" IsVisible="{Binding IsCrossfadeEnabled}">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <TextBlock Grid.Column="0" Text="CROSSFADE" Classes="caption" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <Slider Grid.Column="1"
+                                    Minimum="1" Maximum="15"
+                                    Value="{Binding CrossfadeSeconds, Mode=TwoWay}"
+                                    Height="20"
+                                    ToolTip.Tip="Crossfade overlap length in seconds">
+                                <Slider.Styles>
+                                    <Style Selector="Slider /template/ Thumb">
+                                        <Setter Property="Background" Value="{StaticResource BrushAccent}"/>
+                                        <Setter Property="Width" Value="12"/>
+                                        <Setter Property="Height" Value="12"/>
+                                        <Setter Property="CornerRadius" Value="6"/>
+                                    </Style>
+                                </Slider.Styles>
+                            </Slider>
+                            <TextBlock Grid.Column="2" Text="{Binding CrossfadeSeconds, StringFormat={}{0:0.0}s}" FontSize="10" Foreground="{StaticResource BrushText2}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                        </Grid>
+                    </Border>
+
                     <!-- Up next — a glanceable preview so you don't have to open the full queue
                          panel just to see what's coming. The full list (with reorder/remove) is
                          still one click away via the ☰ queue toggle in the header. -->
                     <Border Classes="card" IsVisible="{Binding HasUpNext}">
                         <StackPanel Spacing="{StaticResource SpaceSm}">
-                            <Grid ColumnDefinitions="*,Auto">
+                            <Grid ColumnDefinitions="*,Auto,Auto">
                                 <TextBlock Grid.Column="0" Text="UP NEXT" Classes="caption" VerticalAlignment="Center"/>
-                                <Button Grid.Column="1" Classes="iconGhost" Padding="6,2" Command="{Binding ToggleQueueCommand}" ToolTip.Tip="Open full queue">
+                                <!-- Resolved as soon as SchedulePreloadNext finds a saved transition
+                                     for (current, next) — visible ahead of the crossfade actually
+                                     starting, not just once it's already happening. -->
+                                <Border Grid.Column="1" Margin="0,0,6,0" Padding="6,2" CornerRadius="8"
+                                        Background="{StaticResource BrushAccent}"
+                                        IsVisible="{Binding UpcomingTransitionPresetName, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                        ToolTip.Tip="Preset that will drive the crossfade into the next track">
+                                    <TextBlock Text="{Binding UpcomingTransitionPresetName, StringFormat='via {0}'}" FontSize="9" FontWeight="SemiBold" Foreground="White"/>
+                                </Border>
+                                <Button Grid.Column="2" Classes="iconGhost" Padding="6,2" Command="{Binding ToggleQueueCommand}" ToolTip.Tip="Open full queue">
                                     <TextBlock Text="See all" FontSize="10" Foreground="{StaticResource BrushAccent}"/>
                                 </Button>
                             </Grid>
@@ -595,21 +756,40 @@
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                                        <Button Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
-                                                CommandParameter="{Binding}"
-                                                Background="Transparent"
-                                                BorderThickness="0"
-                                                Padding="0"
-                                                HorizontalContentAlignment="Stretch"
-                                                ToolTip.Tip="Play this track now">
-                                            <Grid ColumnDefinitions="Auto,*">
-                                                <TextBlock Grid.Column="0" Text="▶" FontSize="9" Foreground="{StaticResource BrushText2}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                                <StackPanel Grid.Column="1" Spacing="1">
-                                                    <TextBlock Text="{Binding TrackTitle}" FontSize="11" Foreground="{StaticResource BrushText0}" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Text="{Binding ArtistName}" FontSize="10" Foreground="{StaticResource BrushText1}" TextTrimming="CharacterEllipsis"/>
+                                        <StackPanel Spacing="2">
+                                            <Button Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Background="Transparent"
+                                                    BorderThickness="0"
+                                                    Padding="0"
+                                                    HorizontalContentAlignment="Stretch"
+                                                    ToolTip.Tip="Play this track now">
+                                                <Grid ColumnDefinitions="Auto,*">
+                                                    <TextBlock Grid.Column="0" Text="▶" FontSize="9" Foreground="{StaticResource BrushText2}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                    <StackPanel Grid.Column="1" Spacing="1">
+                                                        <TextBlock Text="{Binding TrackTitle}" FontSize="11" Foreground="{StaticResource BrushText0}" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Text="{Binding ArtistName}" FontSize="10" Foreground="{StaticResource BrushText1}" TextTrimming="CharacterEllipsis"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Button>
+                                            <!-- This row's own transition into the NEXT one (Spotify-Mix-parity badge,
+                                                 same data the Library track list's badges use) — click to open the Mix
+                                                 tab and adjust it without leaving the player. -->
+                                            <Button IsVisible="{Binding ShowMixTransitionBadge}"
+                                                    Command="{Binding $parent[UserControl].DataContext.OpenMixTransitionCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Margin="17,0,0,0" Padding="6,2" CornerRadius="8"
+                                                    HorizontalAlignment="Left"
+                                                    Background="{Binding TransitionBadgeColor}"
+                                                    BorderThickness="0"
+                                                    Cursor="Hand"
+                                                    ToolTip.Tip="Edit transition into the next track">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <TextBlock Text="✎" FontSize="8" Foreground="White" Opacity="0.85"/>
+                                                    <TextBlock Text="{Binding TransitionPresetLabel}" FontSize="9" FontWeight="SemiBold" Foreground="White"/>
                                                 </StackPanel>
-                                            </Grid>
-                                        </Button>
+                                            </Button>
+                                        </StackPanel>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>

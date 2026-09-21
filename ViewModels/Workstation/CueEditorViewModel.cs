@@ -19,6 +19,7 @@ namespace SLSKDONET.ViewModels.Workstation;
 public sealed class CueEditorViewModel : ReactiveObject, IDisposable
 {
     private readonly ICuePointService _cueService;
+    private readonly IDialogService? _dialogService;
     private readonly CompositeDisposable _disposables = new();
 
     // Simple snapshot-based undo/redo
@@ -84,9 +85,10 @@ public sealed class CueEditorViewModel : ReactiveObject, IDisposable
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
-    public CueEditorViewModel(ICuePointService cueService)
+    public CueEditorViewModel(ICuePointService cueService, IDialogService? dialogService = null)
     {
         _cueService = cueService;
+        _dialogService = dialogService;
 
         var hasHash = this.WhenAnyValue(x => x.TrackHash, h => !string.IsNullOrEmpty(h));
 
@@ -220,6 +222,21 @@ public sealed class CueEditorViewModel : ReactiveObject, IDisposable
     private async Task ResetToAutoAsync()
     {
         if (TrackHash is null) return;
+
+        // Permanently deletes every user-placed cue for this track from the DB — the in-memory
+        // undo stack below is the only other safety net, and it's lost the moment the deck/track
+        // changes or the app closes. Confirm first, matching the equivalent destructive-reset
+        // actions elsewhere in this app (FlowBuilderViewModel.ClearAsync,
+        // CueForgeViewModel.DiscardChangesAsync). _dialogService is null only in unit tests
+        // constructing this ViewModel directly, where there's no user to confirm with.
+        if (_dialogService != null)
+        {
+            var confirmed = await _dialogService.ConfirmAsync(
+                "Reset to Auto Cues",
+                "This permanently removes every manually placed cue/loop on this track and keeps only the analyzed (auto-generated) ones. This can't be undone once you switch tracks. Continue?");
+            if (!confirmed) return;
+        }
+
         PushSnapshot();
 
         // Delete all user-placed cues (auto-generated ones stay)

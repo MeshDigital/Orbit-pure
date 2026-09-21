@@ -4,22 +4,25 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:controls="using:SLSKDONET.Views.Avalonia.Controls"
              xmlns:vm="using:SLSKDONET.ViewModels"
-             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="300"
+             mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="640"
              x:Class="SLSKDONET.Views.Avalonia.Controls.MixPreviewComponent">
 
     <Design.DataContext>
-        <vm:MixPreviewViewModel/>
+        <vm:MixTransitionViewModel/>
     </Design.DataContext>
 
     <UserControl.Styles>
+        <!-- Restyled to match FlowBuilderView/FlowTransitionEditorPanel's dark-teal language
+             instead of this component's previous, unrelated cyan/magenta "glass" palette. -->
         <Style Selector="Button.PreviewAction">
-            <Setter Property="Background" Value="#22FFFFFF"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="Padding" Value="10,5"/>
-            <Setter Property="Margin" Value="4"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderBrush" Value="#44FFFFFF"/>
+            <Setter Property="Background" Value="#1D4E42"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="0,7"/>
+            <Setter Property="Foreground" Value="#DDFCF5"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="BorderBrush" Value="#2D8E7A"/>
             <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="Transitions">
                 <Transitions>
                     <BrushTransition Property="Background" Duration="0:0:0.2"/>
@@ -27,120 +30,321 @@
             </Setter>
         </Style>
         <Style Selector="Button.PreviewAction:pointerover">
-            <Setter Property="Background" Value="#44FFFFFF"/>
+            <Setter Property="Background" Value="#256259"/>
         </Style>
-        <Style Selector="Button.Accept">
-            <Setter Property="Background" Value="#CC00E676"/> <!-- Neon Green -->
-            <Setter Property="BorderBrush" Value="#00E676"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-        </Style>
-         <Style Selector="Button.Nudge">
+        <Style Selector="Button.Nudge">
+            <Setter Property="Background" Value="#171C22"/>
+            <Setter Property="Foreground" Value="#9BD7CA"/>
             <Setter Property="FontSize" Value="10"/>
-            <Setter Property="Padding" Value="6,2"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="BorderBrush" Value="#2A333D"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style Selector="Button.Nudge:pointerover">
+            <Setter Property="Background" Value="#20262D"/>
+        </Style>
+
+        <!-- One small chip per analyzed cue — a direct, always-visible pick list per track
+             (Intro/Drop/Outro/etc.) so the user doesn't have to precisely click a thin line on
+             the waveform to set the trigger point. -->
+        <Style Selector="Button.CueChip">
+            <Setter Property="Background" Value="#171C22"/>
+            <Setter Property="Foreground" Value="#C7D6E2"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#2A333D"/>
+            <Setter Property="CornerRadius" Value="999"/>
+            <Setter Property="Padding" Value="8,3"/>
+            <Setter Property="FontSize" Value="9"/>
+            <Setter Property="Margin" Value="0,0,4,4"/>
+        </Style>
+        <Style Selector="Button.CueChip:pointerover">
+            <Setter Property="Background" Value="#20262D"/>
+            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+        </Style>
+
+        <Style Selector="Button.ZoomBtn">
+            <Setter Property="Background" Value="#171C22"/>
+            <Setter Property="Foreground" Value="#9BAAB8"/>
+            <Setter Property="BorderBrush" Value="#2A333D"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="9,3"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+        <Style Selector="Button.ZoomBtn:pointerover">
+            <Setter Property="Background" Value="#20262D"/>
         </Style>
     </UserControl.Styles>
 
-    <Border Background="#CC0A0A0A" CornerRadius="12" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="15">
-        <!-- Glass Effect -->
-        <Grid RowDefinitions="Auto, *, Auto, *, Auto">
-            
+    <Border Background="#1A1E24" CornerRadius="12" BorderBrush="#2F3E4C" BorderThickness="1" Padding="14,12">
+        <Grid RowDefinitions="Auto, Auto, Auto, *, Auto, *, Auto">
+
             <!-- Header -->
-            <Grid Grid.Row="0" ColumnDefinitions="Auto, *, Auto" Margin="0,0,0,10">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <PathIcon Data="{StaticResource mixer_regular}" Foreground="#00E5FF"/>
-                    <TextBlock Text="TRANSITION PREVIEW" FontWeight="SemiBold" Foreground="#00E5FF" VerticalAlignment="Center"/>
+            <Grid Grid.Row="0" ColumnDefinitions="Auto, *, Auto" Margin="0,0,0,6">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <PathIcon Data="{StaticResource mixer_regular}" Foreground="#4EC9B0" Width="14" Height="14"/>
+                    <TextBlock Text="TRANSITION PREVIEW" FontWeight="SemiBold" FontSize="11" Foreground="#4EC9B0" VerticalAlignment="Center"/>
                 </StackPanel>
-                
-                <TextBlock Grid.Column="1" Text="{Binding StatusMessage}" HorizontalAlignment="Center" Foreground="#AAFFFFFF" VerticalAlignment="Center"/>
-                
-                <Button Grid.Column="2" Command="{Binding CancelCommand}" Background="Transparent" BorderThickness="0">
-                     <PathIcon Data="{StaticResource dismiss_regular}" Foreground="#AAFFFFFF"/>
-                </Button>
+
+                <TextBlock Grid.Column="1" Text="{Binding StatusMessage}"
+                           HorizontalAlignment="Right" VerticalAlignment="Center"
+                           Margin="12,0"
+                           FontSize="11"
+                           Foreground="#9BAAB8"
+                           TextTrimming="CharacterEllipsis"/>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+                    <!-- Waveform click-to-audition indicator + stop — always-visible source and
+                         a way to kill it, so a preview never keeps playing invisibly underneath
+                         whatever else the user does next. -->
+                    <Border Background="#1D4E42" BorderBrush="#2D8E7A" BorderThickness="1" CornerRadius="999"
+                            Padding="8,3" Margin="0,0,6,0"
+                            IsVisible="{Binding IsPreviewSeekPlaying}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{Binding PreviewSeekStatusText}" FontSize="10" Foreground="#9BD7CA" TextTrimming="CharacterEllipsis" MaxWidth="220"/>
+                            <Button Command="{Binding StopPreviewSeekCommand}" Background="Transparent" BorderThickness="0" Padding="2"
+                                    ToolTip.Tip="Stop preview">
+                                <PathIcon Data="{StaticResource dismiss_regular}" Foreground="#DDFCF5" Width="10" Height="10"/>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+                    <Button Command="{Binding OpenInFlowBuilderCommand}" Background="Transparent" BorderThickness="0" Padding="6,2"
+                            ToolTip.Tip="Open this playlist in Flow Builder for full-option editing">
+                        <TextBlock Text="↗ Flow Builder" FontSize="10" Foreground="#4EC9B0"/>
+                    </Button>
+                    <Button Command="{Binding CancelCommand}" Background="Transparent" BorderThickness="0" Padding="4" Margin="6,0,0,0">
+                         <PathIcon Data="{StaticResource dismiss_regular}" Foreground="#9BAAB8" Width="14" Height="14"/>
+                    </Button>
+                </StackPanel>
             </Grid>
 
-            <!-- Track A (Outgoing) -->
-            <Grid Grid.Row="1">
-                 <!-- Background for rail -->
-                 <Rectangle Width="2" HorizontalAlignment="Center" Fill="#33FFFFFF"/>
-                 
-                 <controls:WaveformControl 
-                    WaveformData="{Binding WaveformDataA}"
-                    Progress="{Binding ProgressA}"
-                    ZoomLevel="4" 
-                    ViewOffset="{Binding ProgressA, Converter={x:Static ObjectConverters.IsNull}}" 
-                    Height="80"
-                    Foreground="#00E5FF"
-                    Background="Transparent"
-                    PlayheadBrush="#88FFFFFF"/>
-                    
-                 <TextBlock Text="OUTGOING" Foreground="#00E5FF" Opacity="0.5" FontSize="10" Margin="4" HorizontalAlignment="Right" VerticalAlignment="Top"/>
+            <!-- Affordance legend. Trigger points only ever land on an actual analyzed cue now
+                 (click its line on the waveform, or one of the cue-chip buttons below each
+                 track) — dropping the old "drag anywhere to place freely" arbitrary-point
+                 gesture, which made it too easy to build an off-beat, badly-phrased transition.
+                 Dragging the waveform itself now pans the zoomed view instead (same action as
+                 the slider underneath it, just grabbed directly). -->
+            <Border Grid.Row="1" Background="#20262D" BorderBrush="#2F3E4C" BorderThickness="1" CornerRadius="4" Padding="8,3" Margin="0,0,0,6">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <TextBlock Text="Click a cue (line or chip) to set the trigger point" FontSize="10" Foreground="#9BAAB8"/>
+                    <TextBlock Text="•" FontSize="10" Foreground="#556270"/>
+                    <TextBlock Text="Click elsewhere to audition that spot" FontSize="10" Foreground="#9BAAB8"/>
+                    <TextBlock Text="•" FontSize="10" Foreground="#556270"/>
+                    <TextBlock Text="Drag to pan" FontSize="10" Foreground="#9BAAB8"/>
+                    <TextBlock Text="•" FontSize="10" Foreground="#556270"/>
+                    <TextBlock Text="Right-click → Add cue here" FontSize="10" Foreground="#9BAAB8"/>
+                    <TextBlock Text="•" FontSize="10" Foreground="#556270"/>
+                    <StackPanel Orientation="Horizontal" Spacing="3">
+                        <TextBlock Text="★" FontSize="10" Foreground="Gold" FontWeight="Bold"/>
+                        <TextBlock Text="= what Auto suggested" FontSize="10" Foreground="#9BAAB8"/>
+                    </StackPanel>
+                    <TextBlock Text="•" FontSize="10" Foreground="#556270"/>
+                    <StackPanel Orientation="Horizontal" Spacing="3">
+                        <Rectangle Width="10" Height="2" Fill="#FFD700"/>
+                        <TextBlock Text="= mix start/end point" FontSize="10" Foreground="#9BAAB8"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Shared zoom control — one zoom level for both waveforms (see
+                 MixTransitionViewModel.WaveformZoomLevel) so the two tracks stay directly
+                 comparable when lined up via their independent pan sliders below. -->
+            <Grid Grid.Row="2" ColumnDefinitions="Auto,8,Auto,8,Auto,10,*" Margin="0,0,0,6">
+                <Button Grid.Column="0" Classes="ZoomBtn" Content="−" Command="{Binding ZoomOutCommand}" ToolTip.Tip="Zoom out"/>
+                <TextBlock Grid.Column="2" Text="{Binding WaveformZoomLevel, StringFormat='{}{0:0.0}×'}"
+                           Foreground="#9BAAB8" FontSize="11" VerticalAlignment="Center" Width="34" TextAlignment="Center"/>
+                <Button Grid.Column="4" Classes="ZoomBtn" Content="+" Command="{Binding ZoomInCommand}" ToolTip.Tip="Zoom in"/>
+                <Slider Grid.Column="6"
+                        Value="{Binding WaveformZoomLevel, Mode=TwoWay}"
+                        Minimum="1" Maximum="16"
+                        SmallChange="0.5" LargeChange="1"
+                        VerticalAlignment="Center"
+                        ToolTip.Tip="Waveform zoom — applies to both tracks"/>
             </Grid>
-            
+
+            <!-- Track A (Outgoing) — the editor now owns the full page height (FlowBuilderView
+                 hides the card carousel while it's open, see ShowTrackList), so this can afford
+                 real height for cue labels/trigger markers to stay legible, plus the full page
+                 width for song structure (drops, phrasing) via WaveformControl's zoom/pan
+                 (previously ZoomLevel/ViewOffset were computed but silently ignored by the render
+                 path, so the waveform always showed the whole track squashed flat regardless of
+                 size). TriggerPointSeconds adds a persistent marker independent of playback
+                 Progress so the mix-out point stays visible even before/after playback. -->
+            <Grid Grid.Row="3" RowDefinitions="Auto,Auto,Auto">
+                <Grid Grid.Row="0">
+                     <!-- Background for rail -->
+                     <Rectangle Width="2" HorizontalAlignment="Center" Fill="#33FFFFFF"/>
+
+                     <controls:WaveformControl
+                        WaveformData="{Binding WaveformDataA}"
+                        Progress="{Binding ProgressA}"
+                        EnergyCurve="{Binding OutgoingAutomationCurve}"
+                        Cues="{Binding OutgoingCues}"
+                        CueClickedCommand="{Binding SelectSourceCueCommand}"
+                        CuesAreDraggable="False"
+                        ZoomLevel="{Binding WaveformZoomLevel}"
+                        ViewOffset="{Binding OutgoingViewOffset, Mode=TwoWay}"
+                        TriggerPointSeconds="{Binding EffectiveSourceTriggerSeconds}"
+                        EnableScrollZoom="False"
+                        PanOnBackgroundDrag="True"
+                        PreviewSeekCommand="{Binding PreviewSeekOutgoingCommand}"
+                        AddCueAtCommand="{Binding AddCueToOutgoingInCueForgeCommand}"
+                        Height="130"
+                        Foreground="#4EC9B0"
+                        Background="Transparent"
+                        PlayheadBrush="#9BAAB8"/>
+
+                     <TextBlock Text="OUTGOING" Foreground="#4EC9B0" Opacity="0.7" FontSize="10" FontWeight="Bold" LetterSpacing="1"
+                                Margin="6" HorizontalAlignment="Right" VerticalAlignment="Top"/>
+
+                     <!-- Bottom corner (not top, where cue labels like "Outro" render and would
+                          collide with this text) -->
+                     <Button Command="{Binding OpenOutgoingInCueForgeCommand}" Background="Transparent" BorderThickness="0" Padding="0"
+                             Margin="6" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                             ToolTip.Tip="Trigger point looks wrong? Fix this track's cues in Cue Forge">
+                         <TextBlock Text="🎯 Fix in Cue Forge" FontSize="9" Foreground="#9BD7CA"/>
+                     </Button>
+                </Grid>
+
+                <Slider Grid.Row="1" Margin="0,2,0,0"
+                        Value="{Binding OutgoingViewOffset, Mode=TwoWay}"
+                        Minimum="0" Maximum="{Binding WaveformViewOffsetMaximum}"
+                        SmallChange="0.01" LargeChange="0.1"
+                        ToolTip.Tip="Scroll this waveform's view — drag to line up a feature against the incoming waveform below"/>
+
+                <!-- Direct cue picker — click "Outro" (or any analyzed cue) to set the mix-out
+                     trigger there instead of hunting for its line on the waveform. -->
+                <ItemsControl Grid.Row="2" ItemsSource="{Binding OutgoingCues}" Margin="0,4,0,0">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Classes="CueChip"
+                                    Command="{Binding $parent[ItemsControl].DataContext.SelectSourceCueCommand}"
+                                    CommandParameter="{Binding Timestamp}"
+                                    ToolTip.Tip="{Binding TimestampDisplay}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <Border Width="6" Height="6" CornerRadius="3" Background="{Binding Color}"/>
+                                    <TextBlock Text="{Binding Name}"/>
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Grid>
+
             <!-- Phase Meter (Middle) -->
-            <Grid Grid.Row="2" Height="20" Margin="0,4">
-                 <Rectangle Fill="#11FFFFFF" Height="4" VerticalAlignment="Center"/>
-                 <!-- Center Mark -->
-                 <Rectangle Width="2" Height="12" Fill="White" HorizontalAlignment="Center"/>
-                 
-                 <!-- Phase Confidence Indicator (Dynamic Width/Color based on PhaseConfidence) -->
-                 <Rectangle Height="6" RadiusX="3" RadiusY="3" HorizontalAlignment="Center" Width="{Binding PhaseConfidenceWidth}">
-                    <Rectangle.Fill>
-                        <SolidColorBrush Color="#00E676" Opacity="0.8"/> 
-                    </Rectangle.Fill>
-                 </Rectangle>
+            <Grid Grid.Row="4" RowDefinitions="Auto,Auto" Margin="0,6">
+                <Grid Grid.Row="0" Height="10">
+                     <Rectangle Fill="#11FFFFFF" Height="4" VerticalAlignment="Center"/>
+                     <!-- Center Mark -->
+                     <Rectangle Width="2" Height="10" Fill="White" HorizontalAlignment="Center"/>
 
-                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="20">
-                     <Button Classes="PreviewAction Nudge" Command="{Binding NudgeBackCommand}" Content="◄ NUDGE"/>
-                     <Button Classes="PreviewAction Nudge" Command="{Binding NudgeForwardCommand}" Content="NUDGE ►"/>
-                 </StackPanel>
-            </Grid>
+                     <!-- Phase Confidence Indicator (Dynamic Width/Color based on PhaseConfidence) -->
+                     <Rectangle Height="4" RadiusX="2" RadiusY="2" HorizontalAlignment="Center" Width="{Binding PhaseConfidenceWidth}">
+                        <Rectangle.Fill>
+                            <SolidColorBrush Color="#00E676" Opacity="0.8"/>
+                        </Rectangle.Fill>
+                     </Rectangle>
+                </Grid>
 
-            <!-- Track B (Incoming) -->
-            <Grid Grid.Row="3">
-                 <Rectangle Width="2" HorizontalAlignment="Center" Fill="#33FFFFFF"/>
-
-                 <controls:WaveformControl 
-                    WaveformData="{Binding WaveformDataB}"
-                    Progress="{Binding ProgressB}"
-                    ZoomLevel="4"
-                    Height="80"
-                    Foreground="#E040FB"
-                    Background="Transparent"
-                    PlayheadBrush="#88FFFFFF"/>
-
-                 <TextBlock Text="INCOMING" Foreground="#E040FB" Opacity="0.5" FontSize="10" Margin="4" HorizontalAlignment="Right" VerticalAlignment="Top"/>
-            </Grid>
-
-            <!-- Controls -->
-            <Grid Grid.Row="4" ColumnDefinitions="Auto, *, Auto" Margin="0,15,0,0">
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
-                    <Button Classes="PreviewAction" Command="{Binding PlayCommand}" IsVisible="{Binding !IsPlaying}">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="{StaticResource play_regular}"/>
-                            <TextBlock Text="PREVIEW"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Classes="PreviewAction" Command="{Binding PauseCommand}" IsVisible="{Binding IsPlaying}">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="{StaticResource pause_regular}"/>
-                            <TextBlock Text="PAUSE"/>
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
-                
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10">
-                    <Button Classes="PreviewAction" Command="{Binding CancelCommand}" Content="Dismiss"/>
-                    <Button Classes="PreviewAction Accept" Command="{Binding CommitCommand}">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="{StaticResource checkmark_regular}"/>
-                            <TextBlock Text="ACCEPT TRANSITION"/>
-                        </StackPanel>
-                    </Button>
+                <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10" Margin="0,5,0,0">
+                     <Button Classes="Nudge" Command="{Binding NudgeBackCommand}" Content="◄ NUDGE"/>
+                     <Button Classes="Nudge" Command="{Binding NudgeForwardCommand}" Content="NUDGE ►"/>
                 </StackPanel>
             </Grid>
-            
+
+            <!-- Track B (Incoming) — same size/zoom/marker treatment as Track A above. -->
+            <Grid Grid.Row="5" RowDefinitions="Auto,Auto,Auto">
+                <Grid Grid.Row="0">
+                     <Rectangle Width="2" HorizontalAlignment="Center" Fill="#33FFFFFF"/>
+
+                     <controls:WaveformControl
+                        WaveformData="{Binding WaveformDataB}"
+                        Progress="{Binding ProgressB}"
+                        EnergyCurve="{Binding IncomingAutomationCurve}"
+                        Cues="{Binding IncomingCues}"
+                        CueClickedCommand="{Binding SelectTargetCueCommand}"
+                        CuesAreDraggable="False"
+                        ZoomLevel="{Binding WaveformZoomLevel}"
+                        ViewOffset="{Binding IncomingViewOffset, Mode=TwoWay}"
+                        TriggerPointSeconds="{Binding TargetTriggerSeconds}"
+                        EnableScrollZoom="False"
+                        PanOnBackgroundDrag="True"
+                        PreviewSeekCommand="{Binding PreviewSeekIncomingCommand}"
+                        AddCueAtCommand="{Binding AddCueToIncomingInCueForgeCommand}"
+                        Height="130"
+                        Foreground="#00D7FF"
+                        Background="Transparent"
+                        PlayheadBrush="#9BAAB8"/>
+
+                     <TextBlock Text="INCOMING" Foreground="#00D7FF" Opacity="0.7" FontSize="10" FontWeight="Bold" LetterSpacing="1"
+                                Margin="6" HorizontalAlignment="Right" VerticalAlignment="Top"/>
+
+                     <Button Command="{Binding OpenIncomingInCueForgeCommand}" Background="Transparent" BorderThickness="0" Padding="0"
+                             Margin="6" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                             ToolTip.Tip="Trigger point looks wrong? Fix this track's cues in Cue Forge">
+                         <TextBlock Text="🎯 Fix in Cue Forge" FontSize="9" Foreground="#9BD7CA"/>
+                     </Button>
+                </Grid>
+
+                <Slider Grid.Row="1" Margin="0,2,0,0"
+                        Value="{Binding IncomingViewOffset, Mode=TwoWay}"
+                        Minimum="0" Maximum="{Binding WaveformViewOffsetMaximum}"
+                        SmallChange="0.01" LargeChange="0.1"
+                        ToolTip.Tip="Scroll this waveform's view — drag to line up a feature against the outgoing waveform above"/>
+
+                <!-- Direct cue picker — click "Intro" (or any analyzed cue) to set the mix-in
+                     trigger there instead of hunting for its line on the waveform. Empty here
+                     (vs. a populated row above for Outgoing) means this track's cues genuinely
+                     haven't loaded/been analyzed — a real, visible signal instead of a silently
+                     blank waveform. -->
+                <ItemsControl Grid.Row="2" ItemsSource="{Binding IncomingCues}" Margin="0,4,0,0">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Classes="CueChip"
+                                    Command="{Binding $parent[ItemsControl].DataContext.SelectTargetCueCommand}"
+                                    CommandParameter="{Binding Timestamp}"
+                                    ToolTip.Tip="{Binding TimestampDisplay}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <Border Width="6" Height="6" CornerRadius="3" Background="{Binding Color}"/>
+                                    <TextBlock Text="{Binding Name}"/>
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Grid>
+
+            <!-- Controls: Preview/Pause and Dismiss share the row evenly, so neither can push
+                 past the sidepanel's width. "Accept Transition" was dropped — it was a second,
+                 identically-wired save action duplicating the OPSLAAN button below it in
+                 MixTransitionPanel, and was the actual cause of this row overflowing before. -->
+            <Grid Grid.Row="6" ColumnDefinitions="*,*" Margin="0,8,0,0">
+                <Button Grid.Column="0" Classes="PreviewAction" Command="{Binding PlayCommand}" IsVisible="{Binding !IsPlaying}" Margin="0,0,5,0">
+                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                        <PathIcon Data="{StaticResource play_regular}" Width="13" Height="13"/>
+                        <TextBlock Text="PREVIEW"/>
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="0" Classes="PreviewAction" Command="{Binding PauseCommand}" IsVisible="{Binding IsPlaying}" Margin="0,0,5,0">
+                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                        <PathIcon Data="{StaticResource pause_regular}" Width="13" Height="13"/>
+                        <TextBlock Text="PAUSE"/>
+                    </StackPanel>
+                </Button>
+
+                <Button Grid.Column="1" Classes="PreviewAction" Command="{Binding CancelCommand}" Content="DISMISS" Margin="5,0,0,0"/>
+            </Grid>
+
             <!-- Vertical Alignment Rail Overlay (Global) -->
-            <Rectangle Grid.Row="1" Grid.RowSpan="3" Width="1" HorizontalAlignment="Center" Fill="#88FFFFFF" IsHitTestVisible="False"/>
+            <Rectangle Grid.Row="3" Grid.RowSpan="3" Width="1" HorizontalAlignment="Center" Fill="#88FFFFFF" IsHitTestVisible="False"/>
 
         </Grid>
     </Border>

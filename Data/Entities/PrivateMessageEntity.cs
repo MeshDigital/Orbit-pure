@@ -31,4 +31,12 @@ public class PrivateMessageEntity
 
     /// <summary>True when the Soulseek server redelivered this message (e.g. after a reconnect).</summary>
     public bool WasReplayed { get; set; }
+
+    /// <summary>
+    /// Defaults to true (read) at the schema level so the migration backfills every pre-existing
+    /// row as already-seen — matching the prior in-memory-only behavior, which always reset to
+    /// "all read" on restart. New incoming messages explicitly insert false; outgoing (own)
+    /// messages explicitly insert true.
+    /// </summary>
+    public bool IsRead { get; set; } = true;
 }

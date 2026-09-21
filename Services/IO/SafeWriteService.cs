@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -25,7 +26,15 @@ namespace SLSKDONET.Services.IO
 
         private readonly ILogger<SafeWriteService> _logger;
         private readonly CrashRecoveryJournal _crashJournal;
-        private readonly SemaphoreSlim _fileLock = new(1, 1); // Prevent concurrent writes to same file
+        // Keyed by normalized target path — was a single SemaphoreSlim(1,1) shared across every
+        // path, so any two WriteAtomicAsync calls anywhere in the app (e.g. a USB export copying
+        // 50 different files) fully serialized regardless of which files were actually involved,
+        // even though the intent (per the original comment) was only to stop two writers racing
+        // on the SAME file. Per-path locks preserve that same-file guarantee while letting
+        // different files' read/checkpoint/verify/swap phases actually run concurrently — their
+        // individual write-chunk requests still funnel into the single shared _writeQueue below,
+        // which continues to serialize the actual disk byte-writes on one background thread.
+        private readonly ConcurrentDictionary<string, SemaphoreSlim> _fileLocks = new(StringComparer.OrdinalIgnoreCase);
         private const int PooledCopyBufferSize = 64 * 1024;
         private readonly Channel<FileWriteRequest> _writeQueue;
         private readonly CancellationTokenSource _writerCts = new();
@@ -150,10 +159,11 @@ namespace SLSKDONET.Services.IO
                 originalLastWriteTime = fileInfo.LastWriteTime;
             }
 
+            var fileLock = _fileLocks.GetOrAdd(targetPath, static _ => new SemaphoreSlim(1, 1));
             try
             {
                 // Thread synchronization for same-file writes
-                await _fileLock.WaitAsync(cancellationToken);
+                await fileLock.WaitAsync(cancellationToken);
 
                 try
                 {
@@ -290,7 +300,7 @@ namespace SLSKDONET.Services.IO
                 }
                 finally
                 {
-                    _fileLock.Release();
+                    fileLock.Release();
                 }
             }
             catch (OperationCanceledException)
@@ -502,7 +512,8 @@ namespace SLSKDONET.Services.IO
             }
 
             _writerCts.Dispose();
-            _fileLock.Dispose();
+            foreach (var fileLock in _fileLocks.Values)
+                fileLock.Dispose();
         }
     }
 }

@@ -45,7 +45,7 @@ public class PlaylistExportStableIdTests : IDisposable
     }
 
     private PlaylistExportService CreateService() =>
-        new(NullLogger<PlaylistExportService>.Instance, CreateInMemoryFactory());
+        new(NullLogger<PlaylistExportService>.Instance, CreateInMemoryFactory(), new SLSKDONET.Tests.Helpers.FakeFileWriteService());
 
     private static string GetTrackId(XDocument doc, string title) =>
         doc.Descendants("TRACK")

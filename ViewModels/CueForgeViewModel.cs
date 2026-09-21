@@ -41,6 +41,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private readonly AppConfig _config;
     private readonly ConfigManager _configManager;
     private readonly DatabaseService _databaseService;
+    private readonly IDialogService _dialogService;
+    private readonly IEventBus _eventBus;
     private readonly CompositeDisposable _disposables = new();
 
     private const double SnapThreshold = 0.05;
@@ -60,8 +62,22 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public string? TrackHash
     {
         get => _trackHash;
-        private set => this.RaiseAndSetIfChanged(ref _trackHash, value);
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _trackHash, value);
+            this.RaisePropertyChanged(nameof(HasTrackLoaded));
+            this.RaisePropertyChanged(nameof(IsWaveformLoading));
+        }
     }
+
+    /// <summary>Gates the BPM/duration/energy header readouts so they don't show stale defaults
+    /// (120 BPM, 300s, energy 0) as if they were real metadata before any track has loaded.</summary>
+    public bool HasTrackLoaded => TrackHash != null;
+
+    /// <summary>True for the gap between a track being selected and its waveform bytes actually
+    /// arriving — previously nothing distinguished this from "no track loaded," so the waveform
+    /// strip just sat blank with no feedback.</summary>
+    public bool IsWaveformLoading => HasTrackLoaded && WaveformLow == null;
 
     private string _trackTitle = "No track loaded";
     public string TrackTitle
@@ -118,7 +134,12 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public byte[]? WaveformLow
     {
         get => _waveformLow;
-        private set { this.RaiseAndSetIfChanged(ref _waveformLow, value); this.RaisePropertyChanged(nameof(MaxZoomLevel)); }
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _waveformLow, value);
+            this.RaisePropertyChanged(nameof(MaxZoomLevel));
+            this.RaisePropertyChanged(nameof(IsWaveformLoading));
+        }
     }
 
     // Caps zoom to roughly what the loaded track's actual sample resolution can usefully show —
@@ -344,6 +365,41 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             _ = LoadPlaylistBrowserAsync(playlist.Id);
     }
 
+    // ── Mix Transition origin (for the "Back to Mix Transition" link) ──────
+
+    private Guid? _mixOriginPlaylistId;
+    private Guid? _mixOriginOutgoingTrackId;
+    private Guid? _mixOriginIncomingTrackId;
+
+    /// <summary>True once <see cref="SetMixTransitionOrigin"/> has recorded where the current
+    /// track was opened from — drives the "← Back to Mix Transition" link's visibility in
+    /// CueForgePagee.axaml. Stays true (not auto-cleared) after use: it's a real, still-valid
+    /// path back, not a one-shot toast.</summary>
+    public bool HasMixOrigin => _mixOriginPlaylistId.HasValue;
+
+    /// <summary>Called by MixTransitionViewModel.OpenTrackInCueForgeAsync right after
+    /// LoadTrackAsync, so the "Fix in Cue Forge" link (Mix Editor → Cue Forge) has a way back:
+    /// re-navigates to Library, selects this playlist, and reopens the CONTEXT sidepanel's Mix
+    /// tab on the exact pair the user came from — round-tripping instead of a dead end.</summary>
+    public void SetMixTransitionOrigin(Guid playlistId, Guid outgoingTrackId, Guid incomingTrackId)
+    {
+        _mixOriginPlaylistId = playlistId;
+        _mixOriginOutgoingTrackId = outgoingTrackId;
+        _mixOriginIncomingTrackId = incomingTrackId;
+        this.RaisePropertyChanged(nameof(HasMixOrigin));
+    }
+
+    private void BackToMixTransition()
+    {
+        if (_mixOriginPlaylistId is not { } playlistId ||
+            _mixOriginOutgoingTrackId is not { } outgoingId ||
+            _mixOriginIncomingTrackId is not { } incomingId)
+        {
+            return;
+        }
+        _eventBus.Publish(new OpenLibraryForPlaylistEvent(playlistId, outgoingId, incomingId));
+    }
+
     private async Task LoadAllPlaylistsAsync()
     {
         try
@@ -410,7 +466,6 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     public ReactiveCommand<Unit, Unit> AddCueAtPlayheadCommand { get; }
     public ReactiveCommand<Unit, Unit> AutoGenerateCuesCommand { get; }
-    public ReactiveCommand<OrbitCue, Unit> UpdateCueCommand { get; }
     public ReactiveCommand<OrbitCue, Unit> DeleteCueCommand { get; }
     public ReactiveCommand<Unit, Unit> SetLoopInCommand { get; }
     public ReactiveCommand<Unit, Unit> SetLoopOutCommand { get; }
@@ -432,8 +487,11 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<HotCuePadInfo, Unit> JumpToCueCommand { get; }
     public ReactiveCommand<double, Unit> SeekPlayheadCommand { get; }
     public ReactiveCommand<OrbitCue, Unit> AuditionCueCommand { get; }
-    public ReactiveCommand<int, Unit> NudgeCueCommand { get; }
+    public ReactiveCommand<string, Unit> NudgeCueCommand { get; }
+    public ReactiveCommand<Unit, Unit> BackToMixTransitionCommand { get; }
     public ReactiveCommand<OrbitCue, Unit> SelectCueCommand { get; }
+    public ReactiveCommand<OrbitCue, Unit> CueDragStartedCommand { get; }
+    public ReactiveCommand<OrbitCue, Unit> CueUpdatedCommand { get; }
     public ReactiveCommand<CueRole, Unit> SetSelectedCueRoleCommand { get; }
     public ReactiveCommand<string, Unit> SetSelectedCueColorCommand { get; }
     public ReactiveCommand<int, Unit> SetSelectedCueSlotCommand { get; }
@@ -520,17 +578,21 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         ILogger<CueForgeViewModel> logger,
         AppConfig config,
         ConfigManager configManager,
-        DatabaseService databaseService)
+        DatabaseService databaseService,
+        IDialogService dialogService,
+        IEventBus eventBus)
     {
         _cueService = cueService;
         _libraryService = libraryService;
         _engineCueService = engineCueService;
+        _dialogService = dialogService;
         _playerViewModel = playerViewModel;
         _camelotKeyService = camelotKeyService;
         _logger = logger;
         _config = config;
         _configManager = configManager;
         _databaseService = databaseService;
+        _eventBus = eventBus;
 
         var hasTrack = this.WhenAnyValue(x => x.TrackHash, h => !string.IsNullOrEmpty(h));
         var notGenerating = this.WhenAnyValue(x => x.IsGenerating, g => !g);
@@ -538,12 +600,11 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         AddCueAtPlayheadCommand = ReactiveCommand.CreateFromTask(AddCueAtPlayheadAsync, canAct);
         AutoGenerateCuesCommand = ReactiveCommand.CreateFromTask(AutoGenerateCuesAsync, canAct);
-        UpdateCueCommand = ReactiveCommand.CreateFromTask<OrbitCue>(UpdateCueAsync, canAct);
         DeleteCueCommand = ReactiveCommand.CreateFromTask<OrbitCue>(DeleteCueAsync, canAct);
         SetLoopInCommand = ReactiveCommand.CreateFromTask(SetLoopInAsync, canAct);
         SetLoopOutCommand = ReactiveCommand.CreateFromTask(SetLoopOutAsync, canAct);
-        LoopHalfCommand = ReactiveCommand.Create(HalveLoop);
-        LoopDoubleCommand = ReactiveCommand.Create(DoubleLoop);
+        LoopHalfCommand = ReactiveCommand.Create(HalveLoop, canAct);
+        LoopDoubleCommand = ReactiveCommand.Create(DoubleLoop, canAct);
         ClearLoopCommand = ReactiveCommand.CreateFromTask(ClearLoopAsync, canAct);
         CommitChangesCommand = ReactiveCommand.CreateFromTask(CommitChangesAsync);
         DiscardChangesCommand = ReactiveCommand.CreateFromTask(DiscardChangesAsync);
@@ -568,6 +629,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
         PreviousCueCommand = ReactiveCommand.Create(NavigateToPreviousCue, canAct);
         NextCueCommand     = ReactiveCommand.Create(NavigateToNextCue, canAct);
+        BackToMixTransitionCommand = ReactiveCommand.Create(BackToMixTransition, this.WhenAnyValue(x => x.HasMixOrigin));
         SetQuickLoopCommand = ReactiveCommand.Create<object>(param =>
         {
             if (int.TryParse(param?.ToString(), out int bars)) SetQuickLoop(bars);
@@ -576,8 +638,30 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         SeekPlayheadCommand = ReactiveCommand.Create<double>(SeekToSeconds);
 
         AuditionCueCommand = ReactiveCommand.Create<OrbitCue>(AuditionCue);
-        NudgeCueCommand    = ReactiveCommand.Create<int>(NudgeCue, canAct);
+        // Typed <int, Unit> used to crash the whole app: CueForgePagee.axaml's − beat/+ beat
+        // buttons set CommandParameter="-1"/"1" as plain XAML string literals (Avalonia doesn't
+        // auto-convert a Button.CommandParameter string to int), so ReactiveCommand's own
+        // ICommand.Execute type-check threw an unhandled InvalidOperationException on every
+        // click — an AppDomain-level crash that also killed audio output since the whole process
+        // died. <string, Unit> accepts exactly what XAML actually sends.
+        NudgeCueCommand    = ReactiveCommand.Create<string>(dir => NudgeCue(int.Parse(dir)), canAct);
         SelectCueCommand   = ReactiveCommand.Create<OrbitCue>(cue => SelectedCue = cue);
+        // Fired by CueForgeWaveformControl.OnPointerPressed the instant a cue/loop handle is hit
+        // — before any drag has actually moved it — so the undo snapshot captures the real
+        // pre-drag position. Pushing on every hit (not just once a real drag happens) is cheap
+        // and harmless; a plain click that never moves the cue just leaves a no-op snapshot on
+        // the stack.
+        CueDragStartedCommand = ReactiveCommand.Create<OrbitCue>(_ => PushSnapshot());
+        // Fired on OnPointerReleased once a drag actually moved something. The control mutates
+        // cue.Timestamp/LoopEndSeconds directly on the shared OrbitCue reference during the drag
+        // (no ObservableCollection add/remove, so WorkingCues.CollectionChanged never fires) —
+        // without this, HasUncommittedChanges never went true and the Commit button never
+        // appeared for a waveform-dragged edit, even though the edit was real.
+        CueUpdatedCommand = ReactiveCommand.Create<OrbitCue>(cue =>
+        {
+            if (cue.Source == CueSource.Auto) cue.Source = CueSource.User;
+            HasUncommittedChanges = true;
+        });
         SetSelectedCueRoleCommand  = ReactiveCommand.Create<CueRole>(SetSelectedCueRole, canAct);
         SetSelectedCueColorCommand = ReactiveCommand.Create<string>(SetSelectedCueColor, canAct);
         SetSelectedCueSlotCommand  = ReactiveCommand.Create<int>(SetSelectedCueSlot, canAct);
@@ -604,17 +688,16 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                                _config.CueForgeLastTrackTitle,
                                _config.CueForgeLastTrackArtist);
 
-        // Auto-load when PlayerViewModel.CurrentTrack changes
+        // Auto-load when PlayerViewModel.CurrentTrack changes — including a natural playlist
+        // advance during live Mix playback while this page just happens to be open, not only an
+        // explicit "Open in Cue Forge" click. If the OLD track has an uncommitted draft, silently
+        // commit it first (never lose work) rather than the previous behavior of discarding it
+        // with zero warning — and never a blocking confirm dialog here, since that could pop up
+        // mid-song during live playback. Mirrors CommitChangesCommand's own save path.
         this.WhenAnyValue(x => x._playerViewModel.CurrentTrack)
             .DistinctUntilChanged()
             .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(track =>
-            {
-                if (track?.GlobalId is { Length: > 0 } hash)
-                    _ = LoadTrackAsync(hash, track.Title, track.Artist);
-                else
-                    ClearWorkingDraft();
-            })
+            .Subscribe(track => _ = SwitchTrackAsync(track))
             .DisposeWith(_disposables);
 
         // Playhead sync at ~30 fps
@@ -636,6 +719,29 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             .DisposeWith(_disposables);
     }
 
+    /// <summary>
+    /// Handles PlayerViewModel.CurrentTrack changing — auto-committing an uncommitted draft for
+    /// whichever track was previously loaded before switching, instead of silently discarding it
+    /// (the previous, buggy behavior). The old track's title is captured before CommitChangesAsync
+    /// runs (which is keyed off the still-current TrackHash/TrackTitle at that point) so the
+    /// status message can name it after TrackTitle has already moved on to the new track.
+    /// </summary>
+    private async Task SwitchTrackAsync(PlaylistTrackViewModel? track)
+    {
+        if (HasUncommittedChanges && TrackHash is not null)
+        {
+            string previousTitle = TrackTitle;
+            await CommitChangesAsync();
+            if (!HasCommitError)
+                LastCommitMessage = $"✓ Auto-saved cues for \"{previousTitle}\" (track changed)";
+        }
+
+        if (track?.GlobalId is { Length: > 0 } hash)
+            await LoadTrackAsync(hash, track.Title, track.Artist);
+        else
+            ClearWorkingDraft();
+    }
+
     // ── Public API ─────────────────────────────────────────────────────────
 
     public async Task LoadTrackAsync(string trackHash, string? title = null, string? artist = null)
@@ -648,6 +754,9 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         _undoStack.Clear(); _redoStack.Clear();
         HasUncommittedChanges = false;
         UpdateUndoRedoState();
+        // Clear the previous track's waveform bytes up front so switching tracks shows the new
+        // "Loading waveform…" placeholder instead of briefly flashing the old track's waveform.
+        WaveformLow = null; WaveformMid = null; WaveformHigh = null;
 
         // Load this track's audio into the shared player engine so Play/Seek/Audition in the
         // embedded transport actually have something to play. LoadTrackAsync used to only pull
@@ -655,18 +764,36 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         // Cue Forge on a track that wasn't already playing elsewhere left the transport
         // pointing at whatever (if anything) was previously loaded. Skip the reload if this
         // exact file is already loaded so we don't interrupt playback that's already running.
-        try
+        //
+        // This method also fires automatically on every PlayerViewModel.CurrentTrack change (see
+        // the constructor's WhenAnyValue subscription) to keep Cue Forge in sync with whatever's
+        // now playing — including every natural track advance during real queue/Mix playback, not
+        // just an explicit "Open in Cue Forge" click. That made the file-path guard above load-
+        // bearing for something it was never designed for: a track can legitimately exist under
+        // two different resolved paths (e.g. the playlist's own ResolvedFilePath vs. this DB
+        // lookup's canonical library path for a duplicate/relocated copy of the same file), so the
+        // path string comparison fails even though the exact right track is already live — and
+        // LoadTrackPaused then reopens it as a brand-new, unstarted deck, silently killing
+        // whatever was actually playing (including mid-crossfade). Check track IDENTITY (hash)
+        // against the currently-playing track first — that's the comparison this call site
+        // actually needs — and only fall back to the path check for the "opened explicitly, not
+        // already playing anything" case.
+        var alreadyPlayingThisTrack = string.Equals(_playerViewModel.CurrentTrack?.GlobalId, trackHash, StringComparison.OrdinalIgnoreCase);
+        if (!alreadyPlayingThisTrack)
         {
-            var resolvedPath = await _databaseService.GetLocalFilePathByHashAsync(trackHash);
-            if (!string.IsNullOrEmpty(resolvedPath) &&
-                !string.Equals(_playerViewModel.CurrentFilePath, resolvedPath, StringComparison.OrdinalIgnoreCase))
+            try
             {
-                _playerViewModel.LoadTrackPaused(resolvedPath, title ?? TrackTitle, artist ?? "");
+                var resolvedPath = await _databaseService.GetLocalFilePathByHashAsync(trackHash);
+                if (!string.IsNullOrEmpty(resolvedPath) &&
+                    !string.Equals(_playerViewModel.CurrentFilePath, resolvedPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    _playerViewModel.LoadTrackPaused(resolvedPath, title ?? TrackTitle, artist ?? "");
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "CueForge: could not load audio for {Hash}; transport will have nothing to play", trackHash);
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "CueForge: could not load audio for {Hash}; transport will have nothing to play", trackHash);
+            }
         }
 
         TrackLoadError = null;
@@ -729,8 +856,12 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
                 WorkingCues.Clear();
-                HasUncommittedChanges = false;
                 foreach (var c in cues) WorkingCues.Add(c);
+                // Reset AFTER populating, not before — each Add() above flips this back to true
+                // via the WorkingCues.CollectionChanged handler, so resetting first meant opening
+                // any track with saved cues immediately showed "UNSAVED CHANGES" before anything
+                // was actually edited. Matches DiscardChangesAsync's (correct) ordering.
+                HasUncommittedChanges = false;
             });
 
             this.RaisePropertyChanged(nameof(IsExportReady));
@@ -762,6 +893,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         EnergyCurveData = null; VocalDensityCurveData = null; OnsetDensityCurveData = null;
         LoopInSeconds = null; LoopOutSeconds = null;
         IsInVocalRegion = false;
+        Bpm = 120; TrackDuration = 300.0; TrackEnergyScore = 0;
     }
 
     public void UpdateCamelotKeyDisplay(string camelotKey)
@@ -775,14 +907,21 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     // ── Command Implementations ────────────────────────────────────────────
 
-    private async Task AddCueAtPlayheadAsync()
+    private Task AddCueAtPlayheadAsync() => AddCueAtTimeAsync(CurrentPlayPosition);
+
+    /// <summary>Adds a new cue at an explicit timestamp and selects it — used by
+    /// AddCueAtPlayheadCommand (current playhead) and by MixTransitionViewModel's "Add cue here"
+    /// (waveform right-click in the Mix Transition Editor), which loads the track via
+    /// LoadTrackAsync first, then calls this with the clicked time so the new cue is ready to
+    /// manage the moment Cue Forge opens.</summary>
+    public async Task AddCueAtTimeAsync(double seconds)
     {
         if (TrackHash is null) return;
         PushSnapshot();
         int nextSlot = Enumerable.Range(0, 8).FirstOrDefault(i => WorkingCues.All(c => c.SlotIndex != i), -1);
         var cue = new OrbitCue
         {
-            Timestamp = CurrentPlayPosition,
+            Timestamp = Math.Clamp(seconds, 0, TrackDuration),
             Name = $"Cue {WorkingCues.Count(c => !c.IsLoop) + 1}",
             Color = "#FFFF00",
             Source = CueSource.User,
@@ -790,6 +929,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             SlotIndex = nextSlot
         };
         InsertCueSorted(cue);
+        SelectedCue = cue;
         await Task.CompletedTask;
     }
 
@@ -854,9 +994,19 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         finally { IsGenerating = false; }
     }
 
-    private async Task UpdateCueAsync(OrbitCue cue) { if (TrackHash is null) return; PushSnapshot(); cue.Source = CueSource.User; await Task.CompletedTask; }
 
-    private async Task DeleteCueAsync(OrbitCue cue) { if (TrackHash is null) return; PushSnapshot(); WorkingCues.Remove(cue); await Task.CompletedTask; }
+    // Unlike Discard Changes (which also wipes the undo/redo stacks and is genuinely
+    // unrecoverable), a single cue delete stays on the undo stack — a blocking confirm dialog
+    // would just be friction for a reversible action. Surface the Ctrl+Z path instead of gating it.
+    private async Task DeleteCueAsync(OrbitCue cue)
+    {
+        if (TrackHash is null) return;
+        PushSnapshot();
+        WorkingCues.Remove(cue);
+        HasCommitError = false;
+        LastCommitMessage = $"Deleted \"{cue.Name}\" — Ctrl+Z to undo";
+        await Task.CompletedTask;
+    }
 
     private async Task SetLoopInAsync()
     {
@@ -965,6 +1115,16 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private async Task DiscardChangesAsync()
     {
         if (TrackHash is null) return;
+
+        // Unlike Delete Cue (recoverable via Undo), Discard also wipes the undo/redo stacks below
+        // — on a genuinely dirty session this is unrecoverable, so confirm before doing it.
+        var confirmed = await _dialogService.ConfirmAsync(
+            "Discard Changes",
+            "This discards every unsaved cue/loop edit for this track and cannot be undone afterward. Continue?",
+            confirmLabel: "Discard",
+            cancelLabel: "Cancel");
+        if (!confirmed) return;
+
         try
         {
             var entities = await _cueService.GetByTrackIdAsync(TrackHash);
@@ -1181,6 +1341,12 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         double preRoll = Bpm > 0 ? 4.0 * 60.0 / Bpm : 2.0; // 4 beats before cue
         double seekSec = Math.Max(0, cue.Timestamp - preRoll);
         _playerViewModel.Seek((float)(seekSec * 1000.0 / _playerViewModel.LengthMs));
+
+        // "Audition" promises to actually play the pre-roll (tooltip: "plays 4 beats before
+        // this cue") — Seek only repositions a paused player, so without this the button did
+        // nothing audible unless playback happened to already be running.
+        if (!_playerViewModel.IsPlaying)
+            _playerViewModel.TogglePlayPauseCommand?.Execute(null);
     }
 
     // ── Keyboard nudge (±1 beat) ───────────────────────────────────────────

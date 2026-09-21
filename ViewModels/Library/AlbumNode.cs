@@ -83,27 +83,15 @@ public class AlbumNode : ILibraryNode, INotifyPropertyChanged
 
     public Bitmap? ArtworkBitmap => Artwork?.Image; // Keep for XAML binding compatibility if needed, but we'll update XAML too
 
-    public IBrush FallbackBrush => GenerateColorFromHash(AlbumTitle ?? "?");
-    public string FallbackLetter => !string.IsNullOrEmpty(AlbumTitle) ? AlbumTitle.Substring(0, 1).ToUpper() : "?";
+    // Delegates to the shared ArtworkFallback utility (hue-hashed, fixed saturation/lightness)
+    // rather than this class's own raw-RGB-from-hash approach, which could land on muddy or
+    // washed-out combinations depending on which hash bits came out — now shared with every
+    // other "no artwork" surface (track rows, cards) so the whole app agrees on one look.
+    public IBrush FallbackBrush => Utils.ArtworkFallback.GetBrush(AlbumTitle);
+    public string FallbackLetter => Utils.ArtworkFallback.GetLetter(AlbumTitle);
 
     // Track Count for UI binding
     public int TrackCount => Tracks.Count;
-
-    // Helper for color generation
-    private IBrush GenerateColorFromHash(string input)
-    {
-        int hash = input.GetHashCode();
-        byte r = (byte)((hash & 0xFF0000) >> 16);
-        byte g = (byte)((hash & 0x00FF00) >> 8);
-        byte b = (byte)(hash & 0x0000FF);
-        
-        // Ensure color is not too dark
-        if (r < 50) r += 50;
-        if (g < 50) g += 50;
-        if (b < 50) b += 50;
-
-        return new SolidColorBrush(Color.FromRgb(r, g, b));
-    }
 
     public AlbumNode(string? albumTitle, string? artist, DownloadManager? downloadManager = null, ArtworkCacheService? artworkCacheService = null, IEventBus? eventBus = null)
     {

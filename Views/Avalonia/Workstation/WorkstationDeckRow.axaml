@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels.Workstation"
              xmlns:orbitControls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
              mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="120"
              x:Class="SLSKDONET.Views.Avalonia.Workstation.WorkstationDeckRow"
              x:DataType="vm:WorkstationDeckViewModel">
@@ -130,6 +131,13 @@
                     <!-- Row 0: Badge + Title / Artist -->
                     <Grid Grid.Row="0" ColumnDefinitions="Auto,*" VerticalAlignment="Center">
                         <Border Grid.Column="0" Background="#2D2D2D" CornerRadius="4" Padding="5,1" Height="16" VerticalAlignment="Center">
+                            <Border.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="Remove This Deck"
+                                              Command="{Binding $parent[views:WorkstationPage].DataContext.RemoveDeckCommand}"
+                                              CommandParameter="{Binding}"/>
+                                </ContextMenu>
+                            </Border.ContextMenu>
                             <TextBlock Text="{Binding DeckLabel}"
                                        FontSize="10"
                                        FontWeight="Bold"
@@ -170,16 +178,17 @@
                                    VerticalAlignment="Center" 
                                    Margin="6,0,0,0"/>
 
-                        <ProgressBar Minimum="0" 
-                                     Maximum="1" 
-                                     Value="{Binding VuLevel}" 
-                                     Orientation="Horizontal" 
-                                     Width="30" 
-                                     Height="4" 
-                                     Foreground="#4CAF50" 
-                                     Background="#2A2A2A" 
-                                     VerticalAlignment="Center" 
-                                     Margin="8,0,0,0"/>
+                        <ProgressBar Minimum="0"
+                                     Maximum="1"
+                                     Value="{Binding VuLevel}"
+                                     Orientation="Horizontal"
+                                     Width="30"
+                                     Height="4"
+                                     Foreground="#4CAF50"
+                                     Background="#2A2A2A"
+                                     VerticalAlignment="Center"
+                                     Margin="8,0,0,0"
+                                     ToolTip.Tip="Approximate playback-position indicator, not a true audio level meter"/>
                     </StackPanel>
 
                     <!-- Row 2: Energy curve mini-bar (6px) -->

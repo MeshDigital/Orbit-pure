@@ -54,6 +54,7 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
     public ICommand AddLibraryFolderCommand { get; }
     public ICommand RemoveLibraryFolderCommand { get; }
     public ICommand ScanAllLibraryFoldersCommand { get; }
+    public ICommand ToggleWatchCommand { get; }
 
     public LibrarySourcesViewModel(
         ILogger<LibrarySourcesViewModel> logger,
@@ -73,6 +74,7 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
         AddLibraryFolderCommand = new AsyncRelayCommand(AddLibraryFolderAsync);
         RemoveLibraryFolderCommand = new RelayCommand<LibraryFolderViewModel?>(RemoveLibraryFolder);
         ScanAllLibraryFoldersCommand = new AsyncRelayCommand(ScanAllLibraryFoldersAsync);
+        ToggleWatchCommand = new AsyncRelayCommand<LibraryFolderViewModel?>(ToggleWatchAsync);
 
         // Load existing on init
         _ = LoadLibraryFoldersAsync();
@@ -143,6 +145,31 @@ public class LibrarySourcesViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to add library folder");
+        }
+    }
+
+    private async Task ToggleWatchAsync(LibraryFolderViewModel? folderVm)
+    {
+        if (folderVm == null) return;
+
+        try
+        {
+            var newValue = !folderVm.IsWatched;
+            await using var context = _dbFactory.CreateDbContext();
+            var folder = await context.LibraryFolders.FindAsync(folderVm.Id);
+            if (folder == null) return;
+
+            folder.IsWatched = newValue;
+            await context.SaveChangesAsync();
+
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => folderVm.IsWatched = newValue);
+
+            _logger.LogInformation("Library folder watch {State}: {Path}", newValue ? "enabled" : "disabled", folderVm.FolderPath);
+            _eventBus.Publish(new LibraryFoldersChangedEvent());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to toggle folder watch state");
         }
     }
 

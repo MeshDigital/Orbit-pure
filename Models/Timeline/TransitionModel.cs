@@ -14,8 +14,20 @@ public enum TransitionType
     /// <summary>Decaying echo on the outgoing clip while incoming fades in.</summary>
     EchoOut,
 
-    /// <summary>Low-pass filter sweeps down on outgoing clip over the transition window.</summary>
-    FilterSweep
+    /// <summary>Low-pass (or, with <see cref="TransitionModel.FilterSweepRising"/>, high-pass) filter sweep over the transition window.</summary>
+    FilterSweep,
+
+    /// <summary>Bass handover: low band swaps from outgoing to incoming while mids/highs crossfade normally — avoids muddy bass collision.</summary>
+    EqSwap,
+
+    /// <summary>Rhythmic gain ducking on the downbeat of every bar through the window, for a pumping/sidechain-style handover.</summary>
+    WaveDuck,
+
+    /// <summary>Loops a bar-aligned tail of the outgoing clip once or twice ("double drop" DJ
+    /// technique) before crossfading into the incoming clip, so the incoming track's own drop
+    /// lands right as the outgoing loop ends — feels like two drops landing together rather than
+    /// a plain fade.</summary>
+    DoubleDrop
 }
 
 /// <summary>
@@ -46,4 +58,44 @@ public class TransitionModel
     /// Ending frequency (Hz) for <see cref="TransitionType.FilterSweep"/>.
     /// </summary>
     public float FilterEndFrequency { get; set; } = 200f;
+
+    /// <summary>
+    /// When true, <see cref="TransitionType.FilterSweep"/> runs as a rising high-pass sweep on
+    /// the incoming clip (energy build into the drop) instead of a falling low-pass sweep on
+    /// the outgoing clip. Used by the "Rise" preset.
+    /// </summary>
+    public bool FilterSweepRising { get; set; } = false;
+
+    /// <summary>
+    /// Duck depth (0-1) for <see cref="TransitionType.WaveDuck"/> — how far gain dips on each
+    /// downbeat. 0 = no ducking, 1 = full silence at the dip.
+    /// </summary>
+    public float WaveDuckDepth { get; set; } = 0.5f;
+
+    // ── EqSwap ("Blend") band config — mirrors Services.Audio.EqBandSwapConfig's defaults ──
+
+    /// <summary>Whether the Low band swaps from outgoing to incoming for <see cref="TransitionType.EqSwap"/>.</summary>
+    public bool EqSwapLow { get; set; } = true;
+
+    /// <summary>Whether the Mid band swaps.</summary>
+    public bool EqSwapMid { get; set; } = false;
+
+    /// <summary>Whether the High band swaps.</summary>
+    public bool EqSwapHigh { get; set; } = false;
+
+    /// <summary>Low/mid crossover frequency (Hz).</summary>
+    public float EqLowCrossoverHz { get; set; } = 250f;
+
+    /// <summary>Mid/high crossover frequency (Hz).</summary>
+    public float EqHighCrossoverHz { get; set; } = 4000f;
+
+    // ── DoubleDrop loop config ──────────────────────────────────────────
+
+    /// <summary>Bar length of the looped tail for <see cref="TransitionType.DoubleDrop"/> — 8 or
+    /// 16 bars, matching how DJs actually mark pre-drop countdown phrases.</summary>
+    public int LoopBars { get; set; } = 8;
+
+    /// <summary>How many extra times the loop repeats beyond its first play-through, for
+    /// <see cref="TransitionType.DoubleDrop"/> — 1 or 2.</summary>
+    public int LoopRepeats { get; set; } = 1;
 }

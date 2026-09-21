@@ -28,19 +28,21 @@ public class NavigationService : INavigationService
 {
     private readonly ILogger<NavigationService> _logger;
     private readonly IServiceProvider _serviceProvider;
+    private readonly PerformanceTracker _perfTracker;
     private readonly Dictionary<string, Type> _pages = new();
     private readonly Stack<object?> _pageHistory = new();
     private object? _currentPage;
-    
+
     // Phase 1A: ViewCache pattern - prevents state loss during navigation
     private readonly Dictionary<Type, UserControl> _viewCache = new();
 
     public object? CurrentPage => _currentPage;
 
-    public NavigationService(IServiceProvider serviceProvider, ILogger<NavigationService> logger)
+    public NavigationService(IServiceProvider serviceProvider, ILogger<NavigationService> logger, PerformanceTracker perfTracker)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _perfTracker = perfTracker;
     }
 
     public void RegisterPage(string key, Type pageType)
@@ -59,8 +61,13 @@ public class NavigationService : INavigationService
     {
         if (_pages.TryGetValue(pageKey, out var pageType))
         {
+            // Measures page resolve (first visit: DI construction; later visits: cache lookup, near-
+            // instant) plus the content swap. A page's own async data load (e.g. UsersViewModel.
+            // LoadAsync, which is what was actually slow) runs after this and isn't captured here —
+            // pages that want that measured opt in with their own _perfTracker.Measure(...) scope.
+            using var _ = _perfTracker.Measure($"Nav:{pageKey}");
             _logger.LogInformation("Navigating to page: {PageKey}", pageKey);
-            
+
             // Save current page in history (if exists)
             if (_currentPage != null)
             {

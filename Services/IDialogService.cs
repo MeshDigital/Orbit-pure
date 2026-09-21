@@ -69,7 +69,28 @@ public interface IDialogService
     /// <summary>
     /// Shows a batch tag editor dialog.
     /// </summary>
-    Task<ViewModels.Library.BatchTagEditResult?> ShowBatchTagEditDialogAsync(string? initialFileName = null);
+    Task<ViewModels.Library.BatchTagEditResult?> ShowBatchTagEditDialogAsync(string? initialFileName = null, ViewModels.Library.BatchTagEditSeed? seed = null);
+
+    /// <summary>
+    /// Shows the bulk-rename-by-pattern dialog for <paramref name="trackCount"/> selected tracks,
+    /// previewing the pattern against up to a few sample tracks.
+    /// </summary>
+    Task<ViewModels.Library.BulkRenameResult?> ShowBulkRenameDialogAsync(
+        int trackCount, System.Collections.Generic.IReadOnlyList<ViewModels.Library.BulkRenamePreviewTrack> previewTracks);
+
+    /// <summary>
+    /// Shows the Move/Copy mode-choice dialog for <paramref name="trackCount"/> selected tracks.
+    /// The destination folder is picked separately afterward via <see cref="OpenFolderDialogAsync"/>.
+    /// </summary>
+    Task<ViewModels.Library.BulkMoveOrCopyResult?> ShowBulkMoveOrCopyDialogAsync(int trackCount);
+
+    /// <summary>
+    /// Shows the Export Playlist choice dialog — Copy Files + XML / XML Only / Cancel. Unlike
+    /// <see cref="ConfirmAsync"/>, dismissing the window (X / Alt+F4 / Escape) returns null,
+    /// which callers must treat identically to an explicit Cancel — it must NOT fall through to
+    /// either export path.
+    /// </summary>
+    Task<Views.Avalonia.Dialogs.ExportPlaylistChoice?> ShowExportPlaylistChoiceAsync(string playlistTitle);
 
     /// <summary>
     /// Shows a folder selection dialog.

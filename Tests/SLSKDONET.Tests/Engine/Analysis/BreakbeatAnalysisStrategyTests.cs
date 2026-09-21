@@ -99,6 +99,43 @@ public class BreakbeatAnalysisStrategyTests
     }
 
     [Fact]
+    public void GetFamilySpecificDropCandidates_BoostsSubBassReturn_CorroboratedByNearbyNoveltyPeak()
+    {
+        var strategy = CreateStrategy();
+        var analysis = new AnalysisPipelineResult
+        {
+            DurationSeconds = 240,
+            Bpm = 174,
+            SubBassReturnTimestamps = new System.Collections.Generic.List<double> { 60.0 },
+            // Within one beat (60/174 ≈ 0.345s) of the sub-bass return.
+            NoveltyDropSignatures = new System.Collections.Generic.List<(double, double, float)> { (60.2, 55.0, 0.8f) },
+        };
+
+        var candidates = strategy.GetFamilySpecificDropCandidates(analysis, bpm: 174, downbeatAnchor: 0.2);
+
+        var corroborated = Assert.Single(candidates);
+        Assert.Equal(60.0, corroborated.Time);
+        Assert.Equal(0.90f, corroborated.Score);
+    }
+
+    [Fact]
+    public void GetFamilySpecificDropCandidates_NoCandidate_WhenNoveltyPeakIsFarAway()
+    {
+        var strategy = CreateStrategy();
+        var analysis = new AnalysisPipelineResult
+        {
+            DurationSeconds = 240,
+            Bpm = 174,
+            SubBassReturnTimestamps = new System.Collections.Generic.List<double> { 60.0 },
+            NoveltyDropSignatures = new System.Collections.Generic.List<(double, double, float)> { (90.0, 85.0, 0.8f) },
+        };
+
+        var candidates = strategy.GetFamilySpecificDropCandidates(analysis, bpm: 174, downbeatAnchor: 0.2);
+
+        Assert.Empty(candidates);
+    }
+
+    [Fact]
     public void GetFamilySpecificBreakdownCandidates_DegenerateInput_ReturnsEmptyWithoutThrowing()
     {
         var strategy = CreateStrategy();

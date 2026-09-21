@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using SLSKDONET.Models;
 
 namespace SLSKDONET.Configuration;
@@ -182,9 +180,7 @@ public class AppConfig
     // Flow Builder persistence
     public string? FlowBuilderSelectedPlaylistId { get; set; }
     public bool FlowBuilderRestoreContentOnStartup { get; set; } = true;
-    public bool EnableFlowBuilderSuggestedFlowPreview { get; set; } = true;
     public bool EnableFlowBuilderSuggestedFlowTelemetry { get; set; } = true;
-    public int FlowBuilderSuggestedFlowPreviewRolloutPercent { get; set; } = 10;
 
     // Frequent Sources (privacy-first, local-only, opt-in)
     public bool EnableFrequentSources { get; set; } = false;
@@ -252,6 +248,23 @@ public class AppConfig
     public string? AutoDownloadExcludedPhrases { get; set; } = "remix,cover,live,acoustic"; // Comma-separated phrases to exclude
     public bool AutoDownloadDiagnosticsEnabled { get; set; } = false; // Local-only diagnostic logging to PlaylistActivityLogEntity
 
+    // Update check — a single unauthenticated GET to the public GitHub Releases API at most once
+    // per CheckInterval, comparing tag_name against this build's own version. No telemetry, no
+    // account/PII involved; opt-out toggle provided for consistency with this app's other
+    // network-touching features.
+    public bool EnableUpdateCheck { get; set; } = true;
+    public DateTime? LastUpdateCheckUtc { get; set; }
+    public string? LastSeenUpdateVersion { get; set; } // Suppresses re-notifying for a version already shown
+
+    // Waveform appearance — the RGB tri-band renderer/overlays already existed but had zero
+    // user-facing settings (colors/overlays were compiled-in constants).
+    public string WaveformPalette { get; set; } = "NeonRgb"; // "NeonRgb" or "ClassicRgb"
+    public bool WaveformShowEnergyCurve { get; set; } = true;
+    public bool WaveformShowVocalGhost { get; set; } = true;
+    public bool WaveformShowPhraseSections { get; set; } = true;
+    public bool WaveformShowBeatGrid { get; set; } = true;
+    public float WaveformGain { get; set; } = 1.0f;
+
     // Library smart insert (segment-aware playlist intelligence)
     // Confidence threshold: 0.80 strict, 0.72 normal, 0.65 loose/experimental
     public double LibrarySmartInsertMinConfidence { get; set; } = 0.72;
@@ -287,23 +300,4 @@ public class AppConfig
     /// </summary>
     public bool EnableKeyboardTelemetry { get; set; } = false;
 
-    public bool IsFlowBuilderPreviewEnabledForThisInstall(string installKey)
-    {
-        if (!EnableFlowBuilderSuggestedFlowPreview)
-            return false;
-
-        if (FlowBuilderSuggestedFlowPreviewRolloutPercent <= 0)
-            return false;
-
-        if (FlowBuilderSuggestedFlowPreviewRolloutPercent >= 100)
-            return true;
-
-        if (string.IsNullOrWhiteSpace(installKey))
-            return false;
-
-        using var sha256 = SHA256.Create();
-        var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(installKey.Trim()));
-        var bucket = hashBytes[0] % 100;
-        return bucket < FlowBuilderSuggestedFlowPreviewRolloutPercent;
-    }
 }

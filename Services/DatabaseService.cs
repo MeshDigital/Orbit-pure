@@ -28,6 +28,15 @@ public class DatabaseService
     private readonly SemaphoreSlim _initSemaphore = new SemaphoreSlim(1, 1);
     private bool _isInitialized;
 
+    // Short TTL cache for the Users page's per-peer download summary — this query previously ran
+    // an unindexed full-table GROUP BY (fixed separately, see SchemaMigratorService patch #28), but
+    // the Refresh button re-runs LoadAsync on demand, so a brief cache absorbs repeated clicks
+    // without needing an invalidation hook wired into every download-completion path. 20s balances
+    // "don't hammer the DB on a double-click" against "new downloads should show up reasonably soon".
+    private List<UserDownloadSummary>? _downloadedUsersSummaryCache;
+    private DateTime _downloadedUsersSummaryCachedAtUtc = DateTime.MinValue;
+    private static readonly TimeSpan DownloadedUsersSummaryCacheTtl = TimeSpan.FromSeconds(20);
+
     public DatabaseService(
         ILogger<DatabaseService> logger,
         SchemaMigratorService schemaMigrator,
@@ -306,6 +315,24 @@ public class DatabaseService
         }
     }
 
+    /// <summary>
+    /// Deletes a LibraryEntries row by its real primary key. LibraryEntryEntity's <c>[Key]</c> is
+    /// UniqueHash (a string) — its Guid Id field is a secondary convenience field only, per the
+    /// entity's own doc comment — so <see cref="DeleteLibraryEntryAsync"/>'s FindAsync(Guid) can
+    /// never match a row here and silently no-ops. Use this whenever the caller has the track's
+    /// hash (the common case) rather than that Guid.
+    /// </summary>
+    public async Task DeleteLibraryEntryByHashAsync(string uniqueHash)
+    {
+        using var context = new AppDbContext();
+        var entry = await context.LibraryEntries.FindAsync(uniqueHash);
+        if (entry != null)
+        {
+            context.LibraryEntries.Remove(entry);
+            await context.SaveChangesAsync();
+        }
+    }
+
     // Helper to bulk save if needed
     public async Task SaveAllAsync(IEnumerable<TrackEntity> tracks)
     {
@@ -337,9 +364,16 @@ public class DatabaseService
         string? stalledReason = null)
     {
         return await _trackRepository.UpdatePlaylistTrackStatusAndRecalculateJobsAsync(
-            trackUniqueHash, newStatus, resolvedPath, searchRetryCount, notFoundRestartCount, 
+            trackUniqueHash, newStatus, resolvedPath, searchRetryCount, notFoundRestartCount,
             state, error, completedAt, stalledReason);
     }
+
+    public async Task<List<Guid>> BulkUpdatePlaylistTrackStatusAsync(
+        IReadOnlyList<string> trackUniqueHashes, TrackStatus? newStatus, string? state = null,
+        bool? isUserPaused = null, bool clearRetryState = false, bool? isClearedFromDownloadCenter = null,
+        int? priority = null)
+        => await _trackRepository.BulkUpdatePlaylistTrackStatusAsync(
+            trackUniqueHashes, newStatus, state, isUserPaused, clearRetryState, isClearedFromDownloadCenter, priority);
 
     // ===== LibraryEntry Methods =====
 
@@ -637,14 +671,14 @@ public class DatabaseService
         return await _trackRepository.LoadPlaylistTracksAsync(jobId);
     }
 
-    public async Task<int> GetPlaylistTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
+    public async Task<int> GetPlaylistTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, string? qualityTier = null)
     {
-        return await _trackRepository.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter);
+        return await _trackRepository.GetPlaylistTrackCountAsync(playlistId, filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier);
     }
 
-    public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false)
+    public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
     {
-        return await _trackRepository.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending);
+        return await _trackRepository.GetPagedPlaylistTracksAsync(playlistId, skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier);
     }
 
     public async Task<List<TrackPhraseEntity>> GetPhrasesByHashAsync(string trackHash)
@@ -657,14 +691,14 @@ public class DatabaseService
         await _trackRepository.SavePhrasesAsync(phrases);
     }
 
-    public async Task<int> GetTotalLibraryTrackCountAsync(string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
+    public async Task<int> GetTotalLibraryTrackCountAsync(string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, string? qualityTier = null)
     {
-        return await _trackRepository.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter);
+        return await _trackRepository.GetTotalLibraryTrackCountAsync(filter, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier);
     }
 
-    public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false)
+    public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
     {
-        return await _trackRepository.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending);
+        return await _trackRepository.GetPagedAllTracksAsync(skip, take, filter, downloadedOnly, hashFilter, camelotKeyFilter, sortColumn, sortDescending, qualityTier);
     }
 
     public async Task<PlaylistTrackEntity?> GetPlaylistTrackByHashAsync(Guid jobId, string trackHash)
@@ -2387,7 +2421,11 @@ public class DatabaseService
             .ConfigureAwait(false);
         foreach (var row in playlistRows)
         {
-            row.BPM = features.Bpm;
+            // Analysis fills BPM only when nothing more authoritative is already set — a manual
+            // edit or a file-embedded tag both outrank Essentia, which has a confirmed quantization
+            // bias on breakbeat/DNB content (see TagBPM's doc comment). Every other analysis field
+            // below is untouched; only BPM was diagnosed as wrong.
+            if (row.ManualBPM is null && row.TagBPM is null) row.BPM = features.Bpm;
             row.MusicalKey = features.Key;
             row.Energy = features.Energy;
             row.Danceability = features.Danceability;
@@ -2409,7 +2447,11 @@ public class DatabaseService
             .ConfigureAwait(false);
         foreach (var row in libraryRows)
         {
-            row.BPM = features.Bpm;
+            // Analysis fills BPM only when nothing more authoritative is already set — a manual
+            // edit or a file-embedded tag both outrank Essentia, which has a confirmed quantization
+            // bias on breakbeat/DNB content (see TagBPM's doc comment). Every other analysis field
+            // below is untouched; only BPM was diagnosed as wrong.
+            if (row.ManualBPM is null && row.TagBPM is null) row.BPM = features.Bpm;
             row.MusicalKey = features.Key;
             row.Energy = features.Energy;
             row.Danceability = features.Danceability;
@@ -2431,7 +2473,11 @@ public class DatabaseService
             .ConfigureAwait(false);
         foreach (var row in masterTracks)
         {
-            row.BPM = features.Bpm;
+            // Analysis fills BPM only when nothing more authoritative is already set — a manual
+            // edit or a file-embedded tag both outrank Essentia, which has a confirmed quantization
+            // bias on breakbeat/DNB content (see TagBPM's doc comment). Every other analysis field
+            // below is untouched; only BPM was diagnosed as wrong.
+            if (row.ManualBPM is null && row.TagBPM is null) row.BPM = features.Bpm;
             row.MusicalKey = features.Key;
             row.Energy = features.Energy;
             row.Danceability = features.Danceability;
@@ -2459,11 +2505,18 @@ public class DatabaseService
             .ConfigureAwait(false);
     }
 
-    /// <summary>Per-peer download counts/last-seen, grouped from DownloadHistory — the row source for the Users/Contacts page.</summary>
+    /// <summary>Per-peer download counts/last-seen, grouped from DownloadHistory — the row source
+    /// for the Users/Contacts page. Cached for <see cref="DownloadedUsersSummaryCacheTtl"/> since
+    /// this GroupBy can be a meaningful scan over a large table and the Refresh button re-triggers
+    /// it on demand.</summary>
     public async Task<List<UserDownloadSummary>> GetDownloadedUsersSummaryAsync()
     {
+        var cached = _downloadedUsersSummaryCache;
+        if (cached != null && DateTime.UtcNow - _downloadedUsersSummaryCachedAtUtc < DownloadedUsersSummaryCacheTtl)
+            return cached;
+
         using var context = new AppDbContext();
-        return await context.DownloadHistory
+        var result = await context.DownloadHistory
             .Where(x => x.PeerUsername != null)
             .GroupBy(x => x.PeerUsername!)
             .Select(g => new UserDownloadSummary(
@@ -2473,6 +2526,10 @@ public class DatabaseService
                 g.Max(x => x.RecordedAt)))
             .ToListAsync()
             .ConfigureAwait(false);
+
+        _downloadedUsersSummaryCache = result;
+        _downloadedUsersSummaryCachedAtUtc = DateTime.UtcNow;
+        return result;
     }
 
     /// <summary>
@@ -2569,19 +2626,6 @@ public class DatabaseService
         }
     }
 
-    /// <summary>Distinct peers with any message history, most recently active first — powers the conversation list panel.</summary>
-    public async Task<List<string>> GetConversationPeersAsync()
-    {
-        using var context = new AppDbContext();
-        return await context.PrivateMessages
-            .GroupBy(x => x.PeerUsername)
-            .Select(g => new { Username = g.Key, LastMessageAt = g.Max(x => x.TimestampUtc) })
-            .OrderByDescending(x => x.LastMessageAt)
-            .Select(x => x.Username)
-            .ToListAsync()
-            .ConfigureAwait(false);
-    }
-
     /// <summary>
     /// Recent 1:1 conversations with a last-message preview, most recently active first — the data
     /// source for the Users page's "Conversations" section (distinct from the full "everyone you've
@@ -2600,10 +2644,28 @@ public class DatabaseService
 
         return recentMessages
             .GroupBy(x => x.PeerUsername, StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.First()) // already ordered by TimestampUtc desc, so first = most recent per peer
-            .OrderByDescending(x => x.TimestampUtc)
-            .Select(x => new ConversationSummary(x.PeerUsername, x.Message, x.TimestampUtc, x.IsOutgoing))
+            .Select(g => (Latest: g.First(), HasUnread: g.Any(m => !m.IsOutgoing && !m.IsRead))) // already ordered by TimestampUtc desc, so first = most recent per peer
+            .OrderByDescending(x => x.Latest.TimestampUtc)
+            .Select(x => new ConversationSummary(x.Latest.PeerUsername, x.Latest.Message, x.Latest.TimestampUtc, x.Latest.IsOutgoing, x.HasUnread))
             .ToList();
+    }
+
+    /// <summary>Marks every message in a 1:1 conversation as read — called when its Chat tab is opened.</summary>
+    public async Task MarkConversationReadAsync(string peerUsername)
+    {
+        await _writeSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            await context.PrivateMessages
+                .Where(x => x.PeerUsername == peerUsername && !x.IsRead)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsRead, true))
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
     }
 
     // ── Social: chat rooms ────────────────────────────────────────────────────────
@@ -2646,6 +2708,39 @@ public class DatabaseService
             .ConfigureAwait(false);
     }
 
+    /// <summary>Marks every message in a room as read — called when the room is opened/selected.</summary>
+    public async Task MarkRoomReadAsync(string roomName)
+    {
+        await _writeSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            await context.RoomMessages
+                .Where(x => x.RoomName == roomName && !x.IsRead)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsRead, true))
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>Wipes an entire room's local history on this device — other members' own copies are unaffected.</summary>
+    public async Task DeleteRoomHistoryAsync(string roomName)
+    {
+        await _writeSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var context = new AppDbContext();
+            await context.RoomMessages.Where(x => x.RoomName == roomName).ExecuteDeleteAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
     /// <summary>Removes one message from local room history — local-only, the Soulseek protocol has no message recall.</summary>
     public async Task DeleteRoomMessageAsync(Guid id)
     {
@@ -2674,7 +2769,8 @@ public readonly record struct ConversationSummary(
     string Username,
     string LastMessage,
     DateTime LastMessageUtc,
-    bool LastMessageWasOutgoing);
+    bool LastMessageWasOutgoing,
+    bool HasUnread);
 
 
 

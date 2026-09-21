@@ -31,8 +31,9 @@
                     <Border Grid.Column="0" Background="#1E1E1E" CornerRadius="14" BorderBrush="#333" BorderThickness="1" Height="56" MaxWidth="800" HorizontalAlignment="Stretch">
                         <Grid ColumnDefinitions="Auto,*,Auto">
                             <TextBlock Grid.Column="0" Text="🔍" VerticalAlignment="Center" Margin="20,0,8,0" Foreground="#888" FontSize="18"/>
-                            <TextBox Grid.Column="1" Text="{Binding SearchQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            <TextBox x:Name="SearchQueryTextBox" Grid.Column="1" Text="{Binding SearchQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      Watermark="Search for tracks, artists..."
+                                     ToolTip.Tip="Tip: type flac, mp3, or wav to filter by format, or &gt;320 / 320+ for a minimum bitrate — these words are pulled out of the query automatically and applied as filters."
                                      Background="Transparent" BorderThickness="0"
                                      FontSize="16" VerticalContentAlignment="Center" Margin="4,0" Padding="12,0">
                                 <TextBox.KeyBindings>
@@ -153,8 +154,47 @@
                             <RadioButton GroupName="Bouncer" Content="Relaxed"
                                          IsChecked="{Binding FilterViewModel.BouncerMode, Converter={x:Static converters:EnumConverters.BouncerModeEquals}, ConverterParameter={x:Static models:BouncerMode.Relaxed}}"/>
                         </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding FilterViewModel.HideSuspects}" OnContent="Safety On" OffContent="Safety Off" VerticalAlignment="Center" ToolTip.Tip="Filter out potential fake/upscaled files"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                            <ToggleSwitch IsChecked="{Binding IsAlbumSearch}" OnContent="Album Search On" OffContent="Album Search Off" VerticalAlignment="Center"
+                                          ToolTip.Tip="Search for a whole album instead of a single track — disables early-exit shortcuts so more of the tracklist gets found before results stop streaming in"/>
+                            <ToggleSwitch IsChecked="{Binding FilterViewModel.HideSuspects}" OnContent="Safety On" OffContent="Safety Off" VerticalAlignment="Center" ToolTip.Tip="Filter out potential fake/upscaled files"/>
+                        </StackPanel>
                     </Grid>
+
+                    <!-- Bitrate range sent to the network search itself (distinct from the client-side
+                         quality filters above) — was previously stuck at its 320-3000 default with no
+                         way to change it. -->
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" IsVisible="{Binding #MoreFiltersToggle.IsChecked}">
+                        <TextBlock Text="NETWORK BITRATE" VerticalAlignment="Center" Foreground="#888" FontWeight="Bold" FontSize="10" LetterSpacing="1" Margin="0,0,8,0"
+                                   ToolTip.Tip="Minimum/maximum bitrate (kbps) requested from Soulseek peers for this search"/>
+                        <NumericUpDown Value="{Binding MinBitrate}" Minimum="0" Maximum="10000" Increment="32" Width="110" FormatString="0"
+                                       ToolTip.Tip="Minimum bitrate (kbps) — results below this are excluded from the network search itself"/>
+                        <TextBlock Text="to" Foreground="#888" VerticalAlignment="Center" FontSize="11"/>
+                        <NumericUpDown Value="{Binding MaxBitrate}" Minimum="0" Maximum="10000" Increment="32" Width="110" FormatString="0"
+                                       ToolTip.Tip="Maximum bitrate (kbps) — results above this are excluded from the network search itself"/>
+                    </StackPanel>
+
+                    <!-- Ranking weights (how much each factor influences result ordering) — these have
+                         full persistence/preset logic but previously had no XAML control referencing them. -->
+                    <StackPanel Orientation="Horizontal" Spacing="18" VerticalAlignment="Center" IsVisible="{Binding #MoreFiltersToggle.IsChecked}">
+                        <TextBlock Text="RANKING WEIGHT" VerticalAlignment="Center" Foreground="#888" FontWeight="Bold" FontSize="10" LetterSpacing="1"
+                                   ToolTip.Tip="How much each factor influences the order results are ranked in"/>
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <TextBlock Text="Quality" Foreground="#AEB9C5" FontSize="11" VerticalAlignment="Center"/>
+                            <Slider Value="{Binding BitrateWeight}" Minimum="0" Maximum="3" SmallChange="0.1" LargeChange="0.5" Width="90"
+                                    ToolTip.Tip="Weight given to bitrate/format quality when ranking results"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <TextBlock Text="Reliability" Foreground="#AEB9C5" FontSize="11" VerticalAlignment="Center"/>
+                            <Slider Value="{Binding ReliabilityWeight}" Minimum="0" Maximum="3" SmallChange="0.1" LargeChange="0.5" Width="90"
+                                    ToolTip.Tip="Weight given to peer availability/reliability when ranking results"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <TextBlock Text="Match" Foreground="#AEB9C5" FontSize="11" VerticalAlignment="Center"/>
+                            <Slider Value="{Binding MatchWeight}" Minimum="0" Maximum="3" SmallChange="0.1" LargeChange="0.5" Width="90"
+                                    ToolTip.Tip="Weight given to how closely the filename/metadata matches your query when ranking results"/>
+                        </StackPanel>
+                    </StackPanel>
 
                     <!-- Status text and warning (always visible when applicable) -->
                     <TextBlock Text="{Binding SelectedResultsSummary}"
@@ -303,12 +343,22 @@
                 </controls:VirtualGrid.ItemTemplate>
             </controls:VirtualGrid>
 
-            <!-- Empty State -->
+            <!-- Empty State: never searched -->
             <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center"
-                        IsVisible="{Binding !HasDisplayedResults}" Spacing="16">
+                        IsVisible="{Binding ShowNeverSearchedEmptyState}" Spacing="16">
                 <TextBlock Text="📡" FontSize="48" HorizontalAlignment="Center" Opacity="0.5"/>
                 <TextBlock Text="Ready for Extraction" Foreground="#555" FontSize="20" FontWeight="Light" HorizontalAlignment="Center"/>
                 <TextBlock Text="Initiate a search to scan the Soulseek network" Foreground="#333" HorizontalAlignment="Center"/>
+            </StackPanel>
+
+            <!-- Empty State: search actively streaming in, no hits yet — used to be
+                 indistinguishable from "never searched", making an in-progress search look like
+                 nothing was happening. -->
+            <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center"
+                        IsVisible="{Binding ShowActivelySearchingEmptyState}" Spacing="16">
+                <TextBlock Text="📡" FontSize="48" HorizontalAlignment="Center" Opacity="0.8" Classes="pulsing"/>
+                <TextBlock Text="Scanning Soulseek…" Foreground="{DynamicResource AccentBrush}" FontSize="20" FontWeight="Light" HorizontalAlignment="Center"/>
+                <TextBlock Text="Waiting for peers to respond…" Foreground="#555" HorizontalAlignment="Center"/>
             </StackPanel>
 
             <!-- Session Downloads Strip -->

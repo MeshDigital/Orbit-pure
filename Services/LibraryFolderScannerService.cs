@@ -418,6 +418,7 @@ public class LibraryFolderScannerService
             int bitrate = 0;
             int sampleRate = 0;
             int bitsPerSample = 0;
+            double? tagBpm = null;
 
             try
             {
@@ -429,6 +430,19 @@ public class LibraryFolderScannerService
                 bitrate = file.Properties.AudioBitrate;
                 sampleRate = file.Properties.AudioSampleRate;
                 bitsPerSample = file.Properties.BitsPerSample;
+
+                // Trust a file-embedded BPM tag (written by Rekordbox/Serato/etc.) over ORBIT's own
+                // Essentia analysis — confirmed this session that Essentia's beat tracker has a
+                // quantization bias on breakbeat/DNB content (two different tracks' raw estimates
+                // converged to 172.265xx to five decimal places, a fixed internal lag period, not a
+                // real per-track measurement). Same TagLib BeatsPerMinute read already proven in
+                // SeratoMetadataImporter.Import. Sanity-bounded to the same [60,220] range
+                // BpmDetectionService uses, so a garbage/placeholder tag value isn't trusted.
+                var rawTagBpm = file.Tag.BeatsPerMinute; // uint — TagLib exposes BPM tags as whole numbers
+                if (rawTagBpm is >= 60 and <= 220)
+                {
+                    tagBpm = rawTagBpm;
+                }
             }
             catch
             {
@@ -457,7 +471,13 @@ public class LibraryFolderScannerService
                 Bitrate = bitrate,
                 Format = format,
                 AvailabilityState = TrackAvailabilityState.LocalUnanalyzed,
-                QualityDetails = $"scanner:v2;score={qualityScore};format={format};bitrate={bitrate};samplerate={sampleRate};bitdepth={bitsPerSample}"
+                QualityDetails = $"scanner:v2;score={qualityScore};format={format};bitrate={bitrate};samplerate={sampleRate};bitdepth={bitsPerSample}",
+                TagBPM = tagBpm,
+                // Seed the primary BPM immediately from the tag so the track shows a sensible
+                // tempo right away rather than whatever Essentia eventually (mis)detects — analysis
+                // still runs, but SyncDenormalizedFeaturesAsync now skips overwriting BPM once
+                // TagBPM is set.
+                BPM = tagBpm
             };
         }
         catch (Exception ex)
