@@ -43,6 +43,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
     private readonly FourOnTheFloorAnalysisStrategy _fourOnFloorStrategy;
     private readonly DatabaseService _db;
     private readonly ILogger<AudioAnalysisService> _logger;
+    private readonly Rekordbox.IRekordboxPssiService? _rekordbox;
 
     // ── Style-definition cache ──────────────────────────────────────────────
     // StyleDefinitions is static reference data outside of the offline Style Lab curation tool —
@@ -70,8 +71,10 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         BreakbeatAnalysisStrategy breakbeatStrategy,
         FourOnTheFloorAnalysisStrategy fourOnFloorStrategy,
         DatabaseService db,
-        ILogger<AudioAnalysisService> logger)
+        ILogger<AudioAnalysisService> logger,
+        Rekordbox.IRekordboxPssiService? rekordbox = null)
     {
+        _rekordbox = rekordbox;
         _ingestion     = ingestion;
         _waveform      = waveformExtraction;
         _bpm           = bpmDetection;
@@ -403,6 +406,21 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
 
             // ── Step 5b: Genre inference + canonical normalisation ──────
             await InferAndApplyGenreAsync(essentiaOutput, features, onnxGenrePrediction, cancellationToken).ConfigureAwait(false);
+
+            // ── Step 5c: Fit a precise constant grid to the beat ticks ───
+            // Runs after genre inference because that step can still change the BPM's octave. Replaces
+            // the integer/half-time-quantised BPM with a fitted one and re-picks the downbeat from the
+            // sub-bass structure events — see BeatGridFitter for the measured before/after.
+            var rawTicks = BeatGridFitter.ParseTicks(features.BeatGridJson);
+            if (BeatGridFitter.ApplyTo(features, rawTicks, BeatGridFitter.StructuralEventsFrom(features)))
+                _logger.LogDebug("[AudioAnalysis] Beat grid fitted for {File}: {Bpm:F2} BPM, downbeat {Downbeat:F3}s",
+                    Path.GetFileName(filePath), features.Bpm, features.DownbeatOffsetSeconds);
+
+            // If Rekordbox has analysed this exact audio, its grid (real downbeats included) wins.
+            if (_rekordbox?.IsAvailable == true
+                && await _rekordbox.GetBeatGridAsync(filePath, cancellationToken).ConfigureAwait(false) is { } rbGrid
+                && BeatGridFitter.ApplyRekordboxGrid(features, rbGrid, rawTicks))
+                _logger.LogDebug("[AudioAnalysis] Using Rekordbox's beat grid for {File}: {Bpm:F2} BPM", Path.GetFileName(filePath), features.Bpm);
 
             // ── Step 6: Cue point detection ───────────────────────────────
             if (features.Bpm > 0 && features.TrackDuration > 0)

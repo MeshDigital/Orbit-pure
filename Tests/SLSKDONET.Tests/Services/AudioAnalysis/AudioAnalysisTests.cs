@@ -52,16 +52,26 @@ namespace SLSKDONET.Tests.Services.AudioAnalysis
         }
 
         [Fact]
-        public void Detect_WithHistogram_UsesMedianBpm()
+        public void Detect_WithHistogram_KeepsTheContinuousBpm()
         {
-            // histogram with dominant peak at bin 128 (index 127)
+            // The histogram's 1-BPM bins must not replace (quantise) Essentia's direct estimate.
             float[] hist = new float[256];
-            hist[127] = 100f; // strong peak at 128 bpm
-            var output = MakeRhythmOutput(bpm: 130f, confidence: 0.7f, histogram: hist);
+            hist[173] = 100f; // peak at 174 bpm
+            var output = MakeRhythmOutput(bpm: 173.93f, confidence: 0.7f, histogram: hist);
             var target = new AudioFeaturesEntity();
             _sut.Detect(output, target);
-            // Result should be close to the histogram's median (128)
-            Assert.InRange(target.Bpm, 120f, 135f);
+            Assert.Equal(173.93f, target.Bpm, 2);
+        }
+
+        [Fact]
+        public void Detect_NoDirectBpm_FallsBackToHistogramMedian()
+        {
+            float[] hist = new float[256];
+            hist[127] = 100f; // peak at 128 bpm
+            var output = MakeRhythmOutput(bpm: 0f, confidence: 0.7f, histogram: hist);
+            var target = new AudioFeaturesEntity();
+            _sut.Detect(output, target);
+            Assert.Equal(128f, target.Bpm);
         }
 
         [Fact]

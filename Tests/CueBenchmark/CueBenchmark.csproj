@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Cue accuracy benchmark (open-work plan item H0). Read-only: regenerates ORBIT's auto cues from a
+    COPY of the library database and compares them with real, hand-placed Rekordbox cues.
+    Not part of the app build (Tests\** is excluded from SLSKDONET.csproj) or the unit test run.
+    Usage: see README.md next to this file.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\SLSKDONET.csproj" />
+  </ItemGroup>
+
+</Project>

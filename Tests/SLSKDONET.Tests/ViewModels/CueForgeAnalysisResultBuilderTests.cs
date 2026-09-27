@@ -24,6 +24,17 @@ public class CueForgeAnalysisResultBuilderTests
     };
 
     [Fact]
+    public void PassesTheAggressiveMoodThrough_InsteadOfZero()
+    {
+        var features = BaseFeatures();
+        features.MoodAggressive = 0.8f;
+
+        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+
+        Assert.Equal(0.8f, result.EssentiaAggressiveProbability);
+    }
+
+    [Fact]
     public void UsesRealSubBassAndNoveltySignals_WhenPresent()
     {
         var features = BaseFeatures();

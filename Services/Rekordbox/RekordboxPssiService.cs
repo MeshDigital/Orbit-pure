@@ -126,6 +126,32 @@ public sealed class RekordboxPssiService : IRekordboxPssiService
         }
     }
 
+    public async Task<IReadOnlyList<RekordboxBeat>?> GetBeatGridAsync(string audioFilePath, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(audioFilePath)) return null;
+
+        try
+        {
+            var candidates = await ResolveCandidatesAsync(audioFilePath, ct).ConfigureAwait(false);
+            if (candidates == null) return null;
+
+            // The index is built from .EXT files; the beat grid lives in the sibling .DAT.
+            foreach (var extPath in candidates)
+            {
+                var datPath = Path.ChangeExtension(extPath, ".DAT");
+                if (!File.Exists(datPath)) continue;
+                var parsed = RekordboxAnlzParser.TryParse(await File.ReadAllBytesAsync(datPath, ct).ConfigureAwait(false));
+                if (parsed?.BeatGrid is { Count: > 0 } grid) return grid;
+            }
+            return null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "[RekordboxPssi] Beat grid lookup failed for {Path}, continuing without it", audioFilePath);
+            return null;
+        }
+    }
+
     public async Task<IReadOnlyList<RekordboxCuedTrack>> FindTracksWithSavedCuesAsync(CancellationToken ct = default)
     {
         var results = new List<RekordboxCuedTrack>();

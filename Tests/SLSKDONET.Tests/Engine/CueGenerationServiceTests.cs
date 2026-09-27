@@ -381,6 +381,36 @@ public class CueGenerationServiceTests
         },
     };
 
+    // ── SelectSecondDrop: the drop after Drop 1's breakdown ─────────────────
+
+    [Fact]
+    public void SelectSecondDrop_PrefersTheCandidateAfterABreakdown_OverAStrongerOneWithout()
+    {
+        const double Bar = 60.0 / 174 * 4, Duration = 300;
+        // Drop 1 at 60s, breakdown (sub-bass dropout) at 100s. Both later candidates follow the
+        // breakdown, so the stronger one wins.
+        var candidates = new List<(double Time, float Score)> { (60, 0.9f), (120, 0.6f), (200, 0.95f) };
+        Assert.Equal(200, CueGenerationService.SelectSecondDrop(candidates, 60, new[] { 100.0 }, Bar, Duration).Time);
+
+        // The only other candidate sits past 92% of the track (outro territory), so the 120s one
+        // is chosen even though it's before the midpoint — the old "top score in the second half"
+        // rule could never pick it.
+        var early = new List<(double Time, float Score)> { (60, 0.9f), (120, 0.6f), (290, 0.95f) };
+        Assert.Equal(120, CueGenerationService.SelectSecondDrop(early, 60, new[] { 100.0 }, Bar, Duration).Time);
+
+        // A stronger candidate WITHOUT a breakdown before it loses to a weaker one with one.
+        var noValley = new List<(double Time, float Score)> { (60, 0.9f), (120, 0.99f), (200, 0.5f) };
+        Assert.Equal(200, CueGenerationService.SelectSecondDrop(noValley, 60, new[] { 150.0 }, Bar, Duration).Time);
+    }
+
+    [Fact]
+    public void SelectSecondDrop_IgnoresCandidatesWithin16BarsOfDrop1()
+    {
+        const double Bar = 60.0 / 174 * 4, Duration = 300;
+        var candidates = new List<(double Time, float Score)> { (60, 0.9f), (70, 0.99f), (160, 0.5f) };
+        Assert.Equal(160, CueGenerationService.SelectSecondDrop(candidates, 60, Array.Empty<double>(), Bar, Duration).Time);
+    }
+
     // ── FindEnergyJumpCandidates: track-wide baseline gating ────────────────
 
     [Fact]

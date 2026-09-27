@@ -45,6 +45,12 @@ public interface IRekordboxPssiService
     Task<IReadOnlyList<RekordboxCuePoint>?> GetSavedCuePointsAsync(string audioFilePath, CancellationToken ct = default);
 
     /// <summary>
+    /// Rekordbox's own beat grid (the PQTZ tag in the track's .DAT analysis file): every beat's time,
+    /// BPM and position in the bar. Null if Rekordbox hasn't analysed this file.
+    /// </summary>
+    Task<IReadOnlyList<RekordboxBeat>?> GetBeatGridAsync(string audioFilePath, CancellationToken ct = default);
+
+    /// <summary>
     /// Scans Rekordbox's entire local analysis cache and returns every track that has at least one
     /// saved memory or hot cue — the "which of my tracks already have cues set in Rekordbox"
     /// question. This is a full-library disk scan (re-parsing every .EXT file), so it's meant for

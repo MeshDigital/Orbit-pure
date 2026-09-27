@@ -23,7 +23,9 @@ public static class AnalysisPipelineResultBuilder
             DurationSeconds = f.TrackDuration,
             EnergyCurve = ParseJsonFloatArray(f.EnergyCurveJson) ?? Array.Empty<float>(),
             EssentiaInstrumentalProbability = f.InstrumentalProbability,
-            EssentiaAggressiveProbability = 0f,
+            // ONNX MTG-Jamendo mood head (clamped 0-1 at analysis time). Was hardcoded 0, which
+            // silently disabled IntentClassifier's aggressive-drop boost for every track.
+            EssentiaAggressiveProbability = f.MoodAggressive,
             EssentiaDanceability = f.Danceability,
             Genre = !string.IsNullOrWhiteSpace(f.DetectedSubGenre) ? f.DetectedSubGenre : f.ElectronicSubgenre,
         };

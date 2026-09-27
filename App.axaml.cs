@@ -290,6 +290,9 @@ public partial class App : Application
                         var downloadManager = Services.GetRequiredService<DownloadManager>();
                         _ = downloadManager.StartAsync(); // Auto-start engine on launch
 
+                        // One-time re-fit of stored beat grids (quantised BPM fix); no-op once done.
+                        Services.GetRequiredService<Services.AudioAnalysis.BeatGridRecomputeService>().StartIfPending();
+
                         // Activate post-download spectral scan listener (eager resolve so it
                         // subscribes to TrackStateChangedEvent immediately after the engine starts).
                         _ = Services.GetRequiredService<PostDownloadSpectralScanService>();
@@ -672,6 +675,7 @@ public partial class App : Application
         services.AddSingleton<INavigationService, NavigationService>();
         services.AddSingleton<PerformanceTracker>(); // live perf overlay (Ctrl+Shift+P) — page-nav and opted-in ViewModel load timings
         services.AddSingleton<UiStallWatchdog>();
+        services.AddSingleton<Services.AudioAnalysis.BeatGridRecomputeService>();
         services.AddSingleton<IUserInputService, UserInputService>();
         services.AddSingleton<IFileInteractionService, FileInteractionService>();
         services.AddSingleton<INotificationService, NotificationServiceAdapter>();
