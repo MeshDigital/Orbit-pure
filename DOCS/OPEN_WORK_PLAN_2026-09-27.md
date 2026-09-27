@@ -262,7 +262,11 @@ These come first. Most are small, and every one is a visible bug.
   `EssentiaAggressiveProbability = 0f`, even though the ONNX model fills
   `AudioFeaturesEntity.MoodAggressive`. Because of this, the boost in `IntentClassifier.cs:111` never
   takes effect. *Investigate:* check the value range (0–1?), then make it `= f.MoodAggressive`. **S**
-- [ ] **A6. The "Gate 1" new playlist surface is switched off, and its flag is read by nothing.**
+- [ ] **A6. ⚠ Your decision needed.** The audit was wrong: the flag *is* read. `LibraryPage.axaml:586-587`
+  uses it to swap between `TrackListView` and the half-finished `LibraryPlaylistTrackSurface`. So the
+  real choice is to finish that surface or delete it (control plus flag). The main track list got
+  its own performance fixes on 2026-09-27, which weakens the case for the new surface.
+  *Original:* **The "Gate 1" new playlist surface is switched off, and its flag is read by nothing.**
   `UseNewPlaylistSurface = false` is at `Configuration/AppConfig.cs:208` and exposed at
   `LibraryViewModel.cs:161`. No view reads it and there's no Settings toggle. Known problems: it
   crashes when a track is selected, and it has no art column or header controls.
@@ -279,7 +283,16 @@ These come first. Most are small, and every one is a visible bug.
 
 ## B. Built but can't be reached: decide to wire up or delete
 
-- [ ] **B1. SavedDoubles: you can save pairs but never see, rename or remove them.**
+- [~] **B1. Partly done 2026-09-27.** A "SAVED DOUBLES" section in the Library sidebar
+  (`x:Name="SavedDoublesSidebarSection"`, so the existing "View all" scroll works) lists the
+  saved pairs for the open playlist. Clicking a pair selects both tracks, and ✕ removes it.
+  *Still open:*
+  - renaming a pair (`Label` is always null)
+  - showing the lead track's doubles in the side panel
+  - mounting or deleting `PlayerFallbackPanel`
+  - a library-wide list (the resolver only sees the open playlist's tracks)
+
+  *Original:* **SavedDoubles: you can save pairs but never see, rename or remove them.**
   - The only way to save is `DoubleInspectorPanel.axaml:127`. Saved pairs only feed a hidden +0.03
     score and a badge.
   - `LibraryPage.axaml.cs:428` looks up `SavedDoublesSidebarSection`, which no view defines.
