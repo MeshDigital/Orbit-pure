@@ -3018,6 +3018,19 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 37. Index audio_features.TrackUniqueHash. The EF model declares it (AppDbContext:
+            // HasIndex(af => af.TrackUniqueHash)), but this schema is built by raw-SQL patches, not
+            // EF migrations, so it never physically existed — every PlaylistTracks -> AudioFeatures
+            // join fell back to a full scan of audio_features (blob-heavy rows) per outer row.
+            // Measured on a real 4,380-track library: the dashboard's incomplete-analysis query went
+            // from 40.5s to 0.1s. Non-unique on purpose so it can never fail to create on a library
+            // that happens to hold duplicate hashes; lookup speed is identical either way.
+            if (TableExists("audio_features"))
+            {
+                command.CommandText = @"CREATE INDEX IF NOT EXISTS ""IX_audio_features_TrackUniqueHash"" ON ""audio_features"" (""TrackUniqueHash"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

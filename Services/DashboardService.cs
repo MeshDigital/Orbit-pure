@@ -361,6 +361,7 @@ public class DashboardService
     {
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             using var context = new AppDbContext();
 
             // Project down to scalar columns instead of Include()-ing the full TechnicalDetails/
@@ -382,15 +383,29 @@ public class DashboardService
                     WaveformSampleCount = t.AudioFeatures != null ? t.AudioFeatures.WaveformBlobSampleCount : 0,
                 })
                 .ToListAsync();
+            var queryMs = sw.ElapsedMilliseconds;
 
-            return candidates.Count(track =>
+            // The current cue pipeline writes the real CuePoints table (keyed by track hash), not
+            // the legacy CuePointsJson blobs, which it no longer populates — checking only those
+            // flagged nearly every track "missing cues" (the dashboard showed more incomplete
+            // tracks than the whole library). The legacy blobs still count for older tracks.
+            var hashesWithCues = (await context.CuePoints
+                    .AsNoTracking()
+                    .Select(c => c.TrackUniqueHash)
+                    .Distinct()
+                    .ToListAsync())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var cuesMs = sw.ElapsedMilliseconds - queryMs;
+            int fileChecks = 0;
+
+            // The same track appears once per playlist it's in — count each track once.
+            var result = candidates
+                .Where(t => !string.IsNullOrWhiteSpace(t.TrackUniqueHash))
+                .GroupBy(t => t.TrackUniqueHash, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t.ResolvedFilePath)) ?? g.First())
+                .Count(track =>
             {
-                if (string.IsNullOrWhiteSpace(track.TrackUniqueHash))
-                {
-                    return false;
-                }
-
-                if (string.IsNullOrWhiteSpace(track.ResolvedFilePath) || !File.Exists(track.ResolvedFilePath))
+                if (string.IsNullOrWhiteSpace(track.ResolvedFilePath))
                 {
                     return false;
                 }
@@ -398,10 +413,9 @@ public class DashboardService
                 var hasBpm = (track.BPM ?? 0) > 0;
                 var hasKey = !string.IsNullOrWhiteSpace(track.MusicalKey);
 
-                var cueJson = string.IsNullOrWhiteSpace(track.TechnicalCuePointsJson)
-                    ? track.CuePointsJson
-                    : track.TechnicalCuePointsJson;
-                var hasCues = !string.IsNullOrWhiteSpace(cueJson);
+                var hasCues = hashesWithCues.Contains(track.TrackUniqueHash)
+                    || !string.IsNullOrWhiteSpace(track.TechnicalCuePointsJson)
+                    || !string.IsNullOrWhiteSpace(track.CuePointsJson);
 
                 // Previously checked TechnicalDetails.WaveformData/LowData/MidData/HighData, which
                 // were dead columns never actually populated by anything — meaning this was always
@@ -409,8 +423,19 @@ public class DashboardService
                 // analysis state. The live waveform data is AudioFeaturesEntity.WaveformBlob.
                 var hasWaveform = track.WaveformSampleCount > 0;
 
-                return !(hasBpm && hasKey && hasCues && hasWaveform);
+                if (hasBpm && hasKey && hasCues && hasWaveform) return false;
+
+                // File.Exists last: it's the only disk hit here, and on a cold boot checking it
+                // for every downloaded track (thousands, across drives) took ~60s. A fully
+                // analysed track is excluded either way, so only the (few) incomplete ones need it.
+                fileChecks++;
+                return File.Exists(track.ResolvedFilePath);
             });
+
+            _logger.LogInformation(
+                "Incomplete analysis count: {Count} (rows {Rows}, query {QueryMs}ms, cue lookup {CuesMs}ms, {FileChecks} file checks, total {TotalMs}ms)",
+                result, candidates.Count, queryMs, cuesMs, fileChecks, sw.ElapsedMilliseconds);
+            return result;
         }
         catch (Exception ex)
         {
