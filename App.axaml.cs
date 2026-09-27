@@ -279,6 +279,8 @@ public partial class App : Application
                             // main window's native handle, which only exists after Show().
                             var toastHandle = mainWindow.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
                             Services.GetRequiredService<WindowsToastService>().Initialize(toastHandle);
+
+                            Services.GetRequiredService<UiStallWatchdog>().Start();
                         });
 
                         // --- THE BARRIER: WE ARE NOW DATA-SAFE ---
@@ -669,6 +671,7 @@ public partial class App : Application
         // Navigation and UI services
         services.AddSingleton<INavigationService, NavigationService>();
         services.AddSingleton<PerformanceTracker>(); // live perf overlay (Ctrl+Shift+P) — page-nav and opted-in ViewModel load timings
+        services.AddSingleton<UiStallWatchdog>();
         services.AddSingleton<IUserInputService, UserInputService>();
         services.AddSingleton<IFileInteractionService, FileInteractionService>();
         services.AddSingleton<INotificationService, NotificationServiceAdapter>();

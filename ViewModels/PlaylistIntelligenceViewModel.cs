@@ -638,104 +638,142 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
     public async Task RefreshOverviewStatsAsync()
     {
         var refreshVersion = System.Threading.Interlocked.Increment(ref _overviewRefreshVersion);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
 
+        List<PlaylistTrack> tracks;
         var inMemory = _library.Tracks.CurrentProjectTracks;
         if (inMemory.Count > 0)
         {
-            var models = inMemory.Select(t => t.Model).ToList();
-            if (refreshVersion != _overviewRefreshVersion) return;
-            await Dispatcher.UIThread.InvokeAsync(() => ApplyOverviewStats(models));
-            return;
+            tracks = inMemory.Select(t => t.Model).ToList();
         }
-
-        var projectId = _library.SelectedProject?.Id;
-        if (projectId is null || projectId == Guid.Empty)
+        else
         {
-            if (refreshVersion != _overviewRefreshVersion) return;
-            await Dispatcher.UIThread.InvokeAsync(() => ApplyOverviewStats(new List<PlaylistTrack>()));
-            return;
+            var projectId = _library.SelectedProject?.Id;
+            if (projectId is null || projectId == Guid.Empty)
+            {
+                tracks = new List<PlaylistTrack>();
+            }
+            else
+            {
+                try
+                {
+                    // Task.Run: this is usually called on the UI thread (playlist selection), and
+                    // Sqlite's "async" load + EF materialization of the whole playlist runs
+                    // synchronously on the caller — ~0.3s for a 2k-track playlist, far longer
+                    // whenever a write holds the DB lock.
+                    var id = projectId.Value;
+                    tracks = await Task.Run(() => _library.LibraryService.LoadPlaylistTracksAsync(id));
+                }
+                catch (Exception ex)
+                {
+                    _library.Logger.LogWarning(ex, "Failed to load tracks for Playlist Overview (playlist {PlaylistId})", projectId.Value);
+                    return;
+                }
+            }
         }
+        var loadMs = sw.ElapsedMilliseconds;
 
-        List<PlaylistTrack> tracks;
-        try
-        {
-            tracks = await _library.LibraryService.LoadPlaylistTracksAsync(projectId.Value);
-        }
-        catch (Exception ex)
-        {
-            _library.Logger.LogWarning(ex, "Failed to load tracks for Playlist Overview (playlist {PlaylistId})", projectId.Value);
-            return;
-        }
-
+        // Grouping/Camelot conversion over the whole playlist also stays off the UI thread; only the
+        // finished snapshot is swapped in there.
+        var snapshot = await Task.Run(() => ComputeOverviewSnapshot(tracks));
         if (refreshVersion != _overviewRefreshVersion) return;
-        await Dispatcher.UIThread.InvokeAsync(() => ApplyOverviewStats(tracks));
+        await Dispatcher.UIThread.InvokeAsync(() => ApplyOverviewSnapshot(snapshot));
+        _library.Logger.LogDebug("[PERF] Overview stats: {Count} tracks, load {LoadMs}ms, total {TotalMs}ms",
+            tracks.Count, loadMs, sw.ElapsedMilliseconds);
     }
 
-    private void ApplyOverviewStats(List<PlaylistTrack> tracks)
+    private sealed record OverviewSnapshot(
+        int TrackCount,
+        string DurationDisplay,
+        string BpmRangeDisplay,
+        string AvgEnergyDisplay,
+        double AvgEnergyPercent,
+        int AnalyzedCount,
+        double AnalysisCoveragePercent,
+        IReadOnlyList<PlaylistStatBar> TopArtists,
+        IReadOnlyList<PlaylistStatBar> TopGenres,
+        IReadOnlyList<PlaylistStatBar> KeyDistribution,
+        IReadOnlyList<PlaylistStatBar> BpmBrackets);
+
+    /// <summary>Pure computation — safe to run on any thread.</summary>
+    private static OverviewSnapshot ComputeOverviewSnapshot(List<PlaylistTrack> tracks)
     {
         var count = tracks.Count;
-        _overviewTrackCount = count;
-
         if (count == 0)
         {
-            _overviewDurationDisplay = "—";
-            _overviewBpmRangeDisplay = "—";
-            _overviewAvgEnergyDisplay = "—";
-            _overviewAvgEnergyPercent = 0;
-            _overviewAnalyzedCount = 0;
-            _overviewAnalysisCoveragePercent = 0;
-            OverviewTopArtists.Clear();
-            OverviewTopGenres.Clear();
-            OverviewKeyDistribution.Clear();
-            OverviewBpmBrackets.Clear();
-            RaiseOverviewStateChanged();
-            return;
+            var none = Array.Empty<PlaylistStatBar>();
+            return new OverviewSnapshot(0, "—", "—", "—", 0, 0, 0, none, none, none, none);
         }
 
         var totalSeconds = tracks.Sum(t => t.Duration);
-        _overviewDurationDisplay = FormatOverviewDuration(totalSeconds);
 
         var bpms = tracks.Where(t => (t.BPM ?? 0) > 0).Select(t => t.BPM!.Value).ToList();
-        _overviewBpmRangeDisplay = bpms.Count > 0
+        var bpmRange = bpms.Count > 0
             ? $"{bpms.Min():0}–{bpms.Max():0} BPM · avg {bpms.Average():0}"
             : "No BPM data yet";
 
         var energies = tracks.Where(t => (t.Energy ?? 0) > 0).Select(t => t.Energy!.Value).ToList();
+        string avgEnergyDisplay;
+        double avgEnergyPercent;
         if (energies.Count > 0)
         {
             var avgEnergy = energies.Average();
-            _overviewAvgEnergyDisplay = $"{avgEnergy * 10:0.0} / 10";
-            _overviewAvgEnergyPercent = Math.Clamp(avgEnergy * 100, 0, 100);
+            avgEnergyDisplay = $"{avgEnergy * 10:0.0} / 10";
+            avgEnergyPercent = Math.Clamp(avgEnergy * 100, 0, 100);
         }
         else
         {
-            _overviewAvgEnergyDisplay = "No energy data yet";
-            _overviewAvgEnergyPercent = 0;
+            avgEnergyDisplay = "No energy data yet";
+            avgEnergyPercent = 0;
         }
 
-        _overviewAnalyzedCount = tracks.Count(t => (t.BPM ?? 0) > 0 || !string.IsNullOrEmpty(t.MusicalKey));
-        _overviewAnalysisCoveragePercent = _overviewAnalyzedCount * 100.0 / count;
+        var analyzed = tracks.Count(t => (t.BPM ?? 0) > 0 || !string.IsNullOrEmpty(t.MusicalKey));
 
-        RebuildOverviewStatBars(OverviewTopArtists, tracks
-            .Select(t => t.Artist)
-            .Where(a => !string.IsNullOrWhiteSpace(a) && !string.Equals(a, "Unknown Artist", StringComparison.Ordinal)),
-            top: 5);
+        return new OverviewSnapshot(
+            count,
+            FormatOverviewDuration(totalSeconds),
+            bpmRange,
+            avgEnergyDisplay,
+            avgEnergyPercent,
+            analyzed,
+            analyzed * 100.0 / count,
+            BuildOverviewStatBars(tracks
+                .Select(t => t.Artist)
+                .Where(a => !string.IsNullOrWhiteSpace(a) && !string.Equals(a, "Unknown Artist", StringComparison.Ordinal)),
+                top: 5),
+            BuildOverviewStatBars(tracks
+                .Select(t => !string.IsNullOrEmpty(t.DetectedSubGenre) ? t.DetectedSubGenre : t.PrimaryGenre),
+                top: 5),
+            BuildOverviewStatBars(tracks
+                .Where(t => !string.IsNullOrEmpty(t.MusicalKey))
+                .Select(t => SLSKDONET.Utils.KeyConverter.ToCamelot(t.MusicalKey)),
+                top: 8),
+            BuildOverviewBpmBrackets(bpms));
+    }
 
-        RebuildOverviewStatBars(OverviewTopGenres, tracks
-            .Select(t => !string.IsNullOrEmpty(t.DetectedSubGenre) ? t.DetectedSubGenre : t.PrimaryGenre),
-            top: 5);
-
-        RebuildOverviewStatBars(OverviewKeyDistribution, tracks
-            .Where(t => !string.IsNullOrEmpty(t.MusicalKey))
-            .Select(t => SLSKDONET.Utils.KeyConverter.ToCamelot(t.MusicalKey)),
-            top: 8);
-
-        RebuildOverviewBpmBrackets(bpms);
-
+    private void ApplyOverviewSnapshot(OverviewSnapshot s)
+    {
+        _overviewTrackCount = s.TrackCount;
+        _overviewDurationDisplay = s.DurationDisplay;
+        _overviewBpmRangeDisplay = s.BpmRangeDisplay;
+        _overviewAvgEnergyDisplay = s.AvgEnergyDisplay;
+        _overviewAvgEnergyPercent = s.AvgEnergyPercent;
+        _overviewAnalyzedCount = s.AnalyzedCount;
+        _overviewAnalysisCoveragePercent = s.AnalysisCoveragePercent;
+        ReplaceAll(OverviewTopArtists, s.TopArtists);
+        ReplaceAll(OverviewTopGenres, s.TopGenres);
+        ReplaceAll(OverviewKeyDistribution, s.KeyDistribution);
+        ReplaceAll(OverviewBpmBrackets, s.BpmBrackets);
         RaiseOverviewStateChanged();
     }
 
-    private static void RebuildOverviewStatBars(ObservableCollection<PlaylistStatBar> target, IEnumerable<string?> values, int top)
+    private static void ReplaceAll(ObservableCollection<PlaylistStatBar> target, IReadOnlyList<PlaylistStatBar> items)
+    {
+        target.Clear();
+        foreach (var item in items) target.Add(item);
+    }
+
+    private static List<PlaylistStatBar> BuildOverviewStatBars(IEnumerable<string?> values, int top)
     {
         var grouped = values
             .Where(v => !string.IsNullOrWhiteSpace(v))
@@ -746,18 +784,16 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
             .Take(top)
             .ToList();
 
-        target.Clear();
         var max = grouped.Count > 0 ? grouped[0].Count : 1;
-        foreach (var g in grouped)
-        {
-            target.Add(new PlaylistStatBar(g.Label, g.Count.ToString(), Math.Clamp(g.Count * 100.0 / max, 4, 100)));
-        }
+        return grouped
+            .Select(g => new PlaylistStatBar(g.Label, g.Count.ToString(), Math.Clamp(g.Count * 100.0 / max, 4, 100)))
+            .ToList();
     }
 
-    private void RebuildOverviewBpmBrackets(List<double> bpms)
+    private static List<PlaylistStatBar> BuildOverviewBpmBrackets(List<double> bpms)
     {
-        OverviewBpmBrackets.Clear();
-        if (bpms.Count == 0) return;
+        var result = new List<PlaylistStatBar>();
+        if (bpms.Count == 0) return result;
 
         (string Label, Func<double, bool> Match)[] brackets =
         {
@@ -776,8 +812,9 @@ public sealed class PlaylistIntelligenceViewModel : INotifyPropertyChanged, IDis
         var max = counts.Count > 0 ? counts.Max(c => c.Count) : 1;
         foreach (var (label, cnt) in counts)
         {
-            OverviewBpmBrackets.Add(new PlaylistStatBar(label, cnt.ToString(), Math.Clamp(cnt * 100.0 / max, 4, 100)));
+            result.Add(new PlaylistStatBar(label, cnt.ToString(), Math.Clamp(cnt * 100.0 / max, 4, 100)));
         }
+        return result;
     }
 
     private static string FormatOverviewDuration(double totalSeconds)

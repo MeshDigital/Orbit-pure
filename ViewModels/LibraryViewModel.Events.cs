@@ -304,8 +304,12 @@ public partial class LibraryViewModel
         // (or empty) until an unrelated event — typing in the search box — triggered the first
         // real load, which read as "search is broken and incomplete."
         _logger.LogInformation("LibraryViewModel.OnProjectSelected: Switching to project {Title} (ID: {Id})", project.SourceTitle, project.Id);
+        var selectSw = System.Diagnostics.Stopwatch.StartNew();
         await Tracks.LoadProjectTracksAsync(project);
+        var loadMs = selectSw.ElapsedMilliseconds;
         await RefreshSavedDoublesAsync();
+        _logger.LogInformation("[PERF] Project select '{Title}': LoadProjectTracks {LoadMs}ms, SavedDoubles {DoublesMs}ms",
+            project.SourceTitle, loadMs, selectSw.ElapsedMilliseconds - loadMs);
         _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
         _ = Intelligence.RefreshOverviewStatsAsync();
 
