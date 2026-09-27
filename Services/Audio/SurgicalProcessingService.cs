@@ -33,6 +33,22 @@ namespace SLSKDONET.Services.Audio
             string trackAPath, double trackATailStartSeconds,
             string trackBPath, double trackBHeadDurationSeconds,
             double overlapSeconds, CancellationToken ct = default);
+
+        /// <summary>
+        /// Same idea as <see cref="RenderTransitionPreviewAsync"/>, but built from the real
+        /// preset DSP (<see cref="SLSKDONET.Services.Timeline.TransitionDsp"/>) instead of a
+        /// fixed triangular FFmpeg crossfade — so the Mix editor's Preview button actually hears
+        /// the selected preset (Fade/Rise/Blend/Wave/Melt/...), not a generic approximation.
+        /// Both tracks start from their own analysis-suggested (or saved) trigger point —
+        /// <paramref name="trackBStartSeconds"/> is <em>not</em> always 0, e.g. a suggested
+        /// mix-in that skips a low-energy intro straight to the first drop.
+        /// </summary>
+        Task<string> RenderTransitionPreviewAsync(
+            string trackAPath, double trackATailStartSeconds,
+            string trackBPath, double trackBStartSeconds,
+            SLSKDONET.Models.Timeline.TransitionModel model,
+            double projectBpm,
+            CancellationToken ct = default);
     }
 
     public class SurgicalProcessingService : ISurgicalProcessingService
@@ -209,6 +225,79 @@ namespace SLSKDONET.Services.Audio
             }
 
             return outputPath;
+        }
+
+        public Task<string> RenderTransitionPreviewAsync(
+            string trackAPath, double trackATailStartSeconds,
+            string trackBPath, double trackBStartSeconds,
+            SLSKDONET.Models.Timeline.TransitionModel model,
+            double projectBpm,
+            CancellationToken ct = default)
+        {
+            return Task.Run(() =>
+            {
+                _logger.LogInformation("🎚️ Rendering preset-driven transition preview ({Preset} DSP, {Bpm:0} BPM), A@{TailStart}s B@{HeadStart}s",
+                    model.Type, projectBpm, trackATailStartSeconds, trackBStartSeconds);
+
+                string outputPath = Path.Combine(_surgicalWorkDir, $"TransitionPreset_{Guid.NewGuid():N}.wav");
+
+                using var readerA = new NAudio.Wave.AudioFileReader(trackAPath);
+                using var readerB = new NAudio.Wave.AudioFileReader(trackBPath);
+
+                readerA.CurrentTime = TimeSpan.FromSeconds(Math.Max(0, trackATailStartSeconds));
+                readerB.CurrentTime = TimeSpan.FromSeconds(Math.Max(0, trackBStartSeconds));
+
+                // TransitionDsp requires both providers to share one WaveFormat — real files
+                // routinely differ in sample rate/channel count, so normalize B onto A's format.
+                var target = readerA.WaveFormat;
+                NAudio.Wave.ISampleProvider outgoing = readerA;
+                NAudio.Wave.ISampleProvider incoming = NormalizeFormat(readerB, target);
+
+                var mixed = SLSKDONET.Services.Timeline.TransitionDsp.Build(outgoing, incoming, model, projectBpm);
+
+                var durationSamples = SLSKDONET.Services.Timeline.TransitionDsp.BeatsToSamples(
+                    model.DurationBeats, projectBpm, target.SampleRate, target.Channels);
+
+                using var writer = new NAudio.Wave.WaveFileWriter(outputPath, target);
+                var buffer = new float[target.Channels * 4096];
+                long framesWritten = 0;
+                long framesToWrite = durationSamples / target.Channels;
+
+                while (framesWritten < framesToWrite)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    int read = mixed.Read(buffer, 0, buffer.Length);
+                    if (read == 0) break;
+                    writer.WriteSamples(buffer, 0, read);
+                    framesWritten += read / target.Channels;
+                }
+
+                return outputPath;
+            }, ct);
+        }
+
+        private static NAudio.Wave.ISampleProvider NormalizeFormat(NAudio.Wave.ISampleProvider source, NAudio.Wave.WaveFormat target)
+        {
+            NAudio.Wave.ISampleProvider result = source;
+
+            if (result.WaveFormat.SampleRate != target.SampleRate)
+            {
+                result = new NAudio.Wave.SampleProviders.WdlResamplingSampleProvider(result, target.SampleRate);
+            }
+
+            if (result.WaveFormat.Channels != target.Channels)
+            {
+                if (result.WaveFormat.Channels == 1 && target.Channels == 2)
+                {
+                    result = new NAudio.Wave.SampleProviders.MonoToStereoSampleProvider(result);
+                }
+                else if (result.WaveFormat.Channels == 2 && target.Channels == 1)
+                {
+                    result = new NAudio.Wave.SampleProviders.StereoToMonoSampleProvider(result);
+                }
+            }
+
+            return result;
         }
 
         // ──────────────────────────────────── helpers ──────────────────────────

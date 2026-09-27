@@ -178,7 +178,7 @@ public class AnalysisPageViewModelTests : IDisposable
         var pending = _vm.LibraryTracks.First(t => !t.HasAnalysis);
         _vm.AddToQueue(pending);
 
-        InvokeHandler(_vm, "OnTrackAnalysisFailed", new TrackAnalysisFailedEvent(pending.TrackId, "decoder error"));
+        await InvokeAsyncHandler(_vm, "OnTrackAnalysisFailedAsync", new TrackAnalysisFailedEvent(pending.TrackId, "decoder error"));
         await InvokeAsyncHandler(_vm, "OnTrackAnalysisCompletedAsync", new TrackAnalysisCompletedEvent(pending.TrackId, false, "decoder error"));
 
         Assert.False(pending.IsInQueue);

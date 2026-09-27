@@ -49,6 +49,7 @@ public sealed class SimilarityIndex : IDisposable
     private HnswIndex? _hnswIndex;                            // populated when _index.Count > HnswThreshold
     private Dictionary<Guid, string>? _guidToHash;            // maps HNSW insertion GUID → track hash
     private Dictionary<string, Guid>? _hashToGuid;            // reverse: hash → GUID for query lookup
+    private Dictionary<string, float[]>? _embeddingLookup;    // built once alongside _index, not per call
     private DateTime _indexBuiltAt = DateTime.MinValue;
 
     /// <summary>How long the in-memory index is considered fresh before a lazy reload.</summary>
@@ -117,10 +118,27 @@ public sealed class SimilarityIndex : IDisposable
         _hnswIndex = null;
         _guidToHash = null;
         _hashToGuid = null;
+        _embeddingLookup = null;
     }
 
     /// <summary>Returns current index size (number of tracks with embeddings).</summary>
     public int IndexSize => _index?.Count ?? 0;
+
+    /// <summary>
+    /// Returns a hash→embedding lookup for callers that need to compute their own pairwise
+    /// comparisons in bulk (e.g. <see cref="Playlist.PlaylistOptimizer"/> and
+    /// <see cref="ViewModels.Library.TrackListViewModel"/> scoring many adjacent-pair transitions
+    /// at once) rather than one query at a time via <see cref="GetSimilarTracksAsync"/>. The
+    /// dictionary itself is built once alongside the index and reused across calls (TrackListView
+    /// calls this on every Mix-badge recompute — selection changes, virtualized pages loading in,
+    /// etc. — so re-materializing a several-thousand-entry Dictionary each time was real,
+    /// avoidable per-call allocation).
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, float[]>> GetEmbeddingLookupAsync(CancellationToken ct = default)
+    {
+        await GetOrBuildIndexAsync(ct);
+        return _embeddingLookup ?? (IReadOnlyDictionary<string, float[]>)ImmutableDictionary<string, float[]>.Empty;
+    }
 
     // ── HNSW query ─────────────────────────────────────────────────────────
 
@@ -184,10 +202,36 @@ public sealed class SimilarityIndex : IDisposable
                     .ToList();
             }
 
+            // Embeddings are persisted at whichever dimensionality was available per-track
+            // (1280-D DiscogsEffnet down to an 8-D synthesised fallback — see
+            // EmbeddingExtractionService.PickBestEmbedding). Cosine similarity across mixed
+            // dimensions is meaningless — the HNSW index requires uniform dimensionality
+            // outright, and brute-force silently returns 0.0 for any cross-dimension pair —
+            // so keep only the single dimension most tracks actually have.
+            if (entries.Count > 0)
+            {
+                var dominantDim = entries
+                    .GroupBy(e => e.Vector.Length)
+                    .OrderByDescending(g => g.Count())
+                    .First();
+
+                var dropped = entries.Count - dominantDim.Count();
+                if (dropped > 0)
+                {
+                    _logger.LogWarning(
+                        "[SimilarityIndex] Dropping {Dropped} track(s) with a mismatched embedding dimension " +
+                        "(kept {Dim}-D, used by {Kept} tracks) — re-analyse those tracks to include them.",
+                        dropped, dominantDim.Key, dominantDim.Count());
+                }
+
+                entries = dominantDim.ToList();
+            }
+
             _index = entries;
             _hnswIndex = null;
             _guidToHash = null;
             _hashToGuid = null;
+            _embeddingLookup = entries.ToDictionary(e => e.TrackHash, e => e.Vector, StringComparer.Ordinal);
 
             // Build HNSW graph when the library is large enough to benefit from ANN
             if (entries.Count > HnswThreshold)

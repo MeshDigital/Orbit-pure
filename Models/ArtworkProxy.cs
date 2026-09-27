@@ -31,6 +31,19 @@ public class ArtworkProxy : INotifyPropertyChanged
         {
             if (_image == null && !_isLoading && !string.IsNullOrEmpty(_urlOrPath))
             {
+                // Synchronous fast path: this exact bitmap may already be decoded and resident
+                // (a virtualized row recreated on scroll-back, two tracks sharing an album, or
+                // this same proxy queried again before its async load finished elsewhere) — no
+                // reason to pay a Task+Dispatcher round-trip and a one-frame "no art" flash for
+                // something the cache can hand back immediately.
+                if (_cacheService.TryGetCachedBitmap(_urlOrPath, out var cached))
+                {
+                    // Goes through the Image setter (not the backing field directly) so any
+                    // listener already bound to this proxy still gets its PropertyChanged.
+                    Image = cached;
+                    return _image;
+                }
+
                 _isLoading = true;
                 // Dispatch to background to avoid UI hitch on property access
                 // But the binding expects a return value. Trigger load.

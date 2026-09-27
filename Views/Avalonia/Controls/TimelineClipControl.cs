@@ -128,7 +128,21 @@ public class TimelineClipControl : Control
     public override void Render(DrawingContext context)
     {
         var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
-        context.Custom(new ClipDrawOperation(bounds, this));
+        // Snapshot every StyledProperty value here, on the UI thread, before handing off
+        // to the draw operation — ClipDrawOperation.Render runs on the render/compositor
+        // thread, and reading AvaloniaProperty getters there throws with zero trace
+        // (confirmed root cause of a prior crash class in LiveBackground/OrbitVisualizerCanvas).
+        context.Custom(new ClipDrawOperation(
+            bounds,
+            ClipColor,
+            WaveformData,
+            PhraseSegments?.ToList(),
+            ZoomLevel,
+            ScrollOffset,
+            Bpm,
+            FadeInFraction,
+            FadeOutFraction,
+            ClipLabel));
     }
 
     // ── Inner draw operation ───────────────────────────────────────────────
@@ -136,12 +150,38 @@ public class TimelineClipControl : Control
     private sealed class ClipDrawOperation : ICustomDrawOperation
     {
         private readonly Rect _bounds;
-        private readonly TimelineClipControl _ctrl;
+        private readonly Color _clipColor;
+        private readonly WaveformAnalysisData? _waveformData;
+        private readonly System.Collections.Generic.List<PhraseSegment>? _phraseSegments;
+        private readonly double _zoomLevel;
+        private readonly double _scrollOffset;
+        private readonly float _bpm;
+        private readonly double _fadeInFraction;
+        private readonly double _fadeOutFraction;
+        private readonly string _clipLabel;
 
-        public ClipDrawOperation(Rect bounds, TimelineClipControl ctrl)
+        public ClipDrawOperation(
+            Rect bounds,
+            Color clipColor,
+            WaveformAnalysisData? waveformData,
+            System.Collections.Generic.List<PhraseSegment>? phraseSegments,
+            double zoomLevel,
+            double scrollOffset,
+            float bpm,
+            double fadeInFraction,
+            double fadeOutFraction,
+            string clipLabel)
         {
             _bounds = bounds;
-            _ctrl = ctrl;
+            _clipColor = clipColor;
+            _waveformData = waveformData;
+            _phraseSegments = phraseSegments;
+            _zoomLevel = zoomLevel;
+            _scrollOffset = scrollOffset;
+            _bpm = bpm;
+            _fadeInFraction = fadeInFraction;
+            _fadeOutFraction = fadeOutFraction;
+            _clipLabel = clipLabel;
         }
 
         public Rect Bounds => _bounds;
@@ -150,102 +190,111 @@ public class TimelineClipControl : Control
 
         public void Render(ImmediateDrawingContext context)
         {
-            var lease = context.TryGetFeature(typeof(ISkiaSharpApiLease)) as ISkiaSharpApiLease;
-            if (lease is null) return;
-
-            var canvas = lease.SkCanvas;
-
-            int w = Math.Max(1, (int)_bounds.Width);
-            int h = Math.Max(1, (int)_bounds.Height);
-
-            var clipColor = new SKColor(
-                _ctrl.ClipColor.R,
-                _ctrl.ClipColor.G,
-                _ctrl.ClipColor.B,
-                200);
-
-            var bgColor = new SKColor(
-                (byte)(_ctrl.ClipColor.R / 4),
-                (byte)(_ctrl.ClipColor.G / 4),
-                (byte)(_ctrl.ClipColor.B / 4),
-                230);
-
-            // ── Background ────────────────────────────────────────────────
-            using var bgPaint = new SKPaint { Color = bgColor, IsAntialias = false };
-            canvas.DrawRect(0, 0, w, h, bgPaint);
-
-            // ── Waveform ──────────────────────────────────────────────────
-            var data = _ctrl.WaveformData;
-            if (data is not null && !data.IsEmpty)
+            try
             {
-                using var wfBmp = WaveformRenderer.RenderFromWaveformData(
-                    data, w, h,
-                    waveColor: clipColor,
-                    bgColor: SKColors.Transparent,
-                    zoom: _ctrl.ZoomLevel,
-                    scrollOffset: _ctrl.ScrollOffset);
+                var lease = context.TryGetFeature(typeof(ISkiaSharpApiLease)) as ISkiaSharpApiLease;
+                if (lease is null) return;
 
-                var phrases = _ctrl.PhraseSegments?.ToList();
-                if (phrases is { Count: > 0 })
+                var canvas = lease.SkCanvas;
+
+                int w = Math.Max(1, (int)_bounds.Width);
+                int h = Math.Max(1, (int)_bounds.Height);
+
+                var clipColor = new SKColor(
+                    _clipColor.R,
+                    _clipColor.G,
+                    _clipColor.B,
+                    200);
+
+                var bgColor = new SKColor(
+                    (byte)(_clipColor.R / 4),
+                    (byte)(_clipColor.G / 4),
+                    (byte)(_clipColor.B / 4),
+                    230);
+
+                // ── Background ────────────────────────────────────────────────
+                using var bgPaint = new SKPaint { Color = bgColor, IsAntialias = false };
+                canvas.DrawRect(0, 0, w, h, bgPaint);
+
+                // ── Waveform ──────────────────────────────────────────────────
+                var data = _waveformData;
+                if (data is not null && !data.IsEmpty)
                 {
-                    WaveformRenderer.OverlayPhraseSections(
-                        wfBmp,
-                        phrases,
-                        data.DurationSeconds,
-                        _ctrl.Bpm,
-                        _ctrl.ZoomLevel,
-                        _ctrl.ScrollOffset);
+                    using var wfBmp = WaveformRenderer.RenderFromWaveformData(
+                        data, w, h,
+                        waveColor: clipColor,
+                        bgColor: SKColors.Transparent,
+                        zoom: _zoomLevel,
+                        scrollOffset: _scrollOffset);
+
+                    if (_phraseSegments is { Count: > 0 })
+                    {
+                        WaveformRenderer.OverlayPhraseSections(
+                            wfBmp,
+                            _phraseSegments,
+                            data.DurationSeconds,
+                            _bpm,
+                            _zoomLevel,
+                            _scrollOffset);
+                    }
+
+                    canvas.DrawBitmap(wfBmp, 0, 0);
                 }
 
-                canvas.DrawBitmap(wfBmp, 0, 0);
-            }
-
-            // ── Fade-in triangle ──────────────────────────────────────────
-            float fadeInW = (float)(_ctrl.FadeInFraction * w);
-            if (fadeInW > 1)
-            {
-                using var fadePaint = new SKPaint { Color = SKColors.Black.WithAlpha(140), IsAntialias = true };
-                var path = new SKPath();
-                path.MoveTo(0, 0);
-                path.LineTo(fadeInW, 0);
-                path.LineTo(0, h);
-                path.Close();
-                canvas.DrawPath(path, fadePaint);
-            }
-
-            // ── Fade-out triangle ─────────────────────────────────────────
-            float fadeOutW = (float)(_ctrl.FadeOutFraction * w);
-            if (fadeOutW > 1)
-            {
-                using var fadePaint = new SKPaint { Color = SKColors.Black.WithAlpha(140), IsAntialias = true };
-                var path = new SKPath();
-                path.MoveTo(w, 0);
-                path.LineTo(w - fadeOutW, 0);
-                path.LineTo(w, h);
-                path.Close();
-                canvas.DrawPath(path, fadePaint);
-            }
-
-            // ── Border ────────────────────────────────────────────────────
-            using var borderPaint = new SKPaint
-            {
-                Color = clipColor,
-                IsAntialias = false,
-                IsStroke = true,
-                StrokeWidth = 1.5f
-            };
-            canvas.DrawRect(0, 0, w - 1, h - 1, borderPaint);
-
-            // ── Label ─────────────────────────────────────────────────────
-            if (!string.IsNullOrWhiteSpace(_ctrl.ClipLabel))
-            {
-                using var labelPaint = new SKPaint
+                // ── Fade-in triangle ──────────────────────────────────────────
+                float fadeInW = (float)(_fadeInFraction * w);
+                if (fadeInW > 1)
                 {
-                    Color = SKColors.White,
-                    IsAntialias = true,
-                    TextSize = Math.Clamp(h * 0.22f, 10f, 14f)
+                    using var fadePaint = new SKPaint { Color = SKColors.Black.WithAlpha(140), IsAntialias = true };
+                    var path = new SKPath();
+                    path.MoveTo(0, 0);
+                    path.LineTo(fadeInW, 0);
+                    path.LineTo(0, h);
+                    path.Close();
+                    canvas.DrawPath(path, fadePaint);
+                }
+
+                // ── Fade-out triangle ─────────────────────────────────────────
+                float fadeOutW = (float)(_fadeOutFraction * w);
+                if (fadeOutW > 1)
+                {
+                    using var fadePaint = new SKPaint { Color = SKColors.Black.WithAlpha(140), IsAntialias = true };
+                    var path = new SKPath();
+                    path.MoveTo(w, 0);
+                    path.LineTo(w - fadeOutW, 0);
+                    path.LineTo(w, h);
+                    path.Close();
+                    canvas.DrawPath(path, fadePaint);
+                }
+
+                // ── Border ────────────────────────────────────────────────────
+                using var borderPaint = new SKPaint
+                {
+                    Color = clipColor,
+                    IsAntialias = false,
+                    IsStroke = true,
+                    StrokeWidth = 1.5f
                 };
-                canvas.DrawText(_ctrl.ClipLabel, 4, labelPaint.TextSize + 2, labelPaint);
+                canvas.DrawRect(0, 0, w - 1, h - 1, borderPaint);
+
+                // ── Label ─────────────────────────────────────────────────────
+                if (!string.IsNullOrWhiteSpace(_clipLabel))
+                {
+                    using var labelPaint = new SKPaint
+                    {
+                        Color = SKColors.White,
+                        IsAntialias = true,
+                        TextSize = Math.Clamp(h * 0.22f, 10f, 14f)
+                    };
+                    canvas.DrawText(_clipLabel, 4, labelPaint.TextSize + 2, labelPaint);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Render-thread exceptions bypass all managed exception handling
+                // (AppDomain.UnhandledException / TaskScheduler.UnobservedTaskException never
+                // see them) and hard-crash the process with zero trace. Skip the frame instead.
+                Serilog.Log.Warning(ex, "TimelineClipControl: render tick failed — skipping frame");
             }
         }
 

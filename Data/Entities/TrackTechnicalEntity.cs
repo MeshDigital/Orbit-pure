@@ -21,12 +21,10 @@ namespace SLSKDONET.Data.Entities
         public PlaylistTrackEntity? PlaylistTrack { get; set; }
 
         // --- Heavy Data ---
-
-        public byte[]? WaveformData { get; set; }
-        public byte[]? RmsData { get; set; }
-        public byte[]? LowData { get; set; }
-        public byte[]? MidData { get; set; }
-        public byte[]? HighData { get; set; }
+        // Waveform bytes previously lived here (WaveformData/RmsData/LowData/MidData/HighData) but
+        // were never actually populated — the real waveform path is AudioFeaturesEntity.WaveformBlob,
+        // unpacked on read by LibraryService.ResolveWaveformBands. Columns dropped in
+        // SchemaMigratorService's patch #27.
 
         public string? AiEmbeddingJson { get; set; } // Future: Vector embeddings
         public string? CuePointsJson { get; set; }   // JSON blob for cue points (can be large)

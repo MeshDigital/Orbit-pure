@@ -88,8 +88,10 @@ public class OrphanedTrackViewModel : INotifyPropertyChanged
                 return;
             }
 
-            entry.FilePath = newPath;
-            await _libraryService.SaveOrUpdateLibraryEntryAsync(entry);
+            // Updates the Library entry AND every PlaylistTrack row sharing this hash — a plain
+            // LibraryEntry-only save left other playlists containing this track still pointing at
+            // the old (missing) path, since playlist reads use their own denormalized column.
+            await _libraryService.UpdateTrackFilePathAsync(_entity.UniqueHash, newPath);
 
             _entity.FilePath = newPath;
             _parentCollection.Remove(this);

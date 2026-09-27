@@ -67,7 +67,12 @@ public sealed class PostDownloadSpectralScanService : IDisposable
         var subscription = _eventBus.GetEvent<TrackStateChangedEvent>()
             .Subscribe(evt =>
             {
-                if (evt.State == PlaylistTrackState.Completed)
+                // WasAlreadyPresent means the file was already on disk and got relinked, not
+                // freshly transferred (e.g. re-syncing a playlist re-requeues a track that turns
+                // out to already be downloaded under a sibling row) — it's the same bytes this
+                // service already analysed the first time, so re-scanning it on every resync would
+                // just be wasted CPU for an identical result.
+                if (evt.State == PlaylistTrackState.Completed && !evt.WasAlreadyPresent)
                     _ = ScanAsync(evt);
             });
         _disposables.Add(subscription);

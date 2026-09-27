@@ -2820,6 +2820,204 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // 26. Persisted read/unread state for chat — previously in-memory only, so every
+            // restart showed all history as read regardless of what arrived while closed.
+            // DEFAULT 1 backfills existing rows as already-seen, matching that prior behavior.
+            if (!ColumnExists("PrivateMessages", "IsRead"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsRead to PrivateMessages...");
+                command.CommandText = @"ALTER TABLE ""PrivateMessages"" ADD COLUMN ""IsRead"" INTEGER NOT NULL DEFAULT 1;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!ColumnExists("RoomMessages", "IsRead"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsRead to RoomMessages...");
+                command.CommandText = @"ALTER TABLE ""RoomMessages"" ADD COLUMN ""IsRead"" INTEGER NOT NULL DEFAULT 1;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 27. Retire TechnicalDetails' dead waveform blob columns — confirmed zero write sites
+            // ever populate real bytes through them (every insert is a bare clone-init with no
+            // waveform fields set). The live waveform path is AudioFeaturesEntity.WaveformBlob,
+            // unpacked on read by LibraryService — these columns were always-empty dead schema.
+            foreach (var deadColumn in new[] { "WaveformData", "RmsData", "LowData", "MidData", "HighData" })
+            {
+                if (ColumnExists("TechnicalDetails", deadColumn))
+                {
+                    _logger.LogInformation("Patching Schema: Dropping dead column TechnicalDetails.{Column}...", deadColumn);
+                    command.CommandText = $"ALTER TABLE \"TechnicalDetails\" DROP COLUMN \"{deadColumn}\";";
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            // 28. IX_DownloadHistory_PeerUsername existed only inside the CREATE TABLE branch, so
+            // it was only ever created for a brand-new database — every existing installation's
+            // DownloadHistory table (often tens/hundreds of thousands of rows: one row per download
+            // attempt, not just successes) predates this index and never actually got it. The Users
+            // page's GetDownloadedUsersSummaryAsync GROUP BY on PeerUsername was doing a full table
+            // scan on every load for exactly that reason.
+            if (TableExists("DownloadHistory"))
+            {
+                command.CommandText = @"CREATE INDEX IF NOT EXISTS ""IX_DownloadHistory_PeerUsername"" ON ""DownloadHistory"" (""PeerUsername"");";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 29. Rekordbox export cue-sync snapshots: enables a three-way merge so a cue edit made
+            // in Cue Forge after a track's first Rekordbox export still propagates on re-export,
+            // while a hand-edit made directly inside Rekordbox since ORBIT's last known-good sync is
+            // still preserved (previously all-or-nothing: any existing cues blocked every future
+            // ORBIT cue update for that track, forever).
+            if (!TableExists("RekordboxExportCueSync"))
+            {
+                _logger.LogInformation("Patching Schema: Creating RekordboxExportCueSync table...");
+                command.CommandText = @"
+                    CREATE TABLE ""RekordboxExportCueSync"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_RekordboxExportCueSync"" PRIMARY KEY,
+                        ""TargetPath"" TEXT NOT NULL,
+                        ""TrackUniqueHash"" TEXT NOT NULL,
+                        ""CueSnapshot"" TEXT NOT NULL DEFAULT '',
+                        ""UpdatedAtUtc"" TEXT NOT NULL
+                    );
+                    CREATE UNIQUE INDEX ""IX_RekordboxExportCueSync_TargetPath_Hash"" ON ""RekordboxExportCueSync"" (""TargetPath"", ""TrackUniqueHash"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ RekordboxExportCueSync table created.");
+            }
+
+            // 30. Watch-folder auto-import: lets LibraryFolderWatchService know which registered
+            // library folders should get a live FileSystemWatcher instead of relying entirely on
+            // manual "Scan All" clicks.
+            if (TableExists("LibraryFolders") && !ColumnExists("LibraryFolders", "IsWatched"))
+            {
+                _logger.LogInformation("Patching Schema: Adding IsWatched to LibraryFolders...");
+                command.CommandText = @"ALTER TABLE ""LibraryFolders"" ADD COLUMN ""IsWatched"" INTEGER NOT NULL DEFAULT 0;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 31. Mix (Spotify-Mix-parity): saved per-track-pair transition config, keyed by the
+            // outgoing/incoming PlaylistTracks.Id pair so the same two tracks can carry different
+            // transitions in different playlists.
+            if (!TableExists("PlaylistTrackTransitions"))
+            {
+                _logger.LogInformation("Patching Schema: Creating PlaylistTrackTransitions table...");
+                command.CommandText = @"
+                    CREATE TABLE ""PlaylistTrackTransitions"" (
+                        ""Id"" TEXT NOT NULL CONSTRAINT ""PK_PlaylistTrackTransitions"" PRIMARY KEY,
+                        ""PlaylistId"" TEXT NOT NULL,
+                        ""OutgoingPlaylistTrackId"" TEXT NOT NULL,
+                        ""IncomingPlaylistTrackId"" TEXT NOT NULL,
+                        ""PresetName"" TEXT NOT NULL DEFAULT 'Auto',
+                        ""TransitionType"" TEXT NOT NULL DEFAULT 'Crossfade',
+                        ""DurationBars"" INTEGER NOT NULL DEFAULT 16,
+                        ""EchoDecayFactor"" REAL NULL,
+                        ""FilterStartFrequency"" REAL NULL,
+                        ""FilterEndFrequency"" REAL NULL,
+                        ""EqLowGain"" REAL NULL,
+                        ""EqMidGain"" REAL NULL,
+                        ""EqHighGain"" REAL NULL,
+                        ""SourceTriggerSeconds"" REAL NULL,
+                        ""TargetTriggerSeconds"" REAL NULL,
+                        ""WaveDuckDepth"" REAL NULL,
+                        ""FilterSweepRising"" INTEGER NULL,
+                        ""EqSwapLow"" INTEGER NULL,
+                        ""EqSwapMid"" INTEGER NULL,
+                        ""EqSwapHigh"" INTEGER NULL,
+                        ""EqLowCrossoverHz"" REAL NULL,
+                        ""EqHighCrossoverHz"" REAL NULL,
+                        ""UpdatedAtUtc"" TEXT NOT NULL
+                    );
+                    CREATE UNIQUE INDEX ""IX_PlaylistTrackTransitions_Pair"" ON ""PlaylistTrackTransitions"" (""OutgoingPlaylistTrackId"", ""IncomingPlaylistTrackId"");
+                    CREATE INDEX ""IX_PlaylistTrackTransitions_PlaylistId"" ON ""PlaylistTrackTransitions"" (""PlaylistId"");
+                ";
+                await command.ExecuteNonQueryAsync();
+                _logger.LogInformation("✅ PlaylistTrackTransitions table created.");
+            }
+
+            // 32. Mix: cue/tempo/key/vocal-aware mix-out/mix-in trigger points (TransitionEngine.
+            // OptimizeTransition), added after the table above shipped without them.
+            if (TableExists("PlaylistTrackTransitions") && !ColumnExists("PlaylistTrackTransitions", "SourceTriggerSeconds"))
+            {
+                _logger.LogInformation("Patching Schema: Adding SourceTriggerSeconds/TargetTriggerSeconds to PlaylistTrackTransitions...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""SourceTriggerSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""TargetTriggerSeconds"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 33. Mix Custom mode: Wave preset's duck depth and Rise preset's sweep direction —
+            // TransitionModel already had both fields, but nothing persisted a custom override for
+            // either, so a saved Wave/Melt transition silently fell back to TransitionModel's
+            // hardcoded default instead of whatever TransitionPresetLibrary.Build would have
+            // produced for that preset.
+            if (TableExists("PlaylistTrackTransitions") && !ColumnExists("PlaylistTrackTransitions", "WaveDuckDepth"))
+            {
+                _logger.LogInformation("Patching Schema: Adding WaveDuckDepth/FilterSweepRising to PlaylistTrackTransitions...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""WaveDuckDepth"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""FilterSweepRising"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 34. Mix Custom mode: real EQ band-swap controls. The original EqLowGain/MidGain/
+            // HighGain columns (above) were dead weight — never set, never read — because they're
+            // shaped as gain overrides, not the swap-toggle + crossover-Hz shape the live engine's
+            // EqBandSwapConfig actually needs. These are the correctly-shaped replacement; the old
+            // columns are left in place (still unused) rather than dropped, to avoid a destructive
+            // migration for a handful of always-null columns.
+            if (TableExists("PlaylistTrackTransitions") && !ColumnExists("PlaylistTrackTransitions", "EqSwapLow"))
+            {
+                _logger.LogInformation("Patching Schema: Adding EqSwapLow/Mid/High + crossover columns to PlaylistTrackTransitions...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqSwapLow"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqSwapMid"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqSwapHigh"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqLowCrossoverHz"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""EqHighCrossoverHz"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 35. BPM read from the file's own embedded tag (TagLib BeatsPerMinute) at import —
+            // trusted over Essentia analysis for breakbeat/DNB tracks, where the DSP beat tracker
+            // has a confirmed quantization bias (two different DNB tracks' raw Essentia BPM
+            // converged to 172.265xx to five decimal places — a fixed internal lag/bin period, not
+            // a real per-track measurement). Sits alongside the existing SpotifyBPM/ManualBPM
+            // dual-truth columns; SyncDenormalizedFeaturesAsync's analysis-write path now skips
+            // overwriting BPM when either ManualBPM or this is set.
+            if (TableExists("LibraryEntries") && !ColumnExists("LibraryEntries", "TagBPM"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TagBPM to LibraryEntries...");
+                command.CommandText = @"ALTER TABLE ""LibraryEntries"" ADD COLUMN ""TagBPM"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("PlaylistTracks") && !ColumnExists("PlaylistTracks", "TagBPM"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TagBPM to PlaylistTracks...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTracks"" ADD COLUMN ""TagBPM"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (TableExists("Tracks") && !ColumnExists("Tracks", "TagBPM"))
+            {
+                _logger.LogInformation("Patching Schema: Adding TagBPM to Tracks...");
+                command.CommandText = @"ALTER TABLE ""Tracks"" ADD COLUMN ""TagBPM"" REAL NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // 36. Mix "Double Drop" transition: loops a bar-aligned tail of the outgoing track
+            // once or twice before crossfading into the incoming track's drop. LoopEnabled isn't
+            // a separate column — TransitionType itself carries "DoubleDrop" as one of its
+            // values, same as every other preset here.
+            if (TableExists("PlaylistTrackTransitions") && !ColumnExists("PlaylistTrackTransitions", "LoopBars"))
+            {
+                _logger.LogInformation("Patching Schema: Adding LoopBars/LoopRepeats to PlaylistTrackTransitions...");
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""LoopBars"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"ALTER TABLE ""PlaylistTrackTransitions"" ADD COLUMN ""LoopRepeats"" INTEGER NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
             _logger.LogInformation("Schema patching completed.");
         }
         catch (Exception ex)

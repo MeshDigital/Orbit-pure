@@ -44,7 +44,7 @@ public class PlaylistExportFolderNestingTests : IDisposable
             .Options;
 
     private static PlaylistExportService CreateService(DbContextOptions<AppDbContext> options) =>
-        new(NullLogger<PlaylistExportService>.Instance, new TestDbContextFactory(options));
+        new(NullLogger<PlaylistExportService>.Instance, new TestDbContextFactory(options), new SLSKDONET.Tests.Helpers.FakeFileWriteService());
 
     private List<PlaylistTrack> SingleTrack(string title = "T")
     {

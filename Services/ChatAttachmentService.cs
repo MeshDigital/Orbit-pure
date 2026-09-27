@@ -41,8 +41,13 @@ public sealed class ChatAttachmentService
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ChatAttachmentService> _logger;
 
+    // Unbounded otherwise — every outgoing/incoming chat image sent or received in a session adds
+    // an entry that was never removed. Cap both and evict the oldest batch once the cap is hit.
+    private const int MaxTrackedAttachments = 500;
+    private const int EvictionBatchSize = 50;
+
     private readonly ConcurrentDictionary<string, ChatAttachmentGrant> _outgoingGrants = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, string> _downloadedByVirtualPath = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, (string LocalPath, DateTime CreatedAtUtc)> _downloadedByVirtualPath = new(StringComparer.OrdinalIgnoreCase);
 
     public ChatAttachmentService(IServiceProvider serviceProvider, ILogger<ChatAttachmentService> logger)
     {
@@ -91,7 +96,8 @@ public sealed class ChatAttachmentService
         File.Copy(localSourceFilePath, storedPath, overwrite: false);
 
         var virtualPath = storedPath.Replace('/', '\\');
-        _outgoingGrants[virtualPath] = new ChatAttachmentGrant(storedPath, recipientUsername);
+        _outgoingGrants[virtualPath] = new ChatAttachmentGrant(storedPath, recipientUsername, DateTime.UtcNow);
+        EvictOldestIfOverCap(_outgoingGrants, g => g.CreatedAtUtc);
 
         _logger.LogInformation("Prepared outgoing chat image {FileName} ({Size} bytes) for {Recipient}", Path.GetFileName(localSourceFilePath), sourceInfo.Length, recipientUsername);
 
@@ -107,8 +113,8 @@ public sealed class ChatAttachmentService
         if (isOutgoing && _outgoingGrants.TryGetValue(virtualPath, out var grant) && File.Exists(grant.LocalPath))
             return grant.LocalPath;
 
-        if (_downloadedByVirtualPath.TryGetValue(virtualPath, out var cachedPath) && File.Exists(cachedPath))
-            return cachedPath;
+        if (_downloadedByVirtualPath.TryGetValue(virtualPath, out var cached) && File.Exists(cached.LocalPath))
+            return cached.LocalPath;
 
         Directory.CreateDirectory(AttachmentsDirectory);
         var extension = Path.GetExtension(fileName);
@@ -120,7 +126,8 @@ public sealed class ChatAttachmentService
         if (!success || !File.Exists(localPath))
             throw new IOException($"Failed to download image from {peerUsername}.");
 
-        _downloadedByVirtualPath[virtualPath] = localPath;
+        _downloadedByVirtualPath[virtualPath] = (localPath, DateTime.UtcNow);
+        EvictOldestIfOverCap(_downloadedByVirtualPath, v => v.CreatedAtUtc);
         return localPath;
     }
 
@@ -149,5 +156,21 @@ public sealed class ChatAttachmentService
         return true;
     }
 
-    private sealed record ChatAttachmentGrant(string LocalPath, string AuthorizedUsername);
+    private static void EvictOldestIfOverCap<TValue>(ConcurrentDictionary<string, TValue> dict, Func<TValue, DateTime> createdAtSelector)
+    {
+        if (dict.Count <= MaxTrackedAttachments) return;
+
+        var oldest = dict
+            .OrderBy(kv => createdAtSelector(kv.Value))
+            .Take(EvictionBatchSize)
+            .Select(kv => kv.Key)
+            .ToList();
+
+        foreach (var key in oldest)
+        {
+            dict.TryRemove(key, out _);
+        }
+    }
+
+    private sealed record ChatAttachmentGrant(string LocalPath, string AuthorizedUsername, DateTime CreatedAtUtc);
 }

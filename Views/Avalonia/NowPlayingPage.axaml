@@ -49,12 +49,12 @@
                         <TextBlock Text="FLOW" FontSize="10" FontWeight="Bold" Foreground="#D7E7F6"/>
                     </ToggleButton>
                     <Button Command="{Binding ToggleExpandedPlayerCommand}"
-                            Background="#1D3328"
-                            BorderBrush="#1DB954"
+                            Background="{StaticResource BrushAccentSubtle}"
+                            BorderBrush="{StaticResource BrushAccent}"
                             BorderThickness="1"
                             Padding="12,6"
                             ToolTip.Tip="Open now playing overlay">
-                        <TextBlock Text="OVERLAY" FontSize="10" FontWeight="Bold" Foreground="#DFFFE8"/>
+                        <TextBlock Text="OVERLAY" FontSize="10" FontWeight="Bold" Foreground="{StaticResource BrushAccent}"/>
                     </Button>
                 </StackPanel>
             </Grid>
@@ -122,7 +122,7 @@
                                     Preset="{Binding CurrentVisualizerPreset}"
                                     EngineMode="{Binding VisualizerEngineMode}"
                                     AlbumHue="{Binding AlbumArtHue}"
-                                    IsVisible="{Binding IsPlaying}" />
+                                    IsVisible="{Binding CurrentTrack, Converter={x:Static ObjectConverters.IsNotNull}}" />
 
                                 <Border Width="220" Height="220"
                                         CornerRadius="110"
@@ -208,11 +208,11 @@
                                         <TextBlock Text="TOGGLE QUEUE PANEL" FontSize="11" FontWeight="Bold" Foreground="#D7E7F6" HorizontalAlignment="Center"/>
                                     </Button>
                                     <Button Command="{Binding ToggleTheaterModeCommand}"
-                                            Background="#1D3328"
-                                            BorderBrush="#1DB954"
+                                            Background="{StaticResource BrushAccentSubtle}"
+                                            BorderBrush="{StaticResource BrushAccent}"
                                             BorderThickness="1"
                                             Padding="12,10">
-                                        <TextBlock Text="ENTER THEATER MODE" FontSize="11" FontWeight="Bold" Foreground="#DFFFE8" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="ENTER THEATER MODE" FontSize="11" FontWeight="Bold" Foreground="{StaticResource BrushAccent}" HorizontalAlignment="Center"/>
                                     </Button>
                                 </StackPanel>
                             </Grid>
@@ -229,10 +229,15 @@
                                                   PhraseSegments="{Binding CurrentTrack.PhraseSegments}"
                                                   Progress="{Binding Position}"
                                                   Background="#01000000"
-                                                  PlayheadBrush="#1DB954"
+                                                  PlayheadBrush="{StaticResource BrushAccent}"
                                                   SeekCommand="{Binding SeekCommand}"
+                                                  UseNeonPalette="{Binding WaveformUseNeonPalette}"
+                                                  Gain="{Binding WaveformGain}"
+                                                  ShowEnergyCurve="{Binding WaveformShowEnergyCurve}"
+                                                  ShowVocalGhost="{Binding WaveformShowVocalGhost}"
+                                                  ShowPhraseSections="{Binding WaveformShowPhraseSections}"
                                                   Height="76"
-                                                  IsVisible="{Binding IsPlaying}"/>
+                                                  IsVisible="{Binding CurrentTrack, Converter={x:Static ObjectConverters.IsNotNull}}"/>
                         <TextBlock Grid.Column="2" Text="{Binding TotalTimeStr}" FontSize="12" Foreground="#8FA5B8" VerticalAlignment="Center" Margin="12,0,0,0"/>
                     </Grid>
 
@@ -254,7 +259,7 @@
                             <Button Command="{Binding PreviousTrackCommand}" Background="#1B2430" BorderBrush="#304254" BorderThickness="1" Padding="14,12" CornerRadius="24">
                                 <TextBlock Text="⏮" FontSize="20" Foreground="White"/>
                             </Button>
-                            <Button Command="{Binding TogglePlayPauseCommand}" Background="#1DB954" BorderThickness="0" Padding="18,14" CornerRadius="28" Width="64" Height="64">
+                            <Button Command="{Binding TogglePlayPauseCommand}" Background="{StaticResource BrushAccent}" BorderThickness="0" Padding="18,14" CornerRadius="28" Width="64" Height="64">
                                 <TextBlock Text="{Binding IsPlaying, Converter={StaticResource BoolToPlayPauseIconConverter}}" FontSize="24" Foreground="Black" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Button>
                             <Button Command="{Binding NextTrackCommand}" Background="#1B2430" BorderBrush="#304254" BorderThickness="1" Padding="14,12" CornerRadius="24">

@@ -46,7 +46,7 @@ public class PlaylistExportDeduplicationTests : IDisposable
     }
 
     private PlaylistExportService CreateService() =>
-        new(NullLogger<PlaylistExportService>.Instance, CreateInMemoryFactory());
+        new(NullLogger<PlaylistExportService>.Instance, CreateInMemoryFactory(), new SLSKDONET.Tests.Helpers.FakeFileWriteService());
 
     // ── Duplicate track deduplication ─────────────────────────────────────
 

@@ -18,6 +18,7 @@
         <conv:AiStatusToInstallVisConverter  x:Key="AiStatusToInstallVisConverter"/>
         <conv:AiStatusToStartVisConverter    x:Key="AiStatusToStartVisConverter"/>
         <conv:AiStatusToCheckingVisConverter x:Key="AiStatusToCheckingVisConverter"/>
+        <conv:SettingsSearchMatchConverter x:Key="SettingsSearchMatchConverter"/>
     </UserControl.Resources>
 
     <UserControl.Styles>
@@ -81,6 +82,19 @@
                            FontSize="13" Foreground="#A0A0A0"/>
             </StackPanel>
 
+            <!-- Search — filters the active tab's sections by keyword. Always visible regardless
+                 of which tab is selected, same as the header/Save button above/below it. -->
+            <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Grid.Column="0" Text="🔍" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <TextBox Grid.Column="1"
+                         Text="{Binding SettingsSearchText, Mode=TwoWay}"
+                         Watermark="Search settings on this tab..."
+                         Background="#1A1A1A"
+                         BorderBrush="#333"
+                         Foreground="White"
+                         Padding="10,8"/>
+            </Grid>
+
             <TabControl Classes="settingsTabs" Padding="0" Margin="0,0,0,0">
 
             <!-- ═══════════════ TAB: CONNECTION ═══════════════ -->
@@ -89,7 +103,8 @@
 
             <!-- Soulseek Connection (first-run: credentials live here) -->
             <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#0078D4" BorderThickness="1"
-                    Tag="Soulseek Connection||Enter your Soulseek username and password here. These credentials are used to connect to the Soulseek P2P network for searching and downloading music. Your password is stored locally and never sent anywhere except the Soulseek server.">
+                    Tag="Soulseek Connection||Enter your Soulseek username and password here. These credentials are used to connect to the Soulseek P2P network for searching and downloading music. Your password is stored locally and never sent anywhere except the Soulseek server."
+                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Soulseek Connection username auto-connect startup remember password connect disconnect reconnect'}">
                 <StackPanel Spacing="16">
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Grid.Column="0" Spacing="4">
@@ -163,7 +178,8 @@
 
             <!-- NEW REFACORTED SPOTIFY INTEGRATION -->
             <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
-                    Tag="Spotify Integration||Connect your Spotify account to import Liked Songs and playlists. Orbit uses the Spotify API to match tracks so it knows what to search for. Your Spotify credentials are only used to read your library — no data is modified.">
+                    Tag="Spotify Integration||Connect your Spotify account to import Liked Songs and playlists. Orbit uses the Spotify API to match tracks so it knows what to search for. Your Spotify credentials are only used to read your library — no data is modified."
+                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Spotify Integration import playlists liked songs matching connect disconnect'}">
                 <StackPanel Spacing="16">
                     <Grid ColumnDefinitions="*,Auto">
                          <StackPanel Grid.Column="0" Spacing="4">
@@ -286,7 +302,8 @@
 
             <!-- Download Settings -->
             <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
-                    Tag="Download Settings||Configure where Orbit saves downloaded files, how many simultaneous downloads to allow, and which file formats to accept. The download folder is created automatically if it does not exist.">
+                    Tag="Download Settings||Configure where Orbit saves downloaded files, how many simultaneous downloads to allow, and which file formats to accept. The download folder is created automatically if it does not exist."
+                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Download Settings download path file name format check duplicates verification challenges'}">
                 <StackPanel Spacing="16">
                     <TextBlock Text="Download Settings" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
 
@@ -340,7 +357,8 @@
             </Border>
 
             <!-- Automatic Downloads Strict Mode -->
-            <Border Background="#1B232A" CornerRadius="8" Padding="20" BorderBrush="#00BFFF" BorderThickness="1">
+            <Border Background="#1B232A" CornerRadius="8" Padding="20" BorderBrush="#00BFFF" BorderThickness="1"
+            IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Automatic Downloads Strict Mode exact first only allow fuzzy fallback initial extended wait bitrate extensions excluded phrases match score'}">
                 <StackPanel Spacing="16">
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Grid.Column="0" Spacing="4">
@@ -545,7 +563,8 @@
 
             <!-- Phase 8: Self-Healing Library (Upgrade Scout) — Advanced -->
             <Expander Header="Library Self-Healing (Upgrade Scout)" IsExpanded="False" Padding="0" Margin="0">
-            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1" Margin="0,4,0,0">
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1" Margin="0,4,0,0"
+            IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Library Self-Healing Upgrade Scout bitrate threshold gain auto queue'}">
                 <StackPanel Spacing="16">
                     <TextBlock Text="Library Self-Healing (Upgrade Scout)" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
 
@@ -607,7 +626,8 @@
 
             <!-- Library Sharing -->
             <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#1DB954" BorderThickness="1"
-                    Tag="Library Sharing||When enabled, Orbit will share your local music library with other Soulseek users. You can choose which folders to share and set upload speed limits to avoid saturating your connection.">
+                    Tag="Library Sharing||When enabled, Orbit shares every folder in your Library Sources (Library tab) with other Soulseek users, plus any additional folder you add below. Set upload speed limits to avoid saturating your connection."
+                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Library Sharing share folders reputation upload additional folder'}">
                 <StackPanel Spacing="16">
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Grid.Column="0" Spacing="4">
@@ -615,7 +635,7 @@
                                 <TextBlock Text="📤" FontSize="20" VerticalAlignment="Center"/>
                                 <TextBlock Text="Library Sharing" FontSize="16" FontWeight="SemiBold" Foreground="#1DB954"/>
                             </StackPanel>
-                            <TextBlock Text="Share files back to the Soulseek network. Your share count directly affects your reputation and download priority from quality peers."
+                            <TextBlock Text="Shares every enabled Library Sources folder automatically. Your share count directly affects your reputation and download priority from quality peers."
                                        Foreground="#666" FontSize="12" TextWrapping="Wrap"/>
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1"
@@ -626,9 +646,10 @@
 
                     <Separator Background="#1A2F1A" Height="1"/>
 
-                    <!-- Folder picker – only enabled when sharing is on -->
+                    <!-- Additive extra folder – on top of every enabled Library Sources folder, not a replacement for them -->
                     <Grid ColumnDefinitions="130,*,Auto" IsEnabled="{Binding EnableLibrarySharing}">
-                        <TextBlock Grid.Column="0" Text="Shared Folder:" VerticalAlignment="Center" Foreground="#DDD"/>
+                        <TextBlock Grid.Column="0" Text="Additional Folder:" VerticalAlignment="Center" Foreground="#DDD"
+                                   ToolTip.Tip="Optional — shared in addition to your Library Sources folders, for files outside your library you also want to share."/>
                         <TextBox Grid.Column="1"
                                  Text="{Binding SharedFolderPath, Mode=TwoWay}"
                                  IsReadOnly="True"
@@ -673,7 +694,9 @@
             </Border>
 
             <!-- Frequent Sources (local-only, opt-in) -->
-            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
+                    Tag="Frequent Sources||Tracks repeated source/folder pairs and prefetches staging locally, entirely on-device — disabled by default and never uploads any telemetry."
+                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Frequent Sources staging prefetch local opt-in'}">
                 <StackPanel Spacing="16">
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Grid.Column="0" Spacing="4">
@@ -721,7 +744,8 @@
 
             <!-- Library Folders -->
             <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
-                    Tag="Library Folders||Add the folders where your music files live. Orbit will scan these directories recursively to build your library. Changes take effect after the next library rescan.">
+                    Tag="Library Folders||Add the folders where your music files live. Orbit will scan these directories recursively to build your library. Changes take effect after the next library rescan."
+                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Library Folders add remove browse'}">
                 <StackPanel Spacing="16">
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Grid.Column="0" Spacing="4">
@@ -766,7 +790,8 @@
 
             <!-- Library Navigation Behavior -->
             <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
-                    Tag="Library Navigation||Controls how Orbit behaves when you select a track in the library. You can choose whether clicking a track adds it to the workstation deck, opens the inspector, or does nothing until you explicitly drag it.">
+                    Tag="Library Navigation||Controls how Orbit behaves when you select a track in the library. You can choose whether clicking a track adds it to the workstation deck, opens the inspector, or does nothing until you explicitly drag it."
+                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Library Navigation Behavior auto-hide collapsed sidebar activation'}">
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="4">
                         <TextBlock Text="Library Navigation" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
@@ -803,7 +828,8 @@
             </Border>
 
             <!-- Database & Maintenance -->
-            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
+            IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Database Maintenance reset schema scan reconcile full sync enrich missing metadata removal candidates'}">
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="4">
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -984,7 +1010,8 @@
 
             <!-- Search Filter Defaults -->
             <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
-                    Tag="Default Search Filters||Set the default quality thresholds used when Orbit evaluates search results. Stricter settings mean fewer results but higher confidence that files are genuine high-quality audio.">
+                    Tag="Default Search Filters||Set the default quality thresholds used when Orbit evaluates search results. Stricter settings mean fewer results but higher confidence that files are genuine high-quality audio."
+                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Search Filter Defaults preferred formats bitrate minimum maximum'}">
                 <StackPanel Spacing="16">
                     <TextBlock Text="Default Search Filters" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
 
@@ -1069,7 +1096,8 @@
 
             <!-- Brain 2.0 & Quality Guard -->
             <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
-                    Tag="Smart Features &amp; Integrity||These controls govern Orbit's adaptive search intelligence and fake-lossless detection. Spectral scanning detects transcoded files disguised as lossless. Auto-retry requeues failed downloads from a different peer.">
+                    Tag="Smart Features &amp; Integrity||These controls govern Orbit's adaptive search intelligence and fake-lossless detection. Spectral scanning detects transcoded files disguised as lossless. Auto-retry requeues failed downloads from a different peer."
+                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Brain 2.0 Quality Guard fuzzy normalization relaxation strategy timeout VBR fraud detection'}">
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="4">
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -1181,7 +1209,8 @@
             </Border>
 
             <!-- Strategy Command Center -->
-            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1">
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
+            IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Strategy Command Center DJ Mode Data Saver Quality First Balanced safety gates enforce file integrity strict title match duration match'}">
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="4">
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -1255,9 +1284,29 @@
             <TabItem Header="ADVANCED">
             <StackPanel Spacing="24" Margin="0,16,0,0">
 
+            <!-- Update Check -->
+            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderThickness="1" BorderBrush="#1E2A3A"
+            IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Check for Updates GitHub Releases version'}">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Grid.Column="0" Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="🔔" FontSize="20" VerticalAlignment="Center"/>
+                            <TextBlock Text="Check for Updates" FontSize="16" FontWeight="SemiBold" Foreground="#00BFFF"/>
+                        </StackPanel>
+                        <TextBlock Text="On launch, checks GitHub Releases for a newer version (at most once every 12 hours) and shows a toast if one is found. No account or telemetry involved."
+                                   Foreground="#8AA9BB" FontSize="12" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <ToggleSwitch Grid.Column="1"
+                                  IsChecked="{Binding EnableUpdateCheck, Mode=TwoWay}"
+                                  OnContent="On" OffContent="Off"
+                                  VerticalAlignment="Top"/>
+                </Grid>
+            </Border>
+
             <!-- AI Engine -->
             <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderThickness="1"
-                    BorderBrush="{Binding AiEngine.Status, Converter={StaticResource AiStatusToBorderBrushConverter}}">
+                    BorderBrush="{Binding AiEngine.Status, Converter={StaticResource AiStatusToBorderBrushConverter}}"
+                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='AI Engine EDMFormer phrase detection conda miniconda install'}">
                 <StackPanel Spacing="0">
 
                     <!-- Header -->
@@ -1327,8 +1376,63 @@
                 </StackPanel>
             </Border>
 
+            <!-- Waveform Appearance — moved here from Library: it controls player/Now Playing
+                 visuals, not library scanning/sharing, so it reads better next to Audio Output. -->
+            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#00CFFF" BorderThickness="1"
+                    Tag="Waveform Appearance||Controls the RGB tri-band waveform on the player and Now Playing view — the preview above shows the effect of each toggle live, using a sample waveform rather than a real track."
+                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Waveform Appearance RGB tri-band neon classic palette gain energy curve vocal ghost phrase sections preview'}">
+                <StackPanel Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="🌈" FontSize="20" VerticalAlignment="Center"/>
+                        <TextBlock Text="Waveform Appearance" FontSize="16" FontWeight="SemiBold" Foreground="#00CFFF"/>
+                    </StackPanel>
+                    <TextBlock Text="Controls the RGB tri-band waveform on the player and Now Playing view. Applies the next time a waveform is loaded." Foreground="#AAA" FontSize="12" TextWrapping="Wrap"/>
+
+                    <Border Background="#000000" CornerRadius="6" ClipToBounds="True">
+                        <controls:WaveformControl Height="90"
+                                                   WaveformData="{Binding WaveformPreviewData}"
+                                                   UseNeonPalette="{Binding WaveformUseNeonPalette}"
+                                                   Gain="{Binding WaveformGain}"
+                                                   ShowEnergyCurve="{Binding WaveformShowEnergyCurve}"
+                                                   ShowVocalGhost="{Binding WaveformShowVocalGhost}"
+                                                   ShowPhraseSections="{Binding WaveformShowPhraseSections}"
+                                                   EnergyCurve="{Binding WaveformPreviewEnergyCurve}"
+                                                   VocalDensityCurve="{Binding WaveformPreviewVocalCurve}"
+                                                   PhraseSegments="{Binding WaveformPreviewPhraseSegments}"
+                                                   Progress="0.4"/>
+                    </Border>
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Neon palette (off = classic RGB)" Foreground="#DDD" VerticalAlignment="Center"/>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding WaveformUseNeonPalette, Mode=TwoWay}" OnContent="Neon" OffContent="Classic"/>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto">
+                        <TextBlock Grid.Column="0" Text="Gain" Foreground="#DDD" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <Slider Grid.Column="1" Minimum="0.5" Maximum="2.0" Value="{Binding WaveformGain, Mode=TwoWay}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Text="{Binding WaveformGain, StringFormat={}{0:0.0}x}" Foreground="#AAA" FontSize="12" Margin="10,0,0,0" VerticalAlignment="Center" Width="32"/>
+                    </Grid>
+
+                    <Separator Background="#1A2F3A" Height="1"/>
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Show energy curve" Foreground="#DDD" VerticalAlignment="Center"/>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding WaveformShowEnergyCurve, Mode=TwoWay}" OnContent="On" OffContent="Off"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Show vocal density ghost" Foreground="#DDD" VerticalAlignment="Center"/>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding WaveformShowVocalGhost, Mode=TwoWay}" OnContent="On" OffContent="Off"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Show phrase sections" Foreground="#DDD" VerticalAlignment="Center"/>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding WaveformShowPhraseSections, Mode=TwoWay}" OnContent="On" OffContent="Off"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!-- Audio Output & Loudness -->
-            <Border Background="#252526" CornerRadius="8" Padding="20" BorderThickness="1" BorderBrush="#3E3E3E">
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderThickness="1" BorderBrush="#3E3E3E"
+            IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Audio Output Loudness Normalization device driver mode target LUFS crossfade pitch'}">
                 <StackPanel Spacing="0">
 
                     <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,4">
@@ -1387,7 +1491,8 @@
 
             <!-- Phase 8: Dependencies (FFmpeg Validation) — Advanced -->
             <Expander Header="Dependencies" IsExpanded="False" Padding="0" Margin="0">
-            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1" Margin="0,4,0,0">
+            <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1" Margin="0,4,0,0"
+            IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Dependencies FFmpeg check download install'}">
                 <StackPanel Spacing="16">
                     <TextBlock Text="Dependencies" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
 
@@ -1423,6 +1528,7 @@
 
                                 <Button Content="Download FFmpeg"
                                         Name="DownloadFfmpegButton"
+                                        Click="OnInstallFfmpegClick"
                                         IsVisible="{Binding !IsFfmpegInstalled}"
                                         Background="#1DB954"
                                         Foreground="White"
@@ -1467,7 +1573,8 @@
             </Expander>
 
             <!-- Phase 6: Security Transparency Panel -->
-            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#30C97A" BorderThickness="1">
+            <Border Background="#0D1117" CornerRadius="8" Padding="20" BorderBrush="#30C97A" BorderThickness="1"
+            IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Security Transparency audit clear'}">
                 <StackPanel Spacing="16">
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Grid.Column="0" Spacing="4">
@@ -1501,6 +1608,11 @@
                                   IsVisible="{Binding SecurityAuditFeed.Count}"
                                   VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding SecurityAuditFeed}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <!-- Each audit row -->
@@ -1550,13 +1662,14 @@
             </Border>
 
             <!-- Diagnostics & Telemetry (Advanced) -->
-            <Expander Header="🔬 Diagnostics &amp; Telemetry" IsExpanded="False" Padding="0" Margin="0">
-            <Border Background="#0D1B2A" CornerRadius="8" Padding="20" BorderBrush="#00D4FF" BorderThickness="1" Margin="0,8,0,0">
+            <Expander Header="🔬 Performance Diagnostics" IsExpanded="False" Padding="0" Margin="0">
+            <Border Background="#0D1B2A" CornerRadius="8" Padding="20" BorderBrush="#00D4FF" BorderThickness="1" Margin="0,8,0,0"
+            IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Performance Diagnostics soundcheck lane tuning performance validation system health'}">
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="4">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Text="🔬" FontSize="20" VerticalAlignment="Center"/>
-                            <TextBlock Text="Diagnostics &amp; Telemetry" FontSize="16" FontWeight="SemiBold" Foreground="#00D4FF"/>
+                            <TextBlock Text="Performance Diagnostics" FontSize="16" FontWeight="SemiBold" Foreground="#00D4FF"/>
                         </StackPanel>
                         <TextBlock Text="Performance validation and system health monitoring for soundcheck sessions."
                                    Foreground="#778DA9" FontSize="12"/>
@@ -1667,36 +1780,14 @@
                                   AutomationProperties.Name="Enable local keyboard usage statistics"
                                   Margin="16,0,0,0"/>
                     </Grid>
-
-                    <Separator Background="#1B263B" Height="1"/>
-
-                    <Grid ColumnDefinitions="*,Auto">
-                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                            <TextBlock Text="Redline Performance Test" FontWeight="SemiBold" Foreground="#E0E1DD"/>
-                            <TextBlock Text="4-phase stress test: Dual Deck → Chaos Blend → 4-Deck Saturation → Vector Sweep"
-                                       Foreground="#778DA9" FontSize="11" TextWrapping="Wrap"/>
-                        </StackPanel>
-                        <Button Grid.Column="1"
-                                Name="OpenDiagnosticsPanelButton"
-                                Background="#00D4FF"
-                                Foreground="#0D1B2A"
-                                FontWeight="Bold"
-                                Padding="16,8"
-                                CornerRadius="6"
-                                VerticalAlignment="Center">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <TextBlock Text="🚀"/>
-                                <TextBlock Text="Open Diagnostics"/>
-                            </StackPanel>
-                        </Button>
-                    </Grid>
                 </StackPanel>
             </Border>
             </Expander>
 
             <!-- Network Activity Monitor -->
             <Expander Header="🌐 Network Activity" IsExpanded="False" Padding="0" Margin="0,12,0,0">
-            <Border Background="#0D1B2A" CornerRadius="8" Padding="20" BorderBrush="#00D4FF" BorderThickness="1" Margin="0,8,0,0">
+            <Border Background="#0D1B2A" CornerRadius="8" Padding="20" BorderBrush="#00D4FF" BorderThickness="1" Margin="0,8,0,0"
+            IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Network Activity Monitor enable'}">
                 <StackPanel Spacing="16">
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Grid.Column="0" Spacing="4">
@@ -1747,6 +1838,11 @@
                                   VerticalScrollBarVisibility="Auto"
                                   IsVisible="{Binding NetworkActivityFeed.Count}">
                         <ItemsControl ItemsSource="{Binding NetworkActivityFeed}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <Border Background="#111F2F"
@@ -1802,14 +1898,15 @@
             </Border>
             </Expander>
 
-            <!-- Engine Diagnostics -->
-            <Expander Header="🔧 Engine Diagnostics" IsExpanded="False" Padding="0" Margin="0,12,0,0">
-            <Border Background="#0D1B2A" CornerRadius="8" Padding="20" BorderBrush="#4EC9B0" BorderThickness="1" Margin="0,8,0,0">
+            <!-- Import & Search Activity Log -->
+            <Expander Header="🔧 Import &amp; Search Activity Log" IsExpanded="False" Padding="0" Margin="0,12,0,0">
+            <Border Background="#0D1B2A" CornerRadius="8" Padding="20" BorderBrush="#4EC9B0" BorderThickness="1" Margin="0,8,0,0"
+            IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Import Search Activity Log audit trail pipeline pasted cleaned candidates picked download'}">
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="4">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Text="🔧" FontSize="20" VerticalAlignment="Center"/>
-                            <TextBlock Text="Engine Diagnostics" FontSize="16" FontWeight="SemiBold" Foreground="#4EC9B0"/>
+                            <TextBlock Text="Import &amp; Search Activity Log" FontSize="16" FontWeight="SemiBold" Foreground="#4EC9B0"/>
                         </StackPanel>
                         <TextBlock Text="Always-on audit trail of the import/search pipeline: what you pasted, how it was cleaned, what got added to a playlist, what was searched, what candidates came back, and what got picked to download. This runs continuously in the background — there's nothing to turn on or off here, this is just a live viewer into it."
                                    Foreground="#778DA9" FontSize="12" TextWrapping="Wrap"/>
@@ -1834,6 +1931,11 @@
                                   VerticalScrollBarVisibility="Auto"
                                   IsVisible="{Binding EngineDiagnosticsFeed.Count}">
                         <ItemsControl ItemsSource="{Binding EngineDiagnosticsFeed}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <Border Background="#111F2F"
@@ -1880,7 +1982,8 @@
             ═══════════════════════════════════════════════════════════════ -->
             <Border Background="#121218" CornerRadius="12"
                     BorderBrush="#1A4EC9B0" BorderThickness="1"
-                    Padding="24,20" Margin="0,0,0,16">
+                    Padding="24,20" Margin="0,0,0,16"
+                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Keyboard Mappings shortcuts bindings'}">
               <StackPanel Spacing="8">
                 <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,8">
                   <TextBlock Text="⌨" FontSize="18" VerticalAlignment="Center"/>
@@ -1898,16 +2001,27 @@
 
             </TabControl>
 
-            <!-- Save Button (always visible, regardless of active tab) -->
-            <Button Command="{Binding SaveSettingsCommand}"
-                    Classes="primary"
-                    HorizontalAlignment="Left"
-                    Padding="24,12">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="💾" FontSize="16"/>
-                    <TextBlock Text="Save Settings" FontSize="14" FontWeight="SemiBold"/>
-                </StackPanel>
-            </Button>
+            <!-- Save / Reset buttons (always visible, regardless of active tab) -->
+            <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Left">
+                <Button Command="{Binding SaveSettingsCommand}"
+                        Classes="primary"
+                        Padding="24,12">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="💾" FontSize="16"/>
+                        <TextBlock Text="Save Settings" FontSize="14" FontWeight="SemiBold"/>
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding ResetToDefaultsCommand}"
+                        Background="Transparent"
+                        BorderBrush="#664444"
+                        BorderThickness="1"
+                        Padding="24,12">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="↺" FontSize="16" Foreground="#FF8888"/>
+                        <TextBlock Text="Reset to Defaults" FontSize="14" FontWeight="SemiBold" Foreground="#FF8888"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
         </StackPanel>
         </ScrollViewer>
 

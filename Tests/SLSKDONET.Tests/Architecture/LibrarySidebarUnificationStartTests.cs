@@ -177,9 +177,16 @@ public class LibrarySidebarUnificationStartTests
     public void LibraryEvents_SelectionFlow_RoutesThroughChildInspectorOwners()
     {
         var eventsSource = ReadLibraryEventsSource();
+        var libraryViewModelSource = ReadLibraryViewModelSource();
 
-        Assert.Contains("_ = DoubleInspector.HandleSelectionChangedAsync(selectedTracks);", eventsSource);
-        Assert.Contains("_ = TrackInspector.TryAttachEnhancementsAsync(single);", eventsSource);
+        // DoubleInspector.HandleSelectionChangedAsync/TrackInspector.TryAttachEnhancementsAsync are
+        // fired from WireSelectionInspectorRefreshDebounce in LibraryViewModel.cs (200ms throttle on
+        // _selectionInspectorRefreshRequests), not inline in Events.cs — see that method's doc
+        // comment: a shift-click range or marquee drag fires one CollectionChanged event per row,
+        // and each used to kick off a fresh pairwise DB/similarity lookup with no debounce.
+        Assert.Contains("_selectionInspectorRefreshRequests.OnNext(Unit.Default);", eventsSource);
+        Assert.Contains("_ = DoubleInspector.HandleSelectionChangedAsync(current);", libraryViewModelSource);
+        Assert.Contains("_ = TrackInspector.TryAttachEnhancementsAsync(current[0]);", libraryViewModelSource);
         Assert.Contains("TrackInspector.ClearEnhancements();", eventsSource);
         Assert.Contains("_ = Intelligence.RefreshSuggestNextCandidatesAsync();", eventsSource);
         Assert.Contains("_ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();", eventsSource);

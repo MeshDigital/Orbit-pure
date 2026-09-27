@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using SLSKDONET.Services.Timeline;
 
 namespace SLSKDONET.Services.Audio
 {
@@ -16,31 +17,33 @@ namespace SLSKDONET.Services.Audio
         {
             var candidates = new List<float>();
 
-            // 1. Grid Candidates (Bars/Beats)
+            // 1. Grid Candidates (Bars/Beats) — beat duration/index math delegates to
+            // BeatGridService (the shared beat<->seconds conversion) instead of re-deriving
+            // `60/bpm` locally; only the windowed index-range scan (cheap for a live drag handler,
+            // unlike generating a grid array from the start of the track) stays local to this method.
             if (bpm > 0)
             {
-                float beatDuration = 60f / bpm;
-                float barDuration = beatDuration * 4;
-                float sixteenBarDuration = barDuration * 16;
+                const int beatsPerBar = 4;
+                const int beatsPerPhrase = beatsPerBar * 16; // 16-bar phrase block
 
                 // Beats within window
-                int firstBeat = (int)Math.Max(0, Math.Floor(windowStart / beatDuration));
-                int lastBeat = (int)Math.Ceiling(windowEnd / beatDuration);
+                int firstBeat = (int)Math.Max(0, Math.Floor(BeatGridService.SecondsToBeat(windowStart, bpm)));
+                int lastBeat = (int)Math.Ceiling(BeatGridService.SecondsToBeat(windowEnd, bpm));
                 for (int i = firstBeat; i <= lastBeat; i++)
                 {
-                    candidates.Add(i * beatDuration);
+                    candidates.Add((float)BeatGridService.BeatToSeconds(i, bpm));
                 }
 
                 // Strong DJ phrase anchors: full bars and 16-bar blocks.
-                int firstBar = (int)Math.Max(0, Math.Floor(windowStart / barDuration));
-                int lastBar = (int)Math.Ceiling(windowEnd / barDuration);
+                int firstBar = (int)Math.Max(0, Math.Floor(BeatGridService.SecondsToBeat(windowStart, bpm) / beatsPerBar));
+                int lastBar = (int)Math.Ceiling(BeatGridService.SecondsToBeat(windowEnd, bpm) / beatsPerBar);
                 for (int i = firstBar; i <= lastBar; i++)
-                    candidates.Add(i * barDuration);
+                    candidates.Add((float)BeatGridService.BeatToSeconds(i * beatsPerBar, bpm));
 
-                int firstPhrase = (int)Math.Max(0, Math.Floor(windowStart / sixteenBarDuration));
-                int lastPhrase = (int)Math.Ceiling(windowEnd / sixteenBarDuration);
+                int firstPhrase = (int)Math.Max(0, Math.Floor(BeatGridService.SecondsToBeat(windowStart, bpm) / beatsPerPhrase));
+                int lastPhrase = (int)Math.Ceiling(BeatGridService.SecondsToBeat(windowEnd, bpm) / beatsPerPhrase);
                 for (int i = firstPhrase; i <= lastPhrase; i++)
-                    candidates.Add(i * sixteenBarDuration);
+                    candidates.Add((float)BeatGridService.BeatToSeconds(i * beatsPerPhrase, bpm));
             }
 
             // 2. Structural Landmarks

@@ -7,14 +7,16 @@
              mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="900"
              x:Class="SLSKDONET.Views.Avalonia.CueForgePagee"
              x:DataType="vm:CueForgeViewModel"
-             Background="#0A0E27"
+             Background="#141414"
              Focusable="True">
 
+    <!-- Restyled to match the rest of the app's dark-teal language (FlowBuilderView, the Mix
+         Transition Editor) instead of this page's previous, unrelated navy/green/gold palette. -->
     <UserControl.Styles>
         <Style Selector="Button.cmd-primary">
-            <Setter Property="Background" Value="#1B5E20"/>
-            <Setter Property="Foreground" Value="#E8F5E9"/>
-            <Setter Property="BorderBrush" Value="#2E7D32"/>
+            <Setter Property="Background" Value="#1D4E42"/>
+            <Setter Property="Foreground" Value="#DDFCF5"/>
+            <Setter Property="BorderBrush" Value="#2D8E7A"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="12,5"/>
             <Setter Property="CornerRadius" Value="3"/>
@@ -22,23 +24,23 @@
             <Setter Property="FontSize" Value="11"/>
         </Style>
         <Style Selector="Button.cmd-primary:pointerover">
-            <Setter Property="Background" Value="#2E7D32"/>
+            <Setter Property="Background" Value="#256259"/>
         </Style>
         <Style Selector="Button.cmd-primary:disabled">
-            <Setter Property="Background" Value="#1A2A1A"/>
-            <Setter Property="Foreground" Value="#446644"/>
+            <Setter Property="Background" Value="#1A2622"/>
+            <Setter Property="Foreground" Value="#4E6B63"/>
         </Style>
         <Style Selector="Button.cmd-secondary">
-            <Setter Property="Background" Value="#252530"/>
-            <Setter Property="Foreground" Value="#B0BEC5"/>
-            <Setter Property="BorderBrush" Value="#404055"/>
+            <Setter Property="Background" Value="#171C22"/>
+            <Setter Property="Foreground" Value="#9BAAB8"/>
+            <Setter Property="BorderBrush" Value="#2A333D"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="8,4"/>
             <Setter Property="CornerRadius" Value="3"/>
             <Setter Property="FontSize" Value="11"/>
         </Style>
         <Style Selector="Button.cmd-secondary:pointerover">
-            <Setter Property="Background" Value="#333345"/>
+            <Setter Property="Background" Value="#20262D"/>
         </Style>
         <Style Selector="Button.cmd-danger">
             <Setter Property="Background" Value="#3E1A1A"/>
@@ -50,21 +52,21 @@
             <Setter Property="FontSize" Value="11"/>
         </Style>
         <Style Selector="ToggleButton.cmd-toggle">
-            <Setter Property="Background" Value="#252530"/>
-            <Setter Property="Foreground" Value="#888899"/>
-            <Setter Property="BorderBrush" Value="#404055"/>
+            <Setter Property="Background" Value="#171C22"/>
+            <Setter Property="Foreground" Value="#7C8B99"/>
+            <Setter Property="BorderBrush" Value="#2A333D"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="7,3"/>
             <Setter Property="CornerRadius" Value="3"/>
             <Setter Property="FontSize" Value="10"/>
         </Style>
         <Style Selector="ToggleButton.cmd-toggle:checked">
-            <Setter Property="Background" Value="#1A3A6A"/>
-            <Setter Property="Foreground" Value="#7DB8FF"/>
-            <Setter Property="BorderBrush" Value="#2255AA"/>
+            <Setter Property="Background" Value="#1D4E42"/>
+            <Setter Property="Foreground" Value="#4EC9B0"/>
+            <Setter Property="BorderBrush" Value="#2D8E7A"/>
         </Style>
         <Style Selector="TextBlock.commit-feedback">
-            <Setter Property="Foreground" Value="#44AA66"/>
+            <Setter Property="Foreground" Value="#4EC9B0"/>
         </Style>
         <Style Selector="TextBlock.commit-feedback.commit-error">
             <Setter Property="Foreground" Value="#FF6B6B"/>
@@ -86,22 +88,28 @@
     <Grid RowDefinitions="Auto,Auto,200,Auto,*,Auto,Auto">
 
         <!-- Row 0: Track Title Bar -->
-        <Border Grid.Row="0" Background="#111118" BorderBrush="#1E1E2E" BorderThickness="0,0,0,1" Padding="16,6">
+        <Border Grid.Row="0" Background="#1A1E24" BorderBrush="#2F3E4C" BorderThickness="0,0,0,1" Padding="16,6">
             <StackPanel>
-                <Grid ColumnDefinitions="Auto,*,Auto">
-                    <TextBlock Grid.Column="0" Text="🎯 CUE FORGE" Foreground="#444466" FontSize="10"
+                <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                    <TextBlock Grid.Column="0" Text="🎯 CUE FORGE" Foreground="#4EC9B0" FontSize="10"
                                FontWeight="Bold" LetterSpacing="2" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="1" Text="{Binding TrackTitle}" Foreground="#C0C0D8"
+                    <Button Grid.Column="1" Classes="cmd-secondary" Margin="12,0,0,0" Padding="8,4"
+                            Command="{Binding BackToMixTransitionCommand}"
+                            IsVisible="{Binding HasMixOrigin}"
+                            ToolTip.Tip="Return to the playlist and mix transition this track was opened from">
+                        <TextBlock Text="← Back to Mix Transition" FontSize="10"/>
+                    </Button>
+                    <TextBlock Grid.Column="2" Text="{Binding TrackTitle}" Foreground="#DDE4EA"
                                FontSize="12" FontWeight="SemiBold" Margin="16,0"
                                VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding Bpm, StringFormat='{}{0} BPM'}" Foreground="#5577AA" FontSize="11"/>
-                        <TextBlock Text="{Binding TrackDuration, StringFormat='{}{0:F0}s'}" Foreground="#445566" FontSize="11"/>
-                        <Border Background="#1A1A30" BorderBrush="#33335A" BorderThickness="1" CornerRadius="3"
-                                Padding="7,3" IsVisible="{Binding TrackEnergyScore, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                ToolTip.Tip="MIK-compatible energy score (1–10)">
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" IsVisible="{Binding HasTrackLoaded}">
+                        <TextBlock Text="{Binding Bpm, StringFormat='{}{0} BPM'}" Foreground="#7C9CB8" FontSize="11"/>
+                        <TextBlock Text="{Binding TrackDuration, StringFormat='{}{0:F0}s'}" Foreground="#5C7288" FontSize="11"/>
+                        <Border Background="#20262D" BorderBrush="#2F3E4C" BorderThickness="1" CornerRadius="3"
+                                Padding="7,3"
+                                ToolTip.Tip="Mixed In Key (MIK)-compatible energy score (1–10)">
                             <StackPanel Orientation="Horizontal" Spacing="4">
-                                <TextBlock Text="E" Foreground="#555577" FontSize="9" FontWeight="Bold"
+                                <TextBlock Text="E" Foreground="#7C8B99" FontSize="9" FontWeight="Bold"
                                            LetterSpacing="1" VerticalAlignment="Center"/>
                                 <TextBlock Text="{Binding TrackEnergyScore}" Foreground="#FFD700"
                                            FontSize="13" FontWeight="Bold" VerticalAlignment="Center"/>
@@ -118,41 +126,53 @@
         </Border>
 
         <!-- Row 1: Command Bar -->
-        <Border Grid.Row="1" Background="#16161E" BorderBrush="#1E1E2E" BorderThickness="0,0,0,1" Padding="12,7">
+        <Border Grid.Row="1" Background="#1A1E24" BorderBrush="#2F3E4C" BorderThickness="0,0,0,1" Padding="12,7">
             <Grid ColumnDefinitions="Auto,8,Auto,12,Auto,12,Auto,*,Auto,8,Auto">
 
                 <!-- Transport: cue navigation + embedded play/pause + live time display -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                    <Button Classes="cmd-secondary" Padding="8,4" Content="⏮" FontSize="11"
-                            ToolTip.Tip="Previous cue (← arrow)" Command="{Binding PreviousCueCommand}"/>
+                    <Button Classes="cmd-secondary" Padding="8,4"
+                            ToolTip.Tip="Previous cue (← arrow)" Command="{Binding PreviousCueCommand}">
+                        <PathIcon Data="{StaticResource ws_pan_left_regular}" Width="11" Height="11"/>
+                    </Button>
                     <Button Classes="cmd-secondary" Command="{Binding PlaybackToggleCommand}" Padding="10,4"
                             ToolTip.Tip="Play / Pause (Space)">
                         <Panel>
-                            <TextBlock Text="▶" FontSize="12" IsVisible="{Binding !Player.IsPlaying}"/>
-                            <TextBlock Text="⏸" FontSize="12" IsVisible="{Binding Player.IsPlaying}"/>
+                            <PathIcon Data="{StaticResource play_regular}" Width="12" Height="12" IsVisible="{Binding !Player.IsPlaying}"/>
+                            <PathIcon Data="{StaticResource pause_regular}" Width="12" Height="12" IsVisible="{Binding Player.IsPlaying}"/>
                         </Panel>
                     </Button>
-                    <Button Classes="cmd-secondary" Padding="8,4" Content="⏭" FontSize="11"
-                            ToolTip.Tip="Next cue (→ arrow)" Command="{Binding NextCueCommand}"/>
-                    <TextBlock Text="{Binding Player.CurrentTimeStr}" Foreground="#5577AA" FontSize="10"
+                    <Button Classes="cmd-secondary" Padding="8,4"
+                            ToolTip.Tip="Next cue (→ arrow)" Command="{Binding NextCueCommand}">
+                        <PathIcon Data="{StaticResource ws_pan_right_regular}" Width="11" Height="11"/>
+                    </Button>
+                    <TextBlock Text="{Binding Player.CurrentTimeStr}" Foreground="#7C9CB8" FontSize="10"
                                VerticalAlignment="Center" Margin="6,0,0,0"/>
-                    <TextBlock Text="/" Foreground="#333355" FontSize="10" VerticalAlignment="Center" Margin="2,0"/>
-                    <TextBlock Text="{Binding TrackDurationDisplay}" Foreground="#335566" FontSize="10"
+                    <TextBlock Text="/" Foreground="#3D4A56" FontSize="10" VerticalAlignment="Center" Margin="2,0"/>
+                    <TextBlock Text="{Binding TrackDurationDisplay}" Foreground="#5C7288" FontSize="10"
                                VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- Auto-Generate -->
+                <!-- Auto-Generate — swaps its own label/spinner while running instead of relying
+                     solely on the status-bar chip at the bottom of the page, which is easy to miss
+                     and made the button look frozen during a multi-second generation pass. -->
                 <Button Grid.Column="2" Classes="cmd-primary"
                         Command="{Binding AutoGenerateCuesCommand}"
                         IsEnabled="{Binding !IsGenerating}"
-                        Content="⚡ Auto-Generate"
-                        ToolTip.Tip="Re-run the full analysis engine to generate 8 structural DJ cues"/>
+                        ToolTip.Tip="Re-run the full analysis engine to generate 8 structural DJ cues">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="⚙" IsVisible="{Binding IsGenerating}"/>
+                        <TextBlock Text="⚡" IsVisible="{Binding !IsGenerating}"/>
+                        <TextBlock Text="Generating…" IsVisible="{Binding IsGenerating}"/>
+                        <TextBlock Text="Auto-Generate" IsVisible="{Binding !IsGenerating}"/>
+                    </StackPanel>
+                </Button>
 
                 <!-- Snap & Quantize -->
                 <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <ToggleButton Classes="cmd-toggle" IsChecked="{Binding SnapToGrid}" Content="⊞ Snap"/>
                     <ComboBox SelectedItem="{Binding QuantizeBeats}"
-                              Background="#252530" Foreground="#9090AA" BorderBrush="#404055"
+                              Background="#171C22" Foreground="#9BAAB8" BorderBrush="#2A333D"
                               FontSize="10" Width="120" Padding="6,3">
                         <!--
                             Items must be plain strings, not ComboBoxItem wrappers: SelectedItem binds
@@ -174,10 +194,12 @@
 
                 <!-- Undo / Redo -->
                 <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
-                    <Button Classes="cmd-secondary" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}"
-                            Content="↶" FontSize="13" Padding="7,3" ToolTip.Tip="Undo"/>
-                    <Button Classes="cmd-secondary" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}"
-                            Content="↷" FontSize="13" Padding="7,3" ToolTip.Tip="Redo"/>
+                    <Button Classes="cmd-secondary" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}" Padding="7,3" ToolTip.Tip="Undo">
+                        <PathIcon Data="{StaticResource arrow_counterclockwise_regular}" Width="12" Height="12"/>
+                    </Button>
+                    <Button Classes="cmd-secondary" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}" Padding="7,3" ToolTip.Tip="Redo">
+                        <PathIcon Data="{StaticResource ws_redo_regular}" Width="12" Height="12"/>
+                    </Button>
                 </StackPanel>
 
                 <!-- Spacer -->
@@ -185,9 +207,9 @@
 
                 <!-- Key + Vocal Indicator -->
                 <StackPanel Grid.Column="8" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <Border Background="#1A1A30" BorderBrush="#33336A" BorderThickness="1" CornerRadius="3" Padding="8,4">
+                    <Border Background="#20262D" BorderBrush="#2F3E4C" BorderThickness="1" CornerRadius="3" Padding="8,4">
                         <StackPanel Orientation="Horizontal" Spacing="4">
-                            <TextBlock Text="KEY" Foreground="#555577" FontSize="9" FontWeight="Bold"
+                            <TextBlock Text="KEY" Foreground="#7C8B99" FontSize="9" FontWeight="Bold"
                                        LetterSpacing="1" VerticalAlignment="Center"/>
                             <TextBlock Text="{Binding CurrentCamelotKey}" Foreground="#FFD700"
                                        FontSize="14" FontWeight="Bold" VerticalAlignment="Center"
@@ -197,62 +219,98 @@
                     <Border Background="#2A1010" BorderBrush="#6A2222" BorderThickness="1" CornerRadius="3"
                             Padding="8,4" IsVisible="{Binding IsInVocalRegion}"
                             ToolTip.Tip="Vocal region — avoid placing drop cues here">
-                        <TextBlock Text="🎤 VOCAL" Foreground="#FF7070" FontSize="9" FontWeight="Bold" LetterSpacing="1"/>
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <PathIcon Data="{StaticResource mic_regular}" Width="10" Height="10" Foreground="#FF7070"/>
+                            <TextBlock Text="VOCAL" Foreground="#FF7070" FontSize="9" FontWeight="Bold" LetterSpacing="1"/>
+                        </StackPanel>
                     </Border>
                 </StackPanel>
 
-                <!-- Commit / Discard -->
+                <!-- Commit / Discard — Commit itself carries the dirty-state color now, not just the
+                     easy-to-miss "UNSAVED CHANGES" status-bar chip below. -->
                 <StackPanel Grid.Column="10" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
                     <Button Classes="cmd-primary" Command="{Binding CommitChangesCommand}"
-                            IsVisible="{Binding HasUncommittedChanges}" Content="✓ Commit"/>
+                            IsVisible="{Binding HasUncommittedChanges}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource checkmark_regular}" Width="11" Height="11"/>
+                            <TextBlock Text="Commit changes"/>
+                        </StackPanel>
+                    </Button>
                     <Button Classes="cmd-danger" Command="{Binding DiscardChangesCommand}"
-                            IsVisible="{Binding HasUncommittedChanges}" Content="✕ Discard"/>
+                            IsVisible="{Binding HasUncommittedChanges}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource dismiss_regular}" Width="11" Height="11"/>
+                            <TextBlock Text="Discard"/>
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
             </Grid>
         </Border>
 
         <!-- Row 2: Full-width waveform strip (fixed 200px height) -->
-        <Border Grid.Row="2" Background="#0A0E27" BorderBrush="#1E1E2E" BorderThickness="0,0,0,1">
-            <ctrl:CueForgeWaveformControl
-                Cues="{Binding WorkingCues}"
-                PhraseSegments="{Binding PhraseSegments}"
-                CurrentPlayPosition="{Binding CurrentPlayPosition}"
-                Bpm="{Binding Bpm}"
-                TrackDuration="{Binding TrackDuration}"
-                SnapToGrid="{Binding SnapToGrid}"
-                QuantizeBeatString="{Binding QuantizeBeats}"
-                WaveformLow="{Binding WaveformLow}"
-                WaveformMid="{Binding WaveformMid}"
-                WaveformHigh="{Binding WaveformHigh}"
-                EnergyCurve="{Binding EnergyCurveData}"
-                VocalDensityCurve="{Binding VocalDensityCurveData}"
-                OnsetDensityCurve="{Binding OnsetDensityCurveData}"
-                ZoomLevel="{Binding WaveformZoom, Mode=TwoWay}"
-                ScrollOffset="{Binding WaveformScroll, Mode=TwoWay}"
-                SeekCommand="{Binding SeekPlayheadCommand}"/>
+        <Border Grid.Row="2" Background="#141414" BorderBrush="#2F3E4C" BorderThickness="0,0,0,1">
+            <Grid>
+                <ctrl:CueForgeWaveformControl
+                    IsVisible="{Binding !IsWaveformLoading}"
+                    Cues="{Binding WorkingCues}"
+                    PhraseSegments="{Binding PhraseSegments}"
+                    CurrentPlayPosition="{Binding CurrentPlayPosition}"
+                    Bpm="{Binding Bpm}"
+                    TrackDuration="{Binding TrackDuration}"
+                    SnapToGrid="{Binding SnapToGrid}"
+                    QuantizeBeatString="{Binding QuantizeBeats}"
+                    WaveformLow="{Binding WaveformLow}"
+                    WaveformMid="{Binding WaveformMid}"
+                    WaveformHigh="{Binding WaveformHigh}"
+                    EnergyCurve="{Binding EnergyCurveData}"
+                    VocalDensityCurve="{Binding VocalDensityCurveData}"
+                    OnsetDensityCurve="{Binding OnsetDensityCurveData}"
+                    ZoomLevel="{Binding WaveformZoom, Mode=TwoWay}"
+                    ScrollOffset="{Binding WaveformScroll, Mode=TwoWay}"
+                    SeekCommand="{Binding SeekPlayheadCommand}"
+                    SelectedCue="{Binding SelectedCue}"
+                    SelectCueCommand="{Binding SelectCueCommand}"
+                    CueDragStartedCommand="{Binding CueDragStartedCommand}"
+                    CueUpdatedCommand="{Binding CueUpdatedCommand}"/>
+
+                <!-- No track selected yet — the browser is right there in row 4, so this stays a
+                     light nudge rather than a full CTA overlay. -->
+                <TextBlock Text="Select a track from the browser to start" Foreground="#5C7288" FontSize="12"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           IsVisible="{Binding !HasTrackLoaded}"/>
+
+                <!-- Track picked, waveform bytes not back yet. -->
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center"
+                            IsVisible="{Binding IsWaveformLoading}">
+                    <TextBlock Text="⏳" FontSize="14"/>
+                    <TextBlock Text="Loading waveform…" Foreground="#7C9CB8" FontSize="12"/>
+                </StackPanel>
+            </Grid>
         </Border>
 
-        <!-- Row 3: Waveform navigation bar (zoom + scroll) -->
-        <Border Grid.Row="3" Background="#0F0F18" BorderBrush="#1E1E2E" BorderThickness="0,0,0,1" Padding="10,4">
-            <Grid ColumnDefinitions="Auto,4,Auto,4,Auto,10,*,10,Auto,4,Auto">
-                <Button Grid.Column="0" Classes="cmd-secondary" Command="{Binding ZoomOutCommand}"
-                        Content="−" Padding="9,3" FontSize="13" ToolTip.Tip="Zoom out (Ctrl+scroll)"/>
+        <!-- Row 3: Waveform navigation bar (zoom + scroll). The step left/right buttons that used
+             to sit at the end of this row were dropped — they did nothing scrolling the mouse
+             wheel over the waveform doesn't already do more naturally; the zoom buttons stay as a
+             discoverability aid for the (less obvious) Ctrl+scroll gesture, and the slider stays
+             since it's the only direct-jump-to-position control (wheel/keys are relative nudges). -->
+        <Border Grid.Row="3" Background="#1A1E24" BorderBrush="#2F3E4C" BorderThickness="0,0,0,1" Padding="10,4">
+            <Grid ColumnDefinitions="Auto,4,Auto,4,Auto,10,*">
+                <Button Grid.Column="0" Classes="cmd-secondary" Command="{Binding ZoomOutCommand}" Padding="9,3" ToolTip.Tip="Zoom out (Ctrl+scroll)">
+                    <PathIcon Data="{StaticResource ws_zoom_out_regular}" Width="12" Height="12"/>
+                </Button>
                 <TextBlock Grid.Column="2"
                            Text="{Binding ZoomDisplay}"
-                           Foreground="#555577" FontSize="10" Width="34"
+                           Foreground="#7C8B99" FontSize="10" Width="34"
                            TextAlignment="Center" VerticalAlignment="Center"/>
-                <Button Grid.Column="4" Classes="cmd-secondary" Command="{Binding ZoomInCommand}"
-                        Content="+" Padding="9,3" FontSize="13" ToolTip.Tip="Zoom in (Ctrl+scroll)"/>
+                <Button Grid.Column="4" Classes="cmd-secondary" Command="{Binding ZoomInCommand}" Padding="9,3" ToolTip.Tip="Zoom in (Ctrl+scroll)">
+                    <PathIcon Data="{StaticResource ws_zoom_in_regular}" Width="12" Height="12"/>
+                </Button>
                 <Slider Grid.Column="6"
                         Value="{Binding WaveformScroll}"
                         Minimum="0" Maximum="{Binding WaveformScrollMaximum}"
                         SmallChange="0.01" LargeChange="0.1"
                         VerticalAlignment="Center"
                         ToolTip.Tip="Scroll position — or scroll with mouse wheel on the waveform"/>
-                <Button Grid.Column="8" Classes="cmd-secondary" Command="{Binding ScrollLeftCommand}"
-                        Content="◀" Padding="8,3" FontSize="10" ToolTip.Tip="Scroll left"/>
-                <Button Grid.Column="10" Classes="cmd-secondary" Command="{Binding ScrollRightCommand}"
-                        Content="▶" Padding="8,3" FontSize="10" ToolTip.Tip="Scroll right"/>
             </Grid>
         </Border>
 
@@ -260,20 +318,20 @@
         <Grid Grid.Row="4" ColumnDefinitions="200,*,300">
 
             <!-- Track Browser -->
-            <Border Grid.Column="0" Background="#0E0E16" BorderBrush="#1A1A2A" BorderThickness="0,0,1,0">
+            <Border Grid.Column="0" Background="#1A1E24" BorderBrush="#2F3E4C" BorderThickness="0,0,1,0">
                 <Grid RowDefinitions="Auto,Auto,*">
 
                     <!-- Playlist selector -->
-                    <Border Grid.Row="0" Background="#111118" BorderBrush="#1E1E2E"
+                    <Border Grid.Row="0" Background="#1A1E24" BorderBrush="#2F3E4C"
                             BorderThickness="0,0,0,1" Padding="8,6">
                         <StackPanel Spacing="4">
-                            <TextBlock Text="PLAYLIST" Foreground="#333355" FontSize="8"
+                            <TextBlock Text="PLAYLIST" Foreground="#556270" FontSize="8"
                                        FontWeight="Bold" LetterSpacing="2"/>
                             <ComboBox ItemsSource="{Binding Playlists}"
                                       SelectedItem="{Binding SelectedPlaylist}"
                                       HorizontalAlignment="Stretch"
-                                      Background="#0A0A12" Foreground="#B0B0CC"
-                                      BorderBrush="#2A2A40" BorderThickness="1"
+                                      Background="#171C22" Foreground="#9BAAB8"
+                                      BorderBrush="#2A333D" BorderThickness="1"
                                       Padding="6,4" FontSize="11" MaxDropDownHeight="300">
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate>
@@ -286,19 +344,25 @@
                     </Border>
 
                     <!-- Search within playlist -->
-                    <Border Grid.Row="1" Background="#0E0E16" BorderBrush="#1A1A2A"
+                    <Border Grid.Row="1" Background="#1A1E24" BorderBrush="#2F3E4C"
                             BorderThickness="0,0,0,1" Padding="8,5">
                         <TextBox Text="{Binding BrowserQuery}"
                                  Watermark="Filter tracks..."
-                                 Background="#0A0A12" Foreground="#A0A0C0"
-                                 BorderBrush="#2A2A40" BorderThickness="1"
+                                 Background="#171C22" Foreground="#9BAAB8"
+                                 BorderBrush="#2A333D" BorderThickness="1"
                                  CornerRadius="3" Padding="6,3" FontSize="10"
-                                 CaretBrush="#7777AA"/>
+                                 CaretBrush="#4EC9B0"/>
                     </Border>
 
-                    <!-- Downloaded track list -->
+                    <!-- Downloaded track list — can be the whole downloaded library, easily
+                         thousands of tracks; same unvirtualized-freeze risk the Users page had. -->
                     <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding BrowserTracks}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <Button Command="{Binding $parent[UserControl].DataContext.LoadFromBrowserCommand}"
@@ -308,14 +372,14 @@
                                             Padding="8,5" Cursor="Hand">
                                         <Button.Styles>
                                             <Style Selector="Button:pointerover /template/ ContentPresenter">
-                                                <Setter Property="Background" Value="#181828"/>
+                                                <Setter Property="Background" Value="#20262D"/>
                                             </Style>
                                         </Button.Styles>
                                         <StackPanel Spacing="1">
-                                            <TextBlock Text="{Binding Title}" Foreground="#C0C0D8"
+                                            <TextBlock Text="{Binding Title}" Foreground="#DDE4EA"
                                                        FontSize="11" FontWeight="SemiBold"
                                                        TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Text="{Binding Artist}" Foreground="#505070"
+                                            <TextBlock Text="{Binding Artist}" Foreground="#7C8B99"
                                                        FontSize="10" TextTrimming="CharacterEllipsis"/>
                                         </StackPanel>
                                     </Button>
@@ -327,14 +391,14 @@
             </Border>
 
             <!-- Center: Cue Detail Editor -->
-            <Border Grid.Column="1" Background="#0A0A12" BorderBrush="#1A1A2A" BorderThickness="1,0,1,0">
+            <Border Grid.Column="1" Background="#141414" BorderBrush="#2F3E4C" BorderThickness="1,0,1,0">
                 <Grid RowDefinitions="Auto,*">
-                    <Border Grid.Row="0" Background="#111118" BorderBrush="#1E1E2E" BorderThickness="0,0,0,1" Padding="12,7">
-                        <TextBlock Text="CUE DETAIL" Foreground="#444455" FontSize="9" FontWeight="Bold" LetterSpacing="2"/>
+                    <Border Grid.Row="0" Background="#1A1E24" BorderBrush="#2F3E4C" BorderThickness="0,0,0,1" Padding="12,7">
+                        <TextBlock Text="CUE DETAIL" Foreground="#7C8B99" FontSize="9" FontWeight="Bold" LetterSpacing="2"/>
                     </Border>
 
                     <TextBlock Grid.Row="1" Text="Select a cue in the list or on the waveform to edit its name, role, color, or hot cue slot."
-                               Foreground="#5A5A7A" FontSize="11" TextWrapping="Wrap" TextAlignment="Center"
+                               Foreground="#5C7288" FontSize="11" TextWrapping="Wrap" TextAlignment="Center"
                                HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24"
                                IsVisible="{Binding SelectedCue, Converter={x:Static ObjectConverters.IsNull}}"/>
 
@@ -344,18 +408,18 @@
 
                             <!-- Name -->
                             <StackPanel Spacing="4">
-                                <TextBlock Text="NAME" Foreground="#333355" FontSize="8" FontWeight="Bold" LetterSpacing="2"/>
+                                <TextBlock Text="NAME" Foreground="#556270" FontSize="8" FontWeight="Bold" LetterSpacing="2"/>
                                 <TextBox Text="{Binding SelectedCue.Name}" LostFocus="OnCueFieldLostFocus"
-                                         Background="#12121E" Foreground="#D0D0E0" BorderBrush="#2A2A40" BorderThickness="1"
-                                         CornerRadius="3" Padding="8,5" FontSize="12" CaretBrush="#7777AA"/>
+                                         Background="#171C22" Foreground="#DDE4EA" BorderBrush="#2A333D" BorderThickness="1"
+                                         CornerRadius="3" Padding="8,5" FontSize="12" CaretBrush="#4EC9B0"/>
                             </StackPanel>
 
                             <!-- Timestamp + seek/nudge -->
                             <StackPanel Spacing="4">
-                                <TextBlock Text="TIMESTAMP" Foreground="#333355" FontSize="8" FontWeight="Bold" LetterSpacing="2"/>
+                                <TextBlock Text="TIMESTAMP" Foreground="#556270" FontSize="8" FontWeight="Bold" LetterSpacing="2"/>
                                 <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                                     <TextBlock Grid.Column="0" Text="{Binding SelectedCue.TimestampDisplay}"
-                                               Foreground="#B0B0CC" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                               Foreground="#DDE4EA" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                     <Button Grid.Column="1" Classes="cmd-secondary" Content="− beat" FontSize="10" Padding="8,4"
                                             Command="{Binding NudgeCueCommand}" CommandParameter="-1"
                                             ToolTip.Tip="Nudge back 1 beat (Shift+←)"/>
@@ -369,7 +433,7 @@
 
                             <!-- Role -->
                             <StackPanel Spacing="4">
-                                <TextBlock Text="ROLE" Foreground="#333355" FontSize="8" FontWeight="Bold" LetterSpacing="2"/>
+                                <TextBlock Text="ROLE" Foreground="#556270" FontSize="8" FontWeight="Bold" LetterSpacing="2"/>
                                 <ItemsControl ItemsSource="{Binding CueRoleOptions}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
@@ -386,7 +450,7 @@
 
                             <!-- Color -->
                             <StackPanel Spacing="4">
-                                <TextBlock Text="COLOR" Foreground="#333355" FontSize="8" FontWeight="Bold" LetterSpacing="2"/>
+                                <TextBlock Text="COLOR" Foreground="#556270" FontSize="8" FontWeight="Bold" LetterSpacing="2"/>
                                 <ItemsControl ItemsSource="{Binding CueColorSwatches}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
@@ -394,7 +458,7 @@
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <Button Width="26" Height="26" Margin="0,0,4,4" CornerRadius="4" Padding="0"
-                                                    Background="{Binding}" BorderThickness="1" BorderBrush="#33334A" Cursor="Hand"
+                                                    Background="{Binding}" BorderThickness="1" BorderBrush="#2A333D" Cursor="Hand"
                                                     Command="{Binding $parent[UserControl].DataContext.SetSelectedCueColorCommand}"
                                                     CommandParameter="{Binding}"/>
                                         </DataTemplate>
@@ -404,7 +468,7 @@
 
                             <!-- Hot cue slot -->
                             <StackPanel Spacing="4" IsVisible="{Binding !SelectedCue.IsLoop}">
-                                <TextBlock Text="HOT CUE SLOT" Foreground="#333355" FontSize="8" FontWeight="Bold" LetterSpacing="2"/>
+                                <TextBlock Text="HOT CUE SLOT" Foreground="#556270" FontSize="8" FontWeight="Bold" LetterSpacing="2"/>
                                 <ItemsControl ItemsSource="{Binding CueSlotOptions}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
@@ -421,23 +485,24 @@
                             </StackPanel>
 
                             <TextBlock Text="{Binding SelectedCue.WhyHereTooltip}"
-                                       Foreground="#555577" FontSize="10" TextWrapping="Wrap"/>
+                                       Foreground="#7C8B99" FontSize="10" TextWrapping="Wrap"/>
 
                             <Button Classes="cmd-danger" Content="✕ Delete Cue" HorizontalAlignment="Left"
-                                    Command="{Binding DeleteCueCommand}" CommandParameter="{Binding SelectedCue}"/>
+                                    Command="{Binding DeleteCueCommand}" CommandParameter="{Binding SelectedCue}"
+                                    ToolTip.Tip="Removes this cue — undoable with Ctrl+Z"/>
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>
             </Border>
 
             <!-- Inspector Panel -->
-            <Border Grid.Column="2" Background="#111118">
-                <Grid RowDefinitions="Auto,Auto,*">
+            <Border Grid.Column="2" Background="#1A1E24">
+                <Grid RowDefinitions="Auto,Auto,Auto,*">
 
                     <!-- Inspector header -->
-                    <Border Grid.Row="0" Background="#16161E" BorderBrush="#1E1E2E" BorderThickness="0,0,0,1" Padding="12,7">
+                    <Border Grid.Row="0" Background="#1A1E24" BorderBrush="#2F3E4C" BorderThickness="0,0,0,1" Padding="12,7">
                         <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Text="CUE INSPECTOR" Foreground="#444455" FontSize="9"
+                            <TextBlock Text="CUE INSPECTOR" Foreground="#7C8B99" FontSize="9"
                                        FontWeight="Bold" LetterSpacing="2" VerticalAlignment="Center"/>
                             <Button Grid.Column="1" Classes="cmd-primary"
                                     Command="{Binding AddCueAtPlayheadCommand}"
@@ -445,10 +510,23 @@
                         </Grid>
                     </Border>
 
+                    <!-- Role/confidence legend — explains the raw role text and the small
+                         confidence dot next to each cue in the list below, neither of which had
+                         any explanation before. -->
+                    <Border Grid.Row="1" Background="#20262D" BorderBrush="#2F3E4C" BorderThickness="0,0,0,1" Padding="10,6">
+                        <WrapPanel>
+                            <TextBlock Text="Drop / Build / Breakdown / Custom = structural role" FontSize="9" Foreground="#9BAAB8" Margin="0,0,10,2"/>
+                            <StackPanel Orientation="Horizontal" Spacing="3" Margin="0,0,0,2">
+                                <Border Width="7" Height="7" CornerRadius="4" Background="#4EC9B0"/>
+                                <TextBlock Text="= confidence (dot color/tooltip)" FontSize="9" Foreground="#9BAAB8"/>
+                            </StackPanel>
+                        </WrapPanel>
+                    </Border>
+
                     <!-- Hot Cue Pad Bank -->
-                    <Border Grid.Row="1" Background="#0E0E1A" BorderBrush="#1E1E2E" BorderThickness="0,0,0,1" Padding="8,8">
+                    <Border Grid.Row="2" Background="#141414" BorderBrush="#2F3E4C" BorderThickness="0,0,0,1" Padding="8,8">
                         <StackPanel>
-                            <TextBlock Text="HOT CUES" Foreground="#333355" FontSize="8"
+                            <TextBlock Text="HOT CUES" Foreground="#556270" FontSize="8"
                                        FontWeight="Bold" LetterSpacing="2" Margin="0,0,0,6"/>
                             <ItemsControl ItemsSource="{Binding HotCuePads}">
                                 <ItemsControl.ItemsPanel>
@@ -482,17 +560,17 @@
                     </Border>
 
                     <!-- Cue List -->
-                    <ScrollViewer Grid.Row="2" Background="#0A0A12" VerticalScrollBarVisibility="Auto">
+                    <ScrollViewer Grid.Row="3" Background="#141414" VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding WorkingCues}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border BorderBrush="#1A1A28" BorderThickness="0,0,0,1"
-                                            Background="#0A0A12"
+                                    <Border BorderBrush="#20262D" BorderThickness="0,0,0,1"
+                                            Background="#141414"
                                             Padding="8,6"
                                             PointerPressed="OnCueRowPointerPressed">
                                         <Border.Styles>
                                             <Style Selector="Border:pointerover">
-                                                <Setter Property="Background" Value="#12121E"/>
+                                                <Setter Property="Background" Value="#1A1E24"/>
                                             </Style>
                                         </Border.Styles>
                                         <Grid ColumnDefinitions="4,8,*,Auto,Auto">
@@ -502,15 +580,15 @@
                                             <StackPanel Grid.Column="2" Spacing="2">
                                                 <TextBox Text="{Binding Name}"
                                                          Background="Transparent" BorderThickness="0"
-                                                         Foreground="#D0D0E0" FontSize="11" FontWeight="SemiBold"
-                                                         Padding="0" CaretBrush="#7777AA"
+                                                         Foreground="#DDE4EA" FontSize="11" FontWeight="SemiBold"
+                                                         Padding="0" CaretBrush="#4EC9B0"
                                                          LostFocus="OnCueFieldLostFocus"/>
                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                     <TextBlock Text="{Binding TimestampDisplay}"
-                                                               Foreground="#555577" FontSize="9"/>
-                                                    <TextBlock Text="{Binding Role}" Foreground="#444466" FontSize="9"/>
+                                                               Foreground="#7C8B99" FontSize="9"/>
+                                                    <TextBlock Text="{Binding Role}" Foreground="#5C7288" FontSize="9"/>
                                                     <TextBlock Text="{Binding SlotLabel}"
-                                                               Foreground="#5577AA" FontSize="9" FontWeight="Bold"
+                                                               Foreground="#4EC9B0" FontSize="9" FontWeight="Bold"
                                                                IsVisible="{Binding HasSlot}"/>
                                                     <!-- Confidence dot -->
                                                     <Border Width="7" Height="7" CornerRadius="4"
@@ -519,21 +597,24 @@
                                                             ToolTip.Tip="{Binding WhyHereTooltip}"/>
                                                 </StackPanel>
                                             </StackPanel>
-                                            <!-- Audition (▶ with pre-roll) -->
-                                            <Button Grid.Column="3" Content="▶" Padding="4,2"
-                                                    FontSize="9" Foreground="#5577AA"
+                                            <!-- Audition (with pre-roll) -->
+                                            <Button Grid.Column="3" Padding="4,2"
                                                     Background="Transparent" BorderThickness="0"
                                                     VerticalAlignment="Center" Cursor="Hand"
                                                     ToolTip.Tip="Audition — plays 4 beats before this cue (Enter)"
                                                     Command="{Binding $parent[UserControl].DataContext.AuditionCueCommand}"
-                                                    CommandParameter="{Binding}"/>
+                                                    CommandParameter="{Binding}">
+                                                <PathIcon Data="{StaticResource play_regular}" Width="9" Height="9" Foreground="#7C9CB8"/>
+                                            </Button>
                                             <!-- Delete -->
-                                            <Button Grid.Column="4" Content="✕" Padding="4,2"
-                                                    FontSize="10" Foreground="#663333"
+                                            <Button Grid.Column="4" Padding="4,2"
                                                     Background="Transparent" BorderThickness="0"
                                                     VerticalAlignment="Center" Cursor="Hand"
+                                                    ToolTip.Tip="Delete — undoable with Ctrl+Z"
                                                     Command="{Binding $parent[UserControl].DataContext.DeleteCueCommand}"
-                                                    CommandParameter="{Binding}"/>
+                                                    CommandParameter="{Binding}">
+                                                <PathIcon Data="{StaticResource dismiss_regular}" Width="9" Height="9" Foreground="#8A5A5A"/>
+                                            </Button>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
@@ -545,16 +626,17 @@
         </Grid>
 
         <!-- Row 5: Loop Controls -->
-        <Border Grid.Row="5" Background="#13131C" BorderBrush="#1E1E2E" BorderThickness="0,1,0,1" Padding="12,7">
+        <Border Grid.Row="5" Background="#1A1E24" BorderBrush="#2F3E4C" BorderThickness="0,1,0,1" Padding="12,7">
+            <StackPanel Spacing="4">
             <Grid ColumnDefinitions="Auto,12,Auto,12,Auto,12,Auto,*,Auto">
-                <TextBlock Grid.Column="0" Text="LOOP" Foreground="#333355" FontSize="9"
+                <TextBlock Grid.Column="0" Text="LOOP" Foreground="#556270" FontSize="9"
                            FontWeight="Bold" LetterSpacing="2" VerticalAlignment="Center"/>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                     <Button Classes="cmd-secondary" Command="{Binding SetLoopInCommand}"
-                            Content="IN" FontSize="11" FontWeight="Bold" Foreground="#88CC88" Padding="10,4"/>
+                            Content="IN" FontSize="11" FontWeight="Bold" Foreground="#4EC9B0" Padding="10,4"/>
                     <Button Classes="cmd-secondary" Command="{Binding SetLoopOutCommand}"
-                            Content="OUT" FontSize="11" FontWeight="Bold" Foreground="#88CC88" Padding="10,4"/>
+                            Content="OUT" FontSize="11" FontWeight="Bold" Foreground="#4EC9B0" Padding="10,4"/>
                 </StackPanel>
 
                 <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
@@ -565,7 +647,7 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                    <TextBlock Text="Quick:" Foreground="#444455" FontSize="10" VerticalAlignment="Center"/>
+                    <TextBlock Text="Quick:" Foreground="#556270" FontSize="10" VerticalAlignment="Center"/>
                     <Button Classes="cmd-secondary" Content="1 bar" FontSize="10" Padding="6,3"
                             Command="{Binding SetQuickLoopCommand}" CommandParameter="1"/>
                     <Button Classes="cmd-secondary" Content="2 bar" FontSize="10" Padding="6,3"
@@ -587,9 +669,9 @@
                                   Content="🔁 Preview" FontSize="10" Padding="8,3"
                                   ToolTip.Tip="Loop playback between IN and OUT to audition before committing"/>
                     <TextBlock Text="{Binding LoopInDisplay}"
-                               Foreground="#447744" FontSize="10" VerticalAlignment="Center"/>
+                               Foreground="#5EA87A" FontSize="10" VerticalAlignment="Center"/>
                     <TextBlock Text="{Binding LoopOutDisplay}"
-                               Foreground="#447744" FontSize="10" VerticalAlignment="Center"/>
+                               Foreground="#5EA87A" FontSize="10" VerticalAlignment="Center"/>
                     <Button Classes="cmd-secondary" Command="{Binding PinLoopStartAsCueCommand}"
                             Content="→ Cue" FontSize="10" Padding="8,3"
                             ToolTip.Tip="Pin loop IN point as a hot cue marker"/>
@@ -597,16 +679,22 @@
                             FontSize="10" Padding="8,3"/>
                 </StackPanel>
             </Grid>
+            <!-- Only one loop can be staged at a time — setting a new IN/OUT or pinning loop-start
+                 as a cue both replace whatever loop was there before, rather than adding a second
+                 one. Previously unexplained; both code paths intentionally share one slot. -->
+            <TextBlock Text="Only one loop is active at a time — setting a new IN/OUT point or pinning it as a cue replaces the current loop."
+                       FontSize="9" Foreground="#556270"/>
+            </StackPanel>
         </Border>
 
         <!-- Row 6: Status Bar -->
-        <Border Grid.Row="6" Background="#0E0E16" BorderBrush="#1A1A2A" BorderThickness="0,1,0,0" Padding="12,5">
+        <Border Grid.Row="6" Background="#1A1E24" BorderBrush="#2F3E4C" BorderThickness="0,1,0,0" Padding="12,5">
             <Grid ColumnDefinitions="*,Auto">
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
                     <TextBlock Text="{Binding CurrentPlayPositionDisplay}"
-                               Foreground="#444466" FontSize="10"/>
+                               Foreground="#556270" FontSize="10"/>
                     <TextBlock Text="{Binding WorkingCues.Count, StringFormat='Cues: {0}'}"
-                               Foreground="#444466" FontSize="10"/>
+                               Foreground="#556270" FontSize="10"/>
                     <Border Background="#2A1A00" BorderBrush="#5A3A00" BorderThickness="1"
                             CornerRadius="2" Padding="6,2" IsVisible="{Binding HasUncommittedChanges}">
                         <TextBlock Text="● UNSAVED CHANGES" Foreground="#FF9800" FontSize="9"
@@ -633,7 +721,7 @@
                 <!-- Keyboard hint (hash in tooltip for debug) -->
                 <TextBlock Grid.Column="1"
                            Text="← → jump  Shift+← → nudge  Enter audition  A add  Del remove  Ctrl+Z undo"
-                           Foreground="#2A2A44" FontSize="9" VerticalAlignment="Center"
+                           Foreground="#3D4A56" FontSize="9" VerticalAlignment="Center"
                            ToolTip.Tip="{Binding TrackHash}"/>
             </Grid>
         </Border>

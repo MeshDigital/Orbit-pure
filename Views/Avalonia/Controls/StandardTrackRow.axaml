@@ -232,7 +232,11 @@
             <Border Grid.Column="0" Width="44" Height="44" Margin="6,4,8,4" CornerRadius="4" ClipToBounds="True" Background="{DynamicResource SurfaceBrush}" VerticalAlignment="Center">
                 <Panel>
                     <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill" RenderOptions.BitmapInterpolationMode="MediumQuality" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-                    <PathIcon Data="{StaticResource music_regular}" Foreground="{DynamicResource TextDisabledBrush}" Width="20" Height="20" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNull}}"/>
+                    <!-- No real art: a color+letter tile instead of a flat surface with a faint music glyph. -->
+                    <Border Background="{Binding FallbackArtBrush}" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNull}}">
+                        <TextBlock Text="{Binding FallbackArtLetter}" FontSize="16" FontWeight="Bold" Foreground="#DDFFFFFF"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
                     
                     <!-- Spotify Icon for Ghost tracks -->
                     <Border IsVisible="{Binding IsGhost}" Width="16" Height="16" Background="#1DB954" CornerRadius="8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="2">

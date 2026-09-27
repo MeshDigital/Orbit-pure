@@ -54,10 +54,17 @@ public sealed class AnalysisResultDiskCache : IDisposable
         if (string.IsNullOrWhiteSpace(trackHash)) return null;
 
         // 1. Hot-cache hit
-        if (_memCache.TryGetValue(trackHash, out var entry) &&
-            DateTime.UtcNow - entry.Ts < MemoryTtl)
+        if (_memCache.TryGetValue(trackHash, out var entry))
         {
-            return entry.Entity;
+            if (DateTime.UtcNow - entry.Ts < MemoryTtl)
+            {
+                return entry.Entity;
+            }
+
+            // Expired — remove it now rather than leaving it in the dictionary forever (it would
+            // otherwise only ever be overwritten on a subsequent disk re-fetch, never evicted, so
+            // every unique track ever queried held an entry for the app's whole lifetime).
+            _memCache.TryRemove(trackHash, out _);
         }
 
         // 2. Disk hit

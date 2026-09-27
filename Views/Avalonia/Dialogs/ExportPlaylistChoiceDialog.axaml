@@ -1,0 +1,41 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SLSKDONET.Views.Avalonia.Dialogs.ExportPlaylistChoiceDialog"
+        Title="Export Playlist" Width="440" Height="260"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="#151520" TransparencyLevelHint="AcrylicBlur"
+        ExtendClientAreaToDecorationsHint="True">
+
+    <Grid RowDefinitions="Auto,*,Auto" Margin="20">
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Spacing="8" Margin="0,10,0,16">
+            <TextBlock Text="Export Playlist" FontSize="18" FontWeight="SemiBold" Foreground="White"/>
+            <TextBlock x:Name="SubtitleText"
+                       Text="How do you want to export this playlist?"
+                       FontSize="12" Foreground="#AAA" TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <!-- Choices -->
+        <StackPanel Grid.Row="1" Spacing="14">
+            <StackPanel Spacing="2">
+                <TextBlock Text="Copy Files + XML" Foreground="White" FontWeight="SemiBold" FontSize="13"/>
+                <TextBlock Text="Copies audio files to a USB drive or folder and writes a Rekordbox XML alongside them."
+                           Foreground="#888" FontSize="11" TextWrapping="Wrap"/>
+            </StackPanel>
+            <StackPanel Spacing="2">
+                <TextBlock Text="XML Only" Foreground="White" FontWeight="SemiBold" FontSize="13"/>
+                <TextBlock Text="Writes just the Rekordbox XML — no audio files are copied."
+                           Foreground="#888" FontSize="11" TextWrapping="Wrap"/>
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12" Margin="0,16,0,0">
+            <Button Content="Cancel" Click="Cancel_Click" Background="Transparent" Foreground="#AAA" Padding="16,8"/>
+            <Button Content="XML Only" Click="XmlOnly_Click" Background="#2A2A38" Foreground="White" Padding="16,8" CornerRadius="6"/>
+            <Button Content="Copy Files + XML" Click="CopyFilesAndXml_Click"
+                    Background="#4EC9B0" Foreground="#151520" Padding="16,8" CornerRadius="6" FontWeight="Bold"/>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Avalonia.Threading;
@@ -10,12 +12,42 @@ using SLSKDONET.Services.Similarity;
 
 namespace SLSKDONET.ViewModels;
 
-public sealed class LibraryDoubleInspectorViewModel
+/// <summary>
+/// The panel bound to this VM (<c>DoubleInspectorPanel.axaml</c>) is only ever re-shown by a fresh
+/// <see cref="SLSKDONET.Events.OpenInspectorEvent"/> when selection settles at exactly 2 tracks —
+/// going from a valid pair to a 1-, 3+-, or 0-track selection does NOT re-fire that event, so
+/// without live change notifications the panel kept showing the last real pair's transition data
+/// as if it still applied. Implements <see cref="INotifyPropertyChanged"/> (this class previously
+/// had none at all, despite the view binding directly to its properties) so
+/// <see cref="ClearPairwiseContext"/>/<see cref="SetPairwiseContext"/>/selection-driven property
+/// changes actually reach the already-open panel instead of only taking effect on the next
+/// re-navigation.
+/// </summary>
+public sealed class LibraryDoubleInspectorViewModel : INotifyPropertyChanged
 {
     private readonly LibraryViewModel _library;
     private readonly ILogger _logger;
     private readonly TrackSimilarityService? _trackSimilarityService;
     private readonly TransitionStyleClassifier? _transitionStyleClassifier;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void RaisePropertyChanged([CallerMemberName] string? propertyName = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+
+    /// <summary>Raises change notification for every property derived from the current selection
+    /// (TrackA/TrackB and everything computed from them) — called whenever selection settles,
+    /// since none of those are backed by a field this class controls the setter of.</summary>
+    private void RaiseSelectionDerivedPropertiesChanged()
+    {
+        RaisePropertyChanged(nameof(TrackA));
+        RaisePropertyChanged(nameof(TrackB));
+        RaisePropertyChanged(nameof(IsPairAnalyzable));
+        RaisePropertyChanged(nameof(HeaderTitle));
+        RaisePropertyChanged(nameof(KeyCompatibilitySummary));
+        RaisePropertyChanged(nameof(BpmDifferenceSummary));
+        RaisePropertyChanged(nameof(EnergyAlignmentSummary));
+    }
 
     public LibraryDoubleInspectorViewModel(
         LibraryViewModel library,
@@ -133,10 +165,21 @@ public sealed class LibraryDoubleInspectorViewModel
         TransitionStyleLabel = string.Empty;
         TransitionStyleReason = string.Empty;
         HasPairContext = false;
+
+        RaisePropertyChanged(nameof(TransitionScore));
+        RaisePropertyChanged(nameof(HarmonicScore));
+        RaisePropertyChanged(nameof(BeatScore));
+        RaisePropertyChanged(nameof(DropScore));
+        RaisePropertyChanged(nameof(ReasonTags));
+        RaisePropertyChanged(nameof(TransitionStyleLabel));
+        RaisePropertyChanged(nameof(TransitionStyleReason));
+        RaisePropertyChanged(nameof(HasPairContext));
     }
 
     public async Task HandleSelectionChangedAsync(IReadOnlyList<PlaylistTrackViewModel> selectedTracks)
     {
+        RaiseSelectionDerivedPropertiesChanged();
+
         if (selectedTracks.Count == 2)
         {
             await TryAttachPairwiseContextAsync(selectedTracks[0], selectedTracks[1]).ConfigureAwait(false);
@@ -144,6 +187,7 @@ public sealed class LibraryDoubleInspectorViewModel
         }
 
         IsPairScoreLoading = false;
+        RaisePropertyChanged(nameof(IsPairScoreLoading));
         ClearPairwiseContext();
     }
 
@@ -164,6 +208,15 @@ public sealed class LibraryDoubleInspectorViewModel
         TransitionStyleLabel = transitionStyleLabel ?? string.Empty;
         TransitionStyleReason = transitionStyleReason ?? string.Empty;
         HasPairContext = true;
+
+        RaisePropertyChanged(nameof(TransitionScore));
+        RaisePropertyChanged(nameof(HarmonicScore));
+        RaisePropertyChanged(nameof(BeatScore));
+        RaisePropertyChanged(nameof(DropScore));
+        RaisePropertyChanged(nameof(ReasonTags));
+        RaisePropertyChanged(nameof(TransitionStyleLabel));
+        RaisePropertyChanged(nameof(TransitionStyleReason));
+        RaisePropertyChanged(nameof(HasPairContext));
     }
 
     private async Task TryAttachPairwiseContextAsync(PlaylistTrackViewModel trackA, PlaylistTrackViewModel trackB)
@@ -171,6 +224,7 @@ public sealed class LibraryDoubleInspectorViewModel
         try
         {
             IsPairScoreLoading = true;
+            RaisePropertyChanged(nameof(IsPairScoreLoading));
             ClearPairwiseContext();
 
             if (string.IsNullOrWhiteSpace(trackA.GlobalId) || string.IsNullOrWhiteSpace(trackB.GlobalId))
@@ -230,7 +284,14 @@ public sealed class LibraryDoubleInspectorViewModel
         }
         finally
         {
-            IsPairScoreLoading = false;
+            // Mirrors the SetPairwiseContext call above: the preceding awaits use
+            // ConfigureAwait(false), so this can resume on a background thread — mutate/raise on
+            // the UI thread like every other property change in this class.
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                IsPairScoreLoading = false;
+                RaisePropertyChanged(nameof(IsPairScoreLoading));
+            });
         }
     }
 }

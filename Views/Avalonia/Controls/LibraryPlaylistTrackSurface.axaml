@@ -5,10 +5,16 @@
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:converters="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
              mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
              x:Class="SLSKDONET.Views.Avalonia.Controls.LibraryPlaylistTrackSurface"
              x:DataType="vm:Library.TrackListViewModel"
              Background="#1E1E1E">
+
+    <UserControl.Resources>
+        <converters:NumericIsZeroConverter x:Key="NumericIsZeroConverter"/>
+        <converters:TrackStateToColorConverter x:Key="TrackStateToColorConverter"/>
+    </UserControl.Resources>
 
     <UserControl.Styles>
         <Style Selector="Border.track-row">
@@ -51,21 +57,30 @@
     </UserControl.Styles>
 
     <Grid RowDefinitions="Auto,*" Focusable="True" KeyDown="OnRootKeyDown" PointerPressed="OnRootPointerPressed" PointerExited="OnRootPointerExited">
+        <!-- Column headers — matches the track-row Grid's ColumnDefinitions exactly so labels line up.
+             Static (non-sortable) for now: this surface is still behind the UseNewPlaylistSurface
+             config gate (default off), so real click-to-sort is left for when it graduates out of that gate. -->
         <Border Grid.Row="0" Background="#1A1A1D" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="16,8">
-            <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Grid.Column="0"
-                           Text="Playlist Surface (Gate 1)"
-                           FontSize="11"
-                           FontWeight="SemiBold"
-                           Foreground="#8FA7C0"
-                           VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="1"
-                           Text="{Binding FilteredTracks.Count, StringFormat='{}{0} tracks'}"
-                           FontSize="11"
-                           Foreground="#666"
-                           VerticalAlignment="Center"/>
+            <Grid ColumnDefinitions="Auto,Auto,160,*,90,120,110,120,80,84">
+                <TextBlock Grid.Column="2" Text="ARTIST" Margin="0,0,10,0" FontSize="10" FontWeight="SemiBold" Foreground="#666" LetterSpacing="0.5"/>
+                <TextBlock Grid.Column="3" Text="TITLE" Margin="0,0,10,0" FontSize="10" FontWeight="SemiBold" Foreground="#666" LetterSpacing="0.5"/>
+                <TextBlock Grid.Column="4" Text="ENERGY" Margin="0,0,10,0" FontSize="10" FontWeight="SemiBold" Foreground="#666" LetterSpacing="0.5"/>
+                <TextBlock Grid.Column="5" Text="BPM / KEY" Margin="0,0,10,0" FontSize="10" FontWeight="SemiBold" Foreground="#666" LetterSpacing="0.5"/>
+                <TextBlock Grid.Column="6" Text="FORMAT" Margin="0,0,10,0" FontSize="10" FontWeight="SemiBold" Foreground="#666" LetterSpacing="0.5"/>
+                <TextBlock Grid.Column="7" Text="INTEGRITY" Margin="0,0,10,0" FontSize="10" FontWeight="SemiBold" Foreground="#666" LetterSpacing="0.5"/>
+                <TextBlock Grid.Column="8" Text="{Binding FilteredTracks.Count, StringFormat='{}{0} TRACKS'}" HorizontalAlignment="Right" FontSize="10" FontWeight="SemiBold" Foreground="#666" LetterSpacing="0.5"/>
             </Grid>
         </Border>
+
+        <!-- Empty state — the ItemsRepeater below rendered nothing but blank space when the playlist
+             had zero (filtered) tracks. -->
+        <StackPanel Grid.Row="1"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="8"
+                    IsVisible="{Binding FilteredTracks.Count, Converter={StaticResource NumericIsZeroConverter}}">
+            <TextBlock Text="No tracks match the current filters." FontSize="13" Foreground="#666" HorizontalAlignment="Center"/>
+        </StackPanel>
 
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" ScrollChanged="OnTrackScrollChanged">
             <ItemsRepeater ItemsSource="{Binding FilteredTracks}">

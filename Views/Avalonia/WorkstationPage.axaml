@@ -257,6 +257,15 @@
 
                 <StackPanel Grid.Column="3" Margin="{StaticResource WsMarginHeaderRight}" Spacing="6" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Classes="secondary"
+                            Command="{Binding ReanalyzeAllIncompleteCommand}"
+                            IsVisible="{Binding HasIncompleteAnalysisTracks}"
+                            Background="#3D2E15"
+                            BorderBrush="#B8862E"
+                            ToolTip.Tip="{Binding IncompleteAnalysisSummary}">Reanalyze Incomplete</Button>
+                    <Button Classes="secondary"
+                            Command="{Binding ExportOrbSessionCommand}"
+                            ToolTip.Tip="Export this session (decks, cues, loops, playlist order) as a .orbsession bundle">Export Session</Button>
+                    <Button Classes="secondary"
                             Command="{Binding ExportRekordboxCommand}"
                             ToolTip.Tip="Finish prep: export the active playlist — with all saved hot cues and loops — as Rekordbox XML">Rekordbox XML</Button>
                     <Button Classes="secondary"
@@ -353,13 +362,21 @@
                 </Border>
 
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding Decks}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:WorkstationDeckViewModel">
-                                <wsViews:WorkstationDeckRow/>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <StackPanel>
+                        <ItemsControl ItemsSource="{Binding Decks}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:WorkstationDeckViewModel">
+                                    <wsViews:WorkstationDeckRow/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Button Classes="secondary"
+                                Margin="16,8"
+                                HorizontalAlignment="Left"
+                                Command="{Binding AddDeckCommand}"
+                                IsVisible="{Binding CanAddDeck}"
+                                ToolTip.Tip="Add another deck to this session (up to 4)">+ Add Deck</Button>
+                    </StackPanel>
                 </ScrollViewer>
 
                 <Canvas IsVisible="{Binding IsFlowOverlayVisible}"

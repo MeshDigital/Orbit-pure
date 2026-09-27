@@ -150,4 +150,36 @@ public class DropDetectionEnginesTests
         var drops = engine.DetectDropSignatures(novelty, SampleRate, 512);
         Assert.Empty(drops);
     }
+
+    // ── ApplyGlobalEnergyGate ───────────────────────────────────────────────
+
+    [Fact]
+    public void ApplyGlobalEnergyGate_SuppressesSpikeDuringQuietSection_RelativeToLoudSection()
+    {
+        // Simulated riser: a strong local novelty spike while the track is quiet (a breakdown).
+        // Simulated drop: a weaker novelty spike while the track is loud (the actual drop hit).
+        // Before gating, the riser's spike outscores the drop's — exactly the "close but way off"
+        // failure mode this fix targets.
+        var novelty = new float[100];
+        novelty[20] = 0.9f;  // riser, during quiet section
+        novelty[80] = 0.5f;  // drop, during loud section
+
+        var broadbandEnergyCurve = new float[100];
+        for (int i = 0; i < 50; i++) broadbandEnergyCurve[i] = 0.1f;  // quiet half
+        for (int i = 50; i < 100; i++) broadbandEnergyCurve[i] = 0.9f; // loud half
+
+        double hopSeconds = 1.0; // 1:1 index-to-window mapping for this synthetic test
+        var gated = SpectralFluxNoveltyEngine.ApplyGlobalEnergyGate(novelty, hopSeconds, broadbandEnergyCurve, energyCurveWindowSeconds: 1.0);
+
+        Assert.True(gated[80] > gated[20],
+            $"Expected the drop's novelty ({gated[80]}) to outrank the riser's ({gated[20]}) after gating by broadband energy.");
+    }
+
+    [Fact]
+    public void ApplyGlobalEnergyGate_NoBroadbandCurve_ReturnsNoveltyUnchanged()
+    {
+        var novelty = new float[] { 0.1f, 0.5f, 0.9f };
+        var gated = SpectralFluxNoveltyEngine.ApplyGlobalEnergyGate(novelty, 0.1, Array.Empty<float>(), 1.0);
+        Assert.Equal(novelty, gated);
+    }
 }

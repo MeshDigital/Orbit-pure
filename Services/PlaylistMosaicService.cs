@@ -83,7 +83,22 @@ public class PlaylistMosaicService
             {
                 var bitmap = await BuildMosaicAsync(urls);
                 if (bitmap != null)
+                {
                     _cache[k] = new WeakReference<Bitmap>(bitmap);
+
+                    // Periodic cleanup (probabilistic 1/1000 hits) — same pattern as
+                    // ArtworkCacheService, which this cache shape was missing. Without it, dead
+                    // WeakReference entries (plus their string keys) accumulate for every
+                    // distinct playlist album-art combination ever viewed.
+                    if (Random.Shared.Next(0, 1000) == 0)
+                    {
+                        _ = Task.Run(() =>
+                        {
+                            try { PurgeDeadReferences(); }
+                            catch (Exception ex) { _logger.LogDebug(ex, "Playlist mosaic cache periodic cleanup failed"); }
+                        });
+                    }
+                }
                 return bitmap;
             }
             catch (Exception ex)
@@ -96,6 +111,17 @@ public class PlaylistMosaicService
                 _pending.TryRemove(k, out _);
             }
         });
+    }
+
+    private void PurgeDeadReferences()
+    {
+        foreach (var kvp in _cache)
+        {
+            if (!kvp.Value.TryGetTarget(out _))
+            {
+                _cache.TryRemove(kvp.Key, out _);
+            }
+        }
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────

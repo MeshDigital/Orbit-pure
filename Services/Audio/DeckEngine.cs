@@ -173,6 +173,14 @@ public sealed class DeckEngine : ISampleProvider, IDisposable
     private VolumeSampleProvider?             _volumeProvider;
     private bool                              _isDisposed;
 
+    /// <summary>
+    /// Real peak level (0..1) of the most recently produced buffer — computed read-only from the
+    /// already-rendered samples in Read(), purely observational, so it can't affect the actual
+    /// audio path. Replaces the old fake "0.15 + progress*0.75" ramp WorkstationDeckViewModel.VuLevel
+    /// used as a placeholder.
+    /// </summary>
+    public float CurrentLevel { get; private set; }
+
     // Playback state
     private DeckState _state            = DeckState.Stopped;
     private double    _cuePositionSecs  = 0;
@@ -481,6 +489,7 @@ public sealed class DeckEngine : ISampleProvider, IDisposable
     {
         if (_state != DeckState.Playing)
         {
+            CurrentLevel = 0f;
             Array.Clear(buffer, offset, count);
             return count;
         }
@@ -499,11 +508,21 @@ public sealed class DeckEngine : ISampleProvider, IDisposable
         int read = chain.Read(buffer, offset, count);
         if (read == 0)
         {
+            CurrentLevel = 0f;
             lock (_lock) { _state = DeckState.Stopped; }
             StateChanged?.Invoke(this, EventArgs.Empty);
             Array.Clear(buffer, offset, count);
             return count;
         }
+
+        float peak = 0f;
+        for (int i = 0; i < read; i++)
+        {
+            var abs = Math.Abs(buffer[offset + i]);
+            if (abs > peak) peak = abs;
+        }
+        CurrentLevel = Math.Clamp(peak, 0f, 1f);
+
         return read;
     }
 

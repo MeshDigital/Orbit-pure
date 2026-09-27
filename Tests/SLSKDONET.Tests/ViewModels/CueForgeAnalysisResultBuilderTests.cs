@@ -128,13 +128,15 @@ public class CueForgeAnalysisResultBuilderTests
     }
 
     [Fact]
-    public void HeuristicPhraseSegments_AreNotSurfaced_SoDspPathIsNotStarved()
+    public void HeuristicPhraseSegments_AreSurfaced()
     {
         // PhraseSegmentsJson can also be populated by the rule-based StructuralAnalysisEngine
-        // bridge (AnalyzeTrackStructureJob) when EDMFormer isn't running — that's the same weak
-        // signal the DSP path (sub-bass/novelty) is meant to improve on. If it were surfaced here,
-        // GenerateCues' PhraseSegments.Count >= 2 check would take the ML-priority path using
-        // heuristic data, starving out the real DSP signals below.
+        // bridge (AnalyzeTrackStructureJob) when EDMFormer isn't running. This was previously
+        // excluded on the theory that it's the same weak signal the DSP path (sub-bass/novelty)
+        // already improves on — but verified against real Rekordbox-cued tracks, Heuristic's
+        // structural analysis was repeatedly the *correct* answer where the DSP path it deferred
+        // to had picked a completely wrong section. It's now trusted the same as EDMFormer/
+        // RekordboxPSSI.
         var features = BaseFeatures();
         features.PhraseSegmentsSource = "Heuristic";
         features.PhraseSegmentsJson = JsonSerializer.Serialize(new[]
@@ -145,7 +147,74 @@ public class CueForgeAnalysisResultBuilderTests
 
         var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
 
-        Assert.Empty(result.PhraseSegments);
+        Assert.Equal(2, result.PhraseSegments.Count);
+    }
+
+    [Fact]
+    public void PhraseSegmentsStartingAfterTrackEnds_AreDiscarded_ButEarlierOnesSurvive()
+    {
+        // Regression test for a real, library-wide bug: verified against this project's actual
+        // library, 2,157 of 3,375 analyzed tracks (64%) had phrase data describing events after
+        // the track had already ended — stale data from when TrackDuration was wrong at analysis
+        // time, left unregenerated after a later fix corrected the duration. Trusting it silently
+        // misplaced every downstream cue, sometimes by hundreds of seconds.
+        //
+        // The fix is per-segment, not all-or-nothing: a real case in this same library (Metrik -
+        // Simulation) had a perfectly correct drop placed within 0.4s of the DJ's own hand-set cue,
+        // alongside one later segment whose claimed end ran past the track. Discarding the whole
+        // list would have thrown away the correct early data too, so only the segment that starts
+        // after the track has already ended (impossible under any interpretation) is dropped;
+        // BaseFeatures() has TrackDuration=240, so Intro@0 survives and Drop@280 does not.
+        var features = BaseFeatures();
+        features.PhraseSegmentsSource = "Heuristic";
+        features.PhraseSegmentsJson = JsonSerializer.Serialize(new[]
+        {
+            new SLSKDONET.Models.PhraseSegment { Label = "Intro", Start = 0f, Duration = 20f, Confidence = 0.9f },
+            new SLSKDONET.Models.PhraseSegment { Label = "Drop", Start = 280f, Duration = 20f, Confidence = 0.9f },
+        });
+
+        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+
+        var segment = Assert.Single(result.PhraseSegments);
+        Assert.Equal("Intro", segment.Label);
+    }
+
+    [Fact]
+    public void PhraseSegmentStartingInBounds_ButOverrunningTrackEnd_IsClampedNotDiscarded()
+    {
+        // Metrik - Simulation's exact real shape: a segment legitimately starts before the track
+        // ends but its claimed Duration would push its end past TrackDuration — its Start is a
+        // real detected event, its Duration is an estimate, so the segment is kept with Duration
+        // clamped to fit, not thrown away. BaseFeatures() has TrackDuration=240; a segment
+        // starting at 220s claiming a 60s duration (end=280s) should be clamped to 20s (end=240s).
+        var features = BaseFeatures();
+        features.PhraseSegmentsSource = "Heuristic";
+        features.PhraseSegmentsJson = JsonSerializer.Serialize(new[]
+        {
+            new SLSKDONET.Models.PhraseSegment { Label = "Drop", Start = 220f, Duration = 60f, Confidence = 0.9f },
+        });
+
+        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+
+        var segment = Assert.Single(result.PhraseSegments);
+        Assert.Equal(220f, segment.Start);
+        Assert.Equal(20f, segment.Duration, 3);
+    }
+
+    [Fact]
+    public void PhraseSegmentsWithinTrackDuration_AreKept()
+    {
+        var features = BaseFeatures();
+        features.PhraseSegmentsSource = "Heuristic";
+        features.PhraseSegmentsJson = JsonSerializer.Serialize(new[]
+        {
+            new SLSKDONET.Models.PhraseSegment { Label = "Intro", Start = 0f, Duration = 20f, Confidence = 0.9f },
+            new SLSKDONET.Models.PhraseSegment { Label = "Drop", Start = 100f, Duration = 20f, Confidence = 0.9f },
+        });
+
+        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+
+        Assert.Equal(2, result.PhraseSegments.Count);
     }
 
     [Fact]

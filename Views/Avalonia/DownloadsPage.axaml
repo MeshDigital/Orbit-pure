@@ -305,7 +305,11 @@
         <!-- Phase 12.8: Download Group Template (Session Ledger) -->
         <DataTemplate x:Key="DownloadGroupTemplate" x:DataType="vm:DownloadGroupViewModel">
             <StackPanel Spacing="1">
-                <Border CornerRadius="6" Padding="12,6" Margin="0,2" BorderThickness="1">
+                <Border CornerRadius="6" Padding="12,6" Margin="0,2" BorderThickness="1"
+                        DragDrop.AllowDrop="True"
+                        DragDrop.DragOver="OnGroupRowDragOver"
+                        DragDrop.DragLeave="OnGroupRowDragLeave"
+                        DragDrop.Drop="OnGroupRowDrop">
                     <Border.Styles>
                         <!-- Active: green left accent, brighter border -->
                         <Style Selector="Border.groupActive">
@@ -322,9 +326,27 @@
                             <Setter Property="Background" Value="#252526"/>
                             <Setter Property="BorderBrush" Value="#333"/>
                         </Style>
+                        <!-- Manual drag-reorder feedback — same pattern already proven on
+                             WorkstationDeckRow/FlowBuilderView's drag-over highlighting. -->
+                        <Style Selector="Border.drag-over">
+                            <Setter Property="BorderBrush" Value="#00D7FF"/>
+                            <Setter Property="BorderThickness" Value="2"/>
+                        </Style>
                     </Border.Styles>
-                    <Grid ColumnDefinitions="Auto, *, Auto, Auto">
-                        <ToggleButton Grid.Column="0" IsChecked="{Binding IsExpanded}" Background="Transparent" Padding="4" BorderThickness="0">
+                    <Grid ColumnDefinitions="Auto, Auto, *, Auto, Auto">
+                        <!-- Drag handle — lets the user manually reorder active playlists instead of
+                             the list only ever auto-sorting by most-recent activity. -->
+                        <Border Grid.Column="0"
+                                Width="20"
+                                Cursor="SizeAll"
+                                Background="Transparent"
+                                ToolTip.Tip="Drag to reorder"
+                                PointerPressed="OnGroupDragHandlePointerPressed"
+                                VerticalAlignment="Stretch"
+                                HorizontalAlignment="Center">
+                            <TextBlock Text="⠿" FontSize="14" Foreground="#555" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ToggleButton Grid.Column="1" IsChecked="{Binding IsExpanded}" Background="Transparent" Padding="4" BorderThickness="0">
                             <PathIcon Data="{StaticResource chevron_down_regular}" Width="10" Height="10" Foreground="#555">
                                 <PathIcon.Styles>
                                     <Style Selector="PathIcon">
@@ -342,7 +364,7 @@
                             </PathIcon>
                         </ToggleButton>
 
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="8,0">
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="8,0">
                             <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="Bold" Foreground="White"/>
                             <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="#666" VerticalAlignment="Bottom" Margin="0,0,0,1"/>
                             <!-- LIVE badge — this playlist has a track actively downloading right now -->
@@ -372,7 +394,7 @@
                             </Button>
                         </StackPanel>
 
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="20" VerticalAlignment="Center" Margin="0,0,20,0">
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="20" VerticalAlignment="Center" Margin="0,0,20,0">
                             <TextBlock Text="{Binding StatusText}" FontSize="10" FontWeight="SemiBold">
                                 <TextBlock.Styles>
                                     <Style Selector="TextBlock">
@@ -394,7 +416,7 @@
                             </Panel>
                         </StackPanel>
 
-                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2">
+                        <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="2">
                             <ToggleButton IsChecked="{Binding IsFocused}" Command="{Binding ToggleFocusModeCommand}" Background="Transparent" Padding="6" ToolTip.Tip="Focus this playlist">
                                 <ToggleButton.Styles>
                                     <Style Selector="ToggleButton PathIcon">
@@ -1255,6 +1277,11 @@
 
                 <ScrollViewer Grid.Row="1" Padding="16">
                     <ItemsControl ItemsSource="{Binding EngineLogs}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <VirtualizingStackPanel/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Grid ColumnDefinitions="80, 80, 80, *" Margin="0,0,0,4">

@@ -138,13 +138,20 @@
                         </Border>
 
                         <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <!-- Column 2 is Auto-sized (see the Grid above), so an unbounded title
+                                 grows to fit the whole string, starving column 3 (Aggregate Stats,
+                                 a "*" column) down to nothing for long playlist names. -->
                             <TextBlock Text="{Binding Title}"
                                        FontWeight="SemiBold"
                                        FontSize="14"
+                                       MaxWidth="360"
+                                       TextTrimming="CharacterEllipsis"
                                        Foreground="{DynamicResource TextPrimaryColor}"/>
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <TextBlock Text="{Binding Subtitle}"
                                            FontSize="12"
+                                           MaxWidth="280"
+                                           TextTrimming="CharacterEllipsis"
                                            Foreground="{DynamicResource TextSecondaryColor}"/>
 
                                 <!-- Priority badge — hidden for Normal to reduce noise -->

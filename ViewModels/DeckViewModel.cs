@@ -191,7 +191,12 @@ public sealed class DeckSlotViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit>      ExitLoopCommand        { get; }
     public ReactiveCommand<Unit, Unit>      HalfLoopCommand        { get; }
     public ReactiveCommand<Unit, Unit>      DoubleLoopCommand      { get; }
-    public ReactiveCommand<int, Unit>       MoveLoopCommand        { get; }
+    // <string, Unit>, not <int, Unit>: WorkstationPage.axaml's MOVE buttons set
+    // CommandParameter="-1"/"1" as plain XAML string literals, which Avalonia never
+    // auto-converts to int for a Button.CommandParameter — a typed <int> command's own
+    // ICommand.Execute type-check throws an unhandled, AppDomain-fatal InvalidOperationException
+    // on click (same bug class found and fixed in CueForgeViewModel.NudgeCueCommand).
+    public ReactiveCommand<string, Unit>    MoveLoopCommand        { get; }
     public ReactiveCommand<Unit, Unit>      LoopRollCommand        { get; }
 
     // Hot cues (slot is 0-based, 0–7)
@@ -244,7 +249,7 @@ public sealed class DeckSlotViewModel : ReactiveObject, IDisposable
         ExitLoopCommand   = ReactiveCommand.Create(() => engine.ExitLoop());
         HalfLoopCommand   = ReactiveCommand.Create(() => engine.HalfLoop());
         DoubleLoopCommand = ReactiveCommand.Create(() => engine.DoubleLoop());
-        MoveLoopCommand   = ReactiveCommand.Create<int>(dir => engine.MoveLoop(dir));
+        MoveLoopCommand   = ReactiveCommand.Create<string>(dir => engine.MoveLoop(int.Parse(dir)));
 
         LoopRollCommand = ReactiveCommand.Create(() =>
         {

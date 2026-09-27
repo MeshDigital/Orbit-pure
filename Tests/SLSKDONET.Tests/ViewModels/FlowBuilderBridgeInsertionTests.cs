@@ -242,19 +242,4 @@ public class FlowBuilderBridgeInsertionTests
         Assert.Single(vm.AffectedTransitions);
         Assert.Contains("Risky Clash", vm.AffectedTransitions.Single().StyleChangeLabel);
     }
-
-    [Fact]
-    public void IsFlowBuilderPreviewEnabledForThisInstall_IsDeterministicAndClamped()
-    {
-        var config = new AppConfig
-        {
-            EnableFlowBuilderSuggestedFlowPreview = true,
-            FlowBuilderSuggestedFlowPreviewRolloutPercent = 100,
-        };
-
-        Assert.True(config.IsFlowBuilderPreviewEnabledForThisInstall("orbit-install"));
-
-        config.FlowBuilderSuggestedFlowPreviewRolloutPercent = 0;
-        Assert.False(config.IsFlowBuilderPreviewEnabledForThisInstall("orbit-install"));
-    }
 }

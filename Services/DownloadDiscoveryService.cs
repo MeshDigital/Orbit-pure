@@ -620,12 +620,17 @@ public class DownloadDiscoveryService
                 var batch = pendingCandidates.ToList();
                 pendingCandidates.Clear();
 
-                var scoredBatch = await Task.WhenAll(batch.Select(candidate =>
-                    Task.Run(() =>
-                    {
-                        var localResult = _matcher.CalculateMatchResult(track, candidate, matchOptions);
-                        return (Candidate: candidate, Result: localResult, Score: localResult.Score);
-                    }, ct)));
+                // CalculateMatchResult is cheap, bounded, purely synchronous scoring (format/
+                // duration checks, string similarity on short artist/title strings) — spinning up
+                // one Task.Run per candidate in an 8-ish item batch added real thread-pool queuing
+                // overhead (worse under heavy concurrent search load, many tracks doing this same
+                // pattern at once) for work that finishes faster than the scheduling itself.
+                ct.ThrowIfCancellationRequested();
+                var scoredBatch = batch.Select(candidate =>
+                {
+                    var localResult = _matcher.CalculateMatchResult(track, candidate, matchOptions);
+                    return (Candidate: candidate, Result: localResult, Score: localResult.Score);
+                }).ToArray();
 
                 foreach (var scored in scoredBatch.OrderByDescending(x => x.Score))
                 {

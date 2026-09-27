@@ -95,9 +95,15 @@
 
             <!-- Album Art Zone -->
             <Panel Grid.Row="0" Grid.Column="1" Height="200">
-                <Image Source="{Binding Artwork.Image}" 
+                <!-- No real art: a color+letter tile — previously this Image just rendered blank
+                     with nothing behind it when Artwork.Image was null. -->
+                <Border Background="{Binding FallbackArtBrush}" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNull}}">
+                    <TextBlock Text="{Binding FallbackArtLetter}" FontSize="48" FontWeight="Bold" Foreground="#DDFFFFFF"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <Image Source="{Binding Artwork.Image}"
                        Stretch="UniformToFill"/>
-                
+
                 <!-- Circular Progress Arc (Downloading/Processing) -->
                 <Panel IsVisible="{Binding IsActive}" Background="{StaticResource GlassHeavyBrush}">
                     <Arc Width="80" Height="80"

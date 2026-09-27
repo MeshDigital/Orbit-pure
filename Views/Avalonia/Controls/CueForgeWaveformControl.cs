@@ -8,6 +8,7 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Linq;
 using SLSKDONET.Models;
+using SLSKDONET.Services.Timeline;
 
 namespace SLSKDONET.Views.Avalonia.Controls;
 
@@ -89,6 +90,34 @@ public class CueForgeWaveformControl : Control
     public static readonly StyledProperty<System.Windows.Input.ICommand?> SeekCommandProperty =
         AvaloniaProperty.Register<CueForgeWaveformControl, System.Windows.Input.ICommand?>(nameof(SeekCommand));
     public System.Windows.Input.ICommand? SeekCommand { get => GetValue(SeekCommandProperty); set => SetValue(SeekCommandProperty, value); }
+
+    // ── Selection / edit commands ───────────────────────────────────────────
+
+    /// <summary>Fired the instant a cue is hit-tested on press (click OR the start of a drag) —
+    /// this is what makes clicking/dragging a cue on the waveform open it in the CUE DETAIL
+    /// panel, same as clicking it in the list.</summary>
+    public static readonly StyledProperty<System.Windows.Input.ICommand?> SelectCueCommandProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, System.Windows.Input.ICommand?>(nameof(SelectCueCommand));
+    public System.Windows.Input.ICommand? SelectCueCommand { get => GetValue(SelectCueCommandProperty); set => SetValue(SelectCueCommandProperty, value); }
+
+    /// <summary>Fired on the same press, before any drag movement — lets the ViewModel push an
+    /// undo snapshot of the pre-drag state.</summary>
+    public static readonly StyledProperty<System.Windows.Input.ICommand?> CueDragStartedCommandProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, System.Windows.Input.ICommand?>(nameof(CueDragStartedCommand));
+    public System.Windows.Input.ICommand? CueDragStartedCommand { get => GetValue(CueDragStartedCommandProperty); set => SetValue(CueDragStartedCommandProperty, value); }
+
+    /// <summary>Fired on release once a cue or loop handle actually moved — this is what marks
+    /// the track dirty (HasUncommittedChanges) so the Commit button appears; without it, a
+    /// waveform drag mutated the cue in place but the ViewModel never found out.</summary>
+    public static readonly StyledProperty<System.Windows.Input.ICommand?> CueUpdatedCommandProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, System.Windows.Input.ICommand?>(nameof(CueUpdatedCommand));
+    public System.Windows.Input.ICommand? CueUpdatedCommand { get => GetValue(CueUpdatedCommandProperty); set => SetValue(CueUpdatedCommandProperty, value); }
+
+    /// <summary>The cue currently selected in the CUE DETAIL/list panel — drawn with a highlight
+    /// so it's visually obvious which marker corresponds to the open editor.</summary>
+    public static readonly StyledProperty<OrbitCue?> SelectedCueProperty =
+        AvaloniaProperty.Register<CueForgeWaveformControl, OrbitCue?>(nameof(SelectedCue));
+    public OrbitCue? SelectedCue { get => GetValue(SelectedCueProperty); set => SetValue(SelectedCueProperty, value); }
 
     // ── Zoom / Scroll (bindable so the nav bar can drive them) ─────────────
 
@@ -441,19 +470,33 @@ public class CueForgeWaveformControl : Control
     private void DrawCueMarkers(DrawingContext ctx, Rect b)
     {
         if (Cues is null) return;
-        foreach (var cue in Cues.Where(c => !c.IsLoop))
+        // Selected cue drawn last so its highlight/label never sits underneath a neighbor.
+        var ordered = Cues.Where(c => !c.IsLoop).OrderBy(c => ReferenceEquals(c, SelectedCue) ? 1 : 0);
+        foreach (var cue in ordered)
         {
             double x = TimeToPixel(cue.Timestamp, b);
             if (x < 0 || x > b.Width) continue;
 
+            bool isSelected = ReferenceEquals(cue, SelectedCue);
             var col = ParseColor(cue.Color, 0xFFFF00);
-            var pen = new Pen(new SolidColorBrush(col), 1.5);
+
+            // Selection highlight — a soft vertical glow behind the marker, so it's obvious at a
+            // glance which cue corresponds to the open CUE DETAIL panel without hunting through
+            // the list.
+            if (isSelected)
+            {
+                ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)),
+                    new Rect(x - 4, b.Top, 8, b.Height));
+            }
+
+            var pen = new Pen(new SolidColorBrush(col), isSelected ? 2.5 : 1.5);
             ctx.DrawLine(pen, new Point(x, b.Top + 14), new Point(x, b.Bottom));
 
             // Flag rectangle
-            ctx.FillRectangle(new SolidColorBrush(col), new Rect(x, b.Top, 2, b.Height * 0.85));
+            ctx.FillRectangle(new SolidColorBrush(col), new Rect(x, b.Top, isSelected ? 3 : 2, b.Height * 0.85));
 
             // Slot number badge
+            double badgeRight = x + 2;
             if (cue.SlotIndex >= 0)
             {
                 var badge = new SolidColorBrush(col);
@@ -463,7 +506,21 @@ public class CueForgeWaveformControl : Control
                     FlowDirection.LeftToRight, Typeface.Default, 9,
                     new SolidColorBrush(Colors.Black));
                 ctx.DrawText(txt, new Point(x + 3, b.Top + 1));
+                badgeRight = x + 17;
             }
+
+            // Name label — previously nothing at all identified a cue beyond its raw color, so
+            // every marker looked the same unless it happened to have a hot-cue slot assigned.
+            var name = string.IsNullOrWhiteSpace(cue.Name) ? cue.Role.ToString() : cue.Name;
+            var label = new FormattedText(name,
+                System.Globalization.CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight, Typeface.Default, isSelected ? 10.5 : 9.5,
+                new SolidColorBrush(Colors.White));
+            double lx = badgeRight + 2;
+            double ly = b.Top + 14;
+            ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(190, 10, 10, 20)),
+                new Rect(lx - 2, ly - 1, label.Width + 4, label.Height + 2));
+            ctx.DrawText(label, new Point(lx, ly));
 
             // Confidence indicator (small dot at flag top)
             if (cue.Confidence > 0f)
@@ -527,6 +584,8 @@ public class CueForgeWaveformControl : Control
             _draggedLoop = bestLoop;
             _isDraggingLoopStart = bestLoopIsStart;
             _isDraggingLoopEnd = !bestLoopIsStart;
+            if (SelectCueCommand?.CanExecute(bestLoop) == true) SelectCueCommand.Execute(bestLoop);
+            if (CueDragStartedCommand?.CanExecute(bestLoop) == true) CueDragStartedCommand.Execute(bestLoop);
             e.Pointer.Capture(this);
             return;
         }
@@ -543,6 +602,8 @@ public class CueForgeWaveformControl : Control
         if (bestCue is not null)
         {
             _draggedCue = bestCue;
+            if (SelectCueCommand?.CanExecute(bestCue) == true) SelectCueCommand.Execute(bestCue);
+            if (CueDragStartedCommand?.CanExecute(bestCue) == true) CueDragStartedCommand.Execute(bestCue);
             e.Pointer.Capture(this);
             return;
         }
@@ -551,6 +612,18 @@ public class CueForgeWaveformControl : Control
         double seekTime = Math.Clamp(PixelToTime(pt.X, b), 0, TrackDuration);
         SeekCommand?.Execute(seekTime);
     }
+
+    // Dragging a cue/loop handle fires OnPointerMoved continuously (mouse-poll rate, easily
+    // 100+/sec) and each call used to invoke InvalidateStaticCache() unconditionally — forcing
+    // EnsureStaticBitmap's full 10-pass rebuild (phrase map, section bands, beat grid, onset
+    // density, RGB waveform, energy/vocal overlays, double-drop zone, loop blocks, cue markers)
+    // on every single one, with no frame-rate cap (WaveformControl.cs has one for exactly this
+    // reason; it was never applied here). Throttling the *trigger* here, rather than touching
+    // EnsureStaticBitmap's own dirty/size-change gate, keeps that method's correctness logic
+    // untouched. OnPointerReleased always forces one final, unthrottled rebuild so the settled
+    // position is never left showing a stale, mid-throttle-window frame.
+    private DateTime _lastCueDragInvalidateTime = DateTime.MinValue;
+    private const double CueDragInvalidateThrottleMs = 33.33; // ~30 FPS max
 
     protected override void OnPointerMoved(PointerEventArgs e)
     {
@@ -561,24 +634,42 @@ public class CueForgeWaveformControl : Control
         if (_draggedCue is not null)
         {
             _draggedCue.Timestamp = Math.Clamp(ApplySnapping(PixelToTime(pt.X, b)), 0, TrackDuration);
-            InvalidateStaticCache();
+            InvalidateStaticCacheThrottled();
         }
         else if (_draggedLoop is not null && (_isDraggingLoopStart || _isDraggingLoopEnd))
         {
             double t = Math.Clamp(ApplySnapping(PixelToTime(pt.X, b)), 0, TrackDuration);
             if (_isDraggingLoopStart) _draggedLoop.Timestamp = t; else _draggedLoop.LoopEndSeconds = t;
-            InvalidateStaticCache();
+            InvalidateStaticCacheThrottled();
         }
+    }
+
+    private void InvalidateStaticCacheThrottled()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastCueDragInvalidateTime).TotalMilliseconds < CueDragInvalidateThrottleMs) return;
+        _lastCueDragInvalidateTime = now;
+        InvalidateStaticCache();
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+        var droppedCue = _draggedCue ?? _draggedLoop;
+        bool wasDragging = droppedCue is not null;
         _draggedCue = null;
         _draggedLoop = null;
         _isDraggingLoopStart = false;
         _isDraggingLoopEnd = false;
         e.Pointer.Capture(null);
+
+        // Guarantee the final dropped position is rendered exactly, even if the last
+        // OnPointerMoved during the drag landed inside the throttle window and got skipped.
+        if (wasDragging)
+        {
+            InvalidateStaticCache();
+            if (CueUpdatedCommand?.CanExecute(droppedCue) == true) CueUpdatedCommand.Execute(droppedCue);
+        }
     }
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
@@ -627,7 +718,8 @@ public class CueForgeWaveformControl : Control
             change.Property == WaveformLowProperty || change.Property == WaveformMidProperty ||
             change.Property == WaveformHighProperty || change.Property == EnergyCurveProperty ||
             change.Property == VocalDensityCurveProperty || change.Property == OnsetDensityCurveProperty ||
-            change.Property == ZoomLevelProperty || change.Property == ScrollOffsetProperty)
+            change.Property == ZoomLevelProperty || change.Property == ScrollOffsetProperty ||
+            change.Property == SelectedCueProperty)
         {
             InvalidateStaticCache();
         }
@@ -639,9 +731,12 @@ public class CueForgeWaveformControl : Control
     {
         if (!SnapToGrid || Bpm <= 0) return t;
         int q = ParseQuantize();
-        double beat = 60.0 / Bpm;
-        if (q > 0) { double grid = beat * q; double ng = Math.Round(t / grid) * grid; if (Math.Abs(t - ng) < 0.05) return ng; }
-        double nb = Math.Round(t / beat) * beat; return Math.Abs(t - nb) < 0.05 ? nb : t;
+        if (q > 0)
+        {
+            double? snappedToQuantize = BeatGridService.GetNearestBeatMultipleSeconds(t, Bpm, q, snapRadiusSeconds: 0.05);
+            if (snappedToQuantize.HasValue) return snappedToQuantize.Value;
+        }
+        return BeatGridService.GetNearestBeatSeconds(t, Bpm, snapRadiusSeconds: 0.05) ?? t;
     }
 
     private int ParseQuantize() => QuantizeBeatString switch

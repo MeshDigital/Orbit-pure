@@ -86,6 +86,23 @@ namespace SLSKDONET.Views.Avalonia.Controls
             AvaloniaProperty.Register<DualWaveformDeck, bool>(nameof(ShowVocalGhost));
         public bool ShowVocalGhost { get => GetValue(ShowVocalGhostProperty); set => SetValue(ShowVocalGhostProperty, value); }
 
+        // Waveform appearance settings — pass-through to both the macro and micro WaveformControl instances.
+        public static readonly StyledProperty<bool> UseNeonPaletteProperty =
+            AvaloniaProperty.Register<DualWaveformDeck, bool>(nameof(UseNeonPalette), true);
+        public bool UseNeonPalette { get => GetValue(UseNeonPaletteProperty); set => SetValue(UseNeonPaletteProperty, value); }
+
+        public static readonly StyledProperty<double> GainProperty =
+            AvaloniaProperty.Register<DualWaveformDeck, double>(nameof(Gain), 1.0);
+        public double Gain { get => GetValue(GainProperty); set => SetValue(GainProperty, value); }
+
+        public static readonly StyledProperty<bool> ShowEnergyCurveProperty =
+            AvaloniaProperty.Register<DualWaveformDeck, bool>(nameof(ShowEnergyCurve), true);
+        public bool ShowEnergyCurve { get => GetValue(ShowEnergyCurveProperty); set => SetValue(ShowEnergyCurveProperty, value); }
+
+        public static readonly StyledProperty<bool> ShowPhraseSectionsProperty =
+            AvaloniaProperty.Register<DualWaveformDeck, bool>(nameof(ShowPhraseSections), true);
+        public bool ShowPhraseSections { get => GetValue(ShowPhraseSectionsProperty); set => SetValue(ShowPhraseSectionsProperty, value); }
+
         // Commands
         public static readonly StyledProperty<System.Windows.Input.ICommand?> SeekCommandProperty =
             AvaloniaProperty.Register<DualWaveformDeck, System.Windows.Input.ICommand?>(nameof(SeekCommand));

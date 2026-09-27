@@ -19,6 +19,7 @@ public class RoomViewModel : ReactiveObject, IDisposable
     private readonly RoomChatService _roomChat;
     private readonly ChatAttachmentService _chatAttachments;
     private readonly IFileInteractionService _fileInteraction;
+    private readonly IDialogService _dialogService;
     private readonly ILogger _logger;
     private readonly CompositeDisposable _disposables = new();
 
@@ -33,6 +34,17 @@ public class RoomViewModel : ReactiveObject, IDisposable
     public bool IsPrivate { get; }
     public ObservableCollection<RoomMemberSnapshot> Members { get; } = new();
     public ObservableCollection<ChatMessageViewModel> Messages { get; } = new();
+
+    /// <summary>Client-side, case-insensitive filter over <see cref="Messages"/> for the already-loaded
+    /// thread — mirrors <see cref="Messages"/> 1:1 when <see cref="SearchText"/> is empty.</summary>
+    public ObservableCollection<ChatMessageViewModel> FilteredMessages { get; } = new();
+
+    private string _searchText = string.Empty;
+    public string SearchText
+    {
+        get => _searchText;
+        set => this.RaiseAndSetIfChanged(ref _searchText, value);
+    }
 
     /// <summary>Set by <see cref="RoomsViewModel"/> when a message arrives while this room isn't selected; cleared on selection.</summary>
     private bool _hasUnread;
@@ -53,6 +65,7 @@ public class RoomViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> SendImageCommand { get; }
     public ReactiveCommand<Unit, Unit> LoadOlderMessagesCommand { get; }
     public ReactiveCommand<ChatMessageViewModel, Unit> DeleteMessageCommand { get; }
+    public ReactiveCommand<Unit, Unit> ClearRoomHistoryCommand { get; }
 
     private string? _imageSendError;
     public string? ImageSendError
@@ -82,13 +95,14 @@ public class RoomViewModel : ReactiveObject, IDisposable
         private set => this.RaiseAndSetIfChanged(ref _hasMoreHistory, value);
     }
 
-    public RoomViewModel(string roomName, bool isPrivate, RoomChatService roomChat, ChatAttachmentService chatAttachments, IFileInteractionService fileInteraction, IEventBus eventBus, ILogger logger)
+    public RoomViewModel(string roomName, bool isPrivate, RoomChatService roomChat, ChatAttachmentService chatAttachments, IFileInteractionService fileInteraction, IDialogService dialogService, IEventBus eventBus, ILogger logger)
     {
         RoomName = roomName;
         IsPrivate = isPrivate;
         _roomChat = roomChat;
         _chatAttachments = chatAttachments;
         _fileInteraction = fileInteraction;
+        _dialogService = dialogService;
         _logger = logger;
 
         var canSend = this.WhenAnyValue(x => x.MessageInput, text => !string.IsNullOrWhiteSpace(text));
@@ -99,6 +113,12 @@ public class RoomViewModel : ReactiveObject, IDisposable
         LoadOlderMessagesCommand = ReactiveCommand.CreateFromTask(LoadOlderMessagesAsync, canLoadOlder);
 
         DeleteMessageCommand = ReactiveCommand.CreateFromTask<ChatMessageViewModel>(DeleteMessageAsync);
+        ClearRoomHistoryCommand = ReactiveCommand.CreateFromTask(ClearRoomHistoryAsync);
+
+        this.WhenAnyValue(x => x.SearchText)
+            .Throttle(TimeSpan.FromMilliseconds(200), RxApp.MainThreadScheduler)
+            .Subscribe(_ => ApplySearchFilter())
+            .DisposeWith(_disposables);
 
         eventBus.GetEvent<RoomMessageReceivedEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
@@ -108,6 +128,7 @@ public class RoomViewModel : ReactiveObject, IDisposable
                 Messages.Add(new ChatMessageViewModel(e.Id, e.Username, e.Message, e.TimestampUtc, e.IsOutgoing, _chatAttachments, e.Username));
                 ChatGroupingHelper.Apply(Messages);
                 TrimLiveMessagesIfNeeded();
+                ApplySearchFilter();
             })
             .DisposeWith(_disposables);
 
@@ -118,11 +139,45 @@ public class RoomViewModel : ReactiveObject, IDisposable
             {
                 var existing = Members.FirstOrDefault(m => string.Equals(m.Username, e.Username, StringComparison.OrdinalIgnoreCase));
                 if (e.Joined && existing.Username is null)
-                    Members.Add(new RoomMemberSnapshot(e.Username, UserPresenceState.Online, 0, 0, 0, null));
+                    _ = HandleMemberJoinedAsync(e.Username);
                 else if (!e.Joined && existing.Username is not null)
                     Members.Remove(existing);
             })
             .DisposeWith(_disposables);
+
+        // Live-updates an existing member's dot when they go online/away/offline — but only if
+        // something else in the app (contacts list, an open profile) happens to already be
+        // watching that username; this room doesn't open its own per-member watches (would mean
+        // watching every member on join and unwatching on leave, more invasive than warranted
+        // for a beta pass — deliberately deferred).
+        eventBus.GetEvent<UserPresenceChangedEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e =>
+            {
+                var idx = Members.ToList().FindIndex(m => string.Equals(m.Username, e.Username, StringComparison.OrdinalIgnoreCase));
+                if (idx >= 0)
+                    Members[idx] = Members[idx] with { Presence = e.Presence };
+            })
+            .DisposeWith(_disposables);
+    }
+
+    /// <summary>Fetches a mid-session joiner's real status before adding them — the membership
+    /// event itself carries no presence, unlike the initial room-join snapshot.</summary>
+    private async Task HandleMemberJoinedAsync(string username)
+    {
+        var presence = UserPresenceState.Online;
+        try
+        {
+            var status = await _roomChat.GetUserStatusAsync(username).ConfigureAwait(true);
+            presence = status.Presence;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to fetch status for room joiner {Username} in {RoomName}", username, RoomName);
+        }
+
+        if (!Members.Any(m => string.Equals(m.Username, username, StringComparison.OrdinalIgnoreCase)))
+            Members.Add(new RoomMemberSnapshot(username, presence, 0, 0, 0, null));
     }
 
     public async Task LoadHistoryAsync(IReadOnlyList<RoomMemberSnapshot>? initialMembers = null)
@@ -142,12 +197,24 @@ public class RoomViewModel : ReactiveObject, IDisposable
             foreach (var message in history)
                 Messages.Add(new ChatMessageViewModel(message.Id, message.Username, message.Message, message.TimestampUtc, message.IsOutgoing, _chatAttachments, message.Username));
             ChatGroupingHelper.Apply(Messages);
+            ApplySearchFilter();
             HasMoreHistory = history.Count >= MessagePageSize;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to load room history for {RoomName}", RoomName);
         }
+    }
+
+    /// <summary>Rebuilds <see cref="FilteredMessages"/> from <see cref="Messages"/> — call after any mutation of <see cref="Messages"/> or a <see cref="SearchText"/> change.</summary>
+    private void ApplySearchFilter()
+    {
+        FilteredMessages.Clear();
+        var query = string.IsNullOrWhiteSpace(SearchText)
+            ? (IEnumerable<ChatMessageViewModel>)Messages
+            : Messages.Where(m => m.Message.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+        foreach (var message in query)
+            FilteredMessages.Add(message);
     }
 
     /// <summary>Drops the oldest messages once live traffic pushes the collection past <see cref="MaxLiveMessages"/>. Re-opens "Load earlier" since the trimmed rows are still in the DB.</summary>
@@ -181,6 +248,7 @@ public class RoomViewModel : ReactiveObject, IDisposable
                 Messages.Insert(0, new ChatMessageViewModel(message.Id, message.Username, message.Message, message.TimestampUtc, message.IsOutgoing, _chatAttachments, message.Username));
             }
             ChatGroupingHelper.Apply(Messages);
+            ApplySearchFilter();
         }
         catch (Exception ex)
         {
@@ -200,10 +268,34 @@ public class RoomViewModel : ReactiveObject, IDisposable
             await _roomChat.DeleteMessageAsync(message.Id).ConfigureAwait(true);
             Messages.Remove(message);
             ChatGroupingHelper.Apply(Messages);
+            ApplySearchFilter();
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to delete message {Id} in room {RoomName}", message.Id, RoomName);
+        }
+    }
+
+    /// <summary>Wipes the entire local history for this room on this device — other members are unaffected. Confirmed first since it can't be undone.</summary>
+    private async Task ClearRoomHistoryAsync()
+    {
+        var confirmed = await _dialogService.ConfirmAsync(
+            "Clear Room History",
+            $"Delete your entire local message history for #{RoomName}? Other members' copies are unaffected — this can't be undone.",
+            confirmLabel: "Delete",
+            cancelLabel: "Cancel").ConfigureAwait(true);
+        if (!confirmed)
+            return;
+
+        try
+        {
+            await _roomChat.DeleteRoomHistoryAsync(RoomName).ConfigureAwait(true);
+            Messages.Clear();
+            FilteredMessages.Clear();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to clear history for room {RoomName}", RoomName);
         }
     }
 

@@ -122,8 +122,13 @@ public class TrackRepository : ITrackRepository
     public async Task<List<PlaylistTrackEntity>> LoadPlaylistTracksAsync(Guid playlistId)
     {
         using var context = new AppDbContext();
+        // AsNoTracking: this context is disposed on return, so change-tracking snapshots for
+        // every row would be built only to be discarded immediately — pure overhead on large
+        // playlists. Any caller that mutates and saves does so through its own context/repository
+        // call, not by reusing entities returned from here.
         return await context.PlaylistTracks
-            .Include(t => t.TechnicalDetails) 
+            .AsNoTracking()
+            .Include(t => t.TechnicalDetails)
             .Include(t => t.AudioFeatures) // Phase 21: Eager load Brain data
             .Where(t => t.PlaylistId == playlistId)
             .OrderBy(t => t.SortOrder)
@@ -167,7 +172,7 @@ public class TrackRepository : ITrackRepository
         return await context.PlaylistTracks.ToListAsync();
     }
 
-    public async Task<int> GetPlaylistTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
+    public async Task<int> GetPlaylistTrackCountAsync(Guid playlistId, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, string? qualityTier = null)
     {
         using var context = new AppDbContext();
         var query = context.PlaylistTracks.AsQueryable();
@@ -175,11 +180,12 @@ public class TrackRepository : ITrackRepository
         {
             query = query.Where(t => t.PlaylistId == playlistId);
         }
-        query = ApplyFilters(query, filter, downloadedOnly, hashFilter, camelotKeyFilter);
+        var textFilterHashes = await ResolveTextFilterHashesAsync(context, playlistId, filter);
+        query = ApplyFilters(query, textFilterHashes, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier);
         return await query.CountAsync();
     }
 
-    public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false)
+    public async Task<List<PlaylistTrackEntity>> GetPagedPlaylistTracksAsync(Guid playlistId, int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
     {
         using var context = new AppDbContext();
         var query = context.PlaylistTracks
@@ -193,7 +199,8 @@ public class TrackRepository : ITrackRepository
             query = query.Where(t => t.PlaylistId == playlistId);
         }
 
-        query = ApplyFilters(query, filter, downloadedOnly, hashFilter, camelotKeyFilter);
+        var textFilterHashes = await ResolveTextFilterHashesAsync(context, playlistId, filter);
+        query = ApplyFilters(query, textFilterHashes, downloadedOnly, hashFilter, camelotKeyFilter, qualityTier);
         query = ApplyPlaylistTrackSort(query, sortColumn, sortDescending);
 
         var results = await query
@@ -267,29 +274,73 @@ public class TrackRepository : ITrackRepository
         };
     }
 
-    private IQueryable<PlaylistTrackEntity> ApplyFilters(IQueryable<PlaylistTrackEntity> query, string? filter, bool? downloadedOnly, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
+    /// <summary>
+    /// Resolves the playlist-scoped search box (Artist/Title/Album/MusicalKey) to a set of
+    /// matching TrackUniqueHash values ahead of the main query, instead of the previous
+    /// <c>.ToLower().Contains()</c> chain applied directly in SQL. EF Core's Sqlite provider
+    /// translates <c>string.Contains</c> to <c>instr()</c> (case-sensitive by design, which is
+    /// why both sides were wrapped in <c>ToLower()</c> to fake case-insensitivity) — and even a
+    /// case-correct substring match can't use a B-tree index for an arbitrary "contains"
+    /// position, so every keystroke was a full scan of the playlist's rows.
+    ///
+    /// TracksFts (an FTS5 virtual table over the master Tracks record — Artist/Title/Key,
+    /// trigger-maintained on every Tracks insert/update, built for the "All Tracks" search path
+    /// but never actually queried by anything) gives Artist/Title/Key an index-accelerated
+    /// search for free. It doesn't include Album, so that one column is still matched with a
+    /// direct substring scan — scoped to just this one playlist's rows (not the whole library),
+    /// which keeps it cheap.
+    /// </summary>
+    private static async Task<HashSet<string>?> ResolveTextFilterHashesAsync(AppDbContext context, Guid playlistId, string? filter)
+    {
+        if (string.IsNullOrWhiteSpace(filter))
+            return null;
+
+        var hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var matchExpr = BuildFtsMatchExpression(filter);
+        if (matchExpr != null)
+        {
+            var ftsMatches = await context.Database
+                .SqlQueryRaw<string>("SELECT GlobalId AS Value FROM TracksFts WHERE TracksFts MATCH {0}", matchExpr)
+                .ToListAsync();
+            hashes.UnionWith(ftsMatches);
+        }
+
+        var lowerFilter = filter.Trim().ToLower();
+        var albumQuery = context.PlaylistTracks.AsQueryable();
+        if (playlistId != Guid.Empty)
+        {
+            albumQuery = albumQuery.Where(t => t.PlaylistId == playlistId);
+        }
+        var albumOrKeyMatches = await albumQuery
+            .Where(t => t.Album.ToLower().Contains(lowerFilter) || (t.MusicalKey != null && t.MusicalKey.ToLower().Contains(lowerFilter)))
+            .Select(t => t.TrackUniqueHash)
+            .Distinct()
+            .ToListAsync();
+        hashes.UnionWith(albumOrKeyMatches);
+
+        return hashes;
+    }
+
+    private IQueryable<PlaylistTrackEntity> ApplyFilters(IQueryable<PlaylistTrackEntity> query, ISet<string>? textFilterHashes, bool? downloadedOnly, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, string? qualityTier = null)
     {
         if (hashFilter != null)
         {
             query = query.Where(t => hashFilter.Contains(t.TrackUniqueHash));
         }
-        if (!string.IsNullOrEmpty(filter))
+        if (textFilterHashes != null)
         {
-            // Album was missing here — a playlist-scoped search only ever matched Artist/Title/
-            // MusicalKey, so a track findable by its album name in the FTS-backed "All Tracks"
-            // view (which does index Album) would silently not show up when searching inside a
-            // specific playlist. Matches Album in now for parity between the two search paths.
-            var lowerFilter = filter.ToLower();
-            query = query.Where(t => t.Artist.ToLower().Contains(lowerFilter) ||
-                                     t.Title.ToLower().Contains(lowerFilter) ||
-                                     t.Album.ToLower().Contains(lowerFilter) ||
-                                     (t.MusicalKey != null && t.MusicalKey.ToLower().Contains(lowerFilter)));
+            // Resolved ahead of time by ResolveTextFilterHashesAsync — an empty (non-null) set
+            // here correctly means "the text filter matched nothing", same as the old inline
+            // Contains() chain would have produced.
+            query = query.Where(t => textFilterHashes.Contains(t.TrackUniqueHash));
         }
         if (!string.IsNullOrEmpty(camelotKeyFilter))
         {
             var keyUpper = camelotKeyFilter.ToUpper();
             query = query.Where(t => t.MusicalKey != null && t.MusicalKey.ToUpper() == keyUpper);
         }
+        query = ApplyQualityTierFilter(query, qualityTier);
         if (downloadedOnly.HasValue)
         {
             if (downloadedOnly.Value)
@@ -298,6 +349,33 @@ public class TrackRepository : ITrackRepository
                 query = query.Where(t => t.Status != TrackStatus.Downloaded);
         }
         return query;
+    }
+
+    /// <summary>
+    /// Same Gold/Silver/Bronze thresholds DashboardService already uses for the dashboard's
+    /// quality-tier counts (Services\DashboardService.cs) — kept in sync deliberately so the
+    /// counts a user sees and the tracks they get when they click through match exactly.
+    /// </summary>
+    internal static IQueryable<PlaylistTrackEntity> ApplyQualityTierFilter(IQueryable<PlaylistTrackEntity> query, string? qualityTier)
+    {
+        return qualityTier switch
+        {
+            "Gold" => query.Where(t => t.Format != null && (t.Format.ToLower() == "flac" || t.Format.ToLower() == "wav")),
+            "Silver" => query.Where(t => t.Bitrate >= 320 && (t.Format == null || (t.Format.ToLower() != "flac" && t.Format.ToLower() != "wav"))),
+            "Bronze" => query.Where(t => t.Bitrate < 320 && t.Bitrate > 0),
+            _ => query
+        };
+    }
+
+    internal static IQueryable<LibraryEntryEntity> ApplyQualityTierFilter(IQueryable<LibraryEntryEntity> query, string? qualityTier)
+    {
+        return qualityTier switch
+        {
+            "Gold" => query.Where(t => t.Format != null && (t.Format.ToLower() == "flac" || t.Format.ToLower() == "wav")),
+            "Silver" => query.Where(t => t.Bitrate >= 320 && (t.Format == null || (t.Format.ToLower() != "flac" && t.Format.ToLower() != "wav"))),
+            "Bronze" => query.Where(t => t.Bitrate < 320 && t.Bitrate > 0),
+            _ => query
+        };
     }
 
     public async Task<List<LibraryEntryEntity>> GetLibraryEntriesNeedingEnrichmentAsync(int limit)
@@ -574,6 +652,159 @@ public class TrackRepository : ITrackRepository
             }
 
             // 6. Update Library Health stats
+            await UpdateLibraryHealthAsync(context);
+
+            await context.SaveChangesAsync();
+
+            // Only report jobs whose aggregate counts actually changed. Callers use this return
+            // value purely to decide which playlists need a "something changed" UI refresh
+            // (ProjectUpdatedEvent) — every non-terminal transition (Pending -> Searching ->
+            // Downloading -> Queued -> retry...) used to report the same jobs here even though
+            // nothing countable moved, which meant that event fired on essentially every state
+            // transition of every track in the playlist. Under a large active download queue that
+            // publishes continuously, driving listeners (e.g. TrackListViewModel's full
+            // VirtualizedTrackCollection rebuild) to re-run several times a second and reset the
+            // user's row selection out from under them. Per-row status is already kept live via
+            // TrackStateChangedEvent, so this only needs to fire when the job-level counts moved.
+            return needsJobRecalculation ? distinctJobIds : new List<Guid>();
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Batched analog of <see cref="UpdatePlaylistTrackStatusAndRecalculateJobsAsync"/> for group
+    /// actions (VIP Start / bulk Resume / bulk Retry) that need to flip the same status on many
+    /// tracks at once. The single-track method does one <see cref="_writeSemaphore"/> acquisition
+    /// + one <see cref="AppDbContext"/> + 2-3 queries + one commit PER CALL — fine for one track,
+    /// but calling it once per track in a loop (as group actions previously did, indirectly, by
+    /// invoking each track's own command) serializes hundreds of round-trips through the same
+    /// app-wide static semaphore, which also blocks the background download engine's own routine
+    /// per-track state writes for the whole duration. This does the equivalent work — status
+    /// update, master-track sync, job recalculation (once per distinct affected job, not once per
+    /// track), library-health touch — inside a single semaphore hold, context, and commit.
+    /// Deliberately narrower than the single-track method: no per-track resolvedPath/retry-count/
+    /// error/stalledReason variation, since group actions apply the same new status uniformly.
+    /// </summary>
+    public async Task<List<Guid>> BulkUpdatePlaylistTrackStatusAsync(
+        IReadOnlyList<string> trackUniqueHashes, TrackStatus? newStatus, string? state = null,
+        bool? isUserPaused = null, bool clearRetryState = false, bool? isClearedFromDownloadCenter = null,
+        int? priority = null)
+    {
+        if (trackUniqueHashes == null || trackUniqueHashes.Count == 0) return new List<Guid>();
+
+        await _writeSemaphore.WaitAsync();
+        try
+        {
+            using var context = new AppDbContext();
+
+            var playlistTracks = await context.PlaylistTracks
+                .Where(pt => trackUniqueHashes.Contains(pt.TrackUniqueHash))
+                .ToListAsync();
+
+            if (playlistTracks.Count == 0) return new List<Guid>();
+
+            var distinctJobIds = playlistTracks.Select(pt => pt.PlaylistId).Distinct().Cast<Guid>().ToList();
+
+            // newStatus is nullable: a group action like VIP Start/Force Start doesn't actually
+            // change each track's coarse TrackStatus (only its in-memory PlaylistTrackState/State
+            // string) — forcing every track in the batch to one shared status would be wrong for
+            // a batch containing tracks with different pre-existing statuses. Passing null skips
+            // the status write (and the recalculation it would otherwise trigger) entirely, while
+            // still doing the master-track `state` string sync below.
+            static bool IsCountedStatus(TrackStatus s) => s is TrackStatus.Downloaded or TrackStatus.Failed or TrackStatus.Skipped;
+            var needsJobRecalculation = newStatus.HasValue &&
+                (playlistTracks.Any(pt => IsCountedStatus(pt.Status)) || IsCountedStatus(newStatus.Value));
+
+            if (newStatus.HasValue)
+            {
+                foreach (var pt in playlistTracks)
+                {
+                    pt.Status = newStatus.Value;
+                }
+            }
+
+            // The remaining fields are all "reset to one fixed value for the whole batch" cases
+            // (a group Cancel/Retry/Pause applies the same new value to every track it touches),
+            // unlike resolvedPath/error/stalledReason on the single-track method above, which
+            // legitimately differ per track and so aren't supported here.
+            if (isUserPaused.HasValue)
+            {
+                foreach (var pt in playlistTracks) pt.IsUserPaused = isUserPaused.Value;
+            }
+            if (isClearedFromDownloadCenter.HasValue)
+            {
+                foreach (var pt in playlistTracks) pt.IsClearedFromDownloadCenter = isClearedFromDownloadCenter.Value;
+            }
+            if (priority.HasValue)
+            {
+                foreach (var pt in playlistTracks) pt.Priority = priority.Value;
+            }
+            if (clearRetryState)
+            {
+                // Note: PlaylistTrackEntity has no ErrorMessage column of its own — only the
+                // master Tracks record does (cleared below alongside State), matching how the
+                // single-track method above only ever applies `error` there too.
+                foreach (var pt in playlistTracks)
+                {
+                    pt.SearchRetryCount = 0;
+                    pt.NotFoundRestartCount = 0;
+                    pt.CompletedAt = null;
+                    pt.StalledReason = null;
+                }
+            }
+
+            // Sync master Track records for every distinct hash in this batch, in one query
+            // instead of one FindAsync per track. Every track in a single batch call shares the
+            // same target `state` string (they're all transitioning to the same PlaylistTrackState
+            // together, e.g. all "Pending" from a VIP Start) — unlike the single-track method,
+            // which supports per-track resolvedPath/retryCount/error variation this batch path
+            // deliberately doesn't need.
+            var distinctHashes = playlistTracks.Select(pt => pt.TrackUniqueHash).Distinct().ToList();
+            if (!string.IsNullOrEmpty(state) || clearRetryState)
+            {
+                var masterTracks = await context.Tracks
+                    .Where(t => distinctHashes.Contains(t.GlobalId))
+                    .ToListAsync();
+                foreach (var masterTrack in masterTracks)
+                {
+                    if (!string.IsNullOrEmpty(state)) masterTrack.State = state;
+                    if (clearRetryState)
+                    {
+                        masterTrack.SearchRetryCount = 0;
+                        masterTrack.NotFoundRestartCount = 0;
+                        masterTrack.ErrorMessage = null;
+                        masterTrack.CompletedAt = null;
+                        masterTrack.StalledReason = null;
+                    }
+                }
+            }
+
+            if (distinctJobIds.Count > 0 && needsJobRecalculation)
+            {
+                var jobsToUpdate = await context.Projects
+                    .Where(j => distinctJobIds.Contains(j.Id))
+                    .ToListAsync();
+
+                var allRelatedTracks = await context.PlaylistTracks
+                    .Where(t => distinctJobIds.Contains(t.PlaylistId))
+                    .AsNoTracking()
+                    .ToListAsync();
+
+                foreach (var job in jobsToUpdate)
+                {
+                    var currentJobTracks = allRelatedTracks
+                        .Where(t => t.PlaylistId == job.Id && !distinctHashes.Contains(t.TrackUniqueHash))
+                        .ToList();
+                    currentJobTracks.AddRange(playlistTracks.Where(pt => pt.PlaylistId == job.Id));
+
+                    job.SuccessfulCount = currentJobTracks.Count(t => t.Status == TrackStatus.Downloaded);
+                    job.FailedCount = currentJobTracks.Count(t => t.Status == TrackStatus.Failed || t.Status == TrackStatus.Skipped);
+                }
+            }
+
             await UpdateLibraryHealthAsync(context);
 
             await context.SaveChangesAsync();
@@ -903,7 +1134,7 @@ public class TrackRepository : ITrackRepository
         }
     }
 
-    public async Task<int> GetTotalLibraryTrackCountAsync(string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null)
+    public async Task<int> GetTotalLibraryTrackCountAsync(string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, string? qualityTier = null)
     {
         using var context = new AppDbContext();
         var hashSet = hashFilter?.Where(h => !string.IsNullOrWhiteSpace(h)).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -937,10 +1168,12 @@ public class TrackRepository : ITrackRepository
             baseQuery = baseQuery.Where(t => t.MusicalKey != null && t.MusicalKey.ToUpper() == keyUpper);
         }
 
+        baseQuery = ApplyQualityTierFilter(baseQuery, qualityTier);
+
         return await baseQuery.CountAsync();
     }
 
-    public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false)
+    public async Task<List<PlaylistTrackEntity>> GetPagedAllTracksAsync(int skip, int take, string? filter = null, bool? downloadedOnly = null, IEnumerable<string>? hashFilter = null, string? camelotKeyFilter = null, TrackSortColumn sortColumn = TrackSortColumn.Default, bool sortDescending = false, string? qualityTier = null)
     {
         using var context = new AppDbContext();
         var hashSet = hashFilter?.Where(h => !string.IsNullOrWhiteSpace(h)).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -980,6 +1213,8 @@ public class TrackRepository : ITrackRepository
             var keyUpper = camelotKeyFilter.ToUpper();
             query = query.Where(t => t.MusicalKey != null && t.MusicalKey.ToUpper() == keyUpper);
         }
+
+        query = ApplyQualityTierFilter(query, qualityTier);
 
         // 4. Order & Page (Optimized: Select only what's needed for the list view, avoiding heavy blobs)
         query = ApplyLibraryEntrySort(query, sortColumn, sortDescending);
@@ -1263,6 +1498,94 @@ public class TrackRepository : ITrackRepository
             foreach (var t in tracks)
             {
                 t.Rating = rating;
+            }
+
+            await context.SaveChangesAsync();
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    public async Task UpdateBpmAsync(string trackHash, double bpm)
+    {
+        await _writeSemaphore.WaitAsync();
+        try
+        {
+            using var context = new AppDbContext();
+
+            // Also record ManualBPM (not just the primary BPM field) so this edit survives the
+            // next re-analysis — DatabaseService.SyncDenormalizedFeaturesAsync only overwrites BPM
+            // from Essentia when ManualBPM/TagBPM are both null.
+
+            // 1. Update LibraryEntry
+            var entry = await context.LibraryEntries.FindAsync(trackHash);
+            if (entry != null)
+            {
+                entry.BPM = bpm;
+                entry.ManualBPM = bpm;
+            }
+
+            // 2. Update Master Track record
+            var tr = await context.Tracks.FindAsync(trackHash);
+            if (tr != null)
+            {
+                tr.BPM = bpm;
+                tr.ManualBPM = bpm;
+            }
+
+            // 3. Update all PlaylistTracks
+            var tracks = await context.PlaylistTracks
+                .Where(t => t.TrackUniqueHash == trackHash)
+                .ToListAsync();
+
+            foreach (var t in tracks)
+            {
+                t.BPM = bpm;
+                t.ManualBPM = bpm;
+            }
+
+            await context.SaveChangesAsync();
+        }
+        finally
+        {
+            _writeSemaphore.Release();
+        }
+    }
+
+    public async Task UpdateTagBpmAsync(string trackHash, double bpm)
+    {
+        await _writeSemaphore.WaitAsync();
+        try
+        {
+            using var context = new AppDbContext();
+
+            // 1. Update LibraryEntry
+            var entry = await context.LibraryEntries.FindAsync(trackHash);
+            if (entry != null)
+            {
+                entry.TagBPM = bpm;
+                if (entry.ManualBPM is null) entry.BPM = bpm; // never downgrade a manual edit
+            }
+
+            // 2. Update Master Track record
+            var tr = await context.Tracks.FindAsync(trackHash);
+            if (tr != null)
+            {
+                tr.TagBPM = bpm;
+                if (tr.ManualBPM is null) tr.BPM = bpm;
+            }
+
+            // 3. Update all PlaylistTracks
+            var tracks = await context.PlaylistTracks
+                .Where(t => t.TrackUniqueHash == trackHash)
+                .ToListAsync();
+
+            foreach (var t in tracks)
+            {
+                t.TagBPM = bpm;
+                if (t.ManualBPM is null) t.BPM = bpm;
             }
 
             await context.SaveChangesAsync();

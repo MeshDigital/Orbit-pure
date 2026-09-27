@@ -4,6 +4,8 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using SLSKDONET.Models;
 using SLSKDONET.Services.Audio;
 using SLSKDONET.Services.Timeline;
@@ -52,6 +54,22 @@ namespace SLSKDONET.Views.Avalonia.Controls
             set => SetValue(PlayheadBrushProperty, value);
         }
 
+        public static readonly StyledProperty<double?> TriggerPointSecondsProperty =
+            AvaloniaProperty.Register<WaveformControl, double?>(nameof(TriggerPointSeconds));
+
+        /// <summary>
+        /// Fixed marker for "where this side's mix actually starts/ends" (Mix Transition Editor),
+        /// drawn as a persistent flag independent of playback Progress — previously the trigger
+        /// point and the played-progress playhead were the same line, so there was no way to see
+        /// where the trigger point was once playback moved past or before it, or before playback
+        /// started at all. Null hides the marker (every caller except the Mix editor).
+        /// </summary>
+        public double? TriggerPointSeconds
+        {
+            get => GetValue(TriggerPointSecondsProperty);
+            set => SetValue(TriggerPointSecondsProperty, value);
+        }
+
         public static readonly StyledProperty<System.Windows.Input.ICommand?> SeekCommandProperty =
             AvaloniaProperty.Register<WaveformControl, System.Windows.Input.ICommand?>(nameof(SeekCommand));
 
@@ -81,6 +99,21 @@ namespace SLSKDONET.Views.Avalonia.Controls
         {
             get => GetValue(CuesProperty);
             set => SetValue(CuesProperty, value);
+        }
+
+        /// <summary>Whether a pointer-down hit on a cue marker starts a drag (CueForge's normal
+        /// "reposition this cue" behavior). Default true preserves existing behavior everywhere
+        /// this control is already used. A consumer that only wants click-to-select (e.g. the Mix
+        /// transition editor picking a cue as a trigger point, never rewriting the track's real
+        /// shared CuePointEntity row) sets this false — CueClickedCommand still fires on the
+        /// initial hit either way, only the drag-and-persist path is suppressed.</summary>
+        public static readonly StyledProperty<bool> CuesAreDraggableProperty =
+            AvaloniaProperty.Register<WaveformControl, bool>(nameof(CuesAreDraggable), defaultValue: true);
+
+        public bool CuesAreDraggable
+        {
+            get => GetValue(CuesAreDraggableProperty);
+            set => SetValue(CuesAreDraggableProperty, value);
         }
 
         public static readonly StyledProperty<System.Collections.Generic.IEnumerable<PhraseSegment>?> PhraseSegmentsProperty =
@@ -168,6 +201,64 @@ namespace SLSKDONET.Views.Avalonia.Controls
             set => SetValue(ZoomLevelProperty, Math.Clamp(value, 1.0, 16.0));
         }
 
+        // Defaults true so every existing caller (Now Playing, Cue Forge) keeps today's
+        // scroll-to-zoom behavior unchanged. The Mix Transition Editor sets this false: its two
+        // waveforms live inside a page ScrollViewer, and OnPointerWheelChanged below always marks
+        // wheel events Handled — with scroll-to-zoom on, hovering either waveform silently ate
+        // every scroll gesture instead of letting it reach that ScrollViewer, which is what made
+        // scrolling the editor feel like it "only worked one way" (it worked only when the cursor
+        // wasn't over a waveform).
+        public static readonly StyledProperty<bool> EnableScrollZoomProperty =
+            AvaloniaProperty.Register<WaveformControl, bool>(nameof(EnableScrollZoom), true);
+
+        public bool EnableScrollZoom
+        {
+            get => GetValue(EnableScrollZoomProperty);
+            set => SetValue(EnableScrollZoomProperty, value);
+        }
+
+        // Defaults false so every existing caller (Now Playing, Cue Forge) keeps today's
+        // background-drag-to-seek behavior unchanged. The Mix Transition Editor sets this true:
+        // dragging on those waveforms should pan the zoomed view (this control already has a
+        // dedicated pan Slider bound to ViewOffset — this is the same action, just reachable by
+        // grabbing the waveform directly), not set an arbitrary, off-cue trigger point. Setting
+        // the trigger point itself now only happens by clicking an actual cue marker or one of
+        // MixPreviewComponent's cue-chip buttons — an arbitrary drag-to-anywhere point makes for
+        // a bad transition (not beat/phrase aligned), which is exactly the behavior this replaces.
+        public static readonly StyledProperty<bool> PanOnBackgroundDragProperty =
+            AvaloniaProperty.Register<WaveformControl, bool>(nameof(PanOnBackgroundDrag), false);
+
+        public bool PanOnBackgroundDrag
+        {
+            get => GetValue(PanOnBackgroundDragProperty);
+            set => SetValue(PanOnBackgroundDragProperty, value);
+        }
+
+        /// <summary>Fired on a plain click (press+release with negligible movement) on the
+        /// waveform background — not a cue, not a real drag. Takes the clicked time in seconds.
+        /// Lets the user audition an arbitrary point of the individual track (distinct from
+        /// setting the trigger point, which only ever happens via an actual cue now) to find
+        /// where a drop/phrase lands before deciding where a cue belongs.</summary>
+        public static readonly StyledProperty<System.Windows.Input.ICommand?> PreviewSeekCommandProperty =
+            AvaloniaProperty.Register<WaveformControl, System.Windows.Input.ICommand?>(nameof(PreviewSeekCommand));
+        public System.Windows.Input.ICommand? PreviewSeekCommand
+        {
+            get => GetValue(PreviewSeekCommandProperty);
+            set => SetValue(PreviewSeekCommandProperty, value);
+        }
+
+        /// <summary>Right-click on the waveform background shows an "Add cue here" item wired to
+        /// this command (takes the clicked time in seconds) — null/unbound everywhere this
+        /// control is used except the Mix Transition Editor, so no context menu appears
+        /// elsewhere.</summary>
+        public static readonly StyledProperty<System.Windows.Input.ICommand?> AddCueAtCommandProperty =
+            AvaloniaProperty.Register<WaveformControl, System.Windows.Input.ICommand?>(nameof(AddCueAtCommand));
+        public System.Windows.Input.ICommand? AddCueAtCommand
+        {
+            get => GetValue(AddCueAtCommandProperty);
+            set => SetValue(AddCueAtCommandProperty, value);
+        }
+
         public static readonly StyledProperty<double> ViewOffsetProperty =
             AvaloniaProperty.Register<WaveformControl, double>(nameof(ViewOffset), 0.0);
 
@@ -238,6 +329,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 PlayheadBrushProperty,
                 ZoomLevelProperty,
                 ViewOffsetProperty,
+                TriggerPointSecondsProperty,
                 FrequencyColorModeProperty);
         }
 
@@ -257,6 +349,9 @@ namespace SLSKDONET.Views.Avalonia.Controls
         private bool _isDraggingCue;
         private bool _isDraggingProgress;
         private bool _isDraggingSegment;
+        private bool _isDraggingPan;
+        private double _panDragStartX;
+        private double _panDragStartOffset;
         private double _hoverX = -1; // -1 = not hovering
         private const double CueHitThreshold = 10.0;
         private const double HandleWidth = 8.0;
@@ -310,6 +405,43 @@ namespace SLSKDONET.Views.Avalonia.Controls
             set => SetValue(ShowVocalGhostProperty, value);
         }
 
+        // Waveform appearance settings — previously every color/overlay was a compiled-in constant.
+        public static readonly StyledProperty<bool> UseNeonPaletteProperty =
+            AvaloniaProperty.Register<WaveformControl, bool>(nameof(UseNeonPalette), true);
+
+        public bool UseNeonPalette
+        {
+            get => GetValue(UseNeonPaletteProperty);
+            set => SetValue(UseNeonPaletteProperty, value);
+        }
+
+        public static readonly StyledProperty<double> GainProperty =
+            AvaloniaProperty.Register<WaveformControl, double>(nameof(Gain), 1.0);
+
+        public double Gain
+        {
+            get => GetValue(GainProperty);
+            set => SetValue(GainProperty, value);
+        }
+
+        public static readonly StyledProperty<bool> ShowEnergyCurveProperty =
+            AvaloniaProperty.Register<WaveformControl, bool>(nameof(ShowEnergyCurve), true);
+
+        public bool ShowEnergyCurve
+        {
+            get => GetValue(ShowEnergyCurveProperty);
+            set => SetValue(ShowEnergyCurveProperty, value);
+        }
+
+        public static readonly StyledProperty<bool> ShowPhraseSectionsProperty =
+            AvaloniaProperty.Register<WaveformControl, bool>(nameof(ShowPhraseSections), true);
+
+        public bool ShowPhraseSections
+        {
+            get => GetValue(ShowPhraseSectionsProperty);
+            set => SetValue(ShowPhraseSectionsProperty, value);
+        }
+
         private DispatcherTimer? _ghostPulseTimer;
         private float _ghostOpacity = 0.6f;
         private bool _ghostPulseUp = true;
@@ -317,30 +449,39 @@ namespace SLSKDONET.Views.Avalonia.Controls
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
         {
             base.OnAttachedToVisualTree(e);
-            if (_ghostPulseTimer == null)
+            // ShowVocalGhost defaults to false and most waveforms on screen at once (every deck
+            // row, both Mix-editor waveforms, CueForge) never turn it on — this used to start an
+            // unconditional 33ms DispatcherTimer on every single instance regardless, idling for
+            // its whole lifetime. Only start it when actually needed; OnPropertyChanged below
+            // starts/stops it as the property flips instead.
+            if (ShowVocalGhost) EnsureGhostPulseTimer();
+        }
+
+        private void EnsureGhostPulseTimer()
+        {
+            if (_ghostPulseTimer != null) return;
+
+            _ghostPulseTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(33), DispatcherPriority.Render, (s, ev) =>
             {
-                _ghostPulseTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(33), DispatcherPriority.Render, (s, ev) =>
+                if (ShowVocalGhost)
                 {
-                    if (ShowVocalGhost)
+                    // Sine wave pulse logic
+                    // Simple linear approximation for now or actual sine
+                    // 0.6 to 1.0
+                    if (_ghostPulseUp)
                     {
-                        // Sine wave pulse logic
-                        // Simple linear approximation for now or actual sine
-                        // 0.6 to 1.0
-                        if (_ghostPulseUp)
-                        {
-                            _ghostOpacity += 0.02f;
-                            if (_ghostOpacity >= 1.0f) { _ghostOpacity = 1.0f; _ghostPulseUp = false; }
-                        }
-                        else
-                        {
-                            _ghostOpacity -= 0.02f;
-                            if (_ghostOpacity <= 0.6f) { _ghostOpacity = 0.6f; _ghostPulseUp = true; }
-                        }
-                        InvalidateVisual();
+                        _ghostOpacity += 0.02f;
+                        if (_ghostOpacity >= 1.0f) { _ghostOpacity = 1.0f; _ghostPulseUp = false; }
                     }
-                });
-                _ghostPulseTimer.Start();
-            }
+                    else
+                    {
+                        _ghostOpacity -= 0.02f;
+                        if (_ghostOpacity <= 0.6f) { _ghostOpacity = 0.6f; _ghostPulseUp = true; }
+                    }
+                    InvalidateVisual();
+                }
+            });
+            _ghostPulseTimer.Start();
         }
 
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -361,9 +502,26 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 change.Property == BoundsProperty ||
                 change.Property == LowBandProperty ||
                 change.Property == MidBandProperty ||
-                change.Property == HighBandProperty)
+                change.Property == HighBandProperty ||
+                change.Property == UseNeonPaletteProperty ||
+                change.Property == GainProperty ||
+                change.Property == FrequencyColorModeProperty)
             {
+                // These feed the cached base/active bitmaps (RenderStaticToContext), so a change
+                // needs a real rebuild, not just a redraw.
                 _isDirty = true;
+                InvalidateVisual();
+            }
+            else if (change.Property == ShowEnergyCurveProperty ||
+                     change.Property == ShowPhraseSectionsProperty ||
+                     change.Property == ShowVocalGhostProperty)
+            {
+                // Drawn directly in Render(), outside the cached bitmap — a redraw is enough.
+                if (change.Property == ShowVocalGhostProperty)
+                {
+                    if ((bool)(change.NewValue ?? false)) EnsureGhostPulseTimer();
+                    else { _ghostPulseTimer?.Stop(); _ghostPulseTimer = null; }
+                }
                 InvalidateVisual();
             }
             // Sprint 4: Only invalidate on significant zoom changes (>5%)
@@ -379,7 +537,10 @@ namespace SLSKDONET.Views.Avalonia.Controls
             }
             else if (change.Property == ViewOffsetProperty)
             {
-                // Offset changes don't require bitmap rebuild, just redraw
+                // ViewOffset now shifts which slice of the track the cached bitmap actually shows
+                // (see RenderStaticToContext's zoom/pan mapping), so — unlike before this was
+                // wired up — a real rebuild is needed here too, not just a redraw.
+                _isDirty = true;
                 InvalidateVisual();
             }
         }
@@ -389,7 +550,13 @@ namespace SLSKDONET.Views.Avalonia.Controls
         protected override void OnPointerWheelChanged(global::Avalonia.Input.PointerWheelEventArgs e)
         {
             base.OnPointerWheelChanged(e);
-            
+
+            if (!EnableScrollZoom)
+            {
+                // Leave e.Handled false so the wheel event bubbles to a containing ScrollViewer.
+                return;
+            }
+
             // Zoom centered on mouse position
             var point = e.GetPosition(this);
             double mouseRatio = point.X / Bounds.Width;
@@ -424,6 +591,19 @@ namespace SLSKDONET.Views.Avalonia.Controls
             var data = WaveformData;
             var cues = Cues;
 
+            // 0. Right-click — "Add cue here" (Mix Transition Editor only; AddCueAtCommand is
+            // null/unbound everywhere else, so nothing shows).
+            if (e.GetCurrentPoint(this).Properties.IsRightButtonPressed)
+            {
+                if (AddCueAtCommand != null && data != null && data.DurationSeconds > 0)
+                {
+                    double clickedSeconds = XToFraction(point.X, Bounds.Width) * data.DurationSeconds;
+                    ShowAddCueContextMenu(clickedSeconds);
+                }
+                e.Handled = true;
+                return;
+            }
+
             // 1. Hit Test for Cues - Click triggers instant audition
             if (cues != null && data != null && data.DurationSeconds > 0)
             {
@@ -438,9 +618,12 @@ namespace SLSKDONET.Views.Avalonia.Controls
                         {
                             CueClickedCommand.Execute(cue.Timestamp);
                         }
-                        _draggedCue = cue;
-                        _isDraggingCue = true;
-                        e.Pointer.Capture(this);
+                        if (CuesAreDraggable)
+                        {
+                            _draggedCue = cue;
+                            _isDraggingCue = true;
+                            e.Pointer.Capture(this);
+                        }
                         e.Handled = true;
                         return;
                     }
@@ -477,11 +660,43 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 }
             }
 
-            // 3. Progress Dragging / Click-Seek
+            // 3. Background drag — pans the zoomed view (Mix Editor) or seeks playback
+            // (everywhere else), per PanOnBackgroundDrag. A plain click (released with
+            // negligible movement) fires PreviewSeekCommand instead of panning — see
+            // OnPointerReleased.
+            if (PanOnBackgroundDrag)
+            {
+                _isDraggingPan = true;
+                _panDragStartX = point.X;
+                _panDragStartOffset = ViewOffset;
+                e.Pointer.Capture(this);
+                e.Handled = true;
+                return;
+            }
             _isDraggingProgress = true;
             e.Pointer.Capture(this);
             UpdateProgressFromPoint(point);
             e.Handled = true;
+        }
+
+        private const double ClickMovementThreshold = 4.0;
+
+        private void ShowAddCueContextMenu(double seconds)
+        {
+            var span = TimeSpan.FromSeconds(Math.Max(0, seconds));
+            var menu = new ContextMenu
+            {
+                Items = { new MenuItem { Header = $"➕ Add cue here ({span:mm\\:ss})" } }
+            };
+            if (menu.Items[0] is MenuItem item)
+            {
+                item.Click += (_, _) =>
+                {
+                    if (AddCueAtCommand?.CanExecute(seconds) == true) AddCueAtCommand.Execute(seconds);
+                };
+            }
+            ContextMenu = menu;
+            menu.Open(this);
         }
 
         protected override void OnPointerMoved(global::Avalonia.Input.PointerEventArgs e)
@@ -514,14 +729,14 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 }
                 else
                 {
-                    _draggedCue.Timestamp = (x / Bounds.Width) * data.DurationSeconds;
+                    _draggedCue.Timestamp = XToFraction(x, Bounds.Width) * data.DurationSeconds;
                 }
                 InvalidateVisual();
             }
             else if (_isDraggingSegment && _draggedSegment != null && data != null && data.DurationSeconds > 0)
             {
                 double x = Math.Clamp(point.X, 0, Bounds.Width);
-                float newTime = (float)((x / Bounds.Width) * data.DurationSeconds);
+                float newTime = (float)(XToFraction(x, Bounds.Width) * data.DurationSeconds);
                 
                 // Landmarks for snapping
                 var landmarks = PhraseSegments?.SelectMany(s => new[] { s.Start, s.Start + s.Duration }) ?? Enumerable.Empty<float>();
@@ -544,6 +759,14 @@ namespace SLSKDONET.Views.Avalonia.Controls
             else if (_isDraggingProgress)
             {
                 UpdateProgressFromPoint(point);
+            }
+            else if (_isDraggingPan && Bounds.Width > 0)
+            {
+                double zoom = Math.Max(1.0, ZoomLevel);
+                double deltaFraction = (point.X - _panDragStartX) / Bounds.Width / zoom;
+                ViewOffset = _panDragStartOffset - deltaFraction;
+                _isDirty = true;
+                InvalidateVisual();
             }
 
             // Update hover cursor (only when not dragging a cue or segment)
@@ -579,7 +802,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                   // and maybe a relative seek for rolling.
              }
              
-             var progress = Math.Clamp(point.X / Bounds.Width, 0.0, 1.0);
+             var progress = Math.Clamp(XToFraction(point.X, Bounds.Width), 0.0, 1.0);
 
              if (SeekCommand != null && SeekCommand.CanExecute(progress))
              {
@@ -620,7 +843,20 @@ namespace SLSKDONET.Views.Avalonia.Controls
                     SegmentUpdatedCommand.Execute(_draggedSegment);
                 _draggedSegment = null;
             }
+            else if (_isDraggingPan)
+            {
+                // Negligible movement between press and release = a plain click, not a pan —
+                // audition that point of the track instead of doing nothing.
+                double releaseX = e.GetPosition(this).X;
+                if (Math.Abs(releaseX - _panDragStartX) < ClickMovementThreshold &&
+                    WaveformData is { DurationSeconds: > 0 } data)
+                {
+                    double clickedSeconds = XToFraction(releaseX, Bounds.Width) * data.DurationSeconds;
+                    if (PreviewSeekCommand?.CanExecute(clickedSeconds) == true) PreviewSeekCommand.Execute(clickedSeconds);
+                }
+            }
             _isDraggingProgress = false;
+            _isDraggingPan = false;
             e.Pointer.Capture(null);
         }
 
@@ -661,10 +897,45 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 double pixelsPerSec = Bounds.Width / 10.0; // 10s window
                 return center + (cue.Timestamp - (Progress * data.DurationSeconds)) * pixelsPerSec;
             }
-            return (cue.Timestamp / data.DurationSeconds) * Bounds.Width;
+            return FractionToX(cue.Timestamp / data.DurationSeconds, Bounds.Width);
+        }
+
+        /// <summary>
+        /// Maps a track-position fraction (0..1) to an X pixel, honoring ZoomLevel/ViewOffset —
+        /// the single source of truth for "where does this moment in the track appear on screen"
+        /// once the waveform can be zoomed into a sub-range (see RenderStaticToContext). At
+        /// ZoomLevel == 1 this is exactly the old `fraction * width` behavior.
+        /// </summary>
+        private double FractionToX(double fraction, double width)
+        {
+            double zoom = Math.Max(1.0, ZoomLevel);
+            return (fraction - ViewOffset) * zoom * width;
+        }
+
+        /// <summary>Inverse of <see cref="FractionToX"/> — maps an X pixel back to a track-position
+        /// fraction (0..1), for pointer interactions (seek, hover tooltip) against a zoomed view.</summary>
+        private double XToFraction(double x, double width)
+        {
+            double zoom = Math.Max(1.0, ZoomLevel);
+            return ViewOffset + (x / width) / zoom;
         }
 
         public override void Render(DrawingContext context)
+        {
+            try
+            {
+                RenderInternal(context);
+            }
+            catch (Exception ex)
+            {
+                // Render-thread exceptions bypass all managed exception handling and hard-crash
+                // the process with zero trace (same class of bug as VocalGhostDrawOperation
+                // below). Skip the frame instead of taking the app down.
+                Serilog.Log.Warning(ex, "WaveformControl: render tick failed — skipping frame");
+            }
+        }
+
+        private void RenderInternal(DrawingContext context)
         {
             var data = WaveformData;
             if (data == null || data.IsEmpty || data.PeakData == null || Bounds.Width <= 0 || Bounds.Height <= 0)
@@ -719,7 +990,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
                 if (_activeBitmap != null)
                 {
-                    double playedWidth = Progress * width;
+                    double playedWidth = Math.Clamp(FractionToX(Progress, width), 0, width);
                     // Clip to played area
                     using (context.PushClip(new Rect(0, 0, playedWidth, height)))
                     {
@@ -740,7 +1011,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 // Time tooltip: show estimated position as % or mm:ss if duration known
                 if (WaveformData != null && WaveformData.DurationSeconds > 0)
                 {
-                    double hoverFraction = Math.Clamp(_hoverX / width, 0, 1);
+                    double hoverFraction = Math.Clamp(XToFraction(_hoverX, width), 0, 1);
                     double hoverSecs = hoverFraction * WaveformData.DurationSeconds;
                     int mm = (int)(hoverSecs / 60);
                     int ss = (int)(hoverSecs % 60);
@@ -759,9 +1030,37 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 }
             }
 
-            // Draw Playhead Line
-            double playheadX = IsRolling ? width / 2 : Progress * width;
-            context.DrawLine(new Pen(PlayheadBrush ?? Brushes.White, 2), new Point(playheadX, 0), new Point(playheadX, height));
+            // Draw Playhead Line — skipped entirely when zoomed and the actual play position has
+            // scrolled outside the visible window, rather than drawing a misleading line pinned
+            // to the window's edge.
+            double playheadX = IsRolling ? width / 2 : FractionToX(Progress, width);
+            if (IsRolling || (playheadX >= 0 && playheadX <= width))
+            {
+                context.DrawLine(new Pen(PlayheadBrush ?? Brushes.White, 2), new Point(playheadX, 0), new Point(playheadX, height));
+            }
+
+            // Trigger-point marker (Mix Transition Editor) — a persistent flag distinct from the
+            // playhead, so "where does this side's mix start/end" stays visible regardless of
+            // playback state.
+            if (!IsRolling && TriggerPointSeconds.HasValue && data.DurationSeconds > 0)
+            {
+                double triggerX = FractionToX(TriggerPointSeconds.Value / data.DurationSeconds, width);
+                if (triggerX >= -1 && triggerX <= width + 1)
+                {
+                    var markerBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0xD7, 0x00)); // amber — distinct from the white playhead
+                    context.DrawLine(new Pen(markerBrush, 2), new Point(triggerX, 0), new Point(triggerX, height));
+                    const double flagSize = 8;
+                    var flag = new StreamGeometry();
+                    using (var ctx = flag.Open())
+                    {
+                        ctx.BeginFigure(new Point(triggerX, 0), true);
+                        ctx.LineTo(new Point(triggerX + flagSize, flagSize * 0.6));
+                        ctx.LineTo(new Point(triggerX, flagSize * 1.2));
+                        ctx.EndFigure(true);
+                    }
+                    context.DrawGeometry(markerBrush, null, flag);
+                }
+            }
 
             RenderCues(context, width, height);
 
@@ -814,6 +1113,22 @@ namespace SLSKDONET.Views.Avalonia.Controls
         {
             var samples = data.PeakData!.Length;
             double step = width / samples;
+
+            // Zoom/pan support (Mix Transition Editor's per-side windowed view, and manual
+            // scroll-to-zoom): ZoomLevel/ViewOffset were already computed correctly upstream
+            // (MixTransitionViewModel) and already drove OnPointerWheelChanged's zoom-around-mouse
+            // math, but this render path — the one everything actually looks at — ignored them
+            // entirely and always mapped the whole track across the control's width. Widening the
+            // per-sample step by ZoomLevel and shifting by ViewOffset maps only the visible
+            // fraction [ViewOffset, ViewOffset + 1/ZoomLevel] of the track across [0, width];
+            // samples outside that window fall outside [0, width] and are skipped by each render
+            // method's existing off-screen clipping check, so no loop-bounds changes are needed.
+            // At ZoomLevel == 1 (every caller except the Mix editor: Now Playing, Cue Forge, etc.)
+            // zoomedStep == step and xShift == 0, so behavior is unchanged.
+            double zoom = Math.Max(1.0, ZoomLevel);
+            double zoomedStep = step * zoom;
+            double xShift = ViewOffset * width * zoom;
+
             var lowData  = LowBand  ?? data.LowData;
             var midData  = MidBand  ?? data.MidData;
             var highData = HighBand ?? data.HighData;
@@ -821,7 +1136,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
             if (hasRgb)
             {
-                RenderTrueRgb(context, data, width, height, mid, samples, step, lowData!, midData!, highData!, false, 0, isActive);
+                RenderTrueRgb(context, data, width, height, mid, samples, zoomedStep, lowData!, midData!, highData!, false, -xShift, isActive, zoom);
             }
             else if (FrequencyColorMode)
             {
@@ -839,11 +1154,11 @@ namespace SLSKDONET.Views.Avalonia.Controls
                     synMid[i]  = (byte)(p is > 80 and < 220 ? p : 0);
                     synHigh[i] = (byte)(p < 110 ? (byte)(110 - p) : 0);
                 }
-                RenderTrueRgb(context, data, width, height, mid, samples, step, synLow, synMid, synHigh, false, 0, isActive);
+                RenderTrueRgb(context, data, width, height, mid, samples, zoomedStep, synLow, synMid, synHigh, false, -xShift, isActive, zoom);
             }
             else
             {
-                RenderSingleBandCached(context, data, width, mid, samples, step, isActive);
+                RenderSingleBandCached(context, data, width, mid, samples, zoomedStep, isActive, -xShift, zoom);
             }
         }
 
@@ -858,18 +1173,21 @@ namespace SLSKDONET.Views.Avalonia.Controls
         private static readonly Pen HighBasePen = new Pen(new SolidColorBrush(Color.FromRgb(0, 80, 100), 0.35f), 1);
         private static readonly Pen HighPlayedPen = new Pen(new SolidColorBrush(Colors.DeepSkyBlue, 1.0f), 1);
 
-        private void RenderSingleBandCached(DrawingContext context, WaveformAnalysisData data, double width, double mid, int samples, double step, bool isActive)
+        private void RenderSingleBandCached(DrawingContext context, WaveformAnalysisData data, double width, double mid, int samples, double step, bool isActive, double xOffset = 0, double zoom = 1.0)
         {
-            // Draw full waveform in one color
-            int targetColumns = Math.Max(1, (int)width);
+            // Draw full waveform in one color. targetColumns is scaled by zoom so the visible
+            // (zoomed-in) window still gets ~one rendered point per pixel instead of the same
+            // whole-track stride spread thinly across a window a fraction of the control's width.
+            int targetColumns = Math.Max(1, (int)(width * Math.Max(1.0, zoom)));
             int stride = Math.Max(1, samples / targetColumns);
             var geom = new StreamGeometry();
             using (var ctx = geom.Open())
             {
                 for (int i = 0; i < samples; i += stride)
                 {
-                    double x = i * step;
-                    double h = (data.PeakData![i] / 255.0) * mid;
+                    double x = (i * step) + xOffset;
+                    if (x < -step || x > width + step) continue;
+                    double h = Math.Min((data.PeakData![i] / 255.0) * mid * (Gain > 0 ? Gain : 1.0), mid);
                     if (h < 0.5) continue;
                     ctx.BeginFigure(new Point(x, mid - h), false);
                     ctx.LineTo(new Point(x, mid + h));
@@ -881,11 +1199,15 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
 
         // Optimzied TrueRGB: Renders FULL waveform with specific opacity/brightness
-        private void RenderTrueRgb(DrawingContext context, WaveformAnalysisData data, double width, double height, double mid, int samples, double step, byte[] low, byte[] midB, byte[] high, bool isRolling, double currentXOffset = 0, bool isActive = true)
+        private void RenderTrueRgb(DrawingContext context, WaveformAnalysisData data, double width, double height, double mid, int samples, double step, byte[] low, byte[] midB, byte[] high, bool isRolling, double currentXOffset = 0, bool isActive = true, double zoom = 1.0)
         {
             var playedLimit = (int)(Progress * samples);
             var peak = data.PeakData!;
-            int targetColumns = Math.Max(1, (int)width);
+            // targetColumns scaled by zoom so a zoomed-in window (e.g. the Mix Transition
+            // Editor's per-side view) still samples at ~one point per pixel of the *visible*
+            // window instead of the whole-track stride, which would otherwise spread native
+            // detail thinly and only let a quarter of it land on-screen at 4x zoom.
+            int targetColumns = Math.Max(1, (int)(width * Math.Max(1.0, zoom)));
             int stride = Math.Max(1, samples / targetColumns);
             
             // Segmented Energy Tinting (Phase 25)
@@ -893,16 +1215,28 @@ namespace SLSKDONET.Views.Avalonia.Controls
             var cuesList = Cues?.OrderBy(c => c.Timestamp).ToList();
             double duration = data.DurationSeconds > 0 ? data.DurationSeconds : samples / 100.0;
 
-            // Professional Neon Palette
-            var lowColor = Color.FromRgb(255, 40, 100);    // Hot Pink / Red
-            var midColor = Color.FromRgb(0, 255, 120);    // Neon Green
-            var highColor = Color.FromRgb(0, 200, 255);   // Cyan / Blue
+            // Palette — Neon (default) or Classic RGB, per the Waveform Appearance setting.
+            Color lowColor, midColor, highColor;
+            if (UseNeonPalette)
+            {
+                lowColor = Color.FromRgb(255, 40, 100);   // Hot Pink / Red
+                midColor = Color.FromRgb(0, 255, 120);    // Neon Green
+                highColor = Color.FromRgb(0, 200, 255);   // Cyan / Blue
+            }
+            else
+            {
+                lowColor = Color.FromRgb(255, 68, 68);    // Classic red
+                midColor = Color.FromRgb(68, 255, 136);   // Classic green
+                highColor = Color.FromRgb(68, 170, 255);  // Classic blue
+            }
+
+            double gain = Gain > 0 ? Gain : 1.0;
 
             int safeLen = Math.Min(samples, Math.Min(peak.Length, Math.Min(low.Length, Math.Min(midB.Length, high.Length))));
             for (int i = 0; i < safeLen; i += stride)
             {
                 
-                double h = (peak[i] / 255.0) * mid;
+                double h = Math.Min((peak[i] / 255.0) * mid * gain, mid);
                 if (h < 0.5) continue;
 
                 double x = (i * step) + currentXOffset;
@@ -950,9 +1284,30 @@ namespace SLSKDONET.Views.Avalonia.Controls
                         float opacity = isPlayed ? 1.0f : 0.35f;
                     
                     var col = Color.FromArgb((byte)(opacity * 255), r, g, b);
-                    context.DrawLine(new Pen(new SolidColorBrush(col), 1), new Point(x, mid - h), new Point(x, mid + h));
+                    context.DrawLine(GetOrCreateRgbColumnPen(col), new Point(x, mid - h), new Point(x, mid + h));
                 }
             }
+        }
+
+        // RenderTrueRgb draws one column at a time, each with its own (continuously blended, so
+        // rarely identical to its neighbor) color — `new Pen(new SolidColorBrush(col), 1)` inside
+        // that loop allocated two objects per column, up to ~1000+ per bitmap rebuild (this method
+        // only runs on an actual _isDirty rebuild — data/zoom change or an active cue drag — not
+        // every frame, but those rebuilds can happen up to 30x/sec while dragging). Caching by
+        // exact color reuses the same Pen for any repeat, at zero visual difference. Capped since
+        // colors are a continuous blend — an unbounded cache from one long zoom/drag session could
+        // otherwise grow without limit.
+        private readonly Dictionary<Color, Pen> _rgbColumnPenCache = new();
+        private const int MaxRgbColumnPenCacheEntries = 4096;
+
+        private Pen GetOrCreateRgbColumnPen(Color color)
+        {
+            if (_rgbColumnPenCache.TryGetValue(color, out var pen)) return pen;
+
+            pen = new Pen(new SolidColorBrush(color), 1);
+            if (_rgbColumnPenCache.Count >= MaxRgbColumnPenCacheEntries) _rgbColumnPenCache.Clear();
+            _rgbColumnPenCache[color] = pen;
+            return pen;
         }
         private void DrawBandBatch(DrawingContext context, byte[] data, int samples, double step, double mid, int playedLimit, Pen basePen, Pen playedPen)
         {
@@ -1036,8 +1391,18 @@ namespace SLSKDONET.Views.Avalonia.Controls
             }
         }
 
+        // Caches RenderPhraseSegments' sorted-by-start list, keyed by reference to the source
+        // IEnumerable — PhraseSegments only gets reassigned when the underlying data actually
+        // changes, so a reference-equality check is enough to skip re-sorting. Without this, every
+        // single render call re-sorted and reallocated the list, including every hover-triggered
+        // InvalidateVisual() from OnPointerMoved (segments don't change between hover frames).
+        private System.Collections.Generic.IEnumerable<PhraseSegment>? _sortedPhraseSegmentsSource;
+        private List<PhraseSegment>? _sortedPhraseSegmentsCache;
+
         private void RenderPhraseSegments(DrawingContext context, double width, double height)
         {
+            if (!ShowPhraseSections) return;
+
             var segments = PhraseSegments;
             var data = WaveformData;
             if (segments == null || data == null || data.DurationSeconds <= 0) return;
@@ -1055,7 +1420,17 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 }
             }
 
-            var sorted = System.Linq.Enumerable.OrderBy(segments, s => s.Start).ToList();
+            List<PhraseSegment> sorted;
+            if (ReferenceEquals(segments, _sortedPhraseSegmentsSource) && _sortedPhraseSegmentsCache != null)
+            {
+                sorted = _sortedPhraseSegmentsCache;
+            }
+            else
+            {
+                sorted = System.Linq.Enumerable.OrderBy(segments, s => s.Start).ToList();
+                _sortedPhraseSegmentsSource = segments;
+                _sortedPhraseSegmentsCache = sorted;
+            }
             for (int i = 0; i < sorted.Count; i++)
             {
                 var s = sorted[i];
@@ -1115,13 +1490,14 @@ namespace SLSKDONET.Views.Avalonia.Controls
             if (energy == null && vocals == null) return;
 
             // Draw Energy Curve (Yellow glow)
-            if (energy != null)
+            if (energy != null && ShowEnergyCurve)
             {
                 RenderCurve(context, energy, width, height, Color.FromRgb(255, 255, 0), 0.6f);
             }
 
-            // Draw Vocal Curve (Purple glow)
-            if (vocals != null)
+            // Draw Vocal Curve (Purple glow) — same toggle as the vocal ghost pulse layer, one
+            // "show vocal info" setting rather than splitting it into two.
+            if (vocals != null && ShowVocalGhost)
             {
                 RenderCurve(context, vocals, width, height, Color.FromRgb(189, 16, 224), 0.5f);
             }
@@ -1155,43 +1531,100 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
             var typeface = new Typeface(FontFamily.Default, FontStyle.Normal, FontWeight.Bold);
 
+            // Loop regions first (their in/out lines + label are wide apart by nature — the
+            // collision problem below is specific to regular point cues, which cluster tightly
+            // right before a drop).
             foreach (var cue in cues)
             {
+                if (!(cue.IsLoop && cue.LoopEndSeconds > cue.Timestamp)) continue;
                 double x = GetCueX(cue, data);
                 if (x > width) continue;
 
                 var color = Color.Parse(cue.Color ?? "#FFFFFF");
-
-                if (cue.IsLoop && cue.LoopEndSeconds > cue.Timestamp)
+                double xEnd = FractionToX(cue.LoopEndSeconds / data.DurationSeconds, width);
+                if (x < 0) x = 0;
+                if (xEnd > width) xEnd = width;
+                double bandWidth = xEnd - x;
+                if (bandWidth > 0)
                 {
-                    // Draw loop region as a semi-transparent band between in and out points
-                    double xEnd = cue.LoopEndSeconds / data.DurationSeconds * width;
-                    if (x < 0) x = 0;
-                    if (xEnd > width) xEnd = width;
-                    double bandWidth = xEnd - x;
-                    if (bandWidth > 0)
-                    {
-                        context.DrawRectangle(new SolidColorBrush(color, 0.18), null, new Rect(x, 0, bandWidth, height));
-                        // In-point line (bright)
-                        context.DrawLine(new Pen(new SolidColorBrush(color, 1.0), 2), new Point(x, 0), new Point(x, height));
-                        // Out-point line (dimmer)
-                        context.DrawLine(new Pen(new SolidColorBrush(color, 0.7), 2), new Point(xEnd, 0), new Point(xEnd, height));
-                        // Label
-                        var ft = new FormattedText(cue.Name ?? "Loop", System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 10, new SolidColorBrush(color));
-                        context.DrawRectangle(new SolidColorBrush(Colors.Black, 0.6), null, new Rect(x + 4, 2, ft.Width + 4, ft.Height));
-                        context.DrawText(ft, new Point(x + 6, 2));
-                    }
-                }
-                else
-                {
-                    if (x < 0) continue;
-                    // Regular cue point: vertical line + label
-                    context.DrawLine(new Pen(new SolidColorBrush(color, 0.8), 2), new Point(x, 0), new Point(x, height));
-                    var ft = new FormattedText(cue.Name ?? cue.Role.ToString(), System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 10, new SolidColorBrush(color));
+                    context.DrawRectangle(new SolidColorBrush(color, 0.18), null, new Rect(x, 0, bandWidth, height));
+                    context.DrawLine(new Pen(new SolidColorBrush(color, 1.0), 2), new Point(x, 0), new Point(x, height));
+                    context.DrawLine(new Pen(new SolidColorBrush(color, 0.7), 2), new Point(xEnd, 0), new Point(xEnd, height));
+                    var ft = new FormattedText(cue.Name ?? "Loop", System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 10, new SolidColorBrush(color));
                     context.DrawRectangle(new SolidColorBrush(Colors.Black, 0.6), null, new Rect(x + 4, 2, ft.Width + 4, ft.Height));
                     context.DrawText(ft, new Point(x + 6, 2));
                 }
             }
+
+            // Regular cue points: draw every vertical line first, at its true timestamp — line
+            // position must never move to make room for a label. Label PLACEMENT is a separate
+            // pass afterward, sorted left-to-right regardless of the Cues collection's own order,
+            // so tier assignment is stable and cues that cluster right before a drop (the classic
+            // "32 Beats to Drop 1" / "16 Beats to Drop 1" / "Drop 1" trio, a few seconds apart)
+            // stagger onto separate rows instead of stacking into illegible mush.
+            var regular = new List<(double X, OrbitCue Cue, Color Color)>();
+            foreach (var cue in cues)
+            {
+                if (cue.IsLoop && cue.LoopEndSeconds > cue.Timestamp) continue;
+                double x = GetCueX(cue, data);
+                if (x > width || x < 0) continue;
+
+                var color = Color.Parse(cue.Color ?? "#FFFFFF");
+                bool suggested = cue.IsSuggested;
+                context.DrawLine(new Pen(new SolidColorBrush(color, suggested ? 1.0 : 0.8), suggested ? 3 : 2), new Point(x, 0), new Point(x, height));
+                regular.Add((x, cue, color));
+            }
+
+            const double tierHeight = 13.0;
+            const int maxTiers = 3;
+            const double labelGap = 4.0;
+            var tierRightEdge = new double[maxTiers];
+            for (int i = 0; i < maxTiers; i++) tierRightEdge[i] = double.NegativeInfinity;
+
+            foreach (var (x, cue, color) in regular.OrderBy(c => c.X))
+            {
+                bool suggested = cue.IsSuggested;
+                var label = ShortenApproachMarkerLabel(cue.Name ?? cue.Role.ToString());
+                if (suggested) label = $"★ {label}";
+
+                IBrush labelBrush = suggested ? Brushes.Gold : new SolidColorBrush(color);
+                var ft = new FormattedText(label, System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 10, labelBrush);
+
+                int tier = 0;
+                while (tier < maxTiers - 1 && x < tierRightEdge[tier] + labelGap) tier++;
+
+                double labelX = x + 4;
+                if (labelX < tierRightEdge[tier] + labelGap) labelX = tierRightEdge[tier] + labelGap;
+
+                double y = 2 + tier * tierHeight;
+
+                // Micro-stem: only needed when the label had to slide sideways to dodge a
+                // collision — a thin connector back to the cue's true x position, so an offset
+                // label still reads as "belongs to that line", not "belongs to wherever it landed".
+                if (labelX > x + 4 + 0.5)
+                {
+                    context.DrawLine(new Pen(new SolidColorBrush(color, 0.5), 1),
+                        new Point(x, y + ft.Height), new Point(labelX, y + ft.Height));
+                }
+
+                context.DrawRectangle(new SolidColorBrush(suggested ? Color.Parse("#553D2E") : Colors.Black, suggested ? 0.85 : 0.6), null, new Rect(labelX, y, ft.Width + 4, ft.Height));
+                context.DrawText(ft, new Point(labelX + 2, y));
+
+                tierRightEdge[tier] = labelX + ft.Width + 4;
+            }
+        }
+
+        /// <summary>CueGenerationService's real schema labels the bars-out-from-a-drop approach
+        /// markers "16 Bars to Drop 1" / "8 Bars to Drop 1" — descriptive, but three of these
+        /// (the two approach markers plus the actual "Drop 1" cue they lead into) land within a
+        /// few seconds of each other, which is exactly the case RenderCues most needs to keep
+        /// legible. Shortens the pattern to DJ shorthand ("-16", "-8"); leaves the destination
+        /// cue's own label ("Drop 1") untouched — that one still needs its full name.</summary>
+        private static string ShortenApproachMarkerLabel(string label)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(
+                label, @"^(\d+)\s+(?:Bars?|Beats?)\s+to\s+.+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return match.Success ? $"-{match.Groups[1].Value}" : label;
         }
     }
 
@@ -1226,12 +1659,14 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
         public void Render(ImmediateDrawingContext context)
         {
+            try
+            {
             var lease = context.TryGetFeature<ISkiaSharpApiLease>();
             if (lease == null) return;
 
             using var canvas = lease.SkCanvas;
             canvas.Save();
-            
+
             var width = (float)Bounds.Width;
             var height = (float)Bounds.Height;
             var samples = _vocalData.Count;
@@ -1304,8 +1739,15 @@ namespace SLSKDONET.Views.Avalonia.Controls
                     }
                 }
             }
-            
+
             canvas.Restore();
+            }
+            catch (Exception ex)
+            {
+                // Render-thread exceptions bypass all managed exception handling and hard-crash
+                // the process with zero trace. Skip the frame instead of taking the app down.
+                Serilog.Log.Warning(ex, "WaveformControl: vocal-ghost render tick failed — skipping frame");
+            }
         }
     }
 }

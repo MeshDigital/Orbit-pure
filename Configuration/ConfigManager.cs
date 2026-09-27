@@ -138,6 +138,19 @@ public class ConfigManager
                 AutoDownloadExcludedPhrases = config["AutoDownload:ExcludedPhrases"] ?? "remix,cover,live,acoustic",
                 AutoDownloadDiagnosticsEnabled = bool.TryParse(config["AutoDownload:DiagnosticsEnabled"], out var adde) && adde,
 
+                // [Updates]
+                EnableUpdateCheck = bool.TryParse(config["Updates:EnableCheck"], out var euc) ? euc : true,
+                LastUpdateCheckUtc = DateTime.TryParse(config["Updates:LastCheckUtc"], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var luc) ? luc : null,
+                LastSeenUpdateVersion = config["Updates:LastSeenVersion"],
+
+                // [Waveform]
+                WaveformPalette = config["Waveform:Palette"] ?? "NeonRgb",
+                WaveformShowEnergyCurve = bool.TryParse(config["Waveform:ShowEnergyCurve"], out var wsec) ? wsec : true,
+                WaveformShowVocalGhost = bool.TryParse(config["Waveform:ShowVocalGhost"], out var wsvg) ? wsvg : true,
+                WaveformShowPhraseSections = bool.TryParse(config["Waveform:ShowPhraseSections"], out var wsps) ? wsps : true,
+                WaveformShowBeatGrid = bool.TryParse(config["Waveform:ShowBeatGrid"], out var wsbg) ? wsbg : true,
+                WaveformGain = float.TryParse(config["Waveform:Gain"], System.Globalization.CultureInfo.InvariantCulture, out var wg) ? wg : 1.0f,
+
                 // [Library] & Upgrade Scout
                 LibraryColumnOrder = config["Library:ColumnOrder"] ?? "",
                 LibraryNavigationCollapsed = bool.TryParse(config["Library:NavigationCollapsed"], out var navCollapsed) && navCollapsed,
@@ -150,6 +163,7 @@ public class ConfigManager
                 UpgradeMinBitrateThreshold = int.TryParse(config["Library:UpgradeMinBitrateThreshold"], out var umbt) ? umbt : 320,
                 UpgradeMinGainKbps = int.TryParse(config["Library:UpgradeMinGainKbps"], out var umgk) ? umgk : 128,
                 UpgradeAutoQueueEnabled = bool.TryParse(config["Library:UpgradeAutoQueueEnabled"], out var uaqe) && uaqe,
+                EnableLibrarySharing = !bool.TryParse(config["Library:EnableLibrarySharing"], out var els) || els, // Default true
 
                 // [Playback]
                 PlaybackCrossfadeEnabled = bool.TryParse(config["Playback:CrossfadeEnabled"], out var pce) && pce,
@@ -190,11 +204,7 @@ public class ConfigManager
                 // [FlowBuilder]
                 FlowBuilderSelectedPlaylistId = config["FlowBuilder:SelectedPlaylistId"],
                 FlowBuilderRestoreContentOnStartup = !bool.TryParse(config["FlowBuilder:RestoreContentOnStartup"], out var fbrc) || fbrc,
-                EnableFlowBuilderSuggestedFlowPreview = !bool.TryParse(config["FlowBuilder:EnableSuggestedFlowPreview"], out var efbsp) || efbsp,
                 EnableFlowBuilderSuggestedFlowTelemetry = !bool.TryParse(config["FlowBuilder:EnableSuggestedFlowTelemetry"], out var efbst) || efbst,
-                FlowBuilderSuggestedFlowPreviewRolloutPercent = int.TryParse(config["FlowBuilder:SuggestedFlowPreviewRolloutPercent"], out var fsprp)
-                    ? Math.Clamp(fsprp, 0, 100)
-                    : 10,
 
                 // [FrequentSources]
                 EnableFrequentSources = bool.TryParse(config["FrequentSources:EnableFrequentSources"], out var efs) && efs,
@@ -205,10 +215,23 @@ public class ConfigManager
 
                 // [Privacy]
                 EnableKeyboardTelemetry = bool.TryParse(config["Privacy:EnableKeyboardTelemetry"], out var ekt) && ekt,
+
+                // [Advanced]
+                EnableNetworkActivityMonitor = !bool.TryParse(config["Advanced:EnableNetworkActivityMonitor"], out var enam) || enam, // Default true
             };
-            
+
             // Apply defaults if loaded values are empty (for backward compatibility with old configs)
             if (string.IsNullOrEmpty(_config.SoulseekServer)) _config.SoulseekServer = "server.slsknet.org";
+
+            // The three Safety Gates are user overrides layered on top of whatever SearchPolicy
+            // preset RankingProfile/ConfigMigrationService already produced — previously these
+            // toggles worked for the rest of the session but were never round-tripped through the
+            // ini file at all, so they silently reverted to the profile default on every restart.
+            // Only apply when the key is actually present, so a fresh install keeps the profile's
+            // own default rather than being forced to true/false.
+            if (bool.TryParse(config["Search:EnforceFileIntegrity"], out var efi)) _config.SearchPolicy.EnforceFileIntegrity = efi;
+            if (bool.TryParse(config["Search:EnforceStrictTitleMatch"], out var estm)) _config.SearchPolicy.EnforceStrictTitleMatch = estm;
+            if (bool.TryParse(config["Search:EnforceDurationMatch"], out var edm)) _config.SearchPolicy.EnforceDurationMatch = edm;
         }
         else
         {
@@ -283,6 +306,13 @@ public class ConfigManager
         iniContent.AppendLine($"ElevatedSearchExtraDelayMs = {Math.Max(0, config.ElevatedSearchExtraDelayMs)}");
         iniContent.AppendLine($"CriticalSearchExtraDelayMs = {Math.Max(0, config.CriticalSearchExtraDelayMs)}");
         iniContent.AppendLine($"MinSearchDurationSeconds = {config.MinSearchDurationSeconds}");
+        // Was previously written under a "[MusicalIntelligence]" section that Load() never reads
+        // (it reads "Search:RankingProfile") — the strategy-card selection never survived a
+        // restart because of this section-name mismatch. Moved here to match what's actually read.
+        iniContent.AppendLine($"RankingProfile = {config.RankingProfile}");
+        iniContent.AppendLine($"EnforceFileIntegrity = {config.SearchPolicy.EnforceFileIntegrity}");
+        iniContent.AppendLine($"EnforceStrictTitleMatch = {config.SearchPolicy.EnforceStrictTitleMatch}");
+        iniContent.AppendLine($"EnforceDurationMatch = {config.SearchPolicy.EnforceDurationMatch}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[AutoDownload]");
@@ -301,8 +331,21 @@ public class ConfigManager
         iniContent.AppendLine($"DiagnosticsEnabled = {config.AutoDownloadDiagnosticsEnabled}");
 
         iniContent.AppendLine();
-        iniContent.AppendLine("[MusicalIntelligence]");
-        iniContent.AppendLine($"RankingProfile = {config.RankingProfile}");
+        iniContent.AppendLine("[Updates]");
+        iniContent.AppendLine($"EnableCheck = {config.EnableUpdateCheck}");
+        if (config.LastUpdateCheckUtc.HasValue)
+            iniContent.AppendLine($"LastCheckUtc = {config.LastUpdateCheckUtc.Value.ToString("o", System.Globalization.CultureInfo.InvariantCulture)}");
+        if (!string.IsNullOrEmpty(config.LastSeenUpdateVersion))
+            iniContent.AppendLine($"LastSeenVersion = {config.LastSeenUpdateVersion}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Waveform]");
+        iniContent.AppendLine($"Palette = {config.WaveformPalette}");
+        iniContent.AppendLine($"ShowEnergyCurve = {config.WaveformShowEnergyCurve}");
+        iniContent.AppendLine($"ShowVocalGhost = {config.WaveformShowVocalGhost}");
+        iniContent.AppendLine($"ShowPhraseSections = {config.WaveformShowPhraseSections}");
+        iniContent.AppendLine($"ShowBeatGrid = {config.WaveformShowBeatGrid}");
+        iniContent.AppendLine($"Gain = {config.WaveformGain.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[Spotify]");
@@ -326,6 +369,7 @@ public class ConfigManager
         iniContent.AppendLine($"UpgradeMinBitrateThreshold = {config.UpgradeMinBitrateThreshold}");
         iniContent.AppendLine($"UpgradeMinGainKbps = {config.UpgradeMinGainKbps}");
         iniContent.AppendLine($"UpgradeAutoQueueEnabled = {config.UpgradeAutoQueueEnabled}");
+        iniContent.AppendLine($"EnableLibrarySharing = {config.EnableLibrarySharing}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[Playback]");
@@ -373,9 +417,7 @@ public class ConfigManager
         iniContent.AppendLine("[FlowBuilder]");
         iniContent.AppendLine($"SelectedPlaylistId = {config.FlowBuilderSelectedPlaylistId}");
         iniContent.AppendLine($"RestoreContentOnStartup = {config.FlowBuilderRestoreContentOnStartup}");
-        iniContent.AppendLine($"EnableSuggestedFlowPreview = {config.EnableFlowBuilderSuggestedFlowPreview}");
         iniContent.AppendLine($"EnableSuggestedFlowTelemetry = {config.EnableFlowBuilderSuggestedFlowTelemetry}");
-        iniContent.AppendLine($"SuggestedFlowPreviewRolloutPercent = {Math.Clamp(config.FlowBuilderSuggestedFlowPreviewRolloutPercent, 0, 100)}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[FrequentSources]");
@@ -389,6 +431,10 @@ public class ConfigManager
         iniContent.AppendLine();
         iniContent.AppendLine("[Privacy]");
         iniContent.AppendLine($"EnableKeyboardTelemetry = {config.EnableKeyboardTelemetry}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Advanced]");
+        iniContent.AppendLine($"EnableNetworkActivityMonitor = {config.EnableNetworkActivityMonitor}");
 
         File.WriteAllText(_configPath, iniContent.ToString());
         _config = config;

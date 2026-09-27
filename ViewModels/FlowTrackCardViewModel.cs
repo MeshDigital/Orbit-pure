@@ -39,7 +39,14 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
 
     public string  Artist          { get; }
     public string  Title           { get; }
-    public string  BpmDisplay      { get; }
+
+    private string _bpmDisplay = "-";
+    public string  BpmDisplay
+    {
+        get => _bpmDisplay;
+        private set => this.RaiseAndSetIfChanged(ref _bpmDisplay, value);
+    }
+
     public string  KeyDisplay      { get; }
     public string  DurationDisplay { get; }
     public string? AlbumArtUrl     { get; }
@@ -126,10 +133,10 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         Action onMoveLeft,
         Action onMoveRight,
         Action onRemove,
-        Action<string>? onFindBridgeToNext = null,
-        Action<string>? onSelectTransitionInspector = null,
-        Func<string, System.Threading.Tasks.Task>? onPreviewTransition = null,
-        Func<string, System.Threading.Tasks.Task>? onPreviewTrack = null)
+        Action? onFindBridgeToNext = null,
+        Action? onSelectTransitionInspector = null,
+        Func<System.Threading.Tasks.Task>? onPreviewTransition = null,
+        Func<System.Threading.Tasks.Task>? onPreviewTrack = null)
     {
         Model           = track;
         Artist          = track.Artist  ?? "Unknown Artist";
@@ -138,7 +145,7 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         TrackHash       = track.TrackUniqueHash  ?? string.Empty;
         AlbumArtUrl     = track.AlbumArtUrl;
 
-        BpmDisplay      = track.BPM.HasValue
+        _bpmDisplay     = track.BPM.HasValue
             ? track.BPM.Value.ToString("F1")
             : "-";
         // Key may be in Camelot notation (e.g. "8A") or musical (e.g. "Am")
@@ -153,12 +160,16 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         MoveLeftCommand  = ReactiveCommand.Create(onMoveLeft);
         MoveRightCommand = ReactiveCommand.Create(onMoveRight);
         RemoveCommand    = ReactiveCommand.Create(onRemove);
-        FindBridgeToNextCommand = ReactiveCommand.Create(() => onFindBridgeToNext?.Invoke(TrackHash));
-        SelectTransitionInspectorCommand = ReactiveCommand.Create(() => onSelectTransitionInspector?.Invoke(TrackHash));
+        // Previously these passed TrackHash back to the owning ViewModel, which re-resolved
+        // "which card is this" via a hash lookup (Tracks.FirstOrDefault) — silently wrong when
+        // the same track appears twice in a set (explicitly supported elsewhere in this app).
+        // The closures now capture this exact card instance directly, same as Move/Remove above.
+        FindBridgeToNextCommand = ReactiveCommand.Create(() => onFindBridgeToNext?.Invoke());
+        SelectTransitionInspectorCommand = ReactiveCommand.Create(() => onSelectTransitionInspector?.Invoke());
         PreviewTransitionCommand = ReactiveCommand.CreateFromTask(() =>
-            onPreviewTransition?.Invoke(TrackHash) ?? System.Threading.Tasks.Task.CompletedTask);
+            onPreviewTransition?.Invoke() ?? System.Threading.Tasks.Task.CompletedTask);
         PreviewTrackCommand = ReactiveCommand.CreateFromTask(() =>
-            onPreviewTrack?.Invoke(TrackHash) ?? System.Threading.Tasks.Task.CompletedTask);
+            onPreviewTrack?.Invoke() ?? System.Threading.Tasks.Task.CompletedTask);
     }
 
     // -- Helpers ---------------------------------------------------------------
@@ -296,6 +307,17 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
             TransitionStyleReason = transitionStyle?.Reason ?? string.Empty,
             Tooltip = tooltip,
         };
+    }
+
+    /// <summary>Applies a BPM edit made elsewhere (the Flow Builder transition editor's Tempo
+    /// controls edit a separate PlaylistTrackViewModel for the loaded pair — see
+    /// MixTransitionViewModel.LoadPairAsync — so this card's own copy needs an explicit push to
+    /// stay in sync). Caller is responsible for calling SetBridgeTo again on this card and on
+    /// whichever card bridges INTO this one, since the delta text depends on both sides.</summary>
+    public void UpdateBpm(double? bpm)
+    {
+        Model.BPM = bpm;
+        BpmDisplay = bpm.HasValue ? bpm.Value.ToString("F1") : "-";
     }
 
     private static IBrush GetKeyColorBrush(string key)

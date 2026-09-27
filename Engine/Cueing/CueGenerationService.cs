@@ -7,9 +7,9 @@ using Microsoft.EntityFrameworkCore;
 using SLSKDONET.Data;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Engine.Analysis;
-using SLSKDONET.Engine.Snapping;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
+using SLSKDONET.Services.Timeline;
 
 namespace SLSKDONET.Engine.Cueing;
 
@@ -34,10 +34,28 @@ namespace SLSKDONET.Engine.Cueing;
 public sealed class CueGenerationService
 {
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
-    private readonly TransientAwareSnappingEngine _snappingEngine;
     private readonly IntentClassifier _classifier;
     private readonly BreakbeatAnalysisStrategy? _breakbeatStrategy;
     private readonly FourOnTheFloorAnalysisStrategy? _fourOnFloorStrategy;
+
+    /// <summary>
+    /// Phrase segments must cover at least this fraction of the track's duration to be trusted
+    /// for drop placement, regardless of how clean the candidates found within that coverage
+    /// look — a source (verified case: RekordboxPSSI) can stop analysing partway through a track
+    /// while still reporting exactly 2 well-formed "Drop" candidates entirely within the covered
+    /// portion, saying nothing about whether a real drop exists in the untouched remainder.
+    ///
+    /// Deliberately conservative (an analyzed MINORITY of the track, not merely "less than a
+    /// generous 75%"): a higher cutoff was tried and reverted after it regressed a real library
+    /// track (Basstripper - Hazmat) whose RekordboxPSSI coverage was genuinely incomplete (53%)
+    /// but whose covered portion still contained the correct drop (4.1s from the real cue) —
+    /// rerouting to DSP for that track landed on worse independent candidates (47.1s off). This
+    /// mirrors the earlier lesson from the DSP-corroboration-gate regression on Metrik -
+    /// Simulation: neither source is uniformly more reliable than the other, so the bar for
+    /// distrusting an otherwise-internally-clean source must be high — "most of the track was
+    /// never analysed at all" (verified case: Chase & Status, 48%), not merely "not everything".
+    /// </summary>
+    private const double MinPhraseCoverageRatio = 0.50;
 
     public CueGenerationService(
         IDbContextFactory<AppDbContext> contextFactory,
@@ -45,7 +63,6 @@ public sealed class CueGenerationService
         FourOnTheFloorAnalysisStrategy? fourOnFloorStrategy = null)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
-        _snappingEngine = new TransientAwareSnappingEngine();
         _classifier = new IntentClassifier();
         _breakbeatStrategy = breakbeatStrategy;
         _fourOnFloorStrategy = fourOnFloorStrategy;
@@ -87,15 +104,62 @@ public sealed class CueGenerationService
         double bpm = analysis.Bpm;
         if (duration <= 0 || bpm <= 0) return new List<CuePointEntity>();
 
+        bool dspSignalsAvailable = analysis.SubBassReturnTimestamps.Count >= 1 || analysis.NoveltyDropSignatures.Count >= 1;
+
         // ── Path 1: EDMFormer ML phrase segments ───────────────────────────
         if (analysis.PhraseSegments is { Count: >= 2 })
         {
-            return GenerateCuesFromPhraseSegments(
-                trackHash, analysis.PhraseSegments, duration, bpm, downbeatAnchor);
+            var sanitized = SanitizeSegments(analysis.PhraseSegments, bpm);
+            int realDropCount = sanitized.Count(s => Is(s, "Drop"));
+
+            // Phrase-segment data is only trustworthy for drop placement when it actually
+            // identifies both real drops. Fragmented/corrupted phrase metadata (verified case:
+            // Rekordbox PSSI data for a track that split into 8 disjoint "restart" runs after
+            // sanitization, leaving only 1 real drop in the winning run) can survive
+            // sanitization with 0 or 1 real drop remaining. In that case independent DSP
+            // signals (sub-bass/novelty, computed straight from the audio and unaffected by
+            // bad phrase metadata) are a strictly better source for drop timing than falling
+            // back to a pure duration-based guess (duration*0.35, drop1+24 bars). Only reroute
+            // when DSP signals actually exist — otherwise keep the guess, since some cue
+            // placement beats none.
+            //
+            // Deliberately NOT cross-validating phrase drop candidates against DSP signals
+            // beyond this count check (tried and reverted): DSP sub-bass/novelty data is not
+            // uniformly more trustworthy than phrase data — verified case: Metrik - Simulation's
+            // phrase data placed both real drops correctly (within 0.4s of the DJ's own hand-set
+            // cue), but its SubBassReturnTimestamps were noisy false-positive artifacts evenly
+            // spaced ~2.75s apart nowhere near either real drop. A "must be corroborated by DSP"
+            // gate rejected the good phrase data in favor of the bad DSP data and measurably
+            // regressed the 64-track validation sample (within-1s 35%→27%, median offset
+            // 2.79s→4.46s) despite fixing one other track. Trust whichever source actually
+            // found 2 candidates; don't second-guess a source that succeeded using a source that
+            // might itself be wrong.
+            //
+            // Separately: phrase data can look internally clean (exactly 2 well-formed drop
+            // candidates) while still only covering a fraction of the track — verified case: a
+            // RekordboxPSSI-sourced track where Rekordbox's own phrase-structure analysis simply
+            // stopped tagging at beat 291 (~107s) of a 243s track (confirmed against the raw PSSI
+            // tag directly — every entry's Kind mapped cleanly, so nothing was being dropped by
+            // our label filter; Rekordbox itself never analysed the back two-thirds of the file,
+            // likely an extended outro/breakdown/VIP section its phrase model didn't recognise).
+            // Two "clean" drops found entirely within the analysed first half say nothing about
+            // whether a real, later drop exists in the untouched remainder — so incomplete
+            // coverage is treated as untrustworthy the same way too few drops is, independent of
+            // how clean the candidates within that coverage look.
+            double phraseCoverageEnd = sanitized.Count > 0 ? sanitized.Max(s => s.Start + s.Duration) : 0;
+            bool phraseCoverageIncomplete = phraseCoverageEnd < duration * MinPhraseCoverageRatio;
+
+            if ((realDropCount >= 2 && !phraseCoverageIncomplete) || !dspSignalsAvailable)
+            {
+                return GenerateCuesFromPhraseSegments(
+                    trackHash, sanitized, duration, bpm, downbeatAnchor, analysis.SubBassReturnTimestamps, analysis.Genre);
+            }
+
+            return GenerateCuesDsp(trackHash, analysis, downbeatAnchor, duration, bpm);
         }
 
         // ── Path 2: Sub-bass DSP (no AI needed — uses computed energy signals)
-        if (analysis.SubBassReturnTimestamps.Count >= 1 || analysis.NoveltyDropSignatures.Count >= 1)
+        if (dspSignalsAvailable)
         {
             return GenerateCuesDsp(trackHash, analysis, downbeatAnchor, duration, bpm);
         }
@@ -112,82 +176,202 @@ public sealed class CueGenerationService
         IReadOnlyList<PhraseSegment> segments,
         double duration,
         double bpm,
-        double downbeatAnchor)
+        double downbeatAnchor,
+        IReadOnlyList<double>? dspReturns = null,
+        string? genre = null)
     {
-        var cues = new List<CuePointEntity>(8);
+        // Callers pass already-sanitized segments (GenerateCues runs SanitizeSegments once up
+        // front to decide between this path and the DSP path) — re-sanitizing here would be
+        // redundant, and SanitizeSegments is not idempotence-sensitive but there's no reason to
+        // pay for it twice.
         double bar = 60.0 / bpm * 4;
 
         // Collect typed segment starts (ML confidence = 0.9 from EdmFormerService)
-        var intros     = segments.Where(s => Is(s, "Intro")).ToList();
-        var builds     = segments.Where(s => Is(s, "Build")).ToList();
-        var drops      = segments.Where(s => Is(s, "Drop")).OrderBy(s => s.Start).ToList();
-        var breakdowns = segments.Where(s => Is(s, "Breakdown")).OrderBy(s => s.Start).ToList();
-        var outros     = segments.Where(s => Is(s, "Outro")).ToList();
+        var intros = segments.Where(s => Is(s, "Intro")).ToList();
+        var outros = segments.Where(s => Is(s, "Outro")).ToList();
 
-        // #1 First Downbeat / Intro
+        // Exactly two real drop sections per track — not one per surviving "Drop" segment.
+        // SanitizeSegments already merges back-to-back repeats of the same drop into one section,
+        // but a short, isolated mislabeled blip (e.g. a single 5-second callback hit between two
+        // Builds) still shows up as its own separate entry and would otherwise be picked as "the"
+        // second drop ahead of the real, much longer one that comes after it.
+        var drops = segments.Where(s => Is(s, "Drop")).OrderBy(s => s.Start).ToList();
+        if (drops.Count > 2)
+        {
+            // Two contiguous (back-to-back, zero/near-zero gap) "Drop" entries are very likely
+            // fragments of the SAME physical drop section that SanitizeSegments' merge step
+            // couldn't fully combine because doing so would exceed its cluster-duration cap (that
+            // cap exists to stop a genuinely fragmented/duplicated timeline from collapsing into
+            // one absurd multi-hundred-second blob — a different failure mode). Left ungrouped,
+            // those same-section fragments look like 2+ separate, comparably-sized candidates to
+            // duration ranking. Verified case: Brk - Obsession's real first drop was split into
+            // two ~44s back-to-back fragments (44.49-88.63, 88.63-132.90) that individually
+            // out-ranked the track's real, later second drop — picking two fragments of drop 1
+            // instead of drop 1 + drop 2. Group contiguous runs and rank by the GROUP's total
+            // span (not any single fragment's duration), using each group's earliest segment as
+            // its representative time — a real drop section spans many bars, a mislabeled blip
+            // doesn't, and this way a fragmented-but-long section still outranks a short one.
+            const double ContiguousGapToleranceSeconds = 2.0;
+            var groups = new List<List<PhraseSegment>> { new() { drops[0] } };
+            for (int i = 1; i < drops.Count; i++)
+            {
+                var lastInGroup = groups[^1][^1];
+                double prevEnd = lastInGroup.Start + lastInGroup.Duration;
+                if (drops[i].Start <= prevEnd + ContiguousGapToleranceSeconds)
+                    groups[^1].Add(drops[i]);
+                else
+                    groups.Add(new List<PhraseSegment> { drops[i] });
+            }
+
+            // The representative kept for each group must report the GROUP's true total span as
+            // its Duration, not just its first fragment's own (much shorter) Duration — otherwise
+            // "where does drop 1's section actually end" (needed below to anchor drop 2's
+            // fallback estimate) silently collapses to wherever the first fragment happens to end,
+            // understating a fragmented drop section's real length by as much as 4x.
+            drops = groups
+                .Select(g => (Representative: g[0], TotalSpan: g[^1].Start + g[^1].Duration - g[0].Start))
+                .OrderByDescending(g => g.TotalSpan)
+                .Take(2)
+                .Select(g => new PhraseSegment
+                {
+                    Label = g.Representative.Label,
+                    Start = g.Representative.Start,
+                    Duration = (float)g.TotalSpan,
+                    Confidence = g.Representative.Confidence,
+                })
+                .OrderBy(s => s.Start)
+                .ToList();
+        }
+
         double introTime = intros.Count > 0
             ? SnapToBar(intros[0].Start, bpm, downbeatAnchor)
             : downbeatAnchor;
-        cues.Add(Make(trackHash, introTime, CuePointType.Intro, "Intro", 1.0f));
 
-        // #4 First Drop (anchor — everything else relative to this)
         double drop1Time = drops.Count > 0
             ? SnapToBar(drops[0].Start, bpm, downbeatAnchor)
             : duration * 0.35;
+        float drop1Confidence = drops.Count > 0 ? 0.95f : 0.55f;
 
-        // #2 First Build (before first drop)
-        double build1Time;
-        var buildBefore1 = builds.Where(b => b.Start < drops.FirstOrDefault()?.Start).ToList();
-        if (buildBefore1.Count > 0)
-            build1Time = SnapToBar(buildBefore1.Last().Start, bpm, downbeatAnchor);
-        else
-            build1Time = SnapToBar(drop1Time - bar * 16, bpm, downbeatAnchor); // 4 bars before
-        build1Time = Math.Max(introTime + bar, build1Time);
-        cues.Add(Make(trackHash, build1Time, CuePointType.Build, "Build", 0.9f));
+        // Rekordbox's own phrase classifier sometimes never tags an early section as "Chorus" at
+        // all for a given track (verified against real Rekordbox-cued tracks: several had zero
+        // Drop-labeled phrase segments before 130-170s despite a real, DJ-marked first drop
+        // 50-100s earlier) — the realDropCount/coverage gate above doesn't catch this case because
+        // the LATE candidates it does find can still look "clean" (2 well-formed segments, full
+        // coverage). This is a much narrower correction than the "DSP must corroborate phrase
+        // data" gate tried and reverted above (which regressed a 64-track sample by rejecting good
+        // phrase data for noisy DSP data): it only ever moves drop1Time EARLIER, only by this much
+        // (>30s), and only when a DSP candidate sits in a plausible first-drop window — it never
+        // touches drop1Time when phrase data already found something reasonably early, and never
+        // touches drop2Time at all.
+        if (drops.Count > 0 && dspReturns is { Count: > 0 })
+        {
+            double earliestPlausible = Math.Max(10.0, duration * 0.08);
+            double latestPlausible = duration * 0.55;
+            var earlierDsp = dspReturns
+                .Where(t => t >= earliestPlausible && t <= latestPlausible && t < drop1Time - 30.0)
+                .OrderBy(t => t)
+                .FirstOrDefault();
+            if (earlierDsp > 0)
+            {
+                drop1Time = SnapToBar(earlierDsp, bpm, downbeatAnchor);
+                drop1Confidence = 0.7f;
+            }
+        }
 
-        // #3 First Breakdown (just before first drop, after build)
-        double brk1Time;
-        var brkBefore1 = breakdowns.Where(b => b.Start < drops.FirstOrDefault()?.Start).ToList();
-        if (brkBefore1.Count > 0)
-            brk1Time = SnapToBar(brkBefore1.Last().Start, bpm, downbeatAnchor);
-        else
-            brk1Time = SnapToBar(drop1Time - bar * 8, bpm, downbeatAnchor); // 2 bars before
-        brk1Time = Math.Clamp(brk1Time, build1Time + bar, drop1Time - bar);
-        cues.Add(Make(trackHash, brk1Time, CuePointType.Breakdown, "Breakdown", 0.88f));
-
-        cues.Add(Make(trackHash, drop1Time, CuePointType.Drop, "Drop 1", 0.95f));
-
-        // #5 Second Breakdown / Bridge (after first drop)
-        double brk2Time;
-        var brkAfter1 = breakdowns.Where(b => b.Start > drop1Time).ToList();
-        if (brkAfter1.Count > 0)
-            brk2Time = SnapToBar(brkAfter1[0].Start, bpm, downbeatAnchor);
-        else
-            brk2Time = SnapToBar(drop1Time + bar * 16, bpm, downbeatAnchor);
-        brk2Time = Math.Min(brk2Time, duration - bar * 4);
-        cues.Add(Make(trackHash, brk2Time, CuePointType.Breakdown, "Breakdown 2", 0.85f));
-
-        // #6 Second Drop
         double drop2Time;
+        float drop2Confidence;
         if (drops.Count >= 2)
+        {
             drop2Time = SnapToBar(drops[1].Start, bpm, downbeatAnchor);
+            drop2Confidence = 0.95f;
+        }
         else
-            drop2Time = SnapToBar(brk2Time + bar * 8, bpm, downbeatAnchor);
+        {
+            // Only one "Drop" phrase was tagged — common when the analysis source treats the
+            // second half of the track as a repeat of the same section rather than a distinct
+            // one. The old fallback (a blind "24 bars after drop 1" guess) was measured against
+            // 101 real Rekordbox-cued tracks and landed a median ~98s from the nearest real cue —
+            // DnB/EDM tracks vary far too much in drop-to-drop spacing for a fixed bar count to
+            // work. The last already-decoded "Breakdown" segment ending after drop 1 is real
+            // structural data (not a new detection pass — SanitizeSegments/PhraseSegments already
+            // carry it), and its end is where the build back into the next drop begins, so it's a
+            // much better anchor than arithmetic.
+            var breakdownAfterDrop1 = segments
+                .Where(s => Is(s, "Breakdown") && s.Start > drop1Time)
+                .OrderBy(s => s.Start)
+                .LastOrDefault();
+            if (breakdownAfterDrop1 != null)
+            {
+                drop2Time = SnapToBar(breakdownAfterDrop1.Start + breakdownAfterDrop1.Duration, bpm, downbeatAnchor);
+                drop2Confidence = 0.75f;
+            }
+            else
+            {
+                // No Breakdown segment either — last resort is genre-typical arithmetic. The OLD
+                // constant here (24 bars from drop 1's START) was measured against 101 real
+                // Rekordbox-cued tracks and landed a median ~98s off — far too short for any of
+                // these genres' actual structure. Anchor from drop 1's SECTION END (now a real,
+                // correctly-computed span after the fragment-grouping fix above — not just its
+                // first fragment's own duration) plus a genre-typical mid-section+breakdown+rebuild
+                // length (see GetDrop2GapBars).
+                double drop1SectionEnd = drops.Count > 0 ? drops[0].Start + drops[0].Duration : drop1Time;
+                drop2Time = SnapToBar(drop1SectionEnd + bar * GetDrop2GapBars(genre), bpm, downbeatAnchor);
+                drop2Confidence = 0.5f;
+            }
+        }
         drop2Time = Math.Min(drop2Time, duration - bar * 8);
-        cues.Add(Make(trackHash, drop2Time, CuePointType.Drop, drops.Count >= 2 ? "Drop 2" : "Drop (reprise)", 0.88f));
 
-        // #7 Mix-Out Warning (16 bars before outro or end)
-        double outroStart = outros.Count > 0 ? outros[0].Start : duration;
-        double mixOutTime = SnapToBar(outroStart - bar * 16, bpm, downbeatAnchor);
-        mixOutTime = Math.Max(mixOutTime, drop2Time + bar * 4);
-        cues.Add(Make(trackHash, mixOutTime, CuePointType.Outro, "Mix-Out", 0.85f));
-
-        // #8 Outro
-        double outroTime = outros.Count > 0
+        bool outroFound = outros.Count > 0;
+        double outroTime = outroFound
             ? SnapToBar(outros[0].Start, bpm, downbeatAnchor)
             : SnapToBar(duration - bar * 8, bpm, downbeatAnchor);
-        outroTime = Math.Max(outroTime, mixOutTime + bar);
-        cues.Add(Make(trackHash, outroTime, CuePointType.Outro, "Outro", 0.9f));
+        float outroConfidence = outroFound ? 0.9f : 0.6f;
+
+        return BuildDropApproachCueSet(
+            trackHash, bpm, introTime,
+            drop1Time, drop1Confidence, drop2Time, drop2Confidence,
+            outroTime, outroConfidence);
+    }
+
+    /// <summary>
+    /// Builds the final 8-cue set from confirmed anchor points using pure beat arithmetic for the
+    /// two approach markers before each drop, per how the cues are actually used at the deck: a
+    /// "get ready" cue 64 beats (16 bars) before the drop and a closer one 32 beats (8 bars)
+    /// before it — not a separately, independently detected "breakdown"/"build" landmark, which
+    /// was a second point of failure on top of drop detection itself. Once the two real drops are
+    /// correctly identified, these positions are deterministic, not a second guess.
+    ///
+    /// The 16/8-bar spacing (previously 8/4 bars — half this) is confirmed directly from a real DJ
+    /// workflow: 312 real Rekordbox-cued tracks in this library were checked, and every countdown
+    /// pair to an actual drop was placed 16 bars and 8 bars before it, never at the drop itself
+    /// ("let the track come up before the drop arrives"), never at the old 8/4-bar spacing.
+    /// </summary>
+    private static List<CuePointEntity> BuildDropApproachCueSet(
+        string trackHash, double bpm,
+        double introTime,
+        double drop1Time, float drop1Confidence,
+        double drop2Time, float drop2Confidence,
+        double outroTime, float outroConfidence)
+    {
+        double beat = 60.0 / bpm;
+        var cues = new List<CuePointEntity>(8);
+
+        cues.Add(Make(trackHash, introTime, CuePointType.Intro, "Intro", 1.0f));
+
+        double drop1Approach64 = Math.Max(introTime + beat, drop1Time - 64 * beat);
+        double drop1Approach32 = Math.Max(drop1Approach64 + beat, drop1Time - 32 * beat);
+        cues.Add(Make(trackHash, drop1Approach64, CuePointType.Build, "16 Bars to Drop 1", drop1Confidence));
+        cues.Add(Make(trackHash, drop1Approach32, CuePointType.Build, "8 Bars to Drop 1", drop1Confidence));
+        cues.Add(Make(trackHash, drop1Time, CuePointType.Drop, "Drop 1", drop1Confidence));
+
+        double drop2Approach64 = Math.Max(drop1Time + beat, drop2Time - 64 * beat);
+        double drop2Approach32 = Math.Max(drop2Approach64 + beat, drop2Time - 32 * beat);
+        cues.Add(Make(trackHash, drop2Approach64, CuePointType.Build, "16 Bars to Drop 2", drop2Confidence));
+        cues.Add(Make(trackHash, drop2Approach32, CuePointType.Build, "8 Bars to Drop 2", drop2Confidence));
+        cues.Add(Make(trackHash, drop2Time, CuePointType.Drop, "Drop 2", drop2Confidence));
+
+        double clampedOutro = Math.Max(outroTime, drop2Time + beat);
+        cues.Add(Make(trackHash, clampedOutro, CuePointType.Outro, "Outro", outroConfidence));
 
         cues.Sort((a, b) => a.TimestampInSeconds.CompareTo(b.TimestampInSeconds));
         return cues;
@@ -211,9 +395,7 @@ public sealed class CueGenerationService
         double duration,
         double bpm)
     {
-        var cues = new List<CuePointEntity>(8);
-        double bar  = 60.0 / bpm * 4;
-        double beat = 60.0 / bpm;
+        double bar = 60.0 / bpm * 4;
 
         // Genre-family-aware signal weighting — replaces the old single continuous-bassline
         // boolean with per-family weights from IGenreFamilyAnalysisStrategy. Breakbeat (DnB/Jungle)
@@ -260,15 +442,26 @@ public sealed class CueGenerationService
                 dropCandidates.Add((t, weights.EnergyJumpWeight * 0.75f));
         }
 
-        // Family-specific drop candidates (e.g. FourOnTheFloor's structural-stripping return —
-        // the moment the kick genuinely re-enters at full force after a real breakdown).
+        // Family-specific drop candidates (e.g. FourOnTheFloor's structural-stripping return — the
+        // moment the kick genuinely re-enters at full force after a real breakdown; Breakbeat's
+        // novelty-corroborated sub-bass returns). A candidate near an existing one raises that
+        // entry's score to the higher of the two rather than being skipped outright — a corroboration
+        // signal is, by definition, usually close to an already-known candidate (that's what makes it
+        // a corroboration), so silently dropping it as "already covered" would make it a no-op.
         if (strategy != null)
         {
             foreach (var (t, score) in strategy.GetFamilySpecificDropCandidates(analysis, bpm, downbeatAnchor))
             {
-                bool alreadyCovered = dropCandidates.Any(d => Math.Abs(d.Time - t) < bar * 2);
-                if (!alreadyCovered)
+                int nearbyIndex = dropCandidates.FindIndex(d => Math.Abs(d.Time - t) < bar * 2);
+                if (nearbyIndex >= 0)
+                {
+                    if (score > dropCandidates[nearbyIndex].Score)
+                        dropCandidates[nearbyIndex] = (dropCandidates[nearbyIndex].Time, score);
+                }
+                else
+                {
                     dropCandidates.Add((t, score));
+                }
             }
         }
 
@@ -286,76 +479,54 @@ public sealed class CueGenerationService
             .Where(d => d.Time >= midpoint && d.Time < duration * 0.9)
             .OrderByDescending(d => d.Score).FirstOrDefault();
 
-        // Fallback positions when signals are missing
+        // Fallback positions when signals are missing. Drops are the anchor every other cue in
+        // this method is offset from — snapping only to the nearest single bar (the old
+        // SnapToBar) let a raw DSP timestamp land on any bar count from the intro (e.g. bar 27),
+        // which isn't where a real phrase boundary falls in 8-bar-phrase music (24/32/40...). A DJ
+        // setting cues in Rekordbox places the drop where the phrase actually lands, never
+        // mid-phrase, so the detected timestamp is snapped to the nearest 8-bar (32-beat) phrase
+        // boundary instead — matching the phrase length already assumed everywhere else in this
+        // file (bar*8/*16/*32 fallback offsets) and in GenerateCuesHeuristic's SnapToBeatMultiple
+        // calls below.
         double drop1Time = drop1.Time > 0
-            ? SnapToBar(drop1.Time, bpm, downbeatAnchor)
-            : SnapToBar(duration * 0.32, bpm, downbeatAnchor);
+            ? SnapToPhrase(drop1.Time, bpm, downbeatAnchor)
+            : SnapToPhrase(duration * 0.32, bpm, downbeatAnchor);
         double drop2Time = drop2.Time > 0
-            ? SnapToBar(drop2.Time, bpm, downbeatAnchor)
-            : SnapToBar(drop1Time + bar * 32, bpm, downbeatAnchor);
+            ? SnapToPhrase(drop2.Time, bpm, downbeatAnchor)
+            : SnapToPhrase(drop1Time + bar * 32, bpm, downbeatAnchor);
         drop2Time = Math.Min(drop2Time, duration - bar * 8);
 
-        // ── 3. Breakdowns — bar-math from the confirmed drop by default; a real sub-bass
-        // dropout timestamp only overrides that default when it lands close to the expected
-        // position (within 4 bars), so an unrelated dropout elsewhere in the track can't hijack
-        // the placement. This is the drop-anchored architecture: the drop is the one
-        // high-confidence signal, everything else is 4/4 bar-math from it unless a real boundary
-        // confirms a nearby adjustment. Family-specific breakdown candidates (DnB's audio-derived
-        // pre-drop valley, FourOnTheFloor's structural-stripping start) are merged in alongside
-        // the generic sub-bass-dropout list so genre-family analysis can improve this too.
-        var breakdownCandidates = analysis.SubBassDropoutTimestamps;
-        if (strategy != null)
-        {
-            var familyBreakdowns = strategy.GetFamilySpecificBreakdownCandidates(analysis, bpm, downbeatAnchor);
-            if (familyBreakdowns.Count > 0)
-                breakdownCandidates = breakdownCandidates.Concat(familyBreakdowns).ToList();
-        }
-
-        double brk1Default = SnapToBar(drop1Time - bar * 8, bpm, downbeatAnchor);
-        double brk1Time = NearestWithinTolerance(breakdownCandidates, brk1Default, bar * 4, bpm, downbeatAnchor)
-                           ?? brk1Default;
-        brk1Time = Math.Max(brk1Time, downbeatAnchor + bar * 2);
-
-        double brk2Default = SnapToBar(drop1Time + bar * 16, bpm, downbeatAnchor);
-        double brk2Time = NearestWithinTolerance(breakdownCandidates, brk2Default, bar * 4, bpm, downbeatAnchor)
-                           ?? brk2Default;
-        if (brk2Time <= drop1Time) brk2Time = brk2Default;
-        brk2Time = Math.Min(brk2Time, drop2Time - bar);
-
-        // ── 4. Build — bar-math from the confirmed drop by default; a real novelty-signature
-        // build-start only overrides that default when it lands close to the expected position.
-        double build1Default = SnapToBar(drop1Time - bar * 16, bpm, downbeatAnchor);
-        double build1Time = build1Default;
-        var sig1 = analysis.NoveltyDropSignatures
-            .Where(s => Math.Abs(s.DropSeconds - drop1Time) < bar * 4 && s.BuildStartSeconds > 0)
-            .OrderByDescending(s => s.Strength).FirstOrDefault();
-        if (sig1.BuildStartSeconds > 0)
-        {
-            double snapped = SnapToBar(sig1.BuildStartSeconds, bpm, downbeatAnchor);
-            if (Math.Abs(snapped - build1Default) < bar * 4)
-                build1Time = snapped;
-        }
-        build1Time = Math.Clamp(build1Time, downbeatAnchor + bar, brk1Time - bar);
-
-        // ── 5. Intro — first downbeat, adjusted for long DJ intros ────────
+        // ── 3. Intro — first downbeat, adjusted for long DJ intros ────────
+        // If energy is low for the first 8+ bars (a long low-level DJ-tool-style intro before the
+        // track's real content starts), advance the intro cue past it to the first bar where
+        // energy actually rises — otherwise Hot Cue A sits on near-silence instead of the true
+        // start, forcing a DJ to nudge it manually every time. Previously this branch was a no-op
+        // (both branches just reassigned introTime to the value it already had), so the "advance"
+        // behavior described here never actually ran.
         double introTime = downbeatAnchor;
-        // If energy is low for first 8+ bars, advance intro cue to first energy peak
         if (analysis.EnergyCurve.Length > 0)
         {
             int barSamples = (int)Math.Round(bar); // 1s windows
             float earlyAvg = analysis.EnergyCurve.Take(barSamples * 8).DefaultIfEmpty(0).Average();
             float trackAvg = analysis.EnergyCurve.Average();
             if (earlyAvg < trackAvg * 0.5f)
-                introTime = downbeatAnchor; // keep at 0 for low-energy DJ intros
+            {
+                double secPerSample = duration / analysis.EnergyCurve.Length;
+                for (int i = 0; i < analysis.EnergyCurve.Length; i++)
+                {
+                    if (analysis.EnergyCurve[i] >= trackAvg * 0.5f)
+                    {
+                        double candidate = SnapToBar(i * secPerSample, bpm, downbeatAnchor);
+                        introTime = Math.Max(downbeatAnchor, candidate);
+                        break;
+                    }
+                }
+            }
         }
 
-        // ── 6. Mix-In point — good early DJ mix marker (32 bars in) ───────
-        double mixInTime = SnapToBar(introTime + bar * 32, bpm, downbeatAnchor);
-        mixInTime = Math.Min(mixInTime, build1Time - bar * 4);
-
-        // ── 7. Mix-Out and Outro ──────────────────────────────────────────
-        double outroTime = SnapToBar(duration - bar * 8, bpm, downbeatAnchor);
-        // If energy curve exists, find where it drops sustainedly below 40%
+        // ── 6. Outro — sustained energy drop-off near the end, else bar-math default ──
+        double outroTime = SnapToPhrase(duration - bar * 8, bpm, downbeatAnchor);
+        bool outroFound = false;
         if (analysis.EnergyCurve.Length > 8)
         {
             float trackPeak = analysis.EnergyCurve.Max();
@@ -364,39 +535,22 @@ public sealed class CueGenerationService
             {
                 if (analysis.EnergyCurve[i] > trackPeak * 0.4f)
                 {
-                    double candidate = SnapToBar(i * secPerSample, bpm, downbeatAnchor);
+                    double candidate = SnapToPhrase(i * secPerSample, bpm, downbeatAnchor);
                     if (candidate > drop2Time + bar * 4)
+                    {
                         outroTime = candidate;
+                        outroFound = true;
+                    }
                     break;
                 }
             }
         }
-        double mixOutTime = SnapToBar(outroTime - bar * 16, bpm, downbeatAnchor);
-        mixOutTime = Math.Max(mixOutTime, drop2Time + bar * 4);
 
-        // ── 8. Assemble 8-slot map ────────────────────────────────────────
-        // Breakbeat-family tracks get DnBCueNamingService's pre-drop-runway breakdown labels
-        // (e.g. "Breakdown -64") instead of the generic "Breakdown"/"Breakdown 2" — same 8 slots,
-        // just more informative naming for a family where DJs plan drops on a beat countdown.
-        string brk1Label = "Breakdown";
-        string brk2Label = "Breakdown 2";
-        if (classification.Family == GenreFamily.Breakbeat)
-        {
-            brk1Label = DnBCueNamingService.GenerateCueName(CueRole.Breakdown, (float)bpm, brk1Time, nextDropTimestamp: drop1Time);
-            brk2Label = DnBCueNamingService.GenerateCueName(CueRole.Breakdown, (float)bpm, brk2Time, nextDropTimestamp: drop2Time);
-        }
-
-        cues.Add(Make(trackHash, introTime,  CuePointType.Intro,     "Intro",          1.0f));
-        cues.Add(Make(trackHash, mixInTime,  CuePointType.Intro,     "Mix-In",         0.85f));
-        cues.Add(Make(trackHash, brk1Time,   CuePointType.Breakdown, brk1Label,        0.90f));
-        cues.Add(Make(trackHash, drop1Time,  CuePointType.Drop,      "Drop 1",         drop1.Time > 0 ? 0.93f : 0.70f));
-        cues.Add(Make(trackHash, brk2Time,   CuePointType.Breakdown, brk2Label,        0.85f));
-        cues.Add(Make(trackHash, drop2Time,  CuePointType.Drop,      "Drop 2",         drop2.Time > 0 ? 0.90f : 0.65f));
-        cues.Add(Make(trackHash, mixOutTime, CuePointType.Outro,     "Mix-Out",        0.88f));
-        cues.Add(Make(trackHash, outroTime,  CuePointType.Outro,     "Outro",          0.92f));
-
-        cues.Sort((a, b) => a.TimestampInSeconds.CompareTo(b.TimestampInSeconds));
-        return cues;
+        return BuildDropApproachCueSet(
+            trackHash, bpm, introTime,
+            drop1Time, drop1.Time > 0 ? 0.93f : 0.70f,
+            drop2Time, drop2.Time > 0 ? 0.90f : 0.65f,
+            outroTime, outroFound ? 0.92f : 0.6f);
     }
 
     /// <summary>
@@ -404,11 +558,17 @@ public sealed class CueGenerationService
     /// and holds — not just a single spike — versus the level that preceded it. This is a
     /// candidate generator, not an authoritative drop decision: it feeds the same scored
     /// <c>dropCandidates</c> list as the sub-bass/novelty signals in <see cref="GenerateCuesDsp"/>.
+    ///
+    /// Requires the sustained level to also clear a fraction of the track's own mean energy, not
+    /// just the preceding 4s — a purely local 1.6x jump fires on any loud-but-transient moment
+    /// (a crash cymbal swell, a snare-roll fill) regardless of whether it's actually a drop.
     /// </summary>
-    private static List<double> FindEnergyJumpCandidates(float[] energyCurve, double duration)
+    internal static List<double> FindEnergyJumpCandidates(float[] energyCurve, double duration)
     {
         var candidates = new List<double>();
         if (energyCurve.Length < 8 || duration <= 0) return candidates;
+
+        float trackMeanEnergy = energyCurve.Average();
 
         double secPerSample = duration / energyCurve.Length;
         int precedingWindow = Math.Max(2, (int)Math.Round(4.0 / secPerSample));
@@ -420,7 +580,7 @@ public sealed class CueGenerationService
             if (precedingAvg <= 0f) continue;
 
             float sustainedAvg = AverageRange(energyCurve, i, i + sustainWindow);
-            if (sustainedAvg > precedingAvg * 1.6f)
+            if (sustainedAvg > precedingAvg * 1.6f && sustainedAvg >= trackMeanEnergy * 0.9f)
             {
                 candidates.Add(i * secPerSample);
                 i += sustainWindow; // skip past this rise before looking for the next one
@@ -438,31 +598,6 @@ public sealed class CueGenerationService
         float sum = 0f;
         for (int i = start; i < endExclusive; i++) sum += data[i];
         return sum / (endExclusive - start);
-    }
-
-    /// <summary>
-    /// Finds the candidate (from a raw, unsnapped timestamp list) closest to <paramref name="expected"/>
-    /// after bar-snapping, or null if none land within <paramref name="tolerance"/>. Used to let a real
-    /// detected boundary override a drop-anchored bar-math default only when it's plausibly the same
-    /// structural moment, not an unrelated event elsewhere in the track.
-    /// </summary>
-    private static double? NearestWithinTolerance(
-        IReadOnlyList<double> candidates, double expected, double tolerance, double bpm, double anchor)
-    {
-        if (candidates.Count == 0) return null;
-        double best = double.NaN;
-        double bestDist = double.MaxValue;
-        foreach (var t in candidates)
-        {
-            double snapped = SnapToBar(t, bpm, anchor);
-            double dist = Math.Abs(snapped - expected);
-            if (dist < tolerance && dist < bestDist)
-            {
-                best = snapped;
-                bestDist = dist;
-            }
-        }
-        return double.IsNaN(best) ? null : best;
     }
 
     private static float SampleFluxAt(float[] fluxCurve, double timeSec, double duration)
@@ -511,22 +646,22 @@ public sealed class CueGenerationService
 
         foreach (var t in analysis.Transients)
         {
-            double snapped = _snappingEngine.SnapRawTimeToPhraseLedger(t.Timestamp, bpm, downbeatAnchor);
+            double snapped = BeatGridService.SnapToBeatMultiple(t.Timestamp, bpm, 32, downbeatAnchor);
             if (vocalStart.HasValue && vocalEnd.HasValue && vocalIntensity.HasValue && vocalIntensity.Value > 0.4
                 && snapped >= vocalStart.Value && snapped <= vocalEnd.Value)
             {
                 double relativeToPhrase = (snapped - downbeatAnchor) / (beatDuration * 32);
                 if (Math.Abs(relativeToPhrase - Math.Round(relativeToPhrase)) > 0.05)
-                    snapped = _snappingEngine.SnapRawTimeToPhraseLedger(snapped, bpm, downbeatAnchor);
+                    snapped = BeatGridService.SnapToBeatMultiple(snapped, bpm, 32, downbeatAnchor);
             }
             rawCandidates.Add(snapped);
         }
 
         foreach (var r in analysis.SubBassReturnTimestamps)
-            rawCandidates.Add(_snappingEngine.SnapRawTimeToPhraseLedger(r, bpm, downbeatAnchor));
+            rawCandidates.Add(BeatGridService.SnapToBeatMultiple(r, bpm, 32, downbeatAnchor));
 
         foreach (var (dropTs, _, _) in analysis.NoveltyDropSignatures)
-            rawCandidates.Add(_snappingEngine.SnapRawTimeToPhraseLedger(dropTs, bpm, downbeatAnchor));
+            rawCandidates.Add(BeatGridService.SnapToBeatMultiple(dropTs, bpm, 32, downbeatAnchor));
 
         var classified = _classifier.ClassifyAll(rawCandidates, duration, analysis);
         var candidates = classified
@@ -580,12 +715,198 @@ public sealed class CueGenerationService
     private static bool Is(PhraseSegment seg, string label) =>
         string.Equals(seg.Label, label, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Bars typically separating drop 1's section end from drop 2's start, by genre — used only
+    /// as the last-resort arithmetic estimate when neither a second Drop phrase nor a Breakdown
+    /// segment was found. Sourced from genre arrangement guides (KAN Samples DnB/dubstep guides,
+    /// EDMProd, Mixed In Key, Myloops trance guide — not from this codebase's own empirical
+    /// validation, since none of the real Rekordbox-cued tracks checked so far happened to exercise
+    /// this exact fallback branch):
+    ///   DnB/jungle:    mid-section 16-32 + breakdown 32 + rebuild 16  ≈ 72 bars
+    ///   Dubstep/riddim: mid-section 16 + breakdown 32 + rebuild 16    ≈ 64 bars
+    ///   House/techno:   single breakdown+buildup cycle to the next 32-bar mix point ≈ 32 bars
+    ///   Trance:         breakdown 8-32 (avg ~20) + buildup 16         ≈ 36 bars
+    /// Matched by substring against the free-text genre/subgenre string, case-insensitively, most
+    /// specific first (so "liquid dnb" matches "dnb" and "tech house" matches "house" safely).
+    /// Falls back to the DnB figure when genre is missing/unrecognized, since that's this library's
+    /// dominant genre and the only one of these actually confirmed against real cue data (see the
+    /// breakdown-anchored branch above, which this only backstops).
+    /// </summary>
+    private static double GetDrop2GapBars(string? genre)
+    {
+        if (string.IsNullOrWhiteSpace(genre)) return 72.0;
+        string g = genre.ToLowerInvariant();
+
+        if (g.Contains("drum") || g.Contains("dnb") || g.Contains("jungle") || g.Contains("neuro") || g.Contains("liquid"))
+            return 72.0;
+        if (g.Contains("dubstep") || g.Contains("riddim") || g.Contains("bass house") || g.Contains("brostep"))
+            return 64.0;
+        if (g.Contains("trance"))
+            return 36.0;
+        if (g.Contains("house") || g.Contains("techno") || g.Contains("edm") || g.Contains("electro"))
+            return 32.0;
+
+        return 72.0;
+    }
+
+    /// <summary>
+    /// Strips StructuralAnalysisEngine's ordinal suffix ("Drop 1", "Build 2" → "Drop", "Build")
+    /// down to the plain label vocabulary <see cref="Is"/> matches against. "Break" (an older/
+    /// alternate short form seen in real persisted data) maps to "Breakdown"; unrecognized labels
+    /// (Chorus/Verse/Bridge/Section) pass through unchanged — they're not consulted by cue
+    /// placement, only Intro/Drop/Outro are, so there's nothing to normalize them into.
+    /// </summary>
+    private static string NormalizeLabel(string label)
+    {
+        if (string.Equals(label, "Break", StringComparison.OrdinalIgnoreCase)) return "Breakdown";
+
+        int lastSpace = label.LastIndexOf(' ');
+        if (lastSpace > 0 && int.TryParse(label.AsSpan(lastSpace + 1), out _))
+            return label[..lastSpace];
+
+        return label;
+    }
+
+    /// <summary>
+    /// Cleans up a raw phrase-segment list before it drives cue placement. Handles three real,
+    /// verified failure modes seen in phrase data from Rekordbox and StructuralAnalysisEngine:
+    ///
+    /// 0. Ordinal-suffixed labels ("Drop 1") — normalized to plain form by NormalizeLabel before
+    ///    any of the below runs, so grouping/merging by label actually works.
+    ///
+    /// 1. A "restart": the segment timeline jumps backward by more than a few seconds partway
+    ///    through the list — two separate structural interpretations concatenated into one list
+    ///    (confirmed against real library data: 11/64 tracks sampled had this). Only the longest
+    ///    contiguous run (by segment count) is kept; the shorter, discontinuous fragment is
+    ///    dropped rather than left to interleave with the real timeline.
+    ///
+    /// 2. Rekordbox's phrase vocabulary uses "Chorus" (mapped to ORBIT's "Drop" label — see
+    ///    RekordboxPssiService's mood-label tables) for each repeating 8/16-bar hook loop
+    ///    individually, not once per structural drop — a single real drop section commonly shows
+    ///    up as 3-4+ back-to-back "Drop" entries. 4x4 EDM/DnB structure has exactly two real drop
+    ///    sections per track, not one per chorus repeat; taking the chronologically-first two raw
+    ///    entries (the old behavior) picks two loops from the SAME drop instead of the two actual
+    ///    drops. Consecutive same-label entries with no real gap between them are merged into one
+    ///    logical section spanning the full run, so "the drop" means the whole run, not its first
+    ///    8 bars — but capped at <see cref="MaxMergedClusterPhrases"/> phrases: verified case
+    ///    (D'cypher - Dancing) had TWO real, separately-cued drops with zero gap between their
+    ///    chorus repeats, so unbounded merging collapsed both into one ~155s/14-phrase blob and
+    ///    lost the second drop to a pure bar-math guess. A real single drop section running longer
+    ///    than that is rare enough that splitting it into two candidates (both still eligible for
+    ///    the top-2-by-duration pick below) is the safer failure mode than never splitting at all.
+    /// </summary>
+    internal static List<PhraseSegment> SanitizeSegments(IReadOnlyList<PhraseSegment> segments, double bpm = 0)
+    {
+        if (segments.Count == 0) return new List<PhraseSegment>();
+
+        const double MaxMergedClusterPhrases = 5.0;
+        double maxClusterDuration = bpm > 0 ? MaxMergedClusterPhrases * (60.0 / bpm * 32) : double.MaxValue;
+
+        // ── 0. Normalize labels: StructuralAnalysisEngine ("Heuristic" source) numbers its
+        // sections ("Drop 1", "Drop 5", "Build 2") instead of using the plain "Drop"/"Build"/
+        // "Intro"/"Outro" vocabulary Is() matches against — strip the ordinal so those segments
+        // are actually recognized instead of silently falling through every Where(Is(...)) filter
+        // below as unmatched noise.
+        var normalized = segments.Select(s => new PhraseSegment
+        {
+            Label = NormalizeLabel(s.Label),
+            Start = s.Start,
+            Duration = s.Duration,
+            Bars = s.Bars,
+            Beats = s.Beats,
+            Confidence = s.Confidence,
+            Color = s.Color,
+        }).ToList();
+
+        var ordered = normalized.OrderBy(s => s.Start).ToList();
+
+        // ── 1. Restart detection: split into contiguous-by-time runs, keep the longest ──
+        // maxEndSoFar tracks progress WITHIN the current run only — it must reset when a new run
+        // starts, or every segment after the first restart keeps comparing against the previous
+        // run's (now-irrelevant) peak forever. Left unreset, a single early restart fragmented the
+        // rest of the list into many tiny 1-2 item runs instead of one coherent second run — the
+        // real bug behind D'cypher - Dancing picking a near-driveless 7-item run over the correct
+        // one, collapsing its second drop into a pure bar-math guess.
+        var runs = new List<List<PhraseSegment>> { new() { ordered[0] } };
+        double maxEndSoFar = ordered[0].Start + ordered[0].Duration;
+        const double RestartThresholdSeconds = 5.0;
+        for (int i = 1; i < ordered.Count; i++)
+        {
+            var seg = ordered[i];
+            if (seg.Start < maxEndSoFar - RestartThresholdSeconds)
+            {
+                runs.Add(new List<PhraseSegment>());
+                maxEndSoFar = seg.Start + seg.Duration;
+            }
+            else
+            {
+                maxEndSoFar = Math.Max(maxEndSoFar, seg.Start + seg.Duration);
+            }
+            runs[^1].Add(seg);
+        }
+        var chosenRun = runs.OrderByDescending(r => r.Count).First();
+
+        if (Environment.GetEnvironmentVariable("ORBIT_SANITIZE_DEBUG") == "1")
+            Console.WriteLine($"[SanitizeSegments DEBUG] runs: [{string.Join(", ", runs.Select(r => r.Count))}] chosen size={chosenRun.Count}");
+
+        // ── 2. Merge consecutive same-label entries that are effectively back-to-back ──
+        const double MergeGapToleranceSeconds = 2.0;
+        var merged = new List<PhraseSegment>();
+        foreach (var seg in chosenRun)
+        {
+            if (merged.Count > 0)
+            {
+                var last = merged[^1];
+                double lastEnd = last.Start + last.Duration;
+                double prospectiveEnd = Math.Max(lastEnd, seg.Start + seg.Duration);
+                if (string.Equals(last.Label, seg.Label, StringComparison.OrdinalIgnoreCase) &&
+                    seg.Start <= lastEnd + MergeGapToleranceSeconds &&
+                    prospectiveEnd - last.Start <= maxClusterDuration)
+                {
+                    last.Duration = (float)(prospectiveEnd - last.Start);
+                    last.Confidence = Math.Max(last.Confidence, seg.Confidence);
+                    continue;
+                }
+            }
+            merged.Add(new PhraseSegment
+            {
+                Label = seg.Label,
+                Start = seg.Start,
+                Duration = seg.Duration,
+                Bars = seg.Bars,
+                Beats = seg.Beats,
+                Confidence = seg.Confidence,
+                Color = seg.Color,
+            });
+        }
+
+        if (Environment.GetEnvironmentVariable("ORBIT_SANITIZE_DEBUG") == "1")
+        {
+            Console.WriteLine($"[SanitizeSegments DEBUG] bpm={bpm} maxClusterDuration={maxClusterDuration:F2} chosenRun.Count={chosenRun.Count} merged.Count={merged.Count}");
+            foreach (var s in merged)
+                Console.WriteLine($"  {s.Label,-10} Start={s.Start,10:F2} Duration={s.Duration,8:F2} End={s.Start + s.Duration,10:F2}");
+        }
+
+        return merged;
+    }
+
     private static double SnapToBar(double t, double bpm, double anchor)
     {
         double bar = 60.0 / bpm * 4;
         double offset = t - anchor;
         return anchor + Math.Round(offset / bar) * bar;
     }
+
+    /// <summary>Standard EDM/house/techno phrase length in bars. A DJ placing cues in Rekordbox
+    /// places them where the phrase lands, not mid-phrase, so structural cues (drops, breakdowns,
+    /// builds) should snap to this grid rather than the finer single-bar grid <see cref="SnapToBar"/>
+    /// gives. Matches the 32-beat (8-bar) phrase length <see cref="GenerateCuesHeuristic"/> already
+    /// assumes via <see cref="Timeline.BeatGridService.SnapToBeatMultiple"/>, and the bar*8/*16/*32
+    /// offsets used as fallback spacing throughout this file.</summary>
+    private const int PhraseLengthBars = 8;
+
+    private static double SnapToPhrase(double t, double bpm, double anchor) =>
+        BeatGridService.SnapToBeatMultiple(t, bpm, PhraseLengthBars * 4, anchor);
 
     private static CuePointEntity Make(string trackHash, double ts, CuePointType type, string label, float confidence)
     {

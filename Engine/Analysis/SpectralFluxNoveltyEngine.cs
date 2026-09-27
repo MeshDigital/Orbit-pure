@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using NWaves.Transforms;
 using NWaves.Windows;
 
@@ -93,6 +94,40 @@ public sealed class SpectralFluxNoveltyEngine
                 flux[i] /= maxVal;
 
         return flux;
+    }
+
+    /// <summary>
+    /// Scales a novelty curve by how its corresponding broadband RMS energy compares to the
+    /// track's own mean broadband energy — so a spectrally-busy-but-quiet moment (a riser,
+    /// snare roll, or hi-hat rush during a breakdown) can't out-score a genuinely loud transient
+    /// elsewhere in the track just because it changed a lot relative to its own recent past.
+    /// <see cref="SubtractLocalMean"/> only ever compares novelty to a ±1s local window, with no
+    /// track-wide reference at all — this closes that gap without changing the core flux/novelty
+    /// math itself, so it's applied as a separate, independently testable step.
+    /// </summary>
+    public static float[] ApplyGlobalEnergyGate(
+        float[] novelty, double hopSeconds, float[] broadbandEnergyCurve, double energyCurveWindowSeconds)
+    {
+        if (novelty == null || novelty.Length == 0) return novelty ?? Array.Empty<float>();
+        if (broadbandEnergyCurve == null || broadbandEnergyCurve.Length == 0 || energyCurveWindowSeconds <= 0)
+            return novelty;
+
+        float trackMeanRms = broadbandEnergyCurve.Average();
+        if (trackMeanRms < 1e-6f) return novelty;
+
+        var gated = new float[novelty.Length];
+        for (int i = 0; i < novelty.Length; i++)
+        {
+            double timeSeconds = i * hopSeconds;
+            int energyIndex = (int)(timeSeconds / energyCurveWindowSeconds);
+            energyIndex = Math.Clamp(energyIndex, 0, broadbandEnergyCurve.Length - 1);
+
+            float relativeRms = broadbandEnergyCurve[energyIndex] / trackMeanRms;
+            float scale = Math.Clamp(relativeRms, 0.25f, 1.75f);
+            gated[i] = novelty[i] * scale;
+        }
+
+        return gated;
     }
 
     /// <summary>

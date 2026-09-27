@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.VisualTree;
 using SLSKDONET.ViewModels;
@@ -39,12 +40,35 @@ public partial class FlowBuilderView : UserControl
 
     private void OnCardDragOver(object? sender, DragEventArgs e)
     {
-        e.DragEffects = e.Data.Contains("FlowCard") ? DragDropEffects.Move : DragDropEffects.None;
+        bool canDrop = e.Data.Contains("FlowCard");
+        e.DragEffects = canDrop ? DragDropEffects.Move : DragDropEffects.None;
+
+        // MoveCardToIndex already worked when a drop landed, but nothing showed WHERE it would
+        // land while dragging — toggle the same "drag-over" highlight WorkstationDeckRow's drop
+        // zone already uses.
+        if (sender is Border border)
+        {
+            border.Classes.Set("drag-over", canDrop);
+        }
+
         e.Handled = true;
+    }
+
+    private void OnCardDragLeave(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Border border)
+        {
+            border.Classes.Remove("drag-over");
+        }
     }
 
     private void OnCardDrop(object? sender, DragEventArgs e)
     {
+        if (sender is Border border)
+        {
+            border.Classes.Remove("drag-over");
+        }
+
         if (!e.Data.Contains("FlowCard")) return;
         if (sender is not Visual visual) return;
 
