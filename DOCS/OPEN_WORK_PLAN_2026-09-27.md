@@ -212,13 +212,21 @@ phrase markers every 8 bars through the intro (bars 1/9/17/25/33), not countdown
 1. **The phrase path.** It carries about 80% of drops and is the weakest link. The "Heuristic"
    structure segments are rigid 16-bar blocks with odd "Drop" labels (traced on Canned Heat and
    Omen).
+   - *Tried 2026-09-27:* rebuilding the stored Heuristic segments with the corrected BPM, with the
+     phrase grid counted from 0 s or from the downbeat. Both are neutral within ±3 points and
+     trade Drop 1 against Drop 2, because the Heuristic drop times come from energy novelty
+     (`StructuralAnalysisEngine.FindDrops`), not the grid. Reverted.
+   - *Next idea:* improve `FindDrops` itself. For example, score candidates with the sub-bass
+     return signal and require a preceding dropout, rather than relying on 1-second RMS novelty only.
 2. H2, H3 (decide the layout), and C2.
 3. H4/H5, depending on the numbers.
 
 ## A. Broken now: users see something that doesn't work
 These come first. Most are small, and every one is a visible bug.
 
-- [ ] **A1. About 12 warning and error toasts never show up.** `NotificationEvent`
+- [x] **A1. Done 2026-09-27:** `MainViewModel` now forwards `NotificationEvent` to the same toast
+  path as `ToastRequestedEvent`, which fixes all 12 publishers at once. *Original:* **About 12
+  warning and error toasts never show up.** `NotificationEvent`
   (`Services/NotificationEvent.cs:7`) has no subscriber. The toasts that work use
   `ToastRequestedEvent` (`Views/MainViewModel.cs:367`). Messages lost this way:
   - Session Conflict: `ConnectionLifecycleService.cs:315,401,581`
@@ -228,14 +236,24 @@ These come first. Most are small, and every one is a visible bug.
 
   *Investigate:* should `NotificationEvent` forward to `ShowToast`, or should its publishers switch to
   `ToastRequestedEvent`? **S**
-- [ ] **A2. The Download Center "Find Similar" button does nothing.** `StandardTrackRow.axaml:558` →
+- [x] **A2. Done 2026-09-27:** both Find Similar commands now send the same
+  `FindSimilarTrackRequestEvent` as the Library (it opens the app-wide Similar Tracks panel). The
+  dead `FindSimilarRequestEvent` was deleted. *Original:* **The Download Center "Find Similar" button
+  does nothing.** `StandardTrackRow.axaml:558` →
   `UnifiedTrackViewModel.cs:617` publishes `FindSimilarRequestEvent`, but that event's subscriber
   was removed (`SearchViewModel.cs:456`). The `FindSimilarAiCommand` at `UnifiedTrackViewModel.cs:521`
   has the same cause. *Investigate:* point it at the Library similarity path, or remove the button. **S**
-- [ ] **A3. Library inspector "Search Again" cancels the track but never starts a new search.**
+- [x] **A3. Done 2026-09-27:** "Search Again" now hard-retries the track: it resets to Pending with a
+  clean state and gets a fresh search. The dead `ManualSearchRequestEvent` was deleted. *Original:*
+  **Library inspector "Search Again" cancels the track but never starts a new search.**
   `LibraryTrackInspector.axaml:446` → `UnifiedTrackViewModel.cs:383` publishes
   `ManualSearchRequestEvent`, which has no subscriber. *Investigate:* call DownloadManager directly. **S**
-- [ ] **A4. When no stem separator is available, the app returns silent files as a success.**
+- [x] **A4. Done 2026-09-27: it wasn't a live bug.** The service with the silent fallback,
+  `Services/StemSeparationService.cs`, wasn't registered in DI or created anywhere. The app separates
+  stems through `DemucsOnnxSeparator` → `CachedStemSeparator` → `StemSeparationServiceAdapter`. It
+  was deleted together with its only consumer, `BatchStemExportService` (also dead; see C4), and its
+  tests. *Original:* **When no stem separator is available, the app returns silent files as a
+  success.**
   `StemSeparationService.cs:99-100` writes silent mock WAVs if both ONNX and Spleeter are missing.
   *Investigate:* confirm which separator the service really calls (is it `DemucsOnnxSeparator`?),
   then return a real error that the user sees. **M**
@@ -250,8 +268,13 @@ These come first. Most are small, and every one is a visible bug.
   crashes when a track is selected, and it has no art column or header controls.
   *Decide:* finish it (test with an isolated config, never the live one) or delete the flag. **S to
   delete, M to finish**
-- [ ] **A7. Settings saves with no confirmation.** There's a TODO toast at `SettingsViewModel.cs:2323`. **S**
-- [ ] **A8. Check whether `CleanCommand` really deletes.** `UnifiedTrackViewModel.cs:390-393` is
+- [x] **A7. Done 2026-09-27:** the explicit Save button shows a "Settings saved" toast. Auto-saves
+  (60+ call sites) stay silent, but a failed save now shows an error toast from any path.
+  *Original:* **Settings saves with no confirmation.** There's a TODO toast at `SettingsViewModel.cs:2323`. **S**
+- [x] **A8. Done 2026-09-27:** it really did delete: the file on disk plus history, library and
+  playlist rows, with no confirmation. It was also unbound, so the command was removed instead of
+  being left for someone to wire up by accident. *Original:* **Check whether `CleanCommand` really
+  deletes.** `UnifiedTrackViewModel.cs:390-393` is
   commented "might be a placeholder" but calls `DeleteTrackFromDiskAndHistoryAsync`. **S**
 
 ## B. Built but can't be reached: decide to wire up or delete
@@ -324,7 +347,8 @@ These come first. Most are small, and every one is a visible bug.
   maximum. **M**
 - [ ] **C3. Album-mode search.** `SoulseekAdapter.cs:1487` finds candidate album directories, logs them,
   and does nothing else. **L**
-- [ ] **C4. 5-stem instrumental export.** `BatchStemExportService.cs:70` only works if an
+- [x] **C4. Closed 2026-09-27:** `BatchStemExportService` was never registered or called, so it was
+  deleted along with A4. *Original:* **5-stem instrumental export.** `BatchStemExportService.cs:70` only works if an
   `accompaniment.wav` already exists. **S–M**
 - [ ] **C5. Discovery: "Recordings by Producer".** It's only a TODO (`DiscoveryBridgeService.cs:77`), and
   the service may have no callers. The Spotify Hub "Phase 7" is placeholder comments
@@ -409,7 +433,15 @@ says every DI registration is referenced somewhere. Check each item with a grep 
 - [ ] **E2. The finalizer thread spends 29% of its time in `SKNativeObject.Finalize`.** The cause may be
   artwork bitmaps not being disposed. *Investigate:* take a profile trace. **M**
 - [ ] **E3. No test checks that the library grid handles 50k tracks.** **S–M**
-- [ ] **E4. Flaky tests in full-suite runs.** A different handful fails on each full run and all pass
+- [x] **E4. Done 2026-09-27.**
+  - `BackgroundJobQueueTests` now wait for the actual progress events instead of fixed sleeps, and
+    collect them in a thread-safe queue.
+  - That class, `DownloadCenterSoftClearContractTests` and `AnalysisPageViewModelTests` share global
+    state (the RxApp schedulers, Avalonia's Dispatcher), so they run in a non-parallel xUnit
+    collection (`Tests/SLSKDONET.Tests/NonParallelCollection.cs`).
+  - Result: 3 full runs in a row, all green. The suite now takes 22 s instead of 12 s.
+
+  *Original:* **Flaky tests in full-suite runs.** A different handful fails on each full run and all pass
   when run on their own, which points to shared state or timing under parallel load. Seen so far:
   - `BackgroundJobQueueTests` (the worker concurrency and completion tests)
   - `DownloadCenterSoftClearContractTests`

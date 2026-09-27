@@ -13,6 +13,7 @@ using Xunit;
 
 namespace SLSKDONET.Tests.ViewModels;
 
+[Collection(NonParallelCollection.Name)]
 public class AnalysisPageViewModelTests : IDisposable
 {
     private readonly EventBusService _bus = new();

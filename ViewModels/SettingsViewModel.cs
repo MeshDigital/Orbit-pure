@@ -1904,7 +1904,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             _config.SpotifyClientSecret = ""; 
         }
 
-        SaveSettingsCommand = new RelayCommand(SaveSettings);
+        SaveSettingsCommand = new RelayCommand(SaveSettingsWithConfirmation);
         BrowseDownloadPathCommand = new AsyncRelayCommand(BrowseDownloadPathAsync);
         BrowseSharedFolderCommand = new AsyncRelayCommand(BrowseSharedFolderAsync);
         BrowseFrequentSourcesStagingPathCommand = new AsyncRelayCommand(BrowseFrequentSourcesStagingPathAsync);
@@ -2314,19 +2314,30 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _logger.LogInformation("Settings reset to defaults");
     }
 
-    private void SaveSettings()
+    // Every setting auto-saves on change (60+ call sites), so only the explicit Save button confirms
+    // with a toast; a failure is reported from any path, since a silently unsaved setting is worse.
+    private bool SaveSettings()
     {
         try
         {
             _configManager.Save(_config);
             _ = ApplySoulseekRuntimeConfigurationAsync();
-            // TODO: Show toast notification?
             _logger.LogInformation("Settings saved");
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save settings");
+            _eventBus.Publish(new ToastRequestedEvent(
+                "Settings not saved", $"Could not write the settings file: {ex.Message}", NotificationType.Error, TimeSpan.FromSeconds(8)));
+            return false;
         }
+    }
+
+    private void SaveSettingsWithConfirmation()
+    {
+        if (SaveSettings())
+            _eventBus.Publish(new ToastRequestedEvent("Settings saved", "Your settings were saved.", NotificationType.Success, TimeSpan.FromSeconds(3)));
     }
 
     private async Task ApplySoulseekRuntimeConfigurationAsync()
