@@ -11,8 +11,32 @@ namespace SLSKDONET.Views.Avalonia.Controls;
 /// Lightweight Canvas-rendered sparkline that plots a data series as a line + fill area.
 /// Bind <see cref="Values"/> to speed history or <see cref="Points"/> to energy curves.
 /// </summary>
-public sealed class SparklineControl : Control
+public sealed class SparklineControl : Control, global::Avalonia.Rendering.ICustomHitTest
 {
+    // Built geometry/pen are cached and only rebuilt when the data, size, or styling changes —
+    // Render runs every time a recycled tracklist row is re-bound while scrolling, and each new
+    // StreamGeometry/Pen wraps a native Skia object left for the finalizer.
+    private StreamGeometry? _fillGeometry;
+    private StreamGeometry? _lineGeometry;
+    private IPen? _pen;
+    private IReadOnlyList<double>? _builtFor;
+    private double _builtFingerprint;
+    private Size _builtSize;
+
+    private static double Fingerprint(IReadOnlyList<double> values)
+    {
+        double h = values.Count;
+        for (int i = 0; i < values.Count; i++) h = h * 1.000003 + values[i] * (i + 1);
+        return h;
+    }
+
+    /// <summary>
+    /// Rectangle hit-test: without this, Avalonia hit-tests against the stroked path itself
+    /// (StrokeContains builds a stroked outline) on every pointer move over a row. The tooltip only
+    /// needs "is the pointer over this control".
+    /// </summary>
+    public bool HitTest(Point point) => new Rect(Bounds.Size).Contains(point);
+
     public static readonly StyledProperty<IReadOnlyList<double>?> ValuesProperty =
         AvaloniaProperty.Register<SparklineControl, IReadOnlyList<double>?>(nameof(Values));
 
@@ -63,7 +87,14 @@ public sealed class SparklineControl : Control
 
     static SparklineControl()
     {
-        AffectsRender<SparklineControl>(ValuesProperty, PointsProperty, LineBrushProperty, FillBrushProperty);
+        AffectsRender<SparklineControl>(ValuesProperty, PointsProperty, LineBrushProperty, FillBrushProperty, LineThicknessProperty);
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property == LineBrushProperty || change.Property == LineThicknessProperty)
+            _pen = null;
     }
 
     public override void Render(DrawingContext ctx)
@@ -91,58 +122,82 @@ public sealed class SparklineControl : Control
         var values = Points ?? Values;
         if (values is null || values.Count < 2) return;
 
-        var w = Bounds.Width;
-        var h = Bounds.Height;
-        if (w <= 0 || h <= 0) return;
+        var size = Bounds.Size;
+        if (size.Width <= 0 || size.Height <= 0) return;
 
-        double min = values.Min();
-        double max = values.Max();
+        // Keyed on content as well as reference: some callers (download speed histories) mutate a
+        // fixed array in place and re-raise PropertyChanged with the same instance.
+        var fingerprint = Fingerprint(values);
+        if (_lineGeometry is null || !ReferenceEquals(values, _builtFor) || fingerprint != _builtFingerprint || size != _builtSize)
+        {
+            BuildGeometry(values, size);
+            _builtFor = values;
+            _builtFingerprint = fingerprint;
+            _builtSize = size;
+        }
+
+        // Flat caps/bevel joins: round ones are markedly more expensive to stroke and invisible at
+        // a ~1px line width.
+        _pen ??= new Pen(LineBrush, LineThickness) { LineCap = PenLineCap.Flat, LineJoin = PenLineJoin.Bevel };
+
+        if (FillBrush is not null && _fillGeometry is not null)
+            ctx.DrawGeometry(FillBrush, null, _fillGeometry);
+        ctx.DrawGeometry(null, _pen, _lineGeometry!);
+    }
+
+    private void BuildGeometry(IReadOnlyList<double> values, Size size)
+    {
+        var w = size.Width;
+        var h = size.Height;
+
+        // At most ~1 point per pixel of width — callers bind series with thousands of samples
+        // (a whole-track waveform) to a chart only tens of pixels wide; anything beyond that is
+        // invisible but was still stroked every frame.
+        var sampled = Downsample(values, Math.Max(2, (int)Math.Ceiling(w)));
+
+        double min = sampled.Min();
+        double max = sampled.Max();
         double range = max - min;
         if (range < 1e-9) range = 1.0;
 
-        var pen = new Pen(LineBrush, LineThickness)
-        {
-            LineCap = PenLineCap.Round,
-            LineJoin = PenLineJoin.Round
-        };
-
-        var n = values.Count;
+        var n = sampled.Count;
         var xStep = w / (n - 1);
+        double Y(int i) => h - ((sampled[i] - min) / range) * h;
 
-        // Area fill geometry
-        if (FillBrush is not null)
+        _fillGeometry = new StreamGeometry();
+        using (var gc = _fillGeometry.Open())
         {
-            var fillGeo = new StreamGeometry();
-            using (var gc = fillGeo.Open())
-            {
-                gc.BeginFigure(new Point(0, h), true);
-                for (int i = 0; i < n; i++)
-                {
-                    double x = i * xStep;
-                    double y = h - ((values[i] - min) / range) * h;
-                    gc.LineTo(new Point(x, y));
-                }
-                gc.LineTo(new Point((n - 1) * xStep, h));
-                gc.EndFigure(true);
-            }
-            ctx.DrawGeometry(FillBrush, null, fillGeo);
+            gc.BeginFigure(new Point(0, h), true);
+            for (int i = 0; i < n; i++) gc.LineTo(new Point(i * xStep, Y(i)));
+            gc.LineTo(new Point((n - 1) * xStep, h));
+            gc.EndFigure(true);
         }
 
-        // Line geometry
-        var geo = new StreamGeometry();
-        using (var gc = geo.Open())
+        _lineGeometry = new StreamGeometry();
+        using (var gc = _lineGeometry.Open())
         {
-            for (int i = 0; i < n; i++)
-            {
-                double x = i * xStep;
-                double y = h - ((values[i] - min) / range) * h;
-                if (i == 0) gc.BeginFigure(new Point(x, y), false);
-                else gc.LineTo(new Point(x, y));
-            }
+            gc.BeginFigure(new Point(0, Y(0)), false);
+            for (int i = 1; i < n; i++) gc.LineTo(new Point(i * xStep, Y(i)));
             gc.EndFigure(false);
         }
+    }
 
-        ctx.DrawGeometry(null, pen, geo);
+    /// <summary>Bucket-averages <paramref name="values"/> down to at most <paramref name="maxPoints"/>.</summary>
+    internal static IReadOnlyList<double> Downsample(IReadOnlyList<double> values, int maxPoints)
+    {
+        var len = values.Count;
+        if (len <= maxPoints) return values;
+
+        var result = new double[maxPoints];
+        for (int o = 0; o < maxPoints; o++)
+        {
+            var start = (int)((long)o * len / maxPoints);
+            var end = Math.Max(start + 1, (int)((long)(o + 1) * len / maxPoints));
+            double sum = 0;
+            for (int i = start; i < end; i++) sum += values[i];
+            result[o] = sum / (end - start);
+        }
+        return result;
     }
 }
 

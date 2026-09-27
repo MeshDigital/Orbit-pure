@@ -2024,23 +2024,57 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         OnPropertyChanged(nameof(DetailedStatusText));
     }
 
+    // Every consumer is a small chart (the tracklist sparkline is ~75px wide, the inspector bar a
+    // few hundred), but the waveform arrays hold 1,000–5,000+ samples per track. Drawing all of
+    // them in every visible row was the dominant render-thread cost when scrolling large playlists.
+    private const int MaxEnergyCurvePoints = 256;
+
+    private byte[]? _energyCurveLowSource, _energyCurveMidSource, _energyCurveHighSource;
+    private IReadOnlyList<double> _energyCurveCache = Array.Empty<double>();
+
+    /// <summary>Cached: this is read on every binding evaluation (and by HasAnalysisData just to
+    /// check Count), so rebuilding it per read allocated a multi-thousand-element array each time.
+    /// Recomputed only when the underlying waveform arrays are replaced.</summary>
     private IReadOnlyList<double> BuildEnergyCurvePoints()
     {
-        var low = WaveformData.LowData ?? Array.Empty<byte>();
-        var mid = WaveformData.MidData ?? Array.Empty<byte>();
-        var high = WaveformData.HighData ?? Array.Empty<byte>();
+        var low = WaveformData.LowData;
+        var mid = WaveformData.MidData;
+        var high = WaveformData.HighData;
+        if (ReferenceEquals(low, _energyCurveLowSource) &&
+            ReferenceEquals(mid, _energyCurveMidSource) &&
+            ReferenceEquals(high, _energyCurveHighSource))
+        {
+            return _energyCurveCache;
+        }
+
+        _energyCurveLowSource = low;
+        _energyCurveMidSource = mid;
+        _energyCurveHighSource = high;
+        _energyCurveCache = ComputeEnergyCurve(low ?? Array.Empty<byte>(), mid ?? Array.Empty<byte>(), high ?? Array.Empty<byte>());
+        return _energyCurveCache;
+    }
+
+    internal static IReadOnlyList<double> ComputeEnergyCurve(byte[] low, byte[] mid, byte[] high)
+    {
         var len = Math.Max(low.Length, Math.Max(mid.Length, high.Length));
         if (len == 0) return Array.Empty<double>();
 
-        var points = new double[len];
-        for (var i = 0; i < len; i++)
+        var outCount = Math.Min(len, MaxEnergyCurvePoints);
+        var points = new double[outCount];
+        for (var o = 0; o < outCount; o++)
         {
+            // Average every sample (all three bands) that falls into this output bucket.
+            var start = (int)((long)o * len / outCount);
+            var end = (int)((long)(o + 1) * len / outCount);
             double sum = 0;
             int count = 0;
-            if (i < low.Length) { sum += low[i] / 255.0; count++; }
-            if (i < mid.Length) { sum += mid[i] / 255.0; count++; }
-            if (i < high.Length) { sum += high[i] / 255.0; count++; }
-            points[i] = count > 0 ? sum / count : 0;
+            for (var i = start; i < end; i++)
+            {
+                if (i < low.Length) { sum += low[i] / 255.0; count++; }
+                if (i < mid.Length) { sum += mid[i] / 255.0; count++; }
+                if (i < high.Length) { sum += high[i] / 255.0; count++; }
+            }
+            points[o] = count > 0 ? sum / count : 0;
         }
 
         return points;
