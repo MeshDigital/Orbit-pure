@@ -227,8 +227,12 @@
 
                 <!-- Direct cue picker — click "Outro" (or any analyzed cue) to set the mix-out
                      trigger there instead of hunting for its line on the waveform. -->
-                <controls:TrackCueEditorStrip Grid.Row="2" DataContext="{Binding OutgoingEditor}"
-                                              IsVisible="{Binding $parent[controls:MixPreviewComponent].DataContext.IsCueEditMode}"/>
+                <!-- Visibility on a wrapper (DataContext = MixTransitionViewModel) rather than on the strip
+                     itself: the strip's DataContext is the deck editor, and a $parent[type] lookup
+                     fails at runtime here (it crashed startup). -->
+                <Panel Grid.Row="2" IsVisible="{Binding IsCueEditMode}">
+                    <controls:TrackCueEditorStrip DataContext="{Binding OutgoingEditor}"/>
+                </Panel>
                 <ItemsControl Grid.Row="2" ItemsSource="{Binding OutgoingCues}" Margin="0,4,0,0" IsVisible="{Binding !IsCueEditMode}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
@@ -317,8 +321,12 @@
                      (vs. a populated row above for Outgoing) means this track's cues genuinely
                      haven't loaded/been analyzed — a real, visible signal instead of a silently
                      blank waveform. -->
-                <controls:TrackCueEditorStrip Grid.Row="2" DataContext="{Binding IncomingEditor}"
-                                              IsVisible="{Binding $parent[controls:MixPreviewComponent].DataContext.IsCueEditMode}"/>
+                <!-- Visibility on a wrapper (DataContext = MixTransitionViewModel) rather than on the strip
+                     itself: the strip's DataContext is the deck editor, and a $parent[type] lookup
+                     fails at runtime here (it crashed startup). -->
+                <Panel Grid.Row="2" IsVisible="{Binding IsCueEditMode}">
+                    <controls:TrackCueEditorStrip DataContext="{Binding IncomingEditor}"/>
+                </Panel>
                 <ItemsControl Grid.Row="2" ItemsSource="{Binding IncomingCues}" Margin="0,4,0,0" IsVisible="{Binding !IsCueEditMode}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
