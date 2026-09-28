@@ -22,7 +22,7 @@ Added on 2026-09-27 after comparing an outside write-up (EDM phrasing, sub-bass 
 flux, onset density, an 8-pad cue template) with `Engine/Cueing/CueGenerationService.cs`.
 
 **Already covered by the current engine:**
-- A 3-path priority: EDMFormer/Rekordbox phrase segments → DSP (sub-bass return + spectral flux +
+- A 3-path priority: Rekordbox/Heuristic phrase segments → DSP (sub-bass return + spectral flux +
   broadband RMS jumps + genre-family candidates) → heuristic.
 - Bars → seconds conversion and snapping to 8-bar phrases.
 - Genre-family weighting (breakbeat vs four-on-the-floor).
@@ -203,8 +203,8 @@ phrase markers every 8 bars through the intro (bars 1/9/17/25/33), not countdown
   **M**
 - [ ] **H6. Related items elsewhere in this plan that feed the same engine:**
   - **A5:** the aggressive-mood signal is always zero, so the intent classifier's boost is dead.
-  - **C2:** EDMFormer confidence is hardcoded to 0.9, so the phrase path can't be weighed against
-    the DSP path.
+  - ~~**C2:** EDMFormer confidence is hardcoded to 0.9, so the phrase path can't be weighed against
+    the DSP path.~~ (removed with EDMFormer)
 
   Do both as part of this section. **S + M**
 
@@ -227,7 +227,7 @@ phrase markers every 8 bars through the intro (bars 1/9/17/25/33), not countdown
      (`StructuralAnalysisEngine.FindDrops`), not the grid. Reverted.
    - *Next idea:* improve `FindDrops` itself. For example, score candidates with the sub-bass
      return signal and require a preceding dropout, rather than relying on 1-second RMS novelty only.
-2. H2, H3 (decide the layout), and C2.
+2. H2 and H3 (decide the layout).
 3. H4/H5, depending on the numbers.
 
 ## A. Broken now: users see something that doesn't work
@@ -364,7 +364,7 @@ These come first. Most are small, and every one is a visible bug.
 - [ ] **C1. Double Drop during live playback.** Double Drop only works in the offline preview.
   `AudioPlayerService` has its own real-time chain and no Double Drop. This was deferred from the
   2026-09-19 mix-flow plan. **M–L**
-- [ ] **C2. EDMFormer confidence is hardcoded.** `EdmFormerService.cs:143` sets `0.9f`, and
+- [x] **C2. EDMFormer confidence is hardcoded.** *Closed 2026-09-28: EDMFormer removed entirely.* `EdmFormerService.cs:143` sets `0.9f`, and
   `Tools/edmformer_server.py:283` returns no probability. *Finish:* return the per-segment softmax
   maximum. **M**
 - [ ] **C3. Album-mode search.** `SoulseekAdapter.cs:1487` finds candidate album directories, logs them,
@@ -452,7 +452,7 @@ says every DI registration is referenced somewhere. Check each item with a grep 
     `SearchHardCapTriggeredEvent`, `SharedFilesStatusEvent`, `TransferFinished/Failed/CancelledEvent`.
   - *Decide per event:* delete it, or keep it as telemetry.
 - [ ] **D5. The duplicate MP3-fallback setting** exists as two ViewModel properties for one config field. **S**
-- [ ] **D6. `Tools/EDMFormer` repo hygiene.**
+- [x] **D6. `Tools/EDMFormer` repo hygiene.** *Closed 2026-09-28: gitlink, scripts and local clone removed.*
   - `git submodule status` fails because `.gitmodules` has no mapping for it.
   - Its `requirements.txt` is modified.
   - A `.safetensors` checkpoint in it is untracked.

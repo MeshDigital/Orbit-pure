@@ -17,7 +17,7 @@ namespace SLSKDONET.Engine.Cueing;
 public enum CueGenerationPath
 {
     None,
-    /// <summary>Path 1: phrase segments (EDMFormer / RekordboxPSSI / Heuristic structure).</summary>
+    /// <summary>Path 1: phrase segments (Rekordbox PSSI or heuristic structure).</summary>
     PhraseSegments,
     /// <summary>Phrase segments existed but were rejected (too few drops / low coverage) in favour of DSP.</summary>
     DspPhraseRejected,
@@ -31,7 +31,7 @@ public enum CueGenerationPath
 /// Generates and persists the 8 standard structural DJ cues for a track.
 ///
 /// Priority system:
-///   1. EDMFormer phrase segments (ML-grade, from local microservice)  — best accuracy
+///   1. Phrase segments (Rekordbox's own analysis, or heuristic sections) — best accuracy
 ///   2. Sub-bass return + spectral flux novelty signatures             — DSP-grade
 ///   3. Heuristic transient clustering with IntentClassifier           — fallback
 ///
@@ -134,7 +134,7 @@ public sealed class CueGenerationService
 
         bool dspSignalsAvailable = analysis.SubBassReturnTimestamps.Count >= 1 || analysis.NoveltyDropSignatures.Count >= 1;
 
-        // ── Path 1: EDMFormer ML phrase segments ───────────────────────────
+        // ── Path 1: phrase segments (Rekordbox PSSI / heuristic structure) ──
         if (analysis.PhraseSegments is { Count: >= 2 })
         {
             var sanitized = SanitizeSegments(analysis.PhraseSegments, bpm);
@@ -216,7 +216,7 @@ public sealed class CueGenerationService
         // pay for it twice.
         double bar = 60.0 / bpm * 4;
 
-        // Collect typed segment starts (ML confidence = 0.9 from EdmFormerService)
+        // Collect typed segment starts
         var intros = segments.Where(s => Is(s, "Intro")).ToList();
         var outros = segments.Where(s => Is(s, "Outro")).ToList();
 

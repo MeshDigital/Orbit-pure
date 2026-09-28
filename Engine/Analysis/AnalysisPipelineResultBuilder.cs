@@ -30,8 +30,7 @@ public static class AnalysisPipelineResultBuilder
             Genre = !string.IsNullOrWhiteSpace(f.DetectedSubGenre) ? f.DetectedSubGenre : f.ElectronicSubgenre,
         };
 
-        // EDMFormer ML output, Rekordbox's own commercial phrase analysis (PSSI, via
-        // RekordboxPssiService), and the rule-based StructuralAnalysisEngine ("Heuristic") are all
+        // Rekordbox's own commercial phrase analysis (PSSI, via RekordboxPssiService) and the rule-based StructuralAnalysisEngine ("Heuristic") are all
         // trusted as "phrase segments" for GenerateCues' Path-1 priority gate. Heuristic was
         // previously excluded on the theory that it's the same weak signal the DSP path
         // (sub-bass/novelty) already improves on — but verified against real Rekordbox-cued
@@ -39,9 +38,8 @@ public static class AnalysisPipelineResultBuilder
         // track where it placed the real drop within 0.4s of the DJ's own hand-set cue) while the
         // DSP path it was supposedly deferring to had picked a completely different, wrong
         // section. CueGenerationService.SanitizeSegments normalizes Heuristic's ordinal-suffixed
-        // labels ("Drop 1", "Drop 5") down to the plain "Drop"/"Build"/etc. vocabulary the other
-        // two sources use.
-        if (f.PhraseSegmentsSource is "EDMFormer" or "RekordboxPSSI" or "Heuristic")
+        // labels ("Drop 1", "Drop 5") down to the plain "Drop"/"Build"/etc. vocabulary Rekordbox uses.
+        if (f.PhraseSegmentsSource is "RekordboxPSSI" or "Heuristic")
         {
             var phraseSegments = ParsePhraseSegments(f.PhraseSegmentsJson);
 

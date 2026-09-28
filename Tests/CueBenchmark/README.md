@@ -44,7 +44,7 @@ This is Rekordbox's automatic analysis, not a DJ's hand placement. But it's inde
 and industry-standard, which makes it a good large-scale check. Use the hand-cue reference for
 "what this DJ actually does".
 
-Experiment switch: `ORBIT_BENCH_PHRASE_SOURCES=EDMFormer,RekordboxPSSI` limits which stored phrase
+Experiment switch: `ORBIT_BENCH_PHRASE_SOURCES=RekordboxPSSI` limits which stored phrase
 sources may drive the phrase path. Leaving out `Heuristic` forces those tracks through the DSP path,
 which makes it a test bed for DSP changes.
 

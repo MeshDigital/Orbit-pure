@@ -867,7 +867,7 @@ public class ProjectListViewModel : INotifyPropertyChanged, IDisposable
     /// Re-maps cue points for every already-analysed track in the playlist, without re-running
     /// the full analysis pipeline. Previously this published a TrackAnalysisRequestedEvent per
     /// track — despite being labeled "Generate Auto-Cues", that queued a FULL re-analysis
-    /// (corruption scan, BPM/key/energy/vocal/embedding, EDMFormer) for every track just to get
+    /// (corruption scan, BPM/key/energy/vocal/embedding) for every track just to get
     /// at the cue-mapping step buried at the end of it — exactly what you'd want to avoid when
     /// only CueGenerationService's own logic changed. AnalyzeTrackStructureJob.RegenerateCuesOnlyAsync
     /// re-maps cues from each track's already-persisted analysis data instead — a DB round-trip

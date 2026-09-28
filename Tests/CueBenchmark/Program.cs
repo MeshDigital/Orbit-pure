@@ -174,7 +174,7 @@ foreach (var refTrack in reference)
         else Skip("(info) Rekordbox grid rejected (didn't match this audio)");
     }
 
-    // Experiment switch: ORBIT_BENCH_PHRASE_SOURCES=EDMFormer,RekordboxPSSI limits which stored phrase
+    // Experiment switch: ORBIT_BENCH_PHRASE_SOURCES=RekordboxPSSI limits which stored phrase
     // sources may drive Path 1 (default: all, as the app does).
     var allowedSources = Environment.GetEnvironmentVariable("ORBIT_BENCH_PHRASE_SOURCES");
     if (!string.IsNullOrEmpty(allowedSources) && !allowedSources.Split(',').Contains(f.PhraseSegmentsSource))

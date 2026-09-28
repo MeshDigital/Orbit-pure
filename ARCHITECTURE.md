@@ -479,7 +479,8 @@ classification, mood scoring, and similarity embeddings are computed directly in
 Runtime — in-process, no external service — rather than by re-enabling or replacing the Essentia
 binary. This mirrors the existing ONNX DirectML stem-separation provider's approach rather than
 introducing a new dependency shape (e.g. a Python microservice), since optional external
-dependencies have repeatedly gone unset-up in this codebase (see EDMFormer).
+dependencies have repeatedly gone unset-up in this codebase (EDMFormer, a Python phrase
+service, was removed on 2026-09-28 for exactly that reason).
 
 ```
 PCM samples (16 kHz mono)

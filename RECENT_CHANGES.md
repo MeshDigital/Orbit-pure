@@ -29,6 +29,7 @@ ORBIT's grid was no better than chance against a DJ's Rekordbox cues (52% of han
 - The aggressive-mood signal is no longer always zero.
 - Removed an unbound delete-without-confirmation command and an unused silent mock-stem service.
 - Fixed a startup crash from a cue-strip binding.
+- Removed EDMFormer, the optional Python phrase-detection service. It was never installed, and Rekordbox phrase data plus the built-in analysis already cover its job. The Settings "AI Engine" card and install scripts are gone.
 - Found and fixed the real cause of the random test-suite failures: a test replaced the app-wide ReactiveUI scheduler and disposed it without restoring the original.
 
 ### 📋 Open work
