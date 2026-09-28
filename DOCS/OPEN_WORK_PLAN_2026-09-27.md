@@ -208,6 +208,15 @@ phrase markers every 8 bars through the intro (bars 1/9/17/25/33), not countdown
 
   Do both as part of this section. **S + M**
 
+- [ ] **H7. Tune DnB drop detection against the DJ's own drops.**
+  - `Tests/CueBenchmark --user-drops --min-cues 1` scores auto drops against every Drop cue placed
+    or edited by hand.
+  - It has 2 tracks as of 2026-09-28; the DnB one is 45 s off.
+  - Once a few dozen DnB tracks have hand-set drops (the drop-countdown feature makes that quick),
+    tune the phrase and DSP drop picking against them. Keep only changes that improve the numbers.
+  - Idea to try: a hand-set drop could also become a phrase anchor for that track's other auto
+    cues. **M**
+
 **Order (revised 2026-09-27 evening):** H-BPM, H0b, A5, H1 and H-RBGRID are done.
 1. **The phrase path.** It carries about 80% of drops and is the weakest link. The "Heuristic"
    structure segments are rigid 16-bar blocks with odd "Drop" labels (traced on Canned Heat and
@@ -377,7 +386,16 @@ These come first. Most are small, and every one is a visible bug.
   anything changed. **S**
 - [ ] **C10. Non-Windows token storage** returns null (`WindowsTokenStorage.cs:120`). This only matters
   if cross-platform support is a goal. **M**
-- [ ] **C11. Cue Forge inside Flow Builder.** This needs a per-instance editor ViewModel with its own
+- [~] **C11. Mostly done 2026-09-27/28** (commits `aa5ab68`, `addfea7`, `8084d38`).
+  - `TrackCueEditorViewModel` is a per-deck cue editor that auditions through the preview player
+    instead of the main player.
+  - It's hosted in the Flow Builder transition editor, with Edit cues mode, auto-save,
+    Previous/Next and the set mini strip.
+  - Drop countdowns and arrow-key fine-tuning work in both editors.
+  - *Still open:* move Cue Forge itself onto `TrackCueEditorViewModel`, so there's one editor
+    everywhere (the user chose "later").
+
+  *Original:* **Cue Forge inside Flow Builder.** This needs a per-instance editor ViewModel with its own
   audition deck. The `CueForgeViewModel` singleton currently takes over the shared player
   (`CueForgeViewModel.cs:697,761-784`). **L**
 

@@ -109,6 +109,19 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Session Persistence**: Workstation state (loaded tracks, deck positions, active mode, timeline zoom/offset) is autosaved to `%APPDATA%\Antigravity\workstation-session.json` using atomic temp-file swap writes — survives crashes, power loss, and normal app close; fully restored on next launch including cue points and stem preferences
 - **Analyse Track**: Single-track audio analysis trigger from the library right-click context menu (`🔬 Analyse Track`)
 
+### Mix & Cue Workspace (Flow Builder)
+- **All-in-one transition editor**: click the ⇄ between two cards to open both decks' waveforms, transition presets and custom effects (EQ swap, echo, filter, Double Drop loop), mix-point picking and crossfade preview in one place
+- **Set navigation**: ◀ Previous / Next ▶ transition, "Transition N of M", and a mini strip of the whole set — click any ⇄ to jump to that transition
+- **In-place cue editing** (✏ Edit cues): drag cues on the waveform (snapped to the track's beat / bar / phrase grid), right-click to add, and edit name, role (with Rekordbox colour), hot-cue pad A–H or memory cue, colour, beat/bar nudges and 4/8/16-bar loops, with undo/redo; "⇥ Use as mix point" sets the transition from a cue, and the mix point follows a cue you drag
+- **Auto-save**: cue edits save when moving to another transition or closing the editor
+- **Play from a track**: the playlist Play button starts at the selected track; with **+ Mix** on, Play Track continues the mix from that track through the rest of the playlist with each pair's saved transition
+
+### Cue Tools
+- **Drop countdown cues**: setting a cue to Drop (or moving/renaming it) places "32 / 16 / 8 Bars to Drop" cues exactly that many bars before it — in Cue Forge and the Flow Builder cue editor. Setting: Auto (32/16/8 for DnB/breakbeat, 32/16 for house/techno), a fixed set, or Off (`[Cues] DropCountdownMode`)
+- **Fine-tune by ear**: ← → move the selected cue 1 beat, Shift 1 bar, Ctrl 10 ms; every press replays from the cue. In Flow Builder a playing mix pauses while you audition and resumes when the cues are saved
+- **Precise beat grids**: BPM and grid are fitted to the beat tracker's ticks (no more whole-number or wrongly doubled BPMs), the downbeat comes from the bass structure, and Rekordbox's own grid is used for tracks it has analysed
+- **Cue accuracy benchmark**: `Tests/CueBenchmark` scores auto cues against hand-placed Rekordbox cues, Rekordbox's own analysis, or your own hand-set drops
+
 ### AI Automix Engine
 - **Similarity Search**: Cosine-distance matching over 128-dim audio embeddings stored per-track — `SimilarityIndex` with 1-hour TTL cache and thread-safe lazy-load
 - **Playlist Optimization**: Greedy nearest-neighbour graph over Camelot distance, BPM delta, and EnergyScore with configurable per-factor weights (`PlaylistOptimizer`)

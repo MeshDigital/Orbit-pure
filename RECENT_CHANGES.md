@@ -2,6 +2,38 @@
 
 ---
 
+## [Unreleased] — 2026-09-27 / 2026-09-28
+
+### 🎯 Beat grids that match the music
+ORBIT's grid was no better than chance against a DJ's Rekordbox cues (52% of hand cues on a beat, 14% on a bar line). Stored BPMs were whole-number histogram bins, and DnB half-time readings were rounded before doubling, so a real 174 BPM track was stored as 178.
+- `BeatGridFitter` fits tempo and phase to the beat tracker's ticks (a consensus search, then least squares on the ticks that agree) and picks the downbeat from sub-bass returns and dropouts.
+- `BpmDetectionService` keeps Essentia's exact BPM instead of the rounded histogram value.
+- Rekordbox's own PQTZ beat grid is adopted when ORBIT's ticks line up with it.
+- A one-time background pass re-fitted the library, with a database backup first: 3,528 tracks updated, 538 of them from Rekordbox's grid.
+- Measured on hand cues: on-beat 52% → 92%, on-bar 14% → 77%, BPM within 0.1 of Rekordbox 5% → 86–91%.
+
+### 🎛️ Flow Builder becomes a mix & cue workspace
+- Edit cues in place in the transition editor: drag with snapping, add, rename, role, pad, colour, loop, nudge, undo, "use as mix point". Edits auto-save.
+- Previous / Next transition and a mini strip of the set.
+- Playlist Play starts at the selected track; with Mix on, Play Track continues the mix from that track.
+
+### ⏱ Drop countdowns and fine-tuning by ear
+- Setting or moving a Drop places 32/16/8-bar countdown cues before it. Auto picks by genre; configurable or off.
+- Arrow keys fine-tune the selected cue (beat / Shift bar / Ctrl 10 ms) and replay from it on every press. A playing mix waits until the cues are saved.
+
+### 🛠 Fixes
+- About 12 warning and error toasts that never appeared now show.
+- Download Center "Find Similar" works, and "Search Again" really searches again.
+- Settings Save confirms, and failed saves are reported.
+- Second-drop detection now follows the breakdown after Drop 1.
+- The aggressive-mood signal is no longer always zero.
+- Removed an unbound delete-without-confirmation command and an unused silent mock-stem service.
+- Fixed a startup crash from a cue-strip binding.
+- Found and fixed the real cause of the random test-suite failures: a test replaced the app-wide ReactiveUI scheduler and disposed it without restoring the original.
+
+### 📋 Open work
+All open items now live in `DOCS/OPEN_WORK_PLAN_2026-09-27.md`. Stale plan files moved to `DOCS/archive/plans/`.
+
 ## [0.7.1-beta] — 2026-08-04
 
 ### 🧠 Real genre/mood/embedding AI — replacing a silently-dead Essentia layer
