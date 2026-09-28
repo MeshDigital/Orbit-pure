@@ -6,7 +6,7 @@ This document explains the new search runtime systems added across ORBIT’s sea
 
 It covers the production architecture now used to safely handle high-volume Soulseek result streams without UI rebuild storms, unbounded session growth, or opaque winner selection.
 
-This is the implementation companion to the planning document in [DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md](DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md).
+This is the implementation companion to the planning document in [DOCS/archive/plans/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md](archive/plans/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md).
 
 ---
 

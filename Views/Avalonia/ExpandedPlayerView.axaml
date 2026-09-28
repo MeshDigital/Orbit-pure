@@ -2,474 +2,331 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
-             xmlns:entertainment="clr-namespace:SLSKDONET.Models.Entertainment"
              x:Class="SLSKDONET.Views.Avalonia.ExpandedPlayerView"
+             x:Name="Root"
+             Focusable="True"
              Background="Transparent">
 
     <Design.DataContext>
         <vm:PlayerViewModel />
     </Design.DataContext>
 
-    <!-- Full-screen overlay -->
+    <UserControl.Styles>
+        <!-- Chrome fades out when the mouse is idle while playing (code-behind toggles "idle"). -->
+        <Style Selector="Panel.fadeable">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.6"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Panel.fadeable.idle">
+            <Setter Property="Opacity" Value="0"/>
+        </Style>
+
+        <Style Selector="Button.glass">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.glass:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#22FFFFFF"/>
+        </Style>
+        <Style Selector="ToggleButton.glass">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="CornerRadius" Value="8"/>
+        </Style>
+        <Style Selector="ToggleButton.glass:checked /template/ ContentPresenter">
+            <Setter Property="Background" Value="#334EC9B0"/>
+        </Style>
+
+        <Style Selector="Border.chip">
+            <Setter Property="Background" Value="#26FFFFFF"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="10,3"/>
+        </Style>
+
+        <!-- Queue rows -->
+        <Style Selector="ListBox#QueueList">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox#QueueList ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,1"/>
+        </Style>
+        <Style Selector="ListBox#QueueList ListBoxItem:selected /template/ ContentPresenter, ListBox#QueueList ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="Border.qrow">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="8,6"/>
+        </Style>
+        <Style Selector="Border.qrow:pointerover">
+            <Setter Property="Background" Value="#18FFFFFF"/>
+        </Style>
+        <Style Selector="Border.qrow.current">
+            <Setter Property="Background" Value="#2E4EC9B0"/>
+            <Setter Property="BorderBrush" Value="#804EC9B0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style Selector="Border.qrow.played">
+            <Setter Property="Opacity" Value="0.45"/>
+        </Style>
+    </UserControl.Styles>
+
     <Panel>
+        <!-- Blurred album-art backdrop -->
+        <controls:LiveBackground Source="{Binding CurrentTrack.ArtworkBitmap}"
+                                 Energy="{Binding CurrentTrack.Energy, FallbackValue=0.5}"
+                                 IsVisible="{Binding CurrentTrack, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                 Opacity="0.8"/>
+        <Border Background="#B0070A10"/>
 
-        <!-- Live blurred album-art background -->
-        <controls:LiveBackground
-            Source="{Binding CurrentTrack.ArtworkBitmap}"
-            Energy="{Binding CurrentTrack.Energy, FallbackValue=0.5}"
-            IsVisible="{Binding CurrentTrack, Converter={x:Static ObjectConverters.IsNotNull}}"
-            Opacity="0.85" />
+        <!-- Full-bleed visualizer -->
+        <controls:OrbitVisualizerCanvas SpectrumData="{Binding SpectrumData}"
+                                        WaveformData="{Binding WaveformSamples}"
+                                        VuLeft="{Binding VuLeft}"
+                                        VuRight="{Binding VuRight}"
+                                        Energy="{Binding CurrentTrack.Energy, FallbackValue=0.5}"
+                                        Bpm="{Binding CurrentTrack.BPM, FallbackValue=120}"
+                                        BeatPulse="{Binding BeatPulse}"
+                                        MoodTag="{Binding CurrentTrack.MoodTag}"
+                                        IsPlaying="{Binding IsPlaying}"
+                                        Preset="{Binding CurrentVisualizerPreset}"
+                                        EngineMode="{Binding VisualizerEngineMode}"
+                                        AlbumHue="{Binding AlbumArtHue}"
+                                        Opacity="0.95"/>
 
-        <!-- Dark vignette scrim -->
-        <Border>
+        <!-- Soft vignette so text stays readable over busy presets -->
+        <Border IsHitTestVisible="False">
             <Border.Background>
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Color="#CC000000" Offset="0"/>
-                    <GradientStop Color="#88000000" Offset="0.4"/>
-                    <GradientStop Color="#CC000000" Offset="1"/>
-                </LinearGradientBrush>
+                <RadialGradientBrush Center="50%,50%" GradientOrigin="50%,50%" RadiusX="75%" RadiusY="75%">
+                    <GradientStop Color="#00000000" Offset="0.45"/>
+                    <GradientStop Color="#99000000" Offset="1"/>
+                </RadialGradientBrush>
             </Border.Background>
         </Border>
 
-        <!-- Main Content Grid -->
-        <Grid RowDefinitions="Auto,*,Auto" Margin="0">
+        <Grid ColumnDefinitions="*,Auto">
 
-            <!-- ── Top Bar ─────────────────────────────────────────────── -->
-            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="24,24,24,0">
+            <!-- ── Main column ─────────────────────────────────────────── -->
+            <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto">
 
-                <!-- Close / Collapse Button -->
-                <Button Grid.Column="0"
-                        Command="{Binding ToggleExpandedPlayerCommand}"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        Padding="8"
-                        ToolTip.Tip="Collapse now playing">
-                    <TextBlock Text="⌃" FontSize="22" Foreground="White" />
-                </Button>
-
-                <!-- Now Playing Label -->
-                <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="2">
-                    <TextBlock Text="NOW PLAYING"
-                               FontSize="11"
-                               LetterSpacing="3"
-                               Foreground="#80FFFFFF"
-                               HorizontalAlignment="Center" />
-                </StackPanel>
-
-                <!-- Top-right controls -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
-
-                    <!-- Visualizer preset cycle -->
-                    <Button Command="{Binding CycleVisualizerPresetCommand}"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            Padding="8"
-                            ToolTip.Tip="Cycle visualizer">
-                        <TextBlock Text="✦" FontSize="18" Foreground="#AAFFFFFF" />
-                    </Button>
-
-                    <!-- Metadata-driven visuals toggle -->
-                    <ToggleButton IsChecked="{Binding IsMetadataDrivenVisuals}"
-                                  Command="{Binding ToggleMetadataDrivenVisualsCommand}"
-                                  Background="Transparent"
-                                  BorderThickness="0"
-                                  Padding="8"
-                                  ToolTip.Tip="Metadata-driven visuals">
-                        <TextBlock Text="◈" FontSize="18"
-                                   Foreground="{Binding IsMetadataDrivenVisuals,
-                                       Converter={StaticResource BoolToColorConverter}}" />
-                    </ToggleButton>
-
-                    <!-- Ambient Mode toggle -->
-                    <ToggleButton IsChecked="{Binding IsAmbientMode}"
-                                  Command="{Binding ToggleAmbientModeCommand}"
-                                  Background="Transparent"
-                                  BorderThickness="0"
-                                  Padding="8"
-                                  ToolTip.Tip="Ambient Mode">
-                        <TextBlock Text="☽" FontSize="18"
-                                   Foreground="{Binding IsAmbientMode,
-                                       Converter={StaticResource BoolToColorConverter}}" />
-                    </ToggleButton>
-
-                </StackPanel>
-
-            </Grid>
-
-            <!-- ── Centre: Visualizer + Artwork ───────────────────────── -->
-            <Grid Grid.Row="1" ColumnDefinitions="*,Auto,*" Margin="0,16,0,16">
-
-                <!-- Left: Flow Path panel (visible in Flow Mode) -->
-                <Border Grid.Column="0"
-                        IsVisible="{Binding IsFlowMode}"
-                        Padding="24,0,12,0"
-                        VerticalAlignment="Center">
-                    <StackPanel Spacing="12">
-                        <TextBlock Text="FLOW PATH"
-                                   FontSize="11"
-                                   LetterSpacing="2"
-                                   Foreground="#80FFFFFF" />
-                        <ItemsControl ItemsSource="{Binding FlowModeState.FlowPathTitles}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
-                                        <TextBlock Text="›"
-                                                   Foreground="#4EC9B0"
-                                                   FontSize="14"
-                                                   VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding}"
-                                                   Foreground="#CCFFFFFF"
-                                                   FontSize="13"
-                                                   TextWrapping="Wrap"
-                                                   MaxWidth="180" />
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-
-                        <!-- Next track reason -->
-                        <TextBlock Text="{Binding FlowModeState.NextTrackReason}"
-                                   FontSize="11"
-                                   Foreground="#60FFFFFF"
-                                   TextWrapping="Wrap"
-                                   MaxWidth="200"
-                                   Margin="0,8,0,0"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- Centre: Visualizer canvas -->
-                <Panel Grid.Column="1" Width="500" Height="500">
-
-                    <!-- SkiaSharp Orbit Visualizer (full immersive) -->
-                    <controls:OrbitVisualizerCanvas
-                        SpectrumData="{Binding SpectrumData}"
-                        VuLeft="{Binding VuLeft}"
-                        VuRight="{Binding VuRight}"
-                        Energy="{Binding CurrentTrack.Energy, FallbackValue=0.5}"
-                        Bpm="{Binding CurrentTrack.BPM, FallbackValue=120}"
-                        BeatPulse="{Binding BeatPulse}"
-                        MoodTag="{Binding CurrentTrack.MoodTag}"
-                        IsPlaying="{Binding IsPlaying}"
-                        Preset="{Binding CurrentVisualizerPreset}"
-                        EngineMode="{Binding VisualizerEngineMode}"
-                        AlbumHue="{Binding AlbumArtHue}"
-                        IsVisible="{Binding CurrentTrack, Converter={x:Static ObjectConverters.IsNotNull}}"
-                        HorizontalAlignment="Stretch"
-                        VerticalAlignment="Stretch" />
-
-                    <!-- Album Art overlay (subtle, in the centre) -->
-                    <Border Width="180" Height="180"
-                            CornerRadius="90"
-                            HorizontalAlignment="Center"
-                            VerticalAlignment="Center"
-                            Opacity="{Binding IsAmbientMode, Converter={StaticResource BoolToOpacityConverter}, ConverterParameter='0.35;0.8'}"
-                            BoxShadow="0 0 40 0 #60000000">
-                        <Panel ClipToBounds="True">
-                            <Border CornerRadius="90" ClipToBounds="True">
-                                <Image Source="{Binding CurrentTrack.ArtworkBitmap}"
-                                       Stretch="UniformToFill"
-                                       IsVisible="{Binding CurrentTrack.ArtworkBitmap,
-                                           Converter={x:Static ObjectConverters.IsNotNull}}" />
-                            </Border>
-                            <!-- Placeholder -->
-                            <Border Background="#282828" CornerRadius="90"
-                                    IsVisible="{Binding CurrentTrack.ArtworkBitmap,
-                                        Converter={x:Static ObjectConverters.IsNull}}">
-                                <TextBlock Text="🎵" FontSize="64"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           Foreground="#404040" />
-                            </Border>
-                        </Panel>
-                    </Border>
-
-                    <!-- Floating metadata (Ambient Mode) -->
-                    <StackPanel HorizontalAlignment="Center"
-                                VerticalAlignment="Bottom"
-                                Margin="0,0,0,20"
-                                IsVisible="{Binding IsAmbientMode}"
-                                Spacing="4">
-                        <TextBlock Text="{Binding TrackTitle}"
-                                   FontSize="15"
-                                   FontWeight="SemiBold"
-                                   Foreground="#DDFFFFFF"
-                                   HorizontalAlignment="Center"
-                                   TextAlignment="Center" />
-                        <TextBlock Text="{Binding TrackArtist}"
-                                   FontSize="12"
-                                   Foreground="#88FFFFFF"
-                                   HorizontalAlignment="Center"
-                                   TextAlignment="Center" />
-                    </StackPanel>
-
-                </Panel>
-
-                <!-- Right: Queue panel -->
-                <Border Grid.Column="2"
-                        IsVisible="{Binding IsQueueOpen}"
-                        Padding="12,0,24,0"
-                        VerticalAlignment="Stretch">
-                    <Grid RowDefinitions="Auto,*">
-
-                        <TextBlock Grid.Row="0"
-                                   Text="UP NEXT"
-                                   FontSize="11"
-                                   LetterSpacing="2"
-                                   Foreground="#80FFFFFF"
-                                   Margin="0,0,0,12" />
-
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden">
-                             <Panel>
-                                <!-- Empty queue placeholder -->
-                                <StackPanel HorizontalAlignment="Center"
-                                            VerticalAlignment="Center"
-                                            Spacing="8"
-                                            Margin="0,24,0,0"
-                                            IsVisible="{Binding IsQueueEmpty}">
-                                    <TextBlock Text="☰" FontSize="32" Foreground="#40FFFFFF" HorizontalAlignment="Center"/>
-                                    <TextBlock Text="Queue is empty."
-                                               FontSize="13"
-                                               Foreground="#60FFFFFF"
-                                               HorizontalAlignment="Center"
-                                               TextAlignment="Center" />
-                                    <TextBlock Text="Add some tracks."
-                                               FontSize="11"
-                                               Foreground="#40FFFFFF"
-                                               HorizontalAlignment="Center"
-                                               TextAlignment="Center" />
-                                </StackPanel>
-                                <ItemsControl ItemsSource="{Binding Queue}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                                            <Border Padding="8,6" CornerRadius="6" Margin="0,2">
-                                                <Border.Background>
-                                                    <SolidColorBrush Color="#20FFFFFF" />
-                                                </Border.Background>
-                                                <Grid ColumnDefinitions="*,Auto,Auto">
-                                                    <Button Grid.Column="0"
-                                                            Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
-                                                            CommandParameter="{Binding}"
-                                                            Background="Transparent"
-                                                            BorderThickness="0"
-                                                            Padding="0"
-                                                            HorizontalContentAlignment="Stretch"
-                                                            ToolTip.Tip="Play this queued track now">
-                                                        <StackPanel Spacing="2">
-                                                            <TextBlock Text="{Binding TrackTitle}"
-                                                                       FontSize="13"
-                                                                       Foreground="White"
-                                                                       TextTrimming="CharacterEllipsis"
-                                                                       MaxWidth="180" />
-                                                            <TextBlock Text="{Binding ArtistName}"
-                                                                       FontSize="11"
-                                                                       Foreground="#80FFFFFF"
-                                                                       TextTrimming="CharacterEllipsis"
-                                                                       MaxWidth="180" />
-                                                        </StackPanel>
-                                                    </Button>
-                                                    <Button Grid.Column="1"
-                                                            Background="Transparent"
-                                                            BorderThickness="0"
-                                                            Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
-                                                            CommandParameter="{Binding}"
-                                                            Width="24" Height="24"
-                                                            Padding="0"
-                                                            ToolTip.Tip="Play queued track">
-                                                        <TextBlock Text="▶" FontSize="9" Foreground="{StaticResource BrushAccent}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                    </Button>
-                                                    <Button Grid.Column="2"
-                                                            Background="Transparent"
-                                                            BorderThickness="0"
-                                                            Command="{Binding $parent[UserControl].DataContext.RemoveFromQueueCommand}"
-                                                            CommandParameter="{Binding}"
-                                                            Width="24" Height="24"
-                                                            Padding="0"
-                                                            ToolTip.Tip="Remove from queue">
-                                                        <TextBlock Text="✕" FontSize="10" Foreground="#80FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                    </Button>
-                                                </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                             </Panel>
-                        </ScrollViewer>
-
-                    </Grid>
-                </Border>
-
-            </Grid>
-
-            <!-- ── Bottom Controls ──────────────────────────────────────── -->
-            <Grid Grid.Row="2" RowDefinitions="Auto,Auto,Auto" Margin="40,0,40,32">
-
-                <!-- Track Info -->
-                <StackPanel Grid.Row="0"
-                            HorizontalAlignment="Center"
-                            Spacing="4"
-                            Margin="0,0,0,20"
-                            IsVisible="{Binding IsAmbientMode, Converter={x:Static BoolConverters.Not}}">
-                    <TextBlock Text="{Binding TrackTitle}"
-                               FontSize="24"
-                               FontWeight="Bold"
-                               Foreground="White"
-                               HorizontalAlignment="Center"
-                               TextAlignment="Center"
-                               TextWrapping="Wrap"
-                               MaxWidth="600" />
-                    <TextBlock Text="{Binding TrackArtist}"
-                               FontSize="16"
-                               Foreground="#AAFFFFFF"
-                               HorizontalAlignment="Center"
-                               TextAlignment="Center" />
-                </StackPanel>
-
-                <!-- Progress Bar -->
-                <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,16">
-                    <TextBlock Grid.Column="0"
-                               Text="{Binding CurrentTimeStr}"
-                               FontSize="12"
-                               Foreground="#AAFFFFFF"
-                               VerticalAlignment="Center"
-                               Margin="0,0,12,0" />
-                    <Slider x:Name="SeekSlider"
-                            Grid.Column="1"
-                            Minimum="0" Maximum="1"
-                            Value="{Binding Position, Mode=OneWay}"
-                            VerticalAlignment="Center"
-                            PointerReleased="OnSeekSliderPointerReleased" />
-                    <TextBlock Grid.Column="2"
-                               Text="{Binding TotalTimeStr}"
-                               FontSize="12"
-                               Foreground="#AAFFFFFF"
-                               VerticalAlignment="Center"
-                               Margin="12,0,0,0" />
-                </Grid>
-
-                <!-- Playback Controls Row -->
-                <Grid Grid.Row="2" ColumnDefinitions="*,Auto,*">
-
-                    <!-- Left actions: Shuffle, Repeat, Flow Mode -->
-                    <StackPanel Grid.Column="0"
-                                Orientation="Horizontal"
-                                HorizontalAlignment="Left"
-                                VerticalAlignment="Center"
-                                Spacing="8">
-
-                        <ToggleButton IsChecked="{Binding IsShuffling}"
-                                      Command="{Binding ToggleShuffleCommand}"
-                                      Background="Transparent"
-                                      BorderThickness="0"
-                                      Padding="8"
-                                      ToolTip.Tip="Shuffle">
-                            <TextBlock Text="⇌" FontSize="20"
-                                       Foreground="{Binding IsShuffling,
-                                           Converter={StaticResource BoolToColorConverter}}" />
-                        </ToggleButton>
-
-                        <ToggleButton IsChecked="{Binding IsFlowMode}"
-                                      Command="{Binding ToggleFlowModeCommand}"
-                                      Background="Transparent"
-                                      BorderThickness="0"
-                                      Padding="8"
-                                      ToolTip.Tip="Flow Mode — smart auto-mixing">
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <TextBlock Text="∞" FontSize="20"
-                                           Foreground="{Binding IsFlowMode,
-                                               Converter={StaticResource BoolToColorConverter}}" />
-                                <TextBlock Text="FLOW"
-                                           FontSize="11"
-                                           VerticalAlignment="Center"
-                                           Foreground="{Binding IsFlowMode,
-                                               Converter={StaticResource BoolToColorConverter}}"
-                                           IsVisible="{Binding IsFlowMode}" />
-                            </StackPanel>
-                        </ToggleButton>
-
-                    </StackPanel>
-
-                    <!-- Centre: Main Controls -->
-                    <StackPanel Grid.Column="1"
-                                Orientation="Horizontal"
-                                HorizontalAlignment="Center"
-                                Spacing="8">
-
-                        <Button Command="{Binding PreviousTrackCommand}"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                Padding="12"
-                                ToolTip.Tip="Previous">
-                            <TextBlock Text="⏮" FontSize="28" Foreground="White" />
+                <!-- Top bar -->
+                <Panel x:Name="Chrome" Grid.Row="0" Classes="fadeable">
+                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="20,16,20,0">
+                        <Button Grid.Column="0" Classes="glass" Command="{Binding ToggleExpandedPlayerCommand}"
+                                ToolTip.Tip="Close (Esc)">
+                            <TextBlock Text="⌄" FontSize="24" Foreground="White" Margin="4,-6,4,0"/>
                         </Button>
 
-                        <Button Command="{Binding TogglePlayPauseCommand}"
-                                Background="#40FFFFFF"
-                                CornerRadius="30"
-                                Width="60" Height="60"
-                                ToolTip.Tip="Play / Pause">
-                            <TextBlock FontSize="24" Foreground="White" HorizontalAlignment="Center"
-                                       Text="{Binding IsPlaying,
-                                           Converter={StaticResource PlayPauseConverter}}" />
-                        </Button>
-
-                        <Button Command="{Binding NextTrackCommand}"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                Padding="12"
-                                ToolTip.Tip="Next">
-                            <TextBlock Text="⏭" FontSize="28" Foreground="White" />
-                        </Button>
-
-                    </StackPanel>
-
-                    <!-- Right actions: Volume, Queue, Repeat -->
-                    <StackPanel Grid.Column="2"
-                                Orientation="Horizontal"
-                                HorizontalAlignment="Right"
-                                VerticalAlignment="Center"
-                                Spacing="8">
-
-                        <Button Command="{Binding ToggleQueueCommand}"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                Padding="8"
-                                ToolTip.Tip="Toggle queue">
-                            <TextBlock Text="☰" FontSize="20" Foreground="#AAFFFFFF" />
-                        </Button>
-
-                        <Button Command="{Binding ToggleRepeatCommand}"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                Padding="8"
-                                ToolTip.Tip="Repeat">
-                            <TextBlock Text="{Binding RepeatMode, Converter={StaticResource RepeatModeIconConverter}}"
-                                       FontSize="20" Foreground="#AAFFFFFF" />
-                        </Button>
-
-                        <!-- Volume Slider -->
-                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                            <Button Command="{Binding ToggleMuteCommand}"
-                                    Background="Transparent"
-                                    BorderThickness="0"
-                                    Padding="0"
-                                    Width="28" Height="28"
-                                    VerticalAlignment="Center"
-                                    ToolTip.Tip="Toggle mute">
-                                <TextBlock Text="{Binding VolumeIcon}" FontSize="16" Foreground="#80FFFFFF" VerticalAlignment="Center" />
-                            </Button>
-                            <Slider Minimum="0" Maximum="100"
-                                    Value="{Binding Volume}"
-                                    Width="80"
-                                    VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="NOW PLAYING" FontSize="11" LetterSpacing="3" Foreground="#99FFFFFF" HorizontalAlignment="Center"/>
+                            <TextBlock Text="{Binding QueuePositionText}" FontSize="11" Foreground="#66FFFFFF" HorizontalAlignment="Center"
+                                       IsVisible="{Binding QueuePositionText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                         </StackPanel>
 
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                            <!-- Visualizer preset picker -->
+                            <Border Background="#26FFFFFF" CornerRadius="16" Padding="2" Margin="0,0,6,0">
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Classes="glass" Padding="8,4" Command="{Binding PreviousVisualizerPresetCommand}" ToolTip.Tip="Previous visual (Shift+V)">
+                                        <TextBlock Text="◀" FontSize="10" Foreground="#CCFFFFFF"/>
+                                    </Button>
+                                    <TextBlock Text="{Binding CurrentVisualizerPresetName}" FontSize="12" Foreground="White" VerticalAlignment="Center"
+                                               MinWidth="110" TextAlignment="Center"/>
+                                    <Button Classes="glass" Padding="8,4" Command="{Binding CycleVisualizerPresetCommand}" ToolTip.Tip="Next visual (V)">
+                                        <TextBlock Text="▶" FontSize="10" Foreground="#CCFFFFFF"/>
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+                            <ToggleButton Classes="glass" IsChecked="{Binding IsMetadataDrivenVisuals, Mode=OneWay}"
+                                          Command="{Binding ToggleMetadataDrivenVisualsCommand}"
+                                          ToolTip.Tip="Auto: pick visuals from the track's energy and mood">
+                                <TextBlock Text="◈ Auto" FontSize="12" Foreground="White"/>
+                            </ToggleButton>
+                            <ToggleButton Classes="glass" IsChecked="{Binding IsAmbientMode, Mode=OneWay}"
+                                          Command="{Binding ToggleAmbientModeCommand}"
+                                          ToolTip.Tip="Ambient: slow, calm visuals">
+                                <TextBlock Text="☽" FontSize="16" Foreground="White"/>
+                            </ToggleButton>
+                            <ToggleButton Classes="glass" IsChecked="{Binding IsTheaterMode, Mode=OneWay}"
+                                          Command="{Binding ToggleTheaterModeCommand}"
+                                          ToolTip.Tip="Borderless fullscreen (F)">
+                                <TextBlock Text="⛶" FontSize="16" Foreground="White"/>
+                            </ToggleButton>
+                            <ToggleButton Classes="glass" IsChecked="{Binding IsExpandedQueueVisible, Mode=OneWay}"
+                                          Command="{Binding ToggleExpandedQueueCommand}"
+                                          ToolTip.Tip="Up Next (Q)">
+                                <TextBlock Text="☰" FontSize="16" Foreground="White"/>
+                            </ToggleButton>
+                        </StackPanel>
+                    </Grid>
+                </Panel>
+
+                <!-- Artwork + track info -->
+                <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="18"
+                            IsVisible="{Binding IsAmbientMode, Converter={x:Static BoolConverters.Not}}">
+                    <Border x:Name="Artwork" Width="300" Height="300" CornerRadius="14" ClipToBounds="True"
+                            HorizontalAlignment="Center" BoxShadow="0 20 60 0 #AA000000" Background="#1E1E1E">
+                        <Panel>
+                            <TextBlock Text="🎵" FontSize="80" Foreground="#40FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Image Source="{Binding CurrentTrack.ArtworkBitmap}" Stretch="UniformToFill"/>
+                        </Panel>
+                    </Border>
+                    <StackPanel Spacing="4" HorizontalAlignment="Center" MaxWidth="640">
+                        <TextBlock Text="{Binding TrackTitle}" FontSize="28" FontWeight="Bold" Foreground="White"
+                                   TextAlignment="Center" TextWrapping="Wrap" HorizontalAlignment="Center"/>
+                        <TextBlock Text="{Binding TrackArtist}" FontSize="17" Foreground="#CCFFFFFF"
+                                   TextAlignment="Center" HorizontalAlignment="Center"/>
                     </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                        <Border Classes="chip"><TextBlock Text="{Binding CurrentTrack.BpmDisplay, StringFormat='{}{0} BPM'}" FontSize="11" Foreground="White"/></Border>
+                        <Border Classes="chip"><TextBlock Text="{Binding CurrentTrack.CamelotDisplay}" FontSize="11" Foreground="White"/></Border>
+                        <Border Classes="chip"><TextBlock Text="{Binding CurrentTrackEnergyBadge}" FontSize="11" Foreground="White"/></Border>
+                        <Border Classes="chip" Background="#554EC9B0" IsVisible="{Binding IsCrossfading}">
+                            <TextBlock Text="{Binding ActiveCrossfadePresetName, StringFormat='MIXING · {0}', TargetNullValue='MIXING'}" FontSize="11" FontWeight="SemiBold" Foreground="White"/>
+                        </Border>
+                    </StackPanel>
+                </StackPanel>
 
-                </Grid>
+                <!-- Ambient: just the names, low -->
+                <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,24" Spacing="4"
+                            IsVisible="{Binding IsAmbientMode}">
+                    <TextBlock Text="{Binding TrackTitle}" FontSize="18" FontWeight="SemiBold" Foreground="#DDFFFFFF" HorizontalAlignment="Center"/>
+                    <TextBlock Text="{Binding TrackArtist}" FontSize="13" Foreground="#88FFFFFF" HorizontalAlignment="Center"/>
+                </StackPanel>
 
+                <!-- Transport -->
+                <Panel Grid.Row="2" Classes="fadeable" x:Name="Transport">
+                    <Border Margin="40,0,40,28" Padding="20,14" CornerRadius="18" Background="#66000000">
+                        <Grid RowDefinitions="Auto,Auto">
+                            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,8">
+                                <TextBlock Text="{Binding CurrentTimeStr}" FontSize="12" Foreground="#CCFFFFFF" VerticalAlignment="Center" MinWidth="44"/>
+                                <Slider x:Name="SeekSlider" Grid.Column="1" Minimum="0" Maximum="1" VerticalAlignment="Center" Margin="8,0"/>
+                                <TextBlock Grid.Column="2" Text="{Binding TotalTimeStr}" FontSize="12" Foreground="#CCFFFFFF" VerticalAlignment="Center"
+                                           MinWidth="44" TextAlignment="Right"/>
+                            </Grid>
+                            <Grid Grid.Row="1" ColumnDefinitions="*,Auto,*">
+                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                    <ToggleButton Classes="glass" IsChecked="{Binding IsShuffling, Mode=OneWay}" Command="{Binding ToggleShuffleCommand}" ToolTip.Tip="Shuffle">
+                                        <TextBlock Text="⇌" FontSize="18" Foreground="White"/>
+                                    </ToggleButton>
+                                    <Button Classes="glass" Command="{Binding ToggleRepeatCommand}" ToolTip.Tip="Repeat">
+                                        <TextBlock Text="{Binding RepeatMode, Converter={StaticResource RepeatModeIconConverter}}" FontSize="18" Foreground="White"/>
+                                    </Button>
+                                    <ToggleButton Classes="glass" IsChecked="{Binding IsFlowMode, Mode=OneWay}" Command="{Binding ToggleFlowModeCommand}" ToolTip.Tip="Flow Mode — smart auto-mixing">
+                                        <TextBlock Text="∞ FLOW" FontSize="12" Foreground="White"/>
+                                    </ToggleButton>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14" HorizontalAlignment="Center">
+                                    <Button Classes="glass" Command="{Binding PreviousTrackCommand}" ToolTip.Tip="Previous (Shift+←)">
+                                        <TextBlock Text="⏮" FontSize="24" Foreground="White"/>
+                                    </Button>
+                                    <Button Command="{Binding TogglePlayPauseCommand}" Width="62" Height="62" CornerRadius="31"
+                                            Background="White" BorderThickness="0" Padding="0"
+                                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                            ToolTip.Tip="Play / pause (Space)">
+                                        <Panel>
+                                            <TextBlock Text="▶" FontSize="24" Foreground="#111" Margin="4,0,0,0" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       IsVisible="{Binding !IsPlaying}"/>
+                                            <TextBlock Text="⏸" FontSize="24" Foreground="#111" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       IsVisible="{Binding IsPlaying}"/>
+                                        </Panel>
+                                    </Button>
+                                    <Button Classes="glass" Command="{Binding NextTrackCommand}" ToolTip.Tip="Next (Shift+→)">
+                                        <TextBlock Text="⏭" FontSize="24" Foreground="White"/>
+                                    </Button>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <Button Classes="glass" Command="{Binding ToggleMuteCommand}" ToolTip.Tip="Mute (M)">
+                                        <TextBlock Text="{Binding VolumeIcon}" FontSize="16" Foreground="White"/>
+                                    </Button>
+                                    <Slider Minimum="0" Maximum="100" Value="{Binding Volume}" Width="110" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Panel>
             </Grid>
 
+            <!-- ── Up Next column ──────────────────────────────────────── -->
+            <Panel Grid.Column="1" x:Name="QueueColumn" Width="360" Classes="fadeable"
+                   IsVisible="{Binding ShowExpandedQueue}">
+                <Border Margin="0,16,16,28" Padding="12" CornerRadius="16" Background="#8C0B0F16" BorderBrush="#22FFFFFF" BorderThickness="1">
+                    <Grid RowDefinitions="Auto,*">
+                        <Grid ColumnDefinitions="*,Auto" Margin="4,0,4,10">
+                            <StackPanel Spacing="1">
+                                <TextBlock Text="UP NEXT" FontSize="11" LetterSpacing="2" Foreground="#AAFFFFFF"/>
+                                <TextBlock Text="{Binding UpNextSummary}" FontSize="11" Foreground="#66FFFFFF"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Classes="glass" Padding="6" Command="{Binding ToggleExpandedQueueCommand}" ToolTip.Tip="Hide (Q)">
+                                <TextBlock Text="✕" FontSize="11" Foreground="#AAFFFFFF"/>
+                            </Button>
+                        </Grid>
+
+                        <ListBox x:Name="QueueList" Grid.Row="1" ItemsSource="{Binding Queue}"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PlaylistTrackViewModel">
+                                    <StackPanel Spacing="3">
+                                        <Border Classes="qrow" Classes.current="{Binding IsQueueCurrent}" Classes.played="{Binding IsQueuePlayed}">
+                                            <Grid ColumnDefinitions="26,40,*,Auto">
+                                                <Panel VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding QueueNumber}" FontSize="11" Foreground="#77FFFFFF"
+                                                               HorizontalAlignment="Center" IsVisible="{Binding !IsQueueCurrent}"/>
+                                                    <TextBlock Text="♪" FontSize="14" Foreground="#4EC9B0"
+                                                               HorizontalAlignment="Center" IsVisible="{Binding IsQueueCurrent}"/>
+                                                </Panel>
+                                                <Border Grid.Column="1" Width="36" Height="36" CornerRadius="5" ClipToBounds="True" Background="#2A2A2A">
+                                                    <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill"/>
+                                                </Border>
+                                                <Button Grid.Column="2" Background="Transparent" BorderThickness="0" Padding="8,0,4,0"
+                                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                                        Command="{Binding #Root.DataContext.PlayQueueItemCommand}" CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Play now">
+                                                    <StackPanel Spacing="1">
+                                                        <TextBlock Text="{Binding TrackTitle}" FontSize="13" Foreground="White" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock FontSize="11" Foreground="#88FFFFFF" TextTrimming="CharacterEllipsis">
+                                                            <Run Text="{Binding ArtistName}"/>
+                                                            <Run Text=" · "/>
+                                                            <Run Text="{Binding BpmDisplay}"/>
+                                                            <Run Text=" · "/>
+                                                            <Run Text="{Binding CamelotDisplay}"/>
+                                                        </TextBlock>
+                                                    </StackPanel>
+                                                </Button>
+                                                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Spacing="2">
+                                                    <TextBlock Text="{Binding DurationDisplay}" FontSize="11" Foreground="#66FFFFFF" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                    <Button Classes="glass" Padding="5" Command="{Binding #Root.DataContext.RemoveFromQueueCommand}" CommandParameter="{Binding}"
+                                                            IsVisible="{Binding !IsQueueCurrent}" ToolTip.Tip="Remove from queue">
+                                                        <TextBlock Text="✕" FontSize="10" Foreground="#88FFFFFF"/>
+                                                    </Button>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                        <!-- Mix transition into the next row -->
+                                        <Button IsVisible="{Binding ShowMixTransitionBadge}"
+                                                Command="{Binding #Root.DataContext.OpenMixTransitionCommand}" CommandParameter="{Binding}"
+                                                Margin="74,0,0,2" Padding="7,1" CornerRadius="8" HorizontalAlignment="Left"
+                                                Background="{Binding TransitionBadgeColor}" BorderThickness="0" Cursor="Hand"
+                                                ToolTip.Tip="Transition into the next track — click to edit">
+                                            <TextBlock Text="{Binding TransitionPresetLabel, StringFormat='↓ {0}'}" FontSize="10" FontWeight="SemiBold" Foreground="White"/>
+                                        </Button>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </Border>
+            </Panel>
         </Grid>
     </Panel>
-
 </UserControl>

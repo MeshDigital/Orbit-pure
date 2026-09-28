@@ -9,7 +9,7 @@ namespace SLSKDONET.ViewModels
 {
     // Order matches the visual TabItem order in MainWindow.axaml's right-panel TabControl —
     // ActiveTabIndex below maps directly to this ordinal, driving TabControl.SelectedIndex.
-    public enum SidebarTab { Inspector, Similarity, Player, Notifications, Mix }
+    public enum SidebarTab { Inspector, Similarity, Player, Notifications, Mix, Discover }
 
     public class SidebarViewModel : ReactiveObject, IDisposable
     {
@@ -29,7 +29,10 @@ namespace SLSKDONET.ViewModels
                 this.RaisePropertyChanged(nameof(IsSimilarityTab));
                 this.RaisePropertyChanged(nameof(IsNotificationsTab));
                 this.RaisePropertyChanged(nameof(IsMixTab));
+                this.RaisePropertyChanged(nameof(IsDiscoverTab));
                 this.RaisePropertyChanged(nameof(ActiveTabIndex));
+                DiscoveryVm.IsActive = value == SidebarTab.Discover;
+                if (value == SidebarTab.Discover) DiscoveryVm.OnActivated();
             }
         }
 
@@ -38,6 +41,7 @@ namespace SLSKDONET.ViewModels
         public bool IsSimilarityTab    => ActiveTab == SidebarTab.Similarity;
         public bool IsNotificationsTab => ActiveTab == SidebarTab.Notifications;
         public bool IsMixTab           => ActiveTab == SidebarTab.Mix;
+        public bool IsDiscoverTab      => ActiveTab == SidebarTab.Discover;
 
         // TabControl.SelectedIndex has no enum overload — this is the int-typed mirror of
         // ActiveTab that the XAML actually binds to (two-way, so a manual tab click updates
@@ -54,6 +58,7 @@ namespace SLSKDONET.ViewModels
                 SidebarTab.Player => 2,
                 SidebarTab.Notifications => 3,
                 SidebarTab.Mix => 4,
+                SidebarTab.Discover => 5,
                 _ => 0,
             };
             set
@@ -65,6 +70,7 @@ namespace SLSKDONET.ViewModels
                     2 => SidebarTab.Player,
                     3 => SidebarTab.Notifications,
                     4 => SidebarTab.Mix,
+                    5 => SidebarTab.Discover,
                     _ => SidebarTab.Inspector,
                 };
                 if (newTab != ActiveTab) ActiveTab = newTab;
@@ -87,14 +93,17 @@ namespace SLSKDONET.ViewModels
         public SimilarTracksViewModel SimilarTracksVm { get; }
         public NotificationCenterService NotificationCenter { get; }
         public MixTransitionViewModel MixTransitionVm { get; }
+        public PlaylistDiscoveryViewModel DiscoveryVm { get; }
 
         public SidebarViewModel(
             IRightPanelService rightPanelService,
             PlayerViewModel playerVm,
             SimilarTracksViewModel similarTracksVm,
             NotificationCenterService notificationCenter,
-            MixTransitionViewModel mixTransitionVm)
+            MixTransitionViewModel mixTransitionVm,
+            PlaylistDiscoveryViewModel discoveryVm)
         {
+            DiscoveryVm        = discoveryVm;
             _rightPanelService = rightPanelService;
             PlayerVm           = playerVm;
             SimilarTracksVm    = similarTracksVm;
@@ -111,7 +120,7 @@ namespace SLSKDONET.ViewModels
                     if (vm is PlaylistTrackViewModel playlistTrack)
                         _ = playlistTrack.LoadAnalysisDataAsync();
 
-                    if (vm is not null && vm is not PlayerViewModel && vm is not SimilarTracksViewModel && vm is not NotificationCenterService && vm is not MixTransitionViewModel)
+                    if (vm is not null && vm is not PlayerViewModel && vm is not SimilarTracksViewModel && vm is not NotificationCenterService && vm is not MixTransitionViewModel && vm is not PlaylistDiscoveryViewModel)
                     {
                         _lastInspectorContent = vm;
                         SimilarTracksVm.PrimeFromInspectorContext(vm);
@@ -137,7 +146,11 @@ namespace SLSKDONET.ViewModels
                     {
                         ActiveTab = SidebarTab.Mix;
                     }
-                    else if (vm != null && ActiveTab != SidebarTab.Similarity && ActiveTab != SidebarTab.Mix)
+                    else if (vm is PlaylistDiscoveryViewModel)
+                    {
+                        ActiveTab = SidebarTab.Discover;
+                    }
+                    else if (vm != null && ActiveTab != SidebarTab.Similarity && ActiveTab != SidebarTab.Mix && ActiveTab != SidebarTab.Discover)
                     {
                         // Mix is sticky like Similarity: while it's the active tab, selecting a
                         // track in the library (which still fires the normal single-track
@@ -182,6 +195,17 @@ namespace SLSKDONET.ViewModels
                     ActiveTab = SidebarTab.Mix;
                     _rightPanelService.OpenPanel(MixTransitionVm, "MIX", "🎛");
                     _ = MixTransitionVm.LoadPairAsync(evt.PlaylistId, evt.OutgoingPlaylistTrackId, evt.IncomingPlaylistTrackId);
+                })
+                .DisposeWith(_disposables);
+
+            // Discover tab for a playlist (Library header button).
+            ReactiveUI.MessageBus.Current.Listen<SLSKDONET.Events.OpenPlaylistDiscoverEvent>()
+                .ObserveOn(RxApp.MainThreadScheduler)
+                .Subscribe(evt =>
+                {
+                    DiscoveryVm.SetPlaylist(evt.PlaylistId, evt.Title, load: false);
+                    ActiveTab = SidebarTab.Discover;
+                    _rightPanelService.OpenPanel(DiscoveryVm, "DISCOVER", "✨");
                 })
                 .DisposeWith(_disposables);
 

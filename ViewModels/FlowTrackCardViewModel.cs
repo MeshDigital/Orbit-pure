@@ -108,6 +108,15 @@ public sealed class FlowTrackCardViewModel : ReactiveObject
         set => this.RaiseAndSetIfChanged(ref _isPreviewingTransition, value);
     }
 
+    private bool _isActiveTransition;
+    /// <summary>True while the transition from this card to the next is open in the transition
+    /// editor — highlights the pair in the editor's mini strip.</summary>
+    public bool IsActiveTransition
+    {
+        get => _isActiveTransition;
+        set => this.RaiseAndSetIfChanged(ref _isActiveTransition, value);
+    }
+
     /// <summary>True while this card's own track is playing a quick, single-track preview.</summary>
     private bool _isPreviewingTrack;
     public bool IsPreviewingTrack

@@ -89,7 +89,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private readonly IConnectionLifecycleService _lifecycle;
     private readonly IDbContextFactory<AppDbContext>? _dbFactory;
     private readonly ILibraryService? _libraryService;
-    private readonly AiEngineService _aiEngine;
     private readonly IDialogService? _dialogService;
 
     // Hardcoded public client ID provided by user/project
@@ -97,12 +96,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     private const string DefaultSpotifyClientId = "67842a599c6f45edbf3de3d84231deb4";
 
     public event PropertyChangedEventHandler? PropertyChanged;
-
-    // AI Engine (optional EDMFormer microservice)
-    public AiEngineService AiEngine => _aiEngine;
-    public ICommand InstallAiEngineCommand { get; }
-    public ICommand StartAiServerCommand { get; }
-    public ICommand CheckAiEngineCommand { get; }
 
     // Settings Properties
     public string DownloadPath
@@ -1803,54 +1796,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         });
     }
 
-    /// <summary>
-    /// Installs the AI phrase-detection engine. If Conda and/or Git aren't already installed,
-    /// asks for explicit consent before the installer silently downloads and installs them
-    /// (per-user, no admin rights) — previously the installer just failed with instructions to
-    /// go install Miniconda by hand.
-    /// </summary>
-    private async Task ExecuteInstallAiEngineAsync()
-    {
-        var (condaMissing, gitMissing) = await _aiEngine.CheckPrerequisitesAsync();
-
-        if (!condaMissing && !gitMissing)
-        {
-            await _aiEngine.StartInstallAsync();
-            return;
-        }
-
-        if (_dialogService == null)
-        {
-            // No dialog service available (e.g. design-time) — fall back to the installer's
-            // own manual-instructions failure rather than silently installing without consent.
-            await _aiEngine.StartInstallAsync();
-            return;
-        }
-
-        var missing = new System.Collections.Generic.List<string>();
-        if (condaMissing) missing.Add("Conda (Miniconda) — ~80MB download");
-        if (gitMissing) missing.Add("Git for Windows — ~50MB download");
-
-        var message =
-            "The AI phrase-detection engine needs the following that ORBIT couldn't find on this PC:\n\n" +
-            string.Join("\n", missing.ConvertAll(m => $"  •  {m}")) +
-            "\n\nORBIT can download and install these automatically, for your user account only " +
-            "(no admin rights required, from their official sources). Continue?";
-
-        var consented = await _dialogService.ConfirmAsync(
-            "Install Prerequisites",
-            message,
-            confirmLabel: "Install",
-            cancelLabel: "Cancel");
-
-        if (!consented)
-        {
-            return;
-        }
-
-        await _aiEngine.StartInstallAsync(autoInstallConda: condaMissing, autoInstallGit: gitMissing);
-    }
-
     public SettingsViewModel(
         ILogger<SettingsViewModel> logger,
         AppConfig config,
@@ -1867,7 +1812,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         KeyboardMappingsViewModel keyboardMappings,
         IDbContextFactory<AppDbContext>? dbFactory = null,
         ILibraryService? libraryService = null,
-        AiEngineService? aiEngine = null,
         IDialogService? dialogService = null,
         NetworkActivityMonitor? networkActivityMonitor = null,
         EngineDiagnosticsService? engineDiagnosticsService = null)
@@ -1889,12 +1833,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _lifecycle = lifecycle;
         _libraryService = libraryService;
         KeyboardMappings = keyboardMappings;
-        _aiEngine = aiEngine ?? new AiEngineService();
         _dialogService = dialogService;
-
-        InstallAiEngineCommand = new AsyncRelayCommand(ExecuteInstallAiEngineAsync);
-        StartAiServerCommand   = new AsyncRelayCommand(() => _aiEngine.StartServerAsync());
-        CheckAiEngineCommand   = new AsyncRelayCommand(() => _aiEngine.CheckStatusAsync());
 
         // Ensure default Client ID is set if empty
         if (string.IsNullOrEmpty(_config.SpotifyClientId))
@@ -1904,7 +1843,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             _config.SpotifyClientSecret = ""; 
         }
 
-        SaveSettingsCommand = new RelayCommand(SaveSettings);
+        SaveSettingsCommand = new RelayCommand(SaveSettingsWithConfirmation);
         BrowseDownloadPathCommand = new AsyncRelayCommand(BrowseDownloadPathAsync);
         BrowseSharedFolderCommand = new AsyncRelayCommand(BrowseSharedFolderAsync);
         BrowseFrequentSourcesStagingPathCommand = new AsyncRelayCommand(BrowseFrequentSourcesStagingPathAsync);
@@ -1998,7 +1937,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         if (_isInitialized) return;
         _isInitialized = true;
 
-        _ = _aiEngine.CheckStatusAsync();
 
         try { RefreshAvailableAudioOutputDevices(); }
         catch (Exception ex) { _logger.LogDebug(ex, "Failed to enumerate audio output devices on Settings load"); }
@@ -2314,19 +2252,30 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         _logger.LogInformation("Settings reset to defaults");
     }
 
-    private void SaveSettings()
+    // Every setting auto-saves on change (60+ call sites), so only the explicit Save button confirms
+    // with a toast; a failure is reported from any path, since a silently unsaved setting is worse.
+    private bool SaveSettings()
     {
         try
         {
             _configManager.Save(_config);
             _ = ApplySoulseekRuntimeConfigurationAsync();
-            // TODO: Show toast notification?
             _logger.LogInformation("Settings saved");
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save settings");
+            _eventBus.Publish(new ToastRequestedEvent(
+                "Settings not saved", $"Could not write the settings file: {ex.Message}", NotificationType.Error, TimeSpan.FromSeconds(8)));
+            return false;
         }
+    }
+
+    private void SaveSettingsWithConfirmation()
+    {
+        if (SaveSettings())
+            _eventBus.Publish(new ToastRequestedEvent("Settings saved", "Your settings were saved.", NotificationType.Success, TimeSpan.FromSeconds(3)));
     }
 
     private async Task ApplySoulseekRuntimeConfigurationAsync()

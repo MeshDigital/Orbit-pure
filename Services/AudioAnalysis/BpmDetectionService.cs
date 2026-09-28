@@ -73,15 +73,18 @@ public sealed class BpmDetectionService
                 confidence = histForConfidence.Max() / total;
         }
 
-        // ── histogram median smoothing ────────────────────────────────────
+        // ── histogram ─────────────────────────────────────────────────────
         if (rhythm.BpmHistogram is { Length: > 0 } histogram)
         {
-            float smoothed = HistogramMedian(histogram);
-            // Only use the histogram median if it is not an obvious octave error
-            // compared with the direct BPM estimate.
-            if (IsOctaveConsistent(rawBpm, smoothed))
+            // The histogram's bins are 1 BPM wide, so its median is always a whole number. It used
+            // to REPLACE Essentia's continuous estimate whenever the two agreed within 10% — which
+            // quantised every BPM (a real 174.00 stored as 173) and, doubled for half-time DnB,
+            // produced 178 for 174 tracks. Measured against hand-cued Rekordbox tracks
+            // (Tests/CueBenchmark) that made ORBIT's grid no better than chance. The median is now
+            // only a fallback when Essentia gave no direct estimate at all.
+            if (rawBpm <= 0f)
             {
-                rawBpm = smoothed;
+                rawBpm = HistogramMedian(histogram);
             }
             // Confidence penalty when the histogram is flat (unstable tempo)
             float histMax = histogram.Max();
@@ -131,18 +134,6 @@ public sealed class BpmDetectionService
                 return i + 1f; // bin index is 0-based; BPM starts at 1
         }
         return histogram.Length;
-    }
-
-    /// <summary>
-    /// Returns true if two BPM values are within the same octave (neither is
-    /// an obvious 2×/0.5× artefact).
-    /// </summary>
-    private static bool IsOctaveConsistent(float a, float b)
-    {
-        if (a <= 0f || b <= 0f) return false;
-        float ratio = a / b;
-        // Accept 0.9–1.1 as "same", 1.8–2.2 as double-time (reject), etc.
-        return ratio is > 0.9f and < 1.1f;
     }
 
     /// <summary>Clamps BPM to [60, 200] recovering half/double-time errors.</summary>

@@ -111,7 +111,7 @@ public class CrashRecoveryJournal : IDisposable, IAsyncDisposable
         {
             // Get database path
             var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var dbPath = Path.Combine(appData, "ORBIT", "library.db");
+            var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
             
             // Create table using main context
             using var context = new AppDbContext();

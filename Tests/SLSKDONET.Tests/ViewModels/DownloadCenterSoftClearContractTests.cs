@@ -21,6 +21,7 @@ using Xunit;
 
 namespace SLSKDONET.Tests.ViewModels;
 
+[Collection(NonParallelCollection.Name)]
 public class DownloadCenterSoftClearContractTests
 {
     [Fact]

@@ -1,0 +1,175 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
+             x:Class="SLSKDONET.Views.Avalonia.Controls.PlaylistDiscoveryPanel"
+             x:DataType="vm:PlaylistDiscoveryViewModel"
+             x:Name="Root"
+             Background="#1A1A1A" Foreground="White">
+
+    <UserControl.Styles>
+        <Style Selector="Border.row">
+            <Setter Property="Background" Value="#242424"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="8,7"/>
+            <Setter Property="Margin" Value="0,2"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+        </Style>
+        <Style Selector="Border.row:pointerover">
+            <Setter Property="Background" Value="#2E2E2E"/>
+        </Style>
+        <!-- Both Beatport and Deezer suggested it -->
+        <Style Selector="Border.row.agreed">
+            <Setter Property="Background" Value="#2A2410"/>
+            <Setter Property="BorderBrush" Value="#8A6D1E"/>
+        </Style>
+        <Style Selector="Border.row.agreed:pointerover">
+            <Setter Property="Background" Value="#332C14"/>
+        </Style>
+        <Style Selector="Button.act">
+            <Setter Property="Background" Value="#2D2D2D"/>
+            <Setter Property="BorderBrush" Value="#444"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="7,2"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="MinWidth" Value="26"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="#1F4D45"/>
+            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="10,8">
+
+        <!-- Header -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,4">
+            <StackPanel Spacing="1">
+                <TextBlock Text="Discover" FontSize="14" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding PlaylistTitle, StringFormat='for {0}'}" FontSize="11" Foreground="#999"
+                           TextTrimming="CharacterEllipsis" IsVisible="{Binding HasPlaylist}"/>
+            </StackPanel>
+            <Button Grid.Column="1" Classes="act" Command="{Binding QueueAllCommand}" Margin="0,0,6,0"
+                    VerticalAlignment="Center" IsVisible="{Binding HasSuggestions}"
+                    ToolTip.Tip="Queue the top 10 suggestions for download">
+                <TextBlock Text="⬇ Top 10" FontSize="11"/>
+            </Button>
+            <Button Grid.Column="2" Classes="act" Command="{Binding RefreshCommand}" VerticalAlignment="Center"
+                    IsEnabled="{Binding !IsLoading}" IsVisible="{Binding HasPlaylist}"
+                    ToolTip.Tip="Look again (picks different seed artists)">
+                <TextBlock Text="↻" FontSize="13"/>
+            </Button>
+        </Grid>
+
+        <!-- Sources -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" Margin="0,2,0,4">
+            <CheckBox IsChecked="{Binding UseBeatport}" FontSize="11" Content="Beatport"/>
+            <CheckBox IsChecked="{Binding UseDeezer}" FontSize="11" Content="Deezer"/>
+        </StackPanel>
+
+        <!-- Status / profile -->
+        <StackPanel Grid.Row="2" Spacing="2" Margin="0,0,0,6">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <ProgressBar IsIndeterminate="True" Width="40" Height="3" VerticalAlignment="Center"
+                             IsVisible="{Binding IsLoading}"/>
+                <TextBlock Text="{Binding Status}" FontSize="11" Foreground="#BBB" TextWrapping="Wrap"/>
+            </StackPanel>
+            <TextBlock Text="{Binding Summary}" FontSize="10" Foreground="#777" TextWrapping="Wrap"
+                       IsVisible="{Binding Summary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+        </StackPanel>
+
+        <!-- Suggestions -->
+        <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl ItemsSource="{Binding Suggestions}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DiscoverySuggestionViewModel">
+                        <Border Classes="row" Classes.agreed="{Binding IsCrossSource}">
+                            <Grid ColumnDefinitions="40,*,Auto" RowDefinitions="Auto,Auto,Auto">
+
+                                <!-- Cover + preview -->
+                                <Panel Grid.RowSpan="3" Width="40" Height="40" VerticalAlignment="Top" Margin="0,0,8,0">
+                                    <Border Background="#333" CornerRadius="4" ClipToBounds="True">
+                                        <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill"/>
+                                    </Border>
+                                    <Button Command="{Binding #Root.DataContext.PreviewCommand}"
+                                            CommandParameter="{Binding}"
+                                            IsVisible="{Binding HasPreview}"
+                                            Background="#99000000" CornerRadius="4" Padding="0"
+                                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                            ToolTip.Tip="Preview clip">
+                                        <TextBlock Text="{Binding PreviewGlyph}" FontSize="13"/>
+                                    </Button>
+                                </Panel>
+
+                                <!-- Title / artist -->
+                                <StackPanel Grid.Column="1" Spacing="0">
+                                    <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}"/>
+                                    <TextBlock Text="{Binding Artist}" FontSize="11" Foreground="#AAA"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+
+                                <!-- Fit -->
+                                <StackPanel Grid.Column="2" Spacing="1" HorizontalAlignment="Right" Margin="6,0,0,0">
+                                    <TextBlock Text="{Binding FitPercent, StringFormat='{}{0}%'}" FontSize="12"
+                                               FontWeight="SemiBold" Foreground="#4EC9B0" HorizontalAlignment="Right"
+                                               ToolTip.Tip="How well it fits this playlist"/>
+                                    <ProgressBar Value="{Binding FitPercent}" Maximum="100" Width="44" Height="3"
+                                                 MinHeight="3" Foreground="#4EC9B0" Background="#333"/>
+                                </StackPanel>
+
+                                <!-- Why -->
+                                <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="6" Margin="0,3,0,0">
+                                    <Border IsVisible="{Binding IsCrossSource}" Background="#4A3A0E" CornerRadius="3" Padding="4,0"
+                                            ToolTip.Tip="Suggested independently by both Beatport and Deezer">
+                                        <TextBlock Text="★" FontSize="10" Foreground="#FFCC4D"/>
+                                    </Border>
+                                    <TextBlock Text="{Binding ReasonText}" FontSize="10" Foreground="#999"
+                                               TextWrapping="Wrap" MaxWidth="300"/>
+                                </StackPanel>
+
+                                <!-- Actions -->
+                                <Grid Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" ColumnDefinitions="*,Auto" Margin="0,5,0,0">
+                                    <TextBlock Text="{Binding MetaText}" FontSize="10" Foreground="#666"
+                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                        <Button Classes="act primary"
+                                                Command="{Binding #Root.DataContext.QueueCommand}"
+                                                CommandParameter="{Binding}" IsVisible="{Binding !IsQueued}"
+                                                ToolTip.Tip="Add to this playlist and download via Soulseek">
+                                            <TextBlock Text="⬇ Queue" FontSize="11"/>
+                                        </Button>
+                                        <Border IsVisible="{Binding IsQueued}" Background="#1F3D2A" CornerRadius="4" Padding="7,2">
+                                            <TextBlock Text="✓ Queued" FontSize="11" Foreground="#7FD99A"/>
+                                        </Border>
+                                        <Button Classes="act"
+                                                Command="{Binding #Root.DataContext.SearchCommand}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="Search on Soulseek and pick a file yourself">
+                                            <TextBlock Text="🔍" FontSize="11"/>
+                                        </Button>
+                                        <Button Classes="act"
+                                                Command="{Binding #Root.DataContext.OpenLinkCommand}"
+                                                CommandParameter="{Binding}" IsVisible="{Binding HasLink}"
+                                                ToolTip.Tip="{Binding LinkTip}">
+                                            <TextBlock Text="↗" FontSize="11"/>
+                                        </Button>
+                                        <Button Classes="act"
+                                                Command="{Binding #Root.DataContext.DismissCommand}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="Hide this suggestion">
+                                            <TextBlock Text="✕" FontSize="10" Foreground="#888"/>
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

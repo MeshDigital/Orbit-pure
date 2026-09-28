@@ -79,10 +79,6 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
     private bool _upnpPortMapped;
     private DateTime _lastUpnpAttemptUtc = DateTime.MinValue;
     private static readonly TimeSpan UpnpAttemptCooldown = TimeSpan.FromMinutes(5);
-    private static readonly TimeSpan ShareCountCacheTtl = TimeSpan.FromSeconds(45);
-    private DateTime _lastShareCountComputedAtUtc = DateTime.MinValue;
-    private int _lastShareFileCount;
-    private string _lastShareFolderFingerprint = string.Empty;
 
     private readonly Network.ProtocolHardeningService _hardeningService;
     private readonly ConcurrentDictionary<string, byte> _excludedPhrases = new();
@@ -113,6 +109,7 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
         _eventBus = eventBus;
         _healthService = healthService;
         _shareIndex = shareIndex;
+        _shareIndex.CountsChanged += OnShareCountsChanged;
         _chatAttachments = chatAttachments;
         _frequentSourceService = frequentSourceService;
     }
@@ -644,25 +641,6 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
         }
     }
 
-    private int GetSharedFileCountWithCache(string[] shareFolders)
-    {
-        var folderFingerprint = string.Join("|", shareFolders.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
-        var cacheIsValid =
-            string.Equals(folderFingerprint, _lastShareFolderFingerprint, StringComparison.OrdinalIgnoreCase) &&
-            DateTime.UtcNow - _lastShareCountComputedAtUtc < ShareCountCacheTtl;
-
-        if (cacheIsValid)
-        {
-            return _lastShareFileCount;
-        }
-
-        var sharedFileCount = shareFolders.Sum(folder => System.IO.Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Count());
-        _lastShareFolderFingerprint = folderFingerprint;
-        _lastShareFileCount = sharedFileCount;
-        _lastShareCountComputedAtUtc = DateTime.UtcNow;
-        return sharedFileCount;
-    }
-
     public async Task ConnectAsync(string? password = null, CancellationToken ct = default)
     {
         await _connectLock.WaitAsync(ct);
@@ -1063,13 +1041,20 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
             return;
         }
 
-        _logger.LogInformation("Refreshing reciprocal sharing for {Count} folder(s): {Folders}", shareFolders.Length, string.Join(", ", shareFolders));
-        var sharedFileCount = GetSharedFileCountWithCache(shareFolders);
+        // Announce what a peer actually gets when browsing: the index's music files and the folders
+        // they sit in. This used to send the number of shared ROOTS as the folder count (5) and every
+        // file of any type as the file count — leech-detection scripts read these server-side stats,
+        // and "5 folders" reads as a tiny share.
+        _shareIndex.EnsureFresh();
+        var sharedFileCount = _shareIndex.FileCount;
+        var sharedDirectoryCount = _shareIndex.DirectoryCount;
         SharedFileCount = sharedFileCount;
+        _logger.LogInformation("Publishing shares: {Files} music file(s) in {Dirs} folder(s) from {Roots} root(s): {Folders}",
+            sharedFileCount, sharedDirectoryCount, shareFolders.Length, string.Join(", ", shareFolders));
 
         try
         {
-            await PublishSharedCountsStagedAsync(shareFolders.Length, sharedFileCount, ct);
+            await PublishSharedCountsStagedAsync(sharedDirectoryCount, sharedFileCount, ct);
         }
         catch (InvalidOperationException ex)
         {
@@ -1084,9 +1069,38 @@ public partial class SoulseekAdapter : ISoulseekAdapter, IDisposable
 
         _eventBus.Publish(new SharedFilesStatusEvent(shareFolders.Length, string.Join(";", shareFolders)));
         _eventBus.Publish(new ShareHealthUpdatedEvent(
-            SharedFolderCount: shareFolders.Length,
+            SharedFolderCount: sharedDirectoryCount,
             SharedFileCount: sharedFileCount,
             IsSharing: true));
+    }
+
+    /// <summary>
+    /// The share index changed (downloads finished, a Library Source was added…): tell the server
+    /// the new counts right away instead of only at the next login, which is all that happened before.
+    /// </summary>
+    private void OnShareCountsChanged(object? sender, (int Files, int Directories) counts)
+    {
+        var client = _client;
+        if (client == null || !_config.EnableLibrarySharing) return;
+        if (!client.State.HasFlag(SoulseekClientStates.Connected) || !client.State.HasFlag(SoulseekClientStates.LoggedIn)) return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await client.SetSharedCountsAsync(counts.Directories, counts.Files);
+                SharedFileCount = counts.Files;
+                _logger.LogInformation("Share counts updated on the server: {Files} file(s) in {Dirs} folder(s)", counts.Files, counts.Directories);
+                _eventBus.Publish(new ShareHealthUpdatedEvent(
+                    SharedFolderCount: counts.Directories,
+                    SharedFileCount: counts.Files,
+                    IsSharing: true));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not update share counts on the server");
+            }
+        });
     }
 
     public async Task DisconnectAsync()

@@ -283,6 +283,7 @@ public partial class LibraryViewModel
         // can't know about this outer wrapper. Only surfaced once something (the playlist header)
         // actually needed live updates through the wrapper instead of the direct path.
         OnPropertyChanged(nameof(SelectedProject));
+        ReactiveUI.MessageBus.Current.SendMessage(new SLSKDONET.Events.PlaylistContextChangedEvent(project?.Id, project?.SourceTitle));
 
         SetSmartPlaylistContextMode(false);
         RaiseLibraryIntelligenceContextStateChanged();
@@ -304,8 +305,12 @@ public partial class LibraryViewModel
         // (or empty) until an unrelated event — typing in the search box — triggered the first
         // real load, which read as "search is broken and incomplete."
         _logger.LogInformation("LibraryViewModel.OnProjectSelected: Switching to project {Title} (ID: {Id})", project.SourceTitle, project.Id);
+        var selectSw = System.Diagnostics.Stopwatch.StartNew();
         await Tracks.LoadProjectTracksAsync(project);
+        var loadMs = selectSw.ElapsedMilliseconds;
         await RefreshSavedDoublesAsync();
+        _logger.LogInformation("[PERF] Project select '{Title}': LoadProjectTracks {LoadMs}ms, SavedDoubles {DoublesMs}ms",
+            project.SourceTitle, loadMs, selectSw.ElapsedMilliseconds - loadMs);
         _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
         _ = Intelligence.RefreshOverviewStatsAsync();
 

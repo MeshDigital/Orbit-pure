@@ -479,7 +479,8 @@ classification, mood scoring, and similarity embeddings are computed directly in
 Runtime — in-process, no external service — rather than by re-enabling or replacing the Essentia
 binary. This mirrors the existing ONNX DirectML stem-separation provider's approach rather than
 introducing a new dependency shape (e.g. a Python microservice), since optional external
-dependencies have repeatedly gone unset-up in this codebase (see EDMFormer).
+dependencies have repeatedly gone unset-up in this codebase (EDMFormer, a Python phrase
+service, was removed on 2026-09-28 for exactly that reason).
 
 ```
 PCM samples (16 kHz mono)
@@ -736,10 +737,10 @@ earlier parallel implementations were consolidated away — see `RECENT_CHANGES.
 - **[README.md](README.md)**: Project overview and quick start
 - **[DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md)**: Full documentation index
 - **[DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md](DOCS/REACTIVE_SEARCH_RUNTIME_TECHNICAL_2026-03-22.md)**: Deep technical guide for the reactive search runtime
-- **[DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md](DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md)**: Search firehose hardening plan and acceptance criteria
+- **[DOCS/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md](DOCS/archive/plans/SEARCH_STREAM_FIREHOSE_HARDENING_PLAN_2026-03-22.md)**: Search firehose hardening plan and acceptance criteria
 - **[BETA_TESTER_GUIDE.md](BETA_TESTER_GUIDE.md)**: Comprehensive testing guide
 - **[RECENT_CHANGES.md](RECENT_CHANGES.md)**: Development changelog — the most up-to-date doc in the repo
-- **[TODO.md](TODO.md)**: Development roadmap and backlog
+- **[DOCS/OPEN_WORK_PLAN_2026-09-27.md](DOCS/OPEN_WORK_PLAN_2026-09-27.md)**: Current open-work plan and backlog
 
 ---
 

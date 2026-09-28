@@ -18,6 +18,7 @@ using Xunit;
 
 namespace SLSKDONET.Tests.ViewModels;
 
+[Collection(NonParallelCollection.Name)]
 public class WorkstationDeckViewModelTests
 {
     [Fact]

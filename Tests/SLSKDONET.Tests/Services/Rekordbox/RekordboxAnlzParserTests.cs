@@ -243,6 +243,33 @@ public class RekordboxAnlzParserTests
     }
 
     [Fact]
+    public void TryParse_RecoversBeatGrid_FromPqtzTag()
+    {
+        var data = BuildSyntheticAnlz(@"C:\track.flac", mood: 1, entries: Array.Empty<(int, int, int)>());
+        var pqtz = new List<byte>();
+        pqtz.AddRange(Encoding.ASCII.GetBytes("PQTZ"));
+        WriteU32BE(pqtz, 24);            // len_header
+        WriteU32BE(pqtz, 24 + 3 * 8);    // len_tag
+        WriteU32BE(pqtz, 0);             // unknown
+        WriteU32BE(pqtz, 0x80000);       // unknown
+        WriteU32BE(pqtz, 3);             // len_beats
+        foreach (var (beatInBar, ms) in new[] { (1, 345), (2, 690), (3, 1035) })
+        {
+            WriteU16BE(pqtz, beatInBar);
+            WriteU16BE(pqtz, 17400);     // 174.00 BPM
+            WriteU32BE(pqtz, (uint)ms);
+        }
+        var file = FixUpFileLength(Concat(data, pqtz.ToArray()));
+
+        var result = RekordboxAnlzParser.TryParse(file);
+
+        Assert.NotNull(result);
+        Assert.Equal(3, result!.BeatGrid.Count);
+        Assert.Equal(new RekordboxBeat(1, 174.0, 0.345), result.BeatGrid[0]);
+        Assert.Equal(3, result.BeatGrid[2].BeatInBar);
+    }
+
+    [Fact]
     public void TryParse_NoCueTags_ReturnsEmptyCuePoints()
     {
         var data = BuildSyntheticAnlz(@"C:\track.flac", mood: 1, entries: Array.Empty<(int, int, int)>());

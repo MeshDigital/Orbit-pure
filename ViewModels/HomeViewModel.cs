@@ -507,17 +507,32 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task RefreshDashboardCoreAsync()
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        _logger.LogDebug("[Dashboard] Refresh started");
         Dispatcher.UIThread.Post(() => IsLoadingDashboard = true);
         try
         {
-            var healthTask = LoadLibraryHealthAsync();
-            var recentTask = LoadRecentPlaylistsAsync();
-            var recentDownloadsTask = LoadRecentDownloadsAsync();
-            var spotifyTask = LoadSpotifyRecommendationsAsync();
-            var intelligenceTask = LoadIntelligenceStatsAsync();
-            var trendTask = LoadDownloadTrendAsync();
+            // Each loader gets its own thread-pool hop: Sqlite's "async" queries and File.Exists
+            // calls run synchronously on whichever thread calls them, so without this a loader
+            // that's slow before its first real await blocks every loader started after it.
+            async Task Timed(string name, Func<Task> load)
+            {
+                var t = System.Diagnostics.Stopwatch.StartNew();
+                await Task.Run(load);
+                _logger.LogDebug("[Dashboard] {Loader} finished in {Ms}ms", name, t.ElapsedMilliseconds);
+            }
+
+            _ = Task.Run(LoadIncompleteAnalysisCountAsync);
+
+            var healthTask = Timed("LibraryHealth", LoadLibraryHealthAsync);
+            var recentTask = Timed("RecentPlaylists", LoadRecentPlaylistsAsync);
+            var recentDownloadsTask = Timed("RecentDownloads", LoadRecentDownloadsAsync);
+            var spotifyTask = Timed("Spotify", LoadSpotifyRecommendationsAsync);
+            var intelligenceTask = Timed("Intelligence", LoadIntelligenceStatsAsync);
+            var trendTask = Timed("DownloadTrend", LoadDownloadTrendAsync);
 
             await Task.WhenAll(healthTask, recentTask, recentDownloadsTask, spotifyTask, intelligenceTask, trendTask);
+            _logger.LogInformation("[Dashboard] Refresh completed in {Ms}ms", sw.ElapsedMilliseconds);
 
             RefreshTopPeers();
 
@@ -638,13 +653,10 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
                 }
             }
 
-            var incompleteCount = await _dashboardService.GetIncompleteAnalysisTrackCountAsync();
-
             Dispatcher.UIThread.Post(() =>
             {
                 LibraryHealth = health;
                 if (health != null) UpdateTopGenres(health.TopGenresJson);
-                IncompleteAnalysisCount = incompleteCount;
             });
         }
         finally
@@ -654,6 +666,39 @@ public class HomeViewModel : INotifyPropertyChanged, IDisposable
                 IsLoadingHealth = false;
                 PopulateActiveMissions();
             });
+        }
+    }
+
+    private int _incompleteCountInFlight;
+
+    /// <summary>
+    /// Kept off the dashboard's loading gate on purpose: it File.Exists-checks every downloaded
+    /// track, which on a cold boot (OS file cache not yet warm, library spread across drives)
+    /// measured ~60s — and since SQLite/File I/O here is synchronous, it used to also stall every
+    /// other dashboard loader behind it, leaving the whole page on "Loading dashboard..." for a
+    /// minute. It only feeds the "Reanalyze Incomplete Tracks" hint, so it fills in on its own.
+    /// </summary>
+    private async Task LoadIncompleteAnalysisCountAsync()
+    {
+        if (Interlocked.Exchange(ref _incompleteCountInFlight, 1) == 1) return;
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var count = await _dashboardService.GetIncompleteAnalysisTrackCountAsync();
+            _logger.LogDebug("[Dashboard] IncompleteAnalysisCount finished in {Ms}ms", sw.ElapsedMilliseconds);
+            Dispatcher.UIThread.Post(() =>
+            {
+                IncompleteAnalysisCount = count;
+                PopulateActiveMissions();
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load incomplete analysis count");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _incompleteCountInFlight, 0);
         }
     }
 

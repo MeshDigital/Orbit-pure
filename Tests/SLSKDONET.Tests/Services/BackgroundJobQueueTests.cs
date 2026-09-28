@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -8,6 +10,7 @@ using Xunit;
 
 namespace SLSKDONET.Tests.Services;
 
+[Collection(NonParallelCollection.Name)]
 public class BackgroundJobQueueTests
 {
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -20,6 +23,21 @@ public class BackgroundJobQueueTests
             MaxConcurrency = maxConcurrency
         };
         return (queue, worker);
+    }
+
+    /// <summary>
+    /// Waits until <paramref name="condition"/> holds (or fails the test after 5 s). The worker
+    /// raises progress events on its own threads, so a fixed Task.Delay was racy under full-suite
+    /// parallel load — the event often hadn't arrived yet.
+    /// </summary>
+    private static async Task WaitUntil(Func<bool> condition, string what)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!condition())
+        {
+            if (DateTime.UtcNow > deadline) Assert.Fail($"Timed out waiting for: {what}");
+            await Task.Delay(10);
+        }
     }
 
     private static BackgroundJob MakeJob(Func<IProgress<JobProgress>, CancellationToken, Task> work,
@@ -56,9 +74,9 @@ public class BackgroundJobQueueTests
     {
         var (queue, worker) = Build();
         var executed = new TaskCompletionSource<bool>();
-        var progressEvents = new List<JobProgress>();
+        var progressEvents = new ConcurrentQueue<JobProgress>();
 
-        queue.JobProgressChanged += (_, p) => progressEvents.Add(p);
+        queue.JobProgressChanged += (_, p) => progressEvents.Enqueue(p);
 
         var job = MakeJob(async (progress, ct) =>
         {
@@ -73,8 +91,7 @@ public class BackgroundJobQueueTests
         queue.Enqueue(job);
         await executed.Task;
 
-        // Allow the worker to emit the completion progress event
-        await Task.Delay(50);
+        await WaitUntil(() => progressEvents.Any(p => p.IsCompleted || p.IsFailed), "completion progress event");
         cts.Cancel();
         await workerTask;
 
@@ -101,7 +118,7 @@ public class BackgroundJobQueueTests
         queue.Enqueue(job);
 
         await done.WaitAsync(cts.Token);
-        await Task.Delay(50); // let counter update
+        await WaitUntil(() => queue.PendingCount == 0, "pending count to drop to 0");
         cts.Cancel();
 
         Assert.Equal(0, queue.PendingCount);
@@ -132,8 +149,8 @@ public class BackgroundJobQueueTests
     public async Task Worker_EmitsCancelled_Progress_WhenTokenCancelled()
     {
         var (queue, worker) = Build();
-        var progressEvents = new List<JobProgress>();
-        queue.JobProgressChanged += (_, p) => progressEvents.Add(p);
+        var progressEvents = new ConcurrentQueue<JobProgress>();
+        queue.JobProgressChanged += (_, p) => progressEvents.Enqueue(p);
 
         // Signal gate so we know when the job has started
         var jobStarted = new SemaphoreSlim(0, 1);
@@ -153,11 +170,8 @@ public class BackgroundJobQueueTests
         cts.Cancel();
         await worker.StopAsync(CancellationToken.None);
 
-        // Allow the failure progress event to propagate
-        await Task.Delay(100);
-
         // Worker should have emitted a cancellation/failure progress event
-        Assert.Contains(progressEvents, p => p.IsFailed);
+        await WaitUntil(() => progressEvents.Any(p => p.IsFailed), "cancellation progress event");
     }
 
     // ── error handling ────────────────────────────────────────────────────────
@@ -166,8 +180,8 @@ public class BackgroundJobQueueTests
     public async Task Worker_EmitsFailedProgress_WhenJobThrows()
     {
         var (queue, worker) = Build();
-        var progressEvents = new List<JobProgress>();
-        queue.JobProgressChanged += (_, p) => progressEvents.Add(p);
+        var progressEvents = new ConcurrentQueue<JobProgress>();
+        queue.JobProgressChanged += (_, p) => progressEvents.Enqueue(p);
 
         var done = new TaskCompletionSource();
         var job = MakeJob(async (_, _) =>
@@ -182,10 +196,8 @@ public class BackgroundJobQueueTests
         queue.Enqueue(job);
 
         await done.Task;
-        await Task.Delay(100); // allow progress event propagation
+        await WaitUntil(() => progressEvents.Any(p => p.IsFailed && p.ErrorMessage == "boom"), "failed progress event");
         cts.Cancel();
-
-        Assert.Contains(progressEvents, p => p.IsFailed && p.ErrorMessage == "boom");
     }
 
     // ── concurrency ───────────────────────────────────────────────────────────
@@ -218,14 +230,14 @@ public class BackgroundJobQueueTests
         for (int i = 0; i < concurrency; i++)
             queue.Enqueue(MakeJob(work));
 
-        // Give workers time to spin up
-        await Task.Delay(200);
+        // All jobs running at once (each is parked on the gate).
+        await WaitUntil(() => Volatile.Read(ref currentConcurrent) == concurrency, "all jobs running concurrently");
 
         // Release all
         for (int i = 0; i < concurrency; i++)
             gate.Release();
 
-        await Task.Delay(200);
+        await WaitUntil(() => Volatile.Read(ref currentConcurrent) == 0, "all jobs finished");
         cts.Cancel();
 
         Assert.Equal(concurrency, peakConcurrent);

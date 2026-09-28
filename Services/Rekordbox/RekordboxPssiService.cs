@@ -12,16 +12,15 @@ namespace SLSKDONET.Services.Rekordbox;
 
 /// <summary>
 /// Surfaces Rekordbox's own phrase/song-structure analysis (PSSI tag in its ANLZ files) as a
-/// <see cref="PhraseSegment"/> source for <see cref="Engine.Cueing.CueGenerationService"/> — the
-/// same shape <see cref="Audio.IEdmFormerService"/> provides, so it slots into the exact same
-/// Path-1 priority gate. When a track has already been analysed in Rekordbox (a common workflow
+/// <see cref="PhraseSegment"/> source for <see cref="Engine.Cueing.CueGenerationService"/>'s
+/// Path-1 (phrase segment) priority gate. When a track has already been analysed in Rekordbox (a common workflow
 /// for working DJs), Rekordbox's own commercial phrase analysis is presumably at least as reliable
 /// as ORBIT's own DSP/ML detection — this makes that analysis available to ORBIT for free instead
 /// of re-deriving it from scratch, mirroring the approach the open-source "djcues" project takes.
 ///
 /// Entirely optional and best-effort: if Rekordbox isn't installed, hasn't analysed a given track,
 /// or the on-disk format doesn't match what's parsed here (a future Rekordbox version, a
-/// non-Windows install layout), this returns null and callers fall back to EDMFormer/DSP/heuristic
+/// non-Windows install layout), this returns null and callers fall back to heuristic sections/DSP
 /// exactly as before. Never throws.
 ///
 /// Format credit: reverse-engineered by the pyrekordbox and Deep Symmetry crate-digger projects
@@ -122,6 +121,32 @@ public sealed class RekordboxPssiService : IRekordboxPssiService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[RekordboxPssi] Cue lookup failed for {Path}, continuing without it", audioFilePath);
+            return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<RekordboxBeat>?> GetBeatGridAsync(string audioFilePath, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(audioFilePath)) return null;
+
+        try
+        {
+            var candidates = await ResolveCandidatesAsync(audioFilePath, ct).ConfigureAwait(false);
+            if (candidates == null) return null;
+
+            // The index is built from .EXT files; the beat grid lives in the sibling .DAT.
+            foreach (var extPath in candidates)
+            {
+                var datPath = Path.ChangeExtension(extPath, ".DAT");
+                if (!File.Exists(datPath)) continue;
+                var parsed = RekordboxAnlzParser.TryParse(await File.ReadAllBytesAsync(datPath, ct).ConfigureAwait(false));
+                if (parsed?.BeatGrid is { Count: > 0 } grid) return grid;
+            }
+            return null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "[RekordboxPssi] Beat grid lookup failed for {Path}, continuing without it", audioFilePath);
             return null;
         }
     }
@@ -235,7 +260,7 @@ public sealed class RekordboxPssiService : IRekordboxPssiService
                 Label = label,
                 Start = (float)start,
                 Duration = (float)Math.Max(0, next - start),
-                Confidence = 0.9f, // Rekordbox's own commercial analysis — treated on par with EDMFormer
+                Confidence = 0.9f, // Rekordbox's own commercial analysis
             });
         }
         return result;

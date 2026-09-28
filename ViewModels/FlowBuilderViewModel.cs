@@ -144,6 +144,41 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     /// scrolling instead of only getting whatever scraps of height the timeline left over.</summary>
     public bool ShowTrackList => HasTracks && !IsTransitionEditorOpen;
 
+    // ── Transition navigation (editor header ◀ ▶ and the set mini strip) ─────────────────
+
+    private int _activeTransitionIndex = -1;
+    /// <summary>Index of the OUTGOING card of the pair open in the transition editor, or -1.</summary>
+    public int ActiveTransitionIndex
+    {
+        get => _activeTransitionIndex;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _activeTransitionIndex, value);
+            RaiseTransitionNavigationChanged();
+        }
+    }
+
+    public bool HasPreviousTransition => _activeTransitionIndex > 0;
+    public bool HasNextTransition => _activeTransitionIndex >= 0 && _activeTransitionIndex < Tracks.Count - 2;
+
+    /// <summary>"Transition 3 of 11" — where the open pair sits in the set.</summary>
+    public string ActiveTransitionPositionText =>
+        _activeTransitionIndex >= 0 && Tracks.Count > 1
+            ? $"Transition {_activeTransitionIndex + 1} of {Tracks.Count - 1}"
+            : string.Empty;
+
+    private void RaiseTransitionNavigationChanged()
+    {
+        this.RaisePropertyChanged(nameof(HasPreviousTransition));
+        this.RaisePropertyChanged(nameof(HasNextTransition));
+        this.RaisePropertyChanged(nameof(ActiveTransitionPositionText));
+        for (int i = 0; i < Tracks.Count; i++)
+            Tracks[i].IsActiveTransition = IsTransitionEditorOpen && i == _activeTransitionIndex;
+    }
+
+    public ReactiveCommand<Unit, Unit> PreviousTransitionCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> NextTransitionCommand { get; private set; } = null!;
+
     public IReadOnlyList<string> TransitionStyleFilters { get; } =
     [
         "All styles",
@@ -320,7 +355,7 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         SLSKDONET.Services.Audio.ILibraryPreviewPlayer? libraryPreviewPlayer = null)
     {
         _mixTransitionVm = mixTransitionVm;
-        _mixTransitionVm.Closed += (_, _) => IsTransitionEditorOpen = false;
+        _mixTransitionVm.Closed += (_, _) => { IsTransitionEditorOpen = false; ActiveTransitionIndex = -1; };
         _transitionPreviewPlayer = transitionPreviewPlayer;
         _libraryPreviewPlayer = libraryPreviewPlayer;
         if (_libraryPreviewPlayer != null)
@@ -480,7 +515,19 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         _disposables.Add(_eventBus.GetEvent<TrackMetadataUpdatedEvent>()
             .Subscribe(evt => Dispatcher.UIThread.Post(async () => await OnTrackMetadataUpdatedAsync(evt.TrackGlobalId))));
 
-        CloseTransitionEditorCommand = ReactiveCommand.Create(CloseTransitionEditor);
+        CloseTransitionEditorCommand = ReactiveCommand.CreateFromTask(CloseTransitionEditorAsync);
+        PreviousTransitionCommand = ReactiveCommand.Create(
+            () => { if (HasPreviousTransition) OpenTransitionInspector(Tracks[_activeTransitionIndex - 1]); },
+            this.WhenAnyValue(x => x.HasPreviousTransition));
+        NextTransitionCommand = ReactiveCommand.Create(
+            () => { if (HasNextTransition) OpenTransitionInspector(Tracks[_activeTransitionIndex + 1]); },
+            this.WhenAnyValue(x => x.HasNextTransition));
+        // Keep ◀ ▶ and the strip highlight right when cards are added, removed or reordered.
+        Tracks.CollectionChanged += (_, _) =>
+        {
+            if (_activeTransitionIndex >= Tracks.Count - 1) ActiveTransitionIndex = -1;
+            else RaiseTransitionNavigationChanged();
+        };
 
         _ = LoadPlaylistsAsync();
     }
@@ -1330,14 +1377,19 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         _ = TryAttachTransitionInspectorPairwiseContextAsync(inspectorVm, currentCard, nextCard);
 
         // The full-option transition editor — same MixTransitionViewModel/persistence the compact
-        // CONTEXT-sidepanel "Mix" tab uses, opened here for this specific adjacent pair.
+        // CONTEXT-sidepanel "Mix" tab uses, opened here for this specific adjacent pair. Loading a
+        // new pair auto-saves the previous pair's cue edits (MixTransitionViewModel.LoadPairAsync).
         IsTransitionEditorOpen = true;
+        ActiveTransitionIndex = currentIndex;
         _ = _mixTransitionVm.LoadPairAsync(currentCard.Model.PlaylistId, currentCard.Model.Id, nextCard.Model.Id);
     }
 
-    private void CloseTransitionEditor()
+    private async Task CloseTransitionEditorAsync()
     {
+        // Closing keeps any unsaved cue edits (auto-save, same as moving to another pair).
+        await _mixTransitionVm.FlushCueEditsAsync();
         IsTransitionEditorOpen = false;
+        ActiveTransitionIndex = -1;
     }
 
     private async Task TryAttachTransitionInspectorPairwiseContextAsync(

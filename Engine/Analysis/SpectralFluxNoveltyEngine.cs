@@ -18,8 +18,7 @@ namespace SLSKDONET.Engine.Analysis;
 ///   4. Subtract a local mean (novelty function) to enhance transient peaks.
 ///   5. Peak-pick for onset candidates.
 ///
-/// This is what librosa.onset.onset_strength computes and what drives EDMFormer's
-/// input feature stack. Outperforms RMS delta for EDM because it tracks spectral
+/// This is what librosa.onset.onset_strength computes. Outperforms RMS delta for EDM because it tracks spectral
 /// change rather than just loudness change — critical for detecting drops where
 /// a breakdown's sustained pad gives way to a loud kick+bass.
 /// </summary>

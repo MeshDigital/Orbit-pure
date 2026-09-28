@@ -261,9 +261,41 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
 
         _logger.LogInformation("Playing track: {Artist} - {Title}", track.Artist, track.Title);
 
+        // Mix on: play this track and keep mixing through the rest of the playlist from here,
+        // instead of playing it on its own.
+        if (LibraryViewModel?.Tracks.IsMixModeEnabled == true && track.Model is { PlaylistId: var playlistId } model && playlistId != Guid.Empty)
+        {
+            _ = PlayPlaylistFromTrackAsync(playlistId, model.Id, track);
+            return;
+        }
+
         // Clear queue and add this track
         _playerViewModel.ClearQueue();
         _playerViewModel.AddToQueue(track);
+    }
+
+    /// <summary>Queues the playlist (downloaded tracks, playlist order) and starts at
+    /// <paramref name="startTrackId"/>, with Mix on — the same request the playlist Play button
+    /// sends, so every following pair crossfades with its saved transition.</summary>
+    private async Task PlayPlaylistFromTrackAsync(Guid playlistId, Guid startTrackId, PlaylistTrackViewModel fallback)
+    {
+        try
+        {
+            var tracks = await _libraryService.LoadPlaylistTracksAsync(playlistId);
+            var playable = tracks.Where(t => !string.IsNullOrEmpty(t.ResolvedFilePath)).ToList();
+            if (playable.Any(t => t.Id == startTrackId))
+            {
+                _eventBus.Publish(new PlayAlbumRequestEvent(playable, MixModeEnabled: true, StartTrackId: startTrackId));
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Couldn't queue the playlist for mix playback; playing the track on its own");
+        }
+
+        _playerViewModel.ClearQueue();
+        _playerViewModel.AddToQueue(fallback);
     }
 
     private void ExecuteAddToQueue(PlaylistTrackViewModel? track)

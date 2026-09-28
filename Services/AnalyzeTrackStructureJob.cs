@@ -21,8 +21,7 @@ namespace SLSKDONET.Services;
 /// 1. Look up the track's stored <see cref="AudioFeaturesEntity"/> (BPM, duration, energy curve).
 /// 2. Run the <see cref="StructuralAnalysisEngine"/> to detect phrase boundaries and drops (feeds the
 ///    genre-aware phrase/section map — TrackPhrases, embeddings, energy profile — not cue placement).
-/// 3. Attempt EDMFormer ML phrase segmentation (optional, local microservice) before cue generation,
-///    so cue generation benefits from it the same run when available.
+/// 3. Use Rekordbox's own phrase analysis when Rekordbox has analysed the same file.
 /// 4. Use <see cref="Engine.Cueing.CueGenerationService"/> — built from the persisted sub-bass/novelty/
 ///    energy signals via <see cref="Engine.Analysis.AnalysisPipelineResultBuilder"/>, the same real-signal
 ///    path Cue Forge's manual Auto-Generate button uses — to map the results into <see cref="CuePointEntity"/>
@@ -37,7 +36,6 @@ public sealed class AnalyzeTrackStructureJob
     private readonly IPhraseAlignmentService _phraseAlignmentService;
     private readonly IEmbeddingExtractionService _embeddingExtractionService;
     private readonly EnergyAnalysisService _energyAnalysisService;
-    private readonly IEdmFormerService? _edmFormer;
     private readonly Rekordbox.IRekordboxPssiService? _rekordboxPssi;
     private readonly IEventBus _eventBus;
     private readonly ILogger<AnalyzeTrackStructureJob> _logger;
@@ -50,7 +48,6 @@ public sealed class AnalyzeTrackStructureJob
         EnergyAnalysisService energyAnalysisService,
         IEventBus eventBus,
         ILogger<AnalyzeTrackStructureJob> logger,
-        IEdmFormerService? edmFormerService = null,
         Rekordbox.IRekordboxPssiService? rekordboxPssiService = null)
     {
         _databaseService = databaseService;
@@ -58,7 +55,6 @@ public sealed class AnalyzeTrackStructureJob
         _phraseAlignmentService = phraseAlignmentService;
         _embeddingExtractionService = embeddingExtractionService;
         _energyAnalysisService = energyAnalysisService;
-        _edmFormer = edmFormerService;
         _rekordboxPssi = rekordboxPssiService;
         _eventBus = eventBus;
         _logger = logger;
@@ -130,14 +126,10 @@ public sealed class AnalyzeTrackStructureJob
                 : await BuildPhraseEntitiesAsync(trackUniqueHash, features, analysisResult, cancellationToken);
 
             // Bridge the real rule-based phrase analysis into PhraseSegmentsJson. This is the
-            // same field Cue Forge's phrase map reads, but it was previously only ever populated
-            // by the optional EDMFormer microservice (below), which requires a user to manually
-            // run a separate Python service. Without this bridge, the Cue Forge phrase map was
-            // silently empty for everyone who hasn't set EDMFormer up — even though this same
-            // rule-based structural analysis already ran for every track and produced real data,
-            // just under a different table (TrackPhrases) that nothing downstream consulted.
-            // Marked "Heuristic" (not "EDMFormer") so cue generation's signal-priority gate
-            // doesn't mistake this weak signal for ML-grade phrase data — see
+            // same field Cue Forge's phrase map reads; without this bridge the phrase map was empty
+            // for any track Rekordbox hadn't analysed, even though this rule-based structural
+            // analysis already ran for every track (into TrackPhrases, which nothing downstream
+            // consulted). Marked "Heuristic" so its provenance stays visible — see
             // AnalysisPipelineResultBuilder.Build's PhraseSegmentsSource check.
             if (sections.Count >= 2 && (string.IsNullOrWhiteSpace(features.PhraseSegmentsJson) || features.PhraseSegmentsJson == "[]"))
             {
@@ -155,9 +147,8 @@ public sealed class AnalyzeTrackStructureJob
                 await _databaseService.SavePhrasesAsync(sections);
 
             // Step 4b: Rekordbox's own phrase analysis (optional — only present if the user has
-            // already analysed this exact file in Rekordbox). Tried before EDMFormer since it
-            // needs no local microservice and is Rekordbox's own commercial-grade analysis, not a
-            // guess — see Services/Rekordbox/RekordboxPssiService.cs.
+            // already analysed this exact file in Rekordbox) — its own commercial-grade analysis,
+            // preferred over the heuristic sections above; see Services/Rekordbox/RekordboxPssiService.cs.
             if (_rekordboxPssi?.IsAvailable == true)
             {
                 try
@@ -187,35 +178,6 @@ public sealed class AnalyzeTrackStructureJob
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "[AnalyzeTrackStructureJob] Rekordbox PSSI lookup failed for {Hash}, continuing without it", trackUniqueHash);
-                }
-            }
-
-            // Step 5: EDMFormer ML phrase detection (optional — requires local Python service).
-            // Runs before cue generation so, when it succeeds, cue generation benefits from the
-            // ML-grade segments in this same pass instead of lagging one analysis run behind.
-            // Skipped if Rekordbox's own analysis was already found above — no need to spend a
-            // local-microservice call re-deriving what Rekordbox already told us.
-            if (features.PhraseSegmentsSource != "RekordboxPSSI" && _edmFormer?.IsAvailable == true)
-            {
-                try
-                {
-                    var audioPath = await _databaseService.GetLocalFilePathByHashAsync(trackUniqueHash);
-                    if (!string.IsNullOrEmpty(audioPath))
-                    {
-                        var edmSegments = await _edmFormer.AnalyzeAsync(audioPath, cancellationToken);
-                        if (edmSegments is { Count: > 0 })
-                        {
-                            features.PhraseSegmentsJson = JsonSerializer.Serialize(edmSegments);
-                            features.PhraseSegmentsSource = "EDMFormer";
-                            _logger.LogInformation(
-                                "[AnalyzeTrackStructureJob] EDMFormer produced {n} phrase segments for {Hash}",
-                                edmSegments.Count, trackUniqueHash);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[AnalyzeTrackStructureJob] EDMFormer call failed for {Hash}, continuing without ML phrases", trackUniqueHash);
                 }
             }
 
@@ -270,7 +232,7 @@ public sealed class AnalyzeTrackStructureJob
     /// <summary>
     /// Re-runs ONLY cue-point mapping (Step 6 of <see cref="ExecuteAsync"/>) against whatever
     /// phrase/energy/sub-bass/novelty signals are already persisted on the track's
-    /// <see cref="AudioFeaturesEntity"/> — no audio decode, no structural-analysis/EDMFormer/
+    /// <see cref="AudioFeaturesEntity"/> — no audio decode, no structural-analysis/
     /// Rekordbox re-run. For picking up a <see cref="Engine.Cueing.CueGenerationService"/> logic
     /// change across many tracks without paying for a full re-analysis: cue placement is a pure
     /// function of already-stored data, so this is a cheap DB round-trip per track instead of an
@@ -350,7 +312,7 @@ public sealed class AnalyzeTrackStructureJob
 
     /// <summary>
     /// Converts rule-based structural sections into the same <see cref="PhraseSegment"/> shape
-    /// EDMFormer produces, so both writers of PhraseSegmentsJson are interchangeable to readers.
+    /// Rekordbox's phrase analysis produces, so both writers of PhraseSegmentsJson are interchangeable.
     /// </summary>
     private static List<PhraseSegment> ToPhraseSegments(IReadOnlyList<TrackPhraseEntity> sections, float bpm)
     {

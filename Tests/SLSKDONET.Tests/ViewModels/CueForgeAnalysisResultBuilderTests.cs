@@ -24,6 +24,17 @@ public class CueForgeAnalysisResultBuilderTests
     };
 
     [Fact]
+    public void PassesTheAggressiveMoodThrough_InsteadOfZero()
+    {
+        var features = BaseFeatures();
+        features.MoodAggressive = 0.8f;
+
+        var result = CueForgeViewModel.BuildAnalysisResultFromFeatures(features);
+
+        Assert.Equal(0.8f, result.EssentiaAggressiveProbability);
+    }
+
+    [Fact]
     public void UsesRealSubBassAndNoveltySignals_WhenPresent()
     {
         var features = BaseFeatures();
@@ -112,10 +123,10 @@ public class CueForgeAnalysisResultBuilderTests
     }
 
     [Fact]
-    public void PhraseSegments_DeserializedFromJson_WhenSourceIsEdmFormer()
+    public void PhraseSegments_DeserializedFromJson_WhenSourceIsRekordbox()
     {
         var features = BaseFeatures();
-        features.PhraseSegmentsSource = "EDMFormer";
+        features.PhraseSegmentsSource = "RekordboxPSSI";
         features.PhraseSegmentsJson = JsonSerializer.Serialize(new[]
         {
             new SLSKDONET.Models.PhraseSegment { Label = "Drop", Start = 100f, Duration = 30f, Confidence = 0.9f },
@@ -131,11 +142,11 @@ public class CueForgeAnalysisResultBuilderTests
     public void HeuristicPhraseSegments_AreSurfaced()
     {
         // PhraseSegmentsJson can also be populated by the rule-based StructuralAnalysisEngine
-        // bridge (AnalyzeTrackStructureJob) when EDMFormer isn't running. This was previously
+        // bridge (AnalyzeTrackStructureJob). This was previously
         // excluded on the theory that it's the same weak signal the DSP path (sub-bass/novelty)
         // already improves on — but verified against real Rekordbox-cued tracks, Heuristic's
         // structural analysis was repeatedly the *correct* answer where the DSP path it deferred
-        // to had picked a completely wrong section. It's now trusted the same as EDMFormer/
+        // to had picked a completely wrong section. It's now trusted the same as
         // RekordboxPSSI.
         var features = BaseFeatures();
         features.PhraseSegmentsSource = "Heuristic";

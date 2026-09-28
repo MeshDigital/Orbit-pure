@@ -1017,8 +1017,15 @@ public class TrackListViewModel : ReactiveObject, IDisposable
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
+                // Dispose the outgoing collection (after assignment, same as RefreshFilteredTracks):
+                // each one holds 7 app-wide event-bus subscriptions plus up to 40 pages of row
+                // ViewModels, so skipping this leaked a live collection on every playlist switch —
+                // every one kept processing every download-progress/analysis event for the rest of
+                // the session, which is why the Library got steadily slower until a restart.
+                var oldVtc = FilteredTracks as VirtualizedTrackCollection;
                 FilteredTracks = virtualized;
                 this.RaisePropertyChanged(nameof(LimitedTracks));
+                oldVtc?.Dispose();
                 _logger.LogInformation("Virtualized collection initialized for project {Title}", job.SourceTitle);
             });
         }

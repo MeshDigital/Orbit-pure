@@ -5,29 +5,101 @@
              x:Class="SLSKDONET.Views.Avalonia.Controls.FlowTransitionEditorPanel"
              x:DataType="vm:FlowBuilderViewModel">
 
-    <!-- Full-option Mix transition editor. Same MixTransitionViewModel/persistence the compact
-         CONTEXT-sidepanel "Mix" tab uses (SidebarViewModel.MixTransitionVm) — just a roomier host,
-         reached by clicking a bridge between two adjacent cards instead of a track-list badge.
-         Lives in FlowBuilderView's row-3 Panel alongside the (now-hidden-while-open) card
-         carousel, so it stretches to fill that row's full height — no MaxHeight cap here
-         (previously 600, before that 440) since it no longer has to share the page with the
-         timeline while open. -->
+    <!-- Mix + cue workspace for one transition of the set. Same MixTransitionViewModel/persistence
+         the compact CONTEXT-sidepanel "Mix" tab uses (SidebarViewModel.MixTransitionVm), in a roomier
+         host: a header with ◀ ▶ navigation, a mini strip of the whole set (click any link to jump to
+         that transition), then the dual-deck editor with in-place cue editing. -->
+    <UserControl.Styles>
+        <Style Selector="Button.nav">
+            <Setter Property="Background" Value="#171C22"/>
+            <Setter Property="Foreground" Value="#9BD7CA"/>
+            <Setter Property="BorderBrush" Value="#2A333D"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+        <Style Selector="Button.nav:pointerover">
+            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+        </Style>
+        <Style Selector="Border.strip-card">
+            <Setter Property="Background" Value="#171C22"/>
+            <Setter Property="BorderBrush" Value="#2A333D"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Padding" Value="6,3"/>
+            <Setter Property="Width" Value="120"/>
+        </Style>
+        <Style Selector="Button.strip-link">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="4,0"/>
+            <Setter Property="Width" Value="34"/>
+            <Setter Property="VerticalAlignment" Value="Stretch"/>
+        </Style>
+        <Style Selector="Button.strip-link:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#20262D"/>
+        </Style>
+    </UserControl.Styles>
+
     <Border Background="#1A1E24" BorderBrush="#2F3E4C" BorderThickness="0,1,0,0">
-        <Grid RowDefinitions="Auto,*">
-            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="16,10">
-                <TextBlock Grid.Column="0" Text="🎛 TRANSITION EDITOR" FontSize="11" FontWeight="Bold" Foreground="#4EC9B0" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="1" Text="{Binding MixTransitionVm.StatusMessage}" FontSize="11" Foreground="#9AA8B7"
+        <Grid RowDefinitions="Auto,Auto,*">
+            <!-- Header: title, ◀ position ▶, status, close -->
+            <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,*,Auto" Margin="16,10,16,6">
+                <TextBlock Grid.Column="0" Text="🎛 MIX &amp; CUE EDITOR" FontSize="11" FontWeight="Bold" Foreground="#4EC9B0" VerticalAlignment="Center"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="16,0,0,0" VerticalAlignment="Center">
+                    <Button Classes="nav" Content="◀ Previous" Command="{Binding PreviousTransitionCommand}"
+                            ToolTip.Tip="Previous transition in the set (cue edits here save automatically)"/>
+                    <TextBlock Text="{Binding ActiveTransitionPositionText}" FontSize="11" Foreground="#C7D6E2"
+                               VerticalAlignment="Center" MinWidth="120" TextAlignment="Center"/>
+                    <Button Classes="nav" Content="Next ▶" Command="{Binding NextTransitionCommand}"
+                            ToolTip.Tip="Next transition in the set (cue edits here save automatically)"/>
+                </StackPanel>
+                <TextBlock Grid.Column="2" Text="{Binding MixTransitionVm.StatusMessage}" FontSize="11" Foreground="#9AA8B7"
                            HorizontalAlignment="Center" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="12,0"/>
-                <Button Grid.Column="2" Content="✕ Close" FontSize="11" Padding="8,4"
-                        Command="{Binding CloseTransitionEditorCommand}"/>
+                <Button Grid.Column="3" Classes="nav" Content="✕ Close" Command="{Binding CloseTransitionEditorCommand}"
+                        ToolTip.Tip="Back to the set (unsaved cue edits are saved)"/>
             </Grid>
 
-            <!-- MixTransitionPanel scrolls itself internally (it's already a ScrollViewer over a
-                 StackPanel) — no outer scroller needed. Stretches to the full width of this panel
-                 (previously capped at MaxWidth 1400 and centered, which left a large dead strip on
-                 wide/high-DPI screens instead of giving the waveform the horizontal room it needs
-                 to show song structure). -->
-            <Border Grid.Row="1" Margin="16,0,16,16">
+            <!-- Mini strip: the whole set. Each ⇄ between two tracks opens that transition; the one
+                 being edited is highlighted. -->
+            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="16,0,16,8">
+                <ItemsControl ItemsSource="{Binding Tracks}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="vm:FlowTrackCardViewModel">
+                            <StackPanel Orientation="Horizontal">
+                                <Border Classes="strip-card" ToolTip.Tip="{Binding Title}">
+                                    <StackPanel Spacing="0">
+                                        <Border Height="2" Background="{Binding KeyColorBrush}" CornerRadius="1" Margin="0,0,0,2"/>
+                                        <TextBlock Text="{Binding Title}" FontSize="10" FontWeight="SemiBold" Foreground="#D8E5F2" TextTrimming="CharacterEllipsis"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="{Binding BpmDisplay}" FontSize="9" Foreground="#8FA7C0"/>
+                                            <TextBlock Text="{Binding KeyDisplay}" FontSize="9" Foreground="{Binding KeyColorBrush}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                                <Button Classes="strip-link" IsVisible="{Binding HasBridge}"
+                                        Command="{Binding SelectTransitionInspectorCommand}"
+                                        ToolTip.Tip="{Binding Bridge.Tooltip}">
+                                    <Panel>
+                                        <Border Background="#1D4E42" CornerRadius="4" IsVisible="{Binding IsActiveTransition}"/>
+                                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="⇄" FontSize="13" HorizontalAlignment="Center" Foreground="#9BD7CA"/>
+                                            <Border Height="2" Margin="3,0" CornerRadius="1" Background="{Binding Bridge.ScoreBrush}"/>
+                                        </StackPanel>
+                                    </Panel>
+                                </Button>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <!-- MixTransitionPanel scrolls itself internally. -->
+            <Border Grid.Row="2" Margin="16,0,16,16">
                 <views:MixTransitionPanel DataContext="{Binding MixTransitionVm}"/>
             </Border>
         </Grid>

@@ -368,6 +368,15 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             Dispatcher.UIThread.Post(() => ShowToast(evt));
         }));
+
+        // NotificationEvent is the older of the two toast events and had no subscriber at all, so
+        // every warning/error published with it (session conflict, auto-retry, Download Album /
+        // Remove Track / Open Folder failures, ...) was silently dropped by the event bus.
+        _disposables.Add(_eventBus.GetEvent<SLSKDONET.Services.NotificationEvent>().Subscribe(evt =>
+        {
+            Dispatcher.UIThread.Post(() => ShowToast(
+                new SLSKDONET.Services.ToastRequestedEvent(evt.Title, evt.Message, evt.Type, evt.Duration)));
+        }));
         
         // Glass Box Architecture: Analysis Queue Visibility
 

@@ -380,19 +380,13 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
             await _downloadManager.ForceDownloadIgnoreGuardsAsync(GlobalId),
             this.WhenAnyValue(x => x.IsFailed));
             
-        SearchAgainCommand = ReactiveCommand.Create(() => 
-        {
-            _eventBus.Publish(new ManualSearchRequestEvent(Model));
-            _downloadManager.CancelTrack(GlobalId); // Cancel current if any and prepare for new search
-        }, this.WhenAnyValue(x => x.IsFailed));
+        // A hard retry resets the track to Pending with a clean failure/retry state, which sends it
+        // back through a fresh search. This used to publish ManualSearchRequestEvent (no subscriber)
+        // and then cancel the track, so "Search Again" only ever cancelled.
+        SearchAgainCommand = ReactiveCommand.CreateFromTask(async () =>
+            await _downloadManager.HardRetryTrack(GlobalId),
+            this.WhenAnyValue(x => x.IsFailed));
             
-        CleanCommand = ReactiveCommand.CreateFromTask(async () =>
-        {
-             // Handled by parent collection usually, but could arguably be here if we had a Delete service method
-             // For now, this command might just be a placeholder or call a service to remove self
-             await _downloadManager.DeleteTrackFromDiskAndHistoryAsync(GlobalId);
-        }, this.WhenAnyValue(x => x.IsCompleted, x => x.IsFailed, (c, f) => c || f));
-
         // Subscribe to Events with Rx Scheduler for Thread Safety
         _eventBus.GetEvent<TrackStateChangedEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
@@ -614,17 +608,19 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
         catch (Exception) { /* Synergy is non-critical; swallow errors silently */ }
     }
     
+    // Both open the Similar Tracks panel seeded with this track — the same request the Library's
+    // "Find Similar" sends (TrackListViewModel.ExecuteFindSimilar). They used to publish the old
+    // FindSimilarRequestEvent, whose only subscriber was removed, so the button did nothing.
+    // The similarity engine already blends harmonic, rhythmic and learned (embedding) matching, so
+    // the "AI" variant has no separate path to take.
     private void FindSimilar()
     {
-        if (Model == null) return;
-        _eventBus.Publish(new FindSimilarRequestEvent(Model, useAi: false));
+        if (Model == null || string.IsNullOrWhiteSpace(GlobalId)) return;
+        ReactiveUI.MessageBus.Current.SendMessage(
+            new SLSKDONET.Events.FindSimilarTrackRequestEvent(GlobalId, $"{ArtistName} - {TrackTitle}"));
     }
 
-    private void FindSimilarAi()
-    {
-        if (Model == null) return;
-        _eventBus.Publish(new FindSimilarRequestEvent(Model, useAi: true));
-    }
+    private void FindSimilarAi() => FindSimilar();
 
 
 
@@ -1613,7 +1609,6 @@ public class UnifiedTrackViewModel : ReactiveObject, IDisplayableTrack, IDisposa
     public ICommand ForceStartCommand { get; }
     public ICommand ForceDownloadIgnoreGuardsCommand { get; }
     public ICommand SearchAgainCommand { get; }
-    public ICommand CleanCommand { get; }
     public ICommand FilterByVibeCommand { get; }
     public ICommand FindSimilarCommand { get; }
     public ICommand FindSimilarAiCommand { get; }

@@ -206,6 +206,13 @@ public class ConfigManager
                 FlowBuilderRestoreContentOnStartup = !bool.TryParse(config["FlowBuilder:RestoreContentOnStartup"], out var fbrc) || fbrc,
                 EnableFlowBuilderSuggestedFlowTelemetry = !bool.TryParse(config["FlowBuilder:EnableSuggestedFlowTelemetry"], out var efbst) || efbst,
 
+                // [Cues]
+                DropCountdownMode = string.IsNullOrWhiteSpace(config["Cues:DropCountdownMode"]) ? "Auto" : config["Cues:DropCountdownMode"]!,
+
+                // [Discover]
+                DiscoverUseBeatport = !bool.TryParse(config["Discover:UseBeatport"], out var dub) || dub,
+                DiscoverUseDeezer = !bool.TryParse(config["Discover:UseDeezer"], out var dud) || dud,
+
                 // [FrequentSources]
                 EnableFrequentSources = bool.TryParse(config["FrequentSources:EnableFrequentSources"], out var efs) && efs,
                 FrequentSourcesStagingPath = config["FrequentSources:StagingPath"] ?? string.Empty,
@@ -418,6 +425,15 @@ public class ConfigManager
         iniContent.AppendLine($"SelectedPlaylistId = {config.FlowBuilderSelectedPlaylistId}");
         iniContent.AppendLine($"RestoreContentOnStartup = {config.FlowBuilderRestoreContentOnStartup}");
         iniContent.AppendLine($"EnableSuggestedFlowTelemetry = {config.EnableFlowBuilderSuggestedFlowTelemetry}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Cues]");
+        iniContent.AppendLine($"DropCountdownMode = {config.DropCountdownMode}");
+
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Discover]");
+        iniContent.AppendLine($"UseBeatport = {config.DiscoverUseBeatport}");
+        iniContent.AppendLine($"UseDeezer = {config.DiscoverUseDeezer}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[FrequentSources]");

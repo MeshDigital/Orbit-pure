@@ -126,6 +126,9 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
         try 
         {
             _logger.LogInformation("[VirtualizedTrackCollection] Starting count query...");
+            // Deliberately NOT moved off the calling thread like LoadPageAsync's fetch: this runs
+            // from the constructor and (Sqlite being synchronous) completes before it returns, so
+            // bindings attach to the real Count — the "no Reset" notification below relies on that.
             var count = await _libraryService.GetTrackCountAsync(_playlistId, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _qualityTier);
             sw.Stop();
             _logger.LogInformation("[VirtualizedTrackCollection] Count query took {Ms}ms, returned {Count}", sw.ElapsedMilliseconds, count);
@@ -262,7 +265,39 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
 
     public bool HasMoreItems => _count == -1 || _loadedItems.Count < _count;
 
-    internal async Task LoadPageAsync(int pageIndex)
+    /// <summary>
+    /// Loads a page, or — if that page is already loading — returns the in-flight load so callers
+    /// that await it actually get the data. Previously a second caller got an immediately-completed
+    /// task while the first load was still running, which only ever worked because Sqlite made
+    /// every load finish synchronously before anyone could observe it.
+    /// </summary>
+    internal Task LoadPageAsync(int pageIndex)
+    {
+        lock (_pageLoadLock)
+        {
+            if (_pageLoadTasks.TryGetValue(pageIndex, out var inFlight)) return inFlight;
+            var task = LoadPageCoreAsync(pageIndex);
+            if (!task.IsCompleted) _pageLoadTasks[pageIndex] = task;
+            return task;
+        }
+    }
+
+    private readonly object _pageLoadLock = new();
+    private readonly Dictionary<int, Task> _pageLoadTasks = new();
+
+    private async Task LoadPageCoreAsync(int pageIndex)
+    {
+        try
+        {
+            await LoadPageBodyAsync(pageIndex);
+        }
+        finally
+        {
+            lock (_pageLoadLock) _pageLoadTasks.Remove(pageIndex);
+        }
+    }
+
+    private async Task LoadPageBodyAsync(int pageIndex)
     {
         if (_pendingPages.Contains(pageIndex) || _pages.ContainsKey(pageIndex)) return;
         
@@ -275,8 +310,18 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
             
             if (itemsToLoad <= 0) return;
             
-            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending, _qualityTier);
+            var pageSw = System.Diagnostics.Stopwatch.StartNew();
+            var callerIsUi = Dispatcher.UIThread.CheckAccess();
+            // Task.Run: Sqlite's "async" queries run synchronously on the calling thread, and this is
+            // usually called from the indexer during Avalonia's layout pass (UI thread) — so without
+            // it every page load froze the UI for the whole query, and for up to the 10s busy
+            // timeout whenever a download/analysis/maintenance write held the DB lock. The await
+            // resumes on the caller's context, so the non-thread-safe bookkeeping below stays put.
+            var tracks = await Task.Run(() => _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending, _qualityTier));
+            var fetchMs = pageSw.ElapsedMilliseconds;
             var viewModels = tracks.Select(t => new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
+            _logger.LogDebug("[PERF] VTC page load at {Start}: fetch {FetchMs}ms, build {Count} VMs {BuildMs}ms (caller ui={CallerUi}, after fetch ui={AfterUi})",
+                startIndex, fetchMs, viewModels.Count, pageSw.ElapsedMilliseconds - fetchMs, callerIsUi, Dispatcher.UIThread.CheckAccess());
             foreach (var vm in viewModels) _viewModelCache[vm.GlobalId] = vm;
 
             // A stale/mismatched _count (e.g. a count query and its paired data query
@@ -389,8 +434,18 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
 
         try
         {
-            var tracks = await _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending, _qualityTier);
+            var pageSw = System.Diagnostics.Stopwatch.StartNew();
+            var callerIsUi = Dispatcher.UIThread.CheckAccess();
+            // Task.Run: Sqlite's "async" queries run synchronously on the calling thread, and this is
+            // usually called from the indexer during Avalonia's layout pass (UI thread) — so without
+            // it every page load froze the UI for the whole query, and for up to the 10s busy
+            // timeout whenever a download/analysis/maintenance write held the DB lock. The await
+            // resumes on the caller's context, so the non-thread-safe bookkeeping below stays put.
+            var tracks = await Task.Run(() => _libraryService.GetPagedPlaylistTracksAsync(_playlistId, startIndex, itemsToLoad, _filter, _downloadedOnly, _hashFilter, _camelotKeyFilter, _sortColumn, _sortDescending, _qualityTier));
+            var fetchMs = pageSw.ElapsedMilliseconds;
             var viewModels = tracks.Select(t => new PlaylistTrackViewModel(t, _eventBus, _libraryService, _artworkCache)).ToList();
+            _logger.LogDebug("[PERF] VTC page load at {Start}: fetch {FetchMs}ms, build {Count} VMs {BuildMs}ms (caller ui={CallerUi}, after fetch ui={AfterUi})",
+                startIndex, fetchMs, viewModels.Count, pageSw.ElapsedMilliseconds - fetchMs, callerIsUi, Dispatcher.UIThread.CheckAccess());
             foreach (var vm in viewModels) _viewModelCache[vm.GlobalId] = vm;
 
             _loadedItems.AddRange(viewModels);

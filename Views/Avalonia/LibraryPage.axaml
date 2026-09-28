@@ -480,6 +480,48 @@
                                     </TreeDataTemplate>
                                 </TreeView.ItemTemplate>
                             </TreeView>
+
+                            <!-- Saved doubles: favourite track pairs saved from the Double Inspector.
+                                 Lists the pairs whose two tracks are both in the open playlist (that's
+                                 what SavedDoubles resolves against). Click a pair to select both
+                                 tracks; ✕ removes it. "View all" links elsewhere scroll here via
+                                 SavedDoublesSidebarFocusRequestVersion (LibraryPage.axaml.cs). -->
+                            <StackPanel x:Name="SavedDoublesSidebarSection" IsVisible="{Binding HasSavedDoubles}">
+                                <Separator Height="1" Background="#2A2A2A" Margin="12,8,12,4"/>
+                                <Grid ColumnDefinitions="*,Auto" Margin="16,4,12,4">
+                                    <TextBlock Grid.Column="0" Text="SAVED DOUBLES" FontSize="10" FontWeight="Bold" Foreground="#555" VerticalAlignment="Center"
+                                               ToolTip.Tip="Favourite pairs saved from the Double Inspector, for tracks in this playlist"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding SavedDoubles.Count}" FontSize="10" Foreground="#555" VerticalAlignment="Center"/>
+                                </Grid>
+                                <ItemsControl ItemsSource="{Binding SavedDoubles}" Margin="8,2,8,8">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Classes="savedDoubleRow">
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <Button Grid.Column="0"
+                                                            Command="{Binding $parent[UserControl].DataContext.ActivateSavedDoubleCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            Background="Transparent" BorderThickness="0" Padding="0"
+                                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                                            ToolTip.Tip="Select both tracks">
+                                                        <StackPanel Spacing="2">
+                                                            <TextBlock Text="{Binding PairTitle}" FontSize="11" FontWeight="SemiBold" Foreground="#D8E5F2" TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Text="{Binding PairSubtitle}" FontSize="9" Foreground="#8FA7C0" TextTrimming="CharacterEllipsis"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                    <Button Grid.Column="1" Classes="removeSavedDouble icon-button"
+                                                            Command="{Binding $parent[UserControl].DataContext.RemoveSavedDoubleCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            Padding="6,2" VerticalAlignment="Center"
+                                                            ToolTip.Tip="Remove this saved pair">
+                                                        <TextBlock Text="✕" FontSize="11"/>
+                                                    </Button>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
                         </StackPanel>
                     </ScrollViewer>
 
@@ -575,6 +617,15 @@
                                 <TextBlock Text="Mix" FontSize="12" FontWeight="SemiBold"/>
                             </StackPanel>
                         </ToggleButton>
+                        <Button Click="OpenDiscover_Click"
+                                Classes="headerPill" Padding="12,8" CornerRadius="{StaticResource RadiusFull}"
+                                IsVisible="{Binding IsLibraryIntelligencePanelVisible}"
+                                ToolTip.Tip="Suggest tracks to add to this playlist (Beatport + Deezer), downloadable via Soulseek">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <TextBlock Text="✨" FontSize="13"/>
+                                <TextBlock Text="Discover" FontSize="12" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
                 </StackPanel>
             </Border>

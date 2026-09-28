@@ -814,12 +814,15 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
+        // No Overview-stats refresh here: they describe the open playlist, not what's playing, and
+        // recomputing them on every track change (twice — CurrentTrack and HasCurrentTrack both
+        // land here) reloaded the whole playlist each time; on a 2k-track playlist that was a
+        // visible stutter on every track change during a listening session.
         if (Dispatcher.UIThread.CheckAccess())
         {
             RefreshSavedDoublesForCurrentPlayerTrack();
             _ = Intelligence.RefreshSuggestNextCandidatesAsync();
             _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
-            _ = Intelligence.RefreshOverviewStatsAsync();
             return;
         }
 
@@ -828,7 +831,6 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
             RefreshSavedDoublesForCurrentPlayerTrack();
             _ = Intelligence.RefreshSuggestNextCandidatesAsync();
             _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
-            _ = Intelligence.RefreshOverviewStatsAsync();
         });
     }
 
@@ -961,9 +963,10 @@ public partial class LibraryViewModel : INotifyPropertyChanged, IDisposable
                 : null;
             RefreshSavedDoublesForLeadTrack(selected);
             RefreshSavedDoublesForCurrentPlayerTrack();
+            // Only refreshes that use saved-double data — Overview stats don't, and re-running them
+            // here made every playlist selection load and compute the whole overview twice.
             _ = Intelligence.RefreshSuggestNextCandidatesAsync();
             _ = Intelligence.RefreshPlaylistUpgradeCandidatesAsync();
-            _ = Intelligence.RefreshOverviewStatsAsync();
         });
     }
 

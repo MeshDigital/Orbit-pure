@@ -26,6 +26,8 @@ namespace SLSKDONET.Services
         event EventHandler<long> LengthChanged;
         event EventHandler<AudioLevelsEventArgs> AudioLevelsChanged;
         event EventHandler<float[]> SpectrumChanged;
+        /// <summary>Mono time-domain sample block for waveform/oscilloscope visuals.</summary>
+        event EventHandler<float[]> WaveformChanged;
 
         event EventHandler EndReached;
         event EventHandler PausableChanged;

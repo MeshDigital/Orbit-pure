@@ -211,6 +211,71 @@ namespace SLSKDONET.ViewModels
 
         public bool HasUpNext => CurrentQueueIndex + 1 < Queue.Count;
 
+        /// <summary>Everything after the playing track, in play order (fullscreen player's Up Next).</summary>
+        public List<PlaylistTrackViewModel> UpNextQueue =>
+            Queue.Skip(Math.Max(0, CurrentQueueIndex + 1)).ToList();
+
+        /// <summary>"12 up next · 58 min" — or empty when nothing is queued after the current track.</summary>
+        public string UpNextSummary
+        {
+            get
+            {
+                var upcoming = Queue.Skip(Math.Max(0, CurrentQueueIndex + 1)).ToList();
+                if (upcoming.Count == 0) return string.Empty;
+                var ms = upcoming.Sum(t => (long)(t.Model?.CanonicalDuration ?? 0));
+                var minutes = (int)Math.Round(ms / 60000.0);
+                return minutes > 0 ? $"{upcoming.Count} up next · {minutes} min" : $"{upcoming.Count} up next";
+            }
+        }
+
+        /// <summary>"Track 3 of 14" while playing from the queue.</summary>
+        public string QueuePositionText =>
+            CurrentQueueIndex >= 0 && CurrentQueueIndex < Queue.Count ? $"Track {CurrentQueueIndex + 1} of {Queue.Count}" : string.Empty;
+
+        private bool _isExpandedQueueVisible = true;
+        /// <summary>Up Next column in the fullscreen player; shown by default whenever there is a queue.</summary>
+        public bool IsExpandedQueueVisible
+        {
+            get => _isExpandedQueueVisible;
+            set
+            {
+                if (SetProperty(ref _isExpandedQueueVisible, value))
+                    OnPropertyChanged(nameof(ShowExpandedQueue));
+            }
+        }
+
+        public bool ShowExpandedQueue => IsExpandedQueueVisible && Queue.Count > 0;
+
+        private bool _queueStatesScheduled;
+
+        /// <summary>Coalesces queue/index changes into one pass over the rows (bulk loads add one row at a time).</summary>
+        private void ScheduleUpdateQueueStates()
+        {
+            if (_queueStatesScheduled) return;
+            _queueStatesScheduled = true;
+            Dispatcher.UIThread.Post(() =>
+            {
+                _queueStatesScheduled = false;
+                UpdateQueueStates();
+            }, DispatcherPriority.Background);
+        }
+
+        /// <summary>Marks each queue row as played / playing / upcoming and numbers it.</summary>
+        internal void UpdateQueueStates()
+        {
+            var index = CurrentQueueIndex;
+            for (int i = 0; i < Queue.Count; i++)
+            {
+                var row = Queue[i];
+                row.QueueNumber = i + 1;
+                row.IsQueueCurrent = i == index;
+                row.IsQueuePlayed = index >= 0 && i < index;
+            }
+            OnPropertyChanged(nameof(UpNextQueue));
+            OnPropertyChanged(nameof(UpNextSummary));
+            OnPropertyChanged(nameof(QueuePositionText));
+        }
+
         // ── Mix transition visibility ────────────────────────────────────────────────────────
         // Previously AudioPlayerService computed all of this (whether a crossfade was active, how
         // far through it was, which preset) with zero external visibility — no UI could show
@@ -274,6 +339,7 @@ namespace SLSKDONET.ViewModels
                 {
                     OnPropertyChanged(nameof(UpNextPreview));
                     OnPropertyChanged(nameof(HasUpNext));
+                    ScheduleUpdateQueueStates();
                 }
             }
         }
@@ -423,7 +489,11 @@ namespace SLSKDONET.ViewModels
         public VisualizerPreset CurrentVisualizerPreset
         {
             get => _currentVisualizerPreset;
-            set => SetProperty(ref _currentVisualizerPreset, value);
+            set
+            {
+                if (SetProperty(ref _currentVisualizerPreset, value))
+                    OnPropertyChanged(nameof(CurrentVisualizerPresetName));
+            }
         }
 
         private VisualizerEngineMode _visualizerEngineMode = VisualizerEngineMode.Standard;
@@ -551,6 +621,14 @@ namespace SLSKDONET.ViewModels
             set => SetProperty(ref _spectrumData, value);
         }
 
+        private float[] _waveformSamples = Array.Empty<float>();
+        /// <summary>Latest mono time-domain block (oscilloscope/phase visuals).</summary>
+        public float[] WaveformSamples
+        {
+            get => _waveformSamples;
+            set => SetProperty(ref _waveformSamples, value);
+        }
+
         private float _vuRight;
         public float VuRight
         {
@@ -662,6 +740,12 @@ namespace SLSKDONET.ViewModels
         public ICommand ToggleMetadataDrivenVisualsCommand { get; }
         public ICommand ToggleExpandedPlayerCommand { get; }
         public ReactiveCommand<Unit, Unit> CycleVisualizerPresetCommand { get; }
+        public ReactiveCommand<Unit, Unit> PreviousVisualizerPresetCommand { get; private set; } = null!;
+        public ICommand ToggleExpandedQueueCommand { get; private set; } = null!;
+
+        /// <summary>"Spectrum Bars", "Circular Wave"… for the fullscreen player's preset label.</summary>
+        public string CurrentVisualizerPresetName =>
+            System.Text.RegularExpressions.Regex.Replace(CurrentVisualizerPreset.ToString(), "(?<=[a-z])(?=[A-Z])", " ");
 
         // Phase 5C: UI Throttling
         private DateTime _lastTimeUpdate = DateTime.MinValue;
@@ -839,11 +923,17 @@ namespace SLSKDONET.ViewModels
                         DebounceSaveQueue();
                     }
                     
-                    // 3. Play first track if any were added
+                    // 3. Play the requested start track (or the first) if any were added
                     if (Queue.Any())
                     {
-                        CurrentQueueIndex = 0;
-                        PlayTrackAtIndex(0);
+                        int startIndex = 0;
+                        if (evt.StartTrackId is Guid startId)
+                        {
+                            var found = Queue.ToList().FindIndex(t => t.Model?.Id == startId);
+                            if (found >= 0) startIndex = found;
+                        }
+                        CurrentQueueIndex = startIndex;
+                        PlayTrackAtIndex(startIndex);
 
                         // Mix was enabled on the playlist when Play was pressed — surface the
                         // transition settings for the first hop immediately instead of leaving the
@@ -981,9 +1071,15 @@ namespace SLSKDONET.ViewModels
                 .DisposeWith(_disposables);
 
             Observable.FromEventPattern<float[]>(h => _playerService.SpectrumChanged += h, h => _playerService.SpectrumChanged -= h)
-                .Sample(TimeSpan.FromMilliseconds(40)) // 25fps for Spectrum
+                .Sample(TimeSpan.FromMilliseconds(25)) // FFT blocks arrive ~43/s (50% overlap); the visualizer smooths at display rate
                 .ObserveOn(RxApp.MainThreadScheduler)
                 .Subscribe(e => SpectrumData = e.EventArgs)
+                .DisposeWith(_disposables);
+
+            Observable.FromEventPattern<float[]>(h => _playerService.WaveformChanged += h, h => _playerService.WaveformChanged -= h)
+                .Sample(TimeSpan.FromMilliseconds(33))
+                .ObserveOn(RxApp.MainThreadScheduler)
+                .Subscribe(e => WaveformSamples = e.EventArgs)
                 .DisposeWith(_disposables);
 
             TogglePlayPauseCommand = new RelayCommand(TogglePlayPause);
@@ -1067,6 +1163,13 @@ namespace SLSKDONET.ViewModels
                     }
 
                     var shouldOpen = !IsExpandedPlayerOpen;
+                    // Closing while in Theater Mode (borderless fullscreen) must leave that too,
+                    // or the window stays chrome-less with nothing on screen to get out of it.
+                    if (!shouldOpen && IsTheaterMode)
+                    {
+                        _eventBus.Publish(new RequestTheaterModeEvent());
+                        return;
+                    }
                     IsExpandedPlayerOpen = shouldOpen;
 
                     if (shouldOpen)
@@ -1088,6 +1191,13 @@ namespace SLSKDONET.ViewModels
                 int next = ((int)CurrentVisualizerPreset + 1) % values.Length;
                 CurrentVisualizerPreset = (VisualizerPreset)next;
             });
+            PreviousVisualizerPresetCommand = ReactiveCommand.Create(() =>
+            {
+                var values = Enum.GetValues<VisualizerPreset>();
+                int prev = ((int)CurrentVisualizerPreset - 1 + values.Length) % values.Length;
+                CurrentVisualizerPreset = (VisualizerPreset)prev;
+            });
+            ToggleExpandedQueueCommand = new RelayCommand(() => IsExpandedQueueVisible = !IsExpandedQueueVisible);
 
             
             // Phase 0: Queue persistence - auto-save on changes
@@ -1119,8 +1229,10 @@ namespace SLSKDONET.ViewModels
                  DebounceSaveQueue();
              }
              OnPropertyChanged(nameof(IsQueueEmpty));
+             OnPropertyChanged(nameof(ShowExpandedQueue));
              OnPropertyChanged(nameof(UpNextPreview));
              OnPropertyChanged(nameof(HasUpNext));
+             ScheduleUpdateQueueStates();
         }
 
         private void DebounceSaveQueue()

@@ -65,8 +65,8 @@ public sealed class AnalysisPipelineResult
     public float EssentiaDanceability { get; set; } = 0.5f;
 
     /// <summary>
-    /// ML-grade structural phrase segments from EDMFormer (Intro/Build/Drop/Breakdown/Outro).
-    /// Empty when the EDMFormer microservice is unavailable; populated otherwise.
+    /// Structural phrase segments (Intro/Build/Drop/Breakdown/Outro) — from Rekordbox's own phrase
+    /// analysis or ORBIT's rule-based structure analysis, via AnalysisPipelineResultBuilder.
     /// </summary>
     public IReadOnlyList<PhraseSegment> PhraseSegments { get; set; } = Array.Empty<PhraseSegment>();
 
@@ -93,17 +93,14 @@ public sealed class AnalysisPipeline
     private readonly SpectralFluxNoveltyEngine _noveltyEngine;
     private readonly SubBassDropoutEngine _subBassEngine;
     private readonly StructuralStrippingEngine _structuralStrippingEngine;
-    private readonly IEdmFormerService? _edmFormer;
     private readonly ILogger<AnalysisPipeline> _logger;
 
     public AnalysisPipeline(
         AudioIngestionPipeline ingestionPipeline,
-        ILogger<AnalysisPipeline> logger,
-        IEdmFormerService? edmFormerService = null)
+        ILogger<AnalysisPipeline> logger)
     {
         _ingestionPipeline = ingestionPipeline ?? throw new ArgumentNullException(nameof(ingestionPipeline));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _edmFormer = edmFormerService;
 
         _transientEngine = new TransientClusteringEngine();
         _harmonicTracker = new HarmonicPhaseTracker();
@@ -225,19 +222,7 @@ public sealed class AnalysisPipeline
             var (structuralStrippingStarts, structuralStrippingReturns) =
                 _structuralStrippingEngine.DetectStructuralStripping(monoSamples, sampleRate);
 
-            // Pass G: EDMFormer ML phrase detection (optional — requires local microservice)
             IReadOnlyList<PhraseSegment> phraseSegments = Array.Empty<PhraseSegment>();
-            if (_edmFormer?.IsAvailable == true)
-            {
-                _logger.LogDebug("[AnalysisPipeline] Running EDMFormer phrase detection...");
-                // Pass the original filePath — librosa handles format resampling internally
-                var edm = await _edmFormer.AnalyzeAsync(filePath, ct).ConfigureAwait(false);
-                if (edm is { Count: > 0 })
-                {
-                    phraseSegments = edm;
-                    _logger.LogInformation("[AnalysisPipeline] EDMFormer detected {n} phrase segments", edm.Count);
-                }
-            }
 
             _logger.LogInformation(
                 "[AnalysisPipeline] Completed. Transients={T}, HarmonicResets={H}, DrumSwitches={D}, " +

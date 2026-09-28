@@ -56,7 +56,7 @@ public class AppDbContext : DbContext
         if (!optionsBuilder.IsConfigured)
         {
             var appData = System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData);
-            var dbPath = Path.Combine(appData, "ORBIT", "library.db");
+            var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
             Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
 
             // Phase 1B/0: Enable WAL Mode and Busy Timeout for better concurrency

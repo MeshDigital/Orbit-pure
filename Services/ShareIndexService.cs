@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -13,36 +14,51 @@ public sealed record ShareIndexEntry(string LocalPath, long Size);
 /// <summary>
 /// Builds and caches a virtual-path -> local-file index from the configured share folders.
 /// This is the data source behind ORBIT's incoming Soulseek browse/search/directory-contents
-/// resolvers and download-enqueue validation — without it, the app announces share counts to
-/// the server but has nothing to actually hand back when a peer looks or asks.
-/// Virtual paths are always backslash-separated (the Soulseek protocol convention) regardless
-/// of host OS, and are never derived from peer-supplied input — only from what this service
-/// itself enumerated on disk, so an incoming request can only ever resolve to a file we chose
-/// to share.
+/// resolvers, download-enqueue validation and the share counts announced to the server.
+///
+/// Rules (audited 2026-09-29 after a peer's leech check flagged this account):
+/// <list type="bullet">
+/// <item>Only music files are shared — not in-progress <c>.part</c> downloads, artwork, notes or
+/// system files (all of which were shared before, including half-finished downloads).</item>
+/// <item>Virtual paths start at a short alias per shared root ("Music\Artist\Track.flac"), never
+/// the local path — the full "C:\Users\&lt;name&gt;\…" path used to be what peers saw, and what
+/// incoming searches matched against (a search for the Windows user name matched every file).</item>
+/// <item>A root nested inside another shared root is indexed once, not twice.</item>
+/// </list>
+/// Virtual paths are backslash-separated (the Soulseek convention) and are only ever produced by
+/// this service's own enumeration — a peer-supplied path can only resolve to a file we indexed.
 /// </summary>
 public sealed class ShareIndexService
 {
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(60);
 
-    // Separate, shorter TTL for the folder *list* itself (as opposed to the file index built from
-    // it) — ResolveShareFolders() runs on every incoming browse/search/download-enqueue request via
-    // EnsureFresh()'s fingerprint check, so a DB hit there needs its own cache rather than piggybacking
-    // on the 60s index-rebuild interval, which only applies once the folder list has already changed.
+    // Separate, shorter TTL for the folder *list* — ResolveShareFolders() runs on every incoming
+    // browse/search/download-enqueue request via EnsureFresh()'s fingerprint check.
     private static readonly TimeSpan FolderListCacheInterval = TimeSpan.FromSeconds(30);
 
+    /// <summary>Audio formats worth sharing on Soulseek.</summary>
+    public static readonly IReadOnlySet<string> SharedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp3", ".flac", ".wav", ".aiff", ".aif", ".m4a", ".aac", ".ogg", ".opus", ".wma", ".alac", ".ape", ".wv",
+    };
+
     private readonly AppConfig _config;
-    private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly IDbContextFactory<AppDbContext>? _dbFactory;
     private readonly ILogger<ShareIndexService> _logger;
     private readonly object _refreshLock = new();
 
     private volatile Dictionary<string, ShareIndexEntry> _index = new(StringComparer.OrdinalIgnoreCase);
+    private int _directoryCount;
     private string _lastFingerprint = string.Empty;
     private DateTime _lastRefreshUtc = DateTime.MinValue;
 
     private string[] _cachedFolders = Array.Empty<string>();
     private DateTime _foldersCachedAtUtc = DateTime.MinValue;
 
-    public ShareIndexService(AppConfig config, IDbContextFactory<AppDbContext> dbFactory, ILogger<ShareIndexService> logger)
+    /// <summary>Raised after a rebuild that changed the shared file or folder count (not on every rebuild).</summary>
+    public event EventHandler<(int Files, int Directories)>? CountsChanged;
+
+    public ShareIndexService(AppConfig config, IDbContextFactory<AppDbContext>? dbFactory, ILogger<ShareIndexService> logger)
     {
         _config = config;
         _dbFactory = dbFactory;
@@ -50,6 +66,9 @@ public sealed class ShareIndexService
     }
 
     public int FileCount => _index.Count;
+
+    /// <summary>Distinct folders a peer sees when browsing — what the server should be told, not the number of shared roots.</summary>
+    public int DirectoryCount => _directoryCount;
 
     public void Invalidate() => _lastRefreshUtc = DateTime.MinValue;
 
@@ -61,14 +80,25 @@ public sealed class ShareIndexService
         if (IsFresh(fingerprint))
             return;
 
+        (int Files, int Dirs) before, after;
         lock (_refreshLock)
         {
             if (IsFresh(fingerprint))
                 return;
 
-            _index = BuildIndex(folders);
+            before = (_index.Count, _directoryCount);
+            var index = BuildIndex(folders);
+            _directoryCount = index.Keys.Select(GetVirtualDirectory).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+            _index = index;
             _lastFingerprint = fingerprint;
             _lastRefreshUtc = DateTime.UtcNow;
+            after = (_index.Count, _directoryCount);
+        }
+
+        if (before != after)
+        {
+            _logger.LogInformation("Share index: {Files} music file(s) in {Dirs} folder(s) across {Roots} shared root(s)", after.Files, after.Dirs, folders.Length);
+            CountsChanged?.Invoke(this, (after.Files, after.Dirs));
         }
     }
 
@@ -79,25 +109,65 @@ public sealed class ShareIndexService
     private Dictionary<string, ShareIndexEntry> BuildIndex(IReadOnlyList<string> folders)
     {
         var index = new Dictionary<string, ShareIndexEntry>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var folder in folders)
+        foreach (var (root, alias) in AssignAliases(folders))
         {
             try
             {
-                foreach (var file in new System.IO.DirectoryInfo(folder).EnumerateFiles("*", System.IO.SearchOption.AllDirectories))
+                var rootInfo = new DirectoryInfo(root);
+                foreach (var file in rootInfo.EnumerateFiles("*", new EnumerationOptions
+                         {
+                             RecurseSubdirectories = true,
+                             IgnoreInaccessible = true,
+                             AttributesToSkip = FileAttributes.Hidden | FileAttributes.System,
+                         }))
                 {
-                    var virtualPath = ToVirtualPath(file.FullName);
-                    index[virtualPath] = new ShareIndexEntry(file.FullName, file.Length);
+                    if (!IsShareable(file)) continue;
+                    var relative = Path.GetRelativePath(rootInfo.FullName, file.FullName);
+                    var virtualPath = ToVirtualPath(Path.Combine(alias, relative));
+                    index.TryAdd(virtualPath, new ShareIndexEntry(file.FullName, file.Length));
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to index share folder {Folder}", folder);
+                _logger.LogWarning(ex, "Failed to index share folder {Folder}", root);
             }
         }
-
-        _logger.LogInformation("Share index rebuilt: {Count} file(s) across {FolderCount} folder(s)", index.Count, folders.Count);
         return index;
+    }
+
+    /// <summary>Music file, not empty, not an in-progress download.</summary>
+    public static bool IsShareable(FileInfo file) =>
+        SharedExtensions.Contains(file.Extension) && file.Length > 0;
+
+    /// <summary>
+    /// Gives each shared root a short, unique virtual name (its folder name, numbered on clashes)
+    /// and drops roots already covered by another shared root. Public for tests.
+    /// </summary>
+    public static IReadOnlyList<(string Root, string Alias)> AssignAliases(IEnumerable<string> folders)
+    {
+        var roots = folders
+            .Where(f => !string.IsNullOrWhiteSpace(f))
+            .Select(f => Path.GetFullPath(f).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(f => f.Length)
+            .ToList();
+
+        var kept = new List<string>();
+        foreach (var root in roots)
+            if (!kept.Any(parent => root.StartsWith(parent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+                kept.Add(root);
+
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<(string, string)>();
+        foreach (var root in kept)
+        {
+            var name = Path.GetFileName(root);
+            if (string.IsNullOrWhiteSpace(name)) name = "Music"; // a drive root like "D:\"
+            var alias = name;
+            for (int i = 2; !used.Add(alias); i++) alias = $"{name} ({i})";
+            result.Add((root, alias));
+        }
+        return result;
     }
 
     private string[] ResolveShareFoldersCached()
@@ -111,43 +181,43 @@ public sealed class ShareIndexService
     }
 
     /// <summary>
-    /// Every folder ORBIT shares: all enabled Library Sources (the user's actual imported library —
-    /// previously not consulted at all here, so a library imported exclusively via Library Sources
-    /// shared nothing), plus the legacy single "Shared Folder" and the download folder as additive
-    /// extras for anyone relying on those. Queries the DB directly (not the LibrarySourcesViewModel's
-    /// in-memory list) since this runs from the Soulseek serving pipeline, independent of whether the
-    /// Library Sources page has ever been opened this session.
+    /// Every folder ORBIT shares: all enabled Library Sources, plus the legacy single "Shared
+    /// Folder" and the download folder. Queries the DB directly since this runs from the Soulseek
+    /// serving pipeline, independent of whether the Library Sources page has been opened.
     /// </summary>
     public string[] ResolveShareFolders()
     {
         var folders = new List<string>();
 
-        try
+        if (_dbFactory != null)
         {
-            using var context = _dbFactory.CreateDbContext();
-            var libraryFolders = context.LibraryFolders
-                .Where(f => f.IsEnabled)
-                .Select(f => f.FolderPath)
-                .ToList();
+            try
+            {
+                using var context = _dbFactory.CreateDbContext();
+                var libraryFolders = context.LibraryFolders
+                    .Where(f => f.IsEnabled)
+                    .Select(f => f.FolderPath)
+                    .ToList();
 
-            folders.AddRange(libraryFolders.Where(f => !string.IsNullOrWhiteSpace(f) && System.IO.Directory.Exists(f)));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to load Library Sources for share-folder resolution");
+                folders.AddRange(libraryFolders.Where(f => !string.IsNullOrWhiteSpace(f) && Directory.Exists(f)));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to load Library Sources for share-folder resolution");
+            }
         }
 
-        if (!string.IsNullOrWhiteSpace(_config.SharedFolderPath) && System.IO.Directory.Exists(_config.SharedFolderPath))
+        if (!string.IsNullOrWhiteSpace(_config.SharedFolderPath) && Directory.Exists(_config.SharedFolderPath))
             folders.Add(_config.SharedFolderPath);
 
-        if (!string.IsNullOrWhiteSpace(_config.DownloadDirectory) && System.IO.Directory.Exists(_config.DownloadDirectory))
+        if (!string.IsNullOrWhiteSpace(_config.DownloadDirectory) && Directory.Exists(_config.DownloadDirectory))
             folders.Add(_config.DownloadDirectory);
 
         return folders.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
-    private static string ToVirtualPath(string fullPath)
-        => fullPath.Replace('/', '\\');
+    private static string ToVirtualPath(string path)
+        => path.Replace('/', '\\');
 
     private static string GetVirtualDirectory(string virtualPath)
     {
@@ -193,7 +263,7 @@ public sealed class ShareIndexService
             : new Soulseek.Directory(virtualDirectoryName, matches.Select(kvp => BuildFile(kvp.Key, kvp.Value, basenameOnly: true)));
     }
 
-    /// <summary>Simple AND-of-terms / NOT-of-exclusions substring match against the full virtual path.</summary>
+    /// <summary>Simple AND-of-terms / NOT-of-exclusions substring match against the virtual path.</summary>
     public IReadOnlyList<(string VirtualPath, ShareIndexEntry Entry)> Search(Soulseek.SearchQuery query, int maxResults = 100)
     {
         EnsureFresh();
@@ -225,7 +295,7 @@ public sealed class ShareIndexService
     public static Soulseek.File BuildFile(string virtualPath, ShareIndexEntry entry, bool basenameOnly)
     {
         var name = basenameOnly ? GetVirtualFileName(virtualPath) : virtualPath;
-        var extension = System.IO.Path.GetExtension(name).TrimStart('.');
+        var extension = Path.GetExtension(name).TrimStart('.');
         return new Soulseek.File(1, name, entry.Size, extension, Enumerable.Empty<Soulseek.FileAttribute>());
     }
 }

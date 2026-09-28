@@ -279,6 +279,8 @@ public partial class App : Application
                             // main window's native handle, which only exists after Show().
                             var toastHandle = mainWindow.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
                             Services.GetRequiredService<WindowsToastService>().Initialize(toastHandle);
+
+                            Services.GetRequiredService<UiStallWatchdog>().Start();
                         });
 
                         // --- THE BARRIER: WE ARE NOW DATA-SAFE ---
@@ -287,6 +289,9 @@ public partial class App : Application
                         // Initialize and Start DownloadManager Orchestrator
                         var downloadManager = Services.GetRequiredService<DownloadManager>();
                         _ = downloadManager.StartAsync(); // Auto-start engine on launch
+
+                        // One-time re-fit of stored beat grids (quantised BPM fix); no-op once done.
+                        Services.GetRequiredService<Services.AudioAnalysis.BeatGridRecomputeService>().StartIfPending();
 
                         // Activate post-download spectral scan listener (eager resolve so it
                         // subscribes to TrackStateChangedEvent immediately after the engine starts).
@@ -579,6 +584,12 @@ public partial class App : Application
         // Phase 1: Library Enrichment
         services.AddSingleton<SpotifyEnrichmentService>();
         services.AddSingleton<DiscoveryBridgeService>();
+        // Playlist Discover tab: Beatport public pages + Deezer API → ranked suggestions.
+        services.AddHttpClient<Services.Discovery.BeatportCatalogClient>();
+        services.AddHttpClient<Services.Discovery.DeezerCatalogClient>();
+        services.AddSingleton<Services.Discovery.PlaylistDiscoveryService>();
+        services.AddSingleton<Services.Discovery.DiscoveryCache>();
+        services.AddSingleton<PlaylistDiscoveryViewModel>();
 
         // Input parsers
         services.AddSingleton<CsvInputSource>();
@@ -669,6 +680,8 @@ public partial class App : Application
         // Navigation and UI services
         services.AddSingleton<INavigationService, NavigationService>();
         services.AddSingleton<PerformanceTracker>(); // live perf overlay (Ctrl+Shift+P) — page-nav and opted-in ViewModel load timings
+        services.AddSingleton<UiStallWatchdog>();
+        services.AddSingleton<Services.AudioAnalysis.BeatGridRecomputeService>();
         services.AddSingleton<IUserInputService, UserInputService>();
         services.AddSingleton<IFileInteractionService, FileInteractionService>();
         services.AddSingleton<INotificationService, NotificationServiceAdapter>();
@@ -729,7 +742,6 @@ public partial class App : Application
         services.AddTransient<RoomsViewModel>();
         services.AddSingleton<SearchFilterViewModel>(); // [FIX] Added missing registration
         services.AddSingleton<ConnectionViewModel>();
-        services.AddSingleton<AiEngineService>();
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<BulkOperationViewModel>();
         services.AddSingleton<HomeViewModel>();
@@ -797,8 +809,6 @@ public partial class App : Application
         services.AddSingleton<Services.OrbSessionBundleService>();
         services.AddSingleton<Services.IUndoService, Services.UndoService>();
 
-        // ── EDMFormer ML phrase detection service (optional — requires local Python service on port 7774) ──
-        services.AddSingleton<Services.Audio.IEdmFormerService, Services.Audio.EdmFormerService>();
 
         // ── Rekordbox PSSI phrase analysis (optional — reads Rekordbox's own local analysis cache) ──
         services.AddSingleton<Services.Rekordbox.IRekordboxPssiService, Services.Rekordbox.RekordboxPssiService>();
@@ -821,8 +831,7 @@ public partial class App : Application
         services.AddSingleton<SLSKDONET.Engine.Analysis.AnalysisPipeline>(sp =>
             new SLSKDONET.Engine.Analysis.AnalysisPipeline(
                 sp.GetRequiredService<SLSKDONET.Services.AudioAnalysis.AudioIngestionPipeline>(),
-                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SLSKDONET.Engine.Analysis.AnalysisPipeline>>(),
-                sp.GetService<SLSKDONET.Services.Audio.IEdmFormerService>()));
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SLSKDONET.Engine.Analysis.AnalysisPipeline>>()));
         services.AddSingleton<SLSKDONET.Engine.Cueing.CueGenerationService>();
         services.AddSingleton<Services.AnalysisQueueService>();
 

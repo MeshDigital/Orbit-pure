@@ -150,6 +150,12 @@ public partial class LibraryPage : UserControl
         dg.ContextMenu = menu;
     }
 
+    private void OpenDiscover_Click(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is LibraryViewModel { SelectedProject: { } project } && project.Id != Guid.Empty)
+            ReactiveUI.MessageBus.Current.SendMessage(new SLSKDONET.Events.OpenPlaylistDiscoverEvent(project.Id, project.SourceTitle));
+    }
+
     private void CloseRemovalHistory_Click(object? sender, RoutedEventArgs e)
     {
         if (DataContext is LibraryViewModel vm)

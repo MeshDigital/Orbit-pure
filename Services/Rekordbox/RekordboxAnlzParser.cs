@@ -34,9 +34,17 @@ public readonly record struct RekordboxCuePoint(
 /// Rekordbox hasn't performed phrase analysis on that track, and most tracks have no manually
 /// saved cues at all (confirmed against a real ~1,250-track library: 0 had any).
 /// </summary>
+/// <summary>
+/// One beat from a Rekordbox ANLZ "PQTZ" beat grid (in .DAT files): Rekordbox's own analysed grid,
+/// which a DJ's quantised cues snap to. <see cref="BeatInBar"/> is 1-4 (1 = downbeat).
+/// </summary>
+public readonly record struct RekordboxBeat(int BeatInBar, double Bpm, double TimeSeconds);
+
 public sealed class RekordboxAnlzResult
 {
     public string? SourcePath { get; init; }
+    /// <summary>PQTZ beat grid — present in .DAT files; empty otherwise.</summary>
+    public IReadOnlyList<RekordboxBeat> BeatGrid { get; init; } = Array.Empty<RekordboxBeat>();
     public int Mood { get; init; }
     public IReadOnlyList<RekordboxPhraseEntry> Phrases { get; init; } = Array.Empty<RekordboxPhraseEntry>();
     public IReadOnlyList<RekordboxCuePoint> CuePoints { get; init; } = Array.Empty<RekordboxCuePoint>();
@@ -141,6 +149,7 @@ public static class RekordboxAnlzParser
         List<RekordboxPhraseEntry>? phrases = null;
         List<RekordboxCuePoint>? pcobCues = null;
         List<RekordboxCuePoint>? pco2Cues = null;
+        List<RekordboxBeat>? beatGrid = null;
 
         long offset = fileHeaderLen;
         while (offset + 12 <= data.Length)
@@ -161,6 +170,10 @@ public static class RekordboxAnlzParser
             {
                 (mood, phrases) = TryReadPssi(data, offset, tagLen);
             }
+            else if (fourcc == "PQTZ" && tagHeaderLen == 24 && offset + 24 <= data.Length)
+            {
+                beatGrid = TryReadBeatGrid(data, offset, tagLen);
+            }
             else if (fourcc == "PCOB" && tagHeaderLen == 24 && offset + 24 <= data.Length)
             {
                 (pcobCues ??= new List<RekordboxCuePoint>()).AddRange(TryReadCueTag(data, offset, tagHeaderLen, tagLen));
@@ -173,7 +186,7 @@ public static class RekordboxAnlzParser
             offset += tagLen;
         }
 
-        if (sourcePath == null && phrases == null && pcobCues == null && pco2Cues == null) return null;
+        if (sourcePath == null && phrases == null && pcobCues == null && pco2Cues == null && beatGrid == null) return null;
 
         // PCO2 (nxs2-era) carries everything PCOB does plus comment/color, so prefer it wholesale
         // when present rather than merging — a file either has the extended tags or it doesn't.
@@ -186,7 +199,30 @@ public static class RekordboxAnlzParser
             Mood = mood,
             Phrases = (IReadOnlyList<RekordboxPhraseEntry>?)phrases ?? Array.Empty<RekordboxPhraseEntry>(),
             CuePoints = cuePoints,
+            BeatGrid = (IReadOnlyList<RekordboxBeat>?)beatGrid ?? Array.Empty<RekordboxBeat>(),
         };
+    }
+
+    /// <summary>
+    /// PQTZ ("beat_grid_tag", in .DAT): the 24-byte header is fourcc + len_header + len_tag +
+    /// unknown(4) + unknown(4, 0x80000) + len_beats(4); then len_beats 8-byte entries of
+    /// beat_number (u2, 1-4 = position in the bar) + tempo (u2, BPM × 100) + time (u4, ms).
+    /// Per the crate-digger/pyrekordbox spec, confirmed against real local .DAT files.
+    /// </summary>
+    private static List<RekordboxBeat> TryReadBeatGrid(byte[] data, long tagStart, uint tagLen)
+    {
+        uint count = ReadU32BE(data, tagStart + 20);
+        var beats = new List<RekordboxBeat>((int)Math.Min(count, 4096));
+        long entry = tagStart + 24;
+        for (uint i = 0; i < count; i++, entry += 8)
+        {
+            if (entry + 8 > data.Length || entry + 8 > tagStart + tagLen) break;
+            beats.Add(new RekordboxBeat(
+                BeatInBar: ReadU16BE(data, entry),
+                Bpm: ReadU16BE(data, entry + 2) / 100.0,
+                TimeSeconds: ReadU32BE(data, entry + 4) / 1000.0));
+        }
+        return beats;
     }
 
     private static string? TryReadPpth(byte[] data, long tagStart, uint tagHeaderLen, uint tagLen)

@@ -180,6 +180,15 @@ public class AppConfig
     // Flow Builder persistence
     public string? FlowBuilderSelectedPlaylistId { get; set; }
     public bool FlowBuilderRestoreContentOnStartup { get; set; } = true;
+
+    /// <summary>Countdown cues placed automatically before a Drop cue when one is set or moved:
+    /// "Off", "Auto" (by genre family: breakbeat/DnB 32,16,8 bars; four-on-the-floor 32,16), or a
+    /// fixed comma-separated bar list such as "32,16,8". See Engine.Cueing.DropCountdownCues.</summary>
+    public string DropCountdownMode { get; set; } = "Auto";
+
+    /// <summary>Playlist Discover panel sources (public Beatport pages / Deezer API).</summary>
+    public bool DiscoverUseBeatport { get; set; } = true;
+    public bool DiscoverUseDeezer { get; set; } = true;
     public bool EnableFlowBuilderSuggestedFlowTelemetry { get; set; } = true;
 
     // Frequent Sources (privacy-first, local-only, opt-in)
