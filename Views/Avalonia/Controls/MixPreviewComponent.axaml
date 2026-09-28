@@ -110,6 +110,11 @@
                             </Button>
                         </StackPanel>
                     </Border>
+                    <ToggleButton IsChecked="{Binding IsCueEditMode, Mode=TwoWay}" Padding="8,3" FontSize="10" Margin="0,0,6,0"
+                                  Background="#171C22" BorderBrush="#2D8E7A" BorderThickness="1" CornerRadius="999"
+                                  ToolTip.Tip="Edit cues right here: drag cues on the waveform, click one to rename it, change its role, pad, colour or loop, or delete it. Edits save automatically when you move on.">
+                        <TextBlock Text="✏ Edit cues" Foreground="#9BD7CA"/>
+                    </ToggleButton>
                     <Button Command="{Binding OpenInFlowBuilderCommand}" Background="Transparent" BorderThickness="0" Padding="6,2"
                             ToolTip.Tip="Open this playlist in Flow Builder for full-option editing">
                         <TextBlock Text="↗ Flow Builder" FontSize="10" Foreground="#4EC9B0"/>
@@ -127,7 +132,10 @@
                  Dragging the waveform itself now pans the zoomed view instead (same action as
                  the slider underneath it, just grabbed directly). -->
             <Border Grid.Row="1" Background="#20262D" BorderBrush="#2F3E4C" BorderThickness="1" CornerRadius="4" Padding="8,3" Margin="0,0,0,6">
-                <StackPanel Orientation="Horizontal" Spacing="10">
+                <Panel>
+                <TextBlock IsVisible="{Binding IsCueEditMode}" FontSize="10" Foreground="#9BD7CA" TextWrapping="Wrap"
+                           Text="EDIT CUES: drag a cue line to move it (snaps to the grid) • click a cue to edit it below • right-click → add a cue • click elsewhere to audition • ⇥ Use as mix point sets the transition"/>
+                <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding !IsCueEditMode}">
                     <TextBlock Text="Click a cue (line or chip) to set the trigger point" FontSize="10" Foreground="#9BAAB8"/>
                     <TextBlock Text="•" FontSize="10" Foreground="#556270"/>
                     <TextBlock Text="Click elsewhere to audition that spot" FontSize="10" Foreground="#9BAAB8"/>
@@ -146,6 +154,7 @@
                         <TextBlock Text="= mix start/end point" FontSize="10" Foreground="#9BAAB8"/>
                     </StackPanel>
                 </StackPanel>
+                </Panel>
             </Border>
 
             <!-- Shared zoom control — one zoom level for both waveforms (see
@@ -182,8 +191,10 @@
                         Progress="{Binding ProgressA}"
                         EnergyCurve="{Binding OutgoingAutomationCurve}"
                         Cues="{Binding OutgoingCues}"
-                        CueClickedCommand="{Binding SelectSourceCueCommand}"
-                        CuesAreDraggable="False"
+                        CueClickedCommand="{Binding OutgoingCueClickedCommand}"
+                        CuesAreDraggable="{Binding IsCueEditMode}"
+                        CueUpdatedCommand="{Binding OutgoingEditor.CueUpdatedCommand}"
+                        SnapToGridEnabled="False"
                         ZoomLevel="{Binding WaveformZoomLevel}"
                         ViewOffset="{Binding OutgoingViewOffset, Mode=TwoWay}"
                         TriggerPointSeconds="{Binding EffectiveSourceTriggerSeconds}"
@@ -203,8 +214,8 @@
                           collide with this text) -->
                      <Button Command="{Binding OpenOutgoingInCueForgeCommand}" Background="Transparent" BorderThickness="0" Padding="0"
                              Margin="6" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                             ToolTip.Tip="Trigger point looks wrong? Fix this track's cues in Cue Forge">
-                         <TextBlock Text="🎯 Fix in Cue Forge" FontSize="9" Foreground="#9BD7CA"/>
+                             ToolTip.Tip="Open this track in Cue Forge (full cue editor with the main player)">
+                         <TextBlock Text="🎯 Open in Cue Forge" FontSize="9" Foreground="#9BD7CA"/>
                      </Button>
                 </Grid>
 
@@ -216,7 +227,9 @@
 
                 <!-- Direct cue picker — click "Outro" (or any analyzed cue) to set the mix-out
                      trigger there instead of hunting for its line on the waveform. -->
-                <ItemsControl Grid.Row="2" ItemsSource="{Binding OutgoingCues}" Margin="0,4,0,0">
+                <controls:TrackCueEditorStrip Grid.Row="2" DataContext="{Binding OutgoingEditor}"
+                                              IsVisible="{Binding $parent[controls:MixPreviewComponent].DataContext.IsCueEditMode}"/>
+                <ItemsControl Grid.Row="2" ItemsSource="{Binding OutgoingCues}" Margin="0,4,0,0" IsVisible="{Binding !IsCueEditMode}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
@@ -267,8 +280,10 @@
                         Progress="{Binding ProgressB}"
                         EnergyCurve="{Binding IncomingAutomationCurve}"
                         Cues="{Binding IncomingCues}"
-                        CueClickedCommand="{Binding SelectTargetCueCommand}"
-                        CuesAreDraggable="False"
+                        CueClickedCommand="{Binding IncomingCueClickedCommand}"
+                        CuesAreDraggable="{Binding IsCueEditMode}"
+                        CueUpdatedCommand="{Binding IncomingEditor.CueUpdatedCommand}"
+                        SnapToGridEnabled="False"
                         ZoomLevel="{Binding WaveformZoomLevel}"
                         ViewOffset="{Binding IncomingViewOffset, Mode=TwoWay}"
                         TriggerPointSeconds="{Binding TargetTriggerSeconds}"
@@ -286,8 +301,8 @@
 
                      <Button Command="{Binding OpenIncomingInCueForgeCommand}" Background="Transparent" BorderThickness="0" Padding="0"
                              Margin="6" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                             ToolTip.Tip="Trigger point looks wrong? Fix this track's cues in Cue Forge">
-                         <TextBlock Text="🎯 Fix in Cue Forge" FontSize="9" Foreground="#9BD7CA"/>
+                             ToolTip.Tip="Open this track in Cue Forge (full cue editor with the main player)">
+                         <TextBlock Text="🎯 Open in Cue Forge" FontSize="9" Foreground="#9BD7CA"/>
                      </Button>
                 </Grid>
 
@@ -302,7 +317,9 @@
                      (vs. a populated row above for Outgoing) means this track's cues genuinely
                      haven't loaded/been analyzed — a real, visible signal instead of a silently
                      blank waveform. -->
-                <ItemsControl Grid.Row="2" ItemsSource="{Binding IncomingCues}" Margin="0,4,0,0">
+                <controls:TrackCueEditorStrip Grid.Row="2" DataContext="{Binding IncomingEditor}"
+                                              IsVisible="{Binding $parent[controls:MixPreviewComponent].DataContext.IsCueEditMode}"/>
+                <ItemsControl Grid.Row="2" ItemsSource="{Binding IncomingCues}" Margin="0,4,0,0" IsVisible="{Binding !IsCueEditMode}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
