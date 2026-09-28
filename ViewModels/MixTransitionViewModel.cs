@@ -87,6 +87,45 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         OutgoingEditor.CueMoved += (_, m) => { if (Math.Abs(SourceTriggerSeconds - m.From) < 0.01) SourceTriggerSeconds = m.To; };
         IncomingEditor.CueMoved += (_, m) => { if (Math.Abs(TargetTriggerSeconds - m.From) < 0.01) TargetTriggerSeconds = m.To; };
 
+        // Drop countdown setting — one app-wide choice, shared by both decks and Cue Forge.
+        var configManager = (SLSKDONET.Configuration.ConfigManager?)serviceProvider.GetService(typeof(SLSKDONET.Configuration.ConfigManager));
+        var mode = configManager?.GetCurrent().DropCountdownMode ?? SLSKDONET.Engine.Cueing.DropCountdownCues.Auto;
+        foreach (var editor in new[] { OutgoingEditor, IncomingEditor })
+        {
+            editor.InitDropCountdownMode(mode);
+            editor.DropCountdownModeChanged += (sender, newMode) =>
+            {
+                foreach (var other in new[] { OutgoingEditor, IncomingEditor })
+                    if (other != sender) other.InitDropCountdownMode(newMode);
+                if (configManager != null)
+                {
+                    var config = configManager.GetCurrent();
+                    config.DropCountdownMode = newMode;
+                    configManager.Save(config);
+                }
+            };
+            // Auditioning a cue holds the main mix (resumed when the cues are saved).
+            editor.HoldMainPlayback = () =>
+            {
+                var player = serviceProvider.GetService(typeof(PlayerViewModel)) as PlayerViewModel;
+                if (player is not { IsPlaying: true }) return false;
+                player.TogglePlayPauseCommand.Execute(null);
+                return true;
+            };
+            editor.ResumeMainPlayback = () =>
+            {
+                var player = serviceProvider.GetService(typeof(PlayerViewModel)) as PlayerViewModel;
+                if (player is { IsPlaying: false }) player.TogglePlayPauseCommand.Execute(null);
+            };
+            editor.WhenAnyValue(e => e.SelectedCue).Subscribe(c => { if (c != null) ActiveEditor = editor; });
+        }
+
+        // Arrow keys (MixPreviewComponent key bindings): nudge the last-selected cue and re-audition.
+        NudgeActiveCueCommand = ReactiveCommand.Create<string>(step =>
+        {
+            if (IsCueEditMode && ActiveEditor?.SelectedCue != null) ActiveEditor.NudgeSelectedCommand.Execute(step).Subscribe();
+        });
+
         ToggleCueEditModeCommand = ReactiveCommand.Create(() => { IsCueEditMode = !IsCueEditMode; });
         // Clicking a cue: in edit mode it selects the cue for editing; otherwise it sets the
         // transition's trigger point (the original behaviour).
@@ -473,9 +512,23 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     private bool _isCueEditMode;
     /// <summary>Edit mode: cues can be dragged, clicking one selects it for editing, and each deck
     /// shows its cue inspector. Off: cues are trigger-point pickers, as before.</summary>
-    public bool IsCueEditMode { get => _isCueEditMode; set => this.RaiseAndSetIfChanged(ref _isCueEditMode, value); }
+    public bool IsCueEditMode
+    {
+        get => _isCueEditMode;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _isCueEditMode, value);
+            if (!value) { OutgoingEditor.EndAudition(); IncomingEditor.EndAudition(); }
+        }
+    }
 
     public ReactiveCommand<Unit, Unit> ToggleCueEditModeCommand { get; }
+
+    /// <summary>The deck whose cue was selected last — the one the arrow keys fine-tune.</summary>
+    public TrackCueEditorViewModel? ActiveEditor { get; private set; }
+
+    /// <summary>"-beat"/"+beat" (←/→), "-bar"/"+bar" (Shift), "-fine"/"+fine" (Ctrl, 10 ms).</summary>
+    public ReactiveCommand<string, Unit> NudgeActiveCueCommand { get; }
     public ReactiveCommand<double, Unit> OutgoingCueClickedCommand { get; }
     public ReactiveCommand<double, Unit> IncomingCueClickedCommand { get; }
 
@@ -486,6 +539,8 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         if (await OutgoingEditor.SaveIfDirtyAsync()) saved.Add(OutgoingEditor.TrackTitle);
         if (await IncomingEditor.SaveIfDirtyAsync()) saved.Add(IncomingEditor.TrackTitle);
         if (saved.Count > 0) StatusMessage = $"✓ Auto-saved cues for {string.Join(" and ", saved)}";
+        OutgoingEditor.EndAudition();
+        IncomingEditor.EndAudition();
     }
 
     // ── BPM editing ──────────────────────────────────────────────────────────────────────
@@ -714,19 +769,21 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     private async Task LoadEditorAsync(TrackCueEditorViewModel editor, PlaylistTrack track, PlaylistTrackViewModel vm, List<CuePointEntity> cues)
     {
         double bpm = track.BPM ?? 0, downbeat = 0;
+        string? genre = track.DetectedSubGenre;
         try
         {
             if (await _libraryService.GetAudioFeaturesByHashAsync(track.TrackUniqueHash) is { Bpm: > 0 } f)
             {
                 bpm = f.Bpm;
                 downbeat = f.DownbeatOffsetSeconds;
+                genre = !string.IsNullOrWhiteSpace(f.DetectedSubGenre) ? f.DetectedSubGenre : f.ElectronicSubgenre;
             }
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "No analysis grid for {Hash}; snapping on displayed BPM", track.TrackUniqueHash);
         }
-        editor.Load(track.TrackUniqueHash, vm.Title, track.ResolvedFilePath, bpm, downbeat, track.Duration, cues);
+        editor.Load(track.TrackUniqueHash, vm.Title, track.ResolvedFilePath, bpm, downbeat, track.Duration, cues, genre);
     }
 
     private void RebuildLiveModel()
@@ -910,8 +967,10 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         // starts auditioning an arbitrary waveform point instead.
         if (IsPlaying) _previewPlayer.StopPreview();
 
-        _libraryPreviewPlayer?.RequestPreview(path, track!.Model?.BPM, seconds);
-        (track == OutgoingTrack ? OutgoingEditor : IncomingEditor).LastAuditionSeconds = seconds;
+        var deck = track == OutgoingTrack ? OutgoingEditor : IncomingEditor;
+        if (IsCueEditMode) deck.Audition(seconds);
+        else _libraryPreviewPlayer?.RequestPreview(path, track!.Model?.BPM, seconds);
+        deck.LastAuditionSeconds = seconds;
         IsPreviewSeekPlaying = true;
         PreviewSeekStatusText = $"▶ Previewing {track.Title} @ {FormatTimestamp(seconds)}";
     }

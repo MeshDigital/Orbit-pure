@@ -644,7 +644,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         // ICommand.Execute type-check threw an unhandled InvalidOperationException on every
         // click — an AppDomain-level crash that also killed audio output since the whole process
         // died. <string, Unit> accepts exactly what XAML actually sends.
-        NudgeCueCommand    = ReactiveCommand.Create<string>(dir => NudgeCue(int.Parse(dir)), canAct);
+        NudgeCueCommand    = ReactiveCommand.Create<string>(NudgeCue, canAct);
         SelectCueCommand   = ReactiveCommand.Create<OrbitCue>(cue => SelectedCue = cue);
         // Fired by CueForgeWaveformControl.OnPointerPressed the instant a cue/loop handle is hit
         // — before any drag has actually moved it — so the undo snapshot captures the real
@@ -661,6 +661,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         {
             if (cue.Source == CueSource.Auto) cue.Source = CueSource.User;
             HasUncommittedChanges = true;
+            ApplyDropCountdowns(cue, null);
         });
         SetSelectedCueRoleCommand  = ReactiveCommand.Create<CueRole>(SetSelectedCueRole, canAct);
         SetSelectedCueColorCommand = ReactiveCommand.Create<string>(SetSelectedCueColor, canAct);
@@ -808,6 +809,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             if (features is not null)
             {
                 Bpm = (int)Math.Round(Math.Max(60, features.Bpm));
+                _preciseBpm = features.Bpm > 0 ? features.Bpm : Bpm;
+                _genre = !string.IsNullOrWhiteSpace(features.DetectedSubGenre) ? features.DetectedSubGenre : features.ElectronicSubgenre;
                 TrackDuration = features.TrackDuration > 0 ? features.TrackDuration : 300.0;
                 TrackEnergyScore = features.EnergyScore;
 
@@ -1003,6 +1006,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         if (TrackHash is null) return;
         PushSnapshot();
         WorkingCues.Remove(cue);
+        if (cue.Role == CueRole.Drop)
+            ReplaceWorkingCues(Engine.Cueing.DropCountdownCues.RemoveFor(WorkingCues, cue.Name));
         HasCommitError = false;
         LastCommitMessage = $"Deleted \"{cue.Name}\" — Ctrl+Z to undo";
         await Task.CompletedTask;
@@ -1336,14 +1341,79 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     // ── Keyboard nudge (±1 beat) ───────────────────────────────────────────
 
-    private void NudgeCue(int direction)
+    /// <summary>"-1"/"1" (beat, as before), "-bar"/"+bar", "-fine"/"+fine" (10 ms). Every step replays
+    /// the track from the cue so it can be fine-tuned by ear; a moved Drop takes its countdown cues along.</summary>
+    private void NudgeCue(string step)
     {
-        if (SelectedCue == null || Bpm <= 0 || TrackHash is null) return;
+        if (SelectedCue == null || TrackHash is null) return;
+        double bpm = _preciseBpm > 0 ? _preciseBpm : Bpm;
+        if (bpm <= 0) return;
+        double beat = 60.0 / bpm;
+        double delta = step switch
+        {
+            "-1" or "-beat" => -beat, "1" or "+beat" => beat,
+            "-bar" => -4 * beat, "+bar" => 4 * beat,
+            "-fine" => -FineNudgeSeconds, "+fine" => FineNudgeSeconds,
+            _ => 0,
+        };
+        if (delta == 0) return;
         PushSnapshot();
-        double beat = 60.0 / Bpm;
-        SelectedCue.Timestamp = Math.Clamp(SelectedCue.Timestamp + direction * beat, 0, TrackDuration);
+        var cue = SelectedCue;
+        cue.Timestamp = Math.Clamp(cue.Timestamp + delta, 0, TrackDuration);
+        cue.Source = CueSource.User;
+        ApplyDropCountdowns(cue, null);
         HasUncommittedChanges = true;
         RefreshHotCuePads();
+        PlayFromCue(cue);
+    }
+
+    private const double FineNudgeSeconds = 0.010;
+
+    /// <summary>Seeks to the cue itself (no pre-roll) and plays — used on every nudge.</summary>
+    private void PlayFromCue(OrbitCue cue)
+    {
+        if (_playerViewModel.LengthMs <= 0) return;
+        _playerViewModel.Seek((float)(cue.Timestamp * 1000.0 / _playerViewModel.LengthMs));
+        if (!_playerViewModel.IsPlaying) _playerViewModel.TogglePlayPauseCommand?.Execute(null);
+    }
+
+    // ── Drop countdowns ────────────────────────────────────────────────────
+
+    private double _preciseBpm;
+    private string? _genre;
+
+    public static IReadOnlyList<string> DropCountdownModes => Engine.Cueing.DropCountdownCues.Modes;
+
+    /// <summary>Countdown cues placed before a Drop (see Engine.Cueing.DropCountdownCues) — the same
+    /// app-wide setting the Flow Builder cue editor uses.</summary>
+    public string DropCountdownMode
+    {
+        get => string.IsNullOrWhiteSpace(_config.DropCountdownMode) ? Engine.Cueing.DropCountdownCues.Auto : _config.DropCountdownMode;
+        set
+        {
+            if (value == DropCountdownMode) return;
+            _config.DropCountdownMode = value;
+            try { _configManager.Save(_config); } catch (Exception ex) { _logger.LogWarning(ex, "Couldn't save Drop countdown setting"); }
+            this.RaisePropertyChanged();
+        }
+    }
+
+    /// <summary>Rebuilds <paramref name="cue"/>'s countdown cues in the working set when it's a Drop.</summary>
+    private void ApplyDropCountdowns(OrbitCue cue, string? previousName)
+    {
+        if (cue.Role != CueRole.Drop) return;
+        double bpm = _preciseBpm > 0 ? _preciseBpm : Bpm;
+        var bars = Engine.Cueing.DropCountdownCues.ResolveBars(DropCountdownMode, _genre, bpm);
+        if (bars.Count == 0) return;
+        ReplaceWorkingCues(Engine.Cueing.DropCountdownCues.Rebuild(WorkingCues, cue, bars, bpm, previousName));
+    }
+
+    private void ReplaceWorkingCues(IReadOnlyList<OrbitCue> cues)
+    {
+        var selected = SelectedCue;
+        WorkingCues.Clear();
+        foreach (var c in cues) WorkingCues.Add(c);
+        if (selected != null && cues.Contains(selected)) SelectedCue = selected;
     }
 
     // ── Cue detail panel edits ──────────────────────────────────────────────
@@ -1352,8 +1422,13 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     {
         if (SelectedCue is null || TrackHash is null) return;
         PushSnapshot();
-        SelectedCue.Role = role;
+        var cue = SelectedCue;
+        var previousRole = cue.Role;
+        cue.Role = role;
         MarkSelectedCueEdited();
+        if (previousRole == CueRole.Drop && role != CueRole.Drop)
+            ReplaceWorkingCues(Engine.Cueing.DropCountdownCues.RemoveFor(WorkingCues, cue.Name));
+        ApplyDropCountdowns(cue, null);
     }
 
     private void SetSelectedCueColor(string hexColor)

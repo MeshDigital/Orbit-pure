@@ -72,6 +72,10 @@
                 <ComboBox ItemsSource="{Binding SnapModes}" SelectedItem="{Binding SnapMode}"
                           FontSize="10" MinWidth="78" Margin="0,0,8,4" Padding="6,2"
                           ToolTip.Tip="New and moved cues land on this grid (the track's analysed beats)"/>
+                <TextBlock Classes="lbl" Text="Drop countdown"/>
+                <ComboBox ItemsSource="{Binding DropCountdownModes}" SelectedItem="{Binding DropCountdownMode}"
+                          FontSize="10" MinWidth="84" Margin="0,0,8,4" Padding="6,2"
+                          ToolTip.Tip="When a cue is set to Drop (or a Drop is moved/renamed), countdown cues are placed this many bars before it: 'Auto' = 32/16/8 for DnB and breakbeat, 32/16 for house and techno. Off disables it. Shared with Cue Forge."/>
                 <Button Classes="ce" Command="{Binding UndoCommand}" ToolTip.Tip="Undo"><TextBlock Text="↶"/></Button>
                 <Button Classes="ce" Command="{Binding RedoCommand}" ToolTip.Tip="Redo"><TextBlock Text="↷"/></Button>
                 <Button Classes="ce" Command="{Binding RevertCommand}" ToolTip.Tip="Throw away unsaved edits for this track"><TextBlock Text="Revert"/></Button>
@@ -144,6 +148,8 @@
                         <Button Classes="ce" Command="{Binding NudgeSelectedCommand}" CommandParameter="-beat" ToolTip.Tip="1 beat earlier"><TextBlock Text="◀ beat"/></Button>
                         <Button Classes="ce" Command="{Binding NudgeSelectedCommand}" CommandParameter="+beat" ToolTip.Tip="1 beat later"><TextBlock Text="beat ▶"/></Button>
                         <Button Classes="ce" Command="{Binding NudgeSelectedCommand}" CommandParameter="+bar" ToolTip.Tip="1 bar later"><TextBlock Text="bar ⏩"/></Button>
+                        <Button Classes="ce" Command="{Binding NudgeSelectedCommand}" CommandParameter="-fine" ToolTip.Tip="10 ms earlier (Ctrl+←)"><TextBlock Text="−10ms"/></Button>
+                        <Button Classes="ce" Command="{Binding NudgeSelectedCommand}" CommandParameter="+fine" ToolTip.Tip="10 ms later (Ctrl+→)"><TextBlock Text="+10ms"/></Button>
                         <TextBlock Classes="lbl" Text="Loop" Margin="8,0,4,4"/>
                         <Button Classes="ce" Command="{Binding SetSelectedLoopBarsCommand}" CommandParameter="4"><TextBlock Text="4"/></Button>
                         <Button Classes="ce" Command="{Binding SetSelectedLoopBarsCommand}" CommandParameter="8"><TextBlock Text="8"/></Button>
@@ -151,6 +157,8 @@
                         <Button Classes="ce" Command="{Binding SetSelectedLoopBarsCommand}" CommandParameter="0" ToolTip.Tip="Make it a plain cue again"><TextBlock Text="off"/></Button>
                         <TextBlock Text="{Binding SelectedLoopLabel}" FontSize="9" Foreground="#6E7A86" VerticalAlignment="Center" Margin="0,0,8,4"/>
                     </WrapPanel>
+                    <TextBlock FontSize="9" Foreground="#6E7A86" Margin="0,0,0,4" TextWrapping="Wrap"
+                               Text="Keys: ← → move 1 beat · Shift+← → 1 bar · Ctrl+← → 10 ms — each press replays from the cue. Music that was playing waits until you save."/>
                     <WrapPanel>
                         <Button Classes="ce" Command="{Binding AuditionSelectedCommand}" ToolTip.Tip="Play this track from the cue"><TextBlock Text="▶ Audition"/></Button>
                         <Button Classes="ce accent" Command="{Binding UseSelectedAsTriggerCommand}"

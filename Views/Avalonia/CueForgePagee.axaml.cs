@@ -45,21 +45,25 @@ public partial class CueForgePagee : UserControl
 
         switch (e.Key)
         {
-            // Shift+Left/Right → nudge selected cue by ±1 beat
-            case Key.Left when shift:
-                vm.NudgeCueCommand.Execute("-1").Subscribe();
+            // ← → nudge the selected cue 1 beat (Shift: 1 bar, Ctrl: 10 ms) and replay from it, so
+            // a cue can be fine-tuned by ear. With no cue selected ← → still jump between cues.
+            case Key.Left or Key.Right when vm.SelectedCue != null &&
+                                            (none || shift || e.KeyModifiers == KeyModifiers.Control):
+            {
+                string sign = e.Key == Key.Left ? "-" : "+";
+                string unit = e.KeyModifiers == KeyModifiers.Control ? "fine" : shift ? "bar" : "beat";
+                vm.NudgeCueCommand.Execute(sign + unit).Subscribe();
                 e.Handled = true;
                 break;
-            case Key.Right when shift:
-                vm.NudgeCueCommand.Execute("1").Subscribe();
-                e.Handled = true;
-                break;
+            }
 
-            // Left/Right → jump playhead to previous/next cue
+            // ↑ ↓ (or ← → with nothing selected) → jump playhead to previous/next cue
+            case Key.Up when none:
             case Key.Left when none:
                 vm.PreviousCueCommand.Execute().Subscribe();
                 e.Handled = true;
                 break;
+            case Key.Down when none:
             case Key.Right when none:
                 vm.NextCueCommand.Execute().Subscribe();
                 e.Handled = true;

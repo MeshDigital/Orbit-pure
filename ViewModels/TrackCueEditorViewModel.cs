@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using SLSKDONET.Data.Entities;
+using SLSKDONET.Engine.Cueing;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 using SLSKDONET.Services.Audio;
@@ -78,6 +79,7 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
 
     public string TrackTitle { get; private set; } = string.Empty;
     private string? _filePath;
+    private string? _genre;
     private double _bpm;
     private double _downbeat;
     private double _duration;
@@ -158,6 +160,54 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
     public static IReadOnlyList<string> CuePalette { get; } =
         new[] { "#FF0000", "#FF6600", "#FFFF00", "#00FF88", "#00CCFF", "#0044FF", "#8800FF", "#FF66AA", "#FFFFFF" };
 
+    // ── Drop countdowns ─────────────────────────────────────────────────────────────────────
+
+    public static IReadOnlyList<string> DropCountdownModes => DropCountdownCues.Modes;
+
+    private string _dropCountdownMode = DropCountdownCues.Auto;
+    /// <summary>Countdown cues placed before a Drop whenever one is set, moved or renamed (see
+    /// <see cref="DropCountdownCues"/>). Shared app setting — the host persists changes via
+    /// <see cref="DropCountdownModeChanged"/>.</summary>
+    public string DropCountdownMode
+    {
+        get => _dropCountdownMode;
+        set
+        {
+            if (_dropCountdownMode == value) return;
+            this.RaiseAndSetIfChanged(ref _dropCountdownMode, value);
+            DropCountdownModeChanged?.Invoke(this, value);
+        }
+    }
+
+    public event EventHandler<string>? DropCountdownModeChanged;
+
+    /// <summary>Sets the mode without raising <see cref="DropCountdownModeChanged"/> (loading it from config).</summary>
+    public void InitDropCountdownMode(string mode)
+    {
+        _dropCountdownMode = DropCountdownCues.Modes.Contains(mode) ? mode : DropCountdownCues.Auto;
+        this.RaisePropertyChanged(nameof(DropCountdownMode));
+    }
+
+    // ── Main-player hold ────────────────────────────────────────────────────────────────────
+
+    /// <summary>Host hook: pause the main player if it's playing; return true if it was paused
+    /// (so it can be resumed later). Auditioning a cue holds the main mix until the cues are saved.</summary>
+    public Func<bool>? HoldMainPlayback { get; set; }
+    /// <summary>Host hook: resume the main player after a hold.</summary>
+    public Action? ResumeMainPlayback { get; set; }
+    private bool _holdingMainPlayback;
+
+    /// <summary>Stops this deck's audition and resumes the main player if the audition paused it.</summary>
+    public void EndAudition()
+    {
+        _previewPlayer?.StopPreview();
+        if (_holdingMainPlayback)
+        {
+            _holdingMainPlayback = false;
+            ResumeMainPlayback?.Invoke();
+        }
+    }
+
     // ── Snapping ────────────────────────────────────────────────────────────────────────────
 
     public static IReadOnlyList<CueSnapMode> SnapModes { get; } = Enum.GetValues<CueSnapMode>();
@@ -211,11 +261,12 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
     // ── Loading / saving ────────────────────────────────────────────────────────────────────
 
     public void Load(string trackHash, string title, string? filePath, double bpm, double downbeat, double duration,
-        IEnumerable<CuePointEntity> cues)
+        IEnumerable<CuePointEntity> cues, string? genre = null)
     {
         TrackHash = trackHash;
         TrackTitle = title;
         _filePath = filePath;
+        _genre = genre;
         _bpm = bpm;
         _downbeat = downbeat;
         _duration = duration;
@@ -241,6 +292,7 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
                 await _cueService.CreateManyAsync(_cues.Select(c => c.ToEntity(hash)).ToList());
             IsDirty = false;
             StatusText = $"✓ Saved {_cues.Count} cue{(_cues.Count == 1 ? "" : "s")}";
+            EndAudition(); // cue is set — the held mix carries on
             return true;
         }
         catch (Exception ex)
@@ -283,13 +335,16 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
         SetCues(_cues.Append(cue).ToList());
         SelectedCue = cue;
         MarkDirty($"Added {cue.Name} at {cue.TimestampDisplay}");
+        Audition(cue.Timestamp);
     }
 
     private void DeleteSelected()
     {
         if (SelectedCue is not { } cue) return;
         PushUndo();
-        SetCues(_cues.Where(c => c != cue).ToList());
+        var remaining = _cues.Where(c => c != cue);
+        if (cue.Role == CueRole.Drop) remaining = DropCountdownCues.RemoveFor(remaining, cue.Name);
+        SetCues(remaining.ToList());
         SelectedCue = null;
         MarkDirty($"Deleted {cue.Name}");
     }
@@ -306,10 +361,11 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
         _undo.Add(_cues.Select(c => c == cue ? WithTimestamp(c, before) : c.Clone()).ToList());
         _redo.Clear();
         UpdateUndoState();
-        SetCues(_cues);
+        SetCues(WithCountdowns(_cues, cue, null));
         SelectedCue = cue;
         MarkDirty($"Moved {cue.Name} to {cue.TimestampDisplay}");
         CueMoved?.Invoke(this, (before, cue.Timestamp));
+        Audition(cue.Timestamp);
     }
 
     private static OrbitCue WithTimestamp(OrbitCue c, double t) { var copy = c.Clone(); copy.Timestamp = t; return copy; }
@@ -318,7 +374,12 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
     {
         if (SelectedCue is not { } cue || _bpm <= 0) return;
         double beat = 60.0 / _bpm;
-        double delta = step switch { "-bar" => -4 * beat, "-beat" => -beat, "+beat" => beat, "+bar" => 4 * beat, _ => 0 };
+        double delta = step switch
+        {
+            "-bar" => -4 * beat, "-beat" => -beat, "+beat" => beat, "+bar" => 4 * beat,
+            "-fine" => -FineNudgeSeconds, "+fine" => FineNudgeSeconds,
+            _ => 0,
+        };
         if (delta == 0) return;
         double before = cue.Timestamp;
         EditSelected(c =>
@@ -327,7 +388,12 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
             if (c.IsLoop) c.LoopEndSeconds += c.Timestamp - before;
         });
         CueMoved?.Invoke(this, (before, cue.Timestamp));
+        // Every step restarts the preview from the cue, so fine-tuning is by ear.
+        Audition(cue.Timestamp);
     }
+
+    /// <summary>Fine nudge step (Ctrl+arrow): 10 ms, for lining a drop up exactly on the transient.</summary>
+    public const double FineNudgeSeconds = 0.010;
 
     private void SetSelectedLoopBars(int bars)
     {
@@ -344,10 +410,15 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
     {
         if (SelectedCue is not { } cue) return;
         PushUndo();
+        var previousName = cue.Name;
+        var previousRole = cue.Role;
         edit(cue);
         cue.Source = CueSource.User;
         var keep = cue;
-        SetCues(_cues);
+        var cues = _cues.AsEnumerable();
+        // A drop that stopped being a drop leaves no orphaned countdowns behind.
+        if (previousRole == CueRole.Drop && cue.Role != CueRole.Drop) cues = DropCountdownCues.RemoveFor(cues, previousName);
+        SetCues(WithCountdowns(cues, cue, previousName != cue.Name ? previousName : null));
         _selectedCue = keep;
         this.RaisePropertyChanged(nameof(SelectedCue));
         this.RaisePropertyChanged(nameof(SelectedRole));
@@ -357,11 +428,23 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
         MarkDirty($"Edited {cue.Name}");
     }
 
-    private void Audition(double seconds)
+    /// <summary>Rebuilds <paramref name="cue"/>'s countdown cues when it's a Drop (mode permitting).</summary>
+    private List<OrbitCue> WithCountdowns(IEnumerable<OrbitCue> cues, OrbitCue cue, string? previousName)
+    {
+        if (cue.Role != CueRole.Drop) return cues.ToList();
+        var bars = DropCountdownCues.ResolveBars(DropCountdownMode, _genre, _bpm);
+        return DropCountdownCues.Rebuild(cues, cue, bars, _bpm, previousName);
+    }
+
+    /// <summary>Plays this deck from <paramref name="seconds"/> through the preview player, pausing
+    /// the main player first if it's playing (resumed on save or <see cref="EndAudition"/>).</summary>
+    public void Audition(double seconds)
     {
         if (string.IsNullOrEmpty(_filePath) || _previewPlayer == null) return;
         LastAuditionSeconds = seconds;
-        _previewPlayer.RequestPreview(_filePath, _bpm > 0 ? _bpm : null, seconds);
+        if (!_holdingMainPlayback && HoldMainPlayback?.Invoke() == true) _holdingMainPlayback = true;
+        // startSeconds 0 means "hover preview" (debounced) to the preview player — use a hair above.
+        _previewPlayer.RequestPreview(_filePath, _bpm > 0 ? _bpm : null, Math.Max(seconds, 0.001));
         StatusText = $"▶ {TrackTitle} @ {TimeSpan.FromSeconds(seconds):m\\:ss\\.f}";
     }
 

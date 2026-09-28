@@ -164,6 +164,46 @@ public class TrackCueEditorViewModelTests
     }
 
     [Fact]
+    public void SettingADrop_PlacesCountdowns_MovingItMovesThem_DeletingItRemovesThem()
+    {
+        var (editor, _) = Build(Stored(81, "Hit", type: CuePointType.PhraseBoundary)); // 120 BPM: bar = 2 s
+        editor.InitDropCountdownMode("16,8");
+        editor.SelectedCue = editor.Cues.Single();
+
+        editor.SelectedRole = CueRole.Drop;
+        Assert.Equal(new[] { 49.0, 65.0, 81.0 }, editor.Cues.Select(c => c.Timestamp));
+
+        editor.NudgeSelectedCommand.Execute("+bar").Subscribe();
+        Assert.Equal(new[] { 51.0, 67.0, 83.0 }, editor.Cues.Select(c => c.Timestamp));
+
+        editor.DeleteSelectedCommand.Execute().Subscribe();
+        Assert.Empty(editor.Cues);
+    }
+
+    [Fact]
+    public void CountdownsOff_LeavesTheOtherCuesAlone()
+    {
+        var (editor, _) = Build(Stored(81, "Hit", type: CuePointType.PhraseBoundary));
+        editor.InitDropCountdownMode("Off");
+        editor.SelectedCue = editor.Cues.Single();
+
+        editor.SelectedRole = CueRole.Drop;
+
+        Assert.Single(editor.Cues);
+    }
+
+    [Fact]
+    public void FineNudge_Moves10Ms_WithoutSnapping()
+    {
+        var (editor, _) = Build(Stored(11, "Drop"));
+        editor.SelectedCue = editor.Cues[0];
+
+        editor.NudgeSelectedCommand.Execute("+fine").Subscribe();
+
+        Assert.Equal(11.010, editor.Cues.Single(c => c.Name == "Drop").Timestamp, 6);
+    }
+
+    [Fact]
     public void UseAsMixPoint_ReportsTheSelectedCuesTime()
     {
         var (editor, _) = Build(Stored(42, "Outro", type: CuePointType.Outro));

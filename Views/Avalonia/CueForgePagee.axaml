@@ -422,18 +422,36 @@
                                                Foreground="#DDE4EA" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                     <Button Grid.Column="1" Classes="cmd-secondary" Content="− beat" FontSize="10" Padding="8,4"
                                             Command="{Binding NudgeCueCommand}" CommandParameter="-1"
-                                            ToolTip.Tip="Nudge back 1 beat (Shift+←)"/>
+                                            ToolTip.Tip="Nudge back 1 beat (←) — replays from the cue"/>
                                     <Button Grid.Column="2" Classes="cmd-secondary" Content="+ beat" FontSize="10" Padding="8,4" Margin="4,0,0,0"
                                             Command="{Binding NudgeCueCommand}" CommandParameter="1"
-                                            ToolTip.Tip="Nudge forward 1 beat (Shift+→)"/>
+                                            ToolTip.Tip="Nudge forward 1 beat (→) — replays from the cue"/>
                                     <Button Grid.Column="3" Classes="cmd-primary" Content="▶ Seek" FontSize="10" Padding="8,4" Margin="4,0,0,0"
                                             Command="{Binding SeekPlayheadCommand}" CommandParameter="{Binding SelectedCue.Timestamp}"/>
                                 </Grid>
                             </StackPanel>
 
+                            <!-- Fine nudge -->
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <Button Classes="cmd-secondary" Content="− bar" FontSize="10" Padding="8,4"
+                                        Command="{Binding NudgeCueCommand}" CommandParameter="-bar" ToolTip.Tip="1 bar earlier (Shift+←)"/>
+                                <Button Classes="cmd-secondary" Content="+ bar" FontSize="10" Padding="8,4"
+                                        Command="{Binding NudgeCueCommand}" CommandParameter="+bar" ToolTip.Tip="1 bar later (Shift+→)"/>
+                                <Button Classes="cmd-secondary" Content="−10ms" FontSize="10" Padding="8,4"
+                                        Command="{Binding NudgeCueCommand}" CommandParameter="-fine" ToolTip.Tip="10 ms earlier (Ctrl+←)"/>
+                                <Button Classes="cmd-secondary" Content="+10ms" FontSize="10" Padding="8,4"
+                                        Command="{Binding NudgeCueCommand}" CommandParameter="+fine" ToolTip.Tip="10 ms later (Ctrl+→)"/>
+                            </StackPanel>
+
                             <!-- Role -->
                             <StackPanel Spacing="4">
-                                <TextBlock Text="ROLE" Foreground="#556270" FontSize="8" FontWeight="Bold" LetterSpacing="2"/>
+                                <Grid ColumnDefinitions="*,Auto,Auto">
+                                    <TextBlock Grid.Column="0" Text="ROLE" Foreground="#556270" FontSize="8" FontWeight="Bold" LetterSpacing="2" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="Drop countdown" Foreground="#556270" FontSize="9" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <ComboBox Grid.Column="2" ItemsSource="{Binding DropCountdownModes}" SelectedItem="{Binding DropCountdownMode}"
+                                              FontSize="10" MinWidth="84" Padding="6,2"
+                                              ToolTip.Tip="When a cue is set to Drop (or a Drop is moved), countdown cues are placed this many bars before it: 'Auto' = 32/16/8 for DnB and breakbeat, 32/16 for house and techno. Off disables it."/>
+                                </Grid>
                                 <ItemsControl ItemsSource="{Binding CueRoleOptions}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
@@ -720,7 +738,7 @@
                 </StackPanel>
                 <!-- Keyboard hint (hash in tooltip for debug) -->
                 <TextBlock Grid.Column="1"
-                           Text="← → jump  Shift+← → nudge  Enter audition  A add  Del remove  Ctrl+Z undo"
+                           Text="← → nudge beat (replays)  Shift bar  Ctrl 10ms  ↑ ↓ jump  Enter audition  A add  Del remove  Ctrl+Z undo"
                            Foreground="#3D4A56" FontSize="9" VerticalAlignment="Center"
                            ToolTip.Tip="{Binding TrackHash}"/>
             </Grid>
