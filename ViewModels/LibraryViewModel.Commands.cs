@@ -479,8 +479,18 @@ public partial class LibraryViewModel
             // or starting playback — the playlist row's own Play button was a no-op. Publishing
             // the same event AlbumNode.PlayAlbum() uses is what PlayerViewModel actually listens
             // for to clear the queue, load every track, and start the first one.
-            _eventBus.Publish(new PlayAlbumRequestEvent(playable, Tracks.IsMixModeEnabled));
-            _notificationService.Show("Playing Album", project.SourceTitle, NotificationType.Information);
+            // Start from the selected track when one is selected in this same playlist — the rest
+            // of the playlist is still queued (and mixed, with Mix on) from there onward.
+            var selected = Tracks.LeadSelectedTrack?.Model;
+            var startTrack = selected != null && selected.PlaylistId == project.Id
+                ? playable.FirstOrDefault(t => t.Id == selected.Id)
+                : null;
+
+            _eventBus.Publish(new PlayAlbumRequestEvent(playable, Tracks.IsMixModeEnabled, startTrack?.Id));
+            _notificationService.Show(
+                "Playing Album",
+                startTrack != null ? $"{project.SourceTitle} — from \"{startTrack.Title}\"" : project.SourceTitle,
+                NotificationType.Information);
         }
     }
 

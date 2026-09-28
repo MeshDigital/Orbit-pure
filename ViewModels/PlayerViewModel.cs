@@ -839,11 +839,17 @@ namespace SLSKDONET.ViewModels
                         DebounceSaveQueue();
                     }
                     
-                    // 3. Play first track if any were added
+                    // 3. Play the requested start track (or the first) if any were added
                     if (Queue.Any())
                     {
-                        CurrentQueueIndex = 0;
-                        PlayTrackAtIndex(0);
+                        int startIndex = 0;
+                        if (evt.StartTrackId is Guid startId)
+                        {
+                            var found = Queue.ToList().FindIndex(t => t.Model?.Id == startId);
+                            if (found >= 0) startIndex = found;
+                        }
+                        CurrentQueueIndex = startIndex;
+                        PlayTrackAtIndex(startIndex);
 
                         // Mix was enabled on the playlist when Play was pressed — surface the
                         // transition settings for the first hop immediately instead of leaving the
