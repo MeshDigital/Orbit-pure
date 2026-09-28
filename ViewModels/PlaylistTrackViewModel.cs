@@ -733,6 +733,31 @@ public class PlaylistTrackViewModel : INotifyPropertyChanged, Library.ILibraryNo
         set => SetProperty(ref _showMixTransitionBadge, value);
     }
 
+    // Play-queue position, maintained by PlayerViewModel.UpdateQueueStates() for the rows in its
+    // Queue, so every queue list (sidepanel, Now Playing page, fullscreen player) can mark the
+    // playing track and dim the ones already played.
+    private bool _isQueueCurrent;
+    public bool IsQueueCurrent
+    {
+        get => _isQueueCurrent;
+        set => SetProperty(ref _isQueueCurrent, value);
+    }
+
+    private bool _isQueuePlayed;
+    public bool IsQueuePlayed
+    {
+        get => _isQueuePlayed;
+        set => SetProperty(ref _isQueuePlayed, value);
+    }
+
+    private int _queueNumber;
+    /// <summary>1-based position in the play queue.</summary>
+    public int QueueNumber
+    {
+        get => _queueNumber;
+        set => SetProperty(ref _queueNumber, value);
+    }
+
     private string _transitionPresetLabel = "Auto";
     public string TransitionPresetLabel
     {

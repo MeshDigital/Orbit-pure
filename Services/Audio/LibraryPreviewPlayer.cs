@@ -126,7 +126,10 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
             if (startSeconds > 0)
             {
                 var safeStart = Math.Clamp(startSeconds, 0, Math.Max(0, _reader.TotalTime.TotalSeconds - 0.25));
-                _reader.CurrentTime = TimeSpan.FromSeconds(safeStart);
+                // Not CurrentTime: on FLAC/M4A (Media Foundation) a seek before the first read is
+                // dropped and playback started at 0:00 — see ExactSeek. Runs on this background task.
+                ExactSeek.Seek(_reader, filePath, safeStart);
+                ct.ThrowIfCancellationRequested();
             }
             _volumeProvider = new VolumeSampleProvider(_reader) { Volume = 1f };
 
@@ -214,6 +217,9 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
         private readonly System.Numerics.Complex[] _complexBuffer;
         private int _pos;
         private int _busy;
+        private readonly int _channels;
+        private float _frameSum;
+        private int _frameChannel;
 
         public WaveFormat WaveFormat => _source.WaveFormat;
 
@@ -224,6 +230,7 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
             _onFftReady = onFftReady;
             _accumulator = new float[fftSize];
             _complexBuffer = new System.Numerics.Complex[fftSize];
+            _channels = Math.Max(1, source.WaveFormat.Channels);
         }
 
         public int Read(float[] buffer, int offset, int count)
@@ -232,7 +239,12 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
 
             for (int i = 0; i < read; i++)
             {
-                _accumulator[_pos++] = buffer[offset + i];
+                // Mono downmix: FFT'ing the interleaved stereo stream scrambles the frequency axis.
+                _frameSum += buffer[offset + i];
+                if (++_frameChannel < _channels) continue;
+                _accumulator[_pos++] = _frameSum / _channels;
+                _frameSum = 0;
+                _frameChannel = 0;
                 if (_pos < _fftSize) continue;
 
                 _pos = 0;

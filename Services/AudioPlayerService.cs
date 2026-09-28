@@ -59,6 +59,47 @@ namespace SLSKDONET.Services
             /// the first drop). Null means start at 0 as usual.</summary>
             public double? PendingTargetTriggerSeconds;
 
+            /// <summary>File this deck plays (for <see cref="SLSKDONET.Services.Audio.ExactSeek"/>).</summary>
+            public string FilePath = string.Empty;
+
+            /// <summary>Background exact seek in flight (Media Foundation formats decode forward to
+            /// the target, ~70–300 ms). The deck must not start playing until it finishes.</summary>
+            public System.Threading.Tasks.Task? SeekTask;
+
+            /// <summary>Live-seek hand-off (see the Position setter): latest target not yet applied,
+            /// and whether a worker is draining it. Guarded by <see cref="SeekLock"/>.</summary>
+            public readonly object SeekLock = new();
+            public double? RequestedSeekSeconds;
+            public bool SeekWorkerRunning;
+
+            /// <summary>Blocks until a pending background seek is done (normally long finished —
+            /// preload happens minutes before the crossfade). Bounded so playback can never hang.</summary>
+            public void WaitForSeek()
+            {
+                try { SeekTask?.Wait(TimeSpan.FromSeconds(3)); } catch { /* seek failure: play from wherever it is */ }
+            }
+
+            /// <summary>Seeks this (not yet playing) deck exactly to <paramref name="seconds"/> in the background.</summary>
+            public void SeekInBackground(double seconds)
+            {
+                var file = AudioFile;
+                if (file == null) return;
+                if (!SLSKDONET.Services.Audio.ExactSeek.NeedsDecodeForward(FilePath))
+                {
+                    WaitForSeek();
+                    file.CurrentTime = TimeSpan.FromSeconds(seconds);
+                    VariSpeed?.Reset();
+                    return;
+                }
+                var previous = SeekTask;
+                SeekTask = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    if (previous != null) { try { await previous; } catch { } }
+                    SLSKDONET.Services.Audio.ExactSeek.Seek(file, FilePath, seconds);
+                    VariSpeed?.Reset();
+                });
+            }
+
             public void Dispose()
             {
                 try { Output?.Stop(); } catch { /* already stopped/disposed */ }
@@ -143,6 +184,8 @@ namespace SLSKDONET.Services
         public event EventHandler<long>? LengthChanged;
         public event EventHandler<AudioLevelsEventArgs>? AudioLevelsChanged;
         public event EventHandler<float[]>? SpectrumChanged;
+        /// <summary>Mono time-domain block (2048 samples) of what is playing, while a visualizer is attached.</summary>
+        public event EventHandler<float[]>? WaveformChanged;
         public event EventHandler? EndReached;
         public event EventHandler? PausableChanged;
 
@@ -247,6 +290,7 @@ namespace SLSKDONET.Services
                     if (_next.Gain != null) _next.Gain.Volume = 0f;
                     if (_next.Eq != null) _next.Eq.Active = pendingTransition != null;
                     if (current.Eq != null) current.Eq.Active = pendingTransition != null;
+                    _next.WaitForSeek();
                     _next.Output.Play();
 
                     CrossfadeStarted?.Invoke(this, new CrossfadeStartedEventArgs
@@ -349,11 +393,61 @@ namespace SLSKDONET.Services
             get => (float)(_current?.AudioFile != null ? _current.AudioFile.Position / (double)_current.AudioFile.Length : 0);
             set
             {
-                if (_current?.AudioFile != null)
+                var deck = _current;
+                if (deck?.AudioFile == null) return;
+
+                if (!SLSKDONET.Services.Audio.ExactSeek.NeedsDecodeForward(deck.FilePath))
                 {
-                    _current.AudioFile.Position = (long)(value * _current.AudioFile.Length);
-                    _current.VariSpeed?.Reset(); // discard stale buffered samples from before the seek
+                    deck.AudioFile.Position = (long)(value * deck.AudioFile.Length);
+                    deck.VariSpeed?.Reset(); // discard stale buffered samples from before the seek
+                    return;
                 }
+
+                // FLAC/M4A: Media Foundation lands up to ~0.9 s off target, so seek exactly by
+                // decoding forward — off the UI thread, with the output paused meanwhile. Rapid
+                // seeks (dragging a seek bar) collapse into the latest target.
+                lock (deck.SeekLock)
+                {
+                    deck.RequestedSeekSeconds = Math.Clamp(value, 0f, 1f) * deck.AudioFile.TotalTime.TotalSeconds;
+                    if (deck.SeekWorkerRunning) return; // the running worker picks up the new target
+                    deck.SeekWorkerRunning = true;
+                }
+                bool wasPlaying = deck.Output?.PlaybackState == PlaybackState.Playing;
+                deck.SeekTask = System.Threading.Tasks.Task.Run(() =>
+                {
+                    try
+                    {
+                        if (wasPlaying) deck.Output?.Pause();
+                        while (true)
+                        {
+                            double seconds;
+                            lock (deck.SeekLock)
+                            {
+                                if (deck.RequestedSeekSeconds is not double next || deck.AudioFile == null)
+                                {
+                                    deck.SeekWorkerRunning = false;
+                                    break;
+                                }
+                                seconds = next;
+                                deck.RequestedSeekSeconds = null;
+                            }
+                            try
+                            {
+                                SLSKDONET.Services.Audio.ExactSeek.Seek(deck.AudioFile, deck.FilePath, seconds);
+                                deck.VariSpeed?.Reset();
+                            }
+                            catch (Exception ex)
+                            {
+                                Serilog.Log.Warning(ex, "[AudioPlayerService] Exact seek failed for {File}", deck.FilePath);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        lock (deck.SeekLock) deck.SeekWorkerRunning = false;
+                        if (wasPlaying && ReferenceEquals(_current, deck)) deck.Output?.Play();
+                    }
+                });
             }
         }
 
@@ -440,8 +534,9 @@ namespace SLSKDONET.Services
                 deck.PendingTargetTriggerSeconds = targetTriggerSeconds;
                 if (targetTriggerSeconds is > 0 && deck.AudioFile != null)
                 {
-                    deck.AudioFile.CurrentTime = TimeSpan.FromSeconds(targetTriggerSeconds.Value);
-                    deck.VariSpeed?.Reset();
+                    // Not CurrentTime directly: on FLAC/M4A a seek on an unread file is dropped and
+                    // the incoming track started at 0:00 instead of its mix-in point (ExactSeek).
+                    deck.SeekInBackground(targetTriggerSeconds.Value);
                 }
                 _next = deck;
                 _nextFilePath = filePath;
@@ -486,10 +581,9 @@ namespace SLSKDONET.Services
             if (!_isCrossfading && targetTriggerSeconds is > 0 && _next.AudioFile != null)
             {
                 var total = _next.AudioFile.TotalTime.TotalSeconds;
-                if (targetTriggerSeconds.Value < total)
+                if (targetTriggerSeconds.Value < total && _next.Output?.PlaybackState != PlaybackState.Playing)
                 {
-                    _next.AudioFile.CurrentTime = TimeSpan.FromSeconds(targetTriggerSeconds.Value);
-                    _next.VariSpeed?.Reset();
+                    _next.SeekInBackground(targetTriggerSeconds.Value);
                 }
             }
         }
@@ -565,6 +659,7 @@ namespace SLSKDONET.Services
         {
             var deck = new Deck
             {
+                FilePath = filePath,
                 AudioFile = new AudioFileReader(filePath),
                 LoudnessGain = ComputeLoudnessGain(trackLoudnessLufs)
             };
@@ -591,7 +686,11 @@ namespace SLSKDONET.Services
             var fftProvider = new FftSampleProvider(deck.Gain, 2048, magnitudes =>
             {
                 if (ReferenceEquals(_current, deck)) SpectrumChanged?.Invoke(this, magnitudes);
-            }, isActive: () => IsVisualizerActive);
+            }, isActive: () => IsVisualizerActive,
+            onWaveform: samples =>
+            {
+                if (ReferenceEquals(_current, deck)) WaveformChanged?.Invoke(this, samples);
+            });
 
             // 2. Wrap in Metering for VU
             deck.Metering = new MeteringSampleProvider(fftProvider);
@@ -650,6 +749,7 @@ namespace SLSKDONET.Services
             if (promoted.Gain != null) promoted.Gain.Volume = _masterVolumeFraction * promoted.LoudnessGain;
             if (promoted.Output.PlaybackState != PlaybackState.Playing)
             {
+                promoted.WaitForSeek();
                 promoted.Output.Play();
             }
 
@@ -683,28 +783,44 @@ namespace SLSKDONET.Services
         }
 
         // Custom FFT Provider (Inline for simplicity or could be moved)
+        /// <summary>
+        /// Taps the playing signal for the visualizers: a mono downmix, windowed and FFT'd off the
+        /// audio thread. The downmix matters — this used to FFT the raw interleaved stereo stream
+        /// (L,R,L,R…), which folds the two channels into one sequence and scrambles the frequency
+        /// axis every visualizer reads. Also hands out the time-domain block (oscilloscope preset).
+        /// </summary>
         private class FftSampleProvider : ISampleProvider
         {
             private readonly ISampleProvider _source;
             private readonly int _fftSize;
+            private readonly int _channels;
             private readonly Action<float[]> _onFftCalculated;
+            private readonly Action<float[]>? _onWaveform;
             private readonly float[] _buffer;
-            private float[] _processingBuffer;
-            private int _pos;
+            private readonly float[] _processingBuffer;
             private readonly System.Numerics.Complex[] _complexBuffer;
-            private int _fftBusy = 0;
+            private readonly float[] _window;
+            private int _pos;
+            private int _fftBusy;
+            private float _frameSum;
+            private int _frameChannel;
             private readonly Func<bool> _isActive;
 
             public WaveFormat WaveFormat => _source.WaveFormat;
 
-            public FftSampleProvider(ISampleProvider source, int fftSize, Action<float[]> onFftCalculated, Func<bool>? isActive = null)
+            public FftSampleProvider(ISampleProvider source, int fftSize, Action<float[]> onFftCalculated, Func<bool>? isActive = null, Action<float[]>? onWaveform = null)
             {
                 _source = source;
                 _fftSize = fftSize;
+                _channels = Math.Max(1, source.WaveFormat.Channels);
                 _onFftCalculated = onFftCalculated;
+                _onWaveform = onWaveform;
                 _buffer = new float[fftSize];
                 _processingBuffer = new float[fftSize];
                 _complexBuffer = new System.Numerics.Complex[fftSize];
+                _window = new float[fftSize];
+                for (int i = 0; i < fftSize; i++)
+                    _window[i] = (float)(0.5 * (1.0 - Math.Cos(2.0 * Math.PI * i / (fftSize - 1)))); // Hann
                 _isActive = isActive ?? (() => true);
             }
 
@@ -712,68 +828,67 @@ namespace SLSKDONET.Services
             {
                 int read = _source.Read(buffer, offset, count);
 
-                // No visualizer control is attached/visible right now — skip the windowing +
-                // MathNet FFT dispatch entirely (this ran unconditionally for every playing
-                // track before, whether or not anything was ever going to render it). Keep
-                // _pos at 0 while inactive so re-activating starts a clean window instead of
-                // bursting out a stale, partially-filled buffer from whenever it was last active.
+                // No visualizer attached — skip the work, and restart from a clean window later.
                 if (!_isActive())
                 {
                     _pos = 0;
+                    _frameSum = 0;
+                    _frameChannel = 0;
                     return read;
                 }
 
                 for (int i = 0; i < read; i++)
                 {
-                    _buffer[_pos] = buffer[offset + i];
-                    _pos++;
+                    // Frames can straddle Read calls, so the channel position carries over.
+                    _frameSum += buffer[offset + i];
+                    if (++_frameChannel < _channels) continue;
+
+                    _buffer[_pos++] = _frameSum / _channels;
+                    _frameSum = 0;
+                    _frameChannel = 0;
 
                     if (_pos >= _fftSize)
                     {
-                        // Use lock-free check: only start FFT if not already running
+                        // Skip this block if the previous FFT is still running.
                         if (System.Threading.Interlocked.CompareExchange(ref _fftBusy, 1, 0) == 0)
                         {
-                            // Copy buffer data (audio thread writes to _buffer, FFT reads from _processingBuffer)
                             Array.Copy(_buffer, _processingBuffer, _fftSize);
-
-                            // Fire-and-forget: run FFT on background thread
-                            _ = System.Threading.Tasks.Task.Run(() => PerformFftAsync());
+                            _ = System.Threading.Tasks.Task.Run(PerformFft);
                         }
-                        // else: skip this FFT cycle if previous one still processing
-
-                        _pos = 0;
+                        // 50% overlap: keep the second half as the start of the next window, so a
+                        // new spectrum arrives every ~23 ms instead of every ~46 ms.
+                        int half = _fftSize / 2;
+                        Array.Copy(_buffer, half, _buffer, 0, half);
+                        _pos = half;
                     }
                 }
 
                 return read;
             }
 
-            private void PerformFftAsync()
+            private void PerformFft()
             {
                 try
                 {
-                    // Work on _processingBuffer (swapped with _buffer)
-                    for (int i = 0; i < _fftSize; i++)
-                    {
-                        // Apply Hanning Window to reduce leakage
-                        float window = (float)(0.5 * (1.0 - Math.Cos(2.0 * Math.PI * i / (_fftSize - 1))));
-                        _complexBuffer[i] = new System.Numerics.Complex(_processingBuffer[i] * window, 0);
-                    }
+                    _onWaveform?.Invoke((float[])_processingBuffer.Clone());
 
-                    // Use MathNet.Numerics for FFT
+                    for (int i = 0; i < _fftSize; i++)
+                        _complexBuffer[i] = new System.Numerics.Complex(_processingBuffer[i] * _window[i], 0);
+
                     MathNet.Numerics.IntegralTransforms.Fourier.Forward(_complexBuffer, MathNet.Numerics.IntegralTransforms.FourierOptions.NoScaling);
 
                     var magnitude = new float[_fftSize / 2];
                     for (int i = 0; i < magnitude.Length; i++)
-                    {
                         magnitude[i] = (float)_complexBuffer[i].Magnitude;
-                    }
 
                     _onFftCalculated(magnitude);
                 }
+                catch (Exception ex)
+                {
+                    Serilog.Log.Debug(ex, "Visualizer FFT block failed");
+                }
                 finally
                 {
-                    // Release the busy flag
                     System.Threading.Interlocked.Exchange(ref _fftBusy, 0);
                 }
             }

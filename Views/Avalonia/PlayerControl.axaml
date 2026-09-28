@@ -98,6 +98,15 @@
         <Style Selector="Button.mixHeader:pointerover">
             <Setter Property="Background" Value="{StaticResource BrushGlassThin}"/>
         </Style>
+        <!-- Queue rows: playing / already played (PlaylistTrackViewModel.IsQueueCurrent / IsQueuePlayed) -->
+        <Style Selector="Border.qcard.current">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="#1F4EC9B0"/>
+        </Style>
+        <Style Selector="Border.qcard.played">
+            <Setter Property="Opacity" Value="0.5"/>
+        </Style>
         <Style Selector="TextBlock.mix-chevron">
             <Setter Property="FontSize" Value="10"/>
             <Setter Property="Foreground" Value="{StaticResource BrushText2}"/>
@@ -150,10 +159,17 @@
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="vm:PlaylistTrackViewModel">
-                                        <Border Classes="card" Margin="0,0,0,6" Padding="8">
+                                        <Border Classes="card qcard" Classes.current="{Binding IsQueueCurrent}" Classes.played="{Binding IsQueuePlayed}"
+                                                Margin="0,0,0,6" Padding="8">
                                             <StackPanel Spacing="4">
-                                                <Grid ColumnDefinitions="*,Auto,Auto">
-                                                    <Button Grid.Column="0"
+                                                <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                                    <Panel Grid.Column="0" Width="20" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding QueueNumber}" FontSize="10" Foreground="{StaticResource BrushText2}"
+                                                                   HorizontalAlignment="Center" IsVisible="{Binding !IsQueueCurrent}"/>
+                                                        <TextBlock Text="♪" FontSize="12" Foreground="{StaticResource BrushAccent}"
+                                                                   HorizontalAlignment="Center" IsVisible="{Binding IsQueueCurrent}"/>
+                                                    </Panel>
+                                                    <Button Grid.Column="1"
                                                             Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
                                                             CommandParameter="{Binding}"
                                                             Background="Transparent"
@@ -173,7 +189,7 @@
                                                                        MaxWidth="130"/>
                                                         </StackPanel>
                                                     </Button>
-                                                    <Button Grid.Column="1"
+                                                    <Button Grid.Column="2"
                                                             Classes="iconGhost"
                                                             Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
                                                             CommandParameter="{Binding}"
@@ -181,7 +197,7 @@
                                                             ToolTip.Tip="Play queued track">
                                                         <TextBlock Text="▶" FontSize="9" Foreground="{StaticResource BrushAccent}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                     </Button>
-                                                    <Button Grid.Column="2"
+                                                    <Button Grid.Column="3"
                                                             Classes="iconGhost"
                                                             Command="{Binding $parent[UserControl].DataContext.RemoveFromQueueCommand}"
                                                             CommandParameter="{Binding}"

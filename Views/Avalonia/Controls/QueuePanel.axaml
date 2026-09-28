@@ -26,6 +26,16 @@
             <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
         </Style>
 
+        <!-- Playing / played rows (PlaylistTrackViewModel.IsQueueCurrent / IsQueuePlayed) -->
+        <Style Selector="Border.qrow.current">
+            <Setter Property="Background" Value="#264EC9B0"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="BorderThickness" Value="2,0,0,0"/>
+        </Style>
+        <Style Selector="Border.qrow.played">
+            <Setter Property="Opacity" Value="0.5"/>
+        </Style>
+
         <!-- Drag-reorder insertion indicator — shows where a dropped track would land -->
         <Style Selector="ListBoxItem.insert-above">
             <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
@@ -61,13 +71,22 @@
             
             <!-- Queue List -->
             <ScrollViewer>
-                <ListBox ItemsSource="{Binding Queue}"
-                        SelectedIndex="{Binding CurrentQueueIndex}">
+                <!-- No SelectedIndex binding: it was two-way bound to CurrentQueueIndex, so clicking
+                     a row moved the "now playing" index without playing anything. -->
+                <ListBox ItemsSource="{Binding Queue}">
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:PlaylistTrackViewModel">
-                            <Grid ColumnDefinitions="*,Auto">
+                            <Border Classes="qrow" Classes.current="{Binding IsQueueCurrent}" Classes.played="{Binding IsQueuePlayed}"
+                                    Padding="6,2" CornerRadius="4">
+                            <Grid ColumnDefinitions="28,*,Auto,Auto">
+                                <Panel VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding QueueNumber}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                               IsVisible="{Binding !IsQueueCurrent}"/>
+                                    <TextBlock Text="♪" FontSize="14" Foreground="{StaticResource BrushAccent}"
+                                               IsVisible="{Binding IsQueueCurrent}"/>
+                                </Panel>
                                 <!-- Track Info -->
-                                <StackPanel Grid.Column="0" Spacing="4">
+                                <StackPanel Grid.Column="1" Spacing="4">
                                     <TextBlock Text="{Binding Title}"
                                               Foreground="{DynamicResource TextBrush}"
                                               TextTrimming="CharacterEllipsis"/>
@@ -78,10 +97,23 @@
                                               TextTrimming="CharacterEllipsis"/>
                                 </StackPanel>
                                 
-                                <!-- Remove Button -->
-                                <Button Grid.Column="1"
+                                <Button Grid.Column="2"
+                                       Content="▶"
+                                       Command="{Binding $parent[UserControl].DataContext.PlayQueueItemCommand}"
+                                       CommandParameter="{Binding}"
+                                       Width="24" Height="24" Padding="0"
+                                       Background="Transparent"
+                                       Foreground="{StaticResource BrushAccent}"
+                                       FontSize="11"
+                                       VerticalAlignment="Center"
+                                       HorizontalContentAlignment="Center"
+                                       VerticalContentAlignment="Center"
+                                       ToolTip.Tip="Play now"/>
+
+                                <!-- Remove Button (was a cast binding, which silently resolves to nothing) -->
+                                <Button Grid.Column="3"
                                        Content="✕"
-                                       Command="{Binding $parent[ListBox].((vm:PlayerViewModel)DataContext).RemoveFromQueueCommand}"
+                                       Command="{Binding $parent[UserControl].DataContext.RemoveFromQueueCommand}"
                                        CommandParameter="{Binding}"
                                        Width="24"
                                        Height="24"
@@ -93,6 +125,7 @@
                                        HorizontalContentAlignment="Center"
                                        VerticalContentAlignment="Center"/>
                             </Grid>
+                            </Border>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
