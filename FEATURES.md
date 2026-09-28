@@ -36,6 +36,7 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Metadata Enrichment**: Spotify and MusicBrainz integration for accurate tagging
 - **Harmonic Matching**: Key-based track recommendations for DJ workflows
 - **Quality Filtering**: Pre-download verification of file authenticity
+- **Playlist Discover**: A ✨ Discover button on a playlist opens a sidepanel tab with tracks to add. It draws on new releases by the playlist's artists and the genre top 100 from Beatport, plus Deezer's related artists. It hides what you already own and ranks the rest by BPM (half/double time included), key and genre fit. Tracks both Beatport and Deezer suggest get a ★ and rank first. Each suggestion has a preview clip, **Queue** (adds it to the playlist and downloads it via Soulseek), a Soulseek search, and a Beatport buy link.
 
 ---
 

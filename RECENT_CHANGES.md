@@ -2,7 +2,7 @@
 
 ---
 
-## [Unreleased] — 2026-09-27 / 2026-09-28
+## [0.9.0-alpha] — 2026-09-29
 
 ### 🎯 Beat grids that match the music
 ORBIT's grid was no better than chance against a DJ's Rekordbox cues (52% of hand cues on a beat, 14% on a bar line). Stored BPMs were whole-number histogram bins, and DnB half-time readings were rounded before doubling, so a real 174 BPM track was stored as 178.
@@ -16,6 +16,23 @@ ORBIT's grid was no better than chance against a DJ's Rekordbox cues (52% of han
 - Edit cues in place in the transition editor: drag with snapping, add, rename, role, pad, colour, loop, nudge, undo, "use as mix point". Edits auto-save.
 - Previous / Next transition and a mini strip of the set.
 - Playlist Play starts at the selected track; with Mix on, Play Track continues the mix from that track.
+
+### ✨ Playlist Discover
+- New **Discover** sidepanel tab, opened from a playlist's header. It suggests tracks to add from Beatport (new releases by the playlist's artists, the genre top 100) and Deezer (related artists).
+- Suggestions are ranked by BPM, key and genre fit. Tracks you already own are hidden. When Beatport and Deezer both suggest a track, it gets a ★ and a ranking boost. The best Deezer-only finds are looked up on Beatport to fill in BPM, key and genre.
+- Actions per suggestion: preview clip; **Queue** (adds it to the playlist as a missing track and starts the Soulseek download); a Soulseek search; open on Beatport to buy. **Top 10** queues the best ten.
+- Beatport's public pages sit behind Cloudflare, which blocks .NET's HTTP client, so they are fetched with Windows' built-in curl.exe. Beatport and Deezer can each be switched off in the panel.
+- Suggestions are saved per playlist and show instantly, even after a restart; anything downloaded or queued since is removed. They are re-evaluated in the background only when the playlist changed a lot (about 20% of tracks, or 10+) or after 14 days. Hidden (✕) suggestions stay hidden.
+- "Already owned" covers the library and every playlist (including queued and missing tracks) and handles the library's naming styles: "Title - Original Mix", joint "A & B" credits, "(SOTA Extended Mix)" = "(SOTA Remix)". Checked against the real library.
+
+### 🎆 Fullscreen player and visualizer
+- The fullscreen player is rebuilt: full-screen visualizer, large artwork with BPM / key / energy, track position in the queue, and a MIXING indicator during crossfades.
+- **Up Next** column shows the whole queue with the playing track highlighted and played tracks dimmed; it scrolls to the current track. The sidepanel and Now Playing queues mark the playing track too.
+- Visualizer: runs at display frame rate, bass-to-treble log bands with auto-gain and peak caps, a real oscilloscope and phase scope, and correct colours (they were near-black). Fixed per-frame native memory leaks and render-thread races. The spectrum is now computed from a mono mix; it used to FFT interleaved stereo, which scrambled every visualizer.
+- Seek bar works while dragging; controls fade when the mouse is idle; borderless fullscreen (⛶ / F); keyboard: Space, ← →, Shift+← →, ↑ ↓, M, V, Q, Esc.
+
+### ▶ Always-visible playback controls
+- Previous / Play-Pause / Next and the current track sit in the top bar on every page, with a button for the fullscreen player. In Zen mode a floating play/pause button stays on screen.
 
 ### ⏱ Drop countdowns and fine-tuning by ear
 - Setting or moving a Drop places 32/16/8-bar countdown cues before it. Auto picks by genre; configurable or off.
@@ -31,6 +48,9 @@ ORBIT's grid was no better than chance against a DJ's Rekordbox cues (52% of han
 - Fixed a startup crash from a cue-strip binding.
 - Removed EDMFormer, the optional Python phrase-detection service. It was never installed, and Rekordbox phrase data plus the built-in analysis already cover its job. The Settings "AI Engine" card and install scripts are gone.
 - Found and fixed the real cause of the random test-suite failures: a test replaced the app-wide ReactiveUI scheduler and disposed it without restoring the original.
+- **FLAC seeking:** clicking a waveform in the Mix editor always played FLAC tracks from the start, and Mix transitions started incoming FLAC tracks at 0:00 instead of their mix-in point. Windows Media Foundation drops a seek made before the first read and lands up to ~0.9 s off after. Seeks on FLAC/M4A are now sample-exact (preview, Mix preload, Now Playing, Cue Forge).
+- **Soulseek sharing:** the server was told you share 5 folders (the number of share roots) — leech-detection scripts read that as a tiny share. It now reports the real counts (e.g. 115 folders / 3,403 files) and updates them when the share changes. Only music files are shared (in-progress `.part` / `.incomplete` downloads were shared before), and peers see short folder names instead of full Windows paths.
+- Tests now use their own throwaway database; some used to write to the real library, which left test folders shared on Soulseek.
 
 ### 📋 Open work
 All open items now live in `DOCS/OPEN_WORK_PLAN_2026-09-27.md`. Stale plan files moved to `DOCS/archive/plans/`.

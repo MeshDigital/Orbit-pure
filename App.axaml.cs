@@ -584,6 +584,12 @@ public partial class App : Application
         // Phase 1: Library Enrichment
         services.AddSingleton<SpotifyEnrichmentService>();
         services.AddSingleton<DiscoveryBridgeService>();
+        // Playlist Discover tab: Beatport public pages + Deezer API → ranked suggestions.
+        services.AddHttpClient<Services.Discovery.BeatportCatalogClient>();
+        services.AddHttpClient<Services.Discovery.DeezerCatalogClient>();
+        services.AddSingleton<Services.Discovery.PlaylistDiscoveryService>();
+        services.AddSingleton<Services.Discovery.DiscoveryCache>();
+        services.AddSingleton<PlaylistDiscoveryViewModel>();
 
         // Input parsers
         services.AddSingleton<CsvInputSource>();

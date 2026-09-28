@@ -617,6 +617,15 @@
                                 <TextBlock Text="Mix" FontSize="12" FontWeight="SemiBold"/>
                             </StackPanel>
                         </ToggleButton>
+                        <Button Click="OpenDiscover_Click"
+                                Classes="headerPill" Padding="12,8" CornerRadius="{StaticResource RadiusFull}"
+                                IsVisible="{Binding IsLibraryIntelligencePanelVisible}"
+                                ToolTip.Tip="Suggest tracks to add to this playlist (Beatport + Deezer), downloadable via Soulseek">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <TextBlock Text="✨" FontSize="13"/>
+                                <TextBlock Text="Discover" FontSize="12" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
                 </StackPanel>
             </Border>
