@@ -21,13 +21,29 @@ using Xunit;
 
 namespace SLSKDONET.Tests.ViewModels;
 
+[Collection(NonParallelCollection.Name)]
 public class SearchViewModelTests
 {
+    /// <summary>
+    /// Points RxApp.MainThreadScheduler at <paramref name="scheduler"/> for one test and restores the
+    /// previous scheduler on dispose. These tests used to replace the process-wide scheduler with an
+    /// EventLoopScheduler and then dispose it, leaving every later ReactiveUI test in the run on a
+    /// dead scheduler (ObjectDisposedException "EventLoopScheduler" — the source of the random
+    /// AnalysisPageViewModel/WorkstationDeck/DownloadCenter failures). Declare it after the scheduler
+    /// so it restores before the scheduler is disposed.
+    /// </summary>
+    private static IDisposable UseMainThreadScheduler(IScheduler scheduler)
+    {
+        var previous = RxApp.MainThreadScheduler;
+        RxApp.MainThreadScheduler = scheduler;
+        return System.Reactive.Disposables.Disposable.Create(() => RxApp.MainThreadScheduler = previous);
+    }
+
     [Fact]
     public async Task ExecuteUnifiedSearchAsync_CancelSearch_ShouldStopListeningWithoutAddingFurtherResults()
     {
         using var scheduler = new EventLoopScheduler();
-        RxApp.MainThreadScheduler = scheduler;
+        using var _ = UseMainThreadScheduler(scheduler);
 
         var vm = CreateViewModel((_, token) => InfiniteTrackStream(token));
         vm.SearchQuery = "Artist Track";
@@ -51,7 +67,7 @@ public class SearchViewModelTests
     public async Task ExecuteUnifiedSearchAsync_ShouldBatchUiUpdates_AndReportIdleTelemetryAfterCompletion()
     {
         using var scheduler = new EventLoopScheduler();
-        RxApp.MainThreadScheduler = scheduler;
+        using var _ = UseMainThreadScheduler(scheduler);
 
         var tracks = new[]
         {
@@ -82,7 +98,7 @@ public class SearchViewModelTests
     public async Task AddToPlaylistCommand_PublishesSelectedResultsToProjectFlow()
     {
         using var scheduler = new EventLoopScheduler();
-        RxApp.MainThreadScheduler = scheduler;
+        using var _ = UseMainThreadScheduler(scheduler);
 
         var (vm, eventBus) = CreateViewModelWithBus((_, token) => FiniteTrackStream(Array.Empty<Track>(), token));
         var searchResult = new AnalyzedSearchResultViewModel(new SLSKDONET.ViewModels.SearchResult(CreateTrack("mix-peer")));
