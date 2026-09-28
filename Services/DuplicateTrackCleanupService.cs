@@ -224,7 +224,7 @@ public sealed class DuplicateTrackCleanupService
         try
         {
             var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var dbPath = Path.Combine(appData, "ORBIT", "library.db");
+            var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
             var backupDir = Path.Combine(appData, "ORBIT", "Backups");
 
             if (!File.Exists(dbPath))

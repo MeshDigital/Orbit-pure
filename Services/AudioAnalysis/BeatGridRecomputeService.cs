@@ -171,7 +171,7 @@ public sealed class BeatGridRecomputeService
 
     private string BackupLibrary()
     {
-        string source = Path.Combine(OrbitDataDir, "library.db");
+        string source = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
         string dir = Path.Combine(OrbitDataDir, "Backups");
         Directory.CreateDirectory(dir);
         string target = Path.Combine(dir, $"library.db.bak-{PassName}-{DateTime.Now:yyyyMMdd-HHmmss}");

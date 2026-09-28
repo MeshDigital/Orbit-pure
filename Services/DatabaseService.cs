@@ -2307,7 +2307,7 @@ public class DatabaseService
 
     public async Task BackupDatabaseAsync(string backupPath)
     {
-        var dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ORBIT", "library.db");
+        var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
         
         if (!File.Exists(dbPath))
         {

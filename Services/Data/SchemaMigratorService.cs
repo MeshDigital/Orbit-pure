@@ -155,7 +155,7 @@ public class SchemaMigratorService
         try
         {
             var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var dbPath = System.IO.Path.Combine(appData, "ORBIT", "library.db");
+            var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
             var backupDir = System.IO.Path.Combine(appData, "ORBIT", "Backups");
 
             if (!System.IO.File.Exists(dbPath))
@@ -231,7 +231,7 @@ public class SchemaMigratorService
         {
             var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             var markerPath = System.IO.Path.Combine(appData, "ORBIT", ".force_schema_reset");
-            var dbPath = System.IO.Path.Combine(appData, "ORBIT", "library.db");
+            var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
 
             if (System.IO.File.Exists(markerPath))
             {
@@ -275,7 +275,7 @@ public class SchemaMigratorService
             var sw = System.Diagnostics.Stopwatch.StartNew();
         _logger.LogInformation("[{Ms}ms] Database Init: Starting", sw.ElapsedMilliseconds);
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var dbPath = Path.Combine(appData, "ORBIT", "library.db");
+        var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
 
         // Phase 24: Automatic Database Backup & Recovery
         await CheckForForceResetAsync().ConfigureAwait(false); // Step 1: Check if user requested reset
@@ -3054,7 +3054,7 @@ public class SchemaMigratorService
 
             if (preferences == null || !preferences.Any()) return;
 
-            using (var scope = new SqliteConnection($"Data Source={System.IO.Path.Combine(appData, "ORBIT", "library.db")}"))
+            using (var scope = new SqliteConnection($"Data Source={SLSKDONET.Data.OrbitPaths.LibraryDbPath}"))
             {
                 await scope.OpenAsync();
                 foreach (var (trackId, pref) in preferences)
