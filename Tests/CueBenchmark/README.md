@@ -48,6 +48,14 @@ Experiment switch: `ORBIT_BENCH_PHRASE_SOURCES=EDMFormer,RekordboxPSSI` limits w
 sources may drive the phrase path. Leaving out `Heuristic` forces those tracks through the DSP path,
 which makes it a test bed for DSP changes.
 
+## Reference: your own drops (best for tuning DnB)
+
+`--user-drops --min-cues 1` scores ORBIT's auto drops against every Drop cue you placed or edited
+yourself, in Cue Forge or the Flow Builder cue editor, read from the library copy. This is the gold
+reference: each drop you set by hand becomes a test case. The "by genre family" rows show the DnB
+(breakbeat) numbers. Once a few dozen DnB tracks have hand-set drops, tune the detection against
+this reference and keep only changes that improve it.
+
 ## What it measures
 
 - **Grid alignment:** whether each hand cue lands on an ORBIT beat, bar line and 8-bar phrase line,
