@@ -61,7 +61,10 @@ public sealed class TransitionEngine
                        targetCues.FirstOrDefault(c => c.Type == CuePointType.Intro);
         var firstDropCue = targetCues.FirstOrDefault(c => c.Type == CuePointType.Drop);
 
-        double sourceTime = mixOutCue?.TimestampInSeconds ?? (source.CanonicalDuration ?? 240.0) - 30.0;
+        // CanonicalDuration is in milliseconds: the "30 s before the end" fallback used to come
+        // out at e.g. 195000 - 30 = 194,970 s, a mix-out point playback never reaches.
+        double sourceTime = mixOutCue?.TimestampInSeconds
+            ?? (source.CanonicalDuration is > 0 ? source.CanonicalDuration.Value / 1000.0 : 240.0) - 30.0;
         double targetTime = mixInCue?.TimestampInSeconds ?? 15.0;
 
         double score = 100.0;

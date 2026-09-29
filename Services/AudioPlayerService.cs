@@ -245,11 +245,26 @@ namespace SLSKDONET.Services
         private void OnTimerElapsed(object? sender, ElapsedEventArgs e)
         {
             var current = _current;
-            if (current?.AudioFile == null || current.Output?.PlaybackState != PlaybackState.Playing)
+            if (current?.AudioFile == null) return;
+
+            // The outgoing track ran out mid-crossfade. This used to stall for good: this timer
+            // bailed out as soon as the outgoing deck wasn't Playing, and the deck's own
+            // PlaybackStopped handler deliberately defers to the crossfade — so nothing ever
+            // finished it. The incoming track kept playing at a partial fade level while the UI
+            // sat on the old track past the end of its waveform, and the hand-over came late or
+            // never. Auto-generated Outro cues sit only seconds before the end, so this hit
+            // almost every transition. Finish the hand-over now instead.
+            if (_isCrossfading && current.Output?.PlaybackState == PlaybackState.Stopped)
+            {
+                CompleteCrossfade(current);
+                return;
+            }
+
+            if (current.Output?.PlaybackState != PlaybackState.Playing)
                 return;
 
             TimeChanged?.Invoke(this, (long)current.AudioFile.CurrentTime.TotalMilliseconds);
-            PositionChanged?.Invoke(this, (float)(current.AudioFile.Position / (double)current.AudioFile.Length));
+            PositionChanged?.Invoke(this, Position);
 
             if (_isCrossfading)
             {
@@ -274,7 +289,10 @@ namespace SLSKDONET.Services
                     // Analysis-suggested/saved mix-out point: an absolute position in THIS track,
                     // not "however many seconds are left" — a mix-out near a phrase boundary well
                     // before the literal end of a track with a long fade-out tail, for instance.
-                    shouldStart = current.AudioFile.CurrentTime.TotalSeconds >= sourceTrigger;
+                    // …but never so late that the transition can't play out before the track ends
+                    // (auto Outro cues sit 0–10 s from the end; transitions are 8–16 bars).
+                    shouldStart = current.AudioFile.CurrentTime.TotalSeconds >= LatestMixStart(
+                        sourceTrigger, current.AudioFile.TotalTime.TotalSeconds, effectiveCrossfadeSeconds);
                 }
                 else
                 {
@@ -371,15 +389,34 @@ namespace SLSKDONET.Services
             CrossfadeProgressChanged?.Invoke(this, t);
 
             if (t >= 1.0)
+                CompleteCrossfade(current);
+        }
+
+        /// <summary>Ends the crossfade: incoming deck at full level with its EQ reset, then promoted.</summary>
+        private void CompleteCrossfade(Deck current)
+        {
+            _isCrossfading = false;
+            _crossfadeElapsedSeconds = 0;
+            _crossfadeProgress = 0;
+            if (current.Eq != null) current.Eq.Active = false;
+            if (_next != null)
             {
-                _isCrossfading = false;
-                _crossfadeElapsedSeconds = 0;
-                _crossfadeProgress = 0;
-                if (current.Eq != null) current.Eq.Active = false;
                 if (_next.Eq != null) { _next.Eq.Active = false; _next.Eq.LowGain = _next.Eq.MidGain = _next.Eq.HighGain = 1f; }
-                if (_current != null) PromoteNextDeck(_current);
-                CrossfadeEnded?.Invoke(this, EventArgs.Empty);
+                if (_next.Gain != null) _next.Gain.Volume = _masterVolumeFraction * _next.LoudnessGain;
             }
+            if (_current != null) PromoteNextDeck(_current);
+            CrossfadeEnded?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// When the crossfade out of a track must begin: at the mix-out point, but no later than
+        /// "track end minus transition length" so the whole transition fits. Public for tests.
+        /// </summary>
+        public static double LatestMixStart(double mixOutSeconds, double trackSeconds, double transitionSeconds)
+        {
+            if (trackSeconds <= 0 || transitionSeconds <= 0) return mixOutSeconds;
+            var latest = Math.Max(0, trackSeconds - transitionSeconds);
+            return Math.Min(mixOutSeconds, latest);
         }
 
         public bool IsInitialized => _isInitialized;
@@ -390,7 +427,9 @@ namespace SLSKDONET.Services
 
         public float Position
         {
-            get => (float)(_current?.AudioFile != null ? _current.AudioFile.Position / (double)_current.AudioFile.Length : 0);
+            // Clamped: Media Foundation rounds FLAC lengths down to the second, so the raw ratio
+            // can run a little past 1 at the very end of a track.
+            get => (float)(_current?.AudioFile is { Length: > 0 } file ? Math.Clamp(file.Position / (double)file.Length, 0, 1) : 0);
             set
             {
                 var deck = _current;
