@@ -2,6 +2,63 @@
 
 ---
 
+## [0.9.1-alpha] — 2026-09-29
+
+### 🎚️ Mixes planned from the music's structure
+Auto transitions used to start at a single "Outro" cue. Auto-analysis places that cue 0–21 s before the end, which leaves no room for an 8–16-bar blend.
+- **Intro and outro sections (Mixxx style):**
+  - The intro runs from the first downbeat to Drop 1.
+  - The outro starts 32 bars after the last drop and ends at the last audible second.
+  - A transition fits inside both sections.
+- **Whole phrases:** every transition is 8, 16 or 32 bars and starts on a bar line.
+- **Three DnB transition types**, chosen from energy, key compatibility and tempo:
+  - **Rolling:** the incoming drop lands exactly as the outgoing track's main section ends.
+  - **Drop Sync:** both drops land together.
+  - **Relaxed:** outro into intro.
+  - Rolling and Drop Sync swap the bassline in one step, on the drop.
+- **Vocal clashes avoided:** when two vocals would overlap, the planner picks another transition type.
+- **Tempo matching:** the incoming track is sped up or slowed to the outgoing track's tempo, up to 6%. Half-time and double-time readings count as the same tempo.
+- **Tighter mix start:** the start of the mix no longer drifts up to 50 ms late.
+- **Mix editor:** it shows the same plan real playback uses. Choosing Rolling, Relaxed or Drop Sync moves the mix points to where that transition belongs, and 32 bars is a new length option.
+
+### 🤖 CUE-DETR cue detection, to compare for yourself
+- CUE-DETR (ETH DISCO, MIT licence) now runs inside ORBIT. It is a vision model that looks at a spectrogram and marks where a DJ would put cues.
+- The port is checked against the original Python code and produces identical cues on a real track. The model adds about 167 MB to the installer.
+- **Regenerate Cues** is now a submenu, in the library's right-click menu and in the Flow Builder cue strip:
+  - **ORBIT analysis:** ORBIT's normal cues.
+  - **ORBIT + CUE-DETR (compare):** ORBIT's cues, with **✓AI** added where the model agrees. The model's other points are added as cyan **AI** cues.
+  - **CUE-DETR only:** just the model's points.
+- It takes about 10–13 s per track the first time. Results are saved, so switching modes afterwards is instant.
+- Measured on 68 tracks of hand-placed DJ cues:
+  - ORBIT's own cues beat CUE-DETR on its own: 30% vs 23% within a bar. Snapping the model's points to the bar or phrase grid doesn't help.
+  - When the two agree, the cue matched a DJ cue 52% of the time, against 23% for the rest. The compare mode shows exactly that.
+
+### ◆ Simpler drops in the Flow Builder
+- **◆ Drop here** in the transition editor's cue strip: click the waveform on the drop, then click this. It places the Drop and its countdown cues in one step.
+- **Your drop clears the auto cues:** when you set a drop yourself, or move an auto-detected one, the other auto-generated cues are cleared so the waveform stays readable. This works in Cue Forge too, and undo brings them back.
+- **Mix points follow:** after you save or regenerate a deck's cues, the transition is re-planned from them.
+
+### 🏷️ Serato cue tags
+- **Write Cues to Serato Tags** in the library's right-click menu. It writes your cues into the audio file as Serato Markers2, the tag Serato DJ and Mixxx read. This works for MP3, FLAC, AIFF, WAV, Ogg and Opus.
+  - **Keep Serato's** adds ORBIT's cues in free slots and leaves cues you set in Serato alone.
+  - **Replace** swaps them out, after a confirmation.
+  - Track colour, BPM lock and flips are always kept.
+- Serato's cue import could never read real Serato cues (it assumed a different binary layout). It now uses the same parser as the export.
+
+### 🔊 Playback fixes
+- **Volume:** it jumped to 100% at each track change. ORBIT was setting the Windows master volume of the output device; it now only changes its own level.
+- **Output device:** choosing a device in Settings now works, and switches live. If a device is unavailable, ORBIT falls back to the Windows default.
+- **Tracks Windows can't decode:** about 3.5% of one test library, some FLAC/Opus/Ogg files, showed no waveform or simply stopped. They are now decoded once with ffmpeg and cached.
+- **Mix queues:**
+  - A mix no longer stops when it reaches a missing file; missing files are skipped.
+  - Transitions are set up for tracks further down the list, not just the first 50.
+  - A track that ended mid-crossfade no longer stalls the next one.
+
+### 🛠 Other
+- AI cue labels always use a dot for decimals (for example "AI 0.93"), because labels go into Rekordbox and Serato exports.
+- Fixed a random test failure. A test left ReactiveUI pointing at a scheduler it had disposed, and later tests tripped over it depending on run order.
+- **Cue benchmark:** `Tests/CueBenchmark --cue-detr <cache.json>` scores CUE-DETR against the reference cues.
+
 ## [0.9.0-alpha] — 2026-09-29
 
 ### 🎯 Beat grids that match the music
