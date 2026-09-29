@@ -102,6 +102,9 @@ public class EqBandSwapConfig
 {
     /// <summary>Whether to swap the Low band (bass).</summary>
     public bool SwapLow { get; set; } = true;
+
+    /// <summary>Swap the Low band in one step at the midpoint (bass swap on the drop).</summary>
+    public bool HardLowSwap { get; set; }
     
     /// <summary>Whether to swap the Mid band.</summary>
     public bool SwapMid { get; set; } = false;
@@ -194,7 +197,7 @@ public class TransitionEngine
         return region.Type switch
         {
             TransitionType.Crossfade => CalculateCrossfade(curved),
-            TransitionType.EqSwap => CalculateEqSwap(curved, region.EqConfig),
+            TransitionType.EqSwap => CalculateEqSwap(curved, region.EqConfig, progress),
             TransitionType.Cut => CalculateCut(progress),
             TransitionType.FilterSweep => CalculateFilterSweep(curved),
             TransitionType.EchoOut => CalculateEchoOut(progress, region.EchoDecayFactor, region.EchoRepeatCount),
@@ -259,7 +262,7 @@ public class TransitionEngine
         };
     }
 
-    private TransitionAutomation CalculateEqSwap(double progress, EqBandSwapConfig config)
+    private TransitionAutomation CalculateEqSwap(double progress, EqBandSwapConfig config, double timeProgress)
     {
         // EQ Swap: The key DJ technique
         // As progress increases, we fade OUT the bass on track A and fade IN the bass on track B
@@ -273,6 +276,13 @@ public class TransitionEngine
 
         float outLow = config.SwapLow ? (float)(1.0 - progress) : 1.0f;
         float inLow = config.SwapLow ? (float)progress : 1.0f;
+        if (config.SwapLow && config.HardLowSwap)
+        {
+            // DJ bass swap: only one bassline at a time, switched exactly on the drop — the
+            // window's midpoint in TIME, whatever the gain curve does.
+            outLow = timeProgress < 0.5 ? 1f : 0f;
+            inLow = timeProgress < 0.5 ? 0f : 1f;
+        }
 
         float outMid = config.SwapMid ? (float)(1.0 - progress) : 1.0f;
         float inMid = config.SwapMid ? (float)progress : 1.0f;

@@ -89,6 +89,11 @@ public class TransitionModel
     /// <summary>Mid/high crossover frequency (Hz).</summary>
     public float EqHighCrossoverHz { get; set; } = 4000f;
 
+    /// <summary>When set, the Low band swaps in one step at the window's midpoint (a DJ bass swap
+    /// on the drop) instead of a gradual swap across the window. Used by the Rolling and Drop Sync
+    /// transitions, whose midpoint is the incoming track's drop.</summary>
+    public bool EqHardLowSwap { get; set; }
+
     // ── DoubleDrop loop config ──────────────────────────────────────────
 
     /// <summary>Bar length of the looped tail for <see cref="TransitionType.DoubleDrop"/> — 8 or

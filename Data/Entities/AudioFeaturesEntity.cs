@@ -591,6 +591,13 @@ public class AudioFeaturesEntity
     /// </summary>
     public string? CuePointsJson { get; set; }
 
+    /// <summary>
+    /// CUE-DETR's cue points for this track, cached because they take ~10 s to compute:
+    /// {"model":"cue-detr|hash","points":[{"t":seconds,"s":score},…]}. Null = never run.
+    /// See Services/AudioAnalysis/CueDetrCueService.
+    /// </summary>
+    public string? CueDetrJson { get; set; }
+
     // ============================================
     // Task 2.1 — Discogs-Effnet 1280-D Embedding
     // ============================================

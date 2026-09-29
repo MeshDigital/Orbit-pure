@@ -169,7 +169,8 @@ public class ConfigManager
                 PlaybackCrossfadeEnabled = bool.TryParse(config["Playback:CrossfadeEnabled"], out var pce) && pce,
                 PlaybackCrossfadeSeconds = double.TryParse(config["Playback:CrossfadeSeconds"], out var pcs) ? pcs : 3.0,
                 PlaybackPitch = double.TryParse(config["Playback:Pitch"], out var pp) ? pp : 1.0,
-                AudioOutputMode = config["Playback:AudioOutputMode"] ?? "WasapiShared",
+                // WasapiExclusive is no longer offered (it locked the device and broke mixing) — heal it to Shared.
+                AudioOutputMode = config["Playback:AudioOutputMode"] is { Length: > 0 } outMode && outMode != "WasapiExclusive" ? outMode : "WasapiShared",
                 AudioOutputDeviceName = string.IsNullOrEmpty(config["Playback:AudioOutputDeviceName"]) ? null : config["Playback:AudioOutputDeviceName"],
                 LoudnessNormalizationEnabled = bool.TryParse(config["Playback:LoudnessNormalizationEnabled"], out var lne) && lne,
                 LoudnessNormalizationTargetLufs = double.TryParse(config["Playback:LoudnessNormalizationTargetLufs"], out var lntl) ? lntl : -14.0,

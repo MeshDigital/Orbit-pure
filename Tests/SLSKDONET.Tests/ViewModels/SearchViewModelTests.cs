@@ -32,6 +32,15 @@ public class SearchViewModelTests
     /// AnalysisPageViewModel/WorkstationDeck/DownloadCenter failures). Declare it after the scheduler
     /// so it restores before the scheduler is disposed.
     /// </summary>
+    /// <summary>
+    /// A background-thread event loop that is deliberately never disposed. In unit-test mode
+    /// ReactiveUI can keep the first MainThreadScheduler it was given as its permanent fallback,
+    /// so a disposed one resurfaced in later tests (ObjectDisposedException in WorkstationDeck /
+    /// AnalysisPage tests, depending on test order). An idle background thread costs nothing.
+    /// </summary>
+    private static EventLoopScheduler UndisposedEventLoop() =>
+        new(start => new System.Threading.Thread(start) { IsBackground = true, Name = "SearchVmTest loop" });
+
     private static IDisposable UseMainThreadScheduler(IScheduler scheduler)
     {
         var previous = RxApp.MainThreadScheduler;
@@ -42,7 +51,7 @@ public class SearchViewModelTests
     [Fact]
     public async Task ExecuteUnifiedSearchAsync_CancelSearch_ShouldStopListeningWithoutAddingFurtherResults()
     {
-        using var scheduler = new EventLoopScheduler();
+        var scheduler = UndisposedEventLoop();
         using var _ = UseMainThreadScheduler(scheduler);
 
         var vm = CreateViewModel((_, token) => InfiniteTrackStream(token));
@@ -66,7 +75,7 @@ public class SearchViewModelTests
     [Fact]
     public async Task ExecuteUnifiedSearchAsync_ShouldBatchUiUpdates_AndReportIdleTelemetryAfterCompletion()
     {
-        using var scheduler = new EventLoopScheduler();
+        var scheduler = UndisposedEventLoop();
         using var _ = UseMainThreadScheduler(scheduler);
 
         var tracks = new[]
@@ -97,7 +106,7 @@ public class SearchViewModelTests
     [Fact]
     public async Task AddToPlaylistCommand_PublishesSelectedResultsToProjectFlow()
     {
-        using var scheduler = new EventLoopScheduler();
+        var scheduler = UndisposedEventLoop();
         using var _ = UseMainThreadScheduler(scheduler);
 
         var (vm, eventBus) = CreateViewModelWithBus((_, token) => FiniteTrackStream(Array.Empty<Track>(), token));

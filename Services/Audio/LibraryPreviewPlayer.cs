@@ -59,9 +59,12 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
     public event EventHandler<float[]>? SpectrumChanged;
     public event EventHandler? PreviewStopped;
 
-    public LibraryPreviewPlayer(ILogger<LibraryPreviewPlayer> logger)
+    private readonly SLSKDONET.Configuration.AppConfig? _config;
+
+    public LibraryPreviewPlayer(ILogger<LibraryPreviewPlayer> logger, SLSKDONET.Configuration.AppConfig? config = null)
     {
         _logger = logger;
+        _config = config;
     }
 
     /// <param name="startSeconds">0 = hover-preview default (plays from the top, debounced so it
@@ -122,13 +125,13 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
 
             ct.ThrowIfCancellationRequested();
 
-            _reader = new AudioFileReader(filePath);
+            _reader = PlayableAudio.Open(filePath, out var playablePath);
             if (startSeconds > 0)
             {
                 var safeStart = Math.Clamp(startSeconds, 0, Math.Max(0, _reader.TotalTime.TotalSeconds - 0.25));
                 // Not CurrentTime: on FLAC/M4A (Media Foundation) a seek before the first read is
                 // dropped and playback started at 0:00 — see ExactSeek. Runs on this background task.
-                ExactSeek.Seek(_reader, filePath, safeStart);
+                ExactSeek.Seek(_reader, playablePath, safeStart);
                 ct.ThrowIfCancellationRequested();
             }
             _volumeProvider = new VolumeSampleProvider(_reader) { Volume = 1f };
@@ -136,8 +139,7 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
             var fftProvider = new PreviewFftSampleProvider(_volumeProvider, FftSize, magnitudes =>
                 SpectrumChanged?.Invoke(this, magnitudes));
 
-            _output = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
-            _output.Init(fftProvider);
+            _output = OpenOutput(fftProvider);
             _output.PlaybackStopped += OnPlaybackStopped;
             _output.Play();
 
@@ -147,6 +149,26 @@ public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>The Settings output device (shared mode); the Windows default if that can't be opened.</summary>
+    private IWavePlayer OpenOutput(ISampleProvider source)
+    {
+        IWavePlayer? output = null;
+        try
+        {
+            output = AudioOutputProvider.CreatePreviewDevice(_config?.AudioOutputMode, _config?.AudioOutputDeviceName);
+            output.Init(source);
+            return output;
+        }
+        catch (Exception ex)
+        {
+            output?.Dispose();
+            _logger.LogWarning(ex, "[LibraryPreview] Could not open output device {Device}; using the Windows default", _config?.AudioOutputDeviceName ?? "(default)");
+            var fallback = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
+            fallback.Init(source);
+            return fallback;
         }
     }
 

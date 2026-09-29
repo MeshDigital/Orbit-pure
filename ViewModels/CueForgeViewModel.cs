@@ -659,9 +659,10 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         // appeared for a waveform-dragged edit, even though the edit was real.
         CueUpdatedCommand = ReactiveCommand.Create<OrbitCue>(cue =>
         {
-            if (cue.Source == CueSource.Auto) cue.Source = CueSource.User;
+            bool wasAuto = cue.Source == CueSource.Auto;
+            if (wasAuto) cue.Source = CueSource.User;
             HasUncommittedChanges = true;
-            ApplyDropCountdowns(cue, null);
+            ApplyDropCountdowns(cue, null, userSetDrop: wasAuto);
         });
         SetSelectedCueRoleCommand  = ReactiveCommand.Create<CueRole>(SetSelectedCueRole, canAct);
         SetSelectedCueColorCommand = ReactiveCommand.Create<string>(SetSelectedCueColor, canAct);
@@ -1360,8 +1361,9 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         PushSnapshot();
         var cue = SelectedCue;
         cue.Timestamp = Math.Clamp(cue.Timestamp + delta, 0, TrackDuration);
+        bool wasAuto = cue.Source == CueSource.Auto;
         cue.Source = CueSource.User;
-        ApplyDropCountdowns(cue, null);
+        ApplyDropCountdowns(cue, null, userSetDrop: wasAuto);
         HasUncommittedChanges = true;
         RefreshHotCuePads();
         PlayFromCue(cue);
@@ -1398,10 +1400,19 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         }
     }
 
-    /// <summary>Rebuilds <paramref name="cue"/>'s countdown cues in the working set when it's a Drop.</summary>
-    private void ApplyDropCountdowns(OrbitCue cue, string? previousName)
+    /// <summary>Rebuilds <paramref name="cue"/>'s countdown cues in the working set when it's a Drop.
+    /// <paramref name="userSetDrop"/>: the DJ just made or corrected this drop, so the other auto
+    /// cues are cleared to keep the waveform readable (Ctrl+Z restores them).</summary>
+    private void ApplyDropCountdowns(OrbitCue cue, string? previousName, bool userSetDrop = false)
     {
         if (cue.Role != CueRole.Drop) return;
+        if (userSetDrop)
+        {
+            int before = WorkingCues.Count;
+            ReplaceWorkingCues(Engine.Cueing.DropCountdownCues.WithoutAutoCues(WorkingCues, cue));
+            int removed = before - WorkingCues.Count;
+            if (removed > 0) LastCommitMessage = $"{removed} auto cue{(removed == 1 ? "" : "s")} cleared around your drop — Ctrl+Z to undo";
+        }
         double bpm = _preciseBpm > 0 ? _preciseBpm : Bpm;
         var bars = Engine.Cueing.DropCountdownCues.ResolveBars(DropCountdownMode, _genre, bpm);
         if (bars.Count == 0) return;
@@ -1424,11 +1435,12 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         PushSnapshot();
         var cue = SelectedCue;
         var previousRole = cue.Role;
+        bool wasAuto = cue.Source == CueSource.Auto;
         cue.Role = role;
         MarkSelectedCueEdited();
         if (previousRole == CueRole.Drop && role != CueRole.Drop)
             ReplaceWorkingCues(Engine.Cueing.DropCountdownCues.RemoveFor(WorkingCues, cue.Name));
-        ApplyDropCountdowns(cue, null);
+        ApplyDropCountdowns(cue, null, userSetDrop: previousRole != CueRole.Drop || wasAuto);
     }
 
     private void SetSelectedCueColor(string hexColor)

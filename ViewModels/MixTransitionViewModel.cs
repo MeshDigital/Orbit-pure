@@ -87,6 +87,13 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         OutgoingEditor.CueMoved += (_, m) => { if (Math.Abs(SourceTriggerSeconds - m.From) < 0.01) SourceTriggerSeconds = m.To; };
         IncomingEditor.CueMoved += (_, m) => { if (Math.Abs(TargetTriggerSeconds - m.From) < 0.01) TargetTriggerSeconds = m.To; };
 
+        // Generate cues from the deck strips — the same service as the library's "Regenerate Cues".
+        foreach (var editor in new[] { OutgoingEditor, IncomingEditor })
+        {
+            editor.CueGenerator = GenerateCuesForDeckAsync;
+            editor.CuesChanged += async (_, _) => await ReplanFromCuesAsync();
+        }
+
         // Drop countdown setting — one app-wide choice, shared by both decks and Cue Forge.
         var configManager = (SLSKDONET.Configuration.ConfigManager?)serviceProvider.GetService(typeof(SLSKDONET.Configuration.ConfigManager));
         var mode = configManager?.GetCurrent().DropCountdownMode ?? SLSKDONET.Engine.Cueing.DropCountdownCues.Auto;
@@ -352,7 +359,11 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
     public double PhaseConfidenceWidth => 140.0 * ((_pairScore?.CombinedScore ?? 0) / 100.0);
 
     public static IReadOnlyList<string> PresetNames { get; } = TransitionPresetLibrary.PresetNames;
-    public static IReadOnlyList<int> DurationBarOptions { get; } = new[] { 4, 8, 16 };
+    public static IReadOnlyList<int> DurationBarOptions { get; } = new[] { 4, 8, 16, 32 };
+
+    // Structure of both decks (sections, drops, vocals), for the planned presets. Null until
+    // loaded or when a track isn't analysed — then those presets fall back to the old suggestion.
+    private SLSKDONET.Engine.Transitions.TrackStructure? _outStructure, _inStructure;
 
     private string _selectedPreset = "Auto";
     public string SelectedPreset
@@ -362,6 +373,9 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         {
             this.RaiseAndSetIfChanged(ref _selectedPreset, value);
             this.RaisePropertyChanged(nameof(IsCustomMode));
+            // Auto / Rolling / Relaxed / Drop Sync are timed from the track structure: picking one
+            // moves the mix-out/mix-in points and length to where that transition belongs.
+            if (TransitionPresetLibrary.IsStructurePlanned(value) && ApplyStructurePlan(value)) return;
             RebuildLiveModel();
         }
     }
@@ -690,13 +704,27 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         _nudgeSeconds = 0;
         this.RaisePropertyChanged(nameof(NudgeSeconds));
 
+        _outStructure = _inStructure = null;
+        if (_serviceProvider.GetService(typeof(SLSKDONET.Services.Transitions.TransitionPlanService)) is SLSKDONET.Services.Transitions.TransitionPlanService planService)
+        {
+            try
+            {
+                _outStructure = await planService.LoadStructureAsync(outgoing.TrackUniqueHash);
+                _inStructure = await planService.LoadStructureAsync(incoming.TrackUniqueHash);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "No structure for {Outgoing}->{Incoming}; planned presets use the cue suggestion", outgoing.TrackUniqueHash, incoming.TrackUniqueHash);
+            }
+        }
+
         if (saved?.SourceTriggerSeconds is double savedSource && saved.TargetTriggerSeconds is double savedTarget)
         {
             SourceTriggerSeconds = savedSource;
             TargetTriggerSeconds = savedTarget;
             TransitionPointReasoning = "Using your saved mix-out/mix-in points.";
         }
-        else
+        else if (!ApplyStructurePlan("Auto"))
         {
             await SuggestTransitionPointsAsync(outgoing.TrackUniqueHash, incoming.TrackUniqueHash, outgoing.Duration, sourceCues, targetCues);
         }
@@ -764,6 +792,78 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         }
     }
 
+    private async Task<(bool Ok, string Message)> GenerateCuesForDeckAsync(string hash, string? filePath, SLSKDONET.Engine.Analysis.CueDetr.CueSourceMode mode)
+    {
+        if (_serviceProvider.GetService(typeof(SLSKDONET.Services.AudioAnalysis.CueDetrCueService)) is not SLSKDONET.Services.AudioAnalysis.CueDetrCueService service)
+            return (false, "Cue generation isn't available");
+        var r = await Task.Run(() => service.RegenerateAsync(hash, filePath, mode));
+        if (!r.Success) return (false, $"✗ {r.Error}");
+        return (true, mode switch
+        {
+            SLSKDONET.Engine.Analysis.CueDetr.CueSourceMode.Compare => $"✓ {r.CueCount} cues · {r.Agreed} confirmed by CUE-DETR (✓AI), its other points in cyan",
+            SLSKDONET.Engine.Analysis.CueDetr.CueSourceMode.AiOnly => $"✓ {r.CueCount} CUE-DETR cues (cyan)",
+            _ => $"✓ Generated {r.CueCount} cues",
+        });
+    }
+
+    /// <summary>After a deck's cues were regenerated or saved: reload both structures and, when the
+    /// preset is timed from structure, move the mix points to match (e.g. to a Drop you just set).</summary>
+    private async Task ReplanFromCuesAsync()
+    {
+        string? outHash = OutgoingEditor.TrackHash, inHash = IncomingEditor.TrackHash;
+        if (outHash == null || inHash == null) return;
+        if (_serviceProvider.GetService(typeof(SLSKDONET.Services.Transitions.TransitionPlanService)) is not SLSKDONET.Services.Transitions.TransitionPlanService planService) return;
+        try
+        {
+            var outStructure = await planService.LoadStructureAsync(outHash);
+            var inStructure = await planService.LoadStructureAsync(inHash);
+            // Another transition was opened meanwhile — don't apply this pair's plan to it.
+            if (OutgoingEditor.TrackHash != outHash || IncomingEditor.TrackHash != inHash) return;
+            _outStructure = outStructure;
+            _inStructure = inStructure;
+            if (TransitionPresetLibrary.IsStructurePlanned(SelectedPreset) && ApplyStructurePlan(SelectedPreset))
+                TransitionPointReasoning = "Re-planned from the updated cues · " + TransitionPointReasoning;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Re-planning after a cue change failed");
+        }
+    }
+
+    /// <summary>
+    /// Times the transition from both tracks' structure (TransitionPlanner) — the same plan real
+    /// playback uses for an unsaved pair, so what the editor shows is what will play. "Auto" lets
+    /// the planner choose and then shows its choice as the selected preset. False when either
+    /// track lacks analysis or the chosen type doesn't fit these tracks.
+    /// </summary>
+    private bool ApplyStructurePlan(string presetName)
+    {
+        if (_outStructure == null || _inStructure == null) return false;
+        var kind = SLSKDONET.Engine.Transitions.TransitionPlanner.KindFromPresetName(presetName);
+        var plan = kind is { } k
+            ? SLSKDONET.Engine.Transitions.TransitionPlanner.PlanKind(_outStructure, _inStructure, k)
+            : SLSKDONET.Engine.Transitions.TransitionPlanner.Plan(_outStructure, _inStructure, _pairScore?.CombinedScore ?? 50);
+        if (plan == null)
+        {
+            TransitionPointReasoning = $"{presetName} doesn't fit these tracks (needs a drop with enough build-up before it).";
+            return false;
+        }
+
+        _nudgeSeconds = 0;
+        this.RaisePropertyChanged(nameof(NudgeSeconds));
+        SourceTriggerSeconds = plan.SourceTriggerSeconds;
+        TargetTriggerSeconds = plan.TargetTriggerSeconds;
+        _durationBars = plan.DurationBars;
+        this.RaisePropertyChanged(nameof(DurationBars));
+        _selectedPreset = plan.PresetName;
+        this.RaisePropertyChanged(nameof(SelectedPreset));
+        this.RaisePropertyChanged(nameof(IsCustomMode));
+        TransitionPointReasoning = (kind == null ? "Auto picked " : "") + plan.Reason
+            + (plan.VocalClash && !plan.Reason.Contains("vocals") ? " · vocals overlap" : "");
+        RebuildLiveModel();
+        return true;
+    }
+
     /// <summary>Loads a deck's cue editor, snapping on the track's analysed grid (BPM and downbeat,
     /// the same grid auto cues are placed on), falling back to the displayed BPM.</summary>
     private async Task LoadEditorAsync(TrackCueEditorViewModel editor, PlaylistTrack track, PlaylistTrackViewModel vm, List<CuePointEntity> cues)
@@ -825,6 +925,7 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
                 SwapHigh = LiveModel.EqSwapHigh,
                 LowCrossover = LiveModel.EqLowCrossoverHz,
                 HighCrossover = LiveModel.EqHighCrossoverHz,
+                HardLowSwap = LiveModel.EqHardLowSwap,
             },
         };
         engine.AddTransition(region);

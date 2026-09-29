@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>ORBIT</AssemblyName>
     <RootNamespace>SLSKDONET</RootNamespace>
-    <Version>0.9.0-alpha</Version>
+    <Version>0.9.1-alpha</Version>
     <Authors>SLSK_CSV Contributors</Authors>
     <Description>Soulseek batch downloader using Soulseek.NET - Cross-platform with Avalonia UI</Description>
     <!-- Embeds the icon into the compiled exe itself (Explorer, Alt-Tab, and the taskbar's
@@ -170,6 +170,7 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Remove="Tools\**\*.cs" />
+    <Content Remove="Tools\cue-detr\**" /><!-- dev scripts that produced models\cue-detr.onnx -->
     <Content Remove="Data\**\*.cs" />
   </ItemGroup>
 

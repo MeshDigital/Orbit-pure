@@ -203,6 +203,13 @@ public class VirtualizedTrackCollection : IList<PlaylistTrackViewModel>, IList, 
     public int Count => _count;
     public bool IsReadOnly => true;
 
+    /// <summary>The row at <paramref name="index"/> if its page is already loaded — never triggers a load.</summary>
+    public bool TryGetLoaded(int index, out PlaylistTrackViewModel? item)
+    {
+        item = index >= 0 && index < _loadedItems.Count ? _loadedItems[index] : null;
+        return item != null && !ReferenceEquals(item, PlaylistTrackViewModel.Placeholder);
+    }
+
     public IEnumerable<PlaylistTrackViewModel> GetSubset(int count)
     {
         for (int i = 0; i < Math.Min(count, Count); i++)

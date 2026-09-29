@@ -250,8 +250,10 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    /// <summary>WaveOut / WasapiShared / WasapiExclusive / Asio — matches <see cref="SLSKDONET.Services.Audio.AudioOutputMode"/>'s member names.</summary>
-    public static string[] AvailableAudioOutputModes { get; } = { "WaveOut", "WasapiShared", "WasapiExclusive", "Asio" };
+    /// <summary>Matches <see cref="SLSKDONET.Services.Audio.AudioOutputMode"/>'s member names. No
+    /// WasapiExclusive: an exclusive stream locks the device, and ORBIT always plays several
+    /// streams at once (two decks per crossfade, plus previews) — it broke every mix.</summary>
+    public static string[] AvailableAudioOutputModes { get; } = { "WasapiShared", "WaveOut", "Asio" };
 
     public string AudioOutputMode
     {
@@ -264,6 +266,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 OnPropertyChanged();
                 SaveSettings();
                 RefreshAvailableAudioOutputDevices();
+                ApplyOutputDeviceNow();
             }
         }
     }
@@ -278,6 +281,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 _config.AudioOutputDeviceName = string.IsNullOrWhiteSpace(value) ? null : value;
                 OnPropertyChanged();
                 SaveSettings();
+                ApplyOutputDeviceNow();
             }
         }
     }
@@ -286,6 +290,14 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ObservableCollection<string> AvailableAudioOutputDevices { get; } = new();
 
     public ICommand RefreshAudioDevicesCommand => new RelayCommand(RefreshAvailableAudioOutputDevices);
+
+    /// <summary>Switches what is playing right now onto the newly chosen device (off the UI thread — stopping a WASAPI output blocks briefly).</summary>
+    private static void ApplyOutputDeviceNow()
+    {
+        if (Avalonia.Application.Current is not SLSKDONET.App app || app.Services == null) return;
+        if (app.Services.GetService(typeof(SLSKDONET.Services.IAudioPlayerService)) is SLSKDONET.Services.IAudioPlayerService player)
+            System.Threading.Tasks.Task.Run(player.ApplyOutputSettings);
+    }
 
     public void RefreshAvailableAudioOutputDevices()
     {

@@ -750,7 +750,7 @@ namespace SLSKDONET.ViewModels
         // Phase 5C: UI Throttling
         private DateTime _lastTimeUpdate = DateTime.MinValue;
 
-        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null, AppConfig? config = null, ConfigManager? configManager = null, SLSKDONET.Services.Repositories.ITransitionRepository? transitionRepository = null, MixTransitionViewModel? mixTransitionViewModel = null, SLSKDONET.Services.Repositories.ITrackRepository? trackRepository = null, ICuePointService? cuePointService = null, IDialogService? dialogService = null, SLSKDONET.Services.AnalysisQueueService? analysisQueueService = null, SLSKDONET.Services.Audio.ILibraryPreviewPlayer? libraryPreviewPlayer = null, SLSKDONET.Services.Audio.ITransitionPreviewPlayer? transitionPreviewPlayer = null)
+        public PlayerViewModel(IAudioPlayerService playerService, DatabaseService databaseService, IEventBus eventBus, ArtworkCacheService artworkCacheService, INavigationService navigationService, IRightPanelService rightPanelService, IAmbientModeService? ambientModeService = null, IFlowModeService? flowModeService = null, AppConfig? config = null, ConfigManager? configManager = null, SLSKDONET.Services.Repositories.ITransitionRepository? transitionRepository = null, MixTransitionViewModel? mixTransitionViewModel = null, SLSKDONET.Services.Repositories.ITrackRepository? trackRepository = null, ICuePointService? cuePointService = null, IDialogService? dialogService = null, SLSKDONET.Services.AnalysisQueueService? analysisQueueService = null, SLSKDONET.Services.Audio.ILibraryPreviewPlayer? libraryPreviewPlayer = null, SLSKDONET.Services.Audio.ITransitionPreviewPlayer? transitionPreviewPlayer = null, SLSKDONET.Services.Transitions.TransitionPlanService? transitionPlanService = null)
         {
             _playerService = playerService;
             _databaseService = databaseService;
@@ -766,6 +766,7 @@ namespace SLSKDONET.ViewModels
             MixTransitionVm = mixTransitionViewModel;
             _trackRepository = trackRepository;
             _cuePointService = cuePointService;
+            _transitionPlanService = transitionPlanService;
             _dialogService = dialogService;
             _analysisQueueService = analysisQueueService;
             _libraryPreviewPlayer = libraryPreviewPlayer;
@@ -1827,24 +1828,50 @@ namespace SLSKDONET.ViewModels
             else if (IsShuffling)
             {
                 nextIndex = GetRandomTrackIndex();
+                for (int attempt = 0; attempt < 10 && !IsPlayableQueueItem(nextIndex); attempt++)
+                    nextIndex = GetRandomTrackIndex();
             }
             else
             {
-                nextIndex = CurrentQueueIndex + 1;
-                if (nextIndex >= Queue.Count)
+                // Skip tracks whose file is gone — one missing file used to end playback there.
+                if (NextPlayableIndex(CurrentQueueIndex + 1, wrap: RepeatMode == RepeatMode.All) is not int found)
+                    return; // End of queue
+                nextIndex = found;
+            }
+
+            PlayTrackAtIndex(nextIndex);
+        }
+
+        /// <summary>The queue row has a file on disk that can be played.</summary>
+        private bool IsPlayableQueueItem(int index) =>
+            index >= 0 && index < Queue.Count
+            && Queue[index].Model?.ResolvedFilePath is { Length: > 0 } path
+            && System.IO.File.Exists(path);
+
+        /// <summary>
+        /// First playable queue index at or after <paramref name="from"/> (wrapping around once when
+        /// <paramref name="wrap"/>), or null. Queues are built from every track with a recorded
+        /// path, and files do go missing — skipping them keeps a playlist (and its mixes) going.
+        /// </summary>
+        private int? NextPlayableIndex(int from, bool wrap)
+        {
+            int count = Queue.Count;
+            for (int step = 0; step < count; step++)
+            {
+                int i = from + step;
+                if (i >= count)
                 {
-                    if (RepeatMode == RepeatMode.All)
-                    {
-                        nextIndex = 0;
-                    }
-                    else
-                    {
-                        return; // End of queue
-                    }
+                    if (!wrap) return null;
+                    i -= count;
+                }
+                if (IsPlayableQueueItem(i))
+                {
+                    if (step > 0)
+                        Serilog.Log.Information("[Player] Skipping {Count} queued track(s) with no playable file", step);
+                    return i;
                 }
             }
-            
-            PlayTrackAtIndex(nextIndex);
+            return null;
         }
         
         private void PlayPreviousTrack()
@@ -1876,18 +1903,40 @@ namespace SLSKDONET.ViewModels
         
         private void PlayTrackAtIndex(int index)
         {
-            if (index < 0 || index >= Queue.Count) return;
-
-            var track = Queue[index];
-            SetNowPlayingState(index, track);
-
-            var filePath = track.Model?.ResolvedFilePath;
-            if (!string.IsNullOrEmpty(filePath))
+            // A queued track that is missing or fails to open is skipped rather than ending
+            // playback there. Bounded to one pass over the queue so a queue of nothing but broken
+            // files can't loop forever.
+            for (int attempts = 0; attempts < Math.Max(1, Queue.Count); attempts++)
             {
-                PlayTrack(filePath, track.Title ?? "Unknown", track.Artist ?? "Unknown", track.Model?.Loudness);
-            }
+                if (index < 0 || index >= Queue.Count) return;
 
-            SchedulePreloadNext();
+                var track = Queue[index];
+                SetNowPlayingState(index, track);
+
+                var filePath = track.Model?.ResolvedFilePath;
+                bool loaded = false;
+                if (!string.IsNullOrEmpty(filePath) && System.IO.File.Exists(filePath))
+                {
+                    loaded = LoadTrackCore(filePath, track.Title ?? "Unknown", track.Artist ?? "Unknown", autoPlay: true, track.Model?.Loudness);
+                }
+                else
+                {
+                    Serilog.Log.Warning("[Player] Queued track has no file on disk, skipping: {Artist} - {Title} ({Path})", track.Artist, track.Title, filePath);
+                }
+
+                if (loaded)
+                {
+                    SchedulePreloadNext();
+                    return;
+                }
+
+                if (IsShuffling || RepeatMode == RepeatMode.One ||
+                    NextPlayableIndex(index + 1, wrap: RepeatMode == RepeatMode.All) is not int next || next == index)
+                {
+                    return;
+                }
+                index = next;
+            }
         }
 
         /// <summary>
@@ -1959,6 +2008,8 @@ namespace SLSKDONET.ViewModels
             _preloadedQueueIndex = null;
         }
 
+        private readonly SLSKDONET.Services.Transitions.TransitionPlanService? _transitionPlanService;
+
         private async Task AttachSavedTransitionAsync(string preloadedPath, PlaylistTrackViewModel? outgoing, PlaylistTrackViewModel incoming)
         {
             if (_transitionRepository == null || outgoing == null)
@@ -1967,7 +2018,32 @@ namespace SLSKDONET.ViewModels
             }
 
             var bpm = incoming.Model?.BPM is > 0 ? incoming.Model.BPM!.Value : 128.0;
+            double? outgoingBpm = outgoing.Model?.BPM is > 0 ? outgoing.Model.BPM : null;
             var saved = await _transitionRepository.GetTransitionAsync(outgoing.Id, incoming.Id).ConfigureAwait(false);
+
+            // Structure-based plan (sections, phrases, DnB transition types, vocal check) — also the
+            // source of exact analysed BPMs, which the engine uses to tempo-match the incoming deck.
+            var score = Services.Playlist.TrackPairCompatibilityScorer.Score(
+                outgoing.CamelotDisplay, incoming.CamelotDisplay, outgoing.Energy, incoming.Energy);
+            (SLSKDONET.Engine.Transitions.TransitionPlan Plan, SLSKDONET.Engine.Transitions.TrackStructure Outgoing, SLSKDONET.Engine.Transitions.TrackStructure Incoming)? planned = null;
+            if (_transitionPlanService != null
+                && outgoing.Model?.TrackUniqueHash is { Length: > 0 } outHash
+                && incoming.Model?.TrackUniqueHash is { Length: > 0 } inHash)
+            {
+                try
+                {
+                    planned = await _transitionPlanService.PlanAsync(outHash, inHash, score.CombinedScore).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Serilog.Log.Warning(ex, "[Mix] Transition planning failed for {Out} -> {In}", outHash, inHash);
+                }
+            }
+            if (planned is { } p)
+            {
+                bpm = p.Incoming.Bpm;
+                outgoingBpm = p.Outgoing.Bpm;
+            }
 
             SLSKDONET.Models.Timeline.TransitionModel model;
             string presetName;
@@ -1992,8 +2068,6 @@ namespace SLSKDONET.ViewModels
                 // way the badge does and materialize the same Auto transition TransitionPresetLibrary
                 // already knows how to build (duration/type chosen from harmonic+energy fit) so
                 // every hop in a playlist actually mixes by default, not just ones saved by hand.
-                var score = Services.Playlist.TrackPairCompatibilityScorer.Score(
-                    outgoing.CamelotDisplay, incoming.CamelotDisplay, outgoing.Energy, incoming.Energy);
                 model = Services.Timeline.TransitionPresetLibrary.Build("Auto", score);
                 presetName = "Auto";
 
@@ -2008,7 +2082,16 @@ namespace SLSKDONET.ViewModels
                 // of a generic duration-based guess.
                 sourceTrigger = null;
                 targetTrigger = null;
-                if (_trackRepository != null && _cuePointService != null)
+                if (planned is { } plan)
+                {
+                    model = Services.Timeline.TransitionPresetLibrary.Build(plan.Plan.PresetName, score, plan.Plan.DurationBars);
+                    presetName = plan.Plan.PresetName;
+                    sourceTrigger = plan.Plan.SourceTriggerSeconds;
+                    targetTrigger = plan.Plan.TargetTriggerSeconds;
+                    Serilog.Log.Information("[Mix] {Out} -> {In}: {Reason} (out {Src:0.0}s, in {Tgt:0.0}s)",
+                        outgoing.Title, incoming.Title, plan.Plan.Reason, sourceTrigger, targetTrigger);
+                }
+                else if (_trackRepository != null && _cuePointService != null)
                 {
                     var outgoingHash = outgoing.Model?.TrackUniqueHash;
                     var incomingHash = incoming.Model?.TrackUniqueHash;
@@ -2047,7 +2130,7 @@ namespace SLSKDONET.ViewModels
             }
 
             Dispatcher.UIThread.Post(() => _playerService.SetPendingTransitionForNext(
-                preloadedPath, model, bpm, sourceTrigger, targetTrigger, presetName));
+                preloadedPath, model, bpm, sourceTrigger, targetTrigger, presetName, outgoingBpm));
         }
 
         private bool _queueTransitionBadgesScheduled;
@@ -2130,13 +2213,7 @@ namespace SLSKDONET.ViewModels
             if (IsShuffling) return null;
             if (RepeatMode == RepeatMode.One) return CurrentQueueIndex;
 
-            var nextIndex = CurrentQueueIndex + 1;
-            if (nextIndex >= Queue.Count)
-            {
-                return RepeatMode == RepeatMode.All ? 0 : null;
-            }
-
-            return nextIndex;
+            return NextPlayableIndex(CurrentQueueIndex + 1, wrap: RepeatMode == RepeatMode.All);
         }
 
         /// <summary>
@@ -2146,10 +2223,20 @@ namespace SLSKDONET.ViewModels
         /// </summary>
         private void OnTrackAdvanced()
         {
-            if (_preloadedQueueIndex is not int index || index < 0 || index >= Queue.Count)
+            // The engine has already moved to its preloaded deck. If the preloaded index got lost
+            // this used to return without updating anything: audio played the next track while
+            // the UI stayed on the old one and nothing more was preloaded — so at that track's end
+            // "next" was computed from the stale position and the mix chain broke.
+            int? resolved = _preloadedQueueIndex is int preloaded && preloaded >= 0 && preloaded < Queue.Count
+                ? preloaded
+                : PeekNextIndex();
+            if (resolved is not int index)
             {
+                Serilog.Log.Warning("[Player] Engine advanced but the next queue track is unknown (current index {Index})", CurrentQueueIndex);
                 return;
             }
+            if (_preloadedQueueIndex == null)
+                Serilog.Log.Warning("[Player] Engine advanced without a recorded preload — assuming queue index {Index}", index);
 
             var track = Queue[index];
             _preloadedQueueIndex = null;
@@ -2669,7 +2756,7 @@ namespace SLSKDONET.ViewModels
         
         // Helper to load track
         public void PlayTrack(string filePath, string title, string artist, double? loudnessLufs = null)
-            => LoadTrackCore(filePath, title, artist, autoPlay: true, loudnessLufs);
+            => _ = LoadTrackCore(filePath, title, artist, autoPlay: true, loudnessLufs);
 
         /// <summary>
         /// Loads a track "hot and ready" without starting playback — e.g. Cue Forge loading
@@ -2679,9 +2766,9 @@ namespace SLSKDONET.ViewModels
         /// buffer before the pause takes effect.
         /// </summary>
         public void LoadTrackPaused(string filePath, string title, string artist, double? loudnessLufs = null)
-            => LoadTrackCore(filePath, title, artist, autoPlay: false, loudnessLufs);
+            => _ = LoadTrackCore(filePath, title, artist, autoPlay: false, loudnessLufs);
 
-        private void LoadTrackCore(string filePath, string title, string artist, bool autoPlay, double? loudnessLufs = null)
+        private bool LoadTrackCore(string filePath, string title, string artist, bool autoPlay, double? loudnessLufs = null)
         {
             Console.WriteLine($"[PlayerViewModel] LoadTrackCore called with: {filePath} (autoPlay={autoPlay})");
 
@@ -2712,10 +2799,11 @@ namespace SLSKDONET.ViewModels
 
                 // Hide loading state
                 Dispatcher.UIThread.Post(() => IsLoading = false);
+                return true;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[PlayerViewModel] Playback error: {ex.Message}");
+                Serilog.Log.Warning(ex, "[Player] Could not play {File}", filePath);
 
                 // Phase 9.2: Show error state with thread-safe updates
                 Dispatcher.UIThread.Post(() =>
@@ -2733,6 +2821,7 @@ namespace SLSKDONET.ViewModels
                 });
 
                 IsPlaying = false;
+                return false;
             }
         }
 

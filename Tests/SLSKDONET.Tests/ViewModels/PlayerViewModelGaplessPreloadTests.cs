@@ -27,14 +27,45 @@ public class PlayerViewModelGaplessPreloadTests
         return sut;
     }
 
-    private static PlaylistTrackViewModel CreateTrack(string filePath)
-        => new(new PlaylistTrack
+    // Real (empty) files: the player skips queued tracks whose file doesn't exist.
+    private static readonly string TrackDir = System.IO.Directory.CreateTempSubdirectory("orbit-preload-tests").FullName;
+
+    private static PlaylistTrackViewModel CreateTrack(string fileName, bool exists = true)
+    {
+        var path = System.IO.Path.Combine(TrackDir, fileName);
+        if (exists) System.IO.File.WriteAllBytes(path, System.Array.Empty<byte>());
+        return new(new PlaylistTrack
         {
             Artist = "Artist",
             Title = "Title",
             Status = TrackStatus.Downloaded,
-            ResolvedFilePath = filePath
+            ResolvedFilePath = path
         });
+    }
+
+    [Fact]
+    public void PeekNextIndex_SkipsTracksWhoseFileIsMissing()
+    {
+        // One missing file used to stop preloading (no transition) and then playback itself.
+        var sut = CreateSut(out _);
+        sut.Queue.Add(CreateTrack("a.mp3"));
+        sut.Queue.Add(CreateTrack("gone.mp3", exists: false));
+        sut.Queue.Add(CreateTrack("c.mp3"));
+        SetField(sut, "_currentQueueIndex", 0);
+
+        Assert.Equal(2, InvokePeekNextIndex(sut));
+    }
+
+    [Fact]
+    public void PeekNextIndex_ReturnsNull_WhenOnlyMissingFilesRemain()
+    {
+        var sut = CreateSut(out _);
+        sut.Queue.Add(CreateTrack("a.mp3"));
+        sut.Queue.Add(CreateTrack("gone2.mp3", exists: false));
+        SetField(sut, "_currentQueueIndex", 0);
+
+        Assert.Null(InvokePeekNextIndex(sut));
+    }
 
     private static int? InvokePeekNextIndex(PlayerViewModel sut)
     {
