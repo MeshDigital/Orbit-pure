@@ -1128,6 +1128,14 @@ public class SchemaMigratorService
                 await command.ExecuteNonQueryAsync();
             }
 
+            // CUE-DETR cue point cache (JSON, nullable = never run)
+            if (!ColumnExists("audio_features", "CueDetrJson"))
+            {
+                _logger.LogInformation("Patching Schema: Adding CueDetrJson to audio_features...");
+                command.CommandText = @"ALTER TABLE ""audio_features"" ADD COLUMN ""CueDetrJson"" TEXT NULL;";
+                await command.ExecuteNonQueryAsync();
+            }
+
             // Phase 5: VocalDensity for advanced matching transparency
             if (!ColumnExists("audio_features", "VocalDensity"))
             {

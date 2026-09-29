@@ -109,9 +109,11 @@ var dbOptions = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection
 using var db = new AppDbContext(dbOptions);
 
 var byFileName = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+var pathByHash = new Dictionary<string, string>();
 foreach (var e in db.LibraryEntries.AsNoTracking().Select(e => new { e.UniqueHash, e.FilePath }).ToList())
 {
     if (string.IsNullOrWhiteSpace(e.FilePath)) continue;
+    pathByHash.TryAdd(e.UniqueHash, e.FilePath);
     var name = Path.GetFileName(e.FilePath.Replace('\\', '/'));
     if (!byFileName.TryGetValue(name, out var list)) byFileName[name] = list = new();
     list.Add(e.UniqueHash);
@@ -142,6 +144,7 @@ if (opts.RekordboxGrid)
 
 // ── Evaluate ───────────────────────────────────────────────────────────────
 var results = new List<TrackResult>();
+var scored = new List<(ReferenceTrack Ref, AudioFeaturesEntity F, List<double> RefTimes, List<CuePointEntity> Cues, string? FilePath)>();
 var skipped = new Dictionary<string, int>();
 void Skip(string reason) => skipped[reason] = skipped.GetValueOrDefault(reason) + 1;
 
@@ -186,6 +189,7 @@ foreach (var refTrack in reference)
     if (cues.Count == 0) { Skip("generator produced no cues"); continue; }
 
     results.Add(Metrics.Evaluate(refTrack, f, analysis, path, refTimes, cues));
+    scored.Add((refTrack, f, refTimes, cues, pathByHash.GetValueOrDefault(f.TrackUniqueHash)));
 
     if (opts.Trace is not null && refTrack.FileName.Contains(opts.Trace, StringComparison.OrdinalIgnoreCase))
     {
@@ -215,17 +219,21 @@ if (opts.CompareTo is not null)
     var baseline = JsonSerializer.Deserialize<Summary>(File.ReadAllText(opts.CompareTo), Json.Options);
     if (baseline is not null) Report.PrintComparison(baseline, report.Summary);
 }
+if (opts.CueDetrCache is not null)
+    await CueDetrBench.RunAsync(scored, opts.CueDetrCache, opts.CueDetrLimit);
 return 0;
 
 // ════════════════════════════════════════════════════════════════════════════
 
 sealed record Options(
     string DbPath, string? ReferenceJson, string? DumpReference, string? CsvOut,
-    string? SummaryOut, string? CompareTo, int MinCues, int Worst, string? Trace, bool Refit, bool RefitDownbeat, bool RekordboxAnalysis, bool RekordboxGrid, bool UserDrops)
+    string? SummaryOut, string? CompareTo, int MinCues, int Worst, string? Trace, bool Refit, bool RefitDownbeat, bool RekordboxAnalysis, bool RekordboxGrid, bool UserDrops,
+    string? CueDetrCache = null, int CueDetrLimit = int.MaxValue)
 {
     public static Options? Parse(string[] args)
     {
-        string? db = null, refJson = null, dump = null, csv = null, summary = null, compare = null, trace = null;
+        string? db = null, refJson = null, dump = null, csv = null, summary = null, compare = null, trace = null, cueDetr = null;
+        int cueDetrLimit = int.MaxValue;
         bool refit = false, refitDownbeat = false, rbAnalysis = false, rbGrid = false, userDrops = false;
         int minCues = 3, worst = 15;
         for (int i = 0; i < args.Length; i++)
@@ -247,11 +255,13 @@ sealed record Options(
                 case "--rekordbox-analysis": rbAnalysis = true; break;
                 case "--rekordbox-grid": rbGrid = true; break;
                 case "--user-drops": userDrops = true; break;
+                case "--cue-detr": cueDetr = Next(); break;
+                case "--cue-detr-limit": cueDetrLimit = int.Parse(Next()); break;
                 case "--refit-downbeat": refit = true; refitDownbeat = true; break;
                 default: return null;
             }
         }
-        return db is null ? null : new Options(db, refJson, dump, csv, summary, compare, minCues, worst, trace, refit, refitDownbeat, rbAnalysis, rbGrid, userDrops);
+        return db is null ? null : new Options(db, refJson, dump, csv, summary, compare, minCues, worst, trace, refit, refitDownbeat, rbAnalysis, rbGrid, userDrops, cueDetr, cueDetrLimit);
     }
 
     public static void PrintUsage() => Console.WriteLine("""
@@ -270,6 +280,8 @@ sealed record Options(
           --rekordbox-analysis     Reference = Rekordbox's own beat grid + phrase analysis from its local ANLZ cache
           --rekordbox-grid         Adopt Rekordbox's grid where it matches the audio (as the app does); use with hand cues
           --user-drops             Reference = Drop cues you placed/edited in ORBIT (use with --min-cues 1)
+          --cue-detr <cache.json>  Also score CUE-DETR's cue points (ONNX, ~10 s/track; cached and resumable in the json)
+          --cue-detr-limit <n>     Only run CUE-DETR on the first n scored tracks
         """);
 }
 
@@ -747,4 +759,97 @@ sealed class Report
 
     static string Csv(string s) => "\"" + s.Replace("\"", "\"\"") + "\"";
     static string Truncate(string s, int n) => s.Length <= n ? s : s[..(n - 1)] + "…";
+}
+
+/// <summary>
+/// CUE-DETR vs the reference: precision (share of predicted points near a reference cue) and
+/// recall (share of reference cues near a predicted point) at ½ beat, 1 bar and 4 bars, for
+/// ORBIT's own generated cues, raw CUE-DETR points, and CUE-DETR points snapped to ORBIT's bar
+/// and 8-bar phrase grid. Decides whether CUE-DETR earns a place in cue generation.
+/// </summary>
+static class CueDetrBench
+{
+    sealed record CachedPoint(double T, double S);
+
+    public static async Task RunAsync(
+        List<(ReferenceTrack Ref, AudioFeaturesEntity F, List<double> RefTimes, List<CuePointEntity> Cues, string? FilePath)> scored,
+        string cachePath, int limit)
+    {
+        var cache = File.Exists(cachePath)
+            ? JsonSerializer.Deserialize<Dictionary<string, List<CachedPoint>>>(File.ReadAllText(cachePath)) ?? new()
+            : new Dictionary<string, List<CachedPoint>>();
+        string? model = null;
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir != null && model == null; dir = dir.Parent)
+        {
+            var c = Path.Combine(dir.FullName, SLSKDONET.Services.AudioAnalysis.CueDetrService.DefaultModelRelativePath);
+            if (File.Exists(c) && new FileInfo(c).Length > 1_000_000) model = c;
+        }
+        using var service = new SLSKDONET.Services.AudioAnalysis.CueDetrService(
+            NullLogger<SLSKDONET.Services.AudioAnalysis.CueDetrService>.Instance, model);
+
+        var sets = new Dictionary<string, Acc>
+        {
+            ["ORBIT generated cues"] = new(), ["CUE-DETR raw"] = new(), ["CUE-DETR -> bar grid"] = new(),
+            ["CUE-DETR -> 8-bar grid"] = new(), ["CUE-DETR -> 16-bar grid"] = new(), ["CUE-DETR -> 32-bar grid"] = new(), ["ORBIT drops only"] = new(), ["CUE-DETR top point"] = new(), ["ORBIT cues CUE-DETR agrees with"] = new(), ["ORBIT cues it doesn't"] = new(),
+        };
+        int done = 0, ran = 0;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        foreach (var (refTrack, f, refTimes, cues, filePath) in scored.Take(limit))
+        {
+            if (!cache.TryGetValue(f.TrackUniqueHash, out var points))
+            {
+                if (filePath is null || !File.Exists(filePath) || !service.IsAvailable) continue;
+                var detected = await service.DetectFileAsync(filePath);
+                if (detected is null) continue;
+                points = detected.Select(p => new CachedPoint(Math.Round(p.Seconds, 3), Math.Round(p.Score, 4))).ToList();
+                cache[f.TrackUniqueHash] = points;
+                File.WriteAllText(cachePath, JsonSerializer.Serialize(cache));
+                ran++;
+                if (ran % 10 == 0) Console.WriteLine($"  CUE-DETR: {ran} tracks run, {sw.Elapsed.TotalSeconds / ran:F1}s/track");
+            }
+            done++;
+            double bpm = f.Bpm, bar = 240.0 / bpm, anchor = f.DownbeatOffsetSeconds > 0 ? f.DownbeatOffsetSeconds : 0;
+            double Snap(double t, double period) => anchor + Math.Round((t - anchor) / period) * period;
+            var raw = points.Select(p => p.T).ToList();
+            sets["ORBIT generated cues"].Add(cues.Select(c => c.TimestampInSeconds).ToList(), refTimes, bpm);
+            sets["CUE-DETR raw"].Add(raw, refTimes, bpm);
+            sets["CUE-DETR -> bar grid"].Add(raw.Select(t => Snap(t, bar)).Distinct().ToList(), refTimes, bpm);
+            sets["CUE-DETR -> 8-bar grid"].Add(raw.Select(t => Snap(t, 8 * bar)).Distinct().ToList(), refTimes, bpm);
+            sets["CUE-DETR -> 16-bar grid"].Add(raw.Select(t => Snap(t, 16 * bar)).Distinct().ToList(), refTimes, bpm);
+            sets["CUE-DETR -> 32-bar grid"].Add(raw.Select(t => Snap(t, 32 * bar)).Distinct().ToList(), refTimes, bpm);
+            sets["ORBIT drops only"].Add(cues.Where(c => c.Type == CuePointType.Drop).Select(c => c.TimestampInSeconds).ToList(), refTimes, bpm);
+            // Fusion check: are ORBIT cues that CUE-DETR agrees with (within 1 bar) more accurate?
+            var orbitTimes = cues.Select(c => c.TimestampInSeconds).ToList();
+            sets["ORBIT cues CUE-DETR agrees with"].Add(orbitTimes.Where(t => raw.Any(r => Math.Abs(r - t) <= bar)).ToList(), refTimes, bpm);
+            sets["ORBIT cues it doesn't"].Add(orbitTimes.Where(t => !raw.Any(r => Math.Abs(r - t) <= bar)).ToList(), refTimes, bpm);
+            sets["CUE-DETR top point"].Add(points.OrderByDescending(p => p.S).Take(1).Select(p => p.T).ToList(), refTimes, bpm);
+        }
+
+        Console.WriteLine($"\nCUE-DETR vs reference cues ({done} tracks; {ran} newly run, cache {cachePath}):");
+        Console.WriteLine("                             points/track   precision 1/2beat 1bar 4bars    recall 1/2beat 1bar 4bars");
+        foreach (var (name, a) in sets)
+            Console.WriteLine($"  {name,-32} {a.PointsPerTrack,8:F1}        {a.P(0),9:F0}% {a.P(1),4:F0}% {a.P(2),4:F0}%   {a.R(0),9:F0}% {a.R(1),4:F0}% {a.R(2),4:F0}%");
+    }
+
+    sealed class Acc
+    {
+        static readonly double[] Beats = { 0.5, 4, 16 };
+        readonly int[] _pHit = new int[3], _rHit = new int[3];
+        int _pN, _rN, _tracks;
+        public void Add(List<double> predicted, List<double> reference, double bpm)
+        {
+            _tracks++;
+            if (reference.Count == 0) return;
+            _pN += predicted.Count; _rN += reference.Count;
+            for (int k = 0; k < 3; k++)
+            {
+                double tol = Beats[k] * 60 / bpm;
+                _pHit[k] += predicted.Count(p => reference.Any(r => Math.Abs(r - p) <= tol));
+                _rHit[k] += reference.Count(r => predicted.Any(p => Math.Abs(r - p) <= tol));
+            }
+        }
+        public double PointsPerTrack => _tracks == 0 ? 0 : (double)_pN / _tracks;
+        public double P(int k) => _pN == 0 ? 0 : 100.0 * _pHit[k] / _pN;
+        public double R(int k) => _rN == 0 ? 0 : 100.0 * _rHit[k] / _rN;
+    }
 }

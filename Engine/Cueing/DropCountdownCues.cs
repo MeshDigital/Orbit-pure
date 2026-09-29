@@ -102,6 +102,14 @@ public static class DropCountdownCues
         return list.OrderBy(c => c.Timestamp).ToList();
     }
 
+    /// <summary>
+    /// Once the DJ places a drop themselves, the analysis' own guesses (auto cues) only clutter the
+    /// waveform: keeps <paramref name="drop"/> and every user cue (including countdowns), drops the
+    /// rest. Undo in either editor brings them back.
+    /// </summary>
+    public static List<OrbitCue> WithoutAutoCues(IEnumerable<OrbitCue> cues, OrbitCue drop) =>
+        cues.Where(c => c == drop || c.Source != CueSource.Auto).ToList();
+
     /// <summary>Removes a deleted drop's countdowns.</summary>
     public static List<OrbitCue> RemoveFor(IEnumerable<OrbitCue> cues, string dropName) =>
         cues.Where(c => !IsCountdownFor(c, dropName)).ToList();

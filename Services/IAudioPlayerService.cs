@@ -29,6 +29,9 @@ namespace SLSKDONET.Services
         /// <summary>Mono time-domain sample block for waveform/oscilloscope visuals.</summary>
         event EventHandler<float[]> WaveformChanged;
 
+        /// <summary>Moves playback onto the output device currently selected in Settings, without stopping.</summary>
+        void ApplyOutputSettings();
+
         event EventHandler EndReached;
         event EventHandler PausableChanged;
 
@@ -75,8 +78,9 @@ namespace SLSKDONET.Services
         /// not used by the DSP itself.</param>
         void PreloadNext(string uri, double? trackLoudnessLufs = null, SLSKDONET.Models.Timeline.TransitionModel? transition = null, double? transitionBpm = null,
             double? sourceTriggerSeconds = null, double? targetTriggerSeconds = null, string? presetName = null);
+        /// <param name="outgoingBpm">File BPM of the track being mixed out of; enables tempo matching.</param>
         void SetPendingTransitionForNext(string filePath, SLSKDONET.Models.Timeline.TransitionModel? transition, double? transitionBpm,
-            double? sourceTriggerSeconds = null, double? targetTriggerSeconds = null, string? presetName = null);
+            double? sourceTriggerSeconds = null, double? targetTriggerSeconds = null, string? presetName = null, double? outgoingBpm = null);
 
         /// <summary>Discards any preloaded next track.</summary>
         void CancelPreload();

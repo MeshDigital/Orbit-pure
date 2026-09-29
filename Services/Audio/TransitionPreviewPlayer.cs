@@ -56,10 +56,13 @@ namespace SLSKDONET.Services.Audio
 
         public event EventHandler? PreviewStopped;
 
-        public TransitionPreviewPlayer(ILogger<TransitionPreviewPlayer> logger, ISurgicalProcessingService surgicalService)
+        private readonly SLSKDONET.Configuration.AppConfig? _config;
+
+        public TransitionPreviewPlayer(ILogger<TransitionPreviewPlayer> logger, ISurgicalProcessingService surgicalService, SLSKDONET.Configuration.AppConfig? config = null)
         {
             _logger = logger;
             _surgicalService = surgicalService;
+            _config = config;
         }
 
         public async Task StartTransitionPreviewAsync(
@@ -102,8 +105,19 @@ namespace SLSKDONET.Services.Audio
                 DisposePlaybackResources(deleteRenderedFile: true, stopOutput: true);
 
                 _reader = new AudioFileReader(previewPath);
-                _output = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
-                _output.Init(_reader);
+                // The Settings output device (shared mode), not always the Windows default.
+                try
+                {
+                    _output = AudioOutputProvider.CreatePreviewDevice(_config?.AudioOutputMode, _config?.AudioOutputDeviceName);
+                    _output.Init(_reader);
+                }
+                catch (Exception ex)
+                {
+                    _output?.Dispose();
+                    _logger.LogWarning(ex, "Transition preview: could not open output device {Device}; using the Windows default", _config?.AudioOutputDeviceName ?? "(default)");
+                    _output = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
+                    _output.Init(_reader);
+                }
                 _output.PlaybackStopped += OnPlaybackStopped;
                 _output.Play();
                 _renderedTempPath = previewPath;

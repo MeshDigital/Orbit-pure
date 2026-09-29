@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using System.Timers;
@@ -58,6 +59,11 @@ namespace SLSKDONET.Services
             /// analysis-suggested or saved mix-in point (may skip a low-energy intro straight to
             /// the first drop). Null means start at 0 as usual.</summary>
             public double? PendingTargetTriggerSeconds;
+
+            /// <summary>File BPM of the OUTGOING track for this pending transition (the incoming
+            /// file BPM is <see cref="PendingTransitionBpm"/>). With both known, the incoming deck is
+            /// tempo-matched when the mix starts and transition lengths follow the outgoing beat.</summary>
+            public double? PendingSourceBpm;
 
             /// <summary>File this deck plays (for <see cref="SLSKDONET.Services.Audio.ExactSeek"/>).</summary>
             public string FilePath = string.Empty;
@@ -277,13 +283,12 @@ namespace SLSKDONET.Services
             // CrossfadeEnabled toggle, since choosing a transition for this specific pair is a
             // more specific instruction than the app-wide default.
             var pendingTransition = _next?.PendingTransition;
-            var effectiveCrossfadeSeconds = pendingTransition != null
-                ? pendingTransition.DurationBeats * (60.0 / _next!.PendingTransitionBpm)
-                : CrossfadeSeconds;
+            var effectiveCrossfadeSeconds = TransitionSeconds(current, _next);
 
             if ((CrossfadeEnabled || pendingTransition != null) && _next?.Output != null)
             {
                 bool shouldStart;
+                double plannedStart = double.NaN;
                 if (_next.PendingSourceTriggerSeconds is double sourceTrigger)
                 {
                     // Analysis-suggested/saved mix-out point: an absolute position in THIS track,
@@ -291,8 +296,8 @@ namespace SLSKDONET.Services
                     // before the literal end of a track with a long fade-out tail, for instance.
                     // …but never so late that the transition can't play out before the track ends
                     // (auto Outro cues sit 0–10 s from the end; transitions are 8–16 bars).
-                    shouldStart = current.AudioFile.CurrentTime.TotalSeconds >= LatestMixStart(
-                        sourceTrigger, current.AudioFile.TotalTime.TotalSeconds, effectiveCrossfadeSeconds);
+                    plannedStart = LatestMixStart(sourceTrigger, current.AudioFile.TotalTime.TotalSeconds, effectiveCrossfadeSeconds);
+                    shouldStart = current.AudioFile.CurrentTime.TotalSeconds >= plannedStart;
                 }
                 else
                 {
@@ -309,6 +314,15 @@ namespace SLSKDONET.Services
                     if (_next.Eq != null) _next.Eq.Active = pendingTransition != null;
                     if (current.Eq != null) current.Eq.Active = pendingTransition != null;
                     _next.WaitForSeek();
+                    double speedRatio = ApplyTempoSync(current, _next);
+                    // The timer ticks every 50 ms, so the mix starts up to that late. For a planned
+                    // alignment (incoming target point on a bar), skip the incoming deck forward by
+                    // the same musical amount so both downbeats stay together.
+                    if (!double.IsNaN(plannedStart) && _next.PendingTargetTriggerSeconds is > 0)
+                    {
+                        double late = current.AudioFile.CurrentTime.TotalSeconds - plannedStart;
+                        if (late > 0.002 && late < 0.5) SkipForward(_next, late * speedRatio);
+                    }
                     _next.Output.Play();
 
                     CrossfadeStarted?.Invoke(this, new CrossfadeStartedEventArgs
@@ -334,9 +348,7 @@ namespace SLSKDONET.Services
             }
 
             var pendingTransition = _next.PendingTransition;
-            var durationSeconds = pendingTransition != null
-                ? pendingTransition.DurationBeats * (60.0 / _next.PendingTransitionBpm)
-                : CrossfadeSeconds;
+            var durationSeconds = TransitionSeconds(current, _next);
 
             _crossfadeElapsedSeconds += TimerIntervalSeconds;
             var t = durationSeconds > 0 ? Math.Clamp(_crossfadeElapsedSeconds / durationSeconds, 0.0, 1.0) : 1.0;
@@ -363,6 +375,7 @@ namespace SLSKDONET.Services
                         SwapHigh = pendingTransition.EqSwapHigh,
                         LowCrossover = pendingTransition.EqLowCrossoverHz,
                         HighCrossover = pendingTransition.EqHighCrossoverHz,
+                        HardLowSwap = pendingTransition.EqHardLowSwap,
                     },
                 };
                 var automation = _liveTransitionEngine.CalculateAutomation(region, (long)(t * samplePoints));
@@ -417,6 +430,74 @@ namespace SLSKDONET.Services
             if (trackSeconds <= 0 || transitionSeconds <= 0) return mixOutSeconds;
             var latest = Math.Max(0, trackSeconds - transitionSeconds);
             return Math.Min(mixOutSeconds, latest);
+        }
+
+        /// <summary>Largest tempo change applied to match an incoming track (6 % ≈ one semitone).</summary>
+        private const double MaxTempoSyncRatio = 0.06;
+
+        /// <summary>
+        /// Real-time length of the pending transition. Its bars follow the OUTGOING track's beat as
+        /// it is actually playing (file BPM × deck speed) when that is known — the incoming track is
+        /// tempo-matched to it — otherwise the incoming BPM as before.
+        /// </summary>
+        private double TransitionSeconds(Deck current, Deck? next)
+        {
+            var transition = next?.PendingTransition;
+            if (transition == null) return CrossfadeSeconds;
+            double bpm = next!.PendingSourceBpm is double outBpm
+                ? outBpm * (current.VariSpeed?.Speed ?? 1.0)
+                : next.PendingTransitionBpm;
+            return transition.DurationBeats * 60.0 / Math.Max(1, bpm);
+        }
+
+        /// <summary>
+        /// Matches the incoming deck's tempo to the outgoing one (the DJ pitch fader) when both file
+        /// BPMs are known and within <see cref="MaxTempoSyncRatio"/>; the incoming track keeps that
+        /// tempo after the mix. Without this, two tracks 2 BPM apart drift a quarter-second out of
+        /// time over 16 bars and the kicks flam. Returns incoming/outgoing file-time rate ratio.
+        /// Public for tests.
+        /// </summary>
+        public static double TempoSyncRatio(double? outgoingBpm, double incomingBpm)
+        {
+            if (outgoingBpm is not > 0 || incomingBpm <= 0) return 1.0;
+            double ratio = outgoingBpm.Value / incomingBpm;
+            // Half/double-time readings (87 vs 174) are the same tempo for mixing.
+            if (ratio > 1.8) ratio /= 2; else if (ratio < 0.55) ratio *= 2;
+            return Math.Abs(ratio - 1) <= MaxTempoSyncRatio ? ratio : 1.0;
+        }
+
+        private double ApplyTempoSync(Deck current, Deck next)
+        {
+            double currentSpeed = current.VariSpeed?.Speed ?? 1.0;
+            double ratio = TempoSyncRatio(next.PendingSourceBpm, next.PendingTransitionBpm);
+            if (next.VariSpeed != null && ratio != 1.0)
+            {
+                next.VariSpeed.Speed = currentSpeed * ratio;
+                Serilog.Log.Information("[Mix] Tempo-matched incoming track: ×{Ratio:0.000} ({Out:0.0} → {In:0.0} BPM file tempo)",
+                    ratio, next.PendingSourceBpm, next.PendingTransitionBpm);
+            }
+            else if (next.VariSpeed != null)
+            {
+                next.VariSpeed.Speed = currentSpeed;
+            }
+            // Incoming file seconds per outgoing file second.
+            return (next.VariSpeed?.Speed ?? 1.0) / Math.Max(0.01, currentSpeed);
+        }
+
+        /// <summary>Advances a not-yet-playing deck by <paramref name="seconds"/> of its file.</summary>
+        private static void SkipForward(Deck deck, double seconds)
+        {
+            var file = deck.AudioFile;
+            if (file == null) return;
+            long remaining = (long)Math.Round(seconds * file.WaveFormat.SampleRate) * file.WaveFormat.Channels;
+            var buffer = new float[Math.Min(remaining, 16384)];
+            while (remaining > 0)
+            {
+                int read = file.Read(buffer, 0, (int)Math.Min(buffer.Length, remaining));
+                if (read <= 0) break;
+                remaining -= read;
+            }
+            deck.VariSpeed?.Reset();
         }
 
         public bool IsInitialized => _isInitialized;
@@ -597,9 +678,10 @@ namespace SLSKDONET.Services
         /// that's already preloaded.
         /// </summary>
         public void SetPendingTransitionForNext(string filePath, SLSKDONET.Models.Timeline.TransitionModel? transition, double? transitionBpm,
-            double? sourceTriggerSeconds = null, double? targetTriggerSeconds = null, string? presetName = null)
+            double? sourceTriggerSeconds = null, double? targetTriggerSeconds = null, string? presetName = null, double? outgoingBpm = null)
         {
             if (_next == null || _nextFilePath != filePath) return;
+            _next.PendingSourceBpm = outgoingBpm is > 0 ? outgoingBpm : null;
             _next.PendingTransition = transition;
             _next.PendingTransitionBpm = transitionBpm is > 0 ? transitionBpm.Value : 128.0;
             _next.PendingTransitionPresetName = presetName;
@@ -662,20 +744,96 @@ namespace SLSKDONET.Services
         /// falling back to the previous hardcoded WASAPI-Shared behavior if the configured
         /// device/driver fails to open (e.g. an ASIO driver that's since been uninstalled).
         /// </summary>
-        private IWavePlayer CreateConfiguredOutputDevice()
+        private IWavePlayer CreateConfiguredOutputDevice(ISampleProvider source)
         {
             var mode = Enum.TryParse<AudioOutputMode>(_config.AudioOutputMode, out var parsed)
                 ? parsed
                 : AudioOutputMode.WasapiShared;
+            var deviceName = _config.AudioOutputDeviceName;
 
-            try
+            // Construction rarely fails — Init is where a busy/unsupported device throws, so each
+            // attempt includes Init. Fallbacks: the chosen device in shared mode, then the Windows
+            // default. (The old fallback went straight to the default device and only wrote to the
+            // console, so a failing selection looked like "the setting does nothing".)
+            var attempts = new List<(string Label, Func<IWavePlayer> Create)>
             {
-                return AudioOutputProvider.CreateDevice(mode, _config.AudioOutputDeviceName);
+                ($"{mode}/{deviceName ?? "default"}", () => AudioOutputProvider.CreateDevice(mode, deviceName)),
+            };
+            if (mode != AudioOutputMode.WasapiShared && deviceName != null)
+                attempts.Add(($"WasapiShared/{deviceName}", () => AudioOutputProvider.CreateSharedDevice(deviceName, 50)));
+            attempts.Add(("WasapiShared/Windows default", () => new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100)));
+
+            Exception? last = null;
+            foreach (var (label, create) in attempts)
+            {
+                IWavePlayer? output = null;
+                try
+                {
+                    output = create();
+                    output.Init(source);
+                    if (last != null)
+                        Serilog.Log.Warning(last, "[AudioPlayerService] Configured output failed; playing on {Fallback}", label);
+                    return output;
+                }
+                catch (Exception ex)
+                {
+                    output?.Dispose();
+                    last = ex;
+                }
             }
-            catch (Exception ex)
+            throw new InvalidOperationException("No audio output device could be opened.", last);
+        }
+
+        /// <summary>Opens <paramref name="deck"/>'s output on the configured device and wires its end-of-track handling.</summary>
+        private IWavePlayer OpenDeckOutput(Deck deck)
+        {
+            var output = CreateConfiguredOutputDevice(deck.Metering!);
+            // Never touch output.Volume. On NAudio's WasapiOut that property is the DEVICE's Windows
+            // master volume (AudioEndpointVolume), not a per-stream level: "pinning" it to 1.0 here
+            // set the user's system volume to 100% on every track change (reported 2026-09-29).
+            // All real gain — master volume, crossfades, loudness — goes through deck.Gain.
+            output.PlaybackStopped += (s, e) =>
             {
-                Console.WriteLine($"[AudioPlayerService] Failed to open configured output device ({mode}/{_config.AudioOutputDeviceName ?? "default"}): {ex.Message}. Falling back to WASAPI Shared.");
-                return new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
+                if (!ReferenceEquals(s, deck.Output)) return; // an output replaced by a device switch
+                if (!ReferenceEquals(_current, deck)) return; // stale event from a deck we've already advanced past
+                if (_isCrossfading) return; // the crossfade timer owns this transition
+
+                if (_next != null)
+                {
+                    PromoteNextDeck(deck);
+                }
+                else
+                {
+                    EndReached?.Invoke(this, EventArgs.Empty);
+                }
+            };
+            return output;
+        }
+
+        /// <summary>
+        /// Moves the playing (and preloaded) decks onto the output device now selected in Settings,
+        /// keeping position and play/pause state. Before, a new device only applied to the next
+        /// track that was opened — so changing it mid-song appeared to do nothing.
+        /// </summary>
+        public void ApplyOutputSettings()
+        {
+            foreach (var deck in new[] { _current, _next })
+            {
+                if (deck?.Output == null || deck.Metering == null) continue;
+                try
+                {
+                    var old = deck.Output;
+                    bool wasPlaying = old.PlaybackState == PlaybackState.Playing;
+                    var fresh = OpenDeckOutput(deck);
+                    deck.Output = fresh;           // old output's PlaybackStopped is now ignored
+                    try { old.Stop(); } catch { /* already stopped */ }
+                    old.Dispose();
+                    if (wasPlaying) fresh.Play();
+                }
+                catch (Exception ex)
+                {
+                    Serilog.Log.Warning(ex, "[AudioPlayerService] Switching output device failed for {File}", deck.FilePath);
+                }
             }
         }
 
@@ -696,10 +854,14 @@ namespace SLSKDONET.Services
 
         private Deck CreateDeck(string filePath, double? trackLoudnessLufs = null)
         {
+            // PlayableAudio: files Windows can't decode (some FLAC/Opus/Ogg) play from an
+            // ffmpeg-decoded WAV instead of failing to load. FilePath is what is actually read,
+            // so ExactSeek knows whether a decode-forward seek is needed.
+            var reader = SLSKDONET.Services.Audio.PlayableAudio.Open(filePath, out var playablePath);
             var deck = new Deck
             {
-                FilePath = filePath,
-                AudioFile = new AudioFileReader(filePath),
+                FilePath = playablePath,
+                AudioFile = reader,
                 LoudnessGain = ComputeLoudnessGain(trackLoudnessLufs)
             };
 
@@ -750,26 +912,7 @@ namespace SLSKDONET.Services
                 }
             };
 
-            deck.Output = CreateConfiguredOutputDevice();
-            deck.Output.Init(deck.Metering);
-            // Pinned forever — see Deck.Gain field doc. All real gain automation goes through
-            // deck.Gain (an in-process sample multiply), never through the OS session volume.
-            deck.Output.Volume = 1f;
-            deck.Output.PlaybackStopped += (s, e) =>
-            {
-                if (!ReferenceEquals(_current, deck)) return; // stale event from a deck we've already advanced past
-                if (_isCrossfading) return; // the crossfade timer owns this transition
-
-                if (_next != null)
-                {
-                    PromoteNextDeck(deck);
-                }
-                else
-                {
-                    EndReached?.Invoke(this, EventArgs.Empty);
-                }
-            };
-
+            deck.Output = OpenDeckOutput(deck);
             return deck;
         }
 

@@ -153,7 +153,7 @@ public sealed class TransitionEngine
             // we dynamically adjust the respective CuePointEntity timestamp
             if (suggestion.CompatibilityScore < 50.0)
             {
-                var mixOut = currentCues.FirstOrDefault(c => c.Label == "Mix-Out Warning");
+                var mixOut = currentCues.FirstOrDefault(c => c.Label.StartsWith("Mix-Out Warning")); // may carry a " ✓AI" suffix
                 if (mixOut != null)
                 {
                     mixOut.TimestampInSeconds = suggestion.SourceTriggerTime;

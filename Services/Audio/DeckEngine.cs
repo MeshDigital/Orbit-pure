@@ -263,7 +263,7 @@ public sealed class DeckEngine : ISampleProvider, IDisposable
         lock (_lock)
         {
             DisposeChain();
-            _fileReader = new AudioFileReader(filePath);
+            _fileReader = PlayableAudio.Open(filePath, out _); // files Windows can't decode play via ffmpeg
             _rate       = new RateSampleProvider(_fileReader);
             _cuePositionSecs = 0;
             _state      = DeckState.Cued;

@@ -36,6 +36,8 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     private readonly INotificationService _notificationService;
     private readonly AnalyzeTrackStructureJob? _cueStructureJob;
     private readonly Services.Repositories.ITrackRepository _trackRepository;
+    private readonly Services.Integrations.Serato.SeratoCueExportService? _seratoExport;
+    private readonly Services.AudioAnalysis.CueDetrCueService? _cueDetrCues;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -59,6 +61,10 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
     public System.Windows.Input.ICommand SetColorTagCommand { get; }
     public System.Windows.Input.ICommand RegenerateCuesCommand { get; }
     public System.Windows.Input.ICommand RefreshBpmFromTagsCommand { get; }
+    /// <summary>Parameter "keep" (default) or "replace" — see <see cref="Services.Integrations.Serato.SeratoWriteMode"/>.</summary>
+    public System.Windows.Input.ICommand WriteSeratoCuesCommand { get; }
+    /// <summary>Parameter "compare" (ORBIT + CUE-DETR side by side) or "ai" (CUE-DETR only).</summary>
+    public System.Windows.Input.ICommand GenerateCuesWithAiCommand { get; }
 
     // Phase 10.5: Dependency Warning Property
     public bool AreDependenciesHealthy => _dependencyHealthService.IsHealthy;
@@ -78,7 +84,9 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         CueForgeViewModel cueForgeViewModel,
         INotificationService notificationService,
         Services.Repositories.ITrackRepository trackRepository,
-        AnalyzeTrackStructureJob? cueStructureJob = null)
+        AnalyzeTrackStructureJob? cueStructureJob = null,
+        Services.Integrations.Serato.SeratoCueExportService? seratoExport = null,
+        Services.AudioAnalysis.CueDetrCueService? cueDetrCues = null)
     {
         _logger = logger;
         _downloadManager = downloadManager;
@@ -94,6 +102,8 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         _notificationService = notificationService;
         _trackRepository = trackRepository;
         _cueStructureJob = cueStructureJob;
+        _seratoExport = seratoExport;
+        _cueDetrCues = cueDetrCues;
 
         // Subscribe to dynamic health updates
         _healthChangedHandler = (s, healthy) =>
@@ -127,6 +137,109 @@ public class TrackOperationsViewModel : INotifyPropertyChanged, IDisposable
         OpenAuditLogCommand = new RelayCommand<PlaylistTrackViewModel>(ExecuteOpenAuditLog);
         OpenInCueForgeCommand = new AsyncRelayCommand<PlaylistTrackViewModel>(ExecuteOpenInCueForge);
         SetColorTagCommand = new RelayCommand<string>(ExecuteSetColorTag);
+        WriteSeratoCuesCommand = new AsyncRelayCommand<string>(ExecuteWriteSeratoCues);
+        GenerateCuesWithAiCommand = new AsyncRelayCommand<string>(ExecuteGenerateCuesWithAi);
+    }
+
+    /// <summary>
+    /// Regenerates the selected tracks' auto cues with CUE-DETR in the loop, so its opinion can be
+    /// judged on the waveform: "compare" keeps ORBIT's cues (marked ✓AI where CUE-DETR agrees) and
+    /// adds CUE-DETR's other points as cyan "AI" cues; "ai" shows CUE-DETR's points alone. The model
+    /// runs once per track (~10 s) and is cached, so switching back and forth is instant after that.
+    /// "Regenerate Cues → ORBIT analysis" restores the normal cues. Hand-placed cues are kept.
+    /// </summary>
+    private async Task ExecuteGenerateCuesWithAi(string? modeText)
+    {
+        if (_cueDetrCues == null) return;
+        if (!_cueDetrCues.IsModelAvailable)
+        {
+            _notificationService.Show("CUE-DETR", "The CUE-DETR model (Tools/Essentia/models/cue-detr.onnx) isn't installed.", Views.NotificationType.Warning);
+            return;
+        }
+        var mode = modeText == "ai" ? Engine.Analysis.CueDetr.CueSourceMode.AiOnly : Engine.Analysis.CueDetr.CueSourceMode.Compare;
+        var selected = LibraryViewModel?.Tracks.SelectedTracks?.ToList() ?? [];
+        var targets = selected.Count > 0
+            ? selected
+            : LibraryViewModel?.Tracks.LeadSelectedTrack is { } lead ? new List<PlaylistTrackViewModel> { lead } : new List<PlaylistTrackViewModel>();
+        if (targets.Count == 0) return;
+        if (targets.Count > 3)
+            _notificationService.Show("CUE-DETR",
+                $"Running CUE-DETR on {targets.Count} tracks — about {Math.Ceiling(targets.Count * 13 / 60.0)} min the first time (results are cached).",
+                Views.NotificationType.Information);
+
+        int done = 0, cues = 0, agreed = 0, ai = 0;
+        var problems = new List<string>();
+        async Task<bool> RunOne(PlaylistTrackViewModel t, System.Threading.CancellationToken ct)
+        {
+            var hash = t.Model?.TrackUniqueHash;
+            if (string.IsNullOrEmpty(hash)) { lock (problems) problems.Add($"{t.Title}: no track id"); return false; }
+            var r = await _cueDetrCues.RegenerateAsync(hash, t.Model?.ResolvedFilePath, mode, ct);
+            if (!r.Success) { lock (problems) problems.Add($"{t.Title}: {r.Error}"); return false; }
+            System.Threading.Interlocked.Increment(ref done);
+            System.Threading.Interlocked.Add(ref cues, r.CueCount);
+            System.Threading.Interlocked.Add(ref agreed, r.Agreed);
+            System.Threading.Interlocked.Add(ref ai, r.AiPoints);
+            return true;
+        }
+
+        if (targets.Count == 1) await RunOne(targets[0], default);
+        else
+        {
+            if (_bulkCoordinator.IsRunning) return;
+            await _bulkCoordinator.RunOperationAsync(targets, RunOne, mode == Engine.Analysis.CueDetr.CueSourceMode.AiOnly ? "CUE-DETR Cues" : "Compare Cues (ORBIT + CUE-DETR)");
+        }
+
+        string summary = mode == Engine.Analysis.CueDetr.CueSourceMode.AiOnly
+            ? $"{done} track(s): {cues} CUE-DETR cue(s), shown in cyan as \"AI n\"."
+            : $"{done} track(s): {agreed} ORBIT cue(s) marked ✓AI where CUE-DETR agrees; CUE-DETR's other points added as cyan \"AI\" cues ({ai} AI points in total).";
+        if (problems.Count > 0) summary += $" Skipped {problems.Count}: {string.Join("; ", problems.Take(3))}";
+        _notificationService.Show("CUE-DETR", summary, problems.Count == 0 ? Views.NotificationType.Success : Views.NotificationType.Warning);
+    }
+
+    /// <summary>
+    /// Writes the selected tracks' cues into their files as Serato Markers2 (Serato DJ and Mixxx
+    /// read them straight from the file). "keep" leaves cues already set in Serato alone and uses
+    /// free slots; "replace" swaps all of the file's cues/loops for ORBIT's after a confirmation.
+    /// </summary>
+    private async Task ExecuteWriteSeratoCues(string? modeText)
+    {
+        if (_seratoExport == null) return;
+        var mode = modeText == "replace" ? Services.Integrations.Serato.SeratoWriteMode.Replace : Services.Integrations.Serato.SeratoWriteMode.KeepExisting;
+        var selected = LibraryViewModel?.Tracks.SelectedTracks?.ToList() ?? [];
+        var targets = selected.Count > 0
+            ? selected
+            : LibraryViewModel?.Tracks.LeadSelectedTrack is { } lead ? new List<PlaylistTrackViewModel> { lead } : new List<PlaylistTrackViewModel>();
+        if (targets.Count == 0) return;
+
+        if (mode == Services.Integrations.Serato.SeratoWriteMode.Replace && !await _dialogService.ConfirmAsync(
+                "Replace Serato cues",
+                $"Replace all hot cues and saved loops in {targets.Count} file(s) with ORBIT's cues? Cues you set in Serato for these tracks will be lost. Track colour and BPM lock are kept.",
+                "Replace", "Cancel"))
+            return;
+
+        int cues = 0, files = 0;
+        var problems = new List<string>();
+        async Task<bool> WriteOne(PlaylistTrackViewModel t, System.Threading.CancellationToken ct)
+        {
+            var path = t.Model?.ResolvedFilePath;
+            var hash = t.Model?.TrackUniqueHash;
+            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(hash)) { problems.Add($"{t.Title}: no file"); return false; }
+            var result = await _seratoExport.WriteAsync(path, hash, mode, ct);
+            if (!result.Success) { problems.Add($"{t.Title}: {result.Error}"); return false; }
+            System.Threading.Interlocked.Add(ref cues, result.CuesWritten + result.LoopsWritten);
+            System.Threading.Interlocked.Increment(ref files);
+            return true;
+        }
+
+        if (targets.Count == 1) await WriteOne(targets[0], default);
+        else
+        {
+            if (_bulkCoordinator.IsRunning) return;
+            await _bulkCoordinator.RunOperationAsync(targets, WriteOne, "Write Serato Cues");
+        }
+
+        var message = $"Wrote {cues} cue(s) to {files} file(s)." + (problems.Count > 0 ? $" Skipped {problems.Count}: {string.Join("; ", problems.Take(3))}" : "");
+        _notificationService.Show("Serato cues", message, problems.Count == 0 ? Views.NotificationType.Success : Views.NotificationType.Warning);
     }
 
     public void SetMainViewModel(MainViewModel mainViewModel)

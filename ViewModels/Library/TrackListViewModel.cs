@@ -1481,13 +1481,24 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         // DB-backed playlist's FilteredTracks is a VirtualizedTrackCollection with entirely
         // different PlaylistTrackViewModel instances from CurrentProjectTracks, so this used to
         // silently do nothing for that (the common) case.
+        // Every row that is already loaded — not just the first 50, which left rows further down
+        // the list without badges. Pages that aren't loaded yet are skipped (never force-loaded);
+        // each page load raises CollectionChanged, which reschedules this pass.
         var source = FilteredTracks;
         int totalCount = source.Count;
-        var ordered = (source as VirtualizedTrackCollection)?.GetSubset(MixBadgeWindowSize).ToList()
-            ?? source.Take(MixBadgeWindowSize).ToList();
-        if (ordered.Count == 0) return;
+        var virtualized = source as VirtualizedTrackCollection;
+        var ordered = new List<PlaylistTrackViewModel?>(totalCount);
+        for (int r = 0; r < totalCount; r++)
+        {
+            if (virtualized != null)
+                ordered.Add(virtualized.TryGetLoaded(r, out var loadedRow) ? loadedRow : null);
+            else
+                ordered.Add(source[r]);
+        }
+        var firstLoaded = ordered.FirstOrDefault(r => r != null);
+        if (firstLoaded == null) return;
 
-        var playlistId = ordered[0].Model?.PlaylistId ?? Guid.Empty;
+        var playlistId = firstLoaded.Model?.PlaylistId ?? Guid.Empty;
         var saved = playlistId != Guid.Empty
             ? (await _transitionRepository.GetTransitionsForPlaylistAsync(playlistId))
                 .ToDictionary(t => (t.OutgoingPlaylistTrackId, t.IncomingPlaylistTrackId))
@@ -1508,6 +1519,7 @@ public class TrackListViewModel : ReactiveObject, IDisposable
         for (int i = 0; i < ordered.Count; i++)
         {
             var current = ordered[i];
+            if (current == null) continue; // page not loaded yet
             bool isLastOverall = i == totalCount - 1;
             if (isLastOverall)
             {
@@ -1515,15 +1527,13 @@ public class TrackListViewModel : ReactiveObject, IDisposable
                 current.NextPlaylistTrackId = null;
                 continue;
             }
-            if (i >= ordered.Count - 1)
+            if (i >= ordered.Count - 1 || ordered[i + 1] is not { } next)
             {
-                // Last item in this materialized window, but not the last track in the playlist —
-                // its "next" hasn't loaded yet. Leave it as-is; OnFilteredTracksChanged reschedules
-                // this once the next page arrives.
+                // Its "next" row hasn't loaded yet. Leave it as-is; OnFilteredTracksChanged
+                // reschedules this once the next page arrives.
                 continue;
             }
 
-            var next = ordered[i + 1];
             current.ShowMixTransitionBadge = IsMixModeEnabled;
             current.NextPlaylistTrackId = next.Id;
 

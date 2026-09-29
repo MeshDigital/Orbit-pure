@@ -68,6 +68,23 @@
                         ToolTip.Tip="Add a cue where you last auditioned this track (click the waveform to audition). Right-click the waveform adds one at that exact spot.">
                     <TextBlock Text="＋ Cue at audition point"/>
                 </Button>
+                <Button Classes="ce" Command="{Binding SetDropHereCommand}"
+                        ToolTip.Tip="Make a Drop where you last auditioned (click the waveform on the drop first). A cue already on that beat becomes the Drop; countdown cues are placed before it (Drop countdown setting).">
+                    <TextBlock Text="◆ Drop here" Foreground="#FF8A80"/>
+                </Button>
+                <Button Classes="ce" IsEnabled="{Binding !IsGenerating}"
+                        ToolTip.Tip="Regenerate this track's cues — same as the library's right-click 'Regenerate Cues'. Your own placed/edited cues are kept.">
+                    <TextBlock Text="⚡ Generate cues ▾"/>
+                    <Button.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                            <MenuItem Header="ORBIT analysis" Command="{Binding GenerateCuesCommand}" CommandParameter="orbit"/>
+                            <MenuItem Header="ORBIT + CUE-DETR (compare)" Command="{Binding GenerateCuesCommand}" CommandParameter="compare"
+                                      ToolTip.Tip="ORBIT's cues, marked ✓AI where the CUE-DETR model agrees, plus its other points as cyan 'AI' cues"/>
+                            <MenuItem Header="CUE-DETR only" Command="{Binding GenerateCuesCommand}" CommandParameter="ai"
+                                      ToolTip.Tip="Only the CUE-DETR model's points (cyan) — to judge it on its own"/>
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
                 <TextBlock Classes="lbl" Text="Snap"/>
                 <ComboBox ItemsSource="{Binding SnapModes}" SelectedItem="{Binding SnapMode}"
                           FontSize="10" MinWidth="78" Margin="0,0,8,4" Padding="6,2"

@@ -365,9 +365,14 @@
                     <MenuItem Header="Analyse Track" Command="{Binding Operations.AnalyseTrackCommand}" IsEnabled="{Binding Operations.AreDependenciesHealthy}">
                          <MenuItem.Icon><TextBlock Text="🔬" FontSize="12"/></MenuItem.Icon>
                     </MenuItem>
-                    <MenuItem Header="Regenerate Cues" Command="{Binding Operations.RegenerateCuesCommand}"
-                              ToolTip.Tip="Re-maps cue points from this track's (or all selected tracks') already-analysed data — fast, no re-analysis.">
+                    <MenuItem Header="Regenerate Cues">
                          <MenuItem.Icon><TextBlock Text="🎯" FontSize="12"/></MenuItem.Icon>
+                         <MenuItem Header="ORBIT analysis" Command="{Binding Operations.RegenerateCuesCommand}"
+                                   ToolTip.Tip="Re-maps cue points from this track's (or all selected tracks') already-analysed data — fast, no re-analysis. Also restores normal cues after trying CUE-DETR."/>
+                         <MenuItem Header="ORBIT + CUE-DETR (compare)" Command="{Binding Operations.GenerateCuesWithAiCommand}" CommandParameter="compare"
+                                   ToolTip.Tip="ORBIT's cues, marked ✓AI where the CUE-DETR model agrees (those are the most reliable), plus CUE-DETR's other points as cyan 'AI' cues. ~10 s per track the first time, then cached."/>
+                         <MenuItem Header="CUE-DETR only" Command="{Binding Operations.GenerateCuesWithAiCommand}" CommandParameter="ai"
+                                   ToolTip.Tip="Only the CUE-DETR model's cue points (snapped to the bar grid), in cyan — to judge the model on its own. Your own placed cues are kept."/>
                     </MenuItem>
                     <MenuItem Header="Refresh BPM from Tags" Command="{Binding Operations.RefreshBpmFromTagsCommand}"
                               ToolTip.Tip="Re-reads the file's own embedded BPM tag (this track, or all selected) and trusts it over ORBIT's analysis — fixes breakbeat/DNB tracks Essentia's beat tracker consistently misreads.">
@@ -390,6 +395,11 @@
                     </MenuItem>
                     <MenuItem Header="Edit Cues in Cue Forge" Command="{Binding Operations.OpenInCueForgeCommand}">
                          <MenuItem.Icon><TextBlock Text="🎯" FontSize="12"/></MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="Write Cues to Serato Tags">
+                        <MenuItem.Icon><TextBlock Text="🏷️" FontSize="12"/></MenuItem.Icon>
+                        <MenuItem Header="Add ORBIT cues (keep Serato's)" Command="{Binding Operations.WriteSeratoCuesCommand}" CommandParameter="keep"/>
+                        <MenuItem Header="Replace all cues with ORBIT's…" Command="{Binding Operations.WriteSeratoCuesCommand}" CommandParameter="replace"/>
                     </MenuItem>
                     <Separator/>
                     <MenuItem Header="Set Colour">

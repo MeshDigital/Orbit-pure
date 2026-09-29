@@ -58,8 +58,102 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
         UseSelectedAsTriggerCommand = ReactiveCommand.Create(() => { if (SelectedCue != null) TriggerRequested?.Invoke(this, SelectedCue.Timestamp); }, hasSelection);
         UndoCommand = ReactiveCommand.Create(Undo, this.WhenAnyValue(x => x.CanUndo));
         RedoCommand = ReactiveCommand.Create(Redo, this.WhenAnyValue(x => x.CanRedo));
-        SaveCommand = ReactiveCommand.CreateFromTask(async () => { await SaveAsync(); }, this.WhenAnyValue(x => x.IsDirty));
+        SaveCommand = ReactiveCommand.CreateFromTask(async () => { if (await SaveAsync()) CuesChanged?.Invoke(this, EventArgs.Empty); }, this.WhenAnyValue(x => x.IsDirty));
         RevertCommand = ReactiveCommand.CreateFromTask(RevertAsync, this.WhenAnyValue(x => x.IsDirty));
+        SetDropHereCommand = ReactiveCommand.Create(() => SetDropAt(LastAuditionSeconds), hasTrack);
+        var canGenerate = this.WhenAnyValue(x => x.TrackHash, x => x.IsGenerating, (h, g) => !string.IsNullOrEmpty(h) && !g);
+        GenerateCuesCommand = ReactiveCommand.CreateFromTask<string>(GenerateCuesAsync, canGenerate);
+    }
+
+    // ── Generate / Drop (same flow as the library's "Regenerate Cues" and Cue Forge) ─────────
+
+    /// <summary>Regenerates this track's auto cues and returns (ok, message). Set by the host; the
+    /// same service as the library's right-click "Regenerate Cues" (ORBIT / + CUE-DETR / CUE-DETR only).</summary>
+    public Func<string, string?, SLSKDONET.Engine.Analysis.CueDetr.CueSourceMode, Task<(bool Ok, string Message)>>? CueGenerator { get; set; }
+
+    /// <summary>Cues were regenerated or explicitly saved — the host re-plans the transition from them.</summary>
+    public event EventHandler? CuesChanged;
+
+    public ReactiveCommand<Unit, Unit> SetDropHereCommand { get; }
+    /// <summary>Parameter "orbit", "compare" or "ai".</summary>
+    public ReactiveCommand<string, Unit> GenerateCuesCommand { get; }
+
+    private bool _isGenerating;
+    public bool IsGenerating { get => _isGenerating; private set => this.RaiseAndSetIfChanged(ref _isGenerating, value); }
+
+    private async Task GenerateCuesAsync(string? modeText)
+    {
+        if (TrackHash is not { } hash || CueGenerator == null) return;
+        var mode = modeText switch
+        {
+            "compare" => SLSKDONET.Engine.Analysis.CueDetr.CueSourceMode.Compare,
+            "ai" => SLSKDONET.Engine.Analysis.CueDetr.CueSourceMode.AiOnly,
+            _ => SLSKDONET.Engine.Analysis.CueDetr.CueSourceMode.Orbit,
+        };
+        // Unsaved edits are saved first: they become your own cues, which generation never replaces.
+        if (IsDirty && !await SaveAsync()) return;
+        IsGenerating = true;
+        StatusText = mode == SLSKDONET.Engine.Analysis.CueDetr.CueSourceMode.Orbit ? "Generating cues…" : "Generating cues with CUE-DETR (~10 s the first time)…";
+        try
+        {
+            var (ok, message) = await CueGenerator(hash, _filePath, mode);
+            if (ok && TrackHash == hash)
+            {
+                var stored = await _cueService.GetByTrackIdAsync(hash);
+                PushUndo();
+                SetCues(stored.Select(OrbitCue.FromEntity).ToList());
+                SelectedCue = null;
+                IsDirty = false;
+                CuesChanged?.Invoke(this, EventArgs.Empty);
+            }
+            StatusText = message;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Cue generation failed for {Hash}", hash);
+            StatusText = "✗ Couldn't generate cues";
+        }
+        finally { IsGenerating = false; }
+    }
+
+    /// <summary>
+    /// One click: makes a Drop where this deck was last auditioned — converting a cue already on
+    /// that beat, otherwise adding one — and places its countdown cues before it (Drop countdown
+    /// setting), exactly like setting a Drop in Cue Forge.
+    /// </summary>
+    private void SetDropAt(double seconds)
+    {
+        if (TrackHash is null) return;
+        PushUndo();
+        double t = Snap(seconds);
+        double halfBeat = _bpm > 0 ? 30.0 / _bpm : 0.1;
+        var cue = _cues.FirstOrDefault(c => !c.IsLoop && Math.Abs(c.Timestamp - t) <= halfBeat);
+        string? previousName = cue?.Name;
+        if (cue == null)
+        {
+            int freePad = Enumerable.Range(0, 8).FirstOrDefault(i => _cues.All(c => c.SlotIndex != i), -1);
+            cue = new OrbitCue { Timestamp = t, SlotIndex = freePad, Confidence = 1.0 };
+            _cues = _cues.Append(cue).ToList();
+        }
+        // Your drop replaces the analysis' guesses: clear the other auto cues first (so the
+        // drop is also numbered among the drops that remain).
+        cue.Source = CueSource.User;
+        int before = _cues.Count;
+        _cues = DropCountdownCues.WithoutAutoCues(_cues, cue);
+        int removed = before - _cues.Count;
+        if (cue.Role != CueRole.Drop)
+        {
+            int n = _cues.Count(c => c.Role == CueRole.Drop && !c.IsLoop) + 1;
+            while (_cues.Any(c => c.Name == $"Drop {n}")) n++;
+            cue.Name = $"Drop {n}";
+            cue.Role = CueRole.Drop;
+            cue.Color = CueForgeViewModel.RekordboxColorForRole(CueRole.Drop);
+        }
+        SetCues(WithCountdowns(_cues, cue, previousName != null && previousName != cue.Name ? previousName : null));
+        SelectedCue = cue;
+        MarkDirty($"{cue.Name} at {cue.TimestampDisplay} — countdown cues placed before it"
+                  + (removed > 0 ? $", {removed} auto cue{(removed == 1 ? "" : "s")} cleared (↶ to undo)" : ""));
+        Audition(cue.Timestamp);
     }
 
     /// <summary>"Outgoing" / "Incoming" — used in status text.</summary>
@@ -354,6 +448,7 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
         // The waveform has already moved the cue instance; snap it and record the edit. The undo
         // snapshot is taken from the pre-drag state held in the last published list's clones.
         double before = _dragOrigin.TryGetValue(cue, out var t) ? t : cue.Timestamp;
+        bool wasAuto = cue.Source == CueSource.Auto;
         cue.Timestamp = Snap(cue.Timestamp);
         cue.Source = CueSource.User;
         if (Math.Abs(cue.Timestamp - before) < 1e-6) { SetCues(_cues); return; }
@@ -361,7 +456,9 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
         _undo.Add(_cues.Select(c => c == cue ? WithTimestamp(c, before) : c.Clone()).ToList());
         _redo.Clear();
         UpdateUndoState();
-        SetCues(WithCountdowns(_cues, cue, null));
+        // Correcting an auto Drop by hand = the DJ chose the drop: clear the other auto cues.
+        var afterDrag = cue.Role == CueRole.Drop && wasAuto ? DropCountdownCues.WithoutAutoCues(_cues, cue) : _cues;
+        SetCues(WithCountdowns(afterDrag, cue, null));
         SelectedCue = cue;
         MarkDirty($"Moved {cue.Name} to {cue.TimestampDisplay}");
         CueMoved?.Invoke(this, (before, cue.Timestamp));
@@ -412,12 +509,16 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
         PushUndo();
         var previousName = cue.Name;
         var previousRole = cue.Role;
+        bool wasAuto = cue.Source == CueSource.Auto;
+        double previousTime = cue.Timestamp;
         edit(cue);
         cue.Source = CueSource.User;
         var keep = cue;
         var cues = _cues.AsEnumerable();
         // A drop that stopped being a drop leaves no orphaned countdowns behind.
         if (previousRole == CueRole.Drop && cue.Role != CueRole.Drop) cues = DropCountdownCues.RemoveFor(cues, previousName);
+        // A drop the DJ just set (or corrected from an auto one): the other auto cues go.
+        if (cue.Role == CueRole.Drop && (previousRole != CueRole.Drop || (wasAuto && cue.Timestamp != previousTime))) cues = DropCountdownCues.WithoutAutoCues(cues, cue);
         SetCues(WithCountdowns(cues, cue, previousName != cue.Name ? previousName : null));
         _selectedCue = keep;
         this.RaisePropertyChanged(nameof(SelectedCue));
