@@ -447,10 +447,14 @@
                             <StackPanel Spacing="4">
                                 <Grid ColumnDefinitions="*,Auto,Auto">
                                     <TextBlock Grid.Column="0" Text="ROLE" Foreground="#556270" FontSize="8" FontWeight="Bold" LetterSpacing="2" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" Text="Drop countdown" Foreground="#556270" FontSize="9" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                    <ComboBox Grid.Column="2" ItemsSource="{Binding DropCountdownModes}" SelectedItem="{Binding DropCountdownMode}"
-                                              FontSize="10" MinWidth="84" Padding="6,2"
-                                              ToolTip.Tip="When a cue is set to Drop (or a Drop is moved), countdown cues are placed this many bars before it: 'Auto' = 32/16/8 for DnB and breakbeat, 32/16 for house and techno. Off disables it."/>
+                                    <TextBlock Grid.Column="1" Text="Cue template" Foreground="#556270" FontSize="9" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+                                        <ComboBox ItemsSource="{Binding DropCountdownModes}" SelectedItem="{Binding DropCountdownMode}"
+                                                  FontSize="10" MinWidth="84" Padding="6,2"
+                                                  ToolTip.Tip="Build-in cues placed before every drop: DnB / Bass −16 −8, Long Blend / House −32 −16, Quick Mix / Hip-Hop −8 −4, Custom, or Auto (picked from the genre). Also used by automatic cue generation."/>
+                                        <TextBox Text="{Binding CustomCountdownBars, UpdateSourceTrigger=LostFocus}" IsVisible="{Binding IsCustomTemplate}"
+                                                 FontSize="10" Width="70" Padding="4,2" Watermark="32,16,8" ToolTip.Tip="Bars before the drop, comma-separated"/>
+                                    </StackPanel>
                                 </Grid>
                                 <ItemsControl ItemsSource="{Binding CueRoleOptions}">
                                     <ItemsControl.ItemsPanel>
@@ -522,9 +526,12 @@
                         <Grid ColumnDefinitions="*,Auto">
                             <TextBlock Text="CUE INSPECTOR" Foreground="#7C8B99" FontSize="9"
                                        FontWeight="Bold" LetterSpacing="2" VerticalAlignment="Center"/>
-                            <Button Grid.Column="1" Classes="cmd-primary"
-                                    Command="{Binding AddCueAtPlayheadCommand}"
-                                    Content="+ Add Cue" Padding="8,3" FontSize="10"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                <Button Classes="cmd-primary" Command="{Binding SetDropAtPlayheadCommand}" Content="◆ Drop" Padding="8,3" FontSize="10"
+                                        ToolTip.Tip="Drop at the playhead (key D; 1 / 2 force Drop 1 / Drop 2). Snapped to the bar; build-in cues, pads A–C / D–F, [OUT] on G and numbering are done for you, and the auto cues are removed."/>
+                                <Button Classes="cmd-secondary" Command="{Binding AddCueAtPlayheadCommand}" Content="+ Cue" Padding="8,3" FontSize="10"
+                                        ToolTip.Tip="Plain cue at the playhead. Placing your own cue removes the auto-generated ones."/>
+                            </StackPanel>
                         </Grid>
                     </Border>
 

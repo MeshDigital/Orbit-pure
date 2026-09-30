@@ -60,7 +60,9 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
         RedoCommand = ReactiveCommand.Create(Redo, this.WhenAnyValue(x => x.CanRedo));
         SaveCommand = ReactiveCommand.CreateFromTask(async () => { if (await SaveAsync()) CuesChanged?.Invoke(this, EventArgs.Empty); }, this.WhenAnyValue(x => x.IsDirty));
         RevertCommand = ReactiveCommand.CreateFromTask(RevertAsync, this.WhenAnyValue(x => x.IsDirty));
-        SetDropHereCommand = ReactiveCommand.Create(() => SetDropAt(LastAuditionSeconds), hasTrack);
+        SetDropHereCommand = ReactiveCommand.Create(() => SetDropAt(ListenSeconds), hasTrack);
+        SetDropAtCommand = ReactiveCommand.Create<double>(t => SetDropAt(t), hasTrack);
+        SetNumberedDropHereCommand = ReactiveCommand.Create<int>(n => SetDropAt(ListenSeconds, n), hasTrack);
         var canGenerate = this.WhenAnyValue(x => x.TrackHash, x => x.IsGenerating, (h, g) => !string.IsNullOrEmpty(h) && !g);
         GenerateCuesCommand = ReactiveCommand.CreateFromTask<string>(GenerateCuesAsync, canGenerate);
     }
@@ -74,7 +76,14 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
     /// <summary>Cues were regenerated or explicitly saved — the host re-plans the transition from them.</summary>
     public event EventHandler? CuesChanged;
 
+    /// <summary>This deck started playing (a waveform click or a cue) — the host routes the drop keys here.</summary>
+    public event EventHandler? Auditioned;
+
     public ReactiveCommand<Unit, Unit> SetDropHereCommand { get; }
+    /// <summary>Right-click "Drop here" on the waveform (seconds).</summary>
+    public ReactiveCommand<double, Unit> SetDropAtCommand { get; }
+    /// <summary>Keys 1 / 2: make this Drop 1 or Drop 2 where you are listening.</summary>
+    public ReactiveCommand<int, Unit> SetNumberedDropHereCommand { get; }
     /// <summary>Parameter "orbit", "compare" or "ai".</summary>
     public ReactiveCommand<string, Unit> GenerateCuesCommand { get; }
 
@@ -117,43 +126,63 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
     }
 
     /// <summary>
-    /// One click: makes a Drop where this deck was last auditioned — converting a cue already on
-    /// that beat, otherwise adding one — and places its countdown cues before it (Drop countdown
-    /// setting), exactly like setting a Drop in Cue Forge.
+    /// The one-click drop (◆ Drop, right-click "Drop here", keys D / 1 / 2): puts a drop where you
+    /// are listening — snapped to the bar — and lets <see cref="DropCountdownCues.PlaceDrop"/> do
+    /// the rest: numbering by position (or <paramref name="number"/>), [IN -n] countdowns from the
+    /// cue template, pads A–C / D–F, [OUT] on G after the last drop, and removing the analysis'
+    /// auto cues. One undo step.
     /// </summary>
-    private void SetDropAt(double seconds)
+    private void SetDropAt(double seconds, int? number = null)
     {
         if (TrackHash is null) return;
         PushUndo();
-        double t = Snap(seconds);
-        double halfBeat = _bpm > 0 ? 30.0 / _bpm : 0.1;
-        var cue = _cues.FirstOrDefault(c => !c.IsLoop && Math.Abs(c.Timestamp - t) <= halfBeat);
-        string? previousName = cue?.Name;
-        if (cue == null)
-        {
-            int freePad = Enumerable.Range(0, 8).FirstOrDefault(i => _cues.All(c => c.SlotIndex != i), -1);
-            cue = new OrbitCue { Timestamp = t, SlotIndex = freePad, Confidence = 1.0 };
-            _cues = _cues.Append(cue).ToList();
-        }
-        // Your drop replaces the analysis' guesses: clear the other auto cues first (so the
-        // drop is also numbered among the drops that remain).
-        cue.Source = CueSource.User;
-        int before = _cues.Count;
-        _cues = DropCountdownCues.WithoutAutoCues(_cues, cue);
-        int removed = before - _cues.Count;
-        if (cue.Role != CueRole.Drop)
-        {
-            int n = _cues.Count(c => c.Role == CueRole.Drop && !c.IsLoop) + 1;
-            while (_cues.Any(c => c.Name == $"Drop {n}")) n++;
-            cue.Name = $"Drop {n}";
-            cue.Role = CueRole.Drop;
-            cue.Color = CueForgeViewModel.RekordboxColorForRole(CueRole.Drop);
-        }
-        SetCues(WithCountdowns(_cues, cue, previousName != null && previousName != cue.Name ? previousName : null));
-        SelectedCue = cue;
-        MarkDirty($"{cue.Name} at {cue.TimestampDisplay} — countdown cues placed before it"
-                  + (removed > 0 ? $", {removed} auto cue{(removed == 1 ? "" : "s")} cleared (↶ to undo)" : ""));
-        Audition(cue.Timestamp);
+        double t = SnapDrop(seconds);
+        int autoBefore = _cues.Count(c => c.Source == CueSource.Auto);
+        var list = DropCountdownCues.PlaceDrop(_cues, t, number, CountdownBars, _bpm, _downbeat, _duration, out var drop);
+        int autoCleared = autoBefore - list.Count(c => c.Source == CueSource.Auto);
+        SetCues(list);
+        SelectedCue = drop;
+        int countdowns = list.Count(c => DropCountdownCues.IsCountdownFor(c, drop.Timestamp, _bpm));
+        MarkDirty($"{drop.Name} at {drop.TimestampDisplay}"
+                  + (countdowns > 0 ? $" · {countdowns} build-in cue{(countdowns == 1 ? "" : "s")}" : "")
+                  + (autoCleared > 0 ? $" · {autoCleared} auto cue{(autoCleared == 1 ? "" : "s")} removed (↶ undo)" : ""));
+        // While listening, keep playing; otherwise let the drop be heard.
+        if (_previewPlayer?.IsPreviewPlaying != true) Audition(drop.Timestamp);
+    }
+
+    /// <summary>Where you are listening on this deck: the preview's live position when it is
+    /// playing this track, else the last audition point.</summary>
+    public double ListenSeconds =>
+        _previewPlayer is { IsPreviewPlaying: true } p && p.CurrentPreviewPath == _filePath && p.PositionSeconds is { } pos
+            ? pos
+            : LastAuditionSeconds;
+
+    /// <summary>Drops land on a bar line (a phrase line with Phrase snapping; unsnapped only when snapping is Off).</summary>
+    private double SnapDrop(double seconds)
+    {
+        if (SnapMode == CueSnapMode.Off || SnapMode == CueSnapMode.Phrase) return Snap(seconds);
+        var mode = SnapMode;
+        _snapMode = CueSnapMode.Bar;
+        try { return Snap(seconds); } finally { _snapMode = mode; }
+    }
+
+    private IReadOnlyList<int> CountdownBars => DropCountdownCues.ResolveBars(DropCountdownMode, _genre, _bpm, CustomCountdownBars);
+
+    /// <summary>[OUT] position for the drops as they were before an edit (to move it along).</summary>
+    private double? OutBefore(OrbitCue? moved = null, double movedFrom = 0)
+    {
+        var drops = _cues.Where(c => c.Role == CueRole.Drop && !c.IsLoop)
+            .Select(c => c == moved ? movedFrom : c.Timestamp).ToList();
+        return drops.Count == 0 ? null : DropCountdownCues.OutTime(drops.Max(), _bpm, _downbeat, _duration);
+    }
+
+    /// <summary>Taking manual control: once you place or move a cue yourself, the analysis' auto
+    /// cues leave the waveform (and the track, when saved). Returns how many were removed.</summary>
+    private int ClearAutoCues(ref List<OrbitCue> list, OrbitCue keep)
+    {
+        int before = list.Count;
+        list = DropCountdownCues.WithoutAutoCues(list, keep);
+        return before - list.Count;
     }
 
     /// <summary>"Outgoing" / "Incoming" — used in status text.</summary>
@@ -269,17 +298,53 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
         {
             if (_dropCountdownMode == value) return;
             this.RaiseAndSetIfChanged(ref _dropCountdownMode, value);
+            this.RaisePropertyChanged(nameof(IsCustomTemplate));
+            this.RaisePropertyChanged(nameof(TemplateHint));
             DropCountdownModeChanged?.Invoke(this, value);
         }
     }
 
     public event EventHandler<string>? DropCountdownModeChanged;
 
-    /// <summary>Sets the mode without raising <see cref="DropCountdownModeChanged"/> (loading it from config).</summary>
-    public void InitDropCountdownMode(string mode)
+    /// <summary>Sets the template without raising <see cref="DropCountdownModeChanged"/> (loading it from config).</summary>
+    public void InitDropCountdownMode(string mode, string? customBars = null)
     {
-        _dropCountdownMode = DropCountdownCues.Modes.Contains(mode) ? mode : DropCountdownCues.Auto;
+        (_dropCountdownMode, _customCountdownBars) = DropCountdownCues.Normalize(mode, customBars ?? _customCountdownBars);
         this.RaisePropertyChanged(nameof(DropCountdownMode));
+        this.RaisePropertyChanged(nameof(CustomCountdownBars));
+        this.RaisePropertyChanged(nameof(IsCustomTemplate));
+        this.RaisePropertyChanged(nameof(TemplateHint));
+    }
+
+    private string _customCountdownBars = DropCountdownCues.DefaultCustomBars;
+    /// <summary>Bars before the drop for the Custom template, e.g. "32,16,8".</summary>
+    public string CustomCountdownBars
+    {
+        get => _customCountdownBars;
+        set
+        {
+            if (_customCountdownBars == value) return;
+            this.RaiseAndSetIfChanged(ref _customCountdownBars, value);
+            this.RaisePropertyChanged(nameof(TemplateHint));
+            CustomCountdownBarsChanged?.Invoke(this, value);
+        }
+    }
+
+    public event EventHandler<string>? CustomCountdownBarsChanged;
+
+    public bool IsCustomTemplate => DropCountdownMode == DropCountdownCues.Custom;
+
+    /// <summary>What the template does for this track, e.g. "Auto → DnB / Bass (−16 −8)".</summary>
+    public string TemplateHint
+    {
+        get
+        {
+            var bars = CountdownBars;
+            string what = bars.Count == 0 ? "no build-in cues" : string.Join(" ", bars.Select(b => $"−{b}")) + " bars";
+            return DropCountdownMode == DropCountdownCues.Auto && TrackHash != null
+                ? $"Auto → {DropCountdownCues.AutoTemplate(_genre, _bpm)}"
+                : what;
+        }
     }
 
     // ── Main-player hold ────────────────────────────────────────────────────────────────────
@@ -426,9 +491,11 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
             SlotIndex = freePad,
             Confidence = 1.0,
         };
-        SetCues(_cues.Append(cue).ToList());
+        var list = _cues.Append(cue).ToList();
+        int cleared = ClearAutoCues(ref list, cue);
+        SetCues(list);
         SelectedCue = cue;
-        MarkDirty($"Added {cue.Name} at {cue.TimestampDisplay}");
+        MarkDirty($"Added {cue.Name} at {cue.TimestampDisplay}" + (cleared > 0 ? $" · {cleared} auto cues removed (↶ undo)" : ""));
         Audition(cue.Timestamp);
     }
 
@@ -436,9 +503,14 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
     {
         if (SelectedCue is not { } cue) return;
         PushUndo();
-        var remaining = _cues.Where(c => c != cue);
-        if (cue.Role == CueRole.Drop) remaining = DropCountdownCues.RemoveFor(remaining, cue.Name);
-        SetCues(remaining.ToList());
+        var remaining = _cues.Where(c => c != cue).ToList();
+        if (cue.Role == CueRole.Drop)
+        {
+            double? outBefore = OutBefore();
+            remaining = DropCountdownCues.RemoveFor(remaining, cue.Timestamp, _bpm);
+            remaining = DropCountdownCues.Refresh(remaining, CountdownBars, _bpm, _downbeat, _duration, outBefore);
+        }
+        SetCues(remaining);
         SelectedCue = null;
         MarkDirty($"Deleted {cue.Name}");
     }
@@ -456,9 +528,16 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
         _undo.Add(_cues.Select(c => c == cue ? WithTimestamp(c, before) : c.Clone()).ToList());
         _redo.Clear();
         UpdateUndoState();
-        // Correcting an auto Drop by hand = the DJ chose the drop: clear the other auto cues.
-        var afterDrag = cue.Role == CueRole.Drop && wasAuto ? DropCountdownCues.WithoutAutoCues(_cues, cue) : _cues;
-        SetCues(WithCountdowns(afterDrag, cue, null));
+        // Moving an auto cue = taking manual control: the other auto cues go.
+        var afterDrag = _cues.ToList();
+        if (wasAuto) ClearAutoCues(ref afterDrag, cue);
+        if (cue.Role == CueRole.Drop)
+        {
+            double? outBefore = OutBefore(cue, before);
+            afterDrag = DropCountdownCues.Rebuild(afterDrag, cue, CountdownBars, _bpm, previousDropTime: before);
+            afterDrag = DropCountdownCues.Refresh(afterDrag, CountdownBars, _bpm, _downbeat, _duration, outBefore);
+        }
+        SetCues(afterDrag);
         SelectedCue = cue;
         MarkDirty($"Moved {cue.Name} to {cue.TimestampDisplay}");
         CueMoved?.Invoke(this, (before, cue.Timestamp));
@@ -514,12 +593,33 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
         edit(cue);
         cue.Source = CueSource.User;
         var keep = cue;
-        var cues = _cues.AsEnumerable();
-        // A drop that stopped being a drop leaves no orphaned countdowns behind.
-        if (previousRole == CueRole.Drop && cue.Role != CueRole.Drop) cues = DropCountdownCues.RemoveFor(cues, previousName);
-        // A drop the DJ just set (or corrected from an auto one): the other auto cues go.
-        if (cue.Role == CueRole.Drop && (previousRole != CueRole.Drop || (wasAuto && cue.Timestamp != previousTime))) cues = DropCountdownCues.WithoutAutoCues(cues, cue);
-        SetCues(WithCountdowns(cues, cue, previousName != cue.Name ? previousName : null));
+        var cues = _cues.ToList();
+        bool moved = Math.Abs(cue.Timestamp - previousTime) > 1e-6;
+        if (previousRole == CueRole.Drop && cue.Role != CueRole.Drop)
+        {
+            // A drop that stopped being a drop leaves no orphaned countdowns behind.
+            double? outBefore = OutBefore(cue, previousTime);
+            cues = DropCountdownCues.RemoveFor(cues, previousTime, _bpm);
+            cues = DropCountdownCues.Refresh(cues, CountdownBars, _bpm, _downbeat, _duration, outBefore);
+        }
+        else if (cue.Role == CueRole.Drop && previousRole != CueRole.Drop)
+        {
+            // Picking Drop as the role = placing a drop: same automation as ◆ Drop.
+            cue.Role = previousRole;
+            cues = DropCountdownCues.PlaceDrop(cues, cue.Timestamp, null, CountdownBars, _bpm, _downbeat, _duration, out keep);
+        }
+        else if (cue.Role == CueRole.Drop && moved)
+        {
+            double? outBefore = OutBefore(cue, previousTime);
+            if (wasAuto) ClearAutoCues(ref cues, cue);
+            cues = DropCountdownCues.Rebuild(cues, cue, CountdownBars, _bpm, previousDropTime: previousTime);
+            cues = DropCountdownCues.Refresh(cues, CountdownBars, _bpm, _downbeat, _duration, outBefore);
+        }
+        else if (moved && wasAuto)
+        {
+            ClearAutoCues(ref cues, cue);
+        }
+        SetCues(cues);
         _selectedCue = keep;
         this.RaisePropertyChanged(nameof(SelectedCue));
         this.RaisePropertyChanged(nameof(SelectedRole));
@@ -529,13 +629,6 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
         MarkDirty($"Edited {cue.Name}");
     }
 
-    /// <summary>Rebuilds <paramref name="cue"/>'s countdown cues when it's a Drop (mode permitting).</summary>
-    private List<OrbitCue> WithCountdowns(IEnumerable<OrbitCue> cues, OrbitCue cue, string? previousName)
-    {
-        if (cue.Role != CueRole.Drop) return cues.ToList();
-        var bars = DropCountdownCues.ResolveBars(DropCountdownMode, _genre, _bpm);
-        return DropCountdownCues.Rebuild(cues, cue, bars, _bpm, previousName);
-    }
 
     /// <summary>Plays this deck from <paramref name="seconds"/> through the preview player, pausing
     /// the main player first if it's playing (resumed on save or <see cref="EndAudition"/>).</summary>
@@ -543,6 +636,7 @@ public sealed class TrackCueEditorViewModel : ReactiveObject
     {
         if (string.IsNullOrEmpty(_filePath) || _previewPlayer == null) return;
         LastAuditionSeconds = seconds;
+        Auditioned?.Invoke(this, EventArgs.Empty);
         if (!_holdingMainPlayback && HoldMainPlayback?.Invoke() == true) _holdingMainPlayback = true;
         // startSeconds 0 means "hover preview" (debounced) to the preview player — use a hair above.
         _previewPlayer.RequestPreview(_filePath, _bpm > 0 ? _bpm : null, Math.Max(seconds, 0.001));

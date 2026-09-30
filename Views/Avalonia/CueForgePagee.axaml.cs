@@ -69,6 +69,17 @@ public partial class CueForgePagee : UserControl
                 e.Handled = true;
                 break;
 
+            // D → drop at the playhead (numbered by position); 1 / 2 → Drop 1 / Drop 2.
+            case Key.D when none:
+                vm.SetDropAtPlayheadCommand.Execute().Subscribe();
+                e.Handled = true;
+                break;
+            case Key.D1 or Key.NumPad1 when none:
+            case Key.D2 or Key.NumPad2 when none:
+                vm.SetNumberedDropAtPlayheadCommand.Execute(e.Key is Key.D1 or Key.NumPad1 ? 1 : 2).Subscribe();
+                e.Handled = true;
+                break;
+
             // Delete → remove selected cue
             case Key.Delete when none:
                 if (vm.SelectedCue != null)

@@ -64,13 +64,13 @@
 
             <!-- Toolbar -->
             <WrapPanel>
-                <Button Classes="ce accent" Command="{Binding AddCueAtAuditionCommand}"
-                        ToolTip.Tip="Add a cue where you last auditioned this track (click the waveform to audition). Right-click the waveform adds one at that exact spot.">
-                    <TextBlock Text="＋ Cue at audition point"/>
+                <Button Classes="ce accent" Command="{Binding SetDropHereCommand}"
+                        ToolTip.Tip="Drop where you're listening (click the waveform, listen, press this or D). Snapped to the bar; the build-in cues, pads (A–C Drop 1, D–F Drop 2), [OUT] on G and numbering are done for you, and the auto cues are removed. Keys 1 / 2 force Drop 1 / Drop 2. Right-click the waveform: Drop here.">
+                    <TextBlock Text="◆ Drop"/>
                 </Button>
-                <Button Classes="ce" Command="{Binding SetDropHereCommand}"
-                        ToolTip.Tip="Make a Drop where you last auditioned (click the waveform on the drop first). A cue already on that beat becomes the Drop; countdown cues are placed before it (Drop countdown setting).">
-                    <TextBlock Text="◆ Drop here" Foreground="#FF8A80"/>
+                <Button Classes="ce" Command="{Binding AddCueAtAuditionCommand}"
+                        ToolTip.Tip="Add a plain cue where you last auditioned. Right-click the waveform adds one at that exact spot. Placing your own cue removes the auto-generated ones.">
+                    <TextBlock Text="＋ Cue"/>
                 </Button>
                 <Button Classes="ce" IsEnabled="{Binding !IsGenerating}"
                         ToolTip.Tip="Regenerate this track's cues — same as the library's right-click 'Regenerate Cues'. Your own placed/edited cues are kept.">
@@ -89,10 +89,14 @@
                 <ComboBox ItemsSource="{Binding SnapModes}" SelectedItem="{Binding SnapMode}"
                           FontSize="10" MinWidth="78" Margin="0,0,8,4" Padding="6,2"
                           ToolTip.Tip="New and moved cues land on this grid (the track's analysed beats)"/>
-                <TextBlock Classes="lbl" Text="Drop countdown"/>
+                <TextBlock Classes="lbl" Text="Cue template"/>
                 <ComboBox ItemsSource="{Binding DropCountdownModes}" SelectedItem="{Binding DropCountdownMode}"
-                          FontSize="10" MinWidth="84" Margin="0,0,8,4" Padding="6,2"
-                          ToolTip.Tip="When a cue is set to Drop (or a Drop is moved/renamed), countdown cues are placed this many bars before it: 'Auto' = 32/16/8 for DnB and breakbeat, 32/16 for house and techno. Off disables it. Shared with Cue Forge."/>
+                          FontSize="10" MinWidth="84" Margin="0,0,4,4" Padding="6,2"
+                          ToolTip.Tip="Build-in cues placed before every drop: DnB / Bass −16 −8, Long Blend / House −32 −16, Quick Mix / Hip-Hop −8 −4, Custom, or Auto (picked from the genre). Also used by automatic cue generation. Shared with Cue Forge."/>
+                <TextBox Text="{Binding CustomCountdownBars, UpdateSourceTrigger=LostFocus}" IsVisible="{Binding IsCustomTemplate}"
+                         FontSize="10" Width="70" Padding="4,2" Margin="0,0,4,4" Watermark="32,16,8"
+                         ToolTip.Tip="Bars before the drop, comma-separated"/>
+                <TextBlock Classes="lbl" Text="{Binding TemplateHint}" Foreground="#4E6A7C" Margin="0,0,8,4"/>
                 <Button Classes="ce" Command="{Binding UndoCommand}" ToolTip.Tip="Undo"><TextBlock Text="↶"/></Button>
                 <Button Classes="ce" Command="{Binding RedoCommand}" ToolTip.Tip="Redo"><TextBlock Text="↷"/></Button>
                 <Button Classes="ce" Command="{Binding RevertCommand}" ToolTip.Tip="Throw away unsaved edits for this track"><TextBlock Text="Revert"/></Button>
