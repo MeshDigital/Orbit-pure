@@ -84,7 +84,7 @@ public class CueGenerationServiceTests
         var analysis = MlAnalysis(dropStartSeconds: 150.0);
 
         var cues = service.GenerateCues("hash", analysis, DownbeatAnchor);
-        var drop1 = cues.First(c => c.Label == "Drop 1");
+        var drop1 = cues.First(c => c.Label == "[DROP 1]");
 
         double fallbackTime = DurationSeconds * 0.35;
         Assert.True(Math.Abs(drop1.TimestampInSeconds - fallbackTime) > 20,
@@ -102,7 +102,7 @@ public class CueGenerationServiceTests
         var analysis = DspAnalysis(subBassReturnSeconds: realDropTime);
 
         var cues = service.GenerateCues("hash", analysis, DownbeatAnchor);
-        var drop1 = cues.First(c => c.Label == "Drop 1");
+        var drop1 = cues.First(c => c.Label == "[DROP 1]");
 
         Assert.True(Math.Abs(drop1.TimestampInSeconds - fallbackTime) > 15,
             "Drop 1 landed on the no-signal fallback position instead of the real sub-bass return candidate.");
@@ -148,7 +148,7 @@ public class CueGenerationServiceTests
         };
 
         var cues = service.GenerateCues("hash", analysis, DownbeatAnchor);
-        var drop2 = cues.First(c => c.Label == "Drop 2");
+        var drop2 = cues.First(c => c.Label == "[DROP 2]");
 
         // Path 1 (phrase) would have placed Drop 2 at ~65s (the second phrase "Drop" entry) —
         // landing near the DSP-only candidate at 200s instead proves the reroute happened.
@@ -188,7 +188,7 @@ public class CueGenerationServiceTests
         };
 
         var cues = service.GenerateCues("hash", analysis, DownbeatAnchor);
-        var drop2 = cues.First(c => c.Label == "Drop 2");
+        var drop2 = cues.First(c => c.Label == "[DROP 2]");
 
         Assert.InRange(drop2.TimestampInSeconds, 55.0, 75.0);
     }
@@ -215,7 +215,7 @@ public class CueGenerationServiceTests
         };
 
         var cues = service.GenerateCues("hash", analysis, DownbeatAnchor);
-        var drop1 = cues.First(c => c.Label == "Drop 1");
+        var drop1 = cues.First(c => c.Label == "[DROP 1]");
 
         Assert.InRange(drop1.TimestampInSeconds, 50.0, 70.0);
     }
@@ -252,7 +252,7 @@ public class CueGenerationServiceTests
         analysis.Genre = "House";
 
         var cues = service.GenerateCues("hash", analysis, DownbeatAnchor);
-        var drop1 = cues.First(c => c.Label == "Drop 1");
+        var drop1 = cues.First(c => c.Label == "[DROP 1]");
         var builds = cues.Where(c => c.Type == CuePointType.Build && c.TimestampInSeconds < drop1.TimestampInSeconds)
             .OrderBy(c => c.TimestampInSeconds).ToList();
 
@@ -292,8 +292,8 @@ public class CueGenerationServiceTests
         };
 
         var cues = service.GenerateCues("hash", analysis, DownbeatAnchor);
-        var drop1 = cues.First(c => c.Label == "Drop 1");
-        var drop2 = cues.First(c => c.Label == "Drop 2");
+        var drop1 = cues.First(c => c.Label == "[DROP 1]");
+        var drop2 = cues.First(c => c.Label == "[DROP 2]");
 
         Assert.InRange(drop1.TimestampInSeconds, 60, 72);
         Assert.InRange(drop2.TimestampInSeconds, 172, 182);
@@ -331,8 +331,8 @@ public class CueGenerationServiceTests
         };
 
         var cues = service.GenerateCues("hash", analysis, DownbeatAnchor);
-        var drop1 = cues.First(c => c.Label == "Drop 1");
-        var drop2 = cues.First(c => c.Label == "Drop 2");
+        var drop1 = cues.First(c => c.Label == "[DROP 1]");
+        var drop2 = cues.First(c => c.Label == "[DROP 2]");
 
         Assert.InRange(drop1.TimestampInSeconds, 40, 49);
         // Must land on the real, separate third candidate (~199.67s), not the second fragment of

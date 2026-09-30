@@ -209,6 +209,7 @@ public class ConfigManager
 
                 // [Cues]
                 DropCountdownMode = string.IsNullOrWhiteSpace(config["Cues:DropCountdownMode"]) ? "Auto" : config["Cues:DropCountdownMode"]!,
+                CustomCountdownBars = string.IsNullOrWhiteSpace(config["Cues:CustomCountdownBars"]) ? "32,16,8" : config["Cues:CustomCountdownBars"]!,
 
                 // [Discover]
                 DiscoverUseBeatport = !bool.TryParse(config["Discover:UseBeatport"], out var dub) || dub,
@@ -430,6 +431,7 @@ public class ConfigManager
         iniContent.AppendLine();
         iniContent.AppendLine("[Cues]");
         iniContent.AppendLine($"DropCountdownMode = {config.DropCountdownMode}");
+        iniContent.AppendLine($"CustomCountdownBars = {config.CustomCountdownBars}");
 
         iniContent.AppendLine();
         iniContent.AppendLine("[Discover]");

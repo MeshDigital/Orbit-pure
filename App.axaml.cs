@@ -836,7 +836,19 @@ public partial class App : Application
             new SLSKDONET.Engine.Analysis.AnalysisPipeline(
                 sp.GetRequiredService<SLSKDONET.Services.AudioAnalysis.AudioIngestionPipeline>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SLSKDONET.Engine.Analysis.AnalysisPipeline>>()));
-        services.AddSingleton<SLSKDONET.Engine.Cueing.CueGenerationService>();
+        services.AddSingleton<SLSKDONET.Engine.Cueing.CueGenerationService>(sp =>
+        {
+            var generator = ActivatorUtilities.CreateInstance<SLSKDONET.Engine.Cueing.CueGenerationService>(sp);
+            // Build-in cues follow the cue template chosen in the editors (read at generation time).
+            var configManager = sp.GetRequiredService<ConfigManager>();
+            generator.CountdownBars = (genre, bpm) =>
+            {
+                var config = configManager.GetCurrent();
+                var bars = SLSKDONET.Engine.Cueing.DropCountdownCues.ResolveBars(config.DropCountdownMode, genre, bpm, config.CustomCountdownBars);
+                return bars.Count > 0 ? bars : new[] { 16, 8 }; // "Off" only affects manual editing
+            };
+            return generator;
+        });
         services.AddSingleton<Services.AnalysisQueueService>();
 
         // ── Task 1.5: Beatgrid Detection ──────────────────────────────────

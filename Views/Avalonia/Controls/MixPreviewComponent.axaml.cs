@@ -37,6 +37,16 @@ namespace SLSKDONET.Views.Avalonia.Controls
 
         private void OnKeyDownTunnel(object? sender, KeyEventArgs e)
         {
+            // D = drop where you're listening (numbered by position), 1 / 2 = Drop 1 / Drop 2.
+            if (e.Key is (Key.D or Key.D1 or Key.D2 or Key.NumPad1 or Key.NumPad2) && e.KeyModifiers == KeyModifiers.None)
+            {
+                if (DataContext is not MixTransitionViewModel { IsCueEditMode: true } mix) return;
+                if (IsInside<TextBox>(e.Source) || IsInside<ComboBox>(e.Source)) return;
+                string key = e.Key switch { Key.D1 or Key.NumPad1 => "1", Key.D2 or Key.NumPad2 => "2", _ => "d" };
+                mix.DropKeyCommand.Execute(key).Subscribe();
+                e.Handled = true;
+                return;
+            }
             if (e.Key is not (Key.Left or Key.Right)) return;
             if (DataContext is not MixTransitionViewModel { IsCueEditMode: true } vm || vm.ActiveEditor?.SelectedCue == null) return;
             // Typing in the cue name box or an open dropdown keeps its own arrow behaviour.

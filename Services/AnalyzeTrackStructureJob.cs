@@ -194,7 +194,8 @@ public sealed class AnalyzeTrackStructureJob
                 features.VocalStartSeconds.HasValue ? (double?)features.VocalStartSeconds.Value : null,
                 features.VocalEndSeconds.HasValue ? (double?)features.VocalEndSeconds.Value : null,
                 features.VocalIntensity > 0 ? (double?)features.VocalIntensity : null,
-                cancellationToken);
+                cancellationToken,
+                skipIfManualDrops: true); // drops you placed by hand own the track
 
             // Step 7: Mark structural analysis version on the features entity
             features.StructuralVersion += 1;

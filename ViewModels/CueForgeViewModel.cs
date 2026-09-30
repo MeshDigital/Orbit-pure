@@ -599,6 +599,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         var canAct = hasTrack.CombineLatest(notGenerating, (h, g) => h && g);
 
         AddCueAtPlayheadCommand = ReactiveCommand.CreateFromTask(AddCueAtPlayheadAsync, canAct);
+        SetDropAtPlayheadCommand = ReactiveCommand.Create(() => SetDropAt(CurrentPlayPosition, null), canAct);
+        SetNumberedDropAtPlayheadCommand = ReactiveCommand.Create<int>(n => SetDropAt(CurrentPlayPosition, n), canAct);
         AutoGenerateCuesCommand = ReactiveCommand.CreateFromTask(AutoGenerateCuesAsync, canAct);
         DeleteCueCommand = ReactiveCommand.CreateFromTask<OrbitCue>(DeleteCueAsync, canAct);
         SetLoopInCommand = ReactiveCommand.CreateFromTask(SetLoopInAsync, canAct);
@@ -651,7 +653,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         // pre-drag position. Pushing on every hit (not just once a real drag happens) is cheap
         // and harmless; a plain click that never moves the cue just leaves a no-op snapshot on
         // the stack.
-        CueDragStartedCommand = ReactiveCommand.Create<OrbitCue>(_ => PushSnapshot());
+        CueDragStartedCommand = ReactiveCommand.Create<OrbitCue>(c => { PushSnapshot(); _dragStart = (c, c.Timestamp); });
         // Fired on OnPointerReleased once a drag actually moved something. The control mutates
         // cue.Timestamp/LoopEndSeconds directly on the shared OrbitCue reference during the drag
         // (no ObservableCollection add/remove, so WorkingCues.CollectionChanged never fires) —
@@ -662,7 +664,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             bool wasAuto = cue.Source == CueSource.Auto;
             if (wasAuto) cue.Source = CueSource.User;
             HasUncommittedChanges = true;
-            ApplyDropCountdowns(cue, null, userSetDrop: wasAuto);
+            double from = _dragStart.Cue == cue ? _dragStart.From : cue.Timestamp;
+            ApplyCueMoved(cue, from, wasAuto);
         });
         SetSelectedCueRoleCommand  = ReactiveCommand.Create<CueRole>(SetSelectedCueRole, canAct);
         SetSelectedCueColorCommand = ReactiveCommand.Create<string>(SetSelectedCueColor, canAct);
@@ -811,6 +814,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             {
                 Bpm = (int)Math.Round(Math.Max(60, features.Bpm));
                 _preciseBpm = features.Bpm > 0 ? features.Bpm : Bpm;
+                _downbeat = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
                 _genre = !string.IsNullOrWhiteSpace(features.DetectedSubGenre) ? features.DetectedSubGenre : features.ElectronicSubgenre;
                 TrackDuration = features.TrackDuration > 0 ? features.TrackDuration : 300.0;
                 TrackEnergyScore = features.EnergyScore;
@@ -933,6 +937,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             SlotIndex = nextSlot
         };
         InsertCueSorted(cue);
+        ClearAutoCues(cue);
         SelectedCue = cue;
         await Task.CompletedTask;
     }
@@ -1006,9 +1011,13 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     {
         if (TrackHash is null) return;
         PushSnapshot();
+        double? outBefore = cue.Role == CueRole.Drop ? OutBefore() : null;
         WorkingCues.Remove(cue);
         if (cue.Role == CueRole.Drop)
-            ReplaceWorkingCues(Engine.Cueing.DropCountdownCues.RemoveFor(WorkingCues, cue.Name));
+        {
+            var left = Engine.Cueing.DropCountdownCues.RemoveFor(WorkingCues, cue.Timestamp, DropBpm);
+            ReplaceWorkingCues(Engine.Cueing.DropCountdownCues.Refresh(left, CountdownBars, DropBpm, _downbeat, TrackDuration, outBefore));
+        }
         HasCommitError = false;
         LastCommitMessage = $"Deleted \"{cue.Name}\" — Ctrl+Z to undo";
         await Task.CompletedTask;
@@ -1360,10 +1369,11 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         if (delta == 0) return;
         PushSnapshot();
         var cue = SelectedCue;
+        double from = cue.Timestamp;
         cue.Timestamp = Math.Clamp(cue.Timestamp + delta, 0, TrackDuration);
         bool wasAuto = cue.Source == CueSource.Auto;
         cue.Source = CueSource.User;
-        ApplyDropCountdowns(cue, null, userSetDrop: wasAuto);
+        ApplyCueMoved(cue, from, wasAuto);
         HasUncommittedChanges = true;
         RefreshHotCuePads();
         PlayFromCue(cue);
@@ -1386,37 +1396,95 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     public static IReadOnlyList<string> DropCountdownModes => Engine.Cueing.DropCountdownCues.Modes;
 
-    /// <summary>Countdown cues placed before a Drop (see Engine.Cueing.DropCountdownCues) — the same
-    /// app-wide setting the Flow Builder cue editor uses.</summary>
+    /// <summary>Cue template (see Engine.Cueing.DropCountdownCues) — the same app-wide setting the
+    /// Flow Builder cue editor and automatic cue generation use.</summary>
     public string DropCountdownMode
     {
-        get => string.IsNullOrWhiteSpace(_config.DropCountdownMode) ? Engine.Cueing.DropCountdownCues.Auto : _config.DropCountdownMode;
+        get => Engine.Cueing.DropCountdownCues.Normalize(_config.DropCountdownMode, _config.CustomCountdownBars).Mode;
         set
         {
             if (value == DropCountdownMode) return;
             _config.DropCountdownMode = value;
-            try { _configManager.Save(_config); } catch (Exception ex) { _logger.LogWarning(ex, "Couldn't save Drop countdown setting"); }
+            try { _configManager.Save(_config); } catch (Exception ex) { _logger.LogWarning(ex, "Couldn't save the cue template"); }
+            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(IsCustomTemplate));
+        }
+    }
+
+    /// <summary>Bars before the drop for the Custom template, e.g. "32,16,8".</summary>
+    public string CustomCountdownBars
+    {
+        get => Engine.Cueing.DropCountdownCues.Normalize(_config.DropCountdownMode, _config.CustomCountdownBars).CustomBars;
+        set
+        {
+            if (value == CustomCountdownBars) return;
+            _config.CustomCountdownBars = value;
+            try { _configManager.Save(_config); } catch (Exception ex) { _logger.LogWarning(ex, "Couldn't save the custom cue template"); }
             this.RaisePropertyChanged();
         }
     }
 
-    /// <summary>Rebuilds <paramref name="cue"/>'s countdown cues in the working set when it's a Drop.
-    /// <paramref name="userSetDrop"/>: the DJ just made or corrected this drop, so the other auto
-    /// cues are cleared to keep the waveform readable (Ctrl+Z restores them).</summary>
-    private void ApplyDropCountdowns(OrbitCue cue, string? previousName, bool userSetDrop = false)
+    public bool IsCustomTemplate => DropCountdownMode == Engine.Cueing.DropCountdownCues.Custom;
+
+    public ReactiveCommand<Unit, Unit> SetDropAtPlayheadCommand { get; }
+    /// <summary>Keys 1 / 2: make the playhead Drop 1 or Drop 2.</summary>
+    public ReactiveCommand<int, Unit> SetNumberedDropAtPlayheadCommand { get; }
+
+    private double _downbeat;
+    private (OrbitCue? Cue, double From) _dragStart;
+    private double DropBpm => _preciseBpm > 0 ? _preciseBpm : Bpm;
+    private IReadOnlyList<int> CountdownBars =>
+        Engine.Cueing.DropCountdownCues.ResolveBars(DropCountdownMode, _genre, DropBpm, CustomCountdownBars);
+
+    /// <summary>
+    /// ◆ Drop / keys D, 1, 2: a drop at the playhead, snapped to the bar, with everything else
+    /// automatic (numbering, build-in cues, pads, [OUT], auto cues removed) — see
+    /// Engine.Cueing.DropCountdownCues.PlaceDrop. One undo step.
+    /// </summary>
+    private void SetDropAt(double seconds, int? number)
     {
+        if (TrackHash is null) return;
+        PushSnapshot();
+        double bar = DropBpm > 0 ? 240.0 / DropBpm : 0;
+        double t = bar > 0 ? _downbeat + Math.Round((seconds - _downbeat) / bar) * bar : seconds;
+        t = Math.Clamp(t, 0, TrackDuration);
+        int autoBefore = WorkingCues.Count(c => c.Source == CueSource.Auto);
+        var list = Engine.Cueing.DropCountdownCues.PlaceDrop(WorkingCues, t, number, CountdownBars, DropBpm, _downbeat, TrackDuration, out var drop);
+        int cleared = autoBefore - list.Count(c => c.Source == CueSource.Auto);
+        ReplaceWorkingCues(list);
+        SelectedCue = drop;
+        HasUncommittedChanges = true;
+        RefreshHotCuePads();
+        HasCommitError = false;
+        LastCommitMessage = $"{drop.Name} at {drop.TimestampDisplay}"
+            + (cleared > 0 ? $" · {cleared} auto cue{(cleared == 1 ? "" : "s")} removed — Ctrl+Z to undo" : "");
+    }
+
+    /// <summary>A cue was dragged or nudged from <paramref name="from"/>. Moving an auto cue takes
+    /// manual control (the other auto cues go); a drop takes its build-in cues and [OUT] along.</summary>
+    private void ApplyCueMoved(OrbitCue cue, double from, bool wasAuto)
+    {
+        if (wasAuto) ClearAutoCues(cue);
         if (cue.Role != CueRole.Drop) return;
-        if (userSetDrop)
-        {
-            int before = WorkingCues.Count;
-            ReplaceWorkingCues(Engine.Cueing.DropCountdownCues.WithoutAutoCues(WorkingCues, cue));
-            int removed = before - WorkingCues.Count;
-            if (removed > 0) LastCommitMessage = $"{removed} auto cue{(removed == 1 ? "" : "s")} cleared around your drop — Ctrl+Z to undo";
-        }
-        double bpm = _preciseBpm > 0 ? _preciseBpm : Bpm;
-        var bars = Engine.Cueing.DropCountdownCues.ResolveBars(DropCountdownMode, _genre, bpm);
-        if (bars.Count == 0) return;
-        ReplaceWorkingCues(Engine.Cueing.DropCountdownCues.Rebuild(WorkingCues, cue, bars, bpm, previousName));
+        double? outBefore = OutBefore(cue, from);
+        var list = Engine.Cueing.DropCountdownCues.Rebuild(WorkingCues, cue, CountdownBars, DropBpm, previousDropTime: from);
+        ReplaceWorkingCues(Engine.Cueing.DropCountdownCues.Refresh(list, CountdownBars, DropBpm, _downbeat, TrackDuration, outBefore));
+    }
+
+    private void ClearAutoCues(OrbitCue keep)
+    {
+        int before = WorkingCues.Count;
+        var list = Engine.Cueing.DropCountdownCues.WithoutAutoCues(WorkingCues, keep);
+        if (list.Count == before) return;
+        ReplaceWorkingCues(list);
+        LastCommitMessage = $"{before - list.Count} auto cue{(before - list.Count == 1 ? "" : "s")} removed — your cues take over (Ctrl+Z to undo)";
+    }
+
+    private double? OutBefore(OrbitCue? moved = null, double movedFrom = 0)
+    {
+        var drops = WorkingCues.Where(c => c.Role == CueRole.Drop && !c.IsLoop)
+            .Select(c => c == moved ? movedFrom : c.Timestamp).ToList();
+        return drops.Count == 0 ? null : Engine.Cueing.DropCountdownCues.OutTime(drops.Max(), DropBpm, _downbeat, TrackDuration);
     }
 
     private void ReplaceWorkingCues(IReadOnlyList<OrbitCue> cues)
@@ -1435,12 +1503,21 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         PushSnapshot();
         var cue = SelectedCue;
         var previousRole = cue.Role;
-        bool wasAuto = cue.Source == CueSource.Auto;
+        if (role == CueRole.Drop && previousRole != CueRole.Drop)
+        {
+            // Picking Drop as the role = placing a drop: same automation as ◆ Drop.
+            _undoStack.Pop(); UpdateUndoRedoState(); // SetDropAt takes its own snapshot
+            SetDropAt(cue.Timestamp, null);
+            return;
+        }
+        double? outBefore = previousRole == CueRole.Drop ? OutBefore() : null;
         cue.Role = role;
         MarkSelectedCueEdited();
         if (previousRole == CueRole.Drop && role != CueRole.Drop)
-            ReplaceWorkingCues(Engine.Cueing.DropCountdownCues.RemoveFor(WorkingCues, cue.Name));
-        ApplyDropCountdowns(cue, null, userSetDrop: previousRole != CueRole.Drop || wasAuto);
+        {
+            var left = Engine.Cueing.DropCountdownCues.RemoveFor(WorkingCues, cue.Timestamp, DropBpm);
+            ReplaceWorkingCues(Engine.Cueing.DropCountdownCues.Refresh(left, CountdownBars, DropBpm, _downbeat, TrackDuration, outBefore));
+        }
     }
 
     private void SetSelectedCueColor(string hexColor)

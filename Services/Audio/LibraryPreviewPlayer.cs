@@ -13,6 +13,10 @@ public interface ILibraryPreviewPlayer : IDisposable
     bool IsPreviewPlaying { get; }
     string? CurrentPreviewPath { get; }
 
+    /// <summary>Playback position of the current preview (seconds), or null when nothing plays.
+    /// Runs slightly ahead of what is heard by the output buffer; callers snap it to the grid.</summary>
+    double? PositionSeconds => null;
+
     // Raw PCM magnitudes from FFT — subscribe to drive a spectrum visualizer.
     event EventHandler<float[]>? SpectrumChanged;
 
@@ -41,6 +45,11 @@ public interface ILibraryPreviewPlayer : IDisposable
 /// </summary>
 public sealed class LibraryPreviewPlayer : ILibraryPreviewPlayer
 {
+    public double? PositionSeconds
+    {
+        get { try { return IsPreviewPlaying ? _reader?.CurrentTime.TotalSeconds : null; } catch (ObjectDisposedException) { return null; } }
+    }
+
     private const int FftSize = 1024;
     private const int FadeOutMs = 120;
     private const int HoverDebounceMs = 250;

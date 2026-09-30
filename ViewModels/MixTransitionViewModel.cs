@@ -94,12 +94,26 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
             editor.CuesChanged += async (_, _) => await ReplanFromCuesAsync();
         }
 
-        // Drop countdown setting — one app-wide choice, shared by both decks and Cue Forge.
+        // Cue template — one app-wide choice, shared by both decks, Cue Forge and cue generation.
         var configManager = (SLSKDONET.Configuration.ConfigManager?)serviceProvider.GetService(typeof(SLSKDONET.Configuration.ConfigManager));
         var mode = configManager?.GetCurrent().DropCountdownMode ?? SLSKDONET.Engine.Cueing.DropCountdownCues.Auto;
+        var customBars = configManager?.GetCurrent().CustomCountdownBars;
         foreach (var editor in new[] { OutgoingEditor, IncomingEditor })
         {
-            editor.InitDropCountdownMode(mode);
+            editor.InitDropCountdownMode(mode, customBars);
+            editor.CustomCountdownBarsChanged += (sender, bars) =>
+            {
+                foreach (var other in new[] { OutgoingEditor, IncomingEditor })
+                    if (other != sender) other.InitDropCountdownMode(other.DropCountdownMode, bars);
+                if (configManager != null)
+                {
+                    var config = configManager.GetCurrent();
+                    config.CustomCountdownBars = bars;
+                    configManager.Save(config);
+                }
+            };
+            // The deck you last listened to is the one the D / 1 / 2 keys place a drop on.
+            editor.Auditioned += (sender, _) => ActiveEditor = (TrackCueEditorViewModel)sender!;
             editor.DropCountdownModeChanged += (sender, newMode) =>
             {
                 foreach (var other in new[] { OutgoingEditor, IncomingEditor })
@@ -131,6 +145,15 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
         NudgeActiveCueCommand = ReactiveCommand.Create<string>(step =>
         {
             if (IsCueEditMode && ActiveEditor?.SelectedCue != null) ActiveEditor.NudgeSelectedCommand.Execute(step).Subscribe();
+        });
+
+        // D / 1 / 2 (MixPreviewComponent key bindings): a drop where you are listening on the last
+        // auditioned deck — D numbers it by position, 1 / 2 make it Drop 1 / Drop 2.
+        DropKeyCommand = ReactiveCommand.Create<string>(key =>
+        {
+            if (!IsCueEditMode || ActiveEditor is not { } editor) return;
+            if (key == "1" || key == "2") editor.SetNumberedDropHereCommand.Execute(int.Parse(key)).Subscribe();
+            else editor.SetDropHereCommand.Execute().Subscribe();
         });
 
         ToggleCueEditModeCommand = ReactiveCommand.Create(() => { IsCueEditMode = !IsCueEditMode; });
@@ -543,6 +566,8 @@ public class MixTransitionViewModel : ReactiveObject, IDisposable
 
     /// <summary>"-beat"/"+beat" (←/→), "-bar"/"+bar" (Shift), "-fine"/"+fine" (Ctrl, 10 ms).</summary>
     public ReactiveCommand<string, Unit> NudgeActiveCueCommand { get; }
+    /// <summary>"d", "1" or "2" — see the constructor.</summary>
+    public ReactiveCommand<string, Unit> DropKeyCommand { get; }
     public ReactiveCommand<double, Unit> OutgoingCueClickedCommand { get; }
     public ReactiveCommand<double, Unit> IncomingCueClickedCommand { get; }
 

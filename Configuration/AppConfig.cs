@@ -186,6 +186,9 @@ public class AppConfig
     /// fixed comma-separated bar list such as "32,16,8". See Engine.Cueing.DropCountdownCues.</summary>
     public string DropCountdownMode { get; set; } = "Auto";
 
+    /// <summary>Bars before the drop for the "Custom" cue template, e.g. "32,16,8".</summary>
+    public string CustomCountdownBars { get; set; } = "32,16,8";
+
     /// <summary>Playlist Discover panel sources (public Beatport pages / Deezer API).</summary>
     public bool DiscoverUseBeatport { get; set; } = true;
     public bool DiscoverUseDeezer { get; set; } = true;

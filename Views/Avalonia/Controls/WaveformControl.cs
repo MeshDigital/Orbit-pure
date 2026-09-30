@@ -251,6 +251,15 @@ namespace SLSKDONET.Views.Avalonia.Controls
         /// this command (takes the clicked time in seconds) — null/unbound everywhere this
         /// control is used except the Mix Transition Editor, so no context menu appears
         /// elsewhere.</summary>
+        /// <summary>Right-click "◆ Drop here" (seconds) — the cue editors' one-click drop.</summary>
+        public static readonly StyledProperty<System.Windows.Input.ICommand?> SetDropAtCommandProperty =
+            AvaloniaProperty.Register<WaveformControl, System.Windows.Input.ICommand?>(nameof(SetDropAtCommand));
+        public System.Windows.Input.ICommand? SetDropAtCommand
+        {
+            get => GetValue(SetDropAtCommandProperty);
+            set => SetValue(SetDropAtCommandProperty, value);
+        }
+
         public static readonly StyledProperty<System.Windows.Input.ICommand?> AddCueAtCommandProperty =
             AvaloniaProperty.Register<WaveformControl, System.Windows.Input.ICommand?>(nameof(AddCueAtCommand));
         public System.Windows.Input.ICommand? AddCueAtCommand
@@ -595,7 +604,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
             // null/unbound everywhere else, so nothing shows).
             if (e.GetCurrentPoint(this).Properties.IsRightButtonPressed)
             {
-                if (AddCueAtCommand != null && data != null && data.DurationSeconds > 0)
+                if ((AddCueAtCommand != null || SetDropAtCommand != null) && data != null && data.DurationSeconds > 0)
                 {
                     double clickedSeconds = XToFraction(point.X, Bounds.Width) * data.DurationSeconds;
                     ShowAddCueContextMenu(clickedSeconds);
@@ -684,16 +693,18 @@ namespace SLSKDONET.Views.Avalonia.Controls
         private void ShowAddCueContextMenu(double seconds)
         {
             var span = TimeSpan.FromSeconds(Math.Max(0, seconds));
-            var menu = new ContextMenu
+            var menu = new ContextMenu();
+            if (SetDropAtCommand != null)
             {
-                Items = { new MenuItem { Header = $"➕ Add cue here ({span:mm\\:ss})" } }
-            };
-            if (menu.Items[0] is MenuItem item)
+                var drop = new MenuItem { Header = $"◆ Drop here ({span:mm\\:ss})" };
+                drop.Click += (_, _) => { if (SetDropAtCommand?.CanExecute(seconds) == true) SetDropAtCommand.Execute(seconds); };
+                menu.Items.Add(drop);
+            }
+            if (AddCueAtCommand != null)
             {
-                item.Click += (_, _) =>
-                {
-                    if (AddCueAtCommand?.CanExecute(seconds) == true) AddCueAtCommand.Execute(seconds);
-                };
+                var add = new MenuItem { Header = $"➕ Add cue here ({span:mm\\:ss})" };
+                add.Click += (_, _) => { if (AddCueAtCommand?.CanExecute(seconds) == true) AddCueAtCommand.Execute(seconds); };
+                menu.Items.Add(add);
             }
             ContextMenu = menu;
             menu.Open(this);

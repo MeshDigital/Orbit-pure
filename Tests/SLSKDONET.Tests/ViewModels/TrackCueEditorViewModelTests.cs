@@ -171,17 +171,19 @@ public class TrackCueEditorViewModelTests
         editor.SelectedCue = editor.Cues.Single();
 
         editor.SelectedRole = CueRole.Drop;
-        Assert.Equal(new[] { 49.0, 65.0, 81.0 }, editor.Cues.Select(c => c.Timestamp));
+        // [IN -16] [IN -8] [DROP 1], and [OUT] 32 bars after the drop.
+        Assert.Equal(new[] { 49.0, 65.0, 81.0, 145.0 }, editor.Cues.Select(c => c.Timestamp));
+        Assert.Equal(new[] { "[IN -16]", "[IN -8]", "[DROP 1]", "[OUT]" }, editor.Cues.Select(c => c.Name));
 
         editor.NudgeSelectedCommand.Execute("+bar").Subscribe();
-        Assert.Equal(new[] { 51.0, 67.0, 83.0 }, editor.Cues.Select(c => c.Timestamp));
+        Assert.Equal(new[] { 51.0, 67.0, 83.0, 147.0 }, editor.Cues.Select(c => c.Timestamp));
 
         editor.DeleteSelectedCommand.Execute().Subscribe();
         Assert.Empty(editor.Cues);
     }
 
     [Fact]
-    public void CountdownsOff_LeavesTheOtherCuesAlone()
+    public void TemplateOff_PlacesNoBuildIns()
     {
         var (editor, _) = Build(Stored(81, "Hit", type: CuePointType.PhraseBoundary));
         editor.InitDropCountdownMode("Off");
@@ -189,7 +191,8 @@ public class TrackCueEditorViewModelTests
 
         editor.SelectedRole = CueRole.Drop;
 
-        Assert.Single(editor.Cues);
+        Assert.DoesNotContain(editor.Cues, c => c.Role == CueRole.Build);
+        Assert.Equal(new[] { "[DROP 1]", "[OUT]" }, editor.Cues.Select(c => c.Name));
     }
 
     [Fact]
@@ -225,9 +228,9 @@ public class TrackCueEditorViewModelTests
         editor.SetDropHereCommand.Execute().Subscribe();
 
         var drop = Assert.Single(editor.Cues, c => c.Role == CueRole.Drop);
-        Assert.Equal("Drop 1", drop.Name);
+        Assert.Equal(("[DROP 1]", 2), (drop.Name, drop.SlotIndex)); // pad C
         Assert.Equal(65.0, drop.Timestamp, 6);                   // snapped to the bar grid
-        var countdowns = editor.Cues.Where(c => c != drop).ToList();
+        var countdowns = editor.Cues.Where(c => c.Role == CueRole.Build).ToList();
         Assert.NotEmpty(countdowns);
         Assert.All(countdowns, c => Assert.True(c.Timestamp < drop.Timestamp));
         Assert.True(editor.IsDirty);
@@ -242,7 +245,7 @@ public class TrackCueEditorViewModelTests
         editor.SetDropHereCommand.Execute().Subscribe();
 
         var drop = Assert.Single(editor.Cues, c => c.Role == CueRole.Drop);
-        Assert.Equal((65.0, 2, "Drop 1"), (drop.Timestamp, drop.SlotIndex, drop.Name));
+        Assert.Equal((65.0, 2, "[DROP 1]"), (drop.Timestamp, drop.SlotIndex, drop.Name));
         Assert.DoesNotContain(editor.Cues, c => c.Name == "Cue 1");
     }
 
@@ -276,8 +279,9 @@ public class TrackCueEditorViewModelTests
 
         Assert.DoesNotContain(editor.Cues, c => c.Name is "Intro" or "Drop 2");
         Assert.Contains(editor.Cues, c => c.Name == "My cue");
-        Assert.Contains(editor.Cues, c => c.Name == "Drop 1" && c.Role == CueRole.Drop);
-        Assert.Contains(editor.Cues, c => c.Name.EndsWith("Bars to Drop 1"));
+        Assert.Contains(editor.Cues, c => c.Name == "[DROP 1]" && c.Role == CueRole.Drop);
+        Assert.Contains(editor.Cues, c => c.Name.StartsWith("[IN -"));
+        Assert.Contains(editor.Cues, c => c.Name == "[OUT]");
 
         editor.UndoCommand.Execute().Subscribe();
         Assert.Contains(editor.Cues, c => c.Name == "Intro");
@@ -293,5 +297,31 @@ public class TrackCueEditorViewModelTests
 
         Assert.DoesNotContain(editor.Cues, c => c.Name == "Intro");
         Assert.Equal(67.0, editor.Cues.Single(c => c.Name == "Drop 1").Timestamp, 6);
+    }
+
+    [Fact]
+    public void Keys1And2_PlaceDrop1AndDrop2_OnTheirPads()
+    {
+        var (editor, _) = Build();
+        editor.InitDropCountdownMode(SLSKDONET.Engine.Cueing.DropCountdownCues.DnB);
+
+        editor.LastAuditionSeconds = 161;
+        editor.SetNumberedDropHereCommand.Execute(2).Subscribe();
+        editor.LastAuditionSeconds = 65;
+        editor.SetNumberedDropHereCommand.Execute(1).Subscribe();
+
+        Assert.Equal(new[] { ("[IN -16]", 0), ("[IN -8]", 1), ("[DROP 1]", 2), ("[IN -16]", 3), ("[IN -8]", 4), ("[DROP 2]", 5), ("[OUT]", 6) },
+            editor.Cues.Select(c => (c.Name, c.SlotIndex)));
+    }
+
+    [Fact]
+    public void AddingYourOwnCue_RemovesTheAutoCues()
+    {
+        var (editor, _) = Build(Stored(21, "Intro", type: CuePointType.Intro), Stored(65, "Drop 1"));
+
+        editor.AddCueAtCommand.Execute(101.0).Subscribe();
+
+        Assert.Equal(new[] { "Cue 3" }, editor.Cues.Select(c => c.Name));
+        Assert.Contains("auto cues removed", editor.StatusText);
     }
 }
