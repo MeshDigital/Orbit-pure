@@ -2,6 +2,53 @@
 
 ---
 
+## [0.9.2-alpha] — 2026-09-30
+
+### ◆ One-click drops, with the rest automatic
+Placing a drop used to take several steps, and ORBIT's auto cues stayed on the waveform next to yours. Now one action places the drop and everything around it, in both Cue Forge and the Flow Builder cue editor.
+
+- **Ways to place a drop:**
+  - **◆ Drop**, or key **D**. In the Flow Builder this uses where you're listening; in Cue Forge, the playhead.
+  - Right-click the waveform → **◆ Drop here**.
+  - Keys **1** / **2** force Drop 1 / Drop 2.
+  - Setting a cue's role to Drop does the same.
+- **What happens automatically:**
+  - **Snap:** the drop lands on a bar line (a phrase line with Phrase snapping).
+  - **Numbering:** by position. The earlier drop is Drop 1 and the later one Drop 2. A drop placed within 8 bars of an existing one moves that drop.
+  - **Build-in cues** before the drop, from the cue template.
+  - **Standard pads, names and colours**, so CDJ and controller displays show phrase context:
+
+    | Pads | Cues | Colours |
+    |---|---|---|
+    | A B C | [IN -16] [IN -8] [DROP 1] | orange / red-orange |
+    | D E F | [IN -16] [IN -8] [DROP 2] | purple / cyan |
+    | G | [OUT], 32 bars after the last drop, at least 16 bars before the end | red |
+    | H | free for loops | |
+
+  - **Auto cues removed:** the analysis' own cues leave the waveform, and the track once saved. The same happens when you add a cue or move an auto cue. Undo brings them back.
+- **Linked cues:**
+  - Dragging or nudging a drop moves its build-in cues along.
+  - A build-in cue you moved or renamed yourself is unlinked and stays put.
+  - [OUT] follows the last drop until you move it.
+  - Deleting a drop removes its build-in cues.
+
+### 🎚️ Cue templates
+One setting, **Cue template**, in both editors. It is used for drops you place and for automatic cue generation.
+- **DnB / Bass:** −16 −8. Also used for hardstyle and techno.
+- **Long Blend / House:** −32 −16. For house, tech house and trance.
+- **Quick Mix / Hip-Hop:** −8 −4. For hip-hop, pop and R&B.
+- **Custom:** type the bars, e.g. `32,16,8`.
+- **Off:** no build-in cues.
+- **Auto:** picks one of the above from the track's genre. The editor shows which one it picked.
+
+The old "Drop countdown" setting carries over; values like `16,8` become Custom.
+
+### 🤖 Automatic cues use the same layout
+- Generated cues now use the template, the [IN]/[DROP]/[OUT] names and the pad layout above.
+- [OUT] is the detected outro when it leaves 16 bars to mix out. Otherwise it is 32 bars after the last drop, the same point the mix planner mixes out from.
+- Background re-analysis no longer adds auto cues back to a track where you have placed drops yourself. **Regenerate Cues** still does, when you ask for it.
+- Existing cues named "Drop 1" or "16 Bars to Drop 1" are still recognised.
+
 ## [0.9.1-alpha] — 2026-09-29
 
 ### 🎚️ Mixes planned from the music's structure

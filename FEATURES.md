@@ -118,7 +118,21 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Play from a track**: the playlist Play button starts at the selected track; with **+ Mix** on, Play Track continues the mix from that track through the rest of the playlist with each pair's saved transition
 
 ### Cue Tools
-- **Drop countdown cues**: setting a cue to Drop (or moving/renaming it) places "32 / 16 / 8 Bars to Drop" cues exactly that many bars before it — in Cue Forge and the Flow Builder cue editor. Setting: Auto (32/16/8 for DnB/breakbeat, 32/16 for house/techno), a fixed set, or Off (`[Cues] DropCountdownMode`)
+- **One-click drops** (◆ Drop, key **D**, right-click "Drop here"; **1** / **2** force Drop 1 / Drop 2) in Cue Forge and the Flow Builder cue editor:
+  - **Snap:** the drop lands on a bar line.
+  - **Numbering:** drops are numbered by position.
+  - **Build-in cues** are placed before each drop from the cue template: **[IN -16] [IN -8] [DROP 1]** on pads A–C and **[DROP 2]** on D–F.
+  - **[OUT]** goes on pad G, 32 bars after the last drop.
+  - **Auto cues** from analysis are removed. Placing, adding or moving a cue yourself hands the track to your cues; undo brings the auto cues back.
+- **Linked build-in cues**: dragging a drop moves its build-in cues with it. A build-in cue you moved or renamed yourself is unlinked. [OUT] follows the last drop until you move it.
+- **Cue templates** (`[Cues] DropCountdownMode`), also used by automatic cue generation:
+  - **DnB / Bass** −16 −8
+  - **Long Blend / House** −32 −16
+  - **Quick Mix / Hip-Hop** −8 −4
+  - **Custom** (`[Cues] CustomCountdownBars`)
+  - **Off**
+  - **Auto**: DnB for drum & bass, hardstyle and techno; Long Blend for house, tech house and trance; Quick Mix for hip-hop, pop and R&B
+- **Manual cues are kept**: background re-analysis never adds auto cues back to a track where you placed drops yourself.
 - **Fine-tune by ear**: ← → move the selected cue 1 beat, Shift 1 bar, Ctrl 10 ms; every press replays from the cue. In Flow Builder a playing mix pauses while you audition and resumes when the cues are saved
 - **Precise beat grids**: BPM and grid are fitted to the beat tracker's ticks (no more whole-number or wrongly doubled BPMs), the downbeat comes from the bass structure, and Rekordbox's own grid is used for tracks it has analysed
 - **Cue accuracy benchmark**: `Tests/CueBenchmark` scores auto cues against hand-placed Rekordbox cues, Rekordbox's own analysis, or your own hand-set drops
