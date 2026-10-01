@@ -13,6 +13,38 @@ namespace SLSKDONET.Views.Avalonia
         private WindowState _preFullScreenWindowState = WindowState.Normal;
         private SystemDecorations _preFullScreenDecorations = SystemDecorations.Full;
 
+        // Context panel resize grip: dragging left widens the panel (it sits on the right). The
+        // grip moves with the panel's edge, so each delta is relative to where it is now.
+        private void OnContextPanelResizeDelta(object? sender, global::Avalonia.Input.VectorEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                double max = Math.Max(MainViewModel.MinContextPanelWidth, Bounds.Width * 0.55);
+                vm.ContextPanelWidth = Math.Min(max, vm.ContextPanelWidth - e.Vector.X);
+            }
+        }
+
+        private void OnContextPanelResizeCompleted(object? sender, global::Avalonia.Input.VectorEventArgs e)
+        {
+            if (DataContext is MainViewModel vm) vm.SaveContextPanelWidth();
+        }
+
+        // A toast that leads somewhere opens it on click (the ✕ button handles its own tap).
+        private void OnToastTapped(object? sender, global::Avalonia.Input.TappedEventArgs e)
+        {
+            if (e.Handled || sender is not Control { DataContext: SLSKDONET.ViewModels.ToastNotificationViewModel toast } || !toast.IsClickable) return;
+            if (e.Source is global::Avalonia.Visual v && FindAncestor<Button>(v) != null) return;
+            if (DataContext is MainViewModel vm) vm.OpenToast(toast);
+            e.Handled = true;
+        }
+
+        private static T? FindAncestor<T>(global::Avalonia.Visual? v) where T : class
+        {
+            for (; v != null; v = global::Avalonia.VisualTree.VisualExtensions.GetVisualParent(v))
+                if (v is T t) return t;
+            return null;
+        }
+
         public MainWindow()
         {
             InitializeComponent();

@@ -570,9 +570,60 @@
                  level above the ContentControl's re-scoped Tracks DataContext below, so it binds
                  directly against LibraryViewModel (SelectedProject/PlayAlbumCommand/PlayerViewModel)
                  without the $parent[views:LibraryPage] indirection the surfaces below it need. -->
-            <Border Grid.Row="0" IsVisible="{Binding SelectedProject, Converter={x:Static ObjectConverters.IsNotNull}}"
+            <!-- Compact header: replaces the full one below while the track list is scrolled down,
+                 so more tracks fit on screen; scrolling back to the top brings the full one back. -->
+            <Border Grid.Row="0" Background="{StaticResource BrushBg1}" BorderBrush="{StaticResource BrushBorder1}" BorderThickness="0,0,0,1"
+                    Padding="16,6">
+                <Border.IsVisible>
+                    <MultiBinding Converter="{x:Static BoolConverters.And}">
+                        <Binding Path="SelectedProject" Converter="{x:Static ObjectConverters.IsNotNull}"/>
+                        <Binding Path="Tracks.IsScrolledDown"/>
+                    </MultiBinding>
+                </Border.IsVisible>
+                <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+                    <Button Grid.Column="0" Command="{Binding PlayAlbumCommand}" CommandParameter="{Binding SelectedProject}"
+                            Width="32" Height="32" CornerRadius="{StaticResource RadiusFull}"
+                            Background="{StaticResource BrushAccent}" BorderThickness="0" Cursor="Hand"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                            ToolTip.Tip="Play this playlist">
+                        <TextBlock Text="▶" FontSize="12" Foreground="{StaticResource BrushBg0}" Margin="2,0,0,0"/>
+                    </Button>
+                    <ToggleButton Grid.Column="1" IsChecked="{Binding PlayerViewModel.IsShuffling, Mode=TwoWay}"
+                                  Command="{Binding PlayerViewModel.ToggleShuffleCommand}"
+                                  Classes="headerPill" Width="30" Height="30" Margin="8,0,0,0" CornerRadius="{StaticResource RadiusFull}"
+                                  Padding="0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                  ToolTip.Tip="Shuffle">
+                        <TextBlock Text="🔀" FontSize="12"/>
+                    </ToggleButton>
+                    <!-- A TextBlock with trimming inside a horizontal StackPanel gets unlimited width and drew
+                         nothing; the title sits in a bounded column instead. -->
+                    <Grid Grid.Column="2" ColumnDefinitions="Auto,Auto" Margin="12,0" VerticalAlignment="Center" HorizontalAlignment="Left">
+                        <TextBlock Grid.Column="0" Text="{Binding SelectedProject.SourceTitle}" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="White" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="{Binding SelectedProject.TotalTracks, StringFormat='{}{0} tracks'}" Margin="10,0,0,0"
+                                   FontSize="11" Foreground="{StaticResource BrushText2}" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Button Grid.Column="3" Click="OpenDiscover_Click"
+                            Classes="headerPill" Padding="10,5" CornerRadius="{StaticResource RadiusFull}"
+                            IsVisible="{Binding IsLibraryIntelligencePanelVisible}"
+                            ToolTip.Tip="Suggest tracks to add to this playlist (Beatport + Deezer), downloadable via Soulseek">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <TextBlock Text="✨" FontSize="12"/>
+                            <TextBlock Text="Discover" FontSize="11" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="0"
                     Background="{StaticResource BrushBg1}" BorderBrush="{StaticResource BrushBorder1}" BorderThickness="0,0,0,1"
                     Padding="20,18">
+                <Border.IsVisible>
+                    <MultiBinding Converter="{x:Static BoolConverters.And}">
+                        <Binding Path="SelectedProject" Converter="{x:Static ObjectConverters.IsNotNull}"/>
+                        <Binding Path="Tracks.IsHeaderExpanded"/>
+                    </MultiBinding>
+                </Border.IsVisible>
                 <StackPanel Spacing="{StaticResource SpaceMd}">
                     <Grid ColumnDefinitions="Auto,*">
                         <Border Grid.Column="0" Width="72" Height="72" CornerRadius="{StaticResource RadiusMd}"

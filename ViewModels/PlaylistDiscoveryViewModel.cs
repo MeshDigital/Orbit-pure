@@ -332,8 +332,9 @@ public sealed class PlaylistDiscoveryViewModel : ReactiveObject, IDisposable
         if (s == null || !HasPlaylist || s.IsQueued) return;
         var ok = await QueueCoreAsync(new[] { s });
         if (ok > 0)
-            _eventBus.Publish(new NotificationEvent("Queued for download",
-                $"{s.Artist} – {s.Title} was added to \"{PlaylistTitle}\" and is being searched on Soulseek.", NotificationType.Success));
+            _eventBus.Publish(new NotificationEvent("Queued for download — first in line",
+                $"{s.Artist} – {s.Title} was added to \"{PlaylistTitle}\" and is being searched on Soulseek.", NotificationType.Success)
+            { OpenPage = "Projects" });
     }
 
     /// <summary>Queues the top 10 suggestions not yet queued.</summary>
@@ -342,8 +343,9 @@ public sealed class PlaylistDiscoveryViewModel : ReactiveObject, IDisposable
         var batch = Suggestions.Where(s => !s.IsQueued).Take(10).ToList();
         if (batch.Count == 0 || !HasPlaylist) return;
         var ok = await QueueCoreAsync(batch);
-        _eventBus.Publish(new NotificationEvent("Queued for download",
-            $"{ok} suggestion(s) added to \"{PlaylistTitle}\" and queued for Soulseek search.", NotificationType.Success));
+        _eventBus.Publish(new NotificationEvent("Queued for download — first in line",
+            $"{ok} suggestion(s) added to \"{PlaylistTitle}\" and queued for Soulseek search.", NotificationType.Success)
+        { OpenPage = "Projects" });
     }
 
     private async Task<int> QueueCoreAsync(IReadOnlyList<DiscoverySuggestionViewModel> items)
@@ -362,7 +364,9 @@ public sealed class PlaylistDiscoveryViewModel : ReactiveObject, IDisposable
                 .ToList();
             foreach (var t in saved)
             {
-                t.Priority = 0; // explicit user action
+                // Explicit user action: first in the download queue, ahead of every playlist.
+                t.Priority = 0;
+                t.AddedAt = DownloadManager.PinnedToTop;
                 t.SourcePlaylistId = playlistId;
                 t.SourcePlaylistName = title;
             }

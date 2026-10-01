@@ -463,9 +463,10 @@
                        IsPaneOpen="{Binding IsGlobalSidebarOpen}"
                        DisplayMode="Inline"
                        PanePlacement="Right"
-                       OpenPaneLength="450">
+                       OpenPaneLength="{Binding ContextPanelWidth}">
                 
                 <SplitView.Pane>
+                    <Panel>
                     <Border Background="#252526" BorderBrush="#3E3E3E" BorderThickness="1,0,0,0">
                         <Grid RowDefinitions="Auto,*">
 
@@ -575,6 +576,15 @@
 
                         </Grid>
                     </Border>
+                    <!-- Drag the panel's left edge to resize it (remembered between sessions). -->
+                    <Thumb x:Name="ContextPanelResizeGrip" Width="6" HorizontalAlignment="Left" Cursor="SizeWestEast"
+                           Background="Transparent" ToolTip.Tip="Drag to resize the panel"
+                           DragDelta="OnContextPanelResizeDelta" DragCompleted="OnContextPanelResizeCompleted">
+                        <Thumb.Template>
+                            <ControlTemplate><Border Background="{TemplateBinding Background}"/></ControlTemplate>
+                        </Thumb.Template>
+                    </Thumb>
+                    </Panel>
                 </SplitView.Pane>
 
                 <Grid Background="#1E1E1E">
@@ -972,6 +982,9 @@
                       Margin="0,16,16,0"
                       IsHitTestVisible="True"
                       ZIndex="2000">
+            <ItemsControl.Styles>
+                <Style Selector="Border.clickable"><Setter Property="Cursor" Value="Hand"/></Style>
+            </ItemsControl.Styles>
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
                     <StackPanel Orientation="Vertical" Spacing="8"/>
@@ -985,11 +998,15 @@
                             CornerRadius="8"
                             Padding="14,10"
                             Width="340"
-                            BoxShadow="0 4 16 0 #55000000">
+                            BoxShadow="0 4 16 0 #55000000"
+                            Classes.clickable="{Binding IsClickable}"
+                            Tapped="OnToastTapped">
                         <Grid ColumnDefinitions="*,Auto">
                             <StackPanel Grid.Column="0" Spacing="2">
                                 <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="Bold" Foreground="White" TextWrapping="Wrap"/>
                                 <TextBlock Text="{Binding Message}" FontSize="12" Foreground="#B7C4D1" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding ClickHint}" IsVisible="{Binding IsClickable}" FontSize="11" FontWeight="SemiBold"
+                                           Foreground="#4EC9B0" Margin="0,4,0,0"/>
                             </StackPanel>
                             <Button Grid.Column="1"
                                     Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).DismissToastCommand}"

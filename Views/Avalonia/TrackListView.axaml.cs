@@ -20,7 +20,21 @@ public partial class TrackListView : UserControl
         {
             grid.SelectionChanged += OnTrackGridSelectionChanged;
             grid.ItemDragStarted += OnTrackGridItemDragStarted;
+            // The list's width decides which optional columns fit (TrackListColumnLayout).
+            grid.SizeChanged += (_, e) => { if (DataContext is TrackListViewModel vm) vm.ListWidth = e.NewSize.Width; };
+            // Scrolling the list collapses the playlist header above it (LibraryPage).
+            bool scrollHooked = false;
+            grid.AttachedToVisualTree += (_, _) =>
+            {
+                if (scrollHooked || grid.FindControl<ScrollViewer>("PartScrollViewer") is not { } scroller) return;
+                scrollHooked = true;
+                scroller.ScrollChanged += (_, _) => { if (DataContext is TrackListViewModel vm) vm.OnListScrolled(scroller.Offset.Y); };
+            };
         }
+        DataContextChanged += (_, _) =>
+        {
+            if (DataContext is TrackListViewModel vm && grid != null && grid.Bounds.Width > 0) vm.ListWidth = grid.Bounds.Width;
+        };
     }
 
     /// <summary>

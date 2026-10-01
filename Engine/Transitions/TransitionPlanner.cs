@@ -120,19 +120,25 @@ public static class TransitionPlanner
         bool tempoLocked = TempoLocked(outgoing, incoming);
         bool bothEnergetic = outgoing.Energy >= 0.55 && incoming.Energy >= 0.55;
 
+        // Drop Sync (double drop) is never picked automatically: it leaves the outgoing track at its
+        // second drop, cutting the rest of it — a deliberate trick, available as a preset.
         var candidates = new List<TransitionPlan>();
-        if (tempoLocked && bothEnergetic && compatibility >= 75)
-            candidates.AddIfNotNull(DropSync(outgoing, incoming, o, i));
         if (tempoLocked && (bothEnergetic || compatibility >= 60))
             candidates.AddIfNotNull(Rolling(outgoing, incoming, o, i));
         candidates.Add(Relaxed(outgoing, incoming, o, i, shortOnly: !tempoLocked));
 
+        // Every track gets a fair run: no automatic mix-out before half of it has played.
+        double minSource = MinPlayFraction * outgoing.DurationSeconds;
+        var played = candidates.Where(c => c.SourceTriggerSeconds >= minSource - 0.01).ToList();
+        if (played.Count == 0)
+            played.Add(LateRelaxed(outgoing, incoming, o, i, minSource, shortOnly: !tempoLocked));
+
         // First candidate without a vocal clash wins; if everything clashes, the shortest option
         // keeps the overlap brief.
-        var clean = candidates.FirstOrDefault(c => !c.VocalClash);
+        var clean = played.FirstOrDefault(c => !c.VocalClash);
         if (clean != null) return clean;
 
-        var fallback = candidates.OrderBy(c => c.DurationBars).First();
+        var fallback = played.OrderBy(c => c.DurationBars).First();
         return fallback with { Reason = fallback.Reason + " · vocals overlap — kept short" };
     }
 
@@ -163,6 +169,27 @@ public static class TransitionPlanner
         "Relaxed" => PlannedTransitionKind.Relaxed,
         _ => null,
     };
+
+    /// <summary>Automatic plans never mix out before this share of the outgoing track has played.</summary>
+    public const double MinPlayFraction = 0.5;
+
+    /// <summary>Relaxed, moved later so the outgoing track plays at least <paramref name="notBefore"/>.</summary>
+    private static TransitionPlan LateRelaxed(TrackStructure out_, TrackStructure in_, TrackSections o, TrackSections i, double notBefore, bool shortOnly)
+    {
+        var plan = Relaxed(out_, in_, o, i, shortOnly);
+        double bar = o.BarSeconds;
+        double source = SnapToGrid(Math.Max(plan.SourceTriggerSeconds, notBefore), out_.FirstDownbeat, bar);
+        if (source < notBefore) source += bar;
+        int bars = plan.DurationBars;
+        while (bars > 4 && source + bars * bar > o.OutroEnd) bars /= 2;
+        return plan with
+        {
+            SourceTriggerSeconds = source,
+            DurationBars = bars,
+            DurationSeconds = bars * bar,
+            Reason = $"Relaxed · {bars} bars, after the track has played half way",
+        };
+    }
 
     private static TransitionPlan Relaxed(TrackStructure out_, TrackStructure in_, TrackSections o, TrackSections i, bool shortOnly)
     {

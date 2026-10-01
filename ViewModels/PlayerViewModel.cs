@@ -2108,6 +2108,14 @@ namespace SLSKDONET.ViewModels
                                 var suggestion = _pointSuggestionEngine.OptimizeTransition(sourceEntity, targetEntity, sourceCues, targetCues);
                                 sourceTrigger = Math.Max(0, suggestion.SourceTriggerTime);
                                 targetTrigger = Math.Max(0, suggestion.TargetTriggerTime);
+                                // Old-style cues (e.g. a "Mix-Out Warning" at 0:00 on a badly analysed
+                                // track) must not cut a track short: before half way, mix at the end instead.
+                                double realLength = _playerService.Duration;
+                                if (realLength > 0 && sourceTrigger < Engine.Transitions.TransitionPlanner.MinPlayFraction * realLength)
+                                {
+                                    sourceTrigger = null;
+                                    targetTrigger = null;
+                                }
                             }
                         }
                         catch (Exception ex)

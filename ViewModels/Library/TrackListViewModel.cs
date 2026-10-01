@@ -581,21 +581,70 @@ public class TrackListViewModel : ReactiveObject, IDisposable
     public bool IsFormatColumnVisible
     {
         get => _isFormatColumnVisible;
-        set => this.RaiseAndSetIfChanged(ref _isFormatColumnVisible, value);
+        set { this.RaiseAndSetIfChanged(ref _isFormatColumnVisible, value); RefitColumns(); }
     }
 
     private bool _isForensicsColumnVisible = true;
     public bool IsForensicsColumnVisible
     {
         get => _isForensicsColumnVisible;
-        set => this.RaiseAndSetIfChanged(ref _isForensicsColumnVisible, value);
+        set { this.RaiseAndSetIfChanged(ref _isForensicsColumnVisible, value); RefitColumns(); }
     }
 
     private bool _isDurationColumnVisible = true;
     public bool IsDurationColumnVisible
     {
         get => _isDurationColumnVisible;
-        set => this.RaiseAndSetIfChanged(ref _isDurationColumnVisible, value);
+        set { this.RaiseAndSetIfChanged(ref _isDurationColumnVisible, value); RefitColumns(); }
+    }
+
+    // What is actually shown: your column choices, minus the least important columns when the
+    // list is too narrow for them (e.g. with the context panel open) — see TrackListColumnLayout.
+    private double _listWidth;
+    private TrackListColumns _columns = new(true, true, true, true, true);
+
+    /// <summary>Set by the view whenever the track list is resized.</summary>
+    public double ListWidth
+    {
+        get => _listWidth;
+        set { if (Math.Abs(_listWidth - value) < 1) return; _listWidth = value; RefitColumns(); }
+    }
+
+    private bool _isScrolledDown;
+    /// <summary>True once the track list is scrolled down past the first rows — the playlist header
+    /// above it then collapses to a slim bar so more tracks fit on screen. Set by the view.</summary>
+    public bool IsScrolledDown
+    {
+        get => _isScrolledDown;
+        private set { this.RaiseAndSetIfChanged(ref _isScrolledDown, value); this.RaisePropertyChanged(nameof(IsHeaderExpanded)); }
+    }
+
+    public bool IsHeaderExpanded => !_isScrolledDown;
+
+    /// <summary>Scroll position of the track list. Collapses past 60 px and only expands again near
+    /// the top (8 px), so the header doesn't flicker around one threshold.</summary>
+    public void OnListScrolled(double offsetY)
+    {
+        if (!IsScrolledDown && offsetY > 60) IsScrolledDown = true;
+        else if (IsScrolledDown && offsetY < 8) IsScrolledDown = false;
+    }
+
+    public bool ShowEnergyColumn => _columns.Energy;
+    public bool ShowFormatColumn => _columns.Format;
+    public bool ShowForensicsColumn => _columns.Forensics;
+    public bool ShowDurationColumn => _columns.Duration;
+    public bool ShowRatingColumn => _columns.Rating;
+
+    private void RefitColumns()
+    {
+        var fitted = TrackListColumnLayout.Fit(_listWidth, _isFormatColumnVisible, _isForensicsColumnVisible, _isDurationColumnVisible);
+        if (fitted == _columns) return;
+        _columns = fitted;
+        this.RaisePropertyChanged(nameof(ShowEnergyColumn));
+        this.RaisePropertyChanged(nameof(ShowFormatColumn));
+        this.RaisePropertyChanged(nameof(ShowForensicsColumn));
+        this.RaisePropertyChanged(nameof(ShowDurationColumn));
+        this.RaisePropertyChanged(nameof(ShowRatingColumn));
     }
     
     // ListBox Selection Binding
