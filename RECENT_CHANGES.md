@@ -2,6 +2,29 @@
 
 ---
 
+## [0.9.3-alpha] — 2026-10-01
+
+### 🎚️ Auto-mix no longer rushes through tracks
+In mix mode, tracks often played for only about a minute before the next one came in. The mix log showed three causes:
+- **Drop Sync was the automatic choice.** It leaves the outgoing track 16 bars before its *second* drop, which cuts the rest of the track.
+  - Auto now picks **Rolling**: the incoming drop lands as the outgoing track's main section ends, about 32 bars after its last drop.
+  - Drop Sync is still available as a preset in the Mix editor.
+- **Duplicate drops.** A hand-set "Drop 1" plus an auto "[DROP 1] ✓AI" two seconds later were read as Drop 1 and Drop 2. Drops within 16 bars of each other now count as one, and your own drop wins.
+- **Broken analysis.** A 4-minute track stored as 3 s was mixed out at 0.7 s. Tracks with an implausible length (under 30 s, or cues past the end) no longer get a structure plan. The old cue fallback can't cut a track before half way either.
+
+On top of that, automatic mixes never start before **half the outgoing track has played**.
+
+### 📋 Playlist view: more tracks on screen
+- **Collapsing header:** scrolling down shrinks the playlist header to a slim bar with ▶, shuffle, name, track count and Discover. Scrolling back to the top restores the full header.
+- **One-line toolbar:** search, status chips, Filters, Text, ＋ Queue (N), Mix and Columns (⚙) share one row instead of three. The track count is in the search placeholder.
+- **Columns fit the space.** Hidden columns no longer keep their width. When the list is narrow, for example with the context panel open, the least important columns step aside in this order: Forensics, Rating, Duration, Format, Energy. They used to be cut off under the panel.
+- **Resizable context panel:** drag its left edge (300 px up to about half the window). The width is remembered; the default is now 400 instead of 450.
+
+### ✨ Discover: queued suggestions download first
+- **First in line:** a queued suggestion (or Top 10) is downloaded before anything else and shows at the top of the Download Center queue.
+- **Clickable popup:** the "Queued for download — first in line" popup opens the Download Center when clicked.
+- **Bump to top fix:** Bump to top didn't actually win against tracks from higher-tier playlists. It now goes first regardless of playlist.
+
 ## [0.9.2-alpha] — 2026-09-30
 
 ### ◆ One-click drops, with the rest automatic

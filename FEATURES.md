@@ -24,6 +24,8 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Large Collection Support**: Optimized for libraries with 10,000+ tracks
 - **Context Menu Actions**: Right-click any track for Play Track, Queue Track, Queue Selected, 🔬 Analyse, Hard Retry, Open Folder, Export CSV, Remove — all actions fall back to the current selection when invoked from the Avalonia popup visual tree (where element-name bindings are unavailable)
 - **Selection FAB**: Floating bottom bar appears when ≥1 track is selected — one-click ▶️ Play, ⊕ Add to Queue, 🔬 Analyse, ✏️ Tag Edit, 📤 Rekordbox export, and ✕ Clear selection without opening context menus
+- **Playlist view that makes room for tracks**: the header collapses to a slim bar (▶, shuffle, name, Discover) while scrolling; search, status chips, filters, Mix and Columns share a single toolbar row; columns you hide take no space, and when the list is narrow (e.g. context panel open) the least important columns step aside (Forensics → Rating → Duration → Format → Energy)
+- **Resizable context panel**: drag the right-hand panel's left edge; the width is remembered (`[Layout] ContextPanelWidth`)
 
 ### Enhanced Export Capabilities
 - **Forensic CSV Export**: Professional-grade playlist exports with integrity metrics
@@ -143,6 +145,7 @@ ORBIT-Pure combines Soulseek network integration with professional audio analysi
 - **Energy Curve Sequencing**: Post-ordering pass reshapes any playlist into `Rising`, `Wave` (arch), or `Peak` (low-body + high-energy spike) energy profiles
 - **Max-BPM-Jump Guard**: Configurable penalty rejects transitions wider than a set BPM range, preventing jarring key-tempo collisions
 - **Seeded Ordering**: Optional fixed start/end track constraints for opening and closing track pinning
+- **Structure-planned mixes**: playback mixes from each track's intro/outro sections in whole 8/16/32-bar phrases. Auto picks **Rolling** (the incoming drop lands as the outgoing main section ends) or **Relaxed**; **Drop Sync** (double drop) is a preset only. Vocal clashes are avoided, tempos are matched up to 6%, and an automatic mix never starts before half the outgoing track has played
 
 ### Background Processing
 - **Job Queue**: `Channel<T>`-backed unbounded job queue (`BackgroundJobQueue`) with configurable concurrency
