@@ -375,7 +375,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _disposables.Add(_eventBus.GetEvent<SLSKDONET.Services.NotificationEvent>().Subscribe(evt =>
         {
             Dispatcher.UIThread.Post(() => ShowToast(
-                new SLSKDONET.Services.ToastRequestedEvent(evt.Title, evt.Message, evt.Type, evt.Duration)));
+                new SLSKDONET.Services.ToastRequestedEvent(evt.Title, evt.Message, evt.Type, evt.Duration), evt.OpenPage));
         }));
         
         // Glass Box Architecture: Analysis Queue Visibility
@@ -545,6 +545,28 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     }
 
     // UI State
+    /// <summary>Right-hand context panel width — drag its left edge to resize (MainWindow), kept
+    /// between sessions. Bounded so the page beside it always keeps room for a track list.</summary>
+    public double ContextPanelWidth
+    {
+        get => Math.Clamp(_config.ContextPanelWidth, MinContextPanelWidth, MaxContextPanelWidth);
+        set
+        {
+            int width = (int)Math.Round(Math.Clamp(value, MinContextPanelWidth, MaxContextPanelWidth));
+            if (width == _config.ContextPanelWidth) return;
+            _config.ContextPanelWidth = width;
+            OnPropertyChanged(nameof(ContextPanelWidth));
+        }
+    }
+
+    public const double MinContextPanelWidth = 300, MaxContextPanelWidth = 800;
+
+    /// <summary>Called when a resize drag ends, so dragging doesn't write the config on every pixel.</summary>
+    public void SaveContextPanelWidth()
+    {
+        try { _configManager.Save(_config); } catch { /* the width is a convenience; keep it in memory */ }
+    }
+
     private const double MiniNavSidebarWidth = 56;
     private double _lastExpandedNavSidebarWidth = 200;
 
@@ -1503,9 +1525,21 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private const int MaxVisibleToasts = 4;
 
-    private void ShowToast(SLSKDONET.Services.ToastRequestedEvent evt)
+    /// <summary>A click on a toast that leads somewhere (e.g. "Queued for download" → Download Center).</summary>
+    public void OpenToast(ToastNotificationViewModel toast)
     {
-        var toast = new ToastNotificationViewModel(evt.Title, evt.Message, evt.Type);
+        Toasts.Remove(toast);
+        if (toast.OpenPage == "Projects") NavigateProjectsCommand.Execute(null);
+        else if (toast.OpenPage != null)
+        {
+            IsGlobalSidebarOpen = false;
+            _navigationService.NavigateTo(toast.OpenPage);
+        }
+    }
+
+    private void ShowToast(SLSKDONET.Services.ToastRequestedEvent evt, string? openPage = null)
+    {
+        var toast = new ToastNotificationViewModel(evt.Title, evt.Message, evt.Type, openPage);
         Toasts.Add(toast);
 
         // Cap how many stack up on screen at once — oldest drops off first.

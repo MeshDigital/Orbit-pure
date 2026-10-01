@@ -4348,12 +4348,18 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
 
         _ = activeByPriority;
         return eligibleTracks
-            .OrderBy(t => t.Model.JobPriority)         // 1. Playlist tier (0=Critical … 3=Low)
+            .OrderByDescending(t => t.Model.AddedAt == PinnedToTop) // 0. Pinned by "first in line" / Bump to top
+            .ThenBy(t => t.Model.JobPriority)          // 1. Playlist tier (0=Critical … 3=Low)
             .ThenBy(t => t.Model.JobManualSortOrder)   // 2. User drag-drop order within tier
             .ThenBy(t => t.Model.Priority)             // 3. Track-level priority (0=VIP, 1=Std, 10=BG)
             .ThenBy(t => t.Model.AddedAt)              // 4. FIFO tiebreaker
             .FirstOrDefault();
     }
+
+    /// <summary>AddedAt value that marks a track as pinned to the very top of the download queue —
+    /// ahead of every playlist tier (see SelectNextTrackWithLaneAllocation), not just first within
+    /// its own playlist as Priority 0 alone gives.</summary>
+    public static readonly DateTime PinnedToTop = DateTime.MinValue;
 
     public void BumpTrackToTop(string globalId)
     {
@@ -4362,7 +4368,7 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         if (ctx != null)
         {
             ctx.Model.Priority = 0;
-            ctx.Model.AddedAt = DateTime.MinValue; // Absolute top
+            ctx.Model.AddedAt = PinnedToTop; // absolute top, across playlists
             
             if (ctx.State == PlaylistTrackState.Pending || ctx.State == PlaylistTrackState.Stalled || ctx.State == PlaylistTrackState.Paused)
             {

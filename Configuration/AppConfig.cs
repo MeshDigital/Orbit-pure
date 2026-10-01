@@ -191,6 +191,9 @@ public class AppConfig
 
     /// <summary>Playlist Discover panel sources (public Beatport pages / Deezer API).</summary>
     public bool DiscoverUseBeatport { get; set; } = true;
+
+    /// <summary>Width of the right-hand context panel (pixels), resizable by dragging its edge.</summary>
+    public int ContextPanelWidth { get; set; } = 400;
     public bool DiscoverUseDeezer { get; set; } = true;
     public bool EnableFlowBuilderSuggestedFlowTelemetry { get; set; } = true;
 

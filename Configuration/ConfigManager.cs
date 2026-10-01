@@ -213,6 +213,7 @@ public class ConfigManager
 
                 // [Discover]
                 DiscoverUseBeatport = !bool.TryParse(config["Discover:UseBeatport"], out var dub) || dub,
+                ContextPanelWidth = int.TryParse(config["Layout:ContextPanelWidth"], out var cpw) ? cpw : 400,
                 DiscoverUseDeezer = !bool.TryParse(config["Discover:UseDeezer"], out var dud) || dud,
 
                 // [FrequentSources]
@@ -433,6 +434,9 @@ public class ConfigManager
         iniContent.AppendLine($"DropCountdownMode = {config.DropCountdownMode}");
         iniContent.AppendLine($"CustomCountdownBars = {config.CustomCountdownBars}");
 
+        iniContent.AppendLine();
+        iniContent.AppendLine("[Layout]");
+        iniContent.AppendLine($"ContextPanelWidth = {config.ContextPanelWidth}");
         iniContent.AppendLine();
         iniContent.AppendLine("[Discover]");
         iniContent.AppendLine($"UseBeatport = {config.DiscoverUseBeatport}");
