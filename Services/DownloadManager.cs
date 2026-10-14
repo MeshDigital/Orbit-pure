@@ -3670,7 +3670,8 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         long lastHeartbeatBytes = startPosition;
         long lastThroughputBytes = startPosition;
         bool stalledByMonitor = false;
-        
+        bool journalWarned = false;
+
         var heartbeatTask = Task.Run(async () =>
         {
             try
@@ -3727,18 +3728,32 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
                     }
 
                     // PERFORMANCE: Only update if progress > 1KB to reduce SQLite overhead
-                    if (currentBytes > 0 && currentBytes > lastHeartbeatBytes + 1024)
+                    if (currentBytes > 0 && currentBytes > lastHeartbeatBytes + 1024 && checkpointId != null)
                     {
                         checkpointState.BytesDownloaded = currentBytes;
-                        
-                        // SSD OPTIMIZATION: Skip if no meaningful progress (built into UpdateHeartbeatAsync)
-                        await _crashJournal.UpdateHeartbeatAsync(
-                            checkpointId!,
-                            JsonSerializer.Serialize(checkpointState), // Serialize in heartbeat thread
-                            lastHeartbeatBytes,
-                            currentBytes);
-                        
-                        lastHeartbeatBytes = currentBytes;
+
+                        // Backlog C8: the checkpoint write shares this loop with stall detection.
+                        // A journal failure (e.g. SQLITE_BUSY) used to escape to the outer catch,
+                        // which ended the loop — silently switching stall detection off for the
+                        // rest of the download. Contain it; the next tick retries.
+                        try
+                        {
+                            // SSD OPTIMIZATION: Skip if no meaningful progress (built into UpdateHeartbeatAsync)
+                            await _crashJournal.UpdateHeartbeatAsync(
+                                checkpointId,
+                                JsonSerializer.Serialize(checkpointState), // Serialize in heartbeat thread
+                                lastHeartbeatBytes,
+                                currentBytes);
+                            lastHeartbeatBytes = currentBytes;
+                        }
+                        catch (Exception journalEx) when (journalEx is not OperationCanceledException)
+                        {
+                            if (!journalWarned)
+                            {
+                                journalWarned = true;
+                                _logger.LogWarning(journalEx, "Crash-journal heartbeat write failed for {GlobalId}; stall detection continues", ctx.GlobalId);
+                            }
+                        }
                         
                         _logger.LogTrace("Heartbeat: {Current}/{Total} bytes ({Percent}%)",
                             currentBytes, checkpointState.ExpectedSize, 
