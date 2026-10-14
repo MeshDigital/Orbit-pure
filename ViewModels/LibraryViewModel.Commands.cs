@@ -126,7 +126,7 @@ public partial class LibraryViewModel
         FixMissingFileFlagsCommand = new AsyncRelayCommand(ExecuteFixMissingFileFlagsAsync);
         BackfillDurationsCommand = new AsyncRelayCommand(ExecuteBackfillDurationsAsync);
         AutoArrangePlaylistCommand = new AsyncRelayCommand<PlaylistJob>(ExecuteAutoArrangePlaylistAsync);
-        CombineSelectedPlaylistsCommand = new RelayCommand(ExecuteCombineSelectedPlaylists);
+        CombineSelectedPlaylistsCommand = new AsyncRelayCommand(ExecuteCombineSelectedPlaylistsAsync);
         ToggleEditModeCommand = new RelayCommand(() => IsEditMode = !IsEditMode);
         ToggleActiveDownloadsCommand = new RelayCommand(() => IsActiveDownloadsVisible = !IsActiveDownloadsVisible);
         ToggleNavigationCommand = new RelayCommand(ExecuteToggleNavigation);
@@ -1060,34 +1060,120 @@ public partial class LibraryViewModel
     }
 
     /// <summary>
-    /// Library sidebar multi-select "Combine into New Playlist…": hands the selected playlists off
-    /// to Flow Builder, which opens the Combine Playlists dialog pre-checked with them — the same
-    /// flow as Flow Builder's own "Combine Playlists…" button.
+    /// Combines the selected library playlists directly, without navigating away from the Library.
     /// </summary>
-    private void ExecuteCombineSelectedPlaylists()
+    private async Task ExecuteCombineSelectedPlaylistsAsync()
     {
+        var selectedPlaylists = Projects.SelectedTreeNodes
+            .OfType<PlaylistTreeCardNodeViewModel>()
+            .Select(node => node.Card.Model)
+            .ToList();
+
+        if (selectedPlaylists.Count < 2)
+        {
+            _notificationService.Show(
+                "Combine Playlists",
+                "Select 2 or more playlists first (Ctrl/Shift-click in the sidebar).",
+                NotificationType.Warning);
+            return;
+        }
+
         try
         {
-            var playlists = Projects.SelectedTreeNodes
-                .OfType<PlaylistTreeCardNodeViewModel>()
-                .Select(n => n.Card.Model)
-                .ToList();
+            var availablePlaylists = await _libraryService.LoadAllPlaylistJobsAsync();
+            var availableIds = availablePlaylists.Select(playlist => playlist.Id).ToHashSet();
+            availablePlaylists.AddRange(
+                selectedPlaylists.Where(playlist => availableIds.Add(playlist.Id)));
+            var dialogResult = await _dialogService.ShowCombinePlaylistsDialogAsync(
+                availablePlaylists,
+                selectedPlaylists);
+            if (dialogResult == null || !dialogResult.IsConfirmed)
+                return;
 
-            if (playlists.Count < 2)
+            if (dialogResult.SelectedPlaylists.Count < 2)
             {
                 _notificationService.Show(
                     "Combine Playlists",
-                    "Select 2 or more playlists first (Ctrl/Shift-click in the sidebar).",
+                    "Select at least two playlists to combine.",
                     NotificationType.Warning);
                 return;
             }
 
-            _eventBus.Publish(new CombinePlaylistsRequestEvent(playlists));
-            _navigationService.NavigateTo("FlowBuilder");
+            var sourcePlaylistTracks = new List<List<PlaylistTrack>>();
+            foreach (var playlist in dialogResult.SelectedPlaylists)
+            {
+                // Combining playlists must preserve their tracks even if they are not yet
+                // prepared for workstation playback.
+                sourcePlaylistTracks.Add(await _libraryService.LoadPlaylistTracksAsync(playlist.Id));
+            }
+            var combinedTracks = PlaylistCombinePersistence.CollectTracks(
+                sourcePlaylistTracks,
+                dialogResult.SkipDuplicateTracks);
+
+            if (combinedTracks.Count == 0)
+            {
+                _notificationService.Show(
+                    "Combine Playlists",
+                    "The selected playlists do not contain any tracks to combine.",
+                    NotificationType.Warning);
+                return;
+            }
+
+            var orderedTracks = combinedTracks;
+            string? optimizationWarning = null;
+            var hashes = combinedTracks
+                .Select(track => track.TrackUniqueHash ?? string.Empty)
+                .Where(hash => hash.Length > 0)
+                .ToList();
+            var optimizer = _serviceProvider?.GetService(typeof(Services.Playlist.PlaylistOptimizer))
+                as Services.Playlist.PlaylistOptimizer;
+            if (optimizer != null && hashes.Count > 0)
+            {
+                try
+                {
+                    var result = await optimizer.OptimizeAsync(hashes);
+                    orderedTracks = FlowBuilderViewModel.ExpandOrderedTracksWithDuplicates(
+                        result.OrderedHashes,
+                        combinedTracks);
+                    if (result.OrderedHashes.Count == 0)
+                        optimizationWarning = "No transition order was available; source order was preserved.";
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not optimize combined playlist; preserving source order");
+                    optimizationWarning = "Transition optimization was unavailable; source order was preserved.";
+                }
+            }
+            else
+            {
+                optimizationWarning = "Transition optimization was unavailable; source order was preserved.";
+            }
+
+            var newPlaylist = await PlaylistCombinePersistence.SaveAsync(
+                _libraryService,
+                dialogResult.NewPlaylistName,
+                orderedTracks);
+
+            await Projects.LoadProjectsAsync();
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                Projects.SelectedProject = Projects.AllProjects.FirstOrDefault(
+                    playlist => playlist.Id == newPlaylist.Id);
+            });
+
+            var message = $"Created \"{newPlaylist.SourceTitle}\" with {orderedTracks.Count} tracks.";
+            if (!string.IsNullOrEmpty(optimizationWarning))
+                message += $" {optimizationWarning}";
+            _notificationService.Show(
+                "Playlists Combined",
+                message,
+                string.IsNullOrEmpty(optimizationWarning)
+                    ? NotificationType.Success
+                    : NotificationType.Warning);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to hand off selected playlists to Flow Builder");
+            _logger.LogError(ex, "Failed to combine selected playlists");
             _notificationService.Show("Combine Playlists Failed", ex.Message, NotificationType.Error);
         }
     }
@@ -1858,15 +1944,24 @@ public partial class LibraryViewModel
         try
         {
             var safeName = Utils.FilenameNormalizer.GetSafeFilename(project.SourceTitle);
-            var path = await _dialogService.SaveFileAsync("Export M3U Playlist", $"{safeName}.m3u8", "m3u8");
+            var path = await _dialogService.SaveFileAsync("Export Rekordbox M3U8 Playlist", $"{safeName}.m3u8", "m3u8");
             if (string.IsNullOrEmpty(path)) return;
 
             IsLoading = true;
             var tracks = (await _libraryService.LoadPlaylistTracksAsync(project.Id)).ToList();
-            await _exportService.ExportToM3uAsync(project.SourceTitle, tracks, path);
+            var result = await _exportService.ExportToM3uAsync(project.SourceTitle, tracks, path);
+            var details = result.SkippedTrackProblems.Count == 0
+                ? string.Empty
+                : " Unavailable tracks were omitted: "
+                    + string.Join("; ", result.SkippedTrackProblems.Take(3))
+                    + (result.SkippedTrackProblems.Count > 3 ? "; …" : "");
             _notificationService.Show("M3U Export Complete",
-                $"{tracks.Count} track(s) exported to {Path.GetFileName(path)}",
-                NotificationType.Success);
+                $"{result.Exported} track(s) exported to {Path.GetFileName(path)}" +
+                (result.SkippedDuplicates > 0 ? $" · {result.SkippedDuplicates} duplicate path(s) skipped" : "") +
+                (result.SkippedTrackProblems.Count > 0
+                    ? $" · {result.SkippedTrackProblems.Count} unavailable track(s) skipped.{details}"
+                    : ""),
+                result.Skipped > 0 ? NotificationType.Warning : NotificationType.Success);
         }
         catch (OperationCanceledException)
         {
@@ -2859,7 +2954,8 @@ public partial class LibraryViewModel
                 ResolvedFilePath = t.Model.ResolvedFilePath ?? string.Empty,
                 BPM              = t.BPM > 0 ? t.BPM : null,
                 MusicalKey       = t.MusicalKey,
-            });
+            }).ToList();
+            await Services.Export.TrackExportPreflight.ValidateAsync(tracks);
             await _exportService.ExportToRekordboxXmlAsync("ORBIT Batch Export", tracks, outputPath);
             _notificationService.Show(
                 "Rekordbox Export Complete",
@@ -2891,11 +2987,20 @@ public partial class LibraryViewModel
                 BPM              = t.BPM > 0 ? t.BPM : null,
                 MusicalKey       = t.MusicalKey,
             });
-            await _exportService.ExportToM3uAsync("ORBIT Batch Export", tracks, outputPath);
+            var result = await _exportService.ExportToM3uAsync("ORBIT Batch Export", tracks, outputPath);
+            var details = result.SkippedTrackProblems.Count == 0
+                ? string.Empty
+                : " Unavailable tracks were omitted: "
+                    + string.Join("; ", result.SkippedTrackProblems.Take(3))
+                    + (result.SkippedTrackProblems.Count > 3 ? "; …" : "");
             _notificationService.Show(
                 "M3U Export Complete",
-                $"{selected.Count} track(s) exported to {outputPath}",
-                NotificationType.Success);
+                $"{result.Exported} track(s) exported to {outputPath}" +
+                (result.SkippedDuplicates > 0 ? $" · {result.SkippedDuplicates} duplicate path(s) skipped" : "") +
+                (result.SkippedTrackProblems.Count > 0
+                    ? $" · {result.SkippedTrackProblems.Count} unavailable track(s) skipped.{details}"
+                    : ""),
+                result.Skipped > 0 ? NotificationType.Warning : NotificationType.Success);
         }
         catch (Exception ex)
         {

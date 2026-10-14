@@ -444,9 +444,10 @@
                                                                               CommandParameter="{Binding Card.Model}">
                                                                         <MenuItem.Icon><TextBlock Text="📀"/></MenuItem.Icon>
                                                                     </MenuItem>
-                                                                    <MenuItem Header="M3U Playlist (.m3u8)"
+                                                                    <MenuItem Header="Rekordbox M3U8 Playlist"
                                                                               Command="{Binding $parent[UserControl].DataContext.ExportPlaylistM3uCommand}"
-                                                                              CommandParameter="{Binding Card.Model}">
+                                                                              CommandParameter="{Binding Card.Model}"
+                                                                              ToolTip.Tip="Lightweight alternative to the XML export — track order and file paths only (no cues/hot-cues/beatgrid). Also opens fine in any other M3U8-reading player.">
                                                                         <MenuItem.Icon><TextBlock Text="🎵"/></MenuItem.Icon>
                                                                     </MenuItem>
                                                                 </MenuItem>

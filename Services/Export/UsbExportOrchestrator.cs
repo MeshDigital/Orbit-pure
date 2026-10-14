@@ -66,6 +66,10 @@ public sealed class UsbExportOrchestrator
             "Starting {Mode} export of '{Playlist}' ({Count} tracks) → {Dest}",
             mode, playlistName, tracks.Count, destinationRoot);
 
+        // Validate sources before creating directories or copying anything. The XML writer will
+        // validate the effective export paths again (USB destination paths in FilesAndXml mode).
+        await TrackExportPreflight.ValidateAsync(tracks, ct);
+
         if (mode == ExportMode.FilesAndXml)
             await ExportFilesAndXmlAsync(playlistName, tracks, destinationRoot, progress, ct, folderId);
         else
@@ -202,6 +206,14 @@ public sealed class UsbExportOrchestrator
         });
 
         await Task.WhenAll(copyTasks);
+
+        var notCopied = tracks
+            .Where(track => !pathMap.ContainsKey(track.ResolvedFilePath ?? ""))
+            .Select(track =>
+                $"{track.Artist ?? "Unknown Artist"} - {track.Title ?? "Unknown Title"} [{track.ResolvedFilePath}]: no verified USB copy was produced (copy failed or destination filesystem limit).")
+            .ToList();
+        if (notCopied.Count > 0)
+            throw new TrackExportValidationException(notCopied);
 
         // Phase B: write XML with dest paths instead of local paths
         var pioneerDir = Path.Combine(usbRoot, "PIONEER");

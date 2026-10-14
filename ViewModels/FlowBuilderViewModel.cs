@@ -73,29 +73,8 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
             this.RaiseAndSetIfChanged(ref _selectedPlaylist, value);
             _appConfig.FlowBuilderSelectedPlaylistId = value?.Id.ToString();
             _ = _configManager.SaveAsync(_appConfig);
-
-            // A manual playlist pick supersedes a staged "combine into new playlist" — without
-            // this, a later Save Order could silently create an unwanted extra playlist.
-            if (_pendingCombinedPlaylistName != null)
-            {
-                _pendingCombinedPlaylistName = null;
-                this.RaisePropertyChanged(nameof(HasPendingCombine));
-                this.RaisePropertyChanged(nameof(PendingCombineStatusText));
-            }
         }
     }
-
-    // ── Combine Playlists (staged "save as new playlist" state) ────────────────
-
-    private string? _pendingCombinedPlaylistName;
-
-    /// <summary>Non-null while a combined track set is staged to be saved as a brand-new playlist.</summary>
-    public bool HasPendingCombine => _pendingCombinedPlaylistName != null;
-
-    public string PendingCombineStatusText =>
-        _pendingCombinedPlaylistName != null
-            ? $"Building new playlist \"{_pendingCombinedPlaylistName}\" — Save Order to finish"
-            : string.Empty;
 
     // ── Set timeline ──────────────────────────────────────────────────────────
 
@@ -424,8 +403,8 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
 
         SaveOrderToPlaylistCommand = ReactiveCommand.CreateFromTask(
             SaveOrderToPlaylistAsync,
-            this.WhenAnyValue(x => x.SelectedPlaylist, x => x.IsLoading, x => x.HasTracks, x => x.HasPendingCombine,
-                (pl, loading, hasTracks, hasPending) => (pl != null || hasPending) && !loading && hasTracks));
+            this.WhenAnyValue(x => x.SelectedPlaylist, x => x.IsLoading, x => x.HasTracks,
+                (pl, loading, hasTracks) => pl != null && !loading && hasTracks));
 
         SaveOrderToPlaylistCommand.ThrownExceptions
             .ObserveOn(RxApp.MainThreadScheduler)
@@ -501,10 +480,6 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
 
         _disposables.Add(ReactiveUI.MessageBus.Current.Listen<InsertBridgeTrackBetweenEvent>()
             .Subscribe(evt => Dispatcher.UIThread.Post(async () => await InsertBridgeTrackBetweenAsync(evt))));
-
-        // Hand-off from the Library sidebar's multi-select "Combine into New Playlist…" action.
-        _disposables.Add(_eventBus.GetEvent<CombinePlaylistsRequestEvent>()
-            .Subscribe(evt => Dispatcher.UIThread.Post(async () => await CombinePlaylistsAsync(evt.Playlists))));
 
         // The transition editor's BPM save edits its OWN freshly-constructed PlaylistTrackViewModel
         // (see MixTransitionViewModel.LoadPairAsync), a separate instance from whatever card here
@@ -698,10 +673,9 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     }
 
     /// <summary>
-    /// Combines 2+ playlists into the on-screen set: unions their tracks (optionally deduping by
-    /// hash), auto-orders the result with the same optimizer <see cref="LoadSelectedPlaylistAsync"/>
-    /// uses, and stages the chosen name so <see cref="SaveOrderToPlaylistAsync"/> creates a brand
-    /// new playlist on Save instead of writing back into one of the sources.
+    /// Combines 2+ playlists into a new persisted playlist: unions their tracks (optionally
+    /// deduping by hash) and auto-orders the result with the same optimizer used by
+    /// <see cref="LoadSelectedPlaylistAsync"/>.
     ///
     /// Deliberately uses PlaylistOptimizer, not PlaylistIntelligenceService.ReorderAsync (the
     /// engine Suggest Flow/Auto-Arrange use): ReorderAsync silently drops any track with no stored
@@ -714,34 +688,34 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
     private async Task CombinePlaylistsAsync(IReadOnlyList<PlaylistJob>? preSelected = null)
     {
         var dialogResult = await _dialogService.ShowCombinePlaylistsDialogAsync(Playlists, preSelected);
-        if (dialogResult == null || !dialogResult.IsConfirmed || dialogResult.SelectedPlaylists.Count < 2)
+        if (dialogResult == null || !dialogResult.IsConfirmed)
             return;
+        if (dialogResult.SelectedPlaylists.Count < 2)
+        {
+            StatusText = "Select at least two playlists to combine.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(dialogResult.NewPlaylistName))
+        {
+            StatusText = "Enter a name for the combined playlist.";
+            return;
+        }
 
         IsLoading = true;
         StatusText = $"Combining {dialogResult.SelectedPlaylists.Count} playlists…";
         try
         {
-            var combinedTracks = new List<PlaylistTrack>();
-            var seenHashes = new HashSet<string>(StringComparer.Ordinal);
-
+            var sourcePlaylistTracks = new List<List<PlaylistTrack>>();
             foreach (var playlist in dialogResult.SelectedPlaylists)
-            {
-                var tracks = await _library.LoadPlaylistTracksAsync(playlist.Id);
-                var eligible = tracks.Where(SLSKDONET.ViewModels.Workstation.WorkstationDeckViewModel.IsTrackReadyForWorkstation);
+                sourcePlaylistTracks.Add(await _library.LoadPlaylistTracksAsync(playlist.Id));
 
-                foreach (var track in eligible)
-                {
-                    var hash = track.TrackUniqueHash ?? string.Empty;
-                    if (dialogResult.SkipDuplicateTracks && hash.Length > 0 && !seenHashes.Add(hash))
-                        continue;
-
-                    combinedTracks.Add(track);
-                }
-            }
+            var combinedTracks = SLSKDONET.Services.Library.PlaylistCombinePersistence.CollectTracks(
+                sourcePlaylistTracks,
+                dialogResult.SkipDuplicateTracks);
 
             if (combinedTracks.Count == 0)
             {
-                StatusText = "No ready tracks found across the selected playlists.";
+                StatusText = "No tracks found across the selected playlists.";
                 return;
             }
 
@@ -775,15 +749,27 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
                     Tracks.Add(BuildCard(t));
 
                 SelectedPlaylist = null;
-                _pendingCombinedPlaylistName = dialogResult.NewPlaylistName;
-                this.RaisePropertyChanged(nameof(HasPendingCombine));
-                this.RaisePropertyChanged(nameof(PendingCombineStatusText));
+                InvalidateFlowCaches(clearSuggestedFlow: true);
+            });
+
+            var newPlaylist = await SLSKDONET.Services.Library.PlaylistCombinePersistence.SaveAsync(
+                _library,
+                dialogResult.NewPlaylistName,
+                orderedTracks);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                Tracks.Clear();
+                foreach (var track in newPlaylist.PlaylistTracks)
+                    Tracks.Add(BuildCard(track));
+
+                if (!Playlists.Any(playlist => playlist.Id == newPlaylist.Id))
+                    Playlists.Add(newPlaylist);
+                SelectedPlaylist = newPlaylist;
 
                 StatusText = result?.UnanalyzedTrackCount > 0
-                    ? $"Combined {Tracks.Count} tracks from {dialogResult.SelectedPlaylists.Count} playlists ({result.UnanalyzedTrackCount} unanalysed, appended at end)"
-                    : $"Combined {Tracks.Count} tracks from {dialogResult.SelectedPlaylists.Count} playlists — transitions optimised. Save Order to create \"{dialogResult.NewPlaylistName}\".";
-
-                InvalidateFlowCaches(clearSuggestedFlow: true);
+                    ? $"Created \"{newPlaylist.SourceTitle}\" with {Tracks.Count} tracks from {dialogResult.SelectedPlaylists.Count} playlists ({result.UnanalyzedTrackCount} unanalysed, appended at end)."
+                    : $"Created \"{newPlaylist.SourceTitle}\" with {Tracks.Count} tracks from {dialogResult.SelectedPlaylists.Count} playlists — transitions optimised.";
             });
 
             await RefreshBridgesAsync();
@@ -1063,11 +1049,7 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
         }
     }
 
-    /// <summary>
-    /// The "finish" of the Set Plan workflow. Normally writes the current on-screen set order back
-    /// to the selected playlist; when a combine is staged (<see cref="HasPendingCombine"/>), first
-    /// creates the new playlist and targets that instead of overwriting a source.
-    /// </summary>
+    /// <summary>Writes the current on-screen set order back to the selected playlist.</summary>
     private async Task ClearAsync()
     {
         var confirmed = await _dialogService.ConfirmAsync(
@@ -1084,34 +1066,16 @@ public sealed class FlowBuilderViewModel : ReactiveObject, IDisposable
 
     private async Task SaveOrderToPlaylistAsync()
     {
-        if (Tracks.Count == 0) return;
-        if (SelectedPlaylist == null && _pendingCombinedPlaylistName == null) return;
+        if (Tracks.Count == 0 || SelectedPlaylist == null) return;
 
-        var confirmMessage = _pendingCombinedPlaylistName != null
-            ? $"Create a new playlist \"{_pendingCombinedPlaylistName}\" with the current {Tracks.Count}-track order?"
-            : $"This overwrites the track order in \"{SelectedPlaylist!.SourceTitle}\" and cannot be undone. Continue?";
         var confirmed = await _dialogService.ConfirmAsync(
             "Save Order",
-            confirmMessage,
+            $"This overwrites the track order in \"{SelectedPlaylist.SourceTitle}\" and cannot be undone. Continue?",
             confirmLabel: "Save",
             cancelLabel: "Cancel");
         if (!confirmed) return;
 
-        if (_pendingCombinedPlaylistName != null)
-        {
-            var newPlaylist = await _library.CreateEmptyPlaylistAsync(_pendingCombinedPlaylistName);
-            await CommitOrderToPlaylistAsync(newPlaylist.Id, newPlaylist.SourceTitle);
-
-            _pendingCombinedPlaylistName = null;
-            this.RaisePropertyChanged(nameof(HasPendingCombine));
-            this.RaisePropertyChanged(nameof(PendingCombineStatusText));
-
-            // Land the user on their new combined playlist — subsequent saves behave normally.
-            SelectedPlaylist = newPlaylist;
-            return;
-        }
-
-        await CommitOrderToPlaylistAsync(SelectedPlaylist!.Id, SelectedPlaylist.SourceTitle);
+        await CommitOrderToPlaylistAsync(SelectedPlaylist.Id, SelectedPlaylist.SourceTitle);
     }
 
     /// <summary>

@@ -70,10 +70,12 @@
                                 </TextBlock.Text>
                             </TextBlock>
                         </Border>
-                        <Border Classes="fb-chip" IsVisible="{Binding IsLoading}">
+                        <Border Classes="fb-chip">
                             <TextBlock Text="{Binding StatusText}"
                                        Foreground="#9CB7D9"
-                                       FontSize="10"/>
+                                       FontSize="10"
+                                       TextWrapping="Wrap"
+                                       MaxWidth="350"/>
                         </Border>
                     </WrapPanel>
                 </StackPanel>
@@ -186,9 +188,6 @@
                     </TextBlock>
                     <Border Classes="fb-chip" IsVisible="{Binding HasTracks}">
                         <TextBlock Text="Drag cards to shape transitions" FontSize="10" Foreground="#8AA0B8"/>
-                    </Border>
-                    <Border Classes="fb-chip" IsVisible="{Binding HasPendingCombine}" Background="#1D4E42" BorderBrush="#2D8E7A">
-                        <TextBlock Text="{Binding PendingCombineStatusText}" FontSize="10" Foreground="#9BD7CA"/>
                     </Border>
                     <TextBlock Text="Style filter"
                                FontSize="10"

@@ -3593,6 +3593,7 @@ public sealed class WorkstationViewModel : ReactiveObject, IDisposable
             // the handoff to DJ software should carry the whole crate.
             var tracks = await _library.LoadPlaylistTracksAsync(playlist.Id);
             var ordered = tracks.OrderBy(t => t.SortOrder).ThenBy(t => t.TrackNumber).ToList();
+            await SLSKDONET.Services.Export.TrackExportPreflight.ValidateAsync(ordered);
 
             var safeName = string.Join("_", playlist.SourceTitle.Split(System.IO.Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries)).Trim();
             if (safeName.Length == 0) safeName = "orbit-playlist";
