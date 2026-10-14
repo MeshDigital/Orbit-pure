@@ -167,7 +167,7 @@
                                                 <ProgressBar Value="{Binding Progress}" Maximum="1.0" Height="2" Margin="0,4,12,0" Foreground="#00A3FF" IsVisible="{Binding IsRunning}"/>
                                                 <TextBlock Text="{Binding StatusText}" FontSize="10" Foreground="#808080" IsVisible="{Binding IsRunning}"/>
                                             </StackPanel>
-                                            <Button Grid.Column="2" Command="{Binding ((vm:HomeViewModel)DataContext).RunMissionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" 
+                                            <Button Grid.Column="2" Command="{Binding DataContext.RunMissionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" 
                                                     CommandParameter="{Binding}" IsVisible="{Binding !IsRunning}"
                                                     Classes="ActionBtnSmall" Background="#22FFFFFF">
                                                 <TextBlock Text="START" FontSize="9" FontWeight="Black"/>
@@ -369,7 +369,7 @@
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:PlaylistCardViewModel">
-                                            <Button Command="{Binding ((vm:HomeViewModel)DataContext).ViewPlaylistCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            <Button Command="{Binding DataContext.ViewPlaylistCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                     CommandParameter="{Binding}"
                                                     Background="Transparent" BorderThickness="0" Padding="0">
                                                 <Border Classes="HoverLift" Width="170" Height="175" CornerRadius="14" ClipToBounds="True" Background="#1A1A1D">
@@ -491,7 +491,7 @@
                                                     <TextBlock Grid.Column="1" Grid.Row="2" Text="{Binding AlbumName}" FontSize="10" Foreground="#555" TextTrimming="CharacterEllipsis" Margin="12,4,8,0"/>
 
                                                     <StackPanel Grid.Column="2" Grid.RowSpan="3" VerticalAlignment="Center" Spacing="4">
-                                                        <Button Command="{Binding ((vm:HomeViewModel)DataContext).QuickSearchCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        <Button Command="{Binding DataContext.QuickSearchCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                                 CommandParameter="{Binding}"
                                                                 Padding="6" Background="#1DB954" CornerRadius="4">
                                                             <TextBlock Text="🔍" FontSize="12"/>

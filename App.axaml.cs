@@ -420,7 +420,8 @@ public partial class App : Application
                             Serilog.Log.Information("Background initialization completed");
 
                             // Start maintenance tasks AFTER initialization is confirmed complete
-                            _ = RunMaintenanceTasksAsync();
+                            // Off the UI thread: it walks the download folder and touches the DB.
+                            _ = Task.Run(RunMaintenanceTasksAsync);
                         });
                     }
                     catch (OperationCanceledException)
@@ -686,7 +687,6 @@ public partial class App : Application
         services.AddSingleton<PerformanceTracker>(); // live perf overlay (Ctrl+Shift+P) — page-nav and opted-in ViewModel load timings
         services.AddSingleton<UiStallWatchdog>();
         services.AddSingleton<Services.AudioAnalysis.BeatGridRecomputeService>();
-        services.AddSingleton<IUserInputService, UserInputService>();
         services.AddSingleton<IFileInteractionService, FileInteractionService>();
         services.AddSingleton<INotificationService, NotificationServiceAdapter>();
         services.AddSingleton<IClipboardService, ClipboardService>();
@@ -948,13 +948,20 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Phase 8: Maintenance Task - Runs daily cleanup operations.
+    /// Phase 8: Maintenance Task - runs once per launch, on a pool thread.
     /// - Deletes backup files older than 7 days
-    /// - Vacuums database for performance
+    /// - Daily library snapshot, weekly VACUUM (see LibraryDatabaseMaintenance)
     /// </summary>
     private async Task RunMaintenanceTasksAsync()
     {
-        await PerformMaintenanceAsync();
+        try
+        {
+            await PerformMaintenanceAsync();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "[Maintenance] Startup maintenance failed");
+        }
     }
 
     private async Task PerformMaintenanceAsync()
@@ -1001,19 +1008,14 @@ public partial class App : Application
             }
         }
         
-        // Task 2: Vacuum database for performance
-        try
-        {
-            var dbService = Services?.GetService<DatabaseService>();
-            if (dbService != null)
-            {
-                await dbService.VacuumDatabaseAsync();
-            }
-        }
-        catch (Exception ex)
-        {
-            Serilog.Log.Warning(ex, "[Maintenance] Database vacuum failed");
-        }
+        // Task 2: weekly VACUUM (backlog E1).
+        // This used to VACUUM on every launch from a UI-thread continuation; SQLite's "async"
+        // calls are synchronous, so it froze the UI (~10 s) and locked the DB at startup. Now it
+        // is gated by a marker file and always runs on a pool thread.
+        var vacuumed = await Task.Run(() => SLSKDONET.Services.LibraryDatabaseMaintenance.RunScheduledVacuum(
+            onError: ex => Serilog.Log.Warning(ex, "[Maintenance] Weekly VACUUM failed")));
+        if (vacuumed)
+            Serilog.Log.Information("[Maintenance] Weekly VACUUM completed");
 
         // Task 3: Schedule batch sync of embeddings
         try

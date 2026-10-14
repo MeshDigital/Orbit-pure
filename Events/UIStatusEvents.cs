@@ -23,7 +23,6 @@ public record AddToQueueRequestEvent(PlaylistTrackViewModel Track);
 /// one right-clicked with Mix on). The whole list is still queued, so earlier tracks stay reachable
 /// with Previous and the mix continues from this track onward. Null = start at the first track.</param>
 public record PlayAlbumRequestEvent(IEnumerable<PlaylistTrack> Tracks, bool MixModeEnabled = false, Guid? StartTrackId = null);
-public record DownloadAlbumRequestEvent(object Album); // object to handle AlbumNode or PlaylistJob
 public record RequestTheaterModeEvent();
 public record AddToTimelineRequestEvent(IEnumerable<PlaylistTrack> Tracks);
 

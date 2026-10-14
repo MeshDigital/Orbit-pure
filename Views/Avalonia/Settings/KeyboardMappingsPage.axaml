@@ -194,7 +194,7 @@
                         Padding="6,2"
                         VerticalAlignment="Center"
                         AutomationProperties.Name="{Binding ActionLabel, StringFormat='Set key binding for {0}'}"
-                        Command="{Binding $parent[ItemsControl].((vm:KeyboardMappingsViewModel)DataContext).StartCaptureCommand}"
+                        Command="{Binding $parent[ItemsControl].DataContext.StartCaptureCommand}"
                         CommandParameter="{Binding}"
                         Classes="settingsAction"/>
               </Grid>

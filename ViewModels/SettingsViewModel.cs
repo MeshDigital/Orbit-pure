@@ -1480,6 +1480,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand RestartSpotifyAuthCommand { get; }
     public ICommand CheckFfmpegCommand { get; } // Phase 8: Dependency validation
     public ICommand ResetDatabaseCommand { get; }
+    public ICommand BackupLibraryNowCommand { get; }
+    public ICommand OpenBackupsFolderCommand { get; }
     public ICommand ResetToDefaultsCommand { get; }
     public ICommand ScanLibraryCommand { get; } // [NEW] Manual Scan
     public ICommand ReconcileLibraryCommand { get; }
@@ -1868,6 +1870,8 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         CheckFfmpegCommand = new AsyncRelayCommand(CheckFfmpegAsync); // Phase 8
         RestartSpotifyAuthCommand = new AsyncRelayCommand(RestartSpotifyAuthAsync, () => IsSpotifyConnecting);
         ResetDatabaseCommand = new AsyncRelayCommand(ResetDatabaseAsync);
+        BackupLibraryNowCommand = new AsyncRelayCommand(BackupLibraryNowAsync);
+        OpenBackupsFolderCommand = new RelayCommand(OpenBackupsFolder);
         ResetToDefaultsCommand = new AsyncRelayCommand(ResetToDefaultsAsync);
         ScanLibraryCommand = new AsyncRelayCommand(ScanLibraryAsync, () => !IsScanning && !IsFullSyncing);
         ReconcileLibraryCommand = new AsyncRelayCommand(ReconcileLibraryAsync, () => !IsReconciling && !IsFullSyncing);
@@ -2956,14 +2960,64 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             (RevokeAndReAuthCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
+    /// <summary>
+    /// "Back up now" (backlog B6): a consistent snapshot of library.db into the Backups folder.
+    /// Manual backups use their own prefix, so the startup rotation (newest 5) never prunes them.
+    /// </summary>
+    private async Task BackupLibraryNowAsync()
+    {
+        try
+        {
+            var path = await Task.Run(() => SLSKDONET.Services.LibraryDatabaseMaintenance.CreateBackup());
+            LastLibraryBackupText = $"Last backup: {System.IO.Path.GetFileName(path)}";
+            _eventBus.Publish(new ToastRequestedEvent("Library backed up", $"Saved {System.IO.Path.GetFileName(path)} to the Backups folder.", NotificationType.Success, TimeSpan.FromSeconds(5)));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Manual library backup failed");
+            _eventBus.Publish(new ToastRequestedEvent("Backup failed", ex.Message, NotificationType.Error, TimeSpan.FromSeconds(8)));
+        }
+    }
+
+    private void OpenBackupsFolder()
+    {
+        var dir = SLSKDONET.Services.LibraryDatabaseMaintenance.GetBackupDirectory();
+        try { System.IO.Directory.CreateDirectory(dir); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Could not create backups folder {Dir}", dir); }
+        OpenPathInExplorer(dir);
+    }
+
+    private string _lastLibraryBackupText = "Backups are taken automatically every launch (newest 5 kept).";
+    public string LastLibraryBackupText
+    {
+        get => _lastLibraryBackupText;
+        private set => SetProperty(ref _lastLibraryBackupText, value);
+    }
+
     private async Task ResetDatabaseAsync()
     {
-        try 
+        // This deletes library.db on the next launch and rebuilds it from the newest startup
+        // backup. It used to fire on a single click with no confirmation; anything changed since
+        // the last launch would be gone.
+        if (_dialogService != null)
         {
-            // Create marker file
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var markerPath = System.IO.Path.Combine(appData, "ORBIT", ".force_schema_reset");
-            
+            var confirmed = await _dialogService.ConfirmAsync(
+                "Refresh Database Schema",
+                "ORBIT will restart, delete the library database and rebuild it from the most recent startup backup. " +
+                "Changes made since ORBIT last started may be lost. A safety backup of the current database is taken first. Continue?",
+                confirmLabel: "Restart and Rebuild",
+                cancelLabel: "Cancel");
+            if (!confirmed) return;
+        }
+
+        try
+        {
+            // Safety net first: if this fails, don't delete anything.
+            var safety = await Task.Run(() => SLSKDONET.Services.LibraryDatabaseMaintenance.CreateBackup());
+            _logger.LogWarning("Pre-reset safety backup written to {Path}", safety);
+
+            var markerPath = SchemaMigratorService.ForceResetMarkerPath();
+
             await System.IO.File.WriteAllTextAsync(markerPath, DateTime.Now.ToString());
             _logger.LogWarning("Force Reset Marker created at {Path}", markerPath);
             
@@ -2980,6 +3034,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to initiate database reset");
+            _eventBus.Publish(new ToastRequestedEvent("Schema refresh not started", ex.Message, NotificationType.Error, TimeSpan.FromSeconds(8)));
         }
     }
 

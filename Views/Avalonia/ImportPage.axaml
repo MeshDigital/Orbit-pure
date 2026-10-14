@@ -337,31 +337,6 @@
                         </Border>
                     </Panel>
                 </Border>
-                
-                <!-- USB Import (Future) -->
-                <Border Background="{DynamicResource RegionBrush}" BorderBrush="#3E3E3E" BorderThickness="1" CornerRadius="12" Padding="32" Opacity="0.5">
-                    <StackPanel Spacing="16">
-                        <StackPanel Orientation="Horizontal" Spacing="16">
-                            <TextBlock Text="💾" FontSize="48"/>
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="USB Drive Import" FontSize="20" FontWeight="SemiBold" Foreground="White"/>
-                                <TextBlock Text="Scan USB drives for music files (Coming Soon)" FontSize="14" Foreground="#A0A0A0" Margin="0,4,0,0"/>
-                            </StackPanel>
-                        </StackPanel>
-                        
-                        <Button Background="#666"
-                                Foreground="White"
-                                Padding="24,12"
-                                CornerRadius="8"
-                                HorizontalAlignment="Left"
-                                IsEnabled="False">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <TextBlock Text="🔌" FontSize="16"/>
-                                <TextBlock Text="Scan USB Drives" FontSize="14" FontWeight="Medium"/>
-                            </StackPanel>
-                        </Button>
-                    </StackPanel>
-                </Border>
             </StackPanel>
         </ScrollViewer>
     </Grid>

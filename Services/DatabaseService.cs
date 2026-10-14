@@ -1813,31 +1813,6 @@ public class DatabaseService
     }
 
     /// <summary>
-    /// Phase 8: Maintenance - Vacuum database to reclaim space and optimize performance.
-    /// Should be called periodically (e.g., during daily maintenance).
-    /// </summary>
-    public async Task VacuumDatabaseAsync()
-    {
-        try
-        {
-            using var context = new AppDbContext();
-            var connection = context.Database.GetDbConnection();
-            await connection.OpenAsync();
-            
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText = "VACUUM";
-            await cmd.ExecuteNonQueryAsync();
-            
-            _logger.LogInformation("Database VACUUM completed successfully");
-            await connection.CloseAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Database VACUUM failed (this is non-critical)");
-        }
-    }
-
-    /// <summary>
     /// ⚠️ INITIATING DATABASE RESET ⚠️
     /// Safely deletes the database file and re-initializes a fresh schema.
     /// This will wipe ALL tracks, projects, and cached data.
@@ -2305,25 +2280,21 @@ public class DatabaseService
 
     // ===== Backup Methods =====
 
-    public async Task BackupDatabaseAsync(string backupPath)
+    /// <summary>
+    /// Writes a consistent snapshot of the library to <paramref name="backupPath"/> (or a
+    /// timestamped file in the Backups folder when null) and returns its path.
+    /// Uses SQLite's online backup API: a plain file copy of a WAL-mode database can miss
+    /// committed pages still in the -wal file. Throws on failure so the caller can report it —
+    /// it used to log and return as if it had succeeded.
+    /// </summary>
+    public Task<string> BackupDatabaseAsync(string? backupPath = null)
     {
-        var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
-        
-        if (!File.Exists(dbPath))
+        return Task.Run(() =>
         {
-            _logger.LogWarning("Database file not found at {Path}, skipping backup", dbPath);
-            return;
-        }
-
-        try
-        {
-            await _fileWriteService.CopyFileAtomicAsync(dbPath, backupPath, preserveTimestamps: true);
-            _logger.LogInformation("✅ Database backup created successfully at {Path}", backupPath);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to create database backup at {Path}", backupPath);
-        }
+            var path = SLSKDONET.Services.LibraryDatabaseMaintenance.CreateBackup(targetPath: backupPath);
+            _logger.LogInformation("Database backup created at {Path}", path);
+            return path;
+        });
     }
 
     public async Task<List<PlaylistTrackEntity>> SearchPlaylistTracksAsync(string query, int limit = 50)

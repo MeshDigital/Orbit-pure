@@ -156,7 +156,7 @@ public class SchemaMigratorService
         {
             var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
-            var backupDir = System.IO.Path.Combine(appData, "ORBIT", "Backups");
+            var backupDir = LibraryDatabaseMaintenance.GetBackupDirectory(dbPath); // derived from the DB path so ORBIT_DB_PATH (tests) never restores/rotates the real backups
 
             if (!System.IO.File.Exists(dbPath))
             {
@@ -192,7 +192,9 @@ public class SchemaMigratorService
             // but wrap in Task.Run to not block startup significantly if large
             await Task.Run(() =>
             {
-                System.IO.File.Copy(dbPath, backupPath, overwrite: true);
+                // SQLite online backup, not File.Copy: a WAL-mode DB after an unclean shutdown
+                // can hold committed pages in library.db-wal that a plain copy would drop.
+                LibraryDatabaseMaintenance.CreateBackup(dbPath, backupPath);
                 _logger.LogInformation("Database backed up to: {Path}", backupPath);
 
                 // Rotate backups: Keep last 5
@@ -225,13 +227,19 @@ public class SchemaMigratorService
         }
     }
 
+    /// <summary>Marker the Settings "Update Schema" action drops to request a reset on next launch. Lives next to the DB.</summary>
+    public static string ForceResetMarkerPath(string? dbPath = null)
+    {
+        dbPath ??= SLSKDONET.Data.OrbitPaths.LibraryDbPath;
+        return System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(dbPath)) ?? ".", ".force_schema_reset");
+    }
+
     private async Task CheckForForceResetAsync()
     {
         try
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var markerPath = System.IO.Path.Combine(appData, "ORBIT", ".force_schema_reset");
             var dbPath = SLSKDONET.Data.OrbitPaths.LibraryDbPath;
+            var markerPath = ForceResetMarkerPath(dbPath);
 
             if (System.IO.File.Exists(markerPath))
             {
@@ -290,7 +298,7 @@ public class SchemaMigratorService
             {
                 _logger.LogWarning("Active database is malformed. Attempting recovery from healthy backup before migrations.");
 
-                var backupDir = System.IO.Path.Combine(appData, "ORBIT", "Backups");
+                var backupDir = LibraryDatabaseMaintenance.GetBackupDirectory(dbPath);
                 var restored = await TryRestoreLatestHealthyBackupAsync(backupDir, dbPath).ConfigureAwait(false);
 
                 if (!restored)

@@ -24,7 +24,7 @@
             <ItemsRepeater.ItemTemplate>
                 <DataTemplate x:DataType="vm:LibraryPlaylistCardViewModel">
                     <Grid Margin="8" Width="200" Height="280">
-                        <Button Command="{Binding ((vm:LibraryViewModel)DataContext).Projects.OpenProjectCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                        <Button Command="{Binding DataContext.Projects.OpenProjectCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                 CommandParameter="{Binding Model}"
                                 Background="Transparent"
                                 BorderThickness="0"
@@ -66,8 +66,7 @@
                                     <Separator/>
                                     <MenuItem Header="Remove Playlist From List"
                                               Command="{Binding $parent[UserControl].DataContext.DeleteProjectCommand}"
-                                              CommandParameter="{Binding Model}"
-                                              InputGesture="Delete">
+                                              CommandParameter="{Binding Model}">
                                         <MenuItem.Icon>
                                             <TextBlock Text="🗑️"/>
                                         </MenuItem.Icon>
@@ -193,7 +192,7 @@
                                 BorderBrush="#00BFFF"
                                 BorderThickness="1"
                                 ToolTip.Tip="Queue missing tracks of this album/playlist"
-                                Command="{Binding ((vm:LibraryViewModel)DataContext).DownloadAlbumCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                Command="{Binding DataContext.DownloadAlbumCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                 CommandParameter="{Binding Model}">
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <TextBlock Text="⬇" FontSize="11" Foreground="#00BFFF"/>

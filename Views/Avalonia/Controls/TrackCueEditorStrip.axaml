@@ -172,10 +172,10 @@
                         <Button Classes="ce" Command="{Binding NudgeSelectedCommand}" CommandParameter="-fine" ToolTip.Tip="10 ms earlier (Ctrl+←)"><TextBlock Text="−10ms"/></Button>
                         <Button Classes="ce" Command="{Binding NudgeSelectedCommand}" CommandParameter="+fine" ToolTip.Tip="10 ms later (Ctrl+→)"><TextBlock Text="+10ms"/></Button>
                         <TextBlock Classes="lbl" Text="Loop" Margin="8,0,4,4"/>
-                        <Button Classes="ce" Command="{Binding SetSelectedLoopBarsCommand}" CommandParameter="4"><TextBlock Text="4"/></Button>
-                        <Button Classes="ce" Command="{Binding SetSelectedLoopBarsCommand}" CommandParameter="8"><TextBlock Text="8"/></Button>
-                        <Button Classes="ce" Command="{Binding SetSelectedLoopBarsCommand}" CommandParameter="16"><TextBlock Text="16"/></Button>
-                        <Button Classes="ce" Command="{Binding SetSelectedLoopBarsCommand}" CommandParameter="0" ToolTip.Tip="Make it a plain cue again"><TextBlock Text="off"/></Button>
+                        <Button Classes="ce" Command="{Binding SetSelectedLoopBarsCommand}"><Button.CommandParameter><x:Int32>4</x:Int32></Button.CommandParameter><TextBlock Text="4"/></Button>
+                        <Button Classes="ce" Command="{Binding SetSelectedLoopBarsCommand}"><Button.CommandParameter><x:Int32>8</x:Int32></Button.CommandParameter><TextBlock Text="8"/></Button>
+                        <Button Classes="ce" Command="{Binding SetSelectedLoopBarsCommand}"><Button.CommandParameter><x:Int32>16</x:Int32></Button.CommandParameter><TextBlock Text="16"/></Button>
+                        <Button Classes="ce" Command="{Binding SetSelectedLoopBarsCommand}" ToolTip.Tip="Make it a plain cue again"><Button.CommandParameter><x:Int32>0</x:Int32></Button.CommandParameter><TextBlock Text="off"/></Button>
                         <TextBlock Text="{Binding SelectedLoopLabel}" FontSize="9" Foreground="#6E7A86" VerticalAlignment="Center" Margin="0,0,8,4"/>
                     </WrapPanel>
                     <TextBlock FontSize="9" Foreground="#6E7A86" Margin="0,0,0,4" TextWrapping="Wrap"
