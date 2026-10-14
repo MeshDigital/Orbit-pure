@@ -57,8 +57,6 @@
                                         <MenuItem Header="View Detail"
                                                   Command="{Binding $parent[SetlistHealthBar].DataContext.SelectSegmentCommand}"
                                                   CommandParameter="{Binding Index}"/>
-                                        <MenuItem Header="Apply Rescue Track..."
-                                                  IsEnabled="{Binding $parent[SetlistHealthBar].DataContext.HasRescueForSegment}"/>
                                     </ContextMenu>
                                 </Rectangle.ContextMenu>
                             </Rectangle>

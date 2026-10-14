@@ -19,7 +19,7 @@
         </Style>
         
         <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource Surface2Brush}"/>
         </Style>
         
         <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
@@ -43,14 +43,14 @@
         </Style>
     </UserControl.Styles>
     
-    <Border Background="{DynamicResource BackgroundBrush}" CornerRadius="8" Padding="16">
+    <Border Background="{DynamicResource Surface1Brush}" CornerRadius="8" Padding="16">
         <DockPanel>
             <!-- Header -->
             <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,16">
                 <TextBlock Text="Play Queue" 
                           FontSize="18" 
                           FontWeight="SemiBold"
-                          Foreground="{DynamicResource TextBrush}"/>
+                          Foreground="{DynamicResource TextPrimaryBrush}"/>
                 
                 <StackPanel Orientation="Horizontal" Spacing="12">
                     <TextBlock Foreground="{DynamicResource TextSecondaryBrush}">
@@ -64,7 +64,7 @@
                             Padding="8,4"
                             FontSize="12"
                             Background="{DynamicResource TertiaryBackgroundBrush}"
-                            Foreground="{DynamicResource TextBrush}"
+                            Foreground="{DynamicResource TextPrimaryBrush}"
                             CornerRadius="4"/>
                 </StackPanel>
             </StackPanel>
@@ -88,7 +88,7 @@
                                 <!-- Track Info -->
                                 <StackPanel Grid.Column="1" Spacing="4">
                                     <TextBlock Text="{Binding Title}"
-                                              Foreground="{DynamicResource TextBrush}"
+                                              Foreground="{DynamicResource TextPrimaryBrush}"
                                               TextTrimming="CharacterEllipsis"/>
                                     
                                     <TextBlock Text="{Binding Artist}"

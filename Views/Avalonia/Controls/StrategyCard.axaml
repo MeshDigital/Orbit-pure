@@ -43,7 +43,7 @@
                 
                 <!-- Active Indicator (Checkmark) -->
                 <PathIcon Grid.Row="0" Grid.Column="1" 
-                          Data="{StaticResource icons_checkmark}"
+                          Data="{StaticResource checkmark_regular}"
                           Foreground="#1DB954"
                           Width="20" Height="20"
                           HorizontalAlignment="Right"

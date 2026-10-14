@@ -224,7 +224,7 @@
                                 <Button Command="{Binding ToggleLikeCommand}" Background="Transparent" Padding="0" BorderThickness="0" Cursor="Hand">
                                     <TextBlock Text="{Binding IsLiked, Converter={StaticResource BoolToHeartConverter}}" FontSize="14" Foreground="#E91E63"/>
                                 </Button>
-                                <TextBlock Text="{Binding PlayCount}" FontSize="10" Foreground="{DynamicResource TextTertiaryBrush}" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                <TextBlock Text="{Binding PlayCount}" FontSize="10" Foreground="{DynamicResource BrushText2}" VerticalAlignment="Center" Margin="4,0,0,0"/>
                             </StackPanel>
                         </Grid>
 
@@ -257,11 +257,11 @@
                         <!-- Footer Technical Details -->
                         <Grid ColumnDefinitions="*,*" IsVisible="{Binding IsCompleted}">
                             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
-                                 <TextBlock Text="⏱" FontSize="10" Foreground="{DynamicResource TextTertiaryBrush}"/>
+                                 <TextBlock Text="⏱" FontSize="10" Foreground="{DynamicResource BrushText2}"/>
                                  <TextBlock Text="{Binding Duration}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
-                                 <TextBlock Text="💾" FontSize="10" Foreground="{DynamicResource TextTertiaryBrush}"/>
+                                 <TextBlock Text="💾" FontSize="10" Foreground="{DynamicResource BrushText2}"/>
                                  <TextBlock Text="{Binding FileSizeDisplay}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}"/>
                             </StackPanel>
                         </Grid>

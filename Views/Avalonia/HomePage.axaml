@@ -429,7 +429,7 @@
                                                 <Grid ColumnDefinitions="56,*,Auto" RowDefinitions="Auto,Auto,Auto">
                                                     <Border Grid.RowSpan="3" Width="56" Height="56" CornerRadius="8" ClipToBounds="True" Background="#262629">
                                                         <Grid>
-                                                            <PathIcon Data="{StaticResource icons_music}" Width="18" Height="18" Foreground="#3A3A3E" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                            <PathIcon Data="{StaticResource music_regular}" Width="18" Height="18" Foreground="#3A3A3E" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                             <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill"
                                                                    IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNotNull}}"/>
                                                         </Grid>
@@ -555,7 +555,7 @@
                                                         <!-- Status Icon/Art -->
                                                         <Border Grid.Column="0" Width="36" Height="36" Background="#2A2A2E" CornerRadius="6" ClipToBounds="True">
                                                             <Grid>
-                                                                <PathIcon Data="{StaticResource icons_music}" Width="16" Height="16" Foreground="#444" IsVisible="{Binding Track.ArtworkBitmap, Converter={x:Static ObjectConverters.IsNull}}"/>
+                                                                <PathIcon Data="{StaticResource music_regular}" Width="16" Height="16" Foreground="#444" IsVisible="{Binding Track.ArtworkBitmap, Converter={x:Static ObjectConverters.IsNull}}"/>
                                                                 <Image Source="{Binding Track.ArtworkBitmap}" Stretch="UniformToFill"/>
                                                             </Grid>
                                                         </Border>
