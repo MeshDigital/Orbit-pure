@@ -373,7 +373,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     /// <summary>True once <see cref="SetMixTransitionOrigin"/> has recorded where the current
     /// track was opened from — drives the "← Back to Mix Transition" link's visibility in
-    /// CueForgePagee.axaml. Stays true (not auto-cleared) after use: it's a real, still-valid
+    /// CueForgePage.axaml. Stays true (not auto-cleared) after use: it's a real, still-valid
     /// path back, not a one-shot toast.</summary>
     public bool HasMixOrigin => _mixOriginPlaylistId.HasValue;
 
@@ -640,7 +640,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         SeekPlayheadCommand = ReactiveCommand.Create<double>(SeekToSeconds);
 
         AuditionCueCommand = ReactiveCommand.Create<OrbitCue>(AuditionCue);
-        // Typed <int, Unit> used to crash the whole app: CueForgePagee.axaml's − beat/+ beat
+        // Typed <int, Unit> used to crash the whole app: CueForgePage.axaml's − beat/+ beat
         // buttons set CommandParameter="-1"/"1" as plain XAML string literals (Avalonia doesn't
         // auto-convert a Button.CommandParameter string to int), so ReactiveCommand's own
         // ICommand.Execute type-check threw an unhandled InvalidOperationException on every

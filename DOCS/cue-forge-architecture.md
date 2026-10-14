@@ -12,8 +12,8 @@ Cue Forge is ORBIT's dedicated DJ cue editor. It gives a full-track waveform vie
 
 | File | Role |
 |------|------|
-| `Views/Avalonia/CueForgePagee.axaml` | Page layout: left browser sidebar (200px) + center waveform + right cue inspector panel |
-| `Views/Avalonia/CueForgePagee.axaml.cs` | Code-behind — sets `DataContext = CueForgeViewModel` via DI constructor |
+| `Views/Avalonia/CueForgePage.axaml` | Page layout: left browser sidebar (200px) + center waveform + right cue inspector panel |
+| `Views/Avalonia/CueForgePage.axaml.cs` | Code-behind — sets `DataContext = CueForgeViewModel` via DI constructor |
 | `Views/Avalonia/Controls/CueForgeWaveformControl.cs` | The waveform canvas — custom Avalonia `Control`, handles all rendering and mouse interaction |
 
 ### ViewModel
@@ -206,7 +206,7 @@ All edits operate on `WorkingCues` (in-memory `ObservableCollection<OrbitCue>`).
 
 ```csharp
 services.AddSingleton<CueForgeViewModel>();          // singleton — holds live state
-services.AddTransient<Views.Avalonia.CueForgePagee>(); // transient but view-cached by nav service
+services.AddTransient<Views.Avalonia.CueForgePage>(); // transient but view-cached by nav service
 services.AddSingleton<ICuePointService, CuePointService>();
 services.AddSingleton<Engine.Cueing.CueGenerationService>();
 ```

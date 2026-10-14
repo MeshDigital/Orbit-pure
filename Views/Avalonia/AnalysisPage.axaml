@@ -479,7 +479,7 @@
                                                         <TextBlock Grid.Column="3"
                                                                    Text="{Binding Details}"
                                                                    FontSize="9"
-                                                                   Foreground="{DynamicResource BrushText3}"
+                                                                   Foreground="{DynamicResource BrushText2}"
                                                                    TextTrimming="CharacterEllipsis"
                                                                    MaxWidth="180"
                                                                    Margin="6,0,0,0"

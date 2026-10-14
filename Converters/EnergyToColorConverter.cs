@@ -67,27 +67,3 @@ public class EnergyToColorConverter : IValueConverter
     }
 }
 
-/// <summary>
-/// Converts a 0-1 value to opacity (used for danceable/vocal indicators).
-/// </summary>
-public class OpacityMultiplierConverter : IValueConverter
-{
-    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        double multiplier = 1.0;
-        if (parameter is string s && double.TryParse(s, out var m))
-            multiplier = m;
-
-        double val = 0.5;
-        if (value is float f) val = f;
-        else if (value is double d) val = d;
-
-        // Clamp between 0.3 and 1.0 so it's never invisible
-        return Math.Max(0.3, Math.Min(1.0, val * multiplier));
-    }
-
-    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        throw new NotImplementedException();
-    }
-}

@@ -51,7 +51,7 @@
                                 HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Width="48" Height="48" CornerRadius="24"
                                 Background="#1DB954" BorderThickness="0" Padding="0">
-                            <PathIcon Data="{StaticResource icons_play_filled}" Width="20" Height="20" Foreground="White"/>
+                            <PathIcon Data="{StaticResource play_regular}" Width="20" Height="20" Foreground="White"/>
                         </Button>
                     </Grid>
                     

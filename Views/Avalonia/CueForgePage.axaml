@@ -5,7 +5,7 @@
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              xmlns:ctrl="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="900"
-             x:Class="SLSKDONET.Views.Avalonia.CueForgePagee"
+             x:Class="SLSKDONET.Views.Avalonia.CueForgePage"
              x:DataType="vm:CueForgeViewModel"
              Background="#141414"
              Focusable="True">

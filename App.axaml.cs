@@ -804,7 +804,7 @@ public partial class App : Application
         services.AddTransient<Views.Avalonia.StemsPage>();
         services.AddTransient<Views.Avalonia.WorkstationPage>();
         services.AddTransient<Views.Avalonia.UsersPage>();
-        services.AddTransient<Views.Avalonia.CueForgePagee>();
+        services.AddTransient<Views.Avalonia.CueForgePage>();
         services.AddTransient<Views.Avalonia.FlowBuilderPage>();
         services.AddSingleton<Services.ICuePointService, Services.CuePointService>();
         services.AddSingleton<Services.Audio.StemPreferenceService>();

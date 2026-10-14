@@ -110,7 +110,7 @@
                     <PathIcon Grid.Column="1"
                               Data="{DynamicResource chevron_right_regular}"
                               Width="12" Height="12"
-                              Foreground="{DynamicResource TextSecondaryColor}"
+                              Foreground="{DynamicResource TextSecondaryBrush}"
                               Margin="0,0,8,0"
                               VerticalAlignment="Center">
                         <PathIcon.RenderTransform>
@@ -126,7 +126,7 @@
                                 <Panel Background="{DynamicResource SystemChromeLowColor}"
                                        IsVisible="{Binding ArtworkUrl, Converter={x:Static ObjectConverters.IsNull}}">
                                     <PathIcon Data="{DynamicResource disc_regular}"
-                                              Foreground="{DynamicResource TextSecondaryColor}"
+                                              Foreground="{DynamicResource TextSecondaryBrush}"
                                               HorizontalAlignment="Center"
                                               VerticalAlignment="Center"
                                               Width="20" Height="20"/>
@@ -146,13 +146,13 @@
                                        FontSize="14"
                                        MaxWidth="360"
                                        TextTrimming="CharacterEllipsis"
-                                       Foreground="{DynamicResource TextPrimaryColor}"/>
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <TextBlock Text="{Binding Subtitle}"
                                            FontSize="12"
                                            MaxWidth="280"
                                            TextTrimming="CharacterEllipsis"
-                                           Foreground="{DynamicResource TextSecondaryColor}"/>
+                                           Foreground="{DynamicResource TextSecondaryBrush}"/>
 
                                 <!-- Priority badge — hidden for Normal to reduce noise -->
                                 <Border Classes="priority-badge"
@@ -183,18 +183,18 @@
                             <TextBlock Text="{Binding StatusText}"
                                        FontSize="11"
                                        FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextSecondaryColor}"/>
+                                       Foreground="{DynamicResource TextSecondaryBrush}"/>
                             <TextBlock Grid.Column="1"
                                        Text="{Binding TotalProgress, StringFormat='{}{0:0}%'}"
                                        FontSize="11"
                                        FontWeight="Black"
-                                       Foreground="{DynamicResource TextPrimaryColor}"/>
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
                         </Grid>
                         <ProgressBar Value="{Binding TotalProgress}"
                                      Maximum="100"
                                      Height="4"
                                      CornerRadius="2"
-                                     Foreground="{DynamicResource AccentGradient}"
+                                     Foreground="{DynamicResource AccentBrush}"
                                      Background="#333333"/>
                         <!-- #140: Aggregate speed sparkline — visible only while group is active -->
                         <controls:SparklineControl Values="{Binding AggregateSpeedHistory}"

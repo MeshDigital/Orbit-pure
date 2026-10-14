@@ -21,7 +21,7 @@
             <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
         <Style Selector="Button.ActionBtn:hover">
-            <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource Surface2Brush}"/>
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
         </Style>
         <Style Selector="ToggleButton.ActionBtn">
@@ -34,7 +34,7 @@
             <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
         <Style Selector="ToggleButton.ActionBtn:hover">
-            <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource Surface2Brush}"/>
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
         </Style>
         <Style Selector="ToggleButton.ActionBtn:checked">
@@ -229,7 +229,7 @@
             </Grid.ColumnDefinitions>
             
             <!-- Column 0: Album Art / Status / Health -->
-            <Border Grid.Column="0" Width="44" Height="44" Margin="6,4,8,4" CornerRadius="4" ClipToBounds="True" Background="{DynamicResource SurfaceBrush}" VerticalAlignment="Center">
+            <Border Grid.Column="0" Width="44" Height="44" Margin="6,4,8,4" CornerRadius="4" ClipToBounds="True" Background="{DynamicResource BrushSurface}" VerticalAlignment="Center">
                 <Panel>
                     <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill" RenderOptions.BitmapInterpolationMode="MediumQuality" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNotNull}}"/>
                     <!-- No real art: a color+letter tile instead of a flat surface with a faint music glyph. -->
@@ -340,13 +340,13 @@
 
             <!-- Column 1: Artist (Shared) -->
             <Border Grid.Column="1" Padding="8,0" VerticalAlignment="Center">
-                <TextBlock Text="{Binding ArtistName}" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Text="{Binding ArtistName}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13" TextTrimming="CharacterEllipsis"/>
             </Border>
 
             <!-- Column 2: Title (Shared) -->
             <Border Grid.Column="2" Padding="8,0" VerticalAlignment="Center">
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock Text="{Binding TrackTitle}" Foreground="{DynamicResource TextBrush}" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding TrackTitle}" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13" TextTrimming="CharacterEllipsis"/>
                     <TextBlock Text="❤️" IsVisible="{Binding IsLiked}" FontSize="11" VerticalAlignment="Center"/>
                 </StackPanel>
             </Border>
