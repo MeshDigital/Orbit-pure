@@ -15,38 +15,21 @@
         <!-- Like/Heart Converters -->
         <converters:BoolToHeartConverter x:Key="BoolToHeartConverter"/>
         <converters:BoolToHeartColorConverter x:Key="BoolToHeartColorConverter"/>
-        <converters:ActiveColorConverter x:Key="ActiveColorConverter"/>
-        <converters:FlowHealthColorConverter x:Key="FlowHealthColorConverter"/>
         
         <!-- Boolean State Converters -->
         <converters:BoolToColorConverter x:Key="BoolToColorConverter"/>
-        <converters:BoolToLibraryStatusColorConverter x:Key="BoolToLibraryStatusColorConverter"/>
-        <converters:BoolToLibraryStatusTextConverter x:Key="BoolToLibraryStatusTextConverter"/>
-        <converters:BoolToEditModeTextConverter x:Key="BoolToEditModeTextConverter"/>
-        <converters:BoolToPlayPauseTextConverter x:Key="BoolToPlayPauseTextConverter"/>
         <converters:BoolToPlayPauseIconConverter x:Key="BoolToPlayPauseIconConverter"/>
-        <converters:BoolToBackgroundConverter x:Key="BoolToBackgroundConverter"/>
-        <converters:BoolToFontWeightConverter x:Key="BoolToFontWeightConverter"/>
-        <converters:BooleanToStatusColorConverter x:Key="BooleanToStatusColorConverter"/>
-        <converters:BoolToErrorColorConverter x:Key="BoolToErrorColorConverter"/>
-        <converters:BoolToFontStyleConverter x:Key="BoolToFontStyleConverter"/>
         <conv_root:BoolOpacityConverter x:Key="BoolToOpacityConverter"/>
         <conv_root:LogLevelColorConverter x:Key="LogLevelColorConverter"/>
         <converters:BoolToWidthConverter x:Key="BoolToWidthConverter"/>
         <conv_root:BoolToStringConverter x:Key="BoolToStringConverter"/>
         <conv_root:GridLengthPixelConverter x:Key="GridLengthPixelConverter"/>
-        <conv_root:MultiBoolToBlurConverter x:Key="MultiBoolToBlurConverter"/>
         <converters:BoolToAngleConverter x:Key="BoolToAngleConverter"/>
         <converters:BoolToTextConverter x:Key="BoolToTextConverter"/>
         <conv_root:WidthToDisplayModeConverter x:Key="WidthToDisplayModeConverter"/>
-        <converters:BoolToOrangeConverter x:Key="BoolToOrangeConverter"/>
         <converters:BooleanToRedBrushConverter x:Key="BooleanToRedBrushConverter"/>
-        <converters:BooleanToBrushConverter x:Key="BooleanToBrushConverter"/>
 
         <converters:BoolBlurConverter x:Key="BoolBlurConverter"/>
-        <converters:NumericGreaterThanConverter x:Key="GreaterThanThreshold"/>
-        <converters:NumericIsNotZeroConverter x:Key="GreaterThanZero"/>
-        <converters:DbToProgressConverter x:Key="DbToProgressConverter"/>
 
         
         <!-- Utility Converters -->
@@ -54,8 +37,6 @@
         <converters:RepeatModeColorConverter x:Key="RepeatModeColorConverter"/>
         <converters:EqualityConverter x:Key="EqualityConverter"/>
         <converters:WidthToVisibilityConverter x:Key="WidthToVisibilityConverter"/>
-        <converters:PlayerLocationConverter x:Key="PlayerLocationConverter"/>
-        <converters:PlayerDockIconConverter x:Key="PlayerDockIconConverter"/>
         <converters:MixPresetIconConverter x:Key="MixPresetIconConverter"/>
         <converters:BitmapValueConverter x:Key="BitmapValueConverter"/>
         <converters:UsernameToInitialsConverter x:Key="UsernameToInitialsConverter"/>
@@ -63,24 +44,17 @@
         <converters:BoolInverseConverter x:Key="BoolInverseConverter"/>
         <converters:VuHeightConverter x:Key="VuHeightConverter"/>
         <converters:PercentageToAngleConverter x:Key="PercentageToAngleConverter"/>
-        <converters:PlayPauseConverter x:Key="PlayPauseConverter"/>
-        <conv_root:ParameterizedBooleanConverter x:Key="BoolParameterConverter"/>
-        <conv_root:ParameterizedBooleanConverter x:Key="ParameterizedBooleanConverter"/>
         <conv_root:NotificationTypeToColorConverter x:Key="NotificationTypeToColorConverter"/>
         
-        <converters:PercentToWidthConverter x:Key="PercentToWidthConverter"/>
         
         <!-- Phase 18: Sonic Match Visual Converters -->
         <conv_root:EnergyToColorConverter x:Key="EnergyToColorConverter"/>
-        <conv_root:OpacityMultiplierConverter x:Key="OpacityMultiplierConverter"/>
 
         <!-- BPM dynamic coloring -->
         <conv_root:BpmForegroundConverter x:Key="BpmForegroundConverter"/>
         <conv_root:BpmBackgroundConverter x:Key="BpmBackgroundConverter"/>
         <converters:LedColorConverter x:Key="LedColorConverter"/>
         
-        <!-- Alias EqualityConverter as StringEqualsConverter for semantic clarity in XAML -->
-        <converters:EqualityConverter x:Key="StringEqualsConverter"/>
 
         <!-- Enum value to ToggleButton IsChecked converter (used by batch profile chips) -->
         <conv_root:EnumToCheckedConverter x:Key="EnumToCheckedConverter"/>
