@@ -14,10 +14,10 @@ public class NotificationTypeToColorConverter : IValueConverter
     {
         return value?.ToString() switch
         {
-            "Success" => Brush.Parse("#1DB954"),
-            "Warning" => Brush.Parse("#FFB347"),
-            "Error" => Brush.Parse("#FF5C5C"),
-            _ => Brush.Parse("#4FA8E0"),
+            "Success" => Brush.Parse("#4CC38A"), // ColorSuccess (Themes/DesignTokens.axaml)
+            "Warning" => Brush.Parse("#E5A645"), // ColorWarning
+            "Error" => Brush.Parse("#E5605A"), // ColorError
+            _ => Brush.Parse("#5AA7E8"), // ColorInfo
         };
     }
 
