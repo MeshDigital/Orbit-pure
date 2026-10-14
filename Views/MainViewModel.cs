@@ -456,7 +456,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _navigationService.RegisterPage("NowPlaying", typeof(Avalonia.NowPlayingPage));
         _navigationService.RegisterPage("Workstation", typeof(Avalonia.WorkstationPage));
         _navigationService.RegisterPage("Stems", typeof(Avalonia.StemsPage));
-        _navigationService.RegisterPage("CueForge", typeof(Avalonia.CueForgePagee));
+        _navigationService.RegisterPage("CueForge", typeof(Avalonia.CueForgePage));
         _navigationService.RegisterPage("Users", typeof(Avalonia.UsersPage));
         _navigationService.RegisterPage("FlowBuilder", typeof(Avalonia.FlowBuilderPage));
 

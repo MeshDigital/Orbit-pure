@@ -8,14 +8,14 @@ using SLSKDONET.ViewModels;
 
 namespace SLSKDONET.Views.Avalonia;
 
-public partial class CueForgePagee : UserControl
+public partial class CueForgePage : UserControl
 {
-    public CueForgePagee()
+    public CueForgePage()
     {
         InitializeComponent();
     }
 
-    public CueForgePagee(CueForgeViewModel viewModel) : this()
+    public CueForgePage(CueForgeViewModel viewModel) : this()
     {
         DataContext = viewModel;
 
