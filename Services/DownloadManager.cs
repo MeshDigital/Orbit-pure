@@ -264,7 +264,6 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         _eventBusSubs.Add(_eventBus.GetEvent<AutoDownloadUpgradeEvent>().Subscribe(OnAutoDownloadUpgrade));
         _eventBusSubs.Add(_eventBus.GetEvent<UpgradeAvailableEvent>().Subscribe(OnUpgradeAvailable));
         // Phase 6: Library Interactions
-        _eventBusSubs.Add(_eventBus.GetEvent<DownloadAlbumRequestEvent>().Subscribe(OnDownloadAlbumRequest));
         _eventBusSubs.Add(_eventBus.GetEvent<ForceStartRequestEvent>().Subscribe(e => _ = ForceStartTrack(e.TrackGlobalId)));
         // Per-job priority state (_jobEffectivePriority/_jobBasePriority/_jobFocused/_jobManualSortOrder)
         // was never removed when a playlist/job was deleted — every job ever created kept 4
@@ -284,63 +283,6 @@ public class DownloadManager : INotifyPropertyChanged, IDisposable
         lock (_collectionLock)
         {
             return _downloads.Select(ctx => (ctx.Model, ctx.State)).ToList();
-        }
-    }
-
-    /// <summary>
-    /// Handles requests to download an entire album (Project or AlbumNode).
-    /// </summary>
-    private void OnDownloadAlbumRequest(DownloadAlbumRequestEvent e)
-    {
-        try
-        {
-            if (e.Album is PlaylistJob job)
-            {
-                _logger.LogInformation("ðŸ“¢ Processing DownloadAlbumRequest for Project: {Title}", job.SourceTitle);
-                
-                // Ensure tracks are loaded
-                 _ = Task.Run(async () =>
-                 {
-                     try
-                     {
-                         _logger.LogInformation("Loading tracks for project {Id}...", job.Id);
-                         var tracks = await _libraryService.LoadPlaylistTracksAsync(job.Id);
-
-                         if (tracks.Any())
-                         {
-                             _logger.LogInformation("Found {Count} tracks, queuing...", tracks.Count);
-                             QueueTracks(tracks);
-                             _logger.LogInformation("Queued {Count} tracks for project {Title}", tracks.Count, job.SourceTitle);
-                         }
-                         else
-                         {
-                             _logger.LogWarning("No tracks found for project {Title} (ID: {Id})", job.SourceTitle, job.Id);
-                         }
-                     }
-                     catch (Exception ex)
-                     {
-                         _logger.LogError(ex, "Failed to load and queue tracks for project {Title} (ID: {Id})", job.SourceTitle, job.Id);
-                     }
-                 });
-            }
-            else if (e.Album is ViewModels.Library.AlbumNode node)
-            {
-                _logger.LogInformation("Processing DownloadAlbumRequest for AlbumNode: {Title}", node.AlbumTitle);
-                var tracks = node.Tracks.Select(vm => vm.Model).ToList();
-                if (tracks.Any())
-                {
-                    QueueTracks(tracks);
-                    _logger.LogInformation("Queued {Count} tracks from AlbumNode {Title}", tracks.Count, node.AlbumTitle);
-                }
-            }
-            else
-            {
-                _logger.LogWarning("Unknown payload type for DownloadAlbumRequestEvent: {Type}", e.Album?.GetType().Name);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to handle DownloadAlbumRequestEvent");
         }
     }
 
