@@ -690,13 +690,13 @@
 
             <!-- Frequent Sources (local-only, opt-in) -->
             <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
-                    Tag="Frequent Sources||Tracks repeated source/folder pairs and prefetches staging locally, entirely on-device — disabled by default and never uploads any telemetry."
-                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Frequent Sources staging prefetch local opt-in'}">
+                    Tag="Frequent Sources||Remembers the peers and folders you download from repeatedly, entirely on-device — disabled by default and never uploads any telemetry."
+                    IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Frequent Sources peers folders local opt-in'}">
                 <StackPanel Spacing="16">
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Grid.Column="0" Spacing="4">
                             <TextBlock Text="Frequent Sources" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
-                            <TextBlock Text="Track repeated source/folder pairs and prefetch staging locally. Disabled by default and never uploads telemetry." Foreground="#AAA" FontSize="12" TextWrapping="Wrap"/>
+                            <TextBlock Text="Remember peers and folders you download from repeatedly (local-only). Disabled by default and never uploads telemetry." Foreground="#AAA" FontSize="12" TextWrapping="Wrap"/>
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1"
                                       IsChecked="{Binding EnableFrequentSources, Mode=TwoWay}"
@@ -704,36 +704,6 @@
                                       VerticalAlignment="Top"/>
                     </Grid>
 
-                    <Separator Background="#333" Height="1"/>
-
-                    <Grid ColumnDefinitions="220,*,Auto,Auto" IsEnabled="{Binding EnableFrequentSources}">
-                        <StackPanel Grid.Column="0" Spacing="2">
-                            <TextBlock Text="Local Staging Path" FontWeight="SemiBold" Foreground="#DDD"/>
-                            <TextBlock Text="Folder used for temporary prefetch files before verification." Foreground="#666" FontSize="11" TextWrapping="Wrap"/>
-                        </StackPanel>
-
-                        <TextBox Grid.Column="1"
-                                 Text="{Binding FrequentSourcesStagingPath, Mode=TwoWay}"
-                                 Watermark="Optional local folder path"
-                                 Background="#1E1E1E"
-                                 Margin="0,0,8,0"/>
-
-                        <Button Grid.Column="2"
-                                Command="{Binding BrowseFrequentSourcesStagingPathCommand}"
-                                Background="#2D2D2D"
-                                BorderBrush="#3E3E3E"
-                                BorderThickness="1"
-                                Padding="12,8"
-                                Margin="0,0,8,0">
-                            <TextBlock Text="Browse..." Foreground="#DDD"/>
-                        </Button>
-
-                        <TextBlock Grid.Column="3"
-                                   Text="local-only"
-                                   VerticalAlignment="Center"
-                                   Foreground="#888"
-                                   FontSize="11"/>
-                    </Grid>
                 </StackPanel>
             </Border>
 
