@@ -824,7 +824,7 @@
 
             <!-- Database & Maintenance -->
             <Border Background="#252526" CornerRadius="8" Padding="20" BorderBrush="#3E3E3E" BorderThickness="1"
-            IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Database Maintenance reset schema scan reconcile full sync enrich missing metadata removal candidates'}">
+            IsVisible="{Binding SettingsSearchText, Converter={StaticResource SettingsSearchMatchConverter}, ConverterParameter='Database Maintenance backup restore reset schema scan reconcile full sync enrich missing metadata removal candidates'}">
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="4">
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -834,6 +834,25 @@
                         <TextBlock Text="Manage your local library data and system health."
                                    Foreground="#AAA" FontSize="12"/>
                     </StackPanel>
+
+                    <Separator Background="#333" Height="1"/>
+
+                    <!-- Library backup (backlog B6) -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="Library Backup" FontWeight="SemiBold" Foreground="White"/>
+                            <TextBlock Text="{Binding LastLibraryBackupText}"
+                                       Foreground="#666" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <Button Command="{Binding OpenBackupsFolderCommand}"
+                                    Content="Open Folder"
+                                    Padding="12,8"/>
+                            <Button Command="{Binding BackupLibraryNowCommand}"
+                                    Content="Back Up Now"
+                                    Padding="16,8"/>
+                        </StackPanel>
+                    </Grid>
 
                     <Separator Background="#333" Height="1"/>
 
