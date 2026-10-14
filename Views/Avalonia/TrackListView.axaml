@@ -14,6 +14,13 @@
              x:DataType="vm:Library.TrackListViewModel"
              Background="#1E1E1E">
 
+    <!-- The "Remove Track" context-menu item advertises Delete; this makes that true.
+         TextBoxes mark Delete as handled, so typing in the filter box is unaffected.
+         The command confirms via ShowRemoveTrackChoiceAsync before anything is removed. -->
+    <UserControl.KeyBindings>
+        <KeyBinding Gesture="Delete" Command="{Binding Operations.RemoveTrackCommand}"/>
+    </UserControl.KeyBindings>
+
     <UserControl.Resources>
         <rootConv:BoolToWidthConverter x:Key="BoolToWidthConverter"/>
         <rootConv:BoolToTextConverter x:Key="BoolToTextConverter"/>

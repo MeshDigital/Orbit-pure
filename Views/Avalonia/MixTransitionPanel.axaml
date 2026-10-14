@@ -128,9 +128,14 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <ToggleButton Classes="preset" Margin="0,0,6,6"
-                                          IsChecked="{Binding $parent[ItemsControl].((vm:MixTransitionViewModel)DataContext).SelectedPreset, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={Binding}, Mode=OneWay}"
-                                          Command="{Binding $parent[ItemsControl].((vm:MixTransitionViewModel)DataContext).SelectPresetCommand}"
+                                          Command="{Binding $parent[ItemsControl].DataContext.SelectPresetCommand}"
                                           CommandParameter="{Binding}">
+                                <ToggleButton.IsChecked>
+                                    <MultiBinding Converter="{StaticResource EqualityConverter}" Mode="OneWay">
+                                        <Binding Path="$parent[ItemsControl].DataContext.SelectedPreset"/>
+                                        <Binding/>
+                                    </MultiBinding>
+                                </ToggleButton.IsChecked>
                                 <StackPanel Orientation="Horizontal" Spacing="5">
                                     <TextBlock Text="{Binding Converter={StaticResource MixPresetIconConverter}}" FontSize="11"/>
                                     <TextBlock Text="{Binding}"/>
@@ -154,9 +159,15 @@
                             <DataTemplate>
                                 <ToggleButton Classes="bars"
                                               Content="{Binding StringFormat='{}{0} bars'}"
-                                              IsChecked="{Binding $parent[ItemsControl].((vm:MixTransitionViewModel)DataContext).DurationBars, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={Binding}, Mode=OneWay}"
-                                              Command="{Binding $parent[ItemsControl].((vm:MixTransitionViewModel)DataContext).SelectBarsCommand}"
-                                              CommandParameter="{Binding}"/>
+                                              Command="{Binding $parent[ItemsControl].DataContext.SelectBarsCommand}"
+                                              CommandParameter="{Binding}">
+                                    <ToggleButton.IsChecked>
+                                        <MultiBinding Converter="{StaticResource EqualityConverter}" Mode="OneWay">
+                                            <Binding Path="$parent[ItemsControl].DataContext.DurationBars"/>
+                                            <Binding/>
+                                        </MultiBinding>
+                                    </ToggleButton.IsChecked>
+                                </ToggleButton>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>

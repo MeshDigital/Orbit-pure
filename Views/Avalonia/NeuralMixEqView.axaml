@@ -44,7 +44,7 @@
     <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,6">
       <TextBlock Text="NEURAL MIX EQ" FontSize="10" FontWeight="Bold" Foreground="#888" VerticalAlignment="Center"/>
       <Button Content="Reset All" FontSize="9" Padding="6,2"
-              Command="{Binding $parent[UserControl].((vm:NeuralMixEqViewModel)DataContext).ResetAll}"
+              Command="{Binding $parent[UserControl].DataContext.ResetAll}"
               Background="#2A2A2A" Foreground="#888"/>
     </StackPanel>
 

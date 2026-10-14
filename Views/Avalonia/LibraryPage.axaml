@@ -465,8 +465,7 @@
                                                                 </MenuItem>
                                                                 <MenuItem Header="Remove Playlist From List"
                                                                           Command="{Binding $parent[UserControl].DataContext.DeleteProjectCommand}"
-                                                                          CommandParameter="{Binding Card.Model}"
-                                                                          InputGesture="Delete">
+                                                                          CommandParameter="{Binding Card.Model}">
                                                                     <MenuItem.Icon><TextBlock Text="🗑️"/></MenuItem.Icon>
                                                                 </MenuItem>
                                                             </ContextMenu>
