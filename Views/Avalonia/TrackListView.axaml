@@ -7,260 +7,214 @@
              xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
              xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
              xmlns:conv="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
-             xmlns:rootConv="clr-namespace:SLSKDONET.Converters"
-             xmlns:dg="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.DataGrid"
-             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="600"
              x:Class="SLSKDONET.Views.Avalonia.TrackListView"
-             x:DataType="vm:Library.TrackListViewModel"
-             Background="#1E1E1E">
+             x:DataType="vm:Library.TrackListViewModel">
 
-    <!-- The "Remove Track" context-menu item advertises Delete; this makes that true.
-         TextBoxes mark Delete as handled, so typing in the filter box is unaffected.
+    <!-- The "Remove track" context-menu item advertises Delete; this makes that true.
+         TextBoxes mark Delete as handled, so typing in the search box is unaffected.
          The command confirms via ShowRemoveTrackChoiceAsync before anything is removed. -->
     <UserControl.KeyBindings>
         <KeyBinding Gesture="Delete" Command="{Binding Operations.RemoveTrackCommand}"/>
     </UserControl.KeyBindings>
 
     <UserControl.Resources>
-        <rootConv:BoolToWidthConverter x:Key="BoolToWidthConverter"/>
-        <rootConv:BoolToTextConverter x:Key="BoolToTextConverter"/>
         <conv:TrackStateToColorConverter x:Key="TrackStateToColorConverter"/>
-        <conv:TrackStateToTextConverter x:Key="TrackStateToTextConverter"/>
-        <x:Double x:Key="NonDownloadedOpacity">0.3</x:Double>
+        <conv:NumericIsZeroConverter x:Key="NumericIsZeroConverter"/>
     </UserControl.Resources>
 
     <UserControl.Styles>
-        <Style Selector="Button.sortableHeader">
+        <!-- Column header labels: section style, clickable ones brighten on hover. -->
+        <Style Selector="TextBlock.col">
+            <Setter Property="FontSize" Value="{StaticResource TextSizeCaption}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="LetterSpacing" Value="0.6"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushText2}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.sort">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="HorizontalAlignment" Value="Left"/>
-            <Setter Property="HorizontalContentAlignment" Value="Left"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
-        <Style Selector="Button.sortableHeader:pointerover">
+        <Style Selector="Button.sort:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="Transparent"/>
         </Style>
-        <Style Selector="Button.sortableHeader TextBlock.label">
-            <Setter Property="FontSize" Value="10"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="Foreground" Value="#555"/>
+        <Style Selector="Button.sort:pointerover TextBlock.col">
+            <Setter Property="Foreground" Value="{StaticResource BrushText0}"/>
         </Style>
-        <Style Selector="Button.sortableHeader:pointerover TextBlock.label">
-            <Setter Property="Foreground" Value="#999"/>
+        <Style Selector="Button.sort PathIcon">
+            <Setter Property="Width" Value="10"/>
+            <Setter Property="Height" Value="10"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushAccent}"/>
         </Style>
+
+        <!-- Rows: 40px, hairline divider, theme hover/selected. -->
         <Style Selector="Border.track-row">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderBrush" Value="#2A2A2E"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder0}"/>
             <Setter Property="BorderThickness" Value="0,0,0,1"/>
-            <Setter Property="Transitions">
-                <Transitions>
-                    <BrushTransition Property="Background" Duration="0:0:0.15"/>
-                </Transitions>
-            </Setter>
         </Style>
         <Style Selector="Border.track-row:pointerover">
-            <Setter Property="Background" Value="#252528"/>
+            <Setter Property="Background" Value="{StaticResource BrushHover}"/>
         </Style>
         <Style Selector="Border.track-row.selected">
-            <Setter Property="Background" Value="#1A00BFFF"/>
+            <Setter Property="Background" Value="{StaticResource BrushSelected}"/>
         </Style>
         <Style Selector="Border.track-row.focused">
-            <Setter Property="BorderBrush" Value="#4EC9B0"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
         </Style>
-        <!-- MixedInKey-style harmonic mixing highlight -->
+        <!-- Harmonic-mixing highlight (keys compatible with the selected track) -->
         <Style Selector="Border.track-row.harmonic-match:not(.selected)">
-            <Setter Property="Background" Value="#124EC9B0"/>
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
         </Style>
+
         <Style Selector="Border.key-badge">
-            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
+            <Setter Property="Padding" Value="4,1"/>
+            <Setter Property="MinWidth" Value="32"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
         </Style>
         <Style Selector="Border.key-badge.harmonic-match">
-            <Setter Property="BorderBrush" Value="#4EC9B0"/>
-            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
         </Style>
         <Style Selector="Border.key-badge.exact-match">
-            <Setter Property="BorderBrush" Value="White"/>
-            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushText0}"/>
+        </Style>
+
+        <!-- Quality tier badge: neutral by default, accent for lossless, amber for low bitrate. -->
+        <Style Selector="Border.tier">
+            <Setter Property="Background" Value="{StaticResource BrushBg3}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder1}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
+            <Setter Property="Padding" Value="6,1"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Border.tier.lossless">
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccentBorder}"/>
+        </Style>
+        <Style Selector="Border.tier.low">
+            <Setter Property="Background" Value="{StaticResource BrushWarningSubtle}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushWarningBorder}"/>
+        </Style>
+
+        <!-- Row hover affordances (queue / smart insert) stay invisible until the row is hovered. -->
+        <Style Selector="Button.row-action">
+            <Setter Property="Opacity" Value="0"/>
+        </Style>
+        <Style Selector="Border.track-row:pointerover Button.row-action">
+            <Setter Property="Opacity" Value="1"/>
         </Style>
         <Style Selector="Button.insert-affordance">
-            <Setter Property="Opacity" Value="0"/>
             <Setter Property="IsHitTestVisible" Value="False"/>
-            <Setter Property="Transitions">
-                <Transitions>
-                    <DoubleTransition Property="Opacity" Duration="0:0:0.12"/>
-                </Transitions>
-            </Setter>
         </Style>
         <Style Selector="Border.track-row:pointerover Button.insert-affordance">
-            <Setter Property="Opacity" Value="1"/>
             <Setter Property="IsHitTestVisible" Value="True"/>
         </Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*">
+    <Grid RowDefinitions="Auto,Auto,Auto,*">
 
-        <!-- Search, status filters and tools on one line (they used to take three rows). The track
-             count lives in the search placeholder; Columns is an icon. -->
-        <Border Grid.Row="0" Background="#1E1E1E" BorderBrush="#3E3E3E" BorderThickness="0,0,0,1" Padding="12,6">
-            <Grid ColumnDefinitions="*,Auto,Auto,Auto">
-                <Border Grid.Column="0" Background="#252526" CornerRadius="6" Padding="10,0" MinWidth="140" Margin="0,0,10,0">
-                    <Grid ColumnDefinitions="Auto,*">
-                        <TextBlock Grid.Column="0" Text="🔍" FontSize="13" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#888"/>
-                        <TextBox Grid.Column="1" Text="{Binding SearchText, Mode=TwoWay}"
-                                 Watermark="{Binding FilteredTracks.Count, StringFormat='Search {0} tracks, artists, albums…'}"
-                                 Background="Transparent" BorderThickness="0" Padding="0,6" Foreground="White" VerticalContentAlignment="Center"/>
-                    </Grid>
-                </Border>
+        <!-- ═══ TOOLBAR (the one row): search · status · quality · active-filter chips · Clear ··· Mix · Columns ═══ -->
+        <Border Grid.Row="0" Classes="toolbar">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" ClipToBounds="True">
+                    <TextBox Classes="search small" Width="240"
+                             Text="{Binding SearchText, Mode=TwoWay}"
+                             Watermark="Search artist, title, key"/>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <ToggleButton Content="All" IsChecked="{Binding IsFilterAll, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
-                    <ToggleButton Content="Downloaded" IsChecked="{Binding IsFilterDownloaded, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
-                    <ToggleButton Content="Pending" IsChecked="{Binding IsFilterPending, Mode=TwoWay}" Classes="chip" Padding="12,5" FontSize="11"/>
-                    <ToggleButton Content="Review" IsChecked="{Binding IsFilterNeedsReview, Mode=TwoWay}" Classes="chip danger" Padding="12,5" FontSize="11"/>
-                    <ToggleButton Content="❤️" IsChecked="{Binding IsFilterLiked, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Show Liked Tracks Only"/>
-                </StackPanel>
+                    <Border Classes="segmented" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="2">
+                            <RadioButton Classes="chip" GroupName="TrackStatus" Content="All" IsChecked="{Binding IsFilterAll, Mode=TwoWay}"/>
+                            <RadioButton Classes="chip" GroupName="TrackStatus" Content="Downloaded" IsChecked="{Binding IsFilterDownloaded, Mode=TwoWay}"/>
+                            <RadioButton Classes="chip" GroupName="TrackStatus" Content="Pending" IsChecked="{Binding IsFilterPending, Mode=TwoWay}"
+                                         ToolTip.Tip="Tracks that aren't downloaded yet"/>
+                        </StackPanel>
+                    </Border>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="10,0,0,0">
-                    <Rectangle Width="1" Height="14" Fill="#444" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                    <DropDownButton Classes="tool" Padding="10,5" FontSize="11" CornerRadius="6"
-                                    ToolTip.Tip="Filter by format or quality tier">
-                        <TextBlock Text="Filters" FontSize="11"/>
-                        <DropDownButton.Flyout>
-                            <Flyout Placement="BottomEdgeAlignedLeft">
-                                <Border Background="#1E1E2A" BorderBrush="#2E3040" BorderThickness="1" CornerRadius="8" Padding="14,12">
-                                    <StackPanel Spacing="8">
-                                        <TextBlock Text="FORMAT" FontSize="9" FontWeight="Bold" Foreground="#555" LetterSpacing="1"/>
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <ToggleButton Content="FLAC" IsChecked="{Binding IsFilterFlac, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="FLAC tracks only"/>
-                                            <ToggleButton Content="MP3" IsChecked="{Binding IsFilterMp3, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="MP3 tracks only"/>
-                                            <ToggleButton Content="WAV" IsChecked="{Binding IsFilterWav, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="WAV tracks only"/>
-                                            <ToggleButton Content="Lossless" IsChecked="{Binding IsFilterLossless, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Lossless formats (FLAC, WAV, AIFF, ALAC)"/>
-                                        </StackPanel>
-                                        <Border Background="#2A2A35" Height="1" Margin="0,4"/>
-                                        <TextBlock Text="QUALITY" FontSize="9" FontWeight="Bold" Foreground="#555" LetterSpacing="1"/>
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <ToggleButton Content="🥇 Gold" IsChecked="{Binding IsFilterQualityGold, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Gold-verified tracks only"/>
-                                            <ToggleButton Content="🛡️ Verified" IsChecked="{Binding IsFilterQualityVerified, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Verified tracks only"/>
-                                            <ToggleButton Content="📉 Review" IsChecked="{Binding IsFilterQualityReview, Mode=TwoWay}" Classes="chip danger" Padding="10,5" FontSize="11" ToolTip.Tip="Tracks needing forensic review"/>
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Border>
-                            </Flyout>
-                        </DropDownButton.Flyout>
-                    </DropDownButton>
-                    <ToggleButton Content="🔬 Text" IsChecked="{Binding IsColumnFilterStripVisible, Mode=TwoWay}"
-                                  Classes="chip" Padding="10,5" FontSize="11"
-                                  ToolTip.Tip="Per-column artist/title filters"/>
-                    <Button Command="{Binding Operations.AddSelectedToQueueCommand}"
-                            IsVisible="{Binding HasSelectedTracks}"
-                            Padding="10,5" FontSize="11"
-                            Background="#1A2A3A" Foreground="#00BFFF"
-                            BorderBrush="#00BFFF" BorderThickness="1" CornerRadius="4"
-                            ToolTip.Tip="{Binding SelectedCountText, StringFormat='Add {0} to the play queue'}">
-                        <TextBlock Text="{Binding SelectedTracks.Count, StringFormat='＋ Queue ({0})'}" FontSize="11" VerticalAlignment="Center"/>
+                    <ToggleButton Classes="chip" Content="Lossless" IsChecked="{Binding IsTierLosslessFilter, Mode=TwoWay}"
+                                  ToolTip.Tip="FLAC and WAV only"/>
+                    <ToggleButton Classes="chip" Content="320k" IsChecked="{Binding IsTierHighFilter, Mode=TwoWay}"
+                                  ToolTip.Tip="Lossy files at 320 kbps or higher"/>
+                    <ToggleButton Classes="chip" Content="Low bitrate" IsChecked="{Binding IsTierLowFilter, Mode=TwoWay}"
+                                  ToolTip.Tip="Lossy files under 320 kbps"/>
+
+                    <!-- Filters set from elsewhere (Camelot wheel, Find duplicates) show as removable chips. -->
+                    <Button Classes="secondary small" Command="{Binding ClearCamelotKeyFilterCommand}"
+                            IsVisible="{Binding HasCamelotKeyFilter}" ToolTip.Tip="Remove the key filter">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="Key"/>
+                            <TextBlock Classes="mono" Text="{Binding CamelotKeyFilter}" Foreground="{StaticResource BrushText0}"/>
+                            <PathIcon Data="{StaticResource icon_close}" Width="10" Height="10"/>
+                        </StackPanel>
                     </Button>
+                    <Button Classes="secondary small" Command="{Binding ClearDuplicateFilterCommand}"
+                            IsVisible="{Binding HasDuplicateFilter}" ToolTip.Tip="Stop showing only duplicates">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="Duplicates"/>
+                            <PathIcon Data="{StaticResource icon_close}" Width="10" Height="10"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Button Classes="ghost small" Content="Clear" Command="{Binding ClearFiltersCommand}"
+                            IsVisible="{Binding HasActiveFilters}" ToolTip.Tip="Reset search and all filters"/>
                 </StackPanel>
 
-                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="10,0,0,0">
-                    <!-- Mix (Spotify-Mix-parity): toggles per-row transition badges below each track. -->
-                    <ToggleButton Classes="tool" Padding="8,5" FontSize="11" CornerRadius="6"
-                                  IsChecked="{Binding IsMixModeEnabled, Mode=TwoWay}"
-                                  ToolTip.Tip="Toggle Mix transition badges">
-                        <StackPanel Orientation="Horizontal" Spacing="5">
-                            <TextBlock Text="🎛" FontSize="12" VerticalAlignment="Center"/>
-                            <TextBlock Text="Mix" FontSize="11" VerticalAlignment="Center"/>
-                        </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="8,0,0,0">
+                    <!-- Mix: per-row transition badges between tracks (downloaded tracks only). -->
+                    <ToggleButton Classes="chip" IsChecked="{Binding IsMixModeEnabled, Mode=TwoWay}"
+                                  ToolTip.Tip="Mix mode: show transition badges between tracks (downloaded tracks only)">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <PathIcon Data="{StaticResource icon_mix}" Width="14" Height="14"/>
+                            <TextBlock Text="Mix"/>
+                        </StackPanel>
                     </ToggleButton>
-                    <!-- Columns flyout (right-aligned) -->
-                    <DropDownButton Classes="tool" Padding="8,5" FontSize="11" CornerRadius="6"
-                                    ToolTip.Tip="Columns — choose which columns to show">
-                        <TextBlock Text="⚙" FontSize="13" VerticalAlignment="Center"/>
-                        <DropDownButton.Flyout>
-                            <Flyout Placement="BottomEdgeAlignedRight">
-                                <Border Background="#1E1E2A" BorderBrush="#2E3040" BorderThickness="1" CornerRadius="8" Padding="14,12">
-                                    <StackPanel Spacing="8">
-                                        <TextBlock Text="SHOW COLUMNS" FontSize="9" FontWeight="Bold" Foreground="#555" LetterSpacing="1"/>
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <ToggleButton Content="Format" IsChecked="{Binding IsFormatColumnVisible, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Toggle Format column"/>
-                                            <ToggleButton Content="Forensics" IsChecked="{Binding IsForensicsColumnVisible, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Toggle Forensics column"/>
-                                            <ToggleButton Content="Duration" IsChecked="{Binding IsDurationColumnVisible, Mode=TwoWay}" Classes="chip" Padding="10,5" FontSize="11" ToolTip.Tip="Toggle Duration column"/>
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Border>
-                            </Flyout>
-                        </DropDownButton.Flyout>
-                    </DropDownButton>
+                    <Button Classes="icon small" ToolTip.Tip="Choose columns">
+                        <PathIcon Data="{StaticResource icon_columns}" Width="16" Height="16"/>
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                <MenuItem Header="Format and bitrate" ToggleType="CheckBox" IsChecked="{Binding IsFormatColumnVisible, Mode=TwoWay}"/>
+                                <MenuItem Header="Forensics" ToggleType="CheckBox" IsChecked="{Binding IsForensicsColumnVisible, Mode=TwoWay}"/>
+                                <MenuItem Header="Duration" ToggleType="CheckBox" IsChecked="{Binding IsDurationColumnVisible, Mode=TwoWay}"/>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- Mix flow-health banner: shown when Mix mode notices several rough adjacent
-             transitions in the current order (see TrackListViewModel.UpdateMixTransitionBadgesAsync
-             / ShowFlowWarningBanner). Offers a one-click reorder via the same BPM/harmonic/
-             energy/genre-aware engine the Library's Automix feature already uses. -->
-        <Border Grid.Row="3"
-                Background="#331A1A1D"
-                BorderBrush="#FFA94B"
-                BorderThickness="0,0,0,1"
+        <!-- Mix flow-health banner: several rough adjacent transitions in Mix mode → one-click reorder
+             via the same BPM/harmonic/energy/genre engine Automix uses. -->
+        <Border Grid.Row="1"
+                Background="{StaticResource BrushWarningSubtle}"
+                BorderBrush="{StaticResource BrushWarningBorder}" BorderThickness="0,0,0,1"
                 Padding="16,8"
                 IsVisible="{Binding ShowFlowWarningBanner}">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-                <TextBlock Grid.Column="0" Text="⚠" FontSize="13" Foreground="#FFA94B" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <TextBlock Grid.Column="1" Text="{Binding FlowWarningSummary, StringFormat='This playlist isn\'t in ideal mix order — {0}.'}"
-                           VerticalAlignment="Center" FontSize="12" Foreground="#DDDDDD"/>
-                <Button Grid.Column="2" Command="{Binding SuggestReorderForBetterFlowCommand}"
-                        Content="Reorder for better flow"
-                        Padding="10,5" FontSize="11" Margin="0,0,8,0"
-                        Background="#FFA94B" Foreground="#1A1A1D" BorderThickness="0" CornerRadius="6" Cursor="Hand"/>
-                <Button Grid.Column="3" Command="{Binding DismissFlowWarningCommand}"
-                        Content="Dismiss"
-                        Padding="10,5" FontSize="11"
-                        Background="Transparent" Foreground="#AAAAAA" BorderThickness="1" BorderBrush="#444" CornerRadius="6" Cursor="Hand"/>
+                <PathIcon Grid.Column="0" Data="{StaticResource icon_alert}" Width="14" Height="14"
+                          Foreground="{StaticResource BrushWarning}" Margin="0,0,8,0"/>
+                <TextBlock Grid.Column="1" Classes="body-sm" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           Foreground="{StaticResource BrushText0}"
+                           Text="{Binding FlowWarningSummary, StringFormat='This playlist isn\'t in ideal mix order: {0}.'}"/>
+                <Button Grid.Column="2" Classes="secondary small" Content="Reorder for better flow" Margin="8,0"
+                        Command="{Binding SuggestReorderForBetterFlowCommand}"/>
+                <Button Grid.Column="3" Classes="ghost small" Content="Dismiss" Command="{Binding DismissFlowWarningCommand}"/>
             </Grid>
         </Border>
 
-        <!-- Inline Column Filters (Task 10.4) -->
-        <Border Grid.Row="4"
-                Background="#1A1A1E"
-                BorderBrush="#3E3E3E"
-                BorderThickness="0,0,0,1"
-                Padding="16,8"
-                IsVisible="{Binding IsColumnFilterStripVisible}">
-            <StackPanel Orientation="Horizontal" Spacing="12">
-                <TextBlock Text="Artist:" VerticalAlignment="Center" FontSize="11" Foreground="#888"/>
-                <Border Background="#252526" BorderBrush="#3E3E3E" BorderThickness="1" CornerRadius="4" Padding="8,4" MinWidth="160">
-                    <TextBox Text="{Binding FilterArtist, Mode=TwoWay}"
-                             Watermark="Filter by artist..."
-                             Background="Transparent"
-                             BorderThickness="0"
-                             Padding="0"
-                             FontSize="11"
-                             Foreground="White"/>
-                </Border>
-                <TextBlock Text="Title:" VerticalAlignment="Center" FontSize="11" Foreground="#888"/>
-                <Border Background="#252526" BorderBrush="#3E3E3E" BorderThickness="1" CornerRadius="4" Padding="8,4" MinWidth="200">
-                    <TextBox Text="{Binding FilterTitle, Mode=TwoWay}"
-                             Watermark="Filter by title..."
-                             Background="Transparent"
-                             BorderThickness="0"
-                             Padding="0"
-                             FontSize="11"
-                             Foreground="White"/>
-                </Border>
-                <Button Command="{Binding ToggleColumnFilterStripCommand}"
-                        Padding="8,4" FontSize="10" Background="Transparent"
-                        Foreground="#666" BorderThickness="0"
-                        ToolTip.Tip="Close filter strip">✕</Button>
-            </StackPanel>
-        </Border>
-        <!-- Column Header -->
-        <controls:VirtualGridHeader Grid.Row="5">
+        <!-- Column header. Widths must match the row template and TrackListColumnLayout. -->
+        <controls:VirtualGridHeader Grid.Row="2">
             <controls:VirtualGridHeader.HeaderContent>
-                <Grid>
+                <Grid Height="32">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="60"/>
                         <ColumnDefinition Width="44"/>
@@ -274,130 +228,86 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <!-- Column 0: Artwork/Status (Empty) -->
-                    <!-- Column 1: Q -->
-                    <TextBlock Grid.Column="1" Text="Q" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                    <!-- Column 2: Insert-between affordance — no header label; it's a narrow
-                         hover-only utility column, not a data column (see the row template's
-                         Button.insert-affordance for what it does). -->
-
-                    <!-- Column 3: Artist -->
-                    <Button Grid.Column="3" Classes="sortableHeader" Margin="12,0"
+                    <Button Grid.Column="3" Classes="sort" Margin="12,0"
                             Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Artist}">
-                        <StackPanel Orientation="Horizontal" Spacing="3">
-                            <TextBlock Classes="label" Text="ARTIST"/>
-                            <TextBlock Classes="label" Text="▲" Foreground="#4EC9B0" IsVisible="{Binding IsSortedByArtistAscending}"/>
-                            <TextBlock Classes="label" Text="▼" Foreground="#4EC9B0" IsVisible="{Binding IsSortedByArtistDescending}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Classes="col" Text="ARTIST"/>
+                            <PathIcon Data="{StaticResource icon_chevron_up}" IsVisible="{Binding IsSortedByArtistAscending}"/>
+                            <PathIcon Data="{StaticResource icon_chevron_down}" IsVisible="{Binding IsSortedByArtistDescending}"/>
                         </StackPanel>
                     </Button>
-                    <!-- Column 4: Title -->
-                    <Button Grid.Column="4" Classes="sortableHeader" Margin="12,0"
+                    <Button Grid.Column="4" Classes="sort" Margin="12,0"
                             Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Title}">
-                        <StackPanel Orientation="Horizontal" Spacing="3">
-                            <TextBlock Classes="label" Text="TITLE"/>
-                            <TextBlock Classes="label" Text="▲" Foreground="#4EC9B0" IsVisible="{Binding IsSortedByTitleAscending}"/>
-                            <TextBlock Classes="label" Text="▼" Foreground="#4EC9B0" IsVisible="{Binding IsSortedByTitleDescending}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Classes="col" Text="TITLE"/>
+                            <PathIcon Data="{StaticResource icon_chevron_up}" IsVisible="{Binding IsSortedByTitleAscending}"/>
+                            <PathIcon Data="{StaticResource icon_chevron_down}" IsVisible="{Binding IsSortedByTitleDescending}"/>
                         </StackPanel>
                     </Button>
-                    <!-- Column 5: Energy -->
                     <Panel Grid.Column="5" Width="90" IsVisible="{Binding ShowEnergyColumn}">
-                        <TextBlock Text="ENERGY" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0"/>
+                        <TextBlock Classes="col" Text="ENERGY" Margin="8,0"/>
                     </Panel>
-                    <!-- Column 6: BPM / Key -->
-                    <Button Grid.Column="6" Classes="sortableHeader" Margin="8,0"
+                    <Button Grid.Column="6" Classes="sort" Margin="8,0"
                             Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Bpm}"
-                            ToolTip.Tip="Sort by BPM. Click a track to highlight harmonically compatible keys">
-                        <StackPanel Orientation="Horizontal" Spacing="3">
-                            <TextBlock Classes="label" Text="BPM / KEY"/>
-                            <TextBlock Classes="label" Text="▲" Foreground="#4EC9B0" IsVisible="{Binding IsSortedByBpmAscending}"/>
-                            <TextBlock Classes="label" Text="▼" Foreground="#4EC9B0" IsVisible="{Binding IsSortedByBpmDescending}"/>
+                            ToolTip.Tip="Sort by BPM. Select a track to highlight harmonically compatible keys.">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Classes="col" Text="BPM · KEY"/>
+                            <PathIcon Data="{StaticResource icon_chevron_up}" IsVisible="{Binding IsSortedByBpmAscending}"/>
+                            <PathIcon Data="{StaticResource icon_chevron_down}" IsVisible="{Binding IsSortedByBpmDescending}"/>
                         </StackPanel>
                     </Button>
-                    <!-- Column 7: Format -->
                     <Panel Grid.Column="7" Width="100" IsVisible="{Binding ShowFormatColumn}">
-                        <TextBlock Text="FORMAT" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"/>
+                        <TextBlock Classes="col" Text="QUALITY" Margin="12,0"/>
                     </Panel>
-                    <!-- Column 8: Forensics -->
                     <Panel Grid.Column="8" Width="120" IsVisible="{Binding ShowForensicsColumn}">
-                        <TextBlock Text="FORENSICS" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"/>
+                        <TextBlock Classes="col" Text="FORENSICS" Margin="12,0"/>
                     </Panel>
-                    <!-- Column 9: Duration -->
                     <Panel Grid.Column="9" Width="80" IsVisible="{Binding ShowDurationColumn}">
-                    <Button Classes="sortableHeader" Margin="12,0" HorizontalAlignment="Right"
-                            Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Duration}">
-                        <StackPanel Orientation="Horizontal" Spacing="3">
-                            <TextBlock Classes="label" Text="▲" Foreground="#4EC9B0" IsVisible="{Binding IsSortedByDurationAscending}"/>
-                            <TextBlock Classes="label" Text="▼" Foreground="#4EC9B0" IsVisible="{Binding IsSortedByDurationDescending}"/>
-                            <TextBlock Classes="label" Text="DURATION"/>
-                        </StackPanel>
-                    </Button>
+                        <Button Classes="sort" Margin="12,0" HorizontalAlignment="Right"
+                                Command="{Binding SortByColumnCommand}" CommandParameter="{x:Static models:TrackSortColumn.Duration}">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <PathIcon Data="{StaticResource icon_chevron_up}" IsVisible="{Binding IsSortedByDurationAscending}"/>
+                                <PathIcon Data="{StaticResource icon_chevron_down}" IsVisible="{Binding IsSortedByDurationDescending}"/>
+                                <TextBlock Classes="col" Text="TIME"/>
+                            </StackPanel>
+                        </Button>
                     </Panel>
-                    <!-- Column 10: Rating -->
                     <Panel Grid.Column="10" Width="84" IsVisible="{Binding ShowRatingColumn}">
-                        <TextBlock Text="RATING" FontSize="10" FontWeight="Bold" Foreground="#555" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0"/>
+                        <TextBlock Classes="col" Text="RATING" Margin="12,0"/>
                     </Panel>
                 </Grid>
             </controls:VirtualGridHeader.HeaderContent>
         </controls:VirtualGridHeader>
 
-        <controls:VirtualGrid Grid.Row="6" Name="TrackGrid"
+        <!-- SelectionChanged is wired in code-behind (it used to be wired here as well, so every
+             selection change ran UpdateSelection twice). -->
+        <controls:VirtualGrid Grid.Row="3" Name="TrackGrid"
                               ItemsSource="{Binding FilteredTracks}"
-                              SelectionMode="Multiple"
-                              SelectionChanged="OnTrackGridSelectionChanged">
+                              SelectionMode="Multiple">
             <controls:VirtualGrid.ContextMenu>
                 <ContextMenu>
-                    <MenuItem Header="Play Track" Command="{Binding Operations.PlayTrackCommand}">
-                        <MenuItem.Icon><TextBlock Text="▶️" FontSize="12"/></MenuItem.Icon>
-                    </MenuItem>
-                    <MenuItem Header="Queue Track" Command="{Binding Operations.AddToQueueCommand}">
-                        <MenuItem.Icon><TextBlock Text="➕" FontSize="12"/></MenuItem.Icon>
-                    </MenuItem>
-                    <MenuItem Header="Queue Selected Tracks" Command="{Binding Operations.AddSelectedToQueueCommand}">
-                        <MenuItem.Icon><TextBlock Text="📋" FontSize="12"/></MenuItem.Icon>
-                    </MenuItem>
+                    <MenuItem Header="Play" Command="{Binding Operations.PlayTrackCommand}"/>
+                    <MenuItem Header="Add to queue" Command="{Binding Operations.AddToQueueCommand}"/>
+                    <MenuItem Header="Add selected to queue" Command="{Binding Operations.AddSelectedToQueueCommand}"/>
+                    <MenuItem Header="Download next" Command="{Binding Operations.DownloadNextCommand}"
+                              ToolTip.Tip="Move this track (or the selected ones) to the front of the download queue"/>
                     <Separator/>
-                    <MenuItem Header="Analyse Track" Command="{Binding Operations.AnalyseTrackCommand}" IsEnabled="{Binding Operations.AreDependenciesHealthy}">
-                         <MenuItem.Icon><TextBlock Text="🔬" FontSize="12"/></MenuItem.Icon>
+                    <MenuItem Header="Analyse" Command="{Binding Operations.AnalyseTrackCommand}" IsEnabled="{Binding Operations.AreDependenciesHealthy}"/>
+                    <MenuItem Header="Regenerate cues">
+                        <MenuItem Header="ORBIT analysis" Command="{Binding Operations.RegenerateCuesCommand}"
+                                  ToolTip.Tip="Re-maps cue points from this track's (or the selected tracks') analysed data. Fast, no re-analysis. Also restores normal cues after trying CUE-DETR."/>
+                        <MenuItem Header="ORBIT + CUE-DETR (compare)" Command="{Binding Operations.GenerateCuesWithAiCommand}" CommandParameter="compare"
+                                  ToolTip.Tip="ORBIT's cues, marked where the CUE-DETR model agrees (the most reliable), plus CUE-DETR's other points. About 10 s per track the first time, then cached."/>
+                        <MenuItem Header="CUE-DETR only" Command="{Binding Operations.GenerateCuesWithAiCommand}" CommandParameter="ai"
+                                  ToolTip.Tip="Only the CUE-DETR model's cue points (snapped to the bar grid). Your own placed cues are kept."/>
                     </MenuItem>
-                    <MenuItem Header="Regenerate Cues">
-                         <MenuItem.Icon><TextBlock Text="🎯" FontSize="12"/></MenuItem.Icon>
-                         <MenuItem Header="ORBIT analysis" Command="{Binding Operations.RegenerateCuesCommand}"
-                                   ToolTip.Tip="Re-maps cue points from this track's (or all selected tracks') already-analysed data — fast, no re-analysis. Also restores normal cues after trying CUE-DETR."/>
-                         <MenuItem Header="ORBIT + CUE-DETR (compare)" Command="{Binding Operations.GenerateCuesWithAiCommand}" CommandParameter="compare"
-                                   ToolTip.Tip="ORBIT's cues, marked ✓AI where the CUE-DETR model agrees (those are the most reliable), plus CUE-DETR's other points as cyan 'AI' cues. ~10 s per track the first time, then cached."/>
-                         <MenuItem Header="CUE-DETR only" Command="{Binding Operations.GenerateCuesWithAiCommand}" CommandParameter="ai"
-                                   ToolTip.Tip="Only the CUE-DETR model's cue points (snapped to the bar grid), in cyan — to judge the model on its own. Your own placed cues are kept."/>
-                    </MenuItem>
-                    <MenuItem Header="Refresh BPM from Tags" Command="{Binding Operations.RefreshBpmFromTagsCommand}"
-                              ToolTip.Tip="Re-reads the file's own embedded BPM tag (this track, or all selected) and trusts it over ORBIT's analysis — fixes breakbeat/DNB tracks Essentia's beat tracker consistently misreads.">
-                         <MenuItem.Icon><TextBlock Text="🥁" FontSize="12"/></MenuItem.Icon>
-                    </MenuItem>
-                    <MenuItem Header="Hard Retry" Command="{Binding Operations.HardRetryCommand}" IsEnabled="{Binding Operations.AreDependenciesHealthy}">
-                         <MenuItem.Icon><TextBlock Text="🔄" FontSize="12"/></MenuItem.Icon>
-                    </MenuItem>
+                    <MenuItem Header="Edit cues in Cue Forge" Command="{Binding Operations.OpenInCueForgeCommand}"/>
+                    <MenuItem Header="Refresh BPM from tags" Command="{Binding Operations.RefreshBpmFromTagsCommand}"
+                              ToolTip.Tip="Re-reads the file's embedded BPM tag and trusts it over ORBIT's analysis. Fixes breakbeat/DnB tracks the beat tracker misreads."/>
+                    <MenuItem Header="Hard retry download" Command="{Binding Operations.HardRetryCommand}" IsEnabled="{Binding Operations.AreDependenciesHealthy}"/>
                     <Separator/>
-                    <MenuItem Header="Terminal: View Search Audit" Command="{Binding Operations.OpenAuditLogCommand}">
-                         <MenuItem.Icon><TextBlock Text="📝" FontSize="12"/></MenuItem.Icon>
-                    </MenuItem>
-                    <Separator/>
-                    <MenuItem Header="Open Folder" Command="{Binding Operations.OpenFolderCommand}">
-                         <MenuItem.Icon><TextBlock Text="📂" FontSize="12"/></MenuItem.Icon>
-                    </MenuItem>
-                    <Separator/>
-                    <MenuItem Header="Export to CSV" Command="{Binding BulkExportCsvCommand}">
-                         <MenuItem.Icon><TextBlock Text="📊" FontSize="12"/></MenuItem.Icon>
-                    </MenuItem>
-                    <MenuItem Header="Edit Cues in Cue Forge" Command="{Binding Operations.OpenInCueForgeCommand}">
-                         <MenuItem.Icon><TextBlock Text="🎯" FontSize="12"/></MenuItem.Icon>
-                    </MenuItem>
-                    <MenuItem Header="Write Cues to Serato Tags">
-                        <MenuItem.Icon><TextBlock Text="🏷️" FontSize="12"/></MenuItem.Icon>
-                        <MenuItem Header="Add ORBIT cues (keep Serato's)" Command="{Binding Operations.WriteSeratoCuesCommand}" CommandParameter="keep"/>
-                        <MenuItem Header="Replace all cues with ORBIT's…" Command="{Binding Operations.WriteSeratoCuesCommand}" CommandParameter="replace"/>
-                    </MenuItem>
-                    <Separator/>
-                    <MenuItem Header="Set Colour">
-                        <MenuItem.Icon><TextBlock Text="🎨" FontSize="12"/></MenuItem.Icon>
+                    <MenuItem Header="Set colour">
+                        <!-- Rekordbox colour palette: the hex values are the tag data written to the track. -->
                         <MenuItem Header="Pink" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="#F870AC">
                             <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#F870AC"/></MenuItem.Icon>
                         </MenuItem>
@@ -423,14 +333,18 @@
                             <MenuItem.Icon><Border Width="12" Height="12" CornerRadius="2" Background="#660099"/></MenuItem.Icon>
                         </MenuItem>
                         <Separator/>
-                        <MenuItem Header="Clear Colour" Command="{Binding Operations.SetColorTagCommand}" CommandParameter="">
-                            <MenuItem.Icon><TextBlock Text="✖️" FontSize="12"/></MenuItem.Icon>
-                        </MenuItem>
+                        <MenuItem Header="Clear colour" Command="{Binding Operations.SetColorTagCommand}" CommandParameter=""/>
+                    </MenuItem>
+                    <MenuItem Header="Write cues to Serato tags">
+                        <MenuItem Header="Add ORBIT cues (keep Serato's)" Command="{Binding Operations.WriteSeratoCuesCommand}" CommandParameter="keep"/>
+                        <MenuItem Header="Replace all cues with ORBIT's…" Command="{Binding Operations.WriteSeratoCuesCommand}" CommandParameter="replace"/>
                     </MenuItem>
                     <Separator/>
-                    <MenuItem Header="Remove Track" Command="{Binding Operations.RemoveTrackCommand}" InputGesture="Delete">
-                         <MenuItem.Icon><TextBlock Text="🗑️" FontSize="12" Foreground="#FF5252"/></MenuItem.Icon>
-                    </MenuItem>
+                    <MenuItem Header="Open folder" Command="{Binding Operations.OpenFolderCommand}"/>
+                    <MenuItem Header="View search audit log" Command="{Binding Operations.OpenAuditLogCommand}"/>
+                    <MenuItem Header="Export list to CSV…" Command="{Binding BulkExportCsvCommand}"/>
+                    <Separator/>
+                    <MenuItem Header="Remove track…" Command="{Binding Operations.RemoveTrackCommand}" InputGesture="Delete"/>
                 </ContextMenu>
             </controls:VirtualGrid.ContextMenu>
 
@@ -439,7 +353,7 @@
                     <Border Classes="track-row"
                             Classes.harmonic-match="{Binding IsHarmonicMatch}"
                             Focusable="True">
-                        <Grid RowDefinitions="48,Auto">
+                        <Grid RowDefinitions="40,Auto">
                         <Grid Grid.Row="0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="60"/>
@@ -454,175 +368,126 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <!-- Column 0: Artwork/Status -->
-                            <Panel Grid.Column="0" Margin="12,0,0,0">
-                                <Border Width="32" Height="32" CornerRadius="4" ClipToBounds="True">
+
+                            <!-- Artwork + download-state dot -->
+                            <Panel Grid.Column="0" Margin="16,0,0,0" HorizontalAlignment="Left">
+                                <Border Width="28" Height="28" CornerRadius="{StaticResource RadiusSm}" ClipToBounds="True">
                                     <Panel>
                                         <Image Source="{Binding Artwork.Image}" Stretch="UniformToFill" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-                                        <!-- No real art: a color+letter tile instead of the old flat gray square with a faint
-                                             note glyph — every missing-art row used to look identical at a glance. -->
+                                        <!-- No art: colour + letter tile so missing-art rows stay distinguishable. -->
                                         <Border Background="{Binding FallbackArtBrush}" IsVisible="{Binding Artwork.Image, Converter={x:Static ObjectConverters.IsNull}}">
-                                            <TextBlock Text="{Binding FallbackArtLetter}" FontSize="13" FontWeight="Bold" Foreground="#DDFFFFFF"
-                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding FallbackArtLetter}" FontSize="{StaticResource TextSizeBodySm}" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource BrushText0}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
-
-                                        <!-- Status Overlay -->
-                                        <Border VerticalAlignment="Bottom" HorizontalAlignment="Right" Width="8" Height="8" Margin="0,0,2,2" CornerRadius="4"
-                                                Background="{Binding State, Converter={StaticResource TrackStateToColorConverter}}"
-                                                BorderBrush="#1E1E1E" BorderThickness="1"/>
                                     </Panel>
                                 </Border>
+                                <Ellipse Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-2,4"
+                                         Fill="{Binding State, Converter={StaticResource TrackStateToColorConverter}}"
+                                         Stroke="{StaticResource BrushBg1}" StrokeThickness="1"
+                                         ToolTip.Tip="{Binding StatusText}"/>
                             </Panel>
 
-                            <!-- Column 1: Q Button -->
-                            <Button Grid.Column="1"
+                            <!-- Queue (hover) -->
+                            <Button Grid.Column="1" Classes="icon small row-action"
                                     Command="{Binding $parent[UserControl].DataContext.Operations.AddToQueueCommand}"
                                     CommandParameter="{Binding}"
-                                    Width="22"
-                                    Height="22"
-                                    Padding="0"
-                                    Margin="8,0,0,0"
-                                    HorizontalAlignment="Left"
-                                    VerticalAlignment="Center"
-                                    Background="Transparent"
-                                    BorderThickness="0"
-                                    Opacity="0.55"
-                                    ToolTip.Tip="Queue track (or selected tracks)">
-                                <TextBlock Text="＋" FontSize="11" Foreground="#6F8192" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    HorizontalAlignment="Left" Margin="8,0,0,0"
+                                    ToolTip.Tip="Add to queue (or the selected tracks)">
+                                <PathIcon Data="{StaticResource icon_add}" Width="14" Height="14"/>
                             </Button>
 
-                            <!-- Column 2: Smart Insert affordance. Was a permanently-reserved
-                                 124px "+ Add here" pill on every row — visually dominated the
-                                 whole tracklist. Shrunk to an icon-only button matching the Q
-                                 button's footprint (Column 2 is now 32px, same order of size as
-                                 Column 1's 44px); Classes="insert-affordance" still gates it to
-                                 opacity 0 / non-hit-testable until the row is hovered (see the
-                                 Button.insert-affordance styles above), so it stays invisible
-                                 until needed either way — this only fixes its size when visible
-                                 and the dead space it always reserved. -->
-                            <Button Grid.Column="2"
+                            <!-- Smart insert (hover): add a track that fits between this row and the next. -->
+                            <Button Grid.Column="2" Classes="icon small row-action insert-affordance"
                                     Command="{Binding $parent[views:LibraryPage].DataContext.PrepareSmartInsertAfterTrackCommand}"
                                     CommandParameter="{Binding}"
-                                    Classes="insert-affordance"
-                                    Width="22"
-                                    Height="22"
-                                    Padding="0"
-                                    Margin="5,0,0,0"
                                     HorizontalAlignment="Left"
-                                    VerticalAlignment="Center"
-                                    Background="#143A4A"
-                                    BorderBrush="#2D7D93"
-                                    BorderThickness="1"
-                                    CornerRadius="11"
-                                    ToolTip.Tip="Add track that fits between this row and the next row">
-                                <TextBlock Text="+" FontSize="12" FontWeight="SemiBold" Foreground="#9ED9C8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    ToolTip.Tip="Find a track that fits between this row and the next">
+                                <PathIcon Data="{StaticResource icon_wand}" Width="14" Height="14"/>
                             </Button>
 
-                            <!-- Column 3: Artist -->
-                            <TextBlock Grid.Column="3" Text="{Binding Artist}" VerticalAlignment="Center" Margin="12,0" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Grid.Column="3" Text="{Binding Artist}" Classes="body-sm" Margin="12,0"
+                                       VerticalAlignment="Center" Foreground="{StaticResource BrushText1}" TextTrimming="CharacterEllipsis"/>
 
-                            <!-- Column 4: Title -->
-                            <TextBlock Grid.Column="4" Text="{Binding Title}" VerticalAlignment="Center" Margin="12,0" Foreground="White" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Grid.Column="4" Text="{Binding Title}" Classes="body" Margin="12,0"
+                                       VerticalAlignment="Center" Foreground="{StaticResource BrushText0}" FontWeight="Medium" TextTrimming="CharacterEllipsis"/>
 
-                            <!-- Column 5: Energy Sparkline -->
+                            <!-- Energy contour (analysed audio) -->
                             <Panel Grid.Column="5" Width="90" IsVisible="{Binding $parent[UserControl].DataContext.ShowEnergyColumn}">
-                            <controls:SparklineControl
-                                Points="{Binding EnergyCurvePoints}"
-                                LineBrush="#4EC9B0"
-                                FillBrush="#224EC9B0"
-                                LineThickness="1.2"
-                                Height="22"
-                                Margin="8,0"
-                                VerticalAlignment="Center"
-                                IsVisible="{Binding HasAnalysisData}"
-                                ToolTip.Tip="Energy contour — analysed audio"/>
+                                <controls:SparklineControl
+                                    Points="{Binding EnergyCurvePoints}"
+                                    LineBrush="{StaticResource BrushAccent}"
+                                    FillBrush="{StaticResource BrushAccentSubtle}"
+                                    LineThickness="1.2"
+                                    Height="20" Margin="8,0"
+                                    VerticalAlignment="Center"
+                                    IsVisible="{Binding HasAnalysisData}"
+                                    ToolTip.Tip="Energy contour (analysed audio)"/>
                             </Panel>
 
-                            <!-- Column 6: BPM / Key (harmonic mixing) -->
+                            <!-- BPM + Camelot key -->
                             <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="8,0" IsVisible="{Binding HasBpm}">
-                                <TextBlock Text="{Binding BpmDisplay}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Width="26" TextAlignment="Right" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding BpmDisplay}" Classes="mono" Width="28" TextAlignment="Right" VerticalAlignment="Center"/>
                                 <Border Classes="key-badge"
                                         Classes.harmonic-match="{Binding IsHarmonicMatch}"
                                         Classes.exact-match="{Binding IsExactKeyMatch}"
                                         Background="{Binding ColorBrush}"
-                                        CornerRadius="4"
-                                        Padding="5,2"
-                                        MinWidth="30"
                                         VerticalAlignment="Center"
                                         ToolTip.Tip="{Binding KeyDisplay}">
-                                    <TextBlock Text="{Binding CamelotDisplay}" Foreground="White" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="{Binding CamelotDisplay}" Classes="mono" FontSize="{StaticResource TextSizeCaption}" FontWeight="SemiBold"
+                                               Foreground="{StaticResource BrushText0}" HorizontalAlignment="Center"/>
                                 </Border>
                             </StackPanel>
 
-                            <!-- Column 7: Format -->
+                            <!-- Quality tier badge: format + bitrate -->
                             <Panel Grid.Column="7" Width="100" IsVisible="{Binding $parent[UserControl].DataContext.ShowFormatColumn}">
-                            <Border Background="#1A1F2C" BorderBrush="#3300BFFF" BorderThickness="1" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <TextBlock Text="{Binding Format}" FontSize="9" FontWeight="Bold" Foreground="#00BFFF" Opacity="0.8"/>
-                                    <TextBlock Text="{Binding Bitrate, StringFormat='{}{0}k'}" FontSize="9" Foreground="#00BFFF"/>
-                                </StackPanel>
-                            </Border>
+                                <Border Classes="tier" Classes.lossless="{Binding IsTierLossless}" Classes.low="{Binding IsTierLowBitrate}" Margin="12,0">
+                                    <TextBlock Text="{Binding QualityBadgeText}" Classes="mono" FontSize="{StaticResource TextSizeCaption}"/>
+                                </Border>
                             </Panel>
 
-                            <!-- Column 8: Forensics -->
+                            <!-- Forensics verdict: status dot + word; the full report is in the tooltip -->
                             <Panel Grid.Column="8" Width="120" IsVisible="{Binding $parent[UserControl].DataContext.ShowForensicsColumn}">
-                            <Border Background="{Binding IntegrityColor}"
-                                    CornerRadius="10"
-                                    Padding="8,3"
-                                    HorizontalAlignment="Left"
-                                    VerticalAlignment="Center"
-                                    Margin="12,0"
-                                    ToolTip.Tip="{Binding ForensicHudText}">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <TextBlock Text="{Binding IntegrityBadge}" FontSize="10"/>
-                                    <TextBlock Text="{Binding ForensicVerdictText}"
-                                               FontSize="10"
-                                               FontWeight="SemiBold"
-                                               Foreground="Black"/>
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="12,0" VerticalAlignment="Center" Background="Transparent"
+                                            ToolTip.Tip="{Binding ForensicHudText}">
+                                    <Ellipse Classes="status-dot" Classes.success="{Binding IsIntegrityTrusted}" Classes.warning="{Binding IsIntegritySuspicious}"/>
+                                    <TextBlock Text="{Binding ForensicVerdictText}" Classes="caption" VerticalAlignment="Center"/>
                                 </StackPanel>
-                            </Border>
                             </Panel>
 
-                            <!-- Column 9: Duration -->
                             <Panel Grid.Column="9" Width="80" IsVisible="{Binding $parent[UserControl].DataContext.ShowDurationColumn}">
-                                <TextBlock Text="{Binding DurationDisplay}" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0" Opacity="0.5"/>
+                                <TextBlock Text="{Binding DurationDisplay}" Classes="mono" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0"/>
                             </Panel>
 
-                            <!-- Column 10: Rating -->
+                            <!-- Rating + like -->
                             <StackPanel Grid.Column="10" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="12,0" Width="60"
                                         IsVisible="{Binding $parent[UserControl].DataContext.ShowRatingColumn}">
                                 <controls:StarRatingControl Rating="{Binding Rating, Mode=TwoWay}" StarSize="11"/>
                                 <ToggleButton IsChecked="{Binding IsLiked, Mode=TwoWay}"
-                                              Background="Transparent" BorderThickness="0" Padding="0"
-                                              Cursor="Hand" ToolTip.Tip="Like">
+                                              Background="Transparent" BorderThickness="0" Padding="0" Cursor="Hand"
+                                              ToolTip.Tip="Like">
                                     <Panel>
-                                        <TextBlock Text="🤍" FontSize="11" Opacity="0.5" IsVisible="{Binding !IsLiked}"/>
-                                        <TextBlock Text="❤️" FontSize="11" IsVisible="{Binding IsLiked}"/>
+                                        <PathIcon Data="{StaticResource icon_heart_outline}" Width="12" Height="12" Foreground="{StaticResource BrushText3}" IsVisible="{Binding !IsLiked}"/>
+                                        <PathIcon Data="{StaticResource icon_heart}" Width="12" Height="12" Foreground="{StaticResource BrushError}" IsVisible="{Binding IsLiked}"/>
                                     </Panel>
                                 </ToggleButton>
                             </StackPanel>
                         </Grid>
 
-                        <!-- Mix (Spotify-Mix-parity) transition badge: shown between this row and
-                             the next when Mix mode is on. Anchored left under the artwork/queue
-                             columns, matching Spotify's badge placement. -->
+                        <!-- Mix transition badge between this row and the next (Mix mode). -->
                         <Button Grid.Row="1"
                                 IsVisible="{Binding ShowMixTransitionBadge}"
                                 Command="{Binding $parent[UserControl].DataContext.OpenMixTransitionCommand}"
                                 CommandParameter="{Binding}"
-                                Classes="mix-transition-badge"
-                                Margin="60,2,0,6"
-                                Padding="8,3"
-                                CornerRadius="10"
+                                Margin="60,0,0,8" Padding="8,2"
+                                CornerRadius="{StaticResource RadiusSm}"
                                 HorizontalAlignment="Left"
                                 Background="{Binding TransitionBadgeColor}"
-                                BorderThickness="0"
-                                Cursor="Hand"
+                                BorderThickness="0" Cursor="Hand"
                                 ToolTip.Tip="{Binding TransitionTooltip}">
                             <StackPanel Orientation="Horizontal" Spacing="4">
-                                <TextBlock Text="⚠" FontSize="9" Foreground="White" IsVisible="{Binding HasTransitionWarning}"/>
-                                <TextBlock Text="✎" FontSize="9" Foreground="White" Opacity="0.85" IsVisible="{Binding !HasTransitionWarning}"/>
-                                <TextBlock Text="{Binding TransitionPresetLabel}" FontSize="10" FontWeight="SemiBold" Foreground="White"/>
+                                <PathIcon Data="{StaticResource icon_alert}" Width="10" Height="10" Foreground="{StaticResource BrushText0}" IsVisible="{Binding HasTransitionWarning}"/>
+                                <PathIcon Data="{StaticResource icon_edit}" Width="10" Height="10" Foreground="{StaticResource BrushText0}" IsVisible="{Binding !HasTransitionWarning}"/>
+                                <TextBlock Text="{Binding TransitionPresetLabel}" Classes="caption" FontWeight="SemiBold" Foreground="{StaticResource BrushText0}"/>
                             </StackPanel>
                         </Button>
                         </Grid>
@@ -631,25 +496,32 @@
             </controls:VirtualGrid.ItemTemplate>
         </controls:VirtualGrid>
 
-        <!-- Empty state — shown when the selected playlist has no tracks -->
-        <StackPanel Grid.Row="6"
-                    IsVisible="{Binding IsLibraryEmpty}"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Spacing="12">
-            <TextBlock Text="📚" FontSize="40" HorizontalAlignment="Center" Opacity="0.25"/>
-            <TextBlock Text="No tracks here yet"
-                       FontSize="15"
-                       FontWeight="SemiBold"
-                       Foreground="#555"
-                       HorizontalAlignment="Center"/>
-            <TextBlock Text="Search and download tracks, or import a folder from Settings → Library Sources."
-                       FontSize="12"
-                       Foreground="#444"
-                       HorizontalAlignment="Center"
-                       TextAlignment="Center"
-                       MaxWidth="280"
-                       TextWrapping="Wrap"/>
+        <!-- Empty: nothing in this playlist / library -->
+        <StackPanel Grid.Row="3" Classes="empty-state">
+            <StackPanel.IsVisible>
+                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                    <Binding Path="FilteredTracks.Count" Converter="{StaticResource NumericIsZeroConverter}"/>
+                    <Binding Path="!HasActiveFilters"/>
+                </MultiBinding>
+            </StackPanel.IsVisible>
+            <PathIcon Data="{StaticResource icon_music}"/>
+            <TextBlock Classes="h3" Text="No tracks here yet"/>
+            <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center"
+                       Text="Search Soulseek and download tracks, import a playlist, or add a music folder under Library tools → Library folders."/>
+        </StackPanel>
+
+        <!-- Empty: filters hide everything -->
+        <StackPanel Grid.Row="3" Classes="empty-state">
+            <StackPanel.IsVisible>
+                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                    <Binding Path="FilteredTracks.Count" Converter="{StaticResource NumericIsZeroConverter}"/>
+                    <Binding Path="HasActiveFilters"/>
+                </MultiBinding>
+            </StackPanel.IsVisible>
+            <PathIcon Data="{StaticResource icon_filter}"/>
+            <TextBlock Classes="h3" Text="No tracks match"/>
+            <TextBlock Classes="caption" TextWrapping="Wrap" TextAlignment="Center" Text="Nothing in this list matches the current search and filters."/>
+            <Button Classes="secondary" Content="Clear filters" Command="{Binding ClearFiltersCommand}"/>
         </StackPanel>
     </Grid>
 </UserControl>
