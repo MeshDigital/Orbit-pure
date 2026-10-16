@@ -113,7 +113,7 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:WorkstationToolOptionViewModel">
-                                    <RadioButton Classes="chip"
+                                    <RadioButton Classes="chip" GroupName="WorkstationMode"
                                                  IsChecked="{Binding IsSelected, Mode=OneWay}"
                                                  IsEnabled="{Binding IsAvailable}"
                                                  Command="{Binding #PageRoot.DataContext.SetModeCommand}"
