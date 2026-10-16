@@ -321,6 +321,8 @@
                                                                               Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}" IsVisible="{Binding IsFolder}"/>
                                                                     <PathIcon Data="{StaticResource icon_music}" Foreground="{StaticResource BrushText2}"
                                                                               Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}" IsVisible="{Binding IsMusic}"/>
+                                                                    <PathIcon Data="{StaticResource icon_file}" Foreground="{StaticResource BrushText3}"
+                                                                              Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}" IsVisible="{Binding IsPlainFile}"/>
                                                                 </Panel>
                                                                 <TextBlock Classes="body-sm" Text="{Binding DisplayName}" VerticalAlignment="Center"/>
                                                             </StackPanel>

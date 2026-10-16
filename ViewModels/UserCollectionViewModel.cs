@@ -400,6 +400,7 @@ public abstract class UserCollectionNodeViewModel : ReactiveObject
     // Node kind for the share tree's PathIcon (folder / music file / other file).
     public virtual bool IsFolder => false;
     public virtual bool IsMusic => false;
+    public bool IsPlainFile => !IsFolder && !IsMusic;
     public virtual string SecondaryText => string.Empty;
     public virtual string WarningText => string.Empty;
     public virtual bool HasWarning => !string.IsNullOrWhiteSpace(WarningText);
