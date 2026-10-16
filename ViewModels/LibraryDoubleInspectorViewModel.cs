@@ -32,8 +32,12 @@ public sealed class LibraryDoubleInspectorViewModel : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    private void RaisePropertyChanged([CallerMemberName] string? propertyName = null) =>
+    private void RaisePropertyChanged([CallerMemberName] string? propertyName = null)
+    {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        if (propertyName is nameof(IsPairAnalyzable) or nameof(IsPairScoreLoading) or nameof(HasPairContext))
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsScoreUnavailable)));
+    }
 
     /// <summary>Raises change notification for every property derived from the current selection
     /// (TrackA/TrackB and everything computed from them) — called whenever selection settles,
@@ -74,6 +78,10 @@ public sealed class LibraryDoubleInspectorViewModel : INotifyPropertyChanged
     public bool IsPairScoreLoading { get; private set; }
 
     public bool HasPairContext { get; private set; }
+
+    /// <summary>Both tracks are analysed and scoring finished without a result — the panel says so
+    /// instead of leaving the score section blank.</summary>
+    public bool IsScoreUnavailable => IsPairAnalyzable && !IsPairScoreLoading && !HasPairContext;
 
     public double TransitionScore { get; private set; }
 
