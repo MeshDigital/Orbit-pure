@@ -48,7 +48,9 @@ namespace SLSKDONET.Services.Audio
             string trackBPath, double trackBStartSeconds,
             SLSKDONET.Models.Timeline.TransitionModel model,
             double projectBpm,
-            CancellationToken ct = default);
+            CancellationToken ct = default,
+            double leadInSeconds = 0,
+            double tailSeconds = 0);
     }
 
     public class SurgicalProcessingService : ISurgicalProcessingService
@@ -232,20 +234,25 @@ namespace SLSKDONET.Services.Audio
             string trackBPath, double trackBStartSeconds,
             SLSKDONET.Models.Timeline.TransitionModel model,
             double projectBpm,
-            CancellationToken ct = default)
+            CancellationToken ct = default,
+            double leadInSeconds = 0,
+            double tailSeconds = 0)
         {
             return Task.Run(() =>
             {
-                _logger.LogInformation("🎚️ Rendering preset-driven transition preview ({Preset} DSP, {Bpm:0} BPM), A@{TailStart}s B@{HeadStart}s",
-                    model.Type, projectBpm, trackATailStartSeconds, trackBStartSeconds);
+                _logger.LogInformation("Rendering preset-driven transition preview ({Preset} DSP, {Bpm:0} BPM), A@{TailStart}s B@{HeadStart}s, lead-in {LeadIn}s, tail {Tail}s",
+                    model.Type, projectBpm, trackATailStartSeconds, trackBStartSeconds, leadInSeconds, tailSeconds);
 
                 string outputPath = Path.Combine(_surgicalWorkDir, $"TransitionPreset_{Guid.NewGuid():N}.wav");
 
                 using var readerA = new NAudio.Wave.AudioFileReader(trackAPath);
                 using var readerB = new NAudio.Wave.AudioFileReader(trackBPath);
 
-                readerA.CurrentTime = TimeSpan.FromSeconds(Math.Max(0, trackATailStartSeconds));
-                readerB.CurrentTime = TimeSpan.FromSeconds(Math.Max(0, trackBStartSeconds));
+                // ExactSeek, not CurrentTime: Media Foundation (FLAC/M4A) drops a seek made before
+                // the first read, which started the preview at 0:00 instead of the mix point.
+                var leadStart = Math.Max(0, trackATailStartSeconds - Math.Max(0, leadInSeconds));
+                ExactSeek.Seek(readerA, trackAPath, leadStart);
+                ExactSeek.Seek(readerB, trackBPath, Math.Max(0, trackBStartSeconds));
 
                 // TransitionDsp requires both providers to share one WaveFormat — real files
                 // routinely differ in sample rate/channel count, so normalize B onto A's format.
@@ -253,27 +260,45 @@ namespace SLSKDONET.Services.Audio
                 NAudio.Wave.ISampleProvider outgoing = readerA;
                 NAudio.Wave.ISampleProvider incoming = NormalizeFormat(readerB, target);
 
-                var mixed = SLSKDONET.Services.Timeline.TransitionDsp.Build(outgoing, incoming, model, projectBpm);
-
-                var durationSamples = SLSKDONET.Services.Timeline.TransitionDsp.BeatsToSamples(
-                    model.DurationBeats, projectBpm, target.SampleRate, target.Channels);
-
                 using var writer = new NAudio.Wave.WaveFileWriter(outputPath, target);
                 var buffer = new float[target.Channels * 4096];
-                long framesWritten = 0;
-                long framesToWrite = durationSamples / target.Channels;
 
-                while (framesWritten < framesToWrite)
+                // 1. Lead-in: the outgoing track alone, up to the mix-out point.
+                long leadFrames = (long)Math.Round((trackATailStartSeconds - leadStart) * target.SampleRate);
+                CopyFrames(outgoing, writer, buffer, leadFrames, target.Channels, ct);
+
+                // 2. The blend itself.
+                var mixed = SLSKDONET.Services.Timeline.TransitionDsp.Build(outgoing, incoming, model, projectBpm);
+                long windowFrames = SLSKDONET.Services.Timeline.TransitionDsp.BeatsToSamples(
+                    model.DurationBeats, projectBpm, target.SampleRate, target.Channels) / target.Channels;
+                if (model.Type == SLSKDONET.Models.Timeline.TransitionType.DoubleDrop)
                 {
-                    ct.ThrowIfCancellationRequested();
-                    int read = mixed.Read(buffer, 0, buffer.Length);
-                    if (read == 0) break;
-                    writer.WriteSamples(buffer, 0, read);
-                    framesWritten += read / target.Channels;
+                    windowFrames += SLSKDONET.Services.Timeline.TransitionDsp.BeatsToSamples(
+                        model.LoopBars * 4.0, projectBpm, target.SampleRate, target.Channels) / target.Channels
+                        * (Math.Max(1, model.LoopRepeats) + 1);
                 }
+                CopyFrames(mixed, writer, buffer, windowFrames, target.Channels, ct);
+
+                // 3. Tail: the incoming track alone, so you hear where the blend lands.
+                long tailFrames = (long)Math.Round(Math.Max(0, tailSeconds) * target.SampleRate);
+                CopyFrames(incoming, writer, buffer, tailFrames, target.Channels, ct);
 
                 return outputPath;
             }, ct);
+        }
+
+        private static void CopyFrames(NAudio.Wave.ISampleProvider source, NAudio.Wave.WaveFileWriter writer, float[] buffer, long frames, int channels, CancellationToken ct)
+        {
+            long written = 0;
+            while (written < frames)
+            {
+                ct.ThrowIfCancellationRequested();
+                int want = (int)Math.Min(buffer.Length, (frames - written) * channels);
+                int read = source.Read(buffer, 0, want);
+                if (read == 0) break;
+                writer.WriteSamples(buffer, 0, read);
+                written += read / channels;
+            }
         }
 
         private static NAudio.Wave.ISampleProvider NormalizeFormat(NAudio.Wave.ISampleProvider source, NAudio.Wave.WaveFormat target)

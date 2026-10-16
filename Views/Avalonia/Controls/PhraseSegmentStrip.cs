@@ -35,6 +35,17 @@ namespace SLSKDONET.Views.Avalonia.Controls
             return new Size(width, 12.0);
         }
 
+        // Brushes are cached per colour so Render never allocates one per segment per frame.
+        private static readonly System.Collections.Generic.Dictionary<string, IBrush> BrushCache = new(StringComparer.OrdinalIgnoreCase);
+
+        private static IBrush BrushFor(string? hex)
+        {
+            if (string.IsNullOrWhiteSpace(hex) || !Color.TryParse(hex, out var color)) return Brushes.Gray;
+            if (!BrushCache.TryGetValue(hex, out var brush))
+                BrushCache[hex] = brush = new SolidColorBrush(color).ToImmutable();
+            return brush;
+        }
+
         public override void Render(DrawingContext context)
         {
             var segments = Segments;
@@ -53,15 +64,7 @@ namespace SLSKDONET.Views.Avalonia.Controls
                 double ratio = seg.Duration / totalDuration;
                 double segWidth = Math.Max(2, totalWidth * ratio - gap);
 
-                IBrush brush;
-                try
-                {
-                    brush = new SolidColorBrush(Color.Parse(seg.Color));
-                }
-                catch
-                {
-                    brush = Brushes.Gray;
-                }
+                var brush = BrushFor(seg.Color);
 
                 var rect = new Rect(x, 0, segWidth, height);
                 context.DrawRectangle(brush, null, rect, 2, 2);

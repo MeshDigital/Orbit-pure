@@ -12,9 +12,13 @@ namespace SLSKDONET.ViewModels.Downloads;
 public interface IHubRowDisplay
 {
     string Title { get; }
-    string StatusBadgeText { get; }
+    /// <summary>2–3 word status for the row cell.</summary>
+    string StatusLabel { get; }
+    /// <summary>Full explanation, shown as the status-cell tooltip.</summary>
+    string StatusDetail { get; }
     string StatusText { get; }
-    string StatusAccent { get; }
+    bool IsToneWarning { get; }
+    bool IsToneError { get; }
     ICommand? PrimaryAction { get; }
     string PrimaryActionLabel { get; }
     double Progress { get; }

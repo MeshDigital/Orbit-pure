@@ -1,106 +1,398 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
-             xmlns:views="clr-namespace:SLSKDONET.Views.Avalonia"
+             xmlns:models="clr-namespace:SLSKDONET.Models"
+             xmlns:controls="clr-namespace:SLSKDONET.Views.Avalonia.Controls"
+             xmlns:sys="clr-namespace:System;assembly=System.Runtime"
              x:Class="SLSKDONET.Views.Avalonia.Controls.FlowTransitionEditorPanel"
-             x:DataType="vm:FlowBuilderViewModel">
+             x:DataType="vm:FlowBuilderViewModel"
+             x:CompileBindings="True">
 
-    <!-- Mix + cue workspace for one transition of the set. Same MixTransitionViewModel/persistence
-         the compact CONTEXT-sidepanel "Mix" tab uses (SidebarViewModel.MixTransitionVm), in a roomier
-         host: a header with ◀ ▶ navigation, a mini strip of the whole set (click any link to jump to
-         that transition), then the dual-deck editor with in-place cue editing. -->
+    <!-- Transition editor for one A→B pair of the set. Same MixTransitionViewModel and persistence
+         as the compact Mix sidepanel; this host is laid out for designing: header (pair, score,
+         navigation), one toolbar (blend, length, edit cues), the two aligned decks with the overlap
+         window shaded, and a footer transport (preview from N bars before the mix-out, scrub) with
+         the save state and the one primary action. -->
     <UserControl.Styles>
-        <Style Selector="Button.nav">
-            <Setter Property="Background" Value="#171C22"/>
-            <Setter Property="Foreground" Value="#9BD7CA"/>
-            <Setter Property="BorderBrush" Value="#2A333D"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Padding" Value="10,4"/>
-            <Setter Property="FontSize" Value="11"/>
-        </Style>
-        <Style Selector="Button.nav:pointerover">
-            <Setter Property="BorderBrush" Value="#4EC9B0"/>
-        </Style>
-        <Style Selector="Border.strip-card">
-            <Setter Property="Background" Value="#171C22"/>
-            <Setter Property="BorderBrush" Value="#2A333D"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="5"/>
-            <Setter Property="Padding" Value="6,3"/>
-            <Setter Property="Width" Value="120"/>
-        </Style>
-        <Style Selector="Button.strip-link">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="4,0"/>
-            <Setter Property="Width" Value="34"/>
-            <Setter Property="VerticalAlignment" Value="Stretch"/>
-        </Style>
-        <Style Selector="Button.strip-link:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#20262D"/>
+        <Style Selector="Button.cue-pick">
+            <Setter Property="Padding" Value="8,2"/>
+            <Setter Property="Margin" Value="0,0,4,4"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}"/>
         </Style>
     </UserControl.Styles>
 
-    <Border Background="#1A1E24" BorderBrush="#2F3E4C" BorderThickness="0,1,0,0">
-        <Grid RowDefinitions="Auto,Auto,*">
-            <!-- Header: title, ◀ position ▶, status, close -->
-            <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,*,Auto" Margin="16,10,16,6">
-                <TextBlock Grid.Column="0" Text="🎛 MIX &amp; CUE EDITOR" FontSize="11" FontWeight="Bold" Foreground="#4EC9B0" VerticalAlignment="Center"/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="16,0,0,0" VerticalAlignment="Center">
-                    <Button Classes="nav" Content="◀ Previous" Command="{Binding PreviousTransitionCommand}"
-                            ToolTip.Tip="Previous transition in the set (cue edits here save automatically)"/>
-                    <TextBlock Text="{Binding ActiveTransitionPositionText}" FontSize="11" Foreground="#C7D6E2"
-                               VerticalAlignment="Center" MinWidth="120" TextAlignment="Center"/>
-                    <Button Classes="nav" Content="Next ▶" Command="{Binding NextTransitionCommand}"
-                            ToolTip.Tip="Next transition in the set (cue edits here save automatically)"/>
-                </StackPanel>
-                <TextBlock Grid.Column="2" Text="{Binding MixTransitionVm.StatusMessage}" FontSize="11" Foreground="#9AA8B7"
-                           HorizontalAlignment="Center" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="12,0"/>
-                <Button Grid.Column="3" Classes="nav" Content="✕ Close" Command="{Binding CloseTransitionEditorCommand}"
-                        ToolTip.Tip="Back to the set (unsaved cue edits are saved)"/>
-            </Grid>
+    <Border Background="{StaticResource BrushBg1}">
+        <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
 
-            <!-- Mini strip: the whole set. Each ⇄ between two tracks opens that transition; the one
-                 being edited is highlighted. -->
-            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="16,0,16,8">
-                <ItemsControl ItemsSource="{Binding Tracks}">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate DataType="vm:FlowTrackCardViewModel">
-                            <StackPanel Orientation="Horizontal">
-                                <Border Classes="strip-card" ToolTip.Tip="{Binding Title}">
-                                    <StackPanel Spacing="0">
-                                        <Border Height="2" Background="{Binding KeyColorBrush}" CornerRadius="1" Margin="0,0,0,2"/>
-                                        <TextBlock Text="{Binding Title}" FontSize="10" FontWeight="SemiBold" Foreground="#D8E5F2" TextTrimming="CharacterEllipsis"/>
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <TextBlock Text="{Binding BpmDisplay}" FontSize="9" Foreground="#8FA7C0"/>
-                                            <TextBlock Text="{Binding KeyDisplay}" FontSize="9" Foreground="{Binding KeyColorBrush}"/>
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Border>
-                                <Button Classes="strip-link" IsVisible="{Binding HasBridge}"
-                                        Command="{Binding SelectTransitionInspectorCommand}"
-                                        ToolTip.Tip="{Binding Bridge.Tooltip}">
-                                    <Panel>
-                                        <Border Background="#1D4E42" CornerRadius="4" IsVisible="{Binding IsActiveTransition}"/>
-                                        <StackPanel VerticalAlignment="Center" Spacing="2">
-                                            <TextBlock Text="⇄" FontSize="13" HorizontalAlignment="Center" Foreground="#9BD7CA"/>
-                                            <Border Height="2" Margin="3,0" CornerRadius="1" Background="{Binding Bridge.ScoreBrush}"/>
-                                        </StackPanel>
-                                    </Panel>
+            <!-- ── Header ── -->
+            <Border Grid.Row="0" Padding="16,12" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,0,0,1">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Spacing="4" VerticalAlignment="Center">
+                        <TextBlock Classes="h2" Text="{Binding ActivePairTitle}" TextTrimming="CharacterEllipsis"/>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <TextBlock Classes="caption" Text="{Binding ActiveTransitionPositionText}" VerticalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
+                                        ToolTip.Tip="{Binding ActiveBridge.Tooltip}">
+                                <ProgressBar Classes="meter" Width="64" VerticalAlignment="Center"
+                                             Classes.success="{Binding ActiveBridge.IsGoodScore}"
+                                             Classes.warning="{Binding ActiveBridge.IsFairScore}"
+                                             Classes.error="{Binding ActiveBridge.IsPoorScore}"
+                                             Minimum="0" Maximum="100" Value="{Binding ActiveBridge.ScorePercent}"/>
+                                <TextBlock Classes="mono" Text="{Binding ActiveBridge.ScoreDisplay}"/>
+                                <TextBlock Classes="caption" Text="{Binding ActiveBridge.QualityLabel}"/>
+                            </StackPanel>
+                            <TextBlock Classes="mono muted" Text="{Binding ActiveBridge.KeyRelationDisplay}" VerticalAlignment="Center"/>
+                            <TextBlock Classes="caption" Text="{Binding ActiveBridge.TransitionStyleLabel}" VerticalAlignment="Center"
+                                       ToolTip.Tip="{Binding ActiveBridge.TransitionStyleReason}"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Button Classes="icon" Command="{Binding PreviousTransitionCommand}" ToolTip.Tip="Previous transition">
+                            <PathIcon Data="{StaticResource icon_chevron_left}" Width="16" Height="16"/>
+                        </Button>
+                        <Button Classes="icon" Command="{Binding NextTransitionCommand}" ToolTip.Tip="Next transition">
+                            <PathIcon Data="{StaticResource icon_chevron_right}" Width="16" Height="16"/>
+                        </Button>
+                        <Button Classes="icon" ToolTip.Tip="More transition actions">
+                            <PathIcon Data="{StaticResource icon_more}" Width="16" Height="16"/>
+                            <Button.Flyout>
+                                <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                    <MenuItem Header="Find a bridge track between these two" Command="{Binding FindBridgeForActiveTransitionCommand}"/>
+                                    <MenuItem Header="Forget saved transition (use the Auto plan)" Command="{Binding MixTransitionVm.ForgetSavedTransitionCommand}"/>
+                                    <Separator/>
+                                    <MenuItem Header="Open outgoing track in Cue Forge" Command="{Binding MixTransitionVm.OpenOutgoingInCueForgeCommand}"/>
+                                    <MenuItem Header="Open incoming track in Cue Forge" Command="{Binding MixTransitionVm.OpenIncomingInCueForgeCommand}"/>
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                        <Button Classes="icon" Command="{Binding CloseTransitionEditorCommand}" ToolTip.Tip="Close (cue edits are kept)">
+                            <PathIcon Data="{StaticResource icon_close}" Width="16" Height="16"/>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- ── Toolbar: blend, length, cue editing ── -->
+            <Border Grid.Row="1" Classes="toolbar" Padding="16,0" DataContext="{Binding MixTransitionVm}" x:DataType="vm:MixTransitionViewModel">
+                <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <TextBlock Classes="caption" Text="Blend" VerticalAlignment="Center"/>
+                        <ComboBox Classes="small" Width="140" ItemsSource="{Binding PresetNames}" SelectedItem="{Binding SelectedPreset}"
+                                  ToolTip.Tip="{Binding SelectedPresetDescription}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="16,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Classes="caption" Text="Length" VerticalAlignment="Center"/>
+                        <Border Classes="segmented">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <RadioButton Classes="chip" GroupName="flow-bars" Content="4" IsChecked="{Binding IsBars4}" ToolTip.Tip="4 bars"/>
+                                <RadioButton Classes="chip" GroupName="flow-bars" Content="8" IsChecked="{Binding IsBars8}" ToolTip.Tip="8 bars"/>
+                                <RadioButton Classes="chip" GroupName="flow-bars" Content="16" IsChecked="{Binding IsBars16}" ToolTip.Tip="16 bars"/>
+                                <RadioButton Classes="chip" GroupName="flow-bars" Content="32" IsChecked="{Binding IsBars32}" ToolTip.Tip="32 bars"/>
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Classes="mono muted" Text="{Binding TransitionWindowDisplay}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock Grid.Column="2" Classes="caption" Text="{Binding SelectedPresetDescription}" Margin="16,0"
+                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="0,0,12,0">
+                        <Button Classes="icon small" Command="{Binding ZoomOutCommand}" ToolTip.Tip="Zoom out (both decks)">
+                            <PathIcon Data="{StaticResource ws_zoom_out_regular}" Width="14" Height="14"/>
+                        </Button>
+                        <TextBlock Classes="mono muted" Width="36" TextAlignment="Center" VerticalAlignment="Center"
+                                   Text="{Binding WaveformZoomLevel, StringFormat='{}{0:0.0}x'}"/>
+                        <Button Classes="icon small" Command="{Binding ZoomInCommand}" ToolTip.Tip="Zoom in (both decks)">
+                            <PathIcon Data="{StaticResource ws_zoom_in_regular}" Width="14" Height="14"/>
+                        </Button>
+                    </StackPanel>
+                    <ToggleButton Grid.Column="4" Classes="chip" IsChecked="{Binding IsCueEditMode}" VerticalAlignment="Center"
+                                  ToolTip.Tip="Edit cues here: drag a cue line to move it, click one to rename it or change its role, right-click to add one. Arrow keys nudge the selected cue; D sets a drop. Edits save when you move on.">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource icon_edit}" Width="12" Height="12"/>
+                            <TextBlock Text="Edit cues"/>
+                        </StackPanel>
+                    </ToggleButton>
+                </Grid>
+            </Border>
+
+            <!-- ── Missing cues: the one thing that blocks picking mix points on phrases ── -->
+            <Border Grid.Row="2" DataContext="{Binding MixTransitionVm}" x:DataType="vm:MixTransitionViewModel"
+                    Margin="16,12,16,0" Padding="12,8" CornerRadius="{StaticResource RadiusMd}"
+                    Background="{StaticResource BrushWarningSubtle}" BorderBrush="{StaticResource BrushWarningBorder}" BorderThickness="1"
+                    IsVisible="{Binding MissingCuesMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <PathIcon Data="{StaticResource icon_alert}" Width="16" Height="16" Foreground="{StaticResource BrushWarning}" Margin="0,0,8,0"/>
+                    <TextBlock Grid.Column="1" Classes="body-sm" Text="{Binding MissingCuesMessage}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0">
+                        <Button Classes="secondary small" Content="Generate cues for outgoing"
+                                Command="{Binding OutgoingEditor.GenerateCuesCommand}" CommandParameter="orbit"
+                                IsVisible="{Binding OutgoingHasNoCues}"/>
+                        <Button Classes="secondary small" Content="Generate cues for incoming"
+                                Command="{Binding IncomingEditor.GenerateCuesCommand}" CommandParameter="orbit"
+                                IsVisible="{Binding IncomingHasNoCues}"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- ── The two decks ── -->
+            <ScrollViewer Grid.Row="3" DataContext="{Binding MixTransitionVm}" x:DataType="vm:MixTransitionViewModel"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="16,12" Spacing="16">
+
+                    <!-- Outgoing (A) -->
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock Classes="section accent" Text="OUT" VerticalAlignment="Center"/>
+                                <TextBlock Classes="body" Text="{Binding OutgoingTrack.Title}" TextTrimming="CharacterEllipsis" MaxWidth="360" VerticalAlignment="Center"/>
+                                <TextBlock Classes="mono muted" Text="{Binding OutgoingBpm, StringFormat='{}{0:0.0} BPM'}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                <TextBlock Classes="caption" Text="Mix-out" VerticalAlignment="Center"/>
+                                <TextBlock Classes="mono" Text="{Binding SourceTriggerDisplay}" Width="40" TextAlignment="Right" VerticalAlignment="Center"/>
+                                <Button Classes="icon small" Command="{Binding NudgeBackCommand}" ToolTip.Tip="Mix-out one beat earlier">
+                                    <PathIcon Data="{StaticResource icon_chevron_left}" Width="14" Height="14"/>
+                                </Button>
+                                <Button Classes="icon small" Command="{Binding NudgeForwardCommand}" ToolTip.Tip="Mix-out one beat later">
+                                    <PathIcon Data="{StaticResource icon_chevron_right}" Width="14" Height="14"/>
                                 </Button>
                             </StackPanel>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                        </Grid>
+                        <Border Classes="inset" Height="120" Padding="0" ClipToBounds="True">
+                            <Panel>
+                                <controls:TimeRegionOverlay DurationSeconds="{Binding OutgoingDurationSeconds}"
+                                                            StartSeconds="{Binding EffectiveSourceTriggerSeconds}"
+                                                            EndSeconds="{Binding OutgoingRegionEndSeconds}"
+                                                            ZoomLevel="{Binding WaveformZoomLevel}"
+                                                            ViewOffset="{Binding OutgoingViewOffset}"
+                                                            Fill="{StaticResource BrushAccentSubtle}"
+                                                            EdgeBrush="{StaticResource BrushAccentBorder}"/>
+                                <controls:WaveformControl
+                                    WaveformData="{Binding WaveformDataA}"
+                                    Progress="{Binding ProgressA}"
+                                    EnergyCurve="{Binding OutgoingAutomationCurve}"
+                                    Cues="{Binding OutgoingCues}"
+                                    CueClickedCommand="{Binding OutgoingCueClickedCommand}"
+                                    CuesAreDraggable="{Binding IsCueEditMode}"
+                                    CueUpdatedCommand="{Binding OutgoingEditor.CueUpdatedCommand}"
+                                    SnapToGridEnabled="False"
+                                    ZoomLevel="{Binding WaveformZoomLevel}"
+                                    ViewOffset="{Binding OutgoingViewOffset, Mode=TwoWay}"
+                                    TriggerPointSeconds="{Binding EffectiveSourceTriggerSeconds}"
+                                    EnableScrollZoom="False"
+                                    PanOnBackgroundDrag="True"
+                                    PreviewSeekCommand="{Binding PreviewSeekOutgoingCommand}"
+                                    AddCueAtCommand="{Binding AddCueToOutgoingInCueForgeCommand}"
+                                    SetDropAtCommand="{Binding OutgoingEditor.SetDropAtCommand}"
+                                    Foreground="{StaticResource BrushAccent}"
+                                    Background="Transparent"
+                                    PlayheadBrush="{StaticResource BrushText1}"/>
+                            </Panel>
+                        </Border>
+                        <Panel IsVisible="{Binding IsCueEditMode}">
+                            <controls:TrackCueEditorStrip DataContext="{Binding OutgoingEditor}"/>
+                        </Panel>
+                        <ItemsControl ItemsSource="{Binding OutgoingCues}" IsVisible="{Binding !IsCueEditMode}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="models:OrbitCue">
+                                    <Button Classes="ghost small cue-pick"
+                                            Command="{Binding $parent[ItemsControl].((vm:MixTransitionViewModel)DataContext).SelectSourceCueCommand}"
+                                            CommandParameter="{Binding Timestamp}"
+                                            ToolTip.Tip="Mix out here">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Ellipse Width="6" Height="6" Fill="{Binding Color}"/>
+                                            <TextBlock Classes="body-sm" Text="{Binding Name}"/>
+                                            <TextBlock Classes="mono muted" Text="{Binding TimestampDisplay}"/>
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <!-- Incoming (B) -->
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock Classes="section" Foreground="{StaticResource BrushInfo}" Text="IN" VerticalAlignment="Center"/>
+                                <TextBlock Classes="body" Text="{Binding IncomingTrack.Title}" TextTrimming="CharacterEllipsis" MaxWidth="360" VerticalAlignment="Center"/>
+                                <TextBlock Classes="mono muted" Text="{Binding IncomingBpm, StringFormat='{}{0:0.0} BPM'}" VerticalAlignment="Center"/>
+                                <TextBlock Classes="mono" Text="{Binding TempoDeltaDisplay}" VerticalAlignment="Center"
+                                           Classes.warning="{Binding HasTempoWarning}"
+                                           ToolTip.Tip="Tempo of the incoming track relative to the outgoing one. Playback tempo-matches the decks; the preview plays both at their native tempo."/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                <TextBlock Classes="caption" Text="Mix-in" VerticalAlignment="Center"/>
+                                <TextBlock Classes="mono" Text="{Binding TargetTriggerDisplay}" Width="40" TextAlignment="Right" VerticalAlignment="Center"/>
+                                <Button Classes="icon small" Command="{Binding NudgeIncomingBackCommand}" ToolTip.Tip="Mix-in one beat earlier">
+                                    <PathIcon Data="{StaticResource icon_chevron_left}" Width="14" Height="14"/>
+                                </Button>
+                                <Button Classes="icon small" Command="{Binding NudgeIncomingForwardCommand}" ToolTip.Tip="Mix-in one beat later">
+                                    <PathIcon Data="{StaticResource icon_chevron_right}" Width="14" Height="14"/>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                        <Border Classes="inset" Height="120" Padding="0" ClipToBounds="True">
+                            <Panel>
+                                <controls:TimeRegionOverlay DurationSeconds="{Binding IncomingDurationSeconds}"
+                                                            StartSeconds="{Binding TargetTriggerSeconds}"
+                                                            EndSeconds="{Binding IncomingRegionEndSeconds}"
+                                                            ZoomLevel="{Binding WaveformZoomLevel}"
+                                                            ViewOffset="{Binding IncomingViewOffset}"
+                                                            Fill="{StaticResource BrushInfoSubtle}"
+                                                            EdgeBrush="{StaticResource BrushInfoBorder}"/>
+                                <controls:WaveformControl
+                                    WaveformData="{Binding WaveformDataB}"
+                                    Progress="{Binding ProgressB}"
+                                    EnergyCurve="{Binding IncomingAutomationCurve}"
+                                    Cues="{Binding IncomingCues}"
+                                    CueClickedCommand="{Binding IncomingCueClickedCommand}"
+                                    CuesAreDraggable="{Binding IsCueEditMode}"
+                                    CueUpdatedCommand="{Binding IncomingEditor.CueUpdatedCommand}"
+                                    SnapToGridEnabled="False"
+                                    ZoomLevel="{Binding WaveformZoomLevel}"
+                                    ViewOffset="{Binding IncomingViewOffset, Mode=TwoWay}"
+                                    TriggerPointSeconds="{Binding TargetTriggerSeconds}"
+                                    EnableScrollZoom="False"
+                                    PanOnBackgroundDrag="True"
+                                    PreviewSeekCommand="{Binding PreviewSeekIncomingCommand}"
+                                    AddCueAtCommand="{Binding AddCueToIncomingInCueForgeCommand}"
+                                    SetDropAtCommand="{Binding IncomingEditor.SetDropAtCommand}"
+                                    Foreground="{StaticResource BrushInfo}"
+                                    Background="Transparent"
+                                    PlayheadBrush="{StaticResource BrushText1}"/>
+                            </Panel>
+                        </Border>
+                        <Panel IsVisible="{Binding IsCueEditMode}">
+                            <controls:TrackCueEditorStrip DataContext="{Binding IncomingEditor}"/>
+                        </Panel>
+                        <ItemsControl ItemsSource="{Binding IncomingCues}" IsVisible="{Binding !IsCueEditMode}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="models:OrbitCue">
+                                    <Button Classes="ghost small cue-pick"
+                                            Command="{Binding $parent[ItemsControl].((vm:MixTransitionViewModel)DataContext).SelectTargetCueCommand}"
+                                            CommandParameter="{Binding Timestamp}"
+                                            ToolTip.Tip="Mix in here">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Ellipse Width="6" Height="6" Fill="{Binding Color}"/>
+                                            <TextBlock Classes="body-sm" Text="{Binding Name}"/>
+                                            <TextBlock Classes="mono muted" Text="{Binding TimestampDisplay}"/>
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <!-- Why these points -->
+                    <TextBlock Classes="caption" Text="{Binding TransitionPointReasoning}" TextWrapping="Wrap"
+                               IsVisible="{Binding TransitionPointReasoning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                    <!-- Custom blend settings (only for the Custom preset) -->
+                    <Expander Header="Custom blend settings" IsVisible="{Binding IsCustomMode}" IsExpanded="True" HorizontalAlignment="Stretch">
+                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,8,0,0">
+                            <Grid.Styles>
+                                <Style Selector="NumericUpDown">
+                                    <Setter Property="Width" Value="140"/>
+                                    <Setter Property="Margin" Value="0,0,0,8"/>
+                                </Style>
+                                <Style Selector="TextBlock.body">
+                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                    <Setter Property="Margin" Value="0,0,0,8"/>
+                                </Style>
+                            </Grid.Styles>
+                            <TextBlock Grid.Row="0" Classes="body" Text="Echo decay"/>
+                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding CustomEchoDecayFactor}" Minimum="0" Maximum="0.99" Increment="0.05" FormatString="0.00"/>
+                            <TextBlock Grid.Row="1" Classes="body" Text="Filter start (Hz)"/>
+                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding CustomFilterStartFrequency}" Minimum="20" Maximum="20000" Increment="100" FormatString="0"/>
+                            <TextBlock Grid.Row="2" Classes="body" Text="Filter end (Hz)"/>
+                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding CustomFilterEndFrequency}" Minimum="20" Maximum="20000" Increment="100" FormatString="0"/>
+                            <TextBlock Grid.Row="3" Classes="body" Text="Filter sweeps up into the incoming track"/>
+                            <CheckBox Grid.Row="3" Grid.Column="1" IsChecked="{Binding CustomFilterSweepRising}" IsThreeState="False"/>
+                            <TextBlock Grid.Row="4" Classes="body" Text="Downbeat duck depth"/>
+                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding CustomWaveDuckDepth}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.00"/>
+                            <TextBlock Grid.Row="5" Classes="body" Text="EQ swap bands (low / mid / high)"/>
+                            <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+                                <CheckBox IsChecked="{Binding CustomEqSwapLow}" IsThreeState="False" Content="L" ToolTip.Tip="Swap lows"/>
+                                <CheckBox IsChecked="{Binding CustomEqSwapMid}" IsThreeState="False" Content="M" ToolTip.Tip="Swap mids"/>
+                                <CheckBox IsChecked="{Binding CustomEqSwapHigh}" IsThreeState="False" Content="H" ToolTip.Tip="Swap highs"/>
+                            </StackPanel>
+                            <TextBlock Grid.Row="6" Classes="body" Text="Low / mid crossover (Hz)"/>
+                            <NumericUpDown Grid.Row="6" Grid.Column="1" Value="{Binding CustomEqLowCrossoverHz}" Minimum="60" Maximum="1000" Increment="10" FormatString="0"/>
+                            <TextBlock Grid.Row="7" Classes="body" Text="Mid / high crossover (Hz)"/>
+                            <NumericUpDown Grid.Row="7" Grid.Column="1" Value="{Binding CustomEqHighCrossoverHz}" Minimum="1000" Maximum="16000" Increment="100" FormatString="0"/>
+                            <TextBlock Grid.Row="8" Classes="body" Text="Double drop (loop the outgoing tail first)"/>
+                            <CheckBox Grid.Row="8" Grid.Column="1" IsChecked="{Binding CustomLoopEnabled}" IsThreeState="False"/>
+                            <TextBlock Grid.Row="9" Classes="body" Text="Loop length (bars)" IsVisible="{Binding CustomLoopEnabled}"/>
+                            <NumericUpDown Grid.Row="9" Grid.Column="1" Value="{Binding CustomLoopBars}" Minimum="8" Maximum="16" Increment="8" FormatString="0" IsVisible="{Binding CustomLoopEnabled}"/>
+                            <TextBlock Grid.Row="10" Classes="body" Text="Loop repeats" IsVisible="{Binding CustomLoopEnabled}"/>
+                            <NumericUpDown Grid.Row="10" Grid.Column="1" Value="{Binding CustomLoopRepeats}" Minimum="1" Maximum="2" Increment="1" FormatString="0" IsVisible="{Binding CustomLoopEnabled}"/>
+                        </Grid>
+                    </Expander>
+
+                    <!-- Tempo correction: a wrong BPM breaks bar lengths and the Auto plan -->
+                    <Expander Header="Tempo correction" HorizontalAlignment="Stretch">
+                        <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto" Margin="0,8,0,0">
+                            <TextBlock Classes="body" VerticalAlignment="Center" Text="{Binding OutgoingTrack.Title, StringFormat='Outgoing · {0}'}" TextTrimming="CharacterEllipsis"/>
+                            <NumericUpDown Grid.Column="1" Width="140" Value="{Binding OutgoingBpm}" Minimum="40" Maximum="250" Increment="0.1" FormatString="0.0" Margin="8,0,8,8"/>
+                            <Button Grid.Column="2" Classes="secondary small" Content="Save BPM" Command="{Binding SaveOutgoingBpmCommand}" Margin="0,0,0,8"/>
+                            <TextBlock Grid.Row="1" Classes="body" VerticalAlignment="Center" Text="{Binding IncomingTrack.Title, StringFormat='Incoming · {0}'}" TextTrimming="CharacterEllipsis"/>
+                            <NumericUpDown Grid.Row="1" Grid.Column="1" Width="140" Value="{Binding IncomingBpm}" Minimum="40" Maximum="250" Increment="0.1" FormatString="0.0" Margin="8,0,8,0"/>
+                            <Button Grid.Row="1" Grid.Column="2" Classes="secondary small" Content="Save BPM" Command="{Binding SaveIncomingBpmCommand}"/>
+                        </Grid>
+                    </Expander>
+                </StackPanel>
             </ScrollViewer>
 
-            <!-- MixTransitionPanel scrolls itself internally. -->
-            <Border Grid.Row="2" Margin="16,0,16,16">
-                <views:MixTransitionPanel DataContext="{Binding MixTransitionVm}"/>
+            <!-- ── Footer: preview transport + save ── -->
+            <Border Grid.Row="4" DataContext="{Binding MixTransitionVm}" x:DataType="vm:MixTransitionViewModel"
+                    Padding="16,12" BorderBrush="{StaticResource BrushBorder0}" BorderThickness="0,1,0,0">
+                <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" RowDefinitions="Auto,Auto">
+                    <Button Grid.Column="0" Classes="secondary" Command="{Binding TogglePreviewCommand}"
+                            ToolTip.Tip="Play from the lead-in before the mix-out, through the blend, into the incoming track">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Panel>
+                                <PathIcon Data="{StaticResource icon_play}" Width="14" Height="14" IsVisible="{Binding !IsPlaying}"/>
+                                <PathIcon Data="{StaticResource icon_stop}" Width="14" Height="14" IsVisible="{Binding IsPlaying}"/>
+                            </Panel>
+                            <TextBlock Text="Preview transition" IsVisible="{Binding !IsPlaying}"/>
+                            <TextBlock Text="Stop" IsVisible="{Binding IsPlaying}"/>
+                        </StackPanel>
+                    </Button>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="12,0" VerticalAlignment="Center">
+                        <TextBlock Classes="caption" Text="Lead-in" VerticalAlignment="Center"/>
+                        <ComboBox Classes="small" Width="96" ItemsSource="{Binding LeadInBarOptions}" SelectedItem="{Binding PreviewLeadInBars}"
+                                  ToolTip.Tip="Bars of the outgoing track before the mix-out (and of the incoming track after the blend)">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="sys:Int32">
+                                    <TextBlock Text="{Binding StringFormat='{}{0} bars'}"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
+                    <Grid Grid.Column="2" ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                        <Slider Minimum="0" Maximum="{Binding PreviewLengthSeconds}" Value="{Binding PreviewPositionSeconds}"
+                                IsEnabled="{Binding IsPlaying}" VerticalAlignment="Center" ToolTip.Tip="Scrub the preview"/>
+                        <TextBlock Grid.Column="1" Classes="mono muted" Text="{Binding PreviewTimeDisplay}" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                    </Grid>
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" Margin="16,0" VerticalAlignment="Center">
+                        <Ellipse Classes="status-dot" Classes.success="{Binding IsSavedAndClean}" Classes.warning="{Binding IsDirty}"/>
+                        <TextBlock Classes="caption" Text="{Binding SaveStateText}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Button Grid.Column="4" Classes="primary" Content="Save transition" Command="{Binding SaveCommand}"
+                            ToolTip.Tip="Save mix-out, mix-in, length and blend for this pair. Auto-mix playback uses it."/>
+
+                    <TextBlock Grid.Row="1" Grid.ColumnSpan="5" Classes="caption warning" Margin="0,8,0,0" TextWrapping="Wrap"
+                               Text="{Binding SaveBlockedReason}" IsVisible="{Binding IsSaveBlocked}"/>
+                    <TextBlock Grid.Row="1" Grid.ColumnSpan="5" Classes="caption" Margin="0,8,0,0" TextTrimming="CharacterEllipsis"
+                               Text="{Binding StatusMessage}" IsVisible="{Binding !IsSaveBlocked}"/>
+                </Grid>
             </Border>
         </Grid>
     </Border>

@@ -3,96 +3,111 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
-             mc:Ignorable="d" d:DesignWidth="300" d:DesignHeight="600"
+             mc:Ignorable="d" d:DesignWidth="320" d:DesignHeight="600"
              x:Class="SLSKDONET.Views.Avalonia.Controls.SearchInspector"
+             x:CompileBindings="True"
              x:DataType="vm:AnalyzedSearchResultViewModel">
-    <Border Background="#1A1B1C">
-    <ScrollViewer Padding="20">
-        <StackPanel Spacing="20">
-            <!-- Header Section -->
-            <StackPanel Spacing="8">
-                <TextBlock Text="SEARCH RESULT" FontSize="10" FontWeight="Bold" Foreground="#888" LetterSpacing="1"/>
-                <TextBlock Text="{Binding ArtistName}" FontSize="18" FontWeight="Light" Foreground="#AAA" TextWrapping="Wrap"/>
-                <TextBlock Text="{Binding TrackTitle}" FontSize="24" FontWeight="Bold" Foreground="White" TextWrapping="Wrap"/>
+
+    <!-- Detail panel for one selected Search result (shown in the context panel). -->
+    <UserControl.Styles>
+        <Style Selector="Grid.facts > TextBlock.caption">
+            <Setter Property="Margin" Value="0,0,16,8"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Grid.facts > TextBlock.mono, Grid.facts > TextBlock.body">
+            <Setter Property="Margin" Value="0,0,0,8"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+    </UserControl.Styles>
+
+    <ScrollViewer>
+        <StackPanel Spacing="16" Margin="16">
+
+            <!-- Title -->
+            <StackPanel Spacing="4">
+                <TextBlock Classes="section" Text="SEARCH RESULT"/>
+                <TextBlock Classes="h2" Text="{Binding TrackTitle}" TextWrapping="Wrap"/>
+                <TextBlock Classes="body-sm" Foreground="{StaticResource BrushText1}" Text="{Binding ArtistName}" TextWrapping="Wrap"/>
             </StackPanel>
 
-            <Separator Background="#333"/>
+            <!-- Download state -->
+            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasDownloadStatus}">
+                <Ellipse Classes="status-dot" Classes.accent="{Binding IsQueued}" Classes.success="{Binding IsDownloaded}"
+                         Classes.error="{Binding IsDownloadFailed}" VerticalAlignment="Center"/>
+                <TextBlock Classes="body-sm" Text="{Binding DownloadStatusText}"/>
+            </StackPanel>
 
-            <!-- Soulseek Info Card -->
-            <Border Background="#252526" CornerRadius="12" Padding="16" BorderBrush="#3E3E3E" BorderThickness="1">
-                <StackPanel Spacing="12">
-                    <TextBlock Text="PEER INTELLIGENCE" FontSize="11" FontWeight="Bold" Foreground="#AAA"/>
-                    
-                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" Margin="0,4,0,0">
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="User" Foreground="#888" Margin="0,0,16,8"/>
-                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding User}" FontWeight="SemiBold" Foreground="#007ACC"/>
-                        
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Speed" Foreground="#888" Margin="0,0,16,8"/>
-                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding UploadSpeedDisplay}" FontWeight="SemiBold"/>
-                        
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Queue" Foreground="#888" Margin="0,0,16,0"/>
-                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding QueueLength}" FontWeight="SemiBold"/>
+            <!-- Match -->
+            <Border Classes="card">
+                <StackPanel Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="section" Text="MATCH" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Classes="mono" Text="{Binding MatchScoreText, StringFormat='{}{0}%'}"/>
                     </Grid>
+                    <ProgressBar Classes="meter thick" Minimum="0" Maximum="100" Value="{Binding MatchConfidence}"/>
+                    <TextBlock Classes="caption" Text="{Binding MatchReason}" TextWrapping="Wrap" IsVisible="{Binding HasMatchReason}"/>
                 </StackPanel>
             </Border>
 
-            <!-- Technical Specs -->
-            <StackPanel Spacing="12">
-                <TextBlock Text="TECHNICAL SPECIFICATIONS" FontSize="11" FontWeight="Bold" Foreground="#AAA"/>
-                
-                <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" Margin="0,4,0,0">
-                    <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,16">
-                        <TextBlock Text="Format" Foreground="#888" FontSize="11"/>
-                        <TextBlock Text="{Binding RawResult.FileFormat}" FontSize="14" FontWeight="SemiBold"/>
-                    </StackPanel>
-                    
-                    <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,0,16">
-                        <TextBlock Text="Bitrate" Foreground="#888" FontSize="11"/>
-                        <TextBlock Text="{Binding BitRate, StringFormat='{}{0} kbps'}" FontSize="14" FontWeight="SemiBold"/>
-                    </StackPanel>
-                    
-                    <StackPanel Grid.Row="1" Grid.Column="0">
-                        <TextBlock Text="Sample Rate" Foreground="#888" FontSize="11"/>
-                        <TextBlock Text="{Binding SampleRateDisplay}" FontSize="14" FontWeight="SemiBold"/>
-                    </StackPanel>
-                    
-                    <StackPanel Grid.Row="1" Grid.Column="1">
-                        <TextBlock Text="Size" Foreground="#888" FontSize="11"/>
-                        <TextBlock Text="{Binding DisplaySize}" FontSize="14" FontWeight="SemiBold"/>
-                    </StackPanel>
+            <!-- File -->
+            <StackPanel Spacing="8">
+                <TextBlock Classes="section" Text="FILE"/>
+                <Grid Classes="facts" ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+                    <TextBlock Grid.Row="0" Classes="caption" Text="Format"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" Classes="mono" Text="{Binding FormatLabel}"/>
+                    <TextBlock Grid.Row="1" Classes="caption" Text="Bitrate"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Classes="mono" Text="{Binding BitrateDisplay, StringFormat='{}{0} kbps'}"/>
+                    <TextBlock Grid.Row="2" Classes="caption" Text="Resolution"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Classes="mono" Text="{Binding AudioQualityDisplay, TargetNullValue='—'}"/>
+                    <TextBlock Grid.Row="3" Classes="caption" Text="Length"/>
+                    <TextBlock Grid.Row="3" Grid.Column="1" Classes="mono" Text="{Binding DisplayLength}"/>
+                    <TextBlock Grid.Row="4" Classes="caption" Text="Size"/>
+                    <TextBlock Grid.Row="4" Grid.Column="1" Classes="mono" Text="{Binding DisplaySize}"/>
                 </Grid>
-            </StackPanel>
-
-            <!-- Forensic Analysis -->
-            <StackPanel Spacing="12">
-                <TextBlock Text="FORENSIC ASSESSMENT" FontSize="11" FontWeight="Bold" Foreground="#AAA"/>
-                
-                <Border Background="#1E1E1E" CornerRadius="8" Padding="12" BorderBrush="{Binding TrustColor}" BorderThickness="1">
-                    <StackPanel Spacing="8">
-                        <Grid ColumnDefinitions="*,Auto">
-                            <TextBlock Text="Trust Score" FontWeight="SemiBold"/>
-                            <TextBlock Grid.Column="1" Text="{Binding TrustScore, StringFormat='{}{0}%'}" Foreground="{Binding TrustColor}" FontWeight="Bold"/>
-                        </Grid>
-                        
-                        <ProgressBar Value="{Binding TrustScore}" Maximum="100" Height="4" Background="#333" Foreground="{Binding TrustColor}"/>
-                        
-                        <TextBlock Text="{Binding ForensicAssessment}" TextWrapping="Wrap" FontSize="12" Foreground="#CCC" Margin="0,4,0,0"/>
-                    </StackPanel>
+                <Border Classes="inset" Padding="8">
+                    <SelectableTextBlock Classes="mono" FontSize="{StaticResource TextSizeCaption}"
+                                         Foreground="{StaticResource BrushText1}"
+                                         Text="{Binding FullPath}" TextWrapping="Wrap"/>
                 </Border>
             </StackPanel>
 
-            <!-- Warnings -->
-            <Border Background="#4A2A2A" CornerRadius="8" Padding="12" IsVisible="{Binding IsHighRisk}" BorderBrush="#E91E63" BorderThickness="1">
-                <StackPanel Orientation="Horizontal" Spacing="10">
-                    <TextBlock Text="⚠️" FontSize="18" VerticalAlignment="Center"/>
-                    <StackPanel>
-                        <TextBlock Text="HIGH RISK DETECTED" FontWeight="Bold" Foreground="#E91E63" FontSize="12"/>
-                        <TextBlock Text="{Binding FlagReason}" FontSize="11" Foreground="#FFCDD2" TextWrapping="Wrap"/>
+            <!-- Peer -->
+            <StackPanel Spacing="8">
+                <TextBlock Classes="section" Text="PEER"/>
+                <Grid Classes="facts" ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto">
+                    <TextBlock Grid.Row="0" Classes="caption" Text="User"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" Classes="body" Text="{Binding User}"/>
+                    <TextBlock Grid.Row="1" Classes="caption" Text="Slot"/>
+                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+                        <Ellipse Classes="status-dot" Classes.success="{Binding SlotFree}" Classes.warning="{Binding !SlotFree}" VerticalAlignment="Center"/>
+                        <TextBlock Classes="body-sm" Text="{Binding PeerAvailabilityText}"/>
                     </StackPanel>
+                    <TextBlock Grid.Row="2" Classes="caption" Text="Speed"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Classes="mono" Text="{Binding UploadSpeedDisplay}"/>
+                    <TextBlock Grid.Row="3" Classes="caption" Text="Queue"/>
+                    <TextBlock Grid.Row="3" Grid.Column="1" Classes="mono" Text="{Binding QueueLength}"/>
+                </Grid>
+            </StackPanel>
+
+            <!-- Safety / filters -->
+            <Border Classes="card" BorderBrush="{StaticResource BrushErrorBorder}" Background="{StaticResource BrushErrorSubtle}"
+                    IsVisible="{Binding IsHighRisk}">
+                <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="{StaticResource icon_alert}" Width="14" Height="14" Foreground="{StaticResource BrushError}"/>
+                        <TextBlock Classes="body-sm error" FontWeight="SemiBold" Text="Flagged as a possible fake or upscale"/>
+                    </StackPanel>
+                    <TextBlock Classes="caption" Text="{Binding FlagReason}" TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
-
+            <Border Classes="card" BorderBrush="{StaticResource BrushWarningBorder}" Background="{StaticResource BrushWarningSubtle}"
+                    IsVisible="{Binding IsFilteredOut}">
+                <StackPanel Spacing="4">
+                    <TextBlock Classes="body-sm warning" FontWeight="SemiBold" Text="Hidden by the current filters"/>
+                    <TextBlock Classes="caption" Text="{Binding FilteredOutReason}" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
         </StackPanel>
     </ScrollViewer>
-    </Border>
 </UserControl>

@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Reactive;
 using System.Reactive.Disposables;
@@ -8,48 +11,52 @@ using System.Reactive.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using ReactiveUI;
 using SLSKDONET.Configuration;
 using SLSKDONET.Data.Entities;
 using SLSKDONET.Engine.Analysis;
-using SLSKDONET.Engine.Cueing;
-using SLSKDONET.Engine.Snapping;
 using SLSKDONET.Models;
 using SLSKDONET.Services;
 
 namespace SLSKDONET.ViewModels;
 
 /// <summary>
-/// Cue &amp; Loop Forge — dedicated visual workspace for professional DJ cue generation and loop placement.
+/// Cue Forge — the dedicated workspace for placing, editing and auditioning a track's cues and loops.
 ///
 /// Architecture:
-///   • Working draft isolation: all edits stay in-memory until Commit
-///   • Auto-loads when PlayerViewModel.CurrentTrack changes (subscribes reactively)
-///   • AutoGenerate: fast-path from cached AudioFeaturesEntity → AnalysisPipelineResult
-///     → Engine.Cueing.CueGenerationService (no audio re-decode required)
-///   • Real RGB waveform: WaveformBlob Low/Mid/High bytes fed to CueForgeWaveformControl
-///   • Phrase map: PhraseSegmentsJson decoded and surfaced for waveform overlay
+///   • Working draft isolation: edits stay in <see cref="WorkingCues"/> until Save (Ctrl+S); switching
+///     tracks auto-saves a dirty draft first so work is never silently lost.
+///   • Persistence goes through <see cref="ICuePointService"/> (the CuePoints table) — the same rows
+///     the Rekordbox export, workstation and Flow Builder read.
+///   • Audio: Cue Forge only borrows the shared player when you actually audition (play, pad, nudge
+///     replay). Opening or browsing tracks never interrupts what's playing, and leaving the page
+///     hands the player back to the track it had before (see <see cref="OnViewDeactivated"/>).
+///   • Grid: snapping, bar numbers and the drawn beat grid all use the precise BPM anchored at the
+///     downbeat (<see cref="CueForgeGrid"/>).
 /// </summary>
 public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 {
     private readonly ICuePointService _cueService;
-    private readonly ILibraryService _libraryService;
-    private readonly Engine.Cueing.CueGenerationService _engineCueService;
-    private readonly PlayerViewModel _playerViewModel;
-    private readonly CamelotKeyDisplayService _camelotKeyService;
-    private readonly ILogger<CueForgeViewModel> _logger;
+    private readonly ILibraryService? _libraryService;
+    private readonly Engine.Cueing.CueGenerationService? _engineCueService;
+    private readonly ICueForgeTransport _transport;
+    private readonly CamelotKeyDisplayService? _camelotKeyService;
+    private readonly ILogger _logger;
     private readonly AppConfig _config;
-    private readonly ConfigManager _configManager;
-    private readonly DatabaseService _databaseService;
-    private readonly IDialogService _dialogService;
-    private readonly IEventBus _eventBus;
+    private readonly ConfigManager? _configManager;
+    private readonly IDialogService? _dialogService;
+    private readonly IEventBus? _eventBus;
+    private readonly Func<Action, Task> _ui;
     private readonly CompositeDisposable _disposables = new();
 
-    private const double SnapThreshold = 0.05;
     private const int MaxUndoHistory = 50;
+    private const string LoopColor = "#E0641B";   // Rekordbox loop orange (cue data, not UI chrome)
+    private const string DefaultCueColor = "#28E214"; // Rekordbox default hot cue green
 
-    private readonly Stack<OrbitCue[]> _undoStack = new();
+    private readonly List<OrbitCue[]> _undoStack = new();
     private readonly Stack<OrbitCue[]> _redoStack = new();
+    private readonly HashSet<OrbitCue> _trackedCues = new();
 
     // ── Observable Collections ─────────────────────────────────────────────
 
@@ -67,24 +74,38 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             this.RaiseAndSetIfChanged(ref _trackHash, value);
             this.RaisePropertyChanged(nameof(HasTrackLoaded));
             this.RaisePropertyChanged(nameof(IsWaveformLoading));
+            this.RaisePropertyChanged(nameof(HasNoTrack));
         }
     }
 
-    /// <summary>Gates the BPM/duration/energy header readouts so they don't show stale defaults
-    /// (120 BPM, 300s, energy 0) as if they were real metadata before any track has loaded.</summary>
+    /// <summary>Gates the BPM/duration/energy header readouts so they don't show stale defaults.</summary>
     public bool HasTrackLoaded => TrackHash != null;
+    public bool HasNoTrack => TrackHash == null;
 
-    /// <summary>True for the gap between a track being selected and its waveform bytes actually
-    /// arriving — previously nothing distinguished this from "no track loaded," so the waveform
-    /// strip just sat blank with no feedback.</summary>
-    public bool IsWaveformLoading => HasTrackLoaded && WaveformLow == null;
+    /// <summary>True between a track being selected and its waveform bytes arriving.</summary>
+    public bool IsWaveformLoading => HasTrackLoaded && WaveformLow == null && !_waveformMissing;
+
+    private bool _waveformMissing;
+    /// <summary>The track loaded but has no waveform data (not analysed yet).</summary>
+    public bool IsWaveformMissing
+    {
+        get => _waveformMissing;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _waveformMissing, value);
+            this.RaisePropertyChanged(nameof(IsWaveformLoading));
+        }
+    }
 
     private string _trackTitle = "No track loaded";
-    public string TrackTitle
-    {
-        get => _trackTitle;
-        private set => this.RaiseAndSetIfChanged(ref _trackTitle, value);
-    }
+    /// <summary>"Artist — Title" (kept for callers that show one line).</summary>
+    public string TrackTitle { get => _trackTitle; private set => this.RaiseAndSetIfChanged(ref _trackTitle, value); }
+
+    private string _trackName = "";
+    public string TrackName { get => _trackName; private set => this.RaiseAndSetIfChanged(ref _trackName, value); }
+
+    private string _trackArtist = "";
+    public string TrackArtist { get => _trackArtist; private set => this.RaiseAndSetIfChanged(ref _trackArtist, value); }
 
     private double _trackDuration = 300.0;
     public double TrackDuration
@@ -97,17 +118,26 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         }
     }
 
-    // The track's own known duration, independent of PlayerViewModel — Cue Forge
-    // learns this from cached AudioFeaturesEntity as soon as a track loads, well
-    // before (or even without) playback ever starting, unlike Player.TotalTimeStr.
-    public string TrackDurationDisplay => TimeSpan.FromSeconds(TrackDuration).ToString(@"m\:ss");
+    private bool _durationKnown;
+
+    public string TrackDurationDisplay => CueForgeGrid.FormatTime(TrackDuration);
 
     private int _bpm = 120;
-    public int Bpm
-    {
-        get => _bpm;
-        private set => this.RaiseAndSetIfChanged(ref _bpm, value);
-    }
+    /// <summary>Rounded BPM (header + legacy bindings). The grid uses <see cref="GridBpm"/>.</summary>
+    public int Bpm { get => _bpm; private set => this.RaiseAndSetIfChanged(ref _bpm, value); }
+
+    private double _preciseBpm;
+    /// <summary>Precise tempo the beat grid, snapping and bar numbers use.</summary>
+    public double GridBpm => _preciseBpm > 0 ? _preciseBpm : Bpm;
+
+    private double _downbeat;
+    /// <summary>Downbeat offset (seconds) the grid is anchored at.</summary>
+    public double GridOffset => _downbeat;
+
+    public string BpmDisplay => !HasTrackLoaded || GridBpm <= 0 ? "—"
+        : Math.Abs(GridBpm - Math.Round(GridBpm)) < 0.05
+            ? Math.Round(GridBpm).ToString(CultureInfo.InvariantCulture)
+            : GridBpm.ToString("F1", CultureInfo.InvariantCulture);
 
     // ── Playback State ─────────────────────────────────────────────────────
 
@@ -119,14 +149,15 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         {
             this.RaiseAndSetIfChanged(ref _currentPlayPosition, value);
             this.RaisePropertyChanged(nameof(CurrentPlayPositionDisplay));
+            this.RaisePropertyChanged(nameof(CurrentBarBeatDisplay));
         }
     }
 
-    // Formatted with an explicit invariant culture rather than XAML StringFormat: on
-    // locales that use a comma decimal separator, StringFormat rendered "0,00s" instead
-    // of "0.00s", inconsistent with every other numeric readout in this page.
-    public string CurrentPlayPositionDisplay =>
-        $"⏱ {CurrentPlayPosition.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}s";
+    public string CurrentPlayPositionDisplay => CueForgeGrid.FormatTime(CurrentPlayPosition);
+    public string CurrentBarBeatDisplay => CueForgeGrid.FormatBarBeat(CurrentPlayPosition, GridBpm, GridOffset);
+
+    /// <summary>True while the shared player is playing THIS track.</summary>
+    public bool IsPlaying => IsAttachedToPlayer && _transport.IsPlaying;
 
     // ── Waveform Data ──────────────────────────────────────────────────────
 
@@ -142,12 +173,9 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         }
     }
 
-    // Caps zoom to roughly what the loaded track's actual sample resolution can usefully show —
-    // a flat 32x cap let you zoom in well past the point of real detail, especially on shorter
-    // tracks near the waveform blob's sample-count floor, showing a handful of interpolated
-    // points stretched across the whole screen rather than a genuinely detailed waveform.
+    /// <summary>Caps zoom to what the waveform's sample resolution can usefully show.</summary>
     public double MaxZoomLevel => WaveformLow is { Length: > 0 } arr
-        ? Math.Clamp(arr.Length / 40.0, 4.0, 24.0)
+        ? Math.Clamp(arr.Length / 40.0, 4.0, 32.0)
         : 16.0;
 
     private byte[]? _waveformMid;
@@ -165,9 +193,14 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private float[]? _onsetDensityCurveData;
     public float[]? OnsetDensityCurveData { get => _onsetDensityCurveData; set => this.RaiseAndSetIfChanged(ref _onsetDensityCurveData, value); }
 
+    /// <summary>Bumped on every in-place cue edit (rename, recolour, move) so the waveform redraws
+    /// without the collection itself changing.</summary>
+    private int _cueRevision;
+    public int CueRevision { get => _cueRevision; private set => this.RaiseAndSetIfChanged(ref _cueRevision, value); }
+
     // ── Harmonic / Vocal Context ───────────────────────────────────────────
 
-    private string _currentCamelotKey = "?";
+    private string _currentCamelotKey = "—";
     public string CurrentCamelotKey { get => _currentCamelotKey; private set => this.RaiseAndSetIfChanged(ref _currentCamelotKey, value); }
 
     private string _compatibleCamelotKeys = "";
@@ -176,19 +209,145 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private bool _isInVocalRegion;
     public bool IsInVocalRegion { get => _isInVocalRegion; private set => this.RaiseAndSetIfChanged(ref _isInVocalRegion, value); }
 
-    // ── Edit State ─────────────────────────────────────────────────────────
+    // ── Snap ───────────────────────────────────────────────────────────────
 
     private bool _snapToGrid = true;
     public bool SnapToGrid { get => _snapToGrid; set => this.RaiseAndSetIfChanged(ref _snapToGrid, value); }
 
-    private string _quantizeBeats = "16 beats";
-    public string QuantizeBeats { get => _quantizeBeats; set => this.RaiseAndSetIfChanged(ref _quantizeBeats, value); }
+    public static IReadOnlyList<string> SnapResolutions => CueForgeGrid.SnapResolutions;
+
+    private string _snapResolution = "Beat";
+    public string SnapResolution
+    {
+        get => _snapResolution;
+        set
+        {
+            if (!CueForgeGrid.SnapResolutions.Contains(value)) value = "Beat";
+            this.RaiseAndSetIfChanged(ref _snapResolution, value);
+            this.RaisePropertyChanged(nameof(SnapBeats));
+        }
+    }
+
+    public int SnapBeats => CueForgeGrid.ResolutionBeats(SnapResolution);
+
+    /// <summary>Applies the current snap setting (grid anchored at the downbeat, precise BPM).</summary>
+    public double SnapTime(double seconds)
+    {
+        seconds = Math.Clamp(seconds, 0, TrackDuration);
+        if (!SnapToGrid) return seconds;
+        return Math.Clamp(CueForgeGrid.Snap(seconds, GridBpm, GridOffset, SnapBeats), 0, TrackDuration);
+    }
+
+    // ── Selection & inline editing ─────────────────────────────────────────
 
     private OrbitCue? _selectedCue;
-    public OrbitCue? SelectedCue { get => _selectedCue; set => this.RaiseAndSetIfChanged(ref _selectedCue, value); }
+    public OrbitCue? SelectedCue
+    {
+        get => _selectedCue;
+        set
+        {
+            if (ReferenceEquals(_selectedCue, value)) return;
+            if (_selectedCue != null) _selectedCue.PropertyChanged -= OnSelectedCuePropertyChanged;
+            this.RaiseAndSetIfChanged(ref _selectedCue, value);
+            if (_selectedCue != null) _selectedCue.PropertyChanged += OnSelectedCuePropertyChanged;
+            _editingCueName = value?.Name ?? "";
+            this.RaisePropertyChanged(nameof(EditingCueName));
+            RaiseSelectionDerived();
+            foreach (var pad in HotCuePads) pad.IsSelected = pad.Cue != null && ReferenceEquals(pad.Cue, value);
+        }
+    }
+
+    private void OnSelectedCuePropertyChanged(object? sender, PropertyChangedEventArgs e) => RaiseSelectionDerived();
+
+    private void RaiseSelectionDerived()
+    {
+        this.RaisePropertyChanged(nameof(HasSelectedCue));
+        this.RaisePropertyChanged(nameof(IsSelectedCueLoop));
+        this.RaisePropertyChanged(nameof(IsSelectedCuePoint));
+        this.RaisePropertyChanged(nameof(SelectedCueRole));
+        this.RaisePropertyChanged(nameof(SelectedCueSlot));
+        this.RaisePropertyChanged(nameof(SelectedCuePositionDisplay));
+        this.RaisePropertyChanged(nameof(SelectedCueDetail));
+        this.RaisePropertyChanged(nameof(SelectedCueConfidence));
+        this.RaisePropertyChanged(nameof(IsSelectedCueAuto));
+        this.RaisePropertyChanged(nameof(ActiveLoop));
+        this.RaisePropertyChanged(nameof(HasActiveLoop));
+        this.RaisePropertyChanged(nameof(ActiveLoopDisplay));
+    }
+
+    public bool HasSelectedCue => SelectedCue != null;
+    public bool IsSelectedCueLoop => SelectedCue?.IsLoop == true;
+    public bool IsSelectedCuePoint => SelectedCue is { IsLoop: false };
+    public bool IsSelectedCueAuto => SelectedCue?.Source == CueSource.Auto;
+    public double SelectedCueConfidence => SelectedCue?.Confidence ?? 0;
+
+    public string SelectedCuePositionDisplay => SelectedCue == null ? ""
+        : $"{CueForgeGrid.FormatTime(SelectedCue.Timestamp)}  ·  {CueForgeGrid.FormatBarBeat(SelectedCue.Timestamp, GridBpm, GridOffset)}";
+
+    public string SelectedCueDetail => SelectedCue switch
+    {
+        null => "",
+        { IsLoop: true } l => $"Loop · {FormatLoopLength(l.Timestamp, l.LoopEndSeconds)}",
+        { Source: CueSource.Auto } a => $"Auto-generated · {(int)Math.Round(a.Confidence * 100)}% confidence",
+        _ => "Your cue",
+    };
+
+    private string _editingCueName = "";
+    /// <summary>Text in the inspector's name box. Applied by <see cref="CommitCueName"/> (Enter / focus
+    /// out), thrown away by <see cref="RevertCueName"/> (Esc).</summary>
+    public string EditingCueName { get => _editingCueName; set => this.RaiseAndSetIfChanged(ref _editingCueName, value ?? ""); }
+
+    public void CommitCueName()
+    {
+        var cue = SelectedCue;
+        if (cue == null || TrackHash is null) return;
+        var name = EditingCueName.Trim();
+        if (name.Length == 0) { RevertCueName(); return; }
+        if (name == cue.Name) return;
+        PushSnapshot();
+        cue.Name = name;
+        MarkCueFieldEdited(cue);
+    }
+
+    public void RevertCueName() => EditingCueName = SelectedCue?.Name ?? "";
+
+    /// <summary>Raised when something asks for the selected cue's name box to take focus (pad /
+    /// list context menu "Rename").</summary>
+    public event EventHandler? RenameRequested;
+
+    public void RequestRename(OrbitCue cue)
+    {
+        SelectedCue = cue;
+        RenameRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    public CueRole SelectedCueRole
+    {
+        get => SelectedCue?.Role ?? CueRole.Custom;
+        set { if (SelectedCue != null && SelectedCue.Role != value) SetSelectedCueRole(value); }
+    }
+
+    public CueSlotOption? SelectedCueSlot
+    {
+        get => SelectedCue == null ? null : CueSlotOptions.FirstOrDefault(o => o.Value == Math.Clamp(SelectedCue.SlotIndex, -1, 7));
+        set { if (value != null && SelectedCue != null && SelectedCue.SlotIndex != value.Value) SetSelectedCueSlot(value.Value); }
+    }
+
+    // ── Save state ─────────────────────────────────────────────────────────
 
     private bool _hasUncommittedChanges;
-    public bool HasUncommittedChanges { get => _hasUncommittedChanges; private set => this.RaiseAndSetIfChanged(ref _hasUncommittedChanges, value); }
+    public bool HasUncommittedChanges
+    {
+        get => _hasUncommittedChanges;
+        private set
+        {
+            this.RaiseAndSetIfChanged(ref _hasUncommittedChanges, value);
+            this.RaisePropertyChanged(nameof(IsSaved));
+        }
+    }
+
+    /// <summary>Track loaded and nothing unsaved — drives the quiet "Saved" indicator.</summary>
+    public bool IsSaved => HasTrackLoaded && !HasUncommittedChanges;
 
     private bool _canUndo;
     public bool CanUndo { get => _canUndo; private set => this.RaiseAndSetIfChanged(ref _canUndo, value); }
@@ -199,135 +358,89 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private bool _isGenerating;
     public bool IsGenerating { get => _isGenerating; private set => this.RaiseAndSetIfChanged(ref _isGenerating, value); }
 
-    // Active loop in/out for the Loop section controls
-    private double? _loopInSeconds;
-    public double? LoopInSeconds
+    // ── Loops ──────────────────────────────────────────────────────────────
+
+    private double? _pendingLoopIn;
+    /// <summary>Loop IN set with the IN button, waiting for OUT.</summary>
+    public double? PendingLoopIn
     {
-        get => _loopInSeconds;
-        set
+        get => _pendingLoopIn;
+        private set
         {
-            this.RaiseAndSetIfChanged(ref _loopInSeconds, value);
-            this.RaisePropertyChanged(nameof(LoopInDisplay));
-            this.RaisePropertyChanged(nameof(HasStagedLoop));
+            this.RaiseAndSetIfChanged(ref _pendingLoopIn, value);
+            this.RaisePropertyChanged(nameof(ActiveLoopDisplay));
         }
     }
 
-    private double? _loopOutSeconds;
-    public double? LoopOutSeconds
-    {
-        get => _loopOutSeconds;
-        set
-        {
-            this.RaiseAndSetIfChanged(ref _loopOutSeconds, value);
-            this.RaisePropertyChanged(nameof(LoopOutDisplay));
-            this.RaisePropertyChanged(nameof(HasStagedLoop));
-        }
-    }
+    /// <summary>The loop the loop tools act on: the selected loop, else the most recent one.</summary>
+    public OrbitCue? ActiveLoop => SelectedCue is { IsLoop: true } l ? l : WorkingCues.LastOrDefault(c => c.IsLoop);
+    public bool HasActiveLoop => ActiveLoop != null;
 
-    public string LoopInDisplay => LoopInSeconds.HasValue
-        ? $"IN: {LoopInSeconds.Value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}s"
-        : "IN: —";
-    public string LoopOutDisplay => LoopOutSeconds.HasValue
-        ? $"OUT: {LoopOutSeconds.Value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}s"
-        : "OUT: —";
+    public string ActiveLoopDisplay => PendingLoopIn is { } inAt
+        ? $"IN {CueForgeGrid.FormatTime(inAt)} — press OUT"
+        : ActiveLoop is { } l ? $"{FormatLoopLength(l.Timestamp, l.LoopEndSeconds)} at {CueForgeGrid.FormatTime(l.Timestamp)}"
+        : "No loop";
 
-    // When on, playback wraps back to LoopInSeconds every time it crosses LoopOutSeconds
-    // (driven by the position-sync subscription below), so a staged loop can be auditioned
-    // repeatedly before it's committed as a cue.
     private bool _isAuditioningLoop;
+    /// <summary>When on, playback wraps from the active loop's end back to its start.</summary>
     public bool IsAuditioningLoop
     {
         get => _isAuditioningLoop;
         set
         {
-            if (value && (!LoopInSeconds.HasValue || !LoopOutSeconds.HasValue)) value = false;
+            var loop = ActiveLoop;
+            if (value && loop == null) value = false;
+            if (value == _isAuditioningLoop) { this.RaisePropertyChanged(); return; }
             this.RaiseAndSetIfChanged(ref _isAuditioningLoop, value);
-            if (value)
-            {
-                SeekToSeconds(LoopInSeconds!.Value);
-                if (!_playerViewModel.IsPlaying)
-                    _playerViewModel.TogglePlayPauseCommand?.Execute(null);
-            }
+            if (value && loop != null) PlayFrom(loop.Timestamp);
         }
     }
 
-    public bool HasStagedLoop => LoopInSeconds.HasValue && LoopOutSeconds.HasValue;
-
-    // ── Cue detail panel option lists ───────────────────────────────────────
+    // ── Option lists ───────────────────────────────────────────────────────
 
     public static IReadOnlyList<CueRole> CueRoleOptions { get; } = Enum.GetValues<CueRole>();
 
+    /// <summary>Rekordbox hot cue palette (cue data written to the export, not UI chrome).</summary>
     public static IReadOnlyList<string> CueColorSwatches { get; } = new[]
     {
-        "#FF0000", "#FF8800", "#FFFF00", "#00FF88", "#00FFFF", "#0088FF", "#8800FF", "#FFFFFF",
+        "#E62828", "#E0641B", "#B4BE04", "#28E214", "#10B176", "#305AFF", "#AA72FF", "#DE44CF",
     };
 
     public static IReadOnlyList<CueSlotOption> CueSlotOptions { get; } =
-        Enumerable.Range(0, 8).Select(i => new CueSlotOption(((char)('A' + i)).ToString(), i))
-            .Append(new CueSlotOption("Memory", -1))
+        Enumerable.Range(0, 8).Select(i => new CueSlotOption($"Hot cue {(char)('A' + i)}", i))
+            .Append(new CueSlotOption("Memory cue", -1))
             .ToList();
-
-    public int GetQuantizeBeatCount() => _quantizeBeats switch
-    {
-        "Off" => 0, "1 beat" => 1, "2 beats" => 2, "4 beats" => 4, "8 beats" => 8,
-        "16 beats" => 16, "32 beats" => 32, "64 beats (16 bars)" => 64, "128 beats (32 bars)" => 128, _ => 16
-    };
 
     // ── Hot Cue Pads ──────────────────────────────────────────────────────
 
-    public ObservableCollection<HotCuePadInfo> HotCuePads { get; } = new(
-        Enumerable.Range(0, 8).Select(i => new HotCuePadInfo
-        {
-            Slot = i,
-            PadLabel = ((char)('A' + i)).ToString()
-        }));
+    public IReadOnlyList<HotCuePadInfo> HotCuePads { get; } =
+        Enumerable.Range(0, 8).Select(i => new HotCuePadInfo { Slot = i, PadLabel = ((char)('A' + i)).ToString() }).ToList();
 
     private void RefreshHotCuePads()
     {
-        HotCuePads.Clear();
-        for (int i = 0; i < 8; i++)
+        foreach (var pad in HotCuePads)
         {
-            var cue = WorkingCues.FirstOrDefault(c => c.SlotIndex == i && !c.IsLoop);
-            if (cue != null)
-            {
-                HotCuePads.Add(new HotCuePadInfo
-                {
-                    Slot = i,
-                    PadLabel = ((char)('A' + i)).ToString(),
-                    CueName = cue.Name,
-                    TimestampDisplay = TimeSpan.FromSeconds(cue.Timestamp).ToString(@"mm\:ss"),
-                    Background = HexWithAlpha(cue.Color, 0.22f),
-                    BorderColor = HexWithAlpha(cue.Color, 0.55f),
-                    Foreground = cue.Color,
-                    IsAssigned = true
-                });
-            }
-            else
-            {
-                HotCuePads.Add(new HotCuePadInfo
-                {
-                    Slot = i,
-                    PadLabel = ((char)('A' + i)).ToString(),
-                    Background = "#1A1A26",
-                    BorderColor = "#2A2A3A",
-                    Foreground = "#333344"
-                });
-            }
+            var cue = WorkingCues.FirstOrDefault(c => c.SlotIndex == pad.Slot && !c.IsLoop);
+            pad.Assign(cue);
+            pad.IsSelected = cue != null && ReferenceEquals(cue, SelectedCue);
         }
+        this.RaisePropertyChanged(nameof(MemoryCueCount));
+        this.RaisePropertyChanged(nameof(CueCountDisplay));
     }
 
-    private static string HexWithAlpha(string hexColor, float alpha)
+    public int MemoryCueCount => WorkingCues.Count(c => !c.IsLoop && c.SlotIndex < 0);
+
+    public string CueCountDisplay
     {
-        var hex = hexColor.TrimStart('#');
-        if (hex.Length == 6)
+        get
         {
-            byte a = (byte)(Math.Clamp(alpha, 0f, 1f) * 255);
-            return $"#{a:X2}{hex.ToUpperInvariant()}";
+            int hot = WorkingCues.Count(c => !c.IsLoop && c.SlotIndex >= 0);
+            int loops = WorkingCues.Count(c => c.IsLoop);
+            return $"{hot} hot · {MemoryCueCount} memory · {loops} loop{(loops == 1 ? "" : "s")}";
         }
-        return hexColor;
     }
 
-    // ── Playlist Browser ───────────────────────────────────────────────────
+    // ── Track picker ───────────────────────────────────────────────────────
 
     public ObservableCollection<PlaylistJob> Playlists { get; } = new();
 
@@ -349,10 +462,17 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public string BrowserQuery
     {
         get => _browserQuery;
-        set { this.RaiseAndSetIfChanged(ref _browserQuery, value); ApplyBrowserFilter(value); }
+        set { this.RaiseAndSetIfChanged(ref _browserQuery, value ?? ""); ApplyBrowserFilter(_browserQuery); }
     }
 
-    public System.Windows.Input.ICommand LoadFromBrowserCommand { get; private set; } = null!;
+    private string _browserStatus = "Loading playlists…";
+    /// <summary>Empty/loading/error text for the track picker; empty when tracks are listed.</summary>
+    public string BrowserStatus { get => _browserStatus; private set => this.RaiseAndSetIfChanged(ref _browserStatus, value); }
+    public bool HasBrowserStatus => !string.IsNullOrEmpty(BrowserStatus);
+
+    public System.Windows.Input.ICommand LoadFromBrowserCommand { get; }
+    public ReactiveCommand<Unit, Unit> PreviousTrackCommand { get; }
+    public ReactiveCommand<Unit, Unit> NextTrackCommand { get; }
 
     /// <summary>Called by TrackOperationsViewModel when opening from a specific playlist context.</summary>
     public void SetPlaylistContext(PlaylistJob? playlist)
@@ -365,22 +485,16 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             _ = LoadPlaylistBrowserAsync(playlist.Id);
     }
 
-    // ── Mix Transition origin (for the "Back to Mix Transition" link) ──────
+    // ── Mix Transition origin (for the "Back to mix" link) ─────────────────
 
     private Guid? _mixOriginPlaylistId;
     private Guid? _mixOriginOutgoingTrackId;
     private Guid? _mixOriginIncomingTrackId;
 
-    /// <summary>True once <see cref="SetMixTransitionOrigin"/> has recorded where the current
-    /// track was opened from — drives the "← Back to Mix Transition" link's visibility in
-    /// CueForgePage.axaml. Stays true (not auto-cleared) after use: it's a real, still-valid
-    /// path back, not a one-shot toast.</summary>
     public bool HasMixOrigin => _mixOriginPlaylistId.HasValue;
 
-    /// <summary>Called by MixTransitionViewModel.OpenTrackInCueForgeAsync right after
-    /// LoadTrackAsync, so the "Fix in Cue Forge" link (Mix Editor → Cue Forge) has a way back:
-    /// re-navigates to Library, selects this playlist, and reopens the CONTEXT sidepanel's Mix
-    /// tab on the exact pair the user came from — round-tripping instead of a dead end.</summary>
+    /// <summary>Called by MixTransitionViewModel.OpenTrackInCueForgeAsync right after LoadTrackAsync,
+    /// so the Mix Editor → Cue Forge link has a way back.</summary>
     public void SetMixTransitionOrigin(Guid playlistId, Guid outgoingTrackId, Guid incomingTrackId)
     {
         _mixOriginPlaylistId = playlistId;
@@ -397,19 +511,21 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         {
             return;
         }
-        _eventBus.Publish(new OpenLibraryForPlaylistEvent(playlistId, outgoingId, incomingId));
+        _eventBus?.Publish(new OpenLibraryForPlaylistEvent(playlistId, outgoingId, incomingId));
     }
 
     private async Task LoadAllPlaylistsAsync()
     {
+        if (_libraryService == null) { BrowserStatus = ""; return; }
         try
         {
             var jobs = await _libraryService.LoadAllPlaylistJobsAsync();
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            await _ui(() =>
             {
                 Playlists.Clear();
                 foreach (var job in jobs.OrderByDescending(j => j.CreatedAt))
                     Playlists.Add(job);
+                if (Playlists.Count == 0) BrowserStatus = "No playlists yet. Import or create one in the Library.";
                 if (Playlists.Count > 0 && SelectedPlaylist == null)
                     SelectedPlaylist = Playlists[0];
             });
@@ -417,11 +533,16 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "CueForge: failed to load playlist list");
+            BrowserStatus = "Couldn't load playlists. See the log for details.";
         }
+        this.RaisePropertyChanged(nameof(HasBrowserStatus));
     }
 
     private async Task LoadPlaylistBrowserAsync(Guid playlistId)
     {
+        if (_libraryService == null) return;
+        BrowserStatus = "Loading tracks…";
+        this.RaisePropertyChanged(nameof(HasBrowserStatus));
         try
         {
             var tracks = await _libraryService.GetPagedPlaylistTracksAsync(
@@ -433,7 +554,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
                 {
                     GlobalId = t.TrackUniqueHash,
                     Title    = string.IsNullOrEmpty(t.Title) ? "Unknown" : t.Title,
-                    Artist   = t.Artist
+                    Artist   = t.Artist ?? ""
                 })
                 .ToList();
 
@@ -444,29 +565,48 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "CueForge: failed to load browser tracks for playlist {Id}", playlistId);
+            BrowserStatus = "Couldn't load this playlist's tracks. See the log for details.";
+            this.RaisePropertyChanged(nameof(HasBrowserStatus));
         }
     }
 
     private void ApplyBrowserFilter(string query)
     {
-        var filtered = string.IsNullOrWhiteSpace(query)
-            ? (IEnumerable<CueBrowserItem>)_allPlaylistTracks
+        var filtered = (string.IsNullOrWhiteSpace(query)
+            ? _allPlaylistTracks
             : _allPlaylistTracks.Where(t =>
                 t.Title.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                t.Artist.Contains(query, StringComparison.OrdinalIgnoreCase));
+                t.Artist.Contains(query, StringComparison.OrdinalIgnoreCase))).ToList();
 
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        _ = _ui(() =>
         {
             BrowserTracks.Clear();
             foreach (var t in filtered) BrowserTracks.Add(t);
+            BrowserStatus = filtered.Count > 0 ? ""
+                : _allPlaylistTracks.Count == 0 ? "No downloaded tracks in this playlist."
+                : "No tracks match the filter.";
+            this.RaisePropertyChanged(nameof(HasBrowserStatus));
         });
+    }
+
+    private async Task StepTrackAsync(int direction)
+    {
+        var list = BrowserTracks.Count > 0 ? BrowserTracks.ToList() : _allPlaylistTracks;
+        if (list.Count == 0) return;
+        int idx = list.FindIndex(t => string.Equals(t.GlobalId, TrackHash, StringComparison.OrdinalIgnoreCase));
+        int next = idx < 0 ? (direction > 0 ? 0 : list.Count - 1) : idx + direction;
+        if (next < 0 || next >= list.Count) return;
+        var item = list[next];
+        await LoadTrackAsync(item.GlobalId, item.Title, item.Artist);
     }
 
     // ── Commands ───────────────────────────────────────────────────────────
 
     public ReactiveCommand<Unit, Unit> AddCueAtPlayheadCommand { get; }
+    public ReactiveCommand<double, Unit> AddCueAtCommand { get; }
     public ReactiveCommand<Unit, Unit> AutoGenerateCuesCommand { get; }
     public ReactiveCommand<OrbitCue, Unit> DeleteCueCommand { get; }
+    public ReactiveCommand<Unit, Unit> DeleteSelectedCueCommand { get; }
     public ReactiveCommand<Unit, Unit> SetLoopInCommand { get; }
     public ReactiveCommand<Unit, Unit> SetLoopOutCommand { get; }
     public ReactiveCommand<Unit, Unit> LoopHalfCommand { get; }
@@ -476,15 +616,17 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> DiscardChangesCommand { get; }
     public ReactiveCommand<Unit, Unit> UndoCommand { get; }
     public ReactiveCommand<Unit, Unit> RedoCommand { get; }
-    public ReactiveCommand<Unit, Unit> PinLoopStartAsCueCommand { get; }
     public ReactiveCommand<Unit, Unit> ZoomInCommand { get; }
     public ReactiveCommand<Unit, Unit> ZoomOutCommand { get; }
-    public ReactiveCommand<Unit, Unit> ScrollLeftCommand { get; }
-    public ReactiveCommand<Unit, Unit> ScrollRightCommand { get; }
+    public ReactiveCommand<Unit, Unit> ZoomToFitCommand { get; }
     public ReactiveCommand<Unit, Unit> PreviousCueCommand { get; }
     public ReactiveCommand<Unit, Unit> NextCueCommand { get; }
+    /// <summary>Parameter: bar count as an int or a numeric string (XAML literal).</summary>
     public ReactiveCommand<object, Unit> SetQuickLoopCommand { get; }
-    public ReactiveCommand<HotCuePadInfo, Unit> JumpToCueCommand { get; }
+    /// <summary>Pad click: assigned → jump there and play; empty → set a hot cue at the playhead.</summary>
+    public ReactiveCommand<HotCuePadInfo, Unit> TriggerPadCommand { get; }
+    /// <summary>Pad menu "Clear pad": the cue stays, as a memory cue.</summary>
+    public ReactiveCommand<HotCuePadInfo, Unit> ClearPadCommand { get; }
     public ReactiveCommand<double, Unit> SeekPlayheadCommand { get; }
     public ReactiveCommand<OrbitCue, Unit> AuditionCueCommand { get; }
     public ReactiveCommand<string, Unit> NudgeCueCommand { get; }
@@ -495,10 +637,15 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<CueRole, Unit> SetSelectedCueRoleCommand { get; }
     public ReactiveCommand<string, Unit> SetSelectedCueColorCommand { get; }
     public ReactiveCommand<int, Unit> SetSelectedCueSlotCommand { get; }
-    public System.Windows.Input.ICommand PlaybackToggleCommand => _playerViewModel.TogglePlayPauseCommand;
-
-    // Expose the underlying PlayerViewModel so CueForge AXAML can bind transport props directly
-    public PlayerViewModel Player => _playerViewModel;
+    public ReactiveCommand<Unit, Unit> PlayPauseCommand { get; }
+    /// <summary>CDJ-style CUE: playing → back to the cue point and pause; paused → set the cue point here.</summary>
+    public ReactiveCommand<Unit, Unit> CueButtonCommand { get; }
+    public System.Windows.Input.ICommand PlaybackToggleCommand => PlayPauseCommand;
+    public ReactiveCommand<Unit, Unit> SetDropAtPlayheadCommand { get; }
+    /// <summary>Shift+1 / Shift+2: make the playhead Drop 1 or Drop 2.</summary>
+    public ReactiveCommand<int, Unit> SetNumberedDropAtPlayheadCommand { get; }
+    /// <summary>Waveform right-click "Drop here" (seconds).</summary>
+    public ReactiveCommand<double, Unit> SetDropAtCommand { get; }
 
     // ── Waveform Navigation State ──────────────────────────────────────────
 
@@ -508,66 +655,71 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         get => _waveformZoom;
         set
         {
-            this.RaiseAndSetIfChanged(ref _waveformZoom, Math.Clamp(value, 1.0, MaxZoomLevel));
+            this.RaiseAndSetIfChanged(ref _waveformZoom, Math.Clamp(value, CueForgeGrid.MinZoom, MaxZoomLevel));
             this.RaisePropertyChanged(nameof(WaveformScrollMaximum));
             this.RaisePropertyChanged(nameof(ZoomDisplay));
-            ClampWaveformScroll();
+            WaveformScroll = _waveformScroll;
         }
     }
 
-    public string ZoomDisplay => $"{WaveformZoom.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}×";
+    public string ZoomDisplay => $"{WaveformZoom.ToString("F1", CultureInfo.InvariantCulture)}×";
 
-    private double _waveformScroll = 0.0;
+    private double _waveformScroll;
+    /// <summary>Fraction of the track at the left edge of the detail view.</summary>
     public double WaveformScroll
     {
         get => _waveformScroll;
-        set => this.RaiseAndSetIfChanged(ref _waveformScroll,
-            Math.Clamp(value, 0.0, WaveformScrollMaximum));
+        set => this.RaiseAndSetIfChanged(ref _waveformScroll, CueForgeGrid.ClampScroll(value, _waveformZoom));
     }
 
-    public double WaveformScrollMaximum => Math.Max(0.0, 1.0 - 1.0 / Math.Max(1.0, _waveformZoom));
+    public double WaveformScrollMaximum => CueForgeGrid.MaxScroll(_waveformZoom);
 
-    private void ClampWaveformScroll() =>
-        WaveformScroll = Math.Clamp(_waveformScroll, 0.0, WaveformScrollMaximum);
+    private bool _followPlayhead = true;
+    /// <summary>Page the detail view along with playback so the playhead stays visible.</summary>
+    public bool FollowPlayhead { get => _followPlayhead; set => this.RaiseAndSetIfChanged(ref _followPlayhead, value); }
+
+    /// <summary>Zooms around a point of the view (0..1 across), keeping that point fixed.</summary>
+    public void ZoomAt(double factor, double anchor)
+    {
+        double oldZoom = WaveformZoom;
+        double newZoom = Math.Clamp(oldZoom * factor, CueForgeGrid.MinZoom, MaxZoomLevel);
+        if (Math.Abs(newZoom - oldZoom) < 1e-9) return;
+        double scroll = CueForgeGrid.ZoomAround(WaveformScroll, oldZoom, newZoom, anchor);
+        WaveformZoom = newZoom;
+        WaveformScroll = scroll;
+    }
+
+    private void ZoomAroundPlayhead(double factor)
+    {
+        double window = 1.0 / Math.Max(1.0, WaveformZoom);
+        double playFrac = TrackDuration > 0 ? CurrentPlayPosition / TrackDuration : 0;
+        double anchor = (playFrac - WaveformScroll) / window;
+        ZoomAt(factor, anchor is >= 0 and <= 1 ? anchor : 0.5);
+    }
 
     // ── Track Metadata Extras ──────────────────────────────────────────────
 
     private int _trackEnergyScore;
-    public int TrackEnergyScore
-    {
-        get => _trackEnergyScore;
-        private set => this.RaiseAndSetIfChanged(ref _trackEnergyScore, value);
-    }
+    public int TrackEnergyScore { get => _trackEnergyScore; private set => this.RaiseAndSetIfChanged(ref _trackEnergyScore, value); }
 
     private string _lastCommitMessage = "";
-    public string LastCommitMessage
-    {
-        get => _lastCommitMessage;
-        private set => this.RaiseAndSetIfChanged(ref _lastCommitMessage, value);
-    }
+    /// <summary>Status line: last save/edit result or hint. <see cref="HasCommitError"/> marks failures.</summary>
+    public string LastCommitMessage { get => _lastCommitMessage; private set => this.RaiseAndSetIfChanged(ref _lastCommitMessage, value); }
 
     private bool _hasCommitError;
-    public bool HasCommitError
-    {
-        get => _hasCommitError;
-        private set => this.RaiseAndSetIfChanged(ref _hasCommitError, value);
-    }
+    public bool HasCommitError { get => _hasCommitError; private set => this.RaiseAndSetIfChanged(ref _hasCommitError, value); }
 
     private string? _trackLoadError;
-    /// <summary>Set when <see cref="LoadTrackAsync"/> fails partway through (cues/waveform/features) so the UI isn't left silently half-loaded.</summary>
-    public string? TrackLoadError
+    /// <summary>Set when <see cref="LoadTrackAsync"/> fails partway through so the UI isn't left silently half-loaded.</summary>
+    public string? TrackLoadError { get => _trackLoadError; private set => this.RaiseAndSetIfChanged(ref _trackLoadError, value); }
+
+    private void SetStatus(string message, bool isError = false)
     {
-        get => _trackLoadError;
-        private set => this.RaiseAndSetIfChanged(ref _trackLoadError, value);
+        HasCommitError = isError;
+        LastCommitMessage = message;
     }
 
-    // True when track has at least one Intro, one Drop, and one Outro cue
-    public bool IsExportReady => TrackHash != null &&
-        WorkingCues.Any(c => c.Role == CueRole.Intro) &&
-        WorkingCues.Any(c => c.Role == CueRole.Drop) &&
-        WorkingCues.Any(c => c.Role == CueRole.Outro);
-
-    // ── Constructor ────────────────────────────────────────────────────────
+    // ── Constructors ───────────────────────────────────────────────────────
 
     public CueForgeViewModel(
         ICuePointService cueService,
@@ -581,307 +733,346 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         DatabaseService databaseService,
         IDialogService dialogService,
         IEventBus eventBus)
+        : this(cueService, new PlayerViewModelCueForgeTransport(playerViewModel, databaseService), config,
+               libraryService, engineCueService, camelotKeyService, logger, configManager, dialogService, eventBus,
+               ui: null, restoreSession: true)
+    {
+    }
+
+    /// <summary>Core constructor; the optional services are null in unit tests. <paramref name="ui"/>
+    /// marshals collection updates to the UI thread (tests pass an inline runner).</summary>
+    internal CueForgeViewModel(
+        ICuePointService cueService,
+        ICueForgeTransport transport,
+        AppConfig config,
+        ILibraryService? libraryService = null,
+        Engine.Cueing.CueGenerationService? engineCueService = null,
+        CamelotKeyDisplayService? camelotKeyService = null,
+        ILogger? logger = null,
+        ConfigManager? configManager = null,
+        IDialogService? dialogService = null,
+        IEventBus? eventBus = null,
+        Func<Action, Task>? ui = null,
+        bool restoreSession = false)
     {
         _cueService = cueService;
+        _transport = transport;
+        _config = config;
         _libraryService = libraryService;
         _engineCueService = engineCueService;
-        _dialogService = dialogService;
-        _playerViewModel = playerViewModel;
         _camelotKeyService = camelotKeyService;
-        _logger = logger;
-        _config = config;
+        _logger = logger ?? NullLogger.Instance;
         _configManager = configManager;
-        _databaseService = databaseService;
+        _dialogService = dialogService;
         _eventBus = eventBus;
+        _ui = ui ?? RunOnUiThread;
 
         var hasTrack = this.WhenAnyValue(x => x.TrackHash, h => !string.IsNullOrEmpty(h));
         var notGenerating = this.WhenAnyValue(x => x.IsGenerating, g => !g);
         var canAct = hasTrack.CombineLatest(notGenerating, (h, g) => h && g);
+        var hasSelection = this.WhenAnyValue(x => x.SelectedCue).Select(c => c != null);
 
-        AddCueAtPlayheadCommand = ReactiveCommand.CreateFromTask(AddCueAtPlayheadAsync, canAct);
+        AddCueAtPlayheadCommand = ReactiveCommand.CreateFromTask(() => AddCueAtTimeAsync(SnapTime(CurrentPlayPosition)), canAct);
+        AddCueAtCommand = ReactiveCommand.CreateFromTask<double>(t => AddCueAtTimeAsync(SnapTime(t)), canAct);
         SetDropAtPlayheadCommand = ReactiveCommand.Create(() => SetDropAt(CurrentPlayPosition, null), canAct);
         SetNumberedDropAtPlayheadCommand = ReactiveCommand.Create<int>(n => SetDropAt(CurrentPlayPosition, n), canAct);
+        SetDropAtCommand = ReactiveCommand.Create<double>(t => SetDropAt(t, null), canAct);
         AutoGenerateCuesCommand = ReactiveCommand.CreateFromTask(AutoGenerateCuesAsync, canAct);
-        DeleteCueCommand = ReactiveCommand.CreateFromTask<OrbitCue>(DeleteCueAsync, canAct);
-        SetLoopInCommand = ReactiveCommand.CreateFromTask(SetLoopInAsync, canAct);
-        SetLoopOutCommand = ReactiveCommand.CreateFromTask(SetLoopOutAsync, canAct);
-        LoopHalfCommand = ReactiveCommand.Create(HalveLoop, canAct);
-        LoopDoubleCommand = ReactiveCommand.Create(DoubleLoop, canAct);
-        ClearLoopCommand = ReactiveCommand.CreateFromTask(ClearLoopAsync, canAct);
-        CommitChangesCommand = ReactiveCommand.CreateFromTask(CommitChangesAsync);
-        DiscardChangesCommand = ReactiveCommand.CreateFromTask(DiscardChangesAsync);
+        DeleteCueCommand = ReactiveCommand.Create<OrbitCue>(DeleteCue, canAct);
+        DeleteSelectedCueCommand = ReactiveCommand.Create(() => { if (SelectedCue != null) DeleteCue(SelectedCue); },
+            canAct.CombineLatest(hasSelection, (a, s) => a && s));
+        SetLoopInCommand = ReactiveCommand.Create(SetLoopIn, canAct);
+        SetLoopOutCommand = ReactiveCommand.Create(SetLoopOut, canAct);
+        var hasLoop = this.WhenAnyValue(x => x.HasActiveLoop);
+        LoopHalfCommand = ReactiveCommand.Create(() => ScaleLoop(0.5), hasLoop);
+        LoopDoubleCommand = ReactiveCommand.Create(() => ScaleLoop(2.0), hasLoop);
+        ClearLoopCommand = ReactiveCommand.Create(ClearLoop, hasLoop);
+        CommitChangesCommand = ReactiveCommand.CreateFromTask(CommitChangesAsync,
+            this.WhenAnyValue(x => x.HasUncommittedChanges, x => x.TrackHash, (d, h) => d && h != null));
+        DiscardChangesCommand = ReactiveCommand.CreateFromTask(DiscardChangesAsync,
+            this.WhenAnyValue(x => x.HasUncommittedChanges, x => x.TrackHash, (d, h) => d && h != null));
         UndoCommand = ReactiveCommand.Create(Undo, this.WhenAnyValue(x => x.CanUndo));
         RedoCommand = ReactiveCommand.Create(Redo, this.WhenAnyValue(x => x.CanRedo));
-        PinLoopStartAsCueCommand = ReactiveCommand.Create(PinLoopStartAsCue,
-            this.WhenAnyValue(x => x.LoopInSeconds, x => x.TrackHash,
-                (lo, h) => lo.HasValue && !string.IsNullOrEmpty(h)));
 
-        ZoomInCommand     = ReactiveCommand.Create(() => { WaveformZoom = Math.Clamp(WaveformZoom * 1.5, 1.0, MaxZoomLevel); });
-        ZoomOutCommand    = ReactiveCommand.Create(() => { WaveformZoom = Math.Clamp(WaveformZoom / 1.5, 1.0, MaxZoomLevel); });
-        ScrollLeftCommand = ReactiveCommand.Create(() =>
-        {
-            double step = (1.0 / Math.Max(1.0, WaveformZoom)) * 0.2;
-            WaveformScroll = Math.Max(0, WaveformScroll - step);
-        });
-        ScrollRightCommand = ReactiveCommand.Create(() =>
-        {
-            double step = (1.0 / Math.Max(1.0, WaveformZoom)) * 0.2;
-            WaveformScroll = Math.Min(WaveformScrollMaximum, WaveformScroll + step);
-        });
+        ZoomInCommand     = ReactiveCommand.Create(() => ZoomAroundPlayhead(1.5));
+        ZoomOutCommand    = ReactiveCommand.Create(() => ZoomAroundPlayhead(1 / 1.5));
+        ZoomToFitCommand  = ReactiveCommand.Create(() => { WaveformZoom = 1.0; WaveformScroll = 0; });
 
         PreviousCueCommand = ReactiveCommand.Create(NavigateToPreviousCue, canAct);
         NextCueCommand     = ReactiveCommand.Create(NavigateToNextCue, canAct);
         BackToMixTransitionCommand = ReactiveCommand.Create(BackToMixTransition, this.WhenAnyValue(x => x.HasMixOrigin));
         SetQuickLoopCommand = ReactiveCommand.Create<object>(param =>
         {
-            if (int.TryParse(param?.ToString(), out int bars)) SetQuickLoop(bars);
+            if (param is int i) SetQuickLoop(i);
+            else if (int.TryParse(param?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int bars)) SetQuickLoop(bars);
         }, canAct);
-        JumpToCueCommand    = ReactiveCommand.Create<HotCuePadInfo>(JumpToCue);
-        SeekPlayheadCommand = ReactiveCommand.Create<double>(SeekToSeconds);
+        TriggerPadCommand = ReactiveCommand.Create<HotCuePadInfo>(TriggerPad, canAct);
+        ClearPadCommand = ReactiveCommand.Create<HotCuePadInfo>(ClearPad, canAct);
+        SeekPlayheadCommand = ReactiveCommand.Create<double>(SetPlayhead);
 
         AuditionCueCommand = ReactiveCommand.Create<OrbitCue>(AuditionCue);
-        // Typed <int, Unit> used to crash the whole app: CueForgePage.axaml's − beat/+ beat
-        // buttons set CommandParameter="-1"/"1" as plain XAML string literals (Avalonia doesn't
-        // auto-convert a Button.CommandParameter string to int), so ReactiveCommand's own
-        // ICommand.Execute type-check threw an unhandled InvalidOperationException on every
-        // click — an AppDomain-level crash that also killed audio output since the whole process
-        // died. <string, Unit> accepts exactly what XAML actually sends.
+        // <string, Unit>: XAML literals like CommandParameter="-1" arrive as strings; a typed <int>
+        // command throws from ICommand.Execute and used to take the whole app down.
         NudgeCueCommand    = ReactiveCommand.Create<string>(NudgeCue, canAct);
         SelectCueCommand   = ReactiveCommand.Create<OrbitCue>(cue => SelectedCue = cue);
-        // Fired by CueForgeWaveformControl.OnPointerPressed the instant a cue/loop handle is hit
-        // — before any drag has actually moved it — so the undo snapshot captures the real
-        // pre-drag position. Pushing on every hit (not just once a real drag happens) is cheap
-        // and harmless; a plain click that never moves the cue just leaves a no-op snapshot on
-        // the stack.
+        // Fired by CueForgeWaveformControl the instant a cue/loop handle is hit, before it moves, so
+        // the undo snapshot captures the real pre-drag position.
         CueDragStartedCommand = ReactiveCommand.Create<OrbitCue>(c => { PushSnapshot(); _dragStart = (c, c.Timestamp); });
-        // Fired on OnPointerReleased once a drag actually moved something. The control mutates
-        // cue.Timestamp/LoopEndSeconds directly on the shared OrbitCue reference during the drag
-        // (no ObservableCollection add/remove, so WorkingCues.CollectionChanged never fires) —
-        // without this, HasUncommittedChanges never went true and the Commit button never
-        // appeared for a waveform-dragged edit, even though the edit was real.
+        // Fired on release once a drag moved something (the control mutates the cue in place).
         CueUpdatedCommand = ReactiveCommand.Create<OrbitCue>(cue =>
         {
             bool wasAuto = cue.Source == CueSource.Auto;
             if (wasAuto) cue.Source = CueSource.User;
+            if (cue.IsLoop && cue.LoopEndSeconds < cue.Timestamp)
+                (cue.Timestamp, cue.LoopEndSeconds) = (cue.LoopEndSeconds, cue.Timestamp);
+            if (cue.IsLoop) cue.Name = FormatLoopLength(cue.Timestamp, cue.LoopEndSeconds);
             HasUncommittedChanges = true;
             double from = _dragStart.Cue == cue ? _dragStart.From : cue.Timestamp;
             ApplyCueMoved(cue, from, wasAuto);
+            ResortWorkingCues();
+            RefreshHotCuePads();
         });
         SetSelectedCueRoleCommand  = ReactiveCommand.Create<CueRole>(SetSelectedCueRole, canAct);
         SetSelectedCueColorCommand = ReactiveCommand.Create<string>(SetSelectedCueColor, canAct);
         SetSelectedCueSlotCommand  = ReactiveCommand.Create<int>(SetSelectedCueSlot, canAct);
+        PlayPauseCommand = ReactiveCommand.Create(TogglePlayPause, hasTrack);
+        CueButtonCommand = ReactiveCommand.Create(CueButton, hasTrack);
 
         LoadFromBrowserCommand = new Views.AsyncRelayCommand<CueBrowserItem>(async item =>
         {
             if (item == null) return;
             await LoadTrackAsync(item.GlobalId, item.Title, item.Artist);
         });
+        PreviousTrackCommand = ReactiveCommand.CreateFromTask(() => StepTrackAsync(-1), hasTrack);
+        NextTrackCommand = ReactiveCommand.CreateFromTask(() => StepTrackAsync(1), hasTrack);
 
-        WorkingCues.CollectionChanged += (_, _) =>
+        WorkingCues.CollectionChanged += OnWorkingCuesChanged;
+
+        _transport.CurrentTrackChanged
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(track => _ = OnPlayerTrackChangedAsync(track))
+            .DisposeWith(_disposables);
+
+        _transport.IsPlayingChanged
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(_ => this.RaisePropertyChanged(nameof(IsPlaying)))
+            .DisposeWith(_disposables);
+
+        // Playhead sync at ~30 fps — only while the player actually holds this track, so the
+        // playhead never shows some other song's position.
+        _transport.PositionChanged
+            .Sample(TimeSpan.FromMilliseconds(33))
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(p => OnPlayerPosition(p.Fraction, p.LengthSeconds))
+            .DisposeWith(_disposables);
+
+        if (libraryService != null) _ = LoadAllPlaylistsAsync();
+        else BrowserStatus = "";
+
+        if (restoreSession)
         {
-            HasUncommittedChanges = true;
-            this.RaisePropertyChanged(nameof(IsExportReady));
-            RefreshHotCuePads();
-        };
-
-        // Load all playlists for the browser sidebar (fires immediately)
-        _ = LoadAllPlaylistsAsync();
-
-        // Restore last session
-        if (!string.IsNullOrEmpty(_config.CueForgeLastTrackHash))
-            _ = LoadTrackAsync(_config.CueForgeLastTrackHash,
-                               _config.CueForgeLastTrackTitle,
-                               _config.CueForgeLastTrackArtist);
-
-        // Auto-load when PlayerViewModel.CurrentTrack changes — including a natural playlist
-        // advance during live Mix playback while this page just happens to be open, not only an
-        // explicit "Open in Cue Forge" click. If the OLD track has an uncommitted draft, silently
-        // commit it first (never lose work) rather than the previous behavior of discarding it
-        // with zero warning — and never a blocking confirm dialog here, since that could pop up
-        // mid-song during live playback. Mirrors CommitChangesCommand's own save path.
-        this.WhenAnyValue(x => x._playerViewModel.CurrentTrack)
-            .DistinctUntilChanged()
-            .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(track => _ = SwitchTrackAsync(track))
-            .DisposeWith(_disposables);
-
-        // Playhead sync at ~30 fps
-        this.WhenAnyValue(x => x._playerViewModel.Position, x => x._playerViewModel.LengthMs,
-            (pos, len) => (pos, len))
-            .Throttle(TimeSpan.FromMilliseconds(33))
-            .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(p =>
-            {
-                if (p.len > 0) CurrentPlayPosition = p.pos * (p.len / 1000.0);
-                UpdateVocalWarning();
-
-                if (IsAuditioningLoop && LoopInSeconds.HasValue && LoopOutSeconds.HasValue &&
-                    CurrentPlayPosition >= LoopOutSeconds.Value)
-                {
-                    SeekToSeconds(LoopInSeconds.Value);
-                }
-            })
-            .DisposeWith(_disposables);
+            // Follow whatever the player is already on; otherwise reopen the last Cue Forge track.
+            if (_transport.CurrentTrackHash is { Length: > 0 } current)
+                _ = LoadTrackAsync(current, _transport.Title, _transport.Artist);
+            else if (!string.IsNullOrEmpty(_config.CueForgeLastTrackHash))
+                _ = LoadTrackAsync(_config.CueForgeLastTrackHash,
+                                   _config.CueForgeLastTrackTitle,
+                                   _config.CueForgeLastTrackArtist);
+        }
     }
 
-    /// <summary>
-    /// Handles PlayerViewModel.CurrentTrack changing — auto-committing an uncommitted draft for
-    /// whichever track was previously loaded before switching, instead of silently discarding it
-    /// (the previous, buggy behavior). The old track's title is captured before CommitChangesAsync
-    /// runs (which is keyed off the still-current TrackHash/TrackTitle at that point) so the
-    /// status message can name it after TrackTitle has already moved on to the new track.
-    /// </summary>
-    private async Task SwitchTrackAsync(PlaylistTrackViewModel? track)
+    private static Task RunOnUiThread(Action action)
     {
-        if (HasUncommittedChanges && TrackHash is not null)
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess()) { action(); return Task.CompletedTask; }
+        return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(action).GetTask();
+    }
+
+    private void OnWorkingCuesChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        // Track in-place edits (rename, recolour, drag) so the waveform and pads stay current.
+        var now = new HashSet<OrbitCue>(WorkingCues);
+        foreach (var gone in _trackedCues.Where(c => !now.Contains(c)).ToList())
         {
-            string previousTitle = TrackTitle;
-            await CommitChangesAsync();
-            if (!HasCommitError)
-                LastCommitMessage = $"✓ Auto-saved cues for \"{previousTitle}\" (track changed)";
+            gone.PropertyChanged -= OnCuePropertyChanged;
+            _trackedCues.Remove(gone);
+        }
+        foreach (var added in now.Where(c => !_trackedCues.Contains(c)))
+        {
+            added.PropertyChanged += OnCuePropertyChanged;
+            _trackedCues.Add(added);
         }
 
-        if (track?.GlobalId is { Length: > 0 } hash)
-            await LoadTrackAsync(hash, track.Title, track.Artist);
-        else
-            ClearWorkingDraft();
+        if (!_suppressDirty) HasUncommittedChanges = true;
+        if (SelectedCue != null && !now.Contains(SelectedCue)) SelectedCue = null;
+        RefreshHotCuePads();
+        this.RaisePropertyChanged(nameof(ActiveLoop));
+        this.RaisePropertyChanged(nameof(HasActiveLoop));
+        this.RaisePropertyChanged(nameof(ActiveLoopDisplay));
+        CueRevision++;
+    }
+
+    private void OnCuePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        CueRevision++;
+        if (e.PropertyName is nameof(OrbitCue.Name) or nameof(OrbitCue.Color) or nameof(OrbitCue.SlotIndex)
+            or nameof(OrbitCue.Timestamp) or nameof(OrbitCue.Role))
+            RefreshHotCuePads();
+        if (e.PropertyName is nameof(OrbitCue.Timestamp) or nameof(OrbitCue.LoopEndSeconds) or nameof(OrbitCue.IsLoop))
+            this.RaisePropertyChanged(nameof(ActiveLoopDisplay));
+    }
+
+    private bool _suppressDirty;
+
+    /// <summary>Replaces the working set without marking it dirty (load/revert).</summary>
+    private void LoadWorkingCuesClean(IEnumerable<OrbitCue> cues)
+    {
+        _suppressDirty = true;
+        try
+        {
+            WorkingCues.Clear();
+            foreach (var c in cues.OrderBy(c => c.Timestamp)) WorkingCues.Add(c);
+        }
+        finally { _suppressDirty = false; }
+        HasUncommittedChanges = false;
+    }
+
+    // ── Player track changes ───────────────────────────────────────────────
+
+    /// <summary>The player's queue moved to another track (natural advance or the user playing
+    /// something). Cue Forge follows it, auto-saving the previous draft first so work is never lost.</summary>
+    private async Task OnPlayerTrackChangedAsync(CueForgeTrackRef? track)
+    {
+        // Whoever changed tracks owns the player now; never "hand back" over their choice.
+        _borrow = null;
+        this.RaisePropertyChanged(nameof(IsPlaying));
+        if (track == null) return; // player stopped: keep the current draft open
+        if (string.Equals(track.Hash, TrackHash, StringComparison.OrdinalIgnoreCase)) return;
+        await LoadTrackAsync(track.Hash, track.Title, track.Artist);
     }
 
     // ── Public API ─────────────────────────────────────────────────────────
 
+    private int _loadVersion;
+    private string? _trackFilePath;
+
     public async Task LoadTrackAsync(string trackHash, string? title = null, string? artist = null)
     {
+        // Never silently drop unsaved edits for the track being left.
+        if (HasUncommittedChanges && TrackHash is not null &&
+            !string.Equals(TrackHash, trackHash, StringComparison.OrdinalIgnoreCase))
+        {
+            string previousTitle = TrackTitle;
+            await CommitChangesAsync();
+            if (!HasCommitError) SetStatus($"Auto-saved cues for \"{previousTitle}\" before switching tracks.");
+        }
+
+        int version = ++_loadVersion;
+        IsAuditioningLoop = false;
+        PendingLoopIn = null;
+        SelectedCue = null;
         TrackHash = trackHash;
-        TrackTitle = string.IsNullOrWhiteSpace(title) ? "Unknown Track"
-            : string.IsNullOrWhiteSpace(artist) ? title
+        TrackName = string.IsNullOrWhiteSpace(title) ? "Unknown track" : title!;
+        TrackArtist = artist ?? "";
+        TrackTitle = string.IsNullOrWhiteSpace(title) ? "Unknown track"
+            : string.IsNullOrWhiteSpace(artist) ? title!
             : $"{artist} — {title}";
 
         _undoStack.Clear(); _redoStack.Clear();
-        HasUncommittedChanges = false;
         UpdateUndoRedoState();
-        // Clear the previous track's waveform bytes up front so switching tracks shows the new
-        // "Loading waveform…" placeholder instead of briefly flashing the old track's waveform.
         WaveformLow = null; WaveformMid = null; WaveformHigh = null;
-
-        // Load this track's audio into the shared player engine so Play/Seek/Audition in the
-        // embedded transport actually have something to play. LoadTrackAsync used to only pull
-        // metadata/waveform/cues — it never told PlayerViewModel which file to load, so opening
-        // Cue Forge on a track that wasn't already playing elsewhere left the transport
-        // pointing at whatever (if anything) was previously loaded. Skip the reload if this
-        // exact file is already loaded so we don't interrupt playback that's already running.
-        //
-        // This method also fires automatically on every PlayerViewModel.CurrentTrack change (see
-        // the constructor's WhenAnyValue subscription) to keep Cue Forge in sync with whatever's
-        // now playing — including every natural track advance during real queue/Mix playback, not
-        // just an explicit "Open in Cue Forge" click. That made the file-path guard above load-
-        // bearing for something it was never designed for: a track can legitimately exist under
-        // two different resolved paths (e.g. the playlist's own ResolvedFilePath vs. this DB
-        // lookup's canonical library path for a duplicate/relocated copy of the same file), so the
-        // path string comparison fails even though the exact right track is already live — and
-        // LoadTrackPaused then reopens it as a brand-new, unstarted deck, silently killing
-        // whatever was actually playing (including mid-crossfade). Check track IDENTITY (hash)
-        // against the currently-playing track first — that's the comparison this call site
-        // actually needs — and only fall back to the path check for the "opened explicitly, not
-        // already playing anything" case.
-        var alreadyPlayingThisTrack = string.Equals(_playerViewModel.CurrentTrack?.GlobalId, trackHash, StringComparison.OrdinalIgnoreCase);
-        if (!alreadyPlayingThisTrack)
-        {
-            try
-            {
-                var resolvedPath = await _databaseService.GetLocalFilePathByHashAsync(trackHash);
-                if (!string.IsNullOrEmpty(resolvedPath) &&
-                    !string.Equals(_playerViewModel.CurrentFilePath, resolvedPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    _playerViewModel.LoadTrackPaused(resolvedPath, title ?? TrackTitle, artist ?? "");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "CueForge: could not load audio for {Hash}; transport will have nothing to play", trackHash);
-            }
-        }
-
+        IsWaveformMissing = false;
+        WaveformZoom = 1.0; WaveformScroll = 0;
+        CurrentPlayPosition = 0;
+        _trackFilePath = null;
+        _durationKnown = false;
         TrackLoadError = null;
+        LoadWorkingCuesClean(Array.Empty<OrbitCue>());
+
+        // Resolve the audio file but don't load it into the shared player yet: Cue Forge only takes
+        // the player over when you audition, so opening a track never interrupts other playback.
         try
         {
-            // Load cues from DB
-            var entities = await _cueService.GetByTrackIdAsync(trackHash);
-            var cues = entities.Select(EntityToOrbitCue).ToList();
+            _trackFilePath = await _transport.ResolveFilePathAsync(trackHash);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "CueForge: could not resolve audio for {Hash}", trackHash);
+        }
+        if (version != _loadVersion) return;
+        if (IsAttachedToPlayer) OnPlayerPosition(_transport.PositionFraction, _transport.LengthSeconds);
+        this.RaisePropertyChanged(nameof(IsPlaying));
 
-            // Load audio features for waveform data + analysis metadata
-            var features = await _libraryService.GetAudioFeaturesByHashAsync(trackHash);
+        try
+        {
+            var entities = await _cueService.GetByTrackIdAsync(trackHash);
+            if (version != _loadVersion) return;
+            var cues = entities.Select(OrbitCue.FromEntity).ToList();
+
+            var features = _libraryService == null ? null : await _libraryService.GetAudioFeaturesByHashAsync(trackHash);
+            if (version != _loadVersion) return;
             if (features is not null)
             {
                 Bpm = (int)Math.Round(Math.Max(60, features.Bpm));
                 _preciseBpm = features.Bpm > 0 ? features.Bpm : Bpm;
                 _downbeat = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
                 _genre = !string.IsNullOrWhiteSpace(features.DetectedSubGenre) ? features.DetectedSubGenre : features.ElectronicSubgenre;
+                _durationKnown = features.TrackDuration > 0;
                 TrackDuration = features.TrackDuration > 0 ? features.TrackDuration : 300.0;
                 TrackEnergyScore = features.EnergyScore;
 
                 // Decode waveform blob: [low₀…lowN | mid₀…midN | high₀…highN]
-                if (features.WaveformBlob is { Length: > 0 } blob && features.WaveformBlobSampleCount > 0)
+                if (features.WaveformBlob is { Length: > 0 } blob && features.WaveformBlobSampleCount > 0 &&
+                    blob.Length >= features.WaveformBlobSampleCount * 3)
                 {
                     int n = features.WaveformBlobSampleCount;
-                    int expected = n * 3;
-                    if (blob.Length >= expected)
-                    {
-                        var low = new byte[n]; var mid = new byte[n]; var high = new byte[n];
-                        Buffer.BlockCopy(blob, 0, low, 0, n);
-                        Buffer.BlockCopy(blob, n, mid, 0, n);
-                        Buffer.BlockCopy(blob, n * 2, high, 0, n);
-                        WaveformLow = low; WaveformMid = mid; WaveformHigh = high;
-                    }
+                    var low = new byte[n]; var mid = new byte[n]; var high = new byte[n];
+                    Buffer.BlockCopy(blob, 0, low, 0, n);
+                    Buffer.BlockCopy(blob, n, mid, 0, n);
+                    Buffer.BlockCopy(blob, n * 2, high, 0, n);
+                    WaveformLow = low; WaveformMid = mid; WaveformHigh = high;
                 }
+                else IsWaveformMissing = true;
 
-                // Energy curve
                 EnergyCurveData = ParseJsonFloatArray(features.EnergyCurveJson);
-
-                // Vocal density
                 VocalDensityCurveData = ParseJsonFloatArray(features.VocalDensityCurveJson);
 
-                // Beat grid → onset density
                 var beatGrid = ParseJsonFloatArray(features.BeatGridJson)?.Select(f => (double)f).ToList()
                                ?? new List<double>();
-                if (beatGrid.Count > 0)
-                {
-                    var densityEngine = new OnsetDensityEngine();
-                    OnsetDensityCurveData = densityEngine.ComputeOnsetDensityCurve(beatGrid, TrackDuration);
-                }
+                OnsetDensityCurveData = beatGrid.Count > 0
+                    ? new OnsetDensityEngine().ComputeOnsetDensityCurve(beatGrid, TrackDuration)
+                    : null;
 
-                // Phrase segments
                 var segments = ParsePhraseSegments(features.PhraseSegmentsJson);
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                await _ui(() =>
                 {
                     PhraseSegments.Clear();
                     foreach (var s in segments) PhraseSegments.Add(s);
                 });
 
-                // Camelot key
                 UpdateCamelotKeyDisplay(features.CamelotKey);
             }
-
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            else
             {
-                WorkingCues.Clear();
-                foreach (var c in cues) WorkingCues.Add(c);
-                // Reset AFTER populating, not before — each Add() above flips this back to true
-                // via the WorkingCues.CollectionChanged handler, so resetting first meant opening
-                // any track with saved cues immediately showed "UNSAVED CHANGES" before anything
-                // was actually edited. Matches DiscardChangesAsync's (correct) ordering.
-                HasUncommittedChanges = false;
-            });
+                IsWaveformMissing = true;
+                _preciseBpm = 0; _downbeat = 0; Bpm = 120;
+                UpdateCamelotKeyDisplay("");
+                EnergyCurveData = null; VocalDensityCurveData = null; OnsetDensityCurveData = null;
+                await _ui(() => PhraseSegments.Clear());
+                TrackLoadError = "This track hasn't been analysed yet, so there's no waveform, tempo or key. Analyse it from the Library, then reopen it here.";
+            }
+            RaiseGridChanged();
 
-            this.RaisePropertyChanged(nameof(IsExportReady));
+            await _ui(() => LoadWorkingCuesClean(cues));
             RefreshHotCuePads();
             _logger.LogInformation("CueForge: loaded {Count} cues for {Hash} (BPM={Bpm} Dur={Dur:F0}s)",
-                cues.Count, trackHash, Bpm, TrackDuration);
+                cues.Count, trackHash, GridBpm, TrackDuration);
 
             // Persist last-opened track so we can restore it on next launch
             _config.CueForgeLastTrackHash = trackHash;
             _config.CueForgeLastTrackTitle = title;
             _config.CueForgeLastTrackArtist = artist;
-            _configManager.Save(_config);
+            try { _configManager?.Save(_config); }
+            catch (Exception ex) { _logger.LogWarning(ex, "CueForge: couldn't remember the last opened track"); }
         }
         catch (Exception ex)
         {
@@ -890,61 +1081,223 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         }
     }
 
+    private void RaiseGridChanged()
+    {
+        this.RaisePropertyChanged(nameof(GridBpm));
+        this.RaisePropertyChanged(nameof(GridOffset));
+        this.RaisePropertyChanged(nameof(BpmDisplay));
+        this.RaisePropertyChanged(nameof(CurrentBarBeatDisplay));
+        this.RaisePropertyChanged(nameof(SelectedCuePositionDisplay));
+    }
+
     public void ClearWorkingDraft()
     {
-        TrackHash = null; TrackTitle = "No track loaded";
-        WorkingCues.Clear(); PhraseSegments.Clear();
+        _loadVersion++;
+        IsAuditioningLoop = false;
+        SelectedCue = null;
+        TrackHash = null; TrackTitle = "No track loaded"; TrackName = ""; TrackArtist = "";
+        LoadWorkingCuesClean(Array.Empty<OrbitCue>());
+        PhraseSegments.Clear();
         _undoStack.Clear(); _redoStack.Clear();
-        HasUncommittedChanges = false; UpdateUndoRedoState();
-        CurrentCamelotKey = "?"; CompatibleCamelotKeys = "";
+        UpdateUndoRedoState();
+        CurrentCamelotKey = "—"; CompatibleCamelotKeys = "";
         WaveformLow = null; WaveformMid = null; WaveformHigh = null;
+        IsWaveformMissing = false;
         EnergyCurveData = null; VocalDensityCurveData = null; OnsetDensityCurveData = null;
-        LoopInSeconds = null; LoopOutSeconds = null;
+        PendingLoopIn = null;
         IsInVocalRegion = false;
+        _trackFilePath = null; _preciseBpm = 0; _downbeat = 0;
         Bpm = 120; TrackDuration = 300.0; TrackEnergyScore = 0;
+        RaiseGridChanged();
     }
 
     public void UpdateCamelotKeyDisplay(string camelotKey)
     {
-        if (string.IsNullOrEmpty(camelotKey)) { CurrentCamelotKey = "?"; CompatibleCamelotKeys = ""; return; }
+        if (string.IsNullOrEmpty(camelotKey)) { CurrentCamelotKey = "—"; CompatibleCamelotKeys = ""; return; }
         CurrentCamelotKey = camelotKey;
-        var compatible = _camelotKeyService.GetCompatibleKeys(camelotKey);
+        var compatible = _camelotKeyService?.GetCompatibleKeys(camelotKey) ?? new List<string>();
         var others = compatible.Where(k => k != camelotKey).ToList();
-        CompatibleCamelotKeys = others.Count > 0 ? string.Join(", ", others) : "—";
+        CompatibleCamelotKeys = others.Count > 0 ? $"Mixes with {string.Join(", ", others)}" : "";
+    }
+
+    // ── Shared player (borrow / hand back) ─────────────────────────────────
+
+    private sealed record PlayerBorrow(string? PreviousPath, string PreviousTitle, string PreviousArtist, double PreviousFraction);
+    private PlayerBorrow? _borrow;
+
+    /// <summary>True when the shared player currently holds this track's audio.</summary>
+    public bool IsAttachedToPlayer =>
+        TrackHash != null &&
+        ((_trackFilePath != null && string.Equals(_transport.CurrentFilePath, _trackFilePath, StringComparison.OrdinalIgnoreCase)) ||
+         string.Equals(_transport.CurrentTrackHash, TrackHash, StringComparison.OrdinalIgnoreCase) && _transport.CurrentFilePath != null &&
+         (_trackFilePath == null || string.Equals(_transport.CurrentFilePath, _trackFilePath, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>Loads this track into the shared player if it isn't there yet, remembering what
+    /// was loaded before so <see cref="OnViewDeactivated"/> can hand it back.</summary>
+    private bool EnsurePlayerHasTrack()
+    {
+        if (TrackHash is null) return false;
+        if (IsAttachedToPlayer) return true;
+        if (string.IsNullOrEmpty(_trackFilePath))
+        {
+            SetStatus("Can't play this track: its audio file wasn't found on disk.", isError: true);
+            return false;
+        }
+        if (_borrow == null)
+        {
+            var prev = _transport.CurrentFilePath;
+            _borrow = new PlayerBorrow(prev, _transport.Title, _transport.Artist, _transport.PositionFraction);
+        }
+        _transport.Pause();
+        _transport.LoadPaused(_trackFilePath!, TrackName, TrackArtist);
+        this.RaisePropertyChanged(nameof(IsPlaying));
+        return true;
+    }
+
+    /// <summary>The page was navigated away from. Stops loop audition and, if Cue Forge borrowed
+    /// the shared player, pauses it and reloads the track it had before (at its old position), so
+    /// the main player is never left on a track its queue doesn't know about.</summary>
+    public void OnViewDeactivated()
+    {
+        IsAuditioningLoop = false;
+        if (_borrow is not { } borrow) return;
+        _borrow = null;
+        if (!IsAttachedToPlayer) return; // someone else already took the player over
+        _transport.Pause();
+        if (!string.IsNullOrEmpty(borrow.PreviousPath))
+        {
+            _transport.LoadPaused(borrow.PreviousPath!, borrow.PreviousTitle, borrow.PreviousArtist);
+            _transport.SeekFraction(borrow.PreviousFraction);
+        }
+        this.RaisePropertyChanged(nameof(IsPlaying));
+    }
+
+    /// <summary>Length to map player fractions with: the player's own once it matches this track,
+    /// else the analysed duration (right after loading, the player still reports the old file's).</summary>
+    private double EffectiveLength(double playerLengthSeconds)
+    {
+        if (playerLengthSeconds <= 0) return TrackDuration;
+        if (!_durationKnown) return playerLengthSeconds;
+        double tolerance = Math.Max(2.0, TrackDuration * 0.02);
+        return Math.Abs(playerLengthSeconds - TrackDuration) <= tolerance ? playerLengthSeconds : TrackDuration;
+    }
+
+    private void OnPlayerPosition(double fraction, double lengthSeconds)
+    {
+        if (!IsAttachedToPlayer || _isScrubbing) return;
+        if (!_durationKnown && lengthSeconds > 0 && Math.Abs(TrackDuration - lengthSeconds) > 0.5)
+            TrackDuration = lengthSeconds;
+        CurrentPlayPosition = fraction * EffectiveLength(lengthSeconds);
+        UpdateVocalWarning();
+
+        if (IsAuditioningLoop && ActiveLoop is { } loop && loop.LoopEndSeconds > loop.Timestamp &&
+            CurrentPlayPosition >= loop.LoopEndSeconds)
+        {
+            SeekPlayer(loop.Timestamp);
+        }
+
+        if (FollowPlayhead && _transport.IsPlaying && TrackDuration > 0)
+            WaveformScroll = CueForgeGrid.FollowScroll(CurrentPlayPosition / TrackDuration, WaveformScroll, WaveformZoom);
+    }
+
+    private bool _isScrubbing;
+    /// <summary>Set by the waveform while the mouse is held down scrubbing, so player position
+    /// updates don't fight the pointer.</summary>
+    public void SetScrubbing(bool scrubbing) => _isScrubbing = scrubbing;
+
+    /// <summary>Waveform click / scrub: moves the playhead. Seeks the player only if it already
+    /// holds this track — clicking never interrupts other playback.</summary>
+    private void SetPlayhead(double seconds)
+    {
+        seconds = Math.Clamp(seconds, 0, TrackDuration);
+        CurrentPlayPosition = seconds;
+        UpdateVocalWarning();
+        if (IsAttachedToPlayer) SeekPlayer(seconds);
+    }
+
+    private void SeekPlayer(double seconds)
+    {
+        seconds = Math.Clamp(seconds, 0, TrackDuration);
+        double length = EffectiveLength(_transport.LengthSeconds);
+        if (length > 0) _transport.SeekFraction(seconds / length);
+        CurrentPlayPosition = seconds;
+    }
+
+    /// <summary>Takes the player if needed, seeks and plays.</summary>
+    private void PlayFrom(double seconds)
+    {
+        if (!EnsurePlayerHasTrack()) return;
+        SeekPlayer(seconds);
+        _transport.Play();
+        this.RaisePropertyChanged(nameof(IsPlaying));
+    }
+
+    private void TogglePlayPause()
+    {
+        if (IsPlaying)
+        {
+            _transport.Pause();
+        }
+        else
+        {
+            if (!EnsurePlayerHasTrack()) return;
+            SeekPlayer(CurrentPlayPosition);
+            _transport.Play();
+        }
+        this.RaisePropertyChanged(nameof(IsPlaying));
+    }
+
+    private double _transportCue;
+
+    private void CueButton()
+    {
+        if (IsPlaying)
+        {
+            _transport.Pause();
+            SeekPlayer(_transportCue);
+        }
+        else
+        {
+            _transportCue = SnapTime(CurrentPlayPosition);
+            SetPlayhead(_transportCue);
+        }
+        this.RaisePropertyChanged(nameof(IsPlaying));
     }
 
     // ── Command Implementations ────────────────────────────────────────────
 
-    private Task AddCueAtPlayheadAsync() => AddCueAtTimeAsync(CurrentPlayPosition);
+    /// <summary>Adds a new cue at an explicit timestamp and selects it — used by the toolbar /
+    /// A key (snapped playhead), the waveform's "Add cue here", and MixTransitionViewModel's
+    /// "Add cue here" (which loads the track first, then calls this with the clicked time).</summary>
+    public Task AddCueAtTimeAsync(double seconds) => Task.FromResult(AddCueAt(seconds, null));
 
-    /// <summary>Adds a new cue at an explicit timestamp and selects it — used by
-    /// AddCueAtPlayheadCommand (current playhead) and by MixTransitionViewModel's "Add cue here"
-    /// (waveform right-click in the Mix Transition Editor), which loads the track via
-    /// LoadTrackAsync first, then calls this with the clicked time so the new cue is ready to
-    /// manage the moment Cue Forge opens.</summary>
-    public async Task AddCueAtTimeAsync(double seconds)
+    private OrbitCue? AddCueAt(double seconds, int? slot)
     {
-        if (TrackHash is null) return;
+        if (TrackHash is null) return null;
         PushSnapshot();
-        int nextSlot = Enumerable.Range(0, 8).FirstOrDefault(i => WorkingCues.All(c => c.SlotIndex != i), -1);
+        int nextSlot = slot ?? Enumerable.Range(0, 8).Cast<int?>()
+            .FirstOrDefault(i => WorkingCues.All(c => c.IsLoop || c.SlotIndex != i)) ?? -1;
         var cue = new OrbitCue
         {
             Timestamp = Math.Clamp(seconds, 0, TrackDuration),
-            Name = $"Cue {WorkingCues.Count(c => !c.IsLoop) + 1}",
-            Color = "#FFFF00",
+            Name = nextSlot >= 0 ? $"Cue {(char)('A' + nextSlot)}" : $"Memory {MemoryCueCount + 1}",
+            Color = nextSlot >= 0 ? CueColorSwatches[nextSlot % CueColorSwatches.Count] : DefaultCueColor,
             Source = CueSource.User,
             Role = CueRole.Custom,
-            SlotIndex = nextSlot
+            SlotIndex = nextSlot,
+            Confidence = 1.0,
         };
         InsertCueSorted(cue);
         ClearAutoCues(cue);
         SelectedCue = cue;
-        await Task.CompletedTask;
+        SetStatus($"Added {cue.Name} at {CueForgeGrid.FormatTime(cue.Timestamp)}");
+        return cue;
     }
 
     private async Task AutoGenerateCuesAsync()
     {
         if (TrackHash is null) return;
+        if (_libraryService == null || _engineCueService == null) return;
 
         IsGenerating = true;
         try
@@ -955,14 +1308,11 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             if (features is null)
             {
                 _logger.LogWarning("CueForge: no features found for {Hash}", TrackHash);
-                HasCommitError = true;
-                LastCommitMessage = "✗ No analysis data found for this track — analyse it first.";
+                SetStatus("No analysis data for this track. Analyse it from the Library first.", isError: true);
                 return;
             }
 
-            // Reconstruct AnalysisPipelineResult from cached features (fast path — no audio re-decode)
             var analysis = BuildAnalysisResultFromFeatures(features);
-
             double downbeat = features.DownbeatOffsetSeconds > 0 ? features.DownbeatOffsetSeconds : 0.0;
 
             var generatedEntities = _engineCueService.GenerateCues(
@@ -975,41 +1325,35 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
             var userCues = WorkingCues.Where(c => c.Source == CueSource.User).ToList();
             PushSnapshot();
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            await _ui(() =>
             {
-                WorkingCues.Clear();
-                foreach (var e in generatedEntities)
-                    WorkingCues.Add(EntityToOrbitCue(e));
-                // Re-merge user cues that don't conflict with auto cues
+                var merged = generatedEntities.Select(OrbitCue.FromEntity).ToList();
                 foreach (var u in userCues)
                 {
-                    bool conflicts = WorkingCues.Any(c => !c.IsLoop && Math.Abs(c.Timestamp - u.Timestamp) < 1.0);
-                    if (!conflicts) InsertCueSorted(u);
+                    bool conflicts = merged.Any(c => !c.IsLoop && Math.Abs(c.Timestamp - u.Timestamp) < 1.0);
+                    if (!conflicts) merged.Add(u);
                 }
+                ReplaceWorkingCues(merged.OrderBy(c => c.Timestamp).ToList());
                 AssignSlotsByRolePriority();
                 ApplyRekordboxColors();
+                RefreshHotCuePads();
             });
 
             _logger.LogInformation("CueForge: generated {Count} cues", generatedEntities.Count);
-            HasCommitError = false;
-            LastCommitMessage = "";
+            SetStatus($"Generated {generatedEntities.Count} cues. Your own cues were kept. Ctrl+Z to undo.");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "CueForge: auto-generate failed for {Hash}", TrackHash);
-            HasCommitError = true;
-            LastCommitMessage = "✗ Auto-generate failed — working cues unchanged. Check logs.";
+            SetStatus("Auto-generate failed; your cues are unchanged. See the log for details.", isError: true);
         }
         finally { IsGenerating = false; }
     }
 
-
-    // Unlike Discard Changes (which also wipes the undo/redo stacks and is genuinely
-    // unrecoverable), a single cue delete stays on the undo stack — a blocking confirm dialog
-    // would just be friction for a reversible action. Surface the Ctrl+Z path instead of gating it.
-    private async Task DeleteCueAsync(OrbitCue cue)
+    // A single delete is undoable, so no confirm dialog — the status line points at Ctrl+Z instead.
+    private void DeleteCue(OrbitCue? cue)
     {
-        if (TrackHash is null) return;
+        if (TrackHash is null || cue == null || !WorkingCues.Contains(cue)) return;
         PushSnapshot();
         double? outBefore = cue.Role == CueRole.Drop ? OutBefore() : null;
         WorkingCues.Remove(cue);
@@ -1018,112 +1362,125 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             var left = Engine.Cueing.DropCountdownCues.RemoveFor(WorkingCues, cue.Timestamp, DropBpm);
             ReplaceWorkingCues(Engine.Cueing.DropCountdownCues.Refresh(left, CountdownBars, DropBpm, _downbeat, TrackDuration, outBefore));
         }
-        HasCommitError = false;
-        LastCommitMessage = $"Deleted \"{cue.Name}\" — Ctrl+Z to undo";
-        await Task.CompletedTask;
+        if (cue.IsLoop && IsAuditioningLoop && ActiveLoop == null) IsAuditioningLoop = false;
+        SetStatus($"Deleted \"{cue.Name}\". Ctrl+Z to undo.");
     }
 
-    private async Task SetLoopInAsync()
+    private void SetLoopIn()
     {
-        LoopInSeconds = CurrentPlayPosition;
-        if (LoopOutSeconds.HasValue && LoopOutSeconds <= LoopInSeconds)
+        if (TrackHash is null) return;
+        PendingLoopIn = SnapTime(CurrentPlayPosition);
+    }
+
+    private void SetLoopOut()
+    {
+        if (TrackHash is null) return;
+        double outAt = SnapTime(CurrentPlayPosition);
+        if (PendingLoopIn is { } inAt)
         {
-            LoopOutSeconds = null;
-            IsAuditioningLoop = false;
+            PendingLoopIn = null;
+            if (outAt <= inAt) outAt = Math.Min(TrackDuration, inAt + BeatSeconds);
+            CreateLoop(inAt, outAt);
+            return;
         }
-        await Task.CompletedTask;
-    }
-
-    private async Task SetLoopOutAsync()
-    {
-        if (!LoopInSeconds.HasValue) { LoopInSeconds = Math.Max(0, CurrentPlayPosition - 4.0); }
-        LoopOutSeconds = CurrentPlayPosition;
-        if (LoopOutSeconds <= LoopInSeconds) LoopOutSeconds = LoopInSeconds.Value + 1.0;
-
-        // Materialise as a cue in the working draft
-        PushSnapshot();
-        var existing = WorkingCues.FirstOrDefault(c => c.IsLoop);
-        if (existing is not null) WorkingCues.Remove(existing);
-        WorkingCues.Add(new OrbitCue
+        // No IN pending: move the active loop's end here, or make a one-bar loop ending here.
+        if (ActiveLoop is { } loop && outAt > loop.Timestamp)
         {
-            Timestamp = LoopInSeconds!.Value,
-            LoopEndSeconds = LoopOutSeconds.Value,
-            IsLoop = true, Name = FormatLoopLength(LoopInSeconds.Value, LoopOutSeconds.Value),
-            Color = "#00FF88", Source = CueSource.User, Role = CueRole.Custom
-        });
-        await Task.CompletedTask;
+            PushSnapshot();
+            loop.LoopEndSeconds = outAt;
+            loop.Name = FormatLoopLength(loop.Timestamp, outAt);
+            MarkCueFieldEdited(loop);
+            return;
+        }
+        CreateLoop(Math.Max(0, outAt - BarSeconds), outAt);
     }
 
-    private void HalveLoop()
-    {
-        var loop = WorkingCues.FirstOrDefault(c => c.IsLoop);
-        if (loop is null || !LoopInSeconds.HasValue || !LoopOutSeconds.HasValue) return;
-        double mid = LoopInSeconds.Value + (LoopOutSeconds.Value - LoopInSeconds.Value) / 2;
-        LoopOutSeconds = mid; loop.LoopEndSeconds = mid;
-        loop.Name = FormatLoopLength(LoopInSeconds.Value, mid);
-    }
+    private double BeatSeconds => GridBpm > 0 ? 60.0 / GridBpm : 0.5;
+    private double BarSeconds => BeatSeconds * 4;
 
-    private void DoubleLoop()
+    private OrbitCue CreateLoop(double inAt, double outAt)
     {
-        var loop = WorkingCues.FirstOrDefault(c => c.IsLoop);
-        if (loop is null || !LoopInSeconds.HasValue || !LoopOutSeconds.HasValue) return;
-        double extended = LoopInSeconds.Value + (LoopOutSeconds.Value - LoopInSeconds.Value) * 2;
-        extended = Math.Min(extended, TrackDuration);
-        LoopOutSeconds = extended; loop.LoopEndSeconds = extended;
-        loop.Name = FormatLoopLength(LoopInSeconds.Value, extended);
-    }
-
-    private void PinLoopStartAsCue()
-    {
-        if (!LoopInSeconds.HasValue || TrackHash is null) return;
         PushSnapshot();
-        InsertCueSorted(new OrbitCue
+        var loop = new OrbitCue
         {
-            Timestamp = LoopInSeconds.Value,
-            Name = "Loop Pin",
-            Color = "#00FF88",
+            Timestamp = inAt,
+            LoopEndSeconds = Math.Min(outAt, TrackDuration),
+            IsLoop = true,
+            Name = FormatLoopLength(inAt, outAt),
+            Color = LoopColor,
             Source = CueSource.User,
             Role = CueRole.Custom,
-            SlotIndex = -1,
+            SlotIndex = -1, // memory loop; never steals hot cue pad A
             Confidence = 1.0,
-        });
+        };
+        InsertCueSorted(loop);
+        SelectedCue = loop;
+        SetStatus($"Loop {loop.Name} at {CueForgeGrid.FormatTime(inAt)}");
+        return loop;
     }
 
-    private async Task ClearLoopAsync()
+    private void ScaleLoop(double factor)
     {
-        var loop = WorkingCues.FirstOrDefault(c => c.IsLoop);
+        var loop = ActiveLoop;
+        if (loop is null || TrackHash is null) return;
+        double len = (loop.LoopEndSeconds - loop.Timestamp) * factor;
+        if (len < BeatSeconds / 4) return;
+        PushSnapshot();
+        loop.LoopEndSeconds = Math.Min(loop.Timestamp + len, TrackDuration);
+        loop.Name = FormatLoopLength(loop.Timestamp, loop.LoopEndSeconds);
+        MarkCueFieldEdited(loop);
+    }
+
+    private void ClearLoop()
+    {
+        var loop = ActiveLoop;
         if (loop is null) return;
-        PushSnapshot(); WorkingCues.Remove(loop);
-        LoopInSeconds = null; LoopOutSeconds = null;
         IsAuditioningLoop = false;
-        await Task.CompletedTask;
+        DeleteCue(loop);
+    }
+
+    /// <summary>1/2/4/8/16-bar loop: resizes the selected loop, otherwise starts a new loop at the
+    /// selected cue (or the snapped playhead).</summary>
+    private void SetQuickLoop(int bars)
+    {
+        if (TrackHash is null || bars <= 0) return;
+        double length = BarSeconds * bars;
+        if (SelectedCue is { IsLoop: true } loop)
+        {
+            PushSnapshot();
+            loop.LoopEndSeconds = Math.Min(loop.Timestamp + length, TrackDuration);
+            loop.Name = FormatLoopLength(loop.Timestamp, loop.LoopEndSeconds);
+            MarkCueFieldEdited(loop);
+            return;
+        }
+        double start = SelectedCue is { IsLoop: false } cue ? cue.Timestamp : SnapTime(CurrentPlayPosition);
+        CreateLoop(start, Math.Min(start + length, TrackDuration));
     }
 
     private async Task CommitChangesAsync()
     {
         if (TrackHash is null) return;
-        _logger.LogInformation("CueForge: committing {Count} cues for {Hash}", WorkingCues.Count, TrackHash);
+        var hash = TrackHash;
+        _logger.LogInformation("CueForge: saving {Count} cues for {Hash}", WorkingCues.Count, hash);
         try
         {
-            await _cueService.DeleteAllByTrackIdAsync(TrackHash);
+            var entities = WorkingCues.Select(c => c.ToEntity(hash)).ToList();
+            await _cueService.DeleteAllByTrackIdAsync(hash);
+            if (entities.Count > 0)
+                await _cueService.CreateManyAsync(entities);
             int hotCount = WorkingCues.Count(c => !c.IsLoop && c.SlotIndex >= 0);
             int memCount = WorkingCues.Count(c => !c.IsLoop && c.SlotIndex < 0);
             int loopCount = WorkingCues.Count(c => c.IsLoop);
-            if (WorkingCues.Count > 0)
-                await _cueService.CreateManyAsync(WorkingCues.Select((c, i) => OrbitCueToEntity(c, TrackHash, i)).ToList());
             HasUncommittedChanges = false;
-            HasCommitError = false;
-            LastCommitMessage = $"✓ Saved — {hotCount} hot cue{(hotCount != 1 ? "s" : "")}" +
+            SetStatus($"Saved {hotCount} hot cue{(hotCount != 1 ? "s" : "")}" +
                 (memCount > 0 ? $", {memCount} memory" : "") +
-                (loopCount > 0 ? $", {loopCount} loop" : "");
+                (loopCount > 0 ? $", {loopCount} loop{(loopCount != 1 ? "s" : "")}" : ""));
         }
         catch (Exception ex)
         {
-            // WorkingCues is left untouched (working draft isolation) so nothing is lost —
-            // the user can retry Commit once the underlying issue (DB locked, disk full) clears.
-            _logger.LogError(ex, "CueForge: commit failed for {Hash}", TrackHash);
-            HasCommitError = true;
-            LastCommitMessage = "✗ Save failed — cues were NOT written. Check logs and retry.";
+            // WorkingCues is left untouched so nothing is lost; the user can retry.
+            _logger.LogError(ex, "CueForge: commit failed for {Hash}", hash);
+            SetStatus("Save failed; your cues were NOT written. See the log, then try again.", isError: true);
         }
     }
 
@@ -1131,67 +1488,61 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     {
         if (TrackHash is null) return;
 
-        // Unlike Delete Cue (recoverable via Undo), Discard also wipes the undo/redo stacks below
-        // — on a genuinely dirty session this is unrecoverable, so confirm before doing it.
-        var confirmed = await _dialogService.ConfirmAsync(
-            "Discard Changes",
-            "This discards every unsaved cue/loop edit for this track and cannot be undone afterward. Continue?",
-            confirmLabel: "Discard",
-            cancelLabel: "Cancel");
-        if (!confirmed) return;
+        // Revert also wipes the undo stack, so it can't be undone: confirm first.
+        if (_dialogService != null)
+        {
+            var confirmed = await _dialogService.ConfirmAsync(
+                "Revert to saved",
+                "This throws away every unsaved cue and loop edit for this track. It can't be undone. Continue?",
+                confirmLabel: "Revert",
+                cancelLabel: "Cancel");
+            if (!confirmed) return;
+        }
 
         try
         {
             var entities = await _cueService.GetByTrackIdAsync(TrackHash);
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                WorkingCues.Clear();
-                foreach (var e in entities) WorkingCues.Add(EntityToOrbitCue(e));
-            });
-            HasUncommittedChanges = false; _undoStack.Clear(); _redoStack.Clear(); UpdateUndoRedoState();
-            HasCommitError = false;
-            LastCommitMessage = "";
+            await _ui(() => LoadWorkingCuesClean(entities.Select(OrbitCue.FromEntity)));
+            _undoStack.Clear(); _redoStack.Clear(); UpdateUndoRedoState();
+            SetStatus("Reverted to the saved cues.");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "CueForge: discard failed for {Hash}", TrackHash);
-            HasCommitError = true;
-            LastCommitMessage = "✗ Discard failed — working cues left as-is. Check logs.";
+            SetStatus("Revert failed; your working cues were left as they are. See the log.", isError: true);
         }
     }
 
-    private void Undo() { if (_undoStack.Count == 0) return; _redoStack.Push(TakeSnapshot()); RestoreSnapshot(_undoStack.Pop()); UpdateUndoRedoState(); HasUncommittedChanges = true; }
-    private void Redo() { if (_redoStack.Count == 0) return; _undoStack.Push(TakeSnapshot()); RestoreSnapshot(_redoStack.Pop()); UpdateUndoRedoState(); HasUncommittedChanges = true; }
-
-    // ── Snap Helpers ───────────────────────────────────────────────────────
-
-    public double SnapToBeatGrid(double seconds)
+    private void Undo()
     {
-        if (!SnapToGrid || Bpm <= 0) return seconds;
-        double beat = 60.0 / Bpm;
-        double nearest = Math.Round(seconds / beat) * beat;
-        return Math.Abs(seconds - nearest) < SnapThreshold ? nearest : seconds;
+        if (_undoStack.Count == 0) return;
+        _redoStack.Push(TakeSnapshot());
+        var s = _undoStack[^1]; _undoStack.RemoveAt(_undoStack.Count - 1);
+        RestoreSnapshot(s);
+        UpdateUndoRedoState();
+        HasUncommittedChanges = true;
+        SetStatus("Undone.");
     }
 
-    public double SnapToQuantizeGrid(double seconds)
+    private void Redo()
     {
-        int q = GetQuantizeBeatCount();
-        if (q <= 0 || Bpm <= 0) return SnapToBeatGrid(seconds);
-        double grid = 60.0 / Bpm * q;
-        double nearest = Math.Round(seconds / grid) * grid;
-        return Math.Abs(seconds - nearest) < SnapThreshold ? nearest : SnapToBeatGrid(seconds);
+        if (_redoStack.Count == 0) return;
+        _undoStack.Add(TakeSnapshot());
+        RestoreSnapshot(_redoStack.Pop());
+        UpdateUndoRedoState();
+        HasUncommittedChanges = true;
+        SetStatus("Redone.");
     }
 
     // ── Vocal Warning ──────────────────────────────────────────────────────
 
-    private float[]? _vocalCurveForWarning;
-
     private void UpdateVocalWarning()
     {
-        _vocalCurveForWarning ??= VocalDensityCurveData;
-        if (_vocalCurveForWarning is null || _vocalCurveForWarning.Length == 0) { IsInVocalRegion = false; return; }
-        int idx = (int)Math.Clamp(CurrentPlayPosition / TrackDuration * _vocalCurveForWarning.Length, 0, _vocalCurveForWarning.Length - 1);
-        IsInVocalRegion = _vocalCurveForWarning[idx] > 0.4f;
+        // Reads the CURRENT track's curve (it used to cache the first track's curve forever).
+        var curve = VocalDensityCurveData;
+        if (curve is null || curve.Length == 0 || TrackDuration <= 0) { IsInVocalRegion = false; return; }
+        int idx = (int)Math.Clamp(CurrentPlayPosition / TrackDuration * curve.Length, 0, curve.Length - 1);
+        IsInVocalRegion = curve[idx] > 0.4f;
     }
 
     // ── Snapshot / Undo ────────────────────────────────────────────────────
@@ -1199,12 +1550,25 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
     private void PushSnapshot()
     {
         _redoStack.Clear();
-        if (_undoStack.Count >= MaxUndoHistory) { var arr = _undoStack.ToArray(); _undoStack.Clear(); for (int i = arr.Length - 2; i >= 0; i--) _undoStack.Push(arr[i]); }
-        _undoStack.Push(TakeSnapshot()); UpdateUndoRedoState();
+        if (_undoStack.Count >= MaxUndoHistory) _undoStack.RemoveAt(0);
+        _undoStack.Add(TakeSnapshot());
+        UpdateUndoRedoState();
     }
 
-    private OrbitCue[] TakeSnapshot() => WorkingCues.Select(c => new OrbitCue { Timestamp = c.Timestamp, Name = c.Name, Color = c.Color, Source = c.Source, Role = c.Role, SlotIndex = c.SlotIndex, Confidence = c.Confidence, IsLoop = c.IsLoop, LoopEndSeconds = c.LoopEndSeconds }).ToArray();
-    private void RestoreSnapshot(OrbitCue[] s) { WorkingCues.Clear(); foreach (var c in s) WorkingCues.Add(c); }
+    private OrbitCue[] TakeSnapshot() => WorkingCues.Select(c => c.Clone()).ToArray();
+
+    private void RestoreSnapshot(OrbitCue[] s)
+    {
+        var selected = SelectedCue;
+        var restored = s.Select(c => c.Clone()).ToList();
+        ReplaceWorkingCues(restored);
+        if (selected != null)
+            SelectedCue = restored.FirstOrDefault(c => c.IsLoop == selected.IsLoop &&
+                                                       Math.Abs(c.Timestamp - selected.Timestamp) < 0.001 &&
+                                                       c.Name == selected.Name);
+        RefreshHotCuePads();
+    }
+
     private void UpdateUndoRedoState() { CanUndo = _undoStack.Count > 0; CanRedo = _redoStack.Count > 0; }
 
     private void InsertCueSorted(OrbitCue cue)
@@ -1213,68 +1577,53 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         WorkingCues.Insert(idx, cue);
     }
 
+    /// <summary>Keeps the list in time order after a drag/nudge moved a cue past a neighbour.</summary>
+    private void ResortWorkingCues()
+    {
+        for (int i = 0; i < WorkingCues.Count; i++)
+        {
+            int target = i;
+            for (int j = i + 1; j < WorkingCues.Count; j++)
+                if (WorkingCues[j].Timestamp < WorkingCues[target].Timestamp) target = j;
+            if (target != i) WorkingCues.Move(target, i);
+        }
+    }
+
     // ── Fast-path AnalysisPipelineResult reconstruction ────────────────────
 
     // Delegates to Engine.Analysis.AnalysisPipelineResultBuilder, which AnalyzeTrackStructureJob's
     // background pipeline also calls, so both routes score cues against identical signals.
-    // internal (not private) so SLSKDONET.Tests can cover the real/fallback signal wiring
-    // directly, without standing up the full CueForgeViewModel dependency graph.
     internal static Engine.Analysis.AnalysisPipelineResult BuildAnalysisResultFromFeatures(AudioFeaturesEntity f) =>
         Engine.Analysis.AnalysisPipelineResultBuilder.Build(f);
 
-    // ── Model ↔ Entity mapping ─────────────────────────────────────────────
-
-    private static OrbitCue EntityToOrbitCue(CuePointEntity e) => new()
-    {
-        Timestamp = e.TimestampInSeconds, Name = e.Label, Color = e.Color,
-        Source = e.IsAutoGenerated ? CueSource.Auto : CueSource.User,
-        Role = MapEntityType(e.Type), Confidence = e.Confidence,
-        IsLoop = e.IsLoop, LoopEndSeconds = e.LoopEndSeconds, SlotIndex = e.SlotIndex
-    };
-
-    private static CuePointEntity OrbitCueToEntity(OrbitCue c, string hash, int index) => c.ToEntity(hash);
-
-    private static CueRole MapEntityType(CuePointType t) => t switch
-    {
-        CuePointType.Intro => CueRole.Intro, CuePointType.Outro => CueRole.Outro,
-        CuePointType.Drop => CueRole.Drop, CuePointType.Breakdown => CueRole.Breakdown,
-        CuePointType.Build => CueRole.Build, CuePointType.PhraseBoundary => CueRole.PhraseStart,
-        _ => CueRole.Custom
-    };
-
     // ── Utility ────────────────────────────────────────────────────────────
 
-    private static float[]? ParseJsonFloatArray(string? json)
+    private float[]? ParseJsonFloatArray(string? json)
     {
         if (string.IsNullOrWhiteSpace(json) || json == "[]") return null;
-        try { return JsonSerializer.Deserialize<float[]>(json); } catch { return null; }
+        try { return JsonSerializer.Deserialize<float[]>(json); }
+        catch (Exception ex) { _logger.LogWarning(ex, "CueForge: ignoring unreadable curve data"); return null; }
     }
 
-    private static List<PhraseSegment> ParsePhraseSegments(string? json)
+    private List<PhraseSegment> ParsePhraseSegments(string? json)
     {
         if (string.IsNullOrWhiteSpace(json) || json == "[]") return new();
-        try { return JsonSerializer.Deserialize<List<PhraseSegment>>(json) ?? new(); } catch { return new(); }
+        try { return JsonSerializer.Deserialize<List<PhraseSegment>>(json) ?? new(); }
+        catch (Exception ex) { _logger.LogWarning(ex, "CueForge: ignoring unreadable phrase data"); return new(); }
     }
 
     private string FormatLoopLength(double inSec, double outSec)
     {
-        if (Bpm <= 0) return $"{outSec - inSec:F1}s Loop";
-        double bars = (outSec - inSec) / (60.0 / Bpm * 4);
-        return bars < 1 ? $"{bars * 4:F0} beat loop" : $"{bars:F0} bar loop";
+        double len = outSec - inSec;
+        if (GridBpm <= 0) return $"{len.ToString("F1", CultureInfo.InvariantCulture)} s";
+        double beats = len / BeatSeconds;
+        double bars = beats / 4;
+        if (bars >= 1 && Math.Abs(bars - Math.Round(bars)) < 0.05) return $"{Math.Round(bars):F0} bar{(Math.Round(bars) == 1 ? "" : "s")}";
+        if (beats >= 0.9 && Math.Abs(beats - Math.Round(beats)) < 0.05) return $"{Math.Round(beats):F0} beat{(Math.Round(beats) == 1 ? "" : "s")}";
+        return beats < 1 ? $"1/{Math.Round(1 / beats):F0} beat" : $"{len.ToString("F1", CultureInfo.InvariantCulture)} s";
     }
 
     // ── Transport navigation ───────────────────────────────────────────────
-
-    // Seeks the audio player to a position in seconds and updates the visual playhead.
-    // The 30fps subscription from PlayerViewModel.Position will keep CurrentPlayPosition
-    // in sync afterwards, so we only need to trigger the audio seek here.
-    private void SeekToSeconds(double seconds)
-    {
-        seconds = Math.Clamp(seconds, 0, TrackDuration);
-        CurrentPlayPosition = seconds;
-        if (_playerViewModel.LengthMs > 0)
-            _playerViewModel.Seek((float)(seconds * 1000.0 / _playerViewModel.LengthMs));
-    }
 
     private void NavigateToPreviousCue()
     {
@@ -1284,7 +1633,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             .FirstOrDefault();
         if (prev == null) return;
         SelectedCue = prev;
-        SeekToSeconds(prev.Timestamp);
+        SetPlayhead(prev.Timestamp);
     }
 
     private void NavigateToNextCue()
@@ -1295,68 +1644,50 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
             .FirstOrDefault();
         if (next == null) return;
         SelectedCue = next;
-        SeekToSeconds(next.Timestamp);
+        SetPlayhead(next.Timestamp);
     }
 
-    // ── Quick loop ─────────────────────────────────────────────────────────
+    // ── Hot cue pads ───────────────────────────────────────────────────────
 
-    private void SetQuickLoop(int bars)
+    private void TriggerPad(HotCuePadInfo? pad)
     {
-        if (Bpm <= 0 || TrackHash is null) return;
-        double barDuration = 60.0 / Bpm * 4;
-        double loopIn = LoopInSeconds ?? CurrentPlayPosition;
-        double loopOut = Math.Min(loopIn + barDuration * bars, TrackDuration);
-        LoopInSeconds = loopIn;
-        LoopOutSeconds = loopOut;
-
-        PushSnapshot();
-        var existing = WorkingCues.FirstOrDefault(c => c.IsLoop);
-        if (existing != null) WorkingCues.Remove(existing);
-        WorkingCues.Add(new OrbitCue
+        if (pad == null || TrackHash is null) return;
+        if (pad.Cue is { } cue && WorkingCues.Contains(cue))
         {
-            Timestamp = loopIn,
-            LoopEndSeconds = loopOut,
-            IsLoop = true,
-            Name = FormatLoopLength(loopIn, loopOut),
-            Color = "#00FF88",
-            Source = CueSource.User,
-            Role = CueRole.Custom
-        });
+            SelectedCue = cue;
+            _transportCue = cue.Timestamp;
+            PlayFrom(cue.Timestamp);
+            return;
+        }
+        AddCueAt(SnapTime(CurrentPlayPosition), pad.Slot);
     }
 
-    // ── Hot cue pad jump ───────────────────────────────────────────────────
-
-    private void JumpToCue(HotCuePadInfo pad)
+    private void ClearPad(HotCuePadInfo? pad)
     {
-        if (!pad.IsAssigned) return;
-        var cue = WorkingCues.FirstOrDefault(c => c.SlotIndex == pad.Slot && !c.IsLoop);
-        if (cue != null) SeekToSeconds(cue.Timestamp);
+        if (pad?.Cue is not { } cue || TrackHash is null) return;
+        PushSnapshot();
+        cue.SlotIndex = -1;
+        MarkCueFieldEdited(cue);
+        SetStatus($"Pad {pad.PadLabel} cleared; \"{cue.Name}\" is now a memory cue.");
     }
 
     // ── Audition with pre-roll ─────────────────────────────────────────────
 
-    private void AuditionCue(OrbitCue cue)
+    private void AuditionCue(OrbitCue? cue)
     {
-        if (_playerViewModel.LengthMs <= 0) return;
-        double preRoll = Bpm > 0 ? 4.0 * 60.0 / Bpm : 2.0; // 4 beats before cue
-        double seekSec = Math.Max(0, cue.Timestamp - preRoll);
-        _playerViewModel.Seek((float)(seekSec * 1000.0 / _playerViewModel.LengthMs));
-
-        // "Audition" promises to actually play the pre-roll (tooltip: "plays 4 beats before
-        // this cue") — Seek only repositions a paused player, so without this the button did
-        // nothing audible unless playback happened to already be running.
-        if (!_playerViewModel.IsPlaying)
-            _playerViewModel.TogglePlayPauseCommand?.Execute(null);
+        if (cue == null) return;
+        double preRoll = GridBpm > 0 ? 4.0 * 60.0 / GridBpm : 2.0; // 4 beats before cue
+        PlayFrom(Math.Max(0, cue.Timestamp - preRoll));
     }
 
-    // ── Keyboard nudge (±1 beat) ───────────────────────────────────────────
+    // ── Keyboard nudge ─────────────────────────────────────────────────────
 
-    /// <summary>"-1"/"1" (beat, as before), "-bar"/"+bar", "-fine"/"+fine" (10 ms). Every step replays
+    /// <summary>"-1"/"1" or "-beat"/"+beat", "-bar"/"+bar", "-fine"/"+fine" (10 ms). Every step replays
     /// the track from the cue so it can be fine-tuned by ear; a moved Drop takes its countdown cues along.</summary>
     private void NudgeCue(string step)
     {
         if (SelectedCue == null || TrackHash is null) return;
-        double bpm = _preciseBpm > 0 ? _preciseBpm : Bpm;
+        double bpm = GridBpm;
         if (bpm <= 0) return;
         double beat = 60.0 / bpm;
         double delta = step switch
@@ -1370,28 +1701,22 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         PushSnapshot();
         var cue = SelectedCue;
         double from = cue.Timestamp;
-        cue.Timestamp = Math.Clamp(cue.Timestamp + delta, 0, TrackDuration);
+        double moved = Math.Clamp(cue.Timestamp + delta, 0, TrackDuration);
+        if (cue.IsLoop) cue.LoopEndSeconds = Math.Clamp(cue.LoopEndSeconds + (moved - from), 0, TrackDuration);
+        cue.Timestamp = moved;
         bool wasAuto = cue.Source == CueSource.Auto;
         cue.Source = CueSource.User;
         ApplyCueMoved(cue, from, wasAuto);
+        ResortWorkingCues();
         HasUncommittedChanges = true;
         RefreshHotCuePads();
-        PlayFromCue(cue);
+        PlayFrom(cue.Timestamp);
     }
 
     private const double FineNudgeSeconds = 0.010;
 
-    /// <summary>Seeks to the cue itself (no pre-roll) and plays — used on every nudge.</summary>
-    private void PlayFromCue(OrbitCue cue)
-    {
-        if (_playerViewModel.LengthMs <= 0) return;
-        _playerViewModel.Seek((float)(cue.Timestamp * 1000.0 / _playerViewModel.LengthMs));
-        if (!_playerViewModel.IsPlaying) _playerViewModel.TogglePlayPauseCommand?.Execute(null);
-    }
-
     // ── Drop countdowns ────────────────────────────────────────────────────
 
-    private double _preciseBpm;
     private string? _genre;
 
     public static IReadOnlyList<string> DropCountdownModes => Engine.Cueing.DropCountdownCues.Modes;
@@ -1405,7 +1730,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         {
             if (value == DropCountdownMode) return;
             _config.DropCountdownMode = value;
-            try { _configManager.Save(_config); } catch (Exception ex) { _logger.LogWarning(ex, "Couldn't save the cue template"); }
+            try { _configManager?.Save(_config); } catch (Exception ex) { _logger.LogWarning(ex, "Couldn't save the cue template"); }
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(IsCustomTemplate));
         }
@@ -1419,26 +1744,21 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         {
             if (value == CustomCountdownBars) return;
             _config.CustomCountdownBars = value;
-            try { _configManager.Save(_config); } catch (Exception ex) { _logger.LogWarning(ex, "Couldn't save the custom cue template"); }
+            try { _configManager?.Save(_config); } catch (Exception ex) { _logger.LogWarning(ex, "Couldn't save the custom cue template"); }
             this.RaisePropertyChanged();
         }
     }
 
     public bool IsCustomTemplate => DropCountdownMode == Engine.Cueing.DropCountdownCues.Custom;
 
-    public ReactiveCommand<Unit, Unit> SetDropAtPlayheadCommand { get; }
-    /// <summary>Keys 1 / 2: make the playhead Drop 1 or Drop 2.</summary>
-    public ReactiveCommand<int, Unit> SetNumberedDropAtPlayheadCommand { get; }
-
-    private double _downbeat;
     private (OrbitCue? Cue, double From) _dragStart;
-    private double DropBpm => _preciseBpm > 0 ? _preciseBpm : Bpm;
+    private double DropBpm => GridBpm;
     private IReadOnlyList<int> CountdownBars =>
         Engine.Cueing.DropCountdownCues.ResolveBars(DropCountdownMode, _genre, DropBpm, CustomCountdownBars);
 
     /// <summary>
-    /// ◆ Drop / keys D, 1, 2: a drop at the playhead, snapped to the bar, with everything else
-    /// automatic (numbering, build-in cues, pads, [OUT], auto cues removed) — see
+    /// Drop button / key D, Shift+1, Shift+2: a drop at the playhead, snapped to the bar, with
+    /// everything else automatic (numbering, build-in cues, pads, [OUT], auto cues removed) — see
     /// Engine.Cueing.DropCountdownCues.PlaceDrop. One undo step.
     /// </summary>
     private void SetDropAt(double seconds, int? number)
@@ -1455,9 +1775,8 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         SelectedCue = drop;
         HasUncommittedChanges = true;
         RefreshHotCuePads();
-        HasCommitError = false;
-        LastCommitMessage = $"{drop.Name} at {drop.TimestampDisplay}"
-            + (cleared > 0 ? $" · {cleared} auto cue{(cleared == 1 ? "" : "s")} removed — Ctrl+Z to undo" : "");
+        SetStatus($"{drop.Name} at {CueForgeGrid.FormatTime(drop.Timestamp)}"
+            + (cleared > 0 ? $" · {cleared} auto cue{(cleared == 1 ? "" : "s")} removed. Ctrl+Z to undo." : ""));
     }
 
     /// <summary>A cue was dragged or nudged from <paramref name="from"/>. Moving an auto cue takes
@@ -1477,7 +1796,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         var list = Engine.Cueing.DropCountdownCues.WithoutAutoCues(WorkingCues, keep);
         if (list.Count == before) return;
         ReplaceWorkingCues(list);
-        LastCommitMessage = $"{before - list.Count} auto cue{(before - list.Count == 1 ? "" : "s")} removed — your cues take over (Ctrl+Z to undo)";
+        SetStatus($"{before - list.Count} auto cue{(before - list.Count == 1 ? "" : "s")} removed; your cues take over. Ctrl+Z to undo.");
     }
 
     private double? OutBefore(OrbitCue? moved = null, double movedFrom = 0)
@@ -1495,25 +1814,25 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         if (selected != null && cues.Contains(selected)) SelectedCue = selected;
     }
 
-    // ── Cue detail panel edits ──────────────────────────────────────────────
+    // ── Inspector edits ────────────────────────────────────────────────────
 
     private void SetSelectedCueRole(CueRole role)
     {
         if (SelectedCue is null || TrackHash is null) return;
-        PushSnapshot();
         var cue = SelectedCue;
         var previousRole = cue.Role;
-        if (role == CueRole.Drop && previousRole != CueRole.Drop)
+        if (role == previousRole) return;
+        if (role == CueRole.Drop)
         {
-            // Picking Drop as the role = placing a drop: same automation as ◆ Drop.
-            _undoStack.Pop(); UpdateUndoRedoState(); // SetDropAt takes its own snapshot
+            // Picking Drop as the role = placing a drop: same automation as the Drop button.
             SetDropAt(cue.Timestamp, null);
             return;
         }
+        PushSnapshot();
         double? outBefore = previousRole == CueRole.Drop ? OutBefore() : null;
         cue.Role = role;
-        MarkSelectedCueEdited();
-        if (previousRole == CueRole.Drop && role != CueRole.Drop)
+        MarkCueFieldEdited(cue);
+        if (previousRole == CueRole.Drop)
         {
             var left = Engine.Cueing.DropCountdownCues.RemoveFor(WorkingCues, cue.Timestamp, DropBpm);
             ReplaceWorkingCues(Engine.Cueing.DropCountdownCues.Refresh(left, CountdownBars, DropBpm, _downbeat, TrackDuration, outBefore));
@@ -1522,18 +1841,20 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
 
     private void SetSelectedCueColor(string hexColor)
     {
-        if (SelectedCue is null || TrackHash is null) return;
+        if (SelectedCue is null || TrackHash is null || string.IsNullOrWhiteSpace(hexColor)) return;
+        if (string.Equals(SelectedCue.Color, hexColor, StringComparison.OrdinalIgnoreCase)) return;
         PushSnapshot();
         SelectedCue.Color = hexColor;
-        MarkSelectedCueEdited();
+        MarkCueFieldEdited(SelectedCue);
     }
 
     private void SetSelectedCueSlot(int slotIndex)
     {
         if (SelectedCue is null || TrackHash is null || SelectedCue.IsLoop) return;
+        slotIndex = Math.Clamp(slotIndex, -1, 7);
         PushSnapshot();
 
-        // A hot cue slot can only ever hold one cue — clear whoever's already there.
+        // A hot cue slot holds one cue: whoever had it becomes a memory cue.
         if (slotIndex >= 0)
         {
             var priorHolder = WorkingCues.FirstOrDefault(c => !c.IsLoop && c.SlotIndex == slotIndex && c != SelectedCue);
@@ -1541,41 +1862,25 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         }
 
         SelectedCue.SlotIndex = slotIndex;
-        MarkSelectedCueEdited();
-    }
-
-    private void MarkSelectedCueEdited()
-    {
-        if (SelectedCue is null) return;
         MarkCueFieldEdited(SelectedCue);
     }
 
-    /// <summary>
-    /// Flags the session dirty after a direct field edit (rename, recolor, role, slot).
-    /// OrbitCue has no property-changed notification of its own, so — unlike structural
-    /// edits (add/delete/nudge) — these edits can't push a per-keystroke undo snapshot;
-    /// callers that need undo call PushSnapshot() themselves before mutating. This also
-    /// means the cue list's own bindings (Role/SlotLabel/color swatch) won't notice an
-    /// in-place field edit, so re-inserting the same reference forces ItemsControl to
-    /// regenerate that row.
-    /// </summary>
+    /// <summary>Flags the session dirty after a direct field edit (rename, recolour, role, slot) and
+    /// turns the cue into a user cue so auto-analysis never overwrites it. Callers that want the
+    /// edit undoable call PushSnapshot() before mutating.</summary>
     public void MarkCueFieldEdited(OrbitCue cue)
     {
         if (TrackHash is null) return;
         cue.Source = CueSource.User;
         HasUncommittedChanges = true;
-        this.RaisePropertyChanged(nameof(IsExportReady));
         RefreshHotCuePads();
-
-        int idx = WorkingCues.IndexOf(cue);
-        if (idx >= 0) WorkingCues[idx] = cue;
+        RaiseSelectionDerived();
     }
 
     // ── Slot auto-assignment ───────────────────────────────────────────────
 
     private void AssignSlotsByRolePriority()
     {
-        // Clear auto-assigned slots; preserve user-assigned slots
         foreach (var c in WorkingCues.Where(c => c.Source == CueSource.Auto && !c.IsLoop))
             c.SlotIndex = -1;
 
@@ -1585,7 +1890,7 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         {
             foreach (var cue in WorkingCues.Where(c => c.Source == CueSource.Auto && c.Role == role && !c.IsLoop).OrderBy(c => c.Timestamp))
             {
-                while (slot < 8 && WorkingCues.Any(c => c.Source == CueSource.User && c.SlotIndex == slot))
+                while (slot < 8 && WorkingCues.Any(c => c.Source == CueSource.User && !c.IsLoop && c.SlotIndex == slot))
                     slot++;
                 if (slot >= 8) break;
                 cue.SlotIndex = slot++;
@@ -1615,8 +1920,18 @@ public sealed class CueForgeViewModel : ReactiveObject, IDisposable
         _                                       => "#FFFFFF",  // White
     };
 
-    public void Dispose() => _disposables.Dispose();
+    public void Dispose()
+    {
+        WorkingCues.CollectionChanged -= OnWorkingCuesChanged;
+        foreach (var c in _trackedCues) c.PropertyChanged -= OnCuePropertyChanged;
+        _trackedCues.Clear();
+        if (_selectedCue != null) _selectedCue.PropertyChanged -= OnSelectedCuePropertyChanged;
+        _disposables.Dispose();
+    }
 }
 
-/// <summary>A selectable hot-cue-slot option for the cue detail panel (0-7 = A-H, -1 = Memory).</summary>
-public sealed record CueSlotOption(string Label, int Value);
+/// <summary>A selectable hot-cue-slot option for the inspector (0-7 = A-H, -1 = memory cue).</summary>
+public sealed record CueSlotOption(string Label, int Value)
+{
+    public override string ToString() => Label;
+}
