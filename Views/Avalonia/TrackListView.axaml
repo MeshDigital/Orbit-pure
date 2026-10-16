@@ -9,7 +9,7 @@
              xmlns:conv="clr-namespace:SLSKDONET.Views.Avalonia.Converters"
              mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="600"
              x:Class="SLSKDONET.Views.Avalonia.TrackListView"
-             x:DataType="vm:Library.TrackListViewModel">
+             x:DataType="vm:Library.TrackListViewModel" x:CompileBindings="True">
 
     <!-- The "Remove track" context-menu item advertises Delete; this makes that true.
          TextBoxes mark Delete as handled, so typing in the search box is unaffected.
@@ -389,7 +389,7 @@
 
                             <!-- Queue (hover) -->
                             <Button Grid.Column="1" Classes="icon small row-action"
-                                    Command="{Binding $parent[UserControl].DataContext.Operations.AddToQueueCommand}"
+                                    Command="{ReflectionBinding $parent[UserControl].DataContext.Operations.AddToQueueCommand}"
                                     CommandParameter="{Binding}"
                                     HorizontalAlignment="Left" Margin="8,0,0,0"
                                     ToolTip.Tip="Add to queue (or the selected tracks)">
@@ -398,7 +398,7 @@
 
                             <!-- Smart insert (hover): add a track that fits between this row and the next. -->
                             <Button Grid.Column="2" Classes="icon small row-action insert-affordance"
-                                    Command="{Binding $parent[views:LibraryPage].DataContext.PrepareSmartInsertAfterTrackCommand}"
+                                    Command="{ReflectionBinding $parent[views:LibraryPage].DataContext.PrepareSmartInsertAfterTrackCommand}"
                                     CommandParameter="{Binding}"
                                     HorizontalAlignment="Left"
                                     ToolTip.Tip="Find a track that fits between this row and the next">
@@ -412,7 +412,7 @@
                                        VerticalAlignment="Center" Foreground="{StaticResource BrushText0}" FontWeight="Medium" TextTrimming="CharacterEllipsis"/>
 
                             <!-- Energy contour (analysed audio) -->
-                            <Panel Grid.Column="5" Width="90" IsVisible="{Binding $parent[UserControl].DataContext.ShowEnergyColumn}">
+                            <Panel Grid.Column="5" Width="90" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowEnergyColumn}">
                                 <controls:SparklineControl
                                     Points="{Binding EnergyCurvePoints}"
                                     LineBrush="{StaticResource BrushAccent}"
@@ -439,14 +439,14 @@
                             </StackPanel>
 
                             <!-- Quality tier badge: format + bitrate -->
-                            <Panel Grid.Column="7" Width="100" IsVisible="{Binding $parent[UserControl].DataContext.ShowFormatColumn}">
+                            <Panel Grid.Column="7" Width="100" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowFormatColumn}">
                                 <Border Classes="tier" Classes.lossless="{Binding IsTierLossless}" Classes.low="{Binding IsTierLowBitrate}" Margin="12,0">
                                     <TextBlock Text="{Binding QualityBadgeText}" Classes="mono" FontSize="{StaticResource TextSizeCaption}"/>
                                 </Border>
                             </Panel>
 
                             <!-- Forensics verdict: status dot + word; the full report is in the tooltip -->
-                            <Panel Grid.Column="8" Width="120" IsVisible="{Binding $parent[UserControl].DataContext.ShowForensicsColumn}">
+                            <Panel Grid.Column="8" Width="120" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowForensicsColumn}">
                                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="12,0" VerticalAlignment="Center" Background="Transparent"
                                             ToolTip.Tip="{Binding ForensicHudText}">
                                     <Ellipse Classes="status-dot" Classes.success="{Binding IsIntegrityTrusted}" Classes.warning="{Binding IsIntegritySuspicious}"/>
@@ -454,13 +454,13 @@
                                 </StackPanel>
                             </Panel>
 
-                            <Panel Grid.Column="9" Width="80" IsVisible="{Binding $parent[UserControl].DataContext.ShowDurationColumn}">
+                            <Panel Grid.Column="9" Width="80" IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowDurationColumn}">
                                 <TextBlock Text="{Binding DurationDisplay}" Classes="mono" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0"/>
                             </Panel>
 
                             <!-- Rating + like -->
                             <StackPanel Grid.Column="10" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="12,0" Width="60"
-                                        IsVisible="{Binding $parent[UserControl].DataContext.ShowRatingColumn}">
+                                        IsVisible="{ReflectionBinding $parent[UserControl].DataContext.ShowRatingColumn}">
                                 <controls:StarRatingControl Rating="{Binding Rating, Mode=TwoWay}" StarSize="11"/>
                                 <ToggleButton IsChecked="{Binding IsLiked, Mode=TwoWay}"
                                               Background="Transparent" BorderThickness="0" Padding="0" Cursor="Hand"
@@ -476,7 +476,7 @@
                         <!-- Mix transition badge between this row and the next (Mix mode). -->
                         <Button Grid.Row="1"
                                 IsVisible="{Binding ShowMixTransitionBadge}"
-                                Command="{Binding $parent[UserControl].DataContext.OpenMixTransitionCommand}"
+                                Command="{ReflectionBinding $parent[UserControl].DataContext.OpenMixTransitionCommand}"
                                 CommandParameter="{Binding}"
                                 Margin="60,0,0,8" Padding="8,2"
                                 CornerRadius="{StaticResource RadiusSm}"

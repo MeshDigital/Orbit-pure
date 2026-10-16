@@ -12,7 +12,7 @@
              xmlns:ia="clr-namespace:Avalonia.Xaml.Interactions.Core;assembly=Avalonia.Xaml.Interactions"
              mc:Ignorable="d"
              x:Class="SLSKDONET.Views.Avalonia.LibraryPage"
-             x:DataType="vm:LibraryViewModel"
+             x:DataType="vm:LibraryViewModel" x:CompileBindings="True"
              Background="{StaticResource BrushBg1}" Foreground="{StaticResource BrushText0}">
 
     <UserControl.Resources>
@@ -228,14 +228,14 @@
                                                     <Border.ContextMenu>
                                                         <ContextMenu>
                                                             <MenuItem Header="New subfolder"
-                                                                      Command="{Binding $parent[UserControl].DataContext.Projects.CreateSubfolderCommand}"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.Projects.CreateSubfolderCommand}"
                                                                       CommandParameter="{ReflectionBinding}"/>
                                                             <MenuItem Header="Rename folder"
-                                                                      Command="{Binding $parent[UserControl].DataContext.Projects.RenameFolderCommand}"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.Projects.RenameFolderCommand}"
                                                                       CommandParameter="{ReflectionBinding}"/>
                                                             <Separator/>
                                                             <MenuItem Header="Delete folder"
-                                                                      Command="{Binding $parent[UserControl].DataContext.Projects.DeleteFolderCommand}"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.Projects.DeleteFolderCommand}"
                                                                       CommandParameter="{ReflectionBinding}"/>
                                                         </ContextMenu>
                                                     </Border.ContextMenu>
@@ -253,51 +253,51 @@
                                                         <ContextMenu>
                                                             <MenuItem Header="Download missing tracks">
                                                                 <MenuItem Header="Normal: join the queue"
-                                                                          Command="{Binding $parent[UserControl].DataContext.DownloadPlaylistNormalCommand}"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.DownloadPlaylistNormalCommand}"
                                                                           CommandParameter="{Binding Card.Model}"/>
                                                                 <MenuItem Header="High: ahead of normal"
-                                                                          Command="{Binding $parent[UserControl].DataContext.DownloadPlaylistHighCommand}"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.DownloadPlaylistHighCommand}"
                                                                           CommandParameter="{Binding Card.Model}"/>
                                                                 <MenuItem Header="Critical: jump to the front"
-                                                                          Command="{Binding $parent[UserControl].DataContext.DownloadPlaylistCriticalCommand}"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.DownloadPlaylistCriticalCommand}"
                                                                           CommandParameter="{Binding Card.Model}"/>
                                                             </MenuItem>
                                                             <MenuItem Header="Check for new tracks"
-                                                                      Command="{Binding $parent[UserControl].DataContext.SyncProjectCommand}"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.SyncProjectCommand}"
                                                                       CommandParameter="{Binding Card.Model}"
                                                                       IsVisible="{Binding Card.Model.SourceUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                                                       ToolTip.Tip="Spotify playlists re-fetch automatically. Pasted tracklists open their source page so you can re-paste the current list."/>
                                                             <Separator/>
                                                             <MenuItem Header="Regenerate cues"
-                                                                      Command="{Binding $parent[UserControl].DataContext.Projects.GenerateCuesCommand}"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.Projects.GenerateCuesCommand}"
                                                                       CommandParameter="{Binding Card.Model}"
                                                                       ToolTip.Tip="Re-maps cue points from this playlist's analysed tracks. Fast, no re-analysis."/>
                                                             <MenuItem Header="Regenerate cues (selected playlists)"
-                                                                      Command="{Binding $parent[UserControl].DataContext.Projects.GenerateCuesForSelectedPlaylistsCommand}"
-                                                                      IsVisible="{Binding $parent[UserControl].DataContext.Projects.HasMultiplePlaylistsSelected}"/>
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.Projects.GenerateCuesForSelectedPlaylistsCommand}"
+                                                                      IsVisible="{ReflectionBinding $parent[UserControl].DataContext.Projects.HasMultiplePlaylistsSelected}"/>
                                                             <MenuItem Header="Auto-arrange by similarity"
-                                                                      Command="{Binding $parent[UserControl].DataContext.AutoArrangePlaylistCommand}"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.AutoArrangePlaylistCommand}"
                                                                       CommandParameter="{Binding Card.Model}"
                                                                       ToolTip.Tip="Reorders tracks by similarity and double-drop compatibility (harmonic + tempo)"/>
                                                             <MenuItem Header="Combine into new playlist…"
-                                                                      Command="{Binding $parent[UserControl].DataContext.CombineSelectedPlaylistsCommand}"
-                                                                      IsEnabled="{Binding $parent[UserControl].DataContext.Projects.HasMultiplePlaylistsSelected}"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.CombineSelectedPlaylistsCommand}"
+                                                                      IsEnabled="{ReflectionBinding $parent[UserControl].DataContext.Projects.HasMultiplePlaylistsSelected}"
                                                                       ToolTip.Tip="Select 2+ playlists (Ctrl/Shift-click) to combine their tracks into a new, auto-arranged playlist"/>
                                                             <MenuItem Header="Export">
                                                                 <MenuItem Header="Rekordbox XML…"
-                                                                          Command="{Binding $parent[UserControl].DataContext.ExportPlaylistCommand}"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.ExportPlaylistCommand}"
                                                                           CommandParameter="{Binding Card.Model}"/>
                                                                 <MenuItem Header="M3U8 playlist…"
-                                                                          Command="{Binding $parent[UserControl].DataContext.ExportPlaylistM3uCommand}"
+                                                                          Command="{ReflectionBinding $parent[UserControl].DataContext.ExportPlaylistM3uCommand}"
                                                                           CommandParameter="{Binding Card.Model}"
                                                                           ToolTip.Tip="Track order and file paths only (no cues or beatgrid). Opens in Rekordbox and most players."/>
                                                             </MenuItem>
                                                             <Separator/>
                                                             <MenuItem Header="Rename playlist"
-                                                                      Command="{Binding $parent[UserControl].DataContext.RenameProjectCommand}"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.RenameProjectCommand}"
                                                                       CommandParameter="{Binding Card.Model}"/>
                                                             <MenuItem Header="Remove playlist from list"
-                                                                      Command="{Binding $parent[UserControl].DataContext.DeleteProjectCommand}"
+                                                                      Command="{ReflectionBinding $parent[UserControl].DataContext.DeleteProjectCommand}"
                                                                       CommandParameter="{Binding Card.Model}"
                                                                       ToolTip.Tip="Restorable from Library tools → Recently deleted playlists"/>
                                                         </ContextMenu>
@@ -336,7 +336,7 @@
                                         <Border Classes="saved-double">
                                             <Grid ColumnDefinitions="*,Auto">
                                                 <Button Grid.Column="0" Classes="ghost"
-                                                        Command="{Binding $parent[UserControl].DataContext.ActivateSavedDoubleCommand}"
+                                                        Command="{ReflectionBinding $parent[UserControl].DataContext.ActivateSavedDoubleCommand}"
                                                         CommandParameter="{Binding}"
                                                         Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                                                         ToolTip.Tip="Select both tracks">
@@ -346,7 +346,7 @@
                                                     </StackPanel>
                                                 </Button>
                                                 <Button Grid.Column="1" Classes="icon small remove"
-                                                        Command="{Binding $parent[UserControl].DataContext.RemoveSavedDoubleCommand}"
+                                                        Command="{ReflectionBinding $parent[UserControl].DataContext.RemoveSavedDoubleCommand}"
                                                         CommandParameter="{Binding}" VerticalAlignment="Center"
                                                         ToolTip.Tip="Remove this saved pair">
                                                     <PathIcon Data="{StaticResource icon_close}" Width="12" Height="12"/>
@@ -427,8 +427,8 @@
                 <ContentControl.DataTemplates>
                     <DataTemplate DataType="vm:Library.TrackListViewModel">
                         <Grid>
-                            <views:TrackListView IsVisible="{Binding !$parent[views:LibraryPage].DataContext.UseNewPlaylistSurface}"/>
-                            <controls:LibraryPlaylistTrackSurface IsVisible="{Binding $parent[views:LibraryPage].DataContext.UseNewPlaylistSurface}"/>
+                            <views:TrackListView IsVisible="{ReflectionBinding !$parent[views:LibraryPage].DataContext.UseNewPlaylistSurface}"/>
+                            <controls:LibraryPlaylistTrackSurface IsVisible="{ReflectionBinding $parent[views:LibraryPage].DataContext.UseNewPlaylistSurface}"/>
                         </Grid>
                     </DataTemplate>
                 </ContentControl.DataTemplates>
@@ -442,7 +442,7 @@
          side panel; the ScrollViewer is the fallback for very narrow windows. -->
     <Border IsVisible="{Binding Tracks.HasSelectedTracks}"
             VerticalAlignment="Bottom" HorizontalAlignment="Center"
-            MaxWidth="{Binding #RootPanel.Bounds.Width}"
+            MaxWidth="{ReflectionBinding #RootPanel.Bounds.Width}"
             Background="{StaticResource BrushBg3}" BorderBrush="{StaticResource BrushBorder1}" BorderThickness="1"
             CornerRadius="{StaticResource RadiusLg}" BoxShadow="{StaticResource ShadowLg}"
             Padding="12,8" Margin="16,0,16,24" ZIndex="100">
@@ -522,7 +522,7 @@
                                             </TextBlock>
                                         </StackPanel>
                                         <Button Grid.Column="1" Classes="secondary small" Content="Restore"
-                                                Command="{Binding $parent[UserControl].DataContext.RestoreProjectCommand}"
+                                                Command="{ReflectionBinding $parent[UserControl].DataContext.RestoreProjectCommand}"
                                                 CommandParameter="{Binding}"/>
                                     </Grid>
                                 </Border>
@@ -624,7 +624,7 @@
                                             </TextBlock>
                                         </StackPanel>
                                         <Button Grid.Column="1" Classes="secondary small" Content="Re-import"
-                                                Command="{Binding $parent[UserControl].DataContext.ImportHistoryViewModel.ReImportCommand}"
+                                                Command="{ReflectionBinding $parent[UserControl].DataContext.ImportHistoryViewModel.ReImportCommand}"
                                                 CommandParameter="{Binding}"
                                                 ToolTip.Tip="Re-queue missing and failed tracks from this playlist"/>
                                     </Grid>
