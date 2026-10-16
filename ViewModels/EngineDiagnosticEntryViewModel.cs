@@ -35,13 +35,4 @@ public class EngineDiagnosticEntryViewModel
 
     public string TimeLabel => Timestamp.ToString("HH:mm:ss");
 
-    public string EventTypeColor => EventType switch
-    {
-        EngineDiagnosticEventType.ImportLine => "#D7BA7D",
-        EngineDiagnosticEventType.TracksAddedToPlaylist => "#9CDCFE",
-        EngineDiagnosticEventType.SearchDispatched => "#00D4FF",
-        EngineDiagnosticEventType.SearchCandidateEvaluated => "#C586C0",
-        EngineDiagnosticEventType.SearchResolved => "#4EC9B0",
-        _ => "#888",
-    };
 }

@@ -140,8 +140,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
                 SaveSettings();
                 // Reflect toggle change in share state immediately
                 _ = Task.Run(() => _soulseek.RefreshShareStateAsync());
-                OnPropertyChanged(nameof(ShareStatusSummary));
-                OnPropertyChanged(nameof(ShareStatusColor));
+                RaiseShareStatusChanged();
             }
         }
     }
@@ -596,20 +595,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             if (_config.WaveformShowPhraseSections != value)
             {
                 _config.WaveformShowPhraseSections = value;
-                OnPropertyChanged();
-                SaveSettings();
-            }
-        }
-    }
-
-    public bool WaveformShowBeatGrid
-    {
-        get => _config.WaveformShowBeatGrid;
-        set
-        {
-            if (_config.WaveformShowBeatGrid != value)
-            {
-                _config.WaveformShowBeatGrid = value;
                 OnPropertyChanged();
                 SaveSettings();
             }
@@ -1246,7 +1231,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             Id = "Quality First",
             Title = "Audiophile",
             Description = "Prioritizes lossless, high-bitrate, and perfect rips. No compromises.",
-            Icon = "🎧",
             IsSelected = _config.RankingProfile == "Quality First"
         });
 
@@ -1255,7 +1239,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             Id = "Balanced",
             Title = "Balanced",
             Description = "The best mix of quality, speed, and metadata accuracy. Recommended.",
-            Icon = "⚖️",
             IsSelected = _config.RankingProfile == "Balanced" || string.IsNullOrEmpty(_config.RankingProfile)
         });
 
@@ -1264,7 +1247,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
             Id = "DJ Mode",
             Title = "DJ Ready",
             Description = "Prioritizes BPM, Key, and mix-friendly files (Extended Mixes).",
-            Icon = "🎛️",
             IsSelected = _config.RankingProfile == "DJ Mode"
         });
 
@@ -1325,9 +1307,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         IsSpotifyConnecting = newState == SpotifyAuthStatus.Connecting;
         IsSpotifyConnected = newState == SpotifyAuthStatus.Connected;
         
-        OnPropertyChanged(nameof(SpotifyStatusColor));
-        OnPropertyChanged(nameof(SpotifyStatusIcon));
-        
         // Refresh commands
         (ConnectSpotifyCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (DisconnectSpotifyCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
@@ -1359,10 +1338,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         get => _isSpotifyConnected;
         set => SetProperty(ref _isSpotifyConnected, value);
     }
-
-    // SSO State (Legacy compat where needed, but driven by State now)
-    public string SpotifyStatusColor => IsSpotifyConnected ? "#1DB954" : (IsSpotifyConnecting ? "#FFB900" : "#333333");
-    public string SpotifyStatusIcon => IsSpotifyConnected ? "✓" : (IsSpotifyConnecting ? "⏳" : "🚫");
 
 
 
@@ -1479,6 +1454,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand RevokeAndReAuthCommand { get; }
     public ICommand RestartSpotifyAuthCommand { get; }
     public ICommand CheckFfmpegCommand { get; } // Phase 8: Dependency validation
+    public ICommand OpenFfmpegDownloadPageCommand { get; }
     public ICommand ResetDatabaseCommand { get; }
     public ICommand BackupLibraryNowCommand { get; }
     public ICommand OpenBackupsFolderCommand { get; }
@@ -1566,13 +1542,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public bool IsFfmpegInstalled
     {
         get => _isFfmpegInstalled;
-        set
-        {
-            if (SetProperty(ref _isFfmpegInstalled, value))
-            {
-                OnPropertyChanged(nameof(FfmpegBorderColor));
-            }
-        }
+        set => SetProperty(ref _isFfmpegInstalled, value);
     }
 
     private string _ffmpegStatus = "Checking...";
@@ -1588,8 +1558,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         get => _ffmpegVersion;
         set => SetProperty(ref _ffmpegVersion, value);
     }
-
-    public string FfmpegBorderColor => IsFfmpegInstalled ? "#1DB954" : "#FFA500";
 
     // Phase 6: Security Audit Feed
     private const int AuditFeedMaxEntries = 100;
@@ -1777,12 +1745,22 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
     public int ShareFileCount
     {
         get => _shareFileCount;
-        private set { _shareFileCount = value; OnPropertyChanged(); OnPropertyChanged(nameof(ShareStatusSummary)); OnPropertyChanged(nameof(ShareStatusColor)); }
+        private set { _shareFileCount = value; OnPropertyChanged(); RaiseShareStatusChanged(); }
     }
 
-    public string ShareStatusColor => !EnableLibrarySharing ? "#666666" :
-        _shareFileCount == 0 ? "#F44336" :
-        _shareFileCount <  500 ? "#FFA500" : "#1DB954";
+    // Share health drives the status dot on the Settings page (Ellipse.status-dot + Classes.*).
+    // Disabled sharing leaves all three false, which renders the neutral grey dot.
+    public bool ShareIsEmpty   => EnableLibrarySharing && _shareFileCount == 0;
+    public bool ShareIsLow     => EnableLibrarySharing && _shareFileCount is > 0 and < 500;
+    public bool ShareIsHealthy => EnableLibrarySharing && _shareFileCount >= 500;
+
+    private void RaiseShareStatusChanged()
+    {
+        OnPropertyChanged(nameof(ShareStatusSummary));
+        OnPropertyChanged(nameof(ShareIsEmpty));
+        OnPropertyChanged(nameof(ShareIsLow));
+        OnPropertyChanged(nameof(ShareIsHealthy));
+    }
 
     public string ShareStatusSummary => !EnableLibrarySharing
         ? "Sharing is disabled"
@@ -1868,6 +1846,7 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         ClearSpotifyCacheCommand = new AsyncRelayCommand(ClearSpotifyCacheAsync);
         RevokeAndReAuthCommand = new AsyncRelayCommand(RevokeAndReAuthAsync);
         CheckFfmpegCommand = new AsyncRelayCommand(CheckFfmpegAsync); // Phase 8
+        OpenFfmpegDownloadPageCommand = new RelayCommand(OpenFfmpegDownloadPage);
         RestartSpotifyAuthCommand = new AsyncRelayCommand(RestartSpotifyAuthAsync, () => IsSpotifyConnecting);
         ResetDatabaseCommand = new AsyncRelayCommand(ResetDatabaseAsync);
         BackupLibraryNowCommand = new AsyncRelayCommand(BackupLibraryNowAsync);
@@ -2303,6 +2282,20 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to apply Soulseek runtime network configuration after settings save.");
+        }
+    }
+
+    private void OpenFfmpegDownloadPage()
+    {
+        const string url = "https://ffmpeg.org/download.html";
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = url, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not open the FFmpeg download page");
+            _eventBus.Publish(new ToastRequestedEvent("Couldn't open browser", $"Open {url} manually to download FFmpeg.", NotificationType.Warning, TimeSpan.FromSeconds(6)));
         }
     }
 
@@ -2870,22 +2863,6 @@ public class SettingsViewModel : INotifyPropertyChanged, IDisposable
         // Auto-clear status after 3 s
         await Task.Delay(3000);
         DiagnosticsSnapshotStatus = "";
-    }
-
-    // ── Settings help panel ──────────────────────────────────────────────────
-
-    private string _focusedHelpTitle = "Settings";
-    public string FocusedHelpTitle
-    {
-        get => _focusedHelpTitle;
-        set => SetProperty(ref _focusedHelpTitle, value);
-    }
-
-    private string _focusedHelpText = "Hover over or click a field to see context-sensitive guidance here.";
-    public string FocusedHelpText
-    {
-        get => _focusedHelpText;
-        set => SetProperty(ref _focusedHelpText, value);
     }
 
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)

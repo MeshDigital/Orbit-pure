@@ -1462,9 +1462,10 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                     track.UpdateFrom(refreshedTrack);
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore refresh lookup failures; keep status updates flowing below.
+                // Keep status updates flowing below; the row just keeps its previous values.
+                Serilog.Log.Debug(ex, "AnalysisPage: refresh lookup failed for {TrackId}", evt.TrackGlobalId);
             }
         }
 
@@ -1498,9 +1499,10 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                         refreshedTrack.IsInPlaylist = track.IsInPlaylist;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Ignore refresh lookup failures; keep status updates flowing.
+                    // Keep status updates flowing; the row just keeps its previous values.
+                    Serilog.Log.Debug(ex, "AnalysisPage: refresh lookup failed for {TrackId}", evt.TrackGlobalId);
                 }
             }
 
@@ -1952,9 +1954,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore malformed JSON and fall back.
+                Serilog.Log.Debug(ex, "AnalysisPage: malformed energy curve JSON; using fallback");
             }
         }
 
@@ -2006,9 +2008,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore malformed JSON and fall back to synthetic points.
+                Serilog.Log.Debug(ex, "AnalysisPage: malformed curve JSON; using synthetic points");
             }
         }
 
@@ -2044,9 +2046,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
                         .ToList();
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore malformed JSON and use fallback list.
+                Serilog.Log.Debug(ex, "AnalysisPage: malformed genre distribution JSON; using fallback list");
             }
         }
 
@@ -2079,8 +2081,9 @@ public class AnalysisPageViewModel : ReactiveObject, IDisposable
             using var doc = JsonDocument.Parse(cuePointsJson);
             return doc.RootElement.ValueKind == JsonValueKind.Array ? doc.RootElement.GetArrayLength() : 0;
         }
-        catch
+        catch (Exception ex)
         {
+            Serilog.Log.Debug(ex, "AnalysisPage: malformed cue points JSON; counting 0 cues");
             return 0;
         }
     }

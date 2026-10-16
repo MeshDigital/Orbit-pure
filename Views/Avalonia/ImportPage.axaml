@@ -2,341 +2,255 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SLSKDONET.ViewModels"
              mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
              x:Class="SLSKDONET.Views.Avalonia.ImportPage"
-             Background="#0D0D0D">
+             x:DataType="vm:SpotifyImportViewModel"
+             Background="{DynamicResource BrushBg1}">
     <UserControl.KeyBindings>
         <KeyBinding Gesture="Ctrl+Shift+V" Command="{Binding ImportTracklistFromClipboardCommand}"/>
         <KeyBinding Gesture="Ctrl+Enter" Command="{Binding ImportTracklistCommand}"/>
     </UserControl.KeyBindings>
-    
-    <Grid RowDefinitions="Auto,*" Margin="40">
+
+    <UserControl.Styles>
+        <Style Selector="PathIcon">
+            <Setter Property="Width" Value="{StaticResource IconSizeMd}"/>
+            <Setter Property="Height" Value="{StaticResource IconSizeMd}"/>
+        </Style>
+        <Style Selector="StackPanel.import-section">
+            <Setter Property="Spacing" Value="{StaticResource SpaceSm}"/>
+        </Style>
+        <Style Selector="StackPanel.import-section > Border.card">
+            <Setter Property="Padding" Value="16"/>
+        </Style>
+        <!-- Playlist tiles -->
+        <Style Selector="Button.tile">
+            <Setter Property="Width" Value="232"/>
+            <Setter Property="Margin" Value="0,0,8,8"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
+        <!-- CSV drop zone highlight while a file is dragged over it -->
+        <Style Selector="Border#CsvDropZone[Tag=Dragging]">
+            <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+            <Setter Property="Background" Value="{StaticResource BrushAccentSubtle}"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,*">
         <!-- Header -->
-        <StackPanel Grid.Row="0" Margin="0,0,0,32">
-            <TextBlock Text="📥 Import" FontSize="32" FontWeight="Bold" Foreground="White"/>
-            <TextBlock Text="Import playlists from external sources" FontSize="16" Foreground="#A0A0A0" Margin="0,8,0,0"/>
+        <StackPanel Grid.Row="0" Spacing="2" Margin="24,16,24,16">
+            <TextBlock Classes="h1" Text="Import"/>
+            <TextBlock Classes="subtitle" Text="Bring in playlists from Spotify, a pasted tracklist or a CSV file."/>
         </StackPanel>
-        
-        <!-- Import Options Grid -->
+
         <ScrollViewer Grid.Row="1">
-            <StackPanel Spacing="24">
-                
-                <!-- My Spotify Hub -->
-                <Border Background="{DynamicResource RegionBrush}" BorderBrush="#1DB954" BorderThickness="1" CornerRadius="12" Padding="32">
-                    <StackPanel Spacing="20">
-                        <Grid ColumnDefinitions="*,Auto">
-                            <StackPanel Grid.Column="0" Spacing="8">
-                                <TextBlock Text="Spotify Hub" FontSize="24" FontWeight="Bold" Foreground="White"/>
-                                <TextBlock Text="Your personal library, synced." FontSize="14" Foreground="#A0A0A0"/>
-                            </StackPanel>
-                            <Button Grid.Column="1" 
-                                    Command="{Binding ConnectCommand}"
-                                    IsVisible="{Binding !IsAuthenticated}"
-                                    Background="#1DB954" Foreground="White" CornerRadius="20" Padding="16,8">
-                                <TextBlock Text="Connect Account" FontWeight="Bold"/>
-                            </Button>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" IsVisible="{Binding IsAuthenticated}">
-                                <Border Background="#2A2A2A" CornerRadius="16" Padding="12,6">
-                                    <TextBlock Text="Connected" Foreground="#1DB954" FontSize="12" FontWeight="SemiBold"/>
-                                </Border>
-                                <Button Command="{Binding RefreshPlaylistsCommand}" Background="Transparent" Padding="4">
-                                    <TextBlock Text="🔄" FontSize="16"/>
-                                </Button>
-                            </StackPanel>
-                        </Grid>
+            <StackPanel Spacing="{StaticResource SpaceXl}" Margin="24,0,24,24" MaxWidth="880" HorizontalAlignment="Left">
 
-                        <Separator Background="#3E3E3E" Height="1"/>
-
-                        <!-- Liked Songs Quick Action -->
-                        <Button Command="{Binding ImportLikedSongsCommand}"
-                                IsEnabled="{Binding IsAuthenticated}"
-                                Background="#2A2A2A" BorderBrush="#3E3E3E" BorderThickness="1"
-                                HorizontalAlignment="Stretch" Padding="16" CornerRadius="8">
-                            <Grid ColumnDefinitions="Auto,*,Auto">
-                                <TextBlock Grid.Column="0" Text="❤️" FontSize="24" Margin="0,0,16,0"/>
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                    <TextBlock Text="Liked Songs" FontWeight="SemiBold" Foreground="White"/>
-                                    <TextBlock Text="Import your entire library of liked tracks" FontSize="12" Foreground="#888"/>
+                <!-- ── Spotify ─────────────────────────────────────── -->
+                <StackPanel Classes="import-section">
+                    <TextBlock Classes="section" Text="SPOTIFY"/>
+                    <Border Classes="card">
+                        <StackPanel Spacing="16">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <Ellipse Classes="status-dot" Classes.success="{Binding IsAuthenticated}" VerticalAlignment="Center"/>
+                                    <TextBlock Classes="body" Text="Connected" IsVisible="{Binding IsAuthenticated}"/>
+                                    <TextBlock Classes="body" Text="Not connected" IsVisible="{Binding !IsAuthenticated}"/>
                                 </StackPanel>
-                                <TextBlock Grid.Column="2" Text="→" FontSize="20" Foreground="#1DB954" VerticalAlignment="Center"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                    <Button Classes="primary" Command="{Binding ConnectCommand}" IsVisible="{Binding !IsAuthenticated}">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <PathIcon Data="{StaticResource icons_spotify}" Width="{StaticResource IconSizeSm}" Height="{StaticResource IconSizeSm}"/>
+                                            <TextBlock Text="Connect Spotify"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Classes="icon" Command="{Binding RefreshPlaylistsCommand}" IsVisible="{Binding IsAuthenticated}"
+                                            ToolTip.Tip="Refresh playlists">
+                                        <PathIcon Data="{StaticResource icon_sync}"/>
+                                    </Button>
+                                </StackPanel>
                             </Grid>
-                        </Button>
 
-                        <!-- Paste Link Section -->
-                        <Border Background="#121212" BorderBrush="#333" BorderThickness="1" CornerRadius="8" Padding="16">
-                            <StackPanel Spacing="12">
-                                <TextBlock Text="Paste Spotify Link" FontWeight="SemiBold" Foreground="#AAA" FontSize="12"/>
+                            <Border Classes="divider"/>
+
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                <PathIcon Grid.Column="0" Data="{StaticResource icon_heart}" Foreground="{StaticResource BrushText2}"
+                                          VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Classes="body" Text="Liked Songs"/>
+                                    <TextBlock Classes="caption" Text="Every track you have liked on Spotify."/>
+                                </StackPanel>
+                                <Button Grid.Column="2" Classes="secondary" Content="Import"
+                                        Command="{Binding ImportLikedSongsCommand}"
+                                        IsEnabled="{Binding IsAuthenticated}"/>
+                            </Grid>
+
+                            <StackPanel Spacing="4">
+                                <TextBlock Classes="caption" Text="Playlist or album link"/>
                                 <Grid ColumnDefinitions="*,Auto">
-                                    <TextBox Text="{Binding PlaylistUrl, Mode=TwoWay}"
-                                             Watermark="https://open.spotify.com/playlist/... or album/..."
-                                             Background="#1A1A1A"
-                                             BorderThickness="1"
-                                             Padding="12,10"
-                                             CornerRadius="4"
-                                             Margin="0,0,8,0"/>
-                                    <Button Grid.Column="1"
+                                    <TextBox Classes="mono" Text="{Binding PlaylistUrl, Mode=TwoWay}"
+                                             Watermark="https://open.spotify.com/playlist/…" Margin="0,0,8,0"/>
+                                    <Button Grid.Column="1" Classes="secondary" Content="Import"
                                             Command="{Binding LoadPlaylistCommand}"
-                                            IsEnabled="{Binding IsAuthenticated}"
-                                            Background="#1DB954"
-                                            Foreground="Black"
-                                            FontWeight="Bold"
-                                            Padding="20,0"
-                                            VerticalAlignment="Stretch"
-                                            CornerRadius="4">
-                                        <TextBlock Text="Import" VerticalAlignment="Center"/>
-                                    </Button>
+                                            IsEnabled="{Binding IsAuthenticated}"/>
                                 </Grid>
-                                <TextBlock Text="Supports Playlists and Albums" FontSize="10" Foreground="#666"/>
                             </StackPanel>
-                        </Border>
 
-                        <!-- Playlists Section -->
-                        <TextBlock Text="Your Playlists" FontSize="14" FontWeight="SemiBold" Foreground="#AAA" Margin="0,8,0,0"/>
-                        
-                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsLoading}" Height="2"/>
-
-                        <ItemsControl ItemsSource="{Binding UserPlaylists}" MaxHeight="300">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <WrapPanel />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Button Command="{Binding $parent[UserControl].DataContext.ImportPlaylistCommand}"
-                                            CommandParameter="{Binding}"
-                                            Background="#252526" Margin="0,0,12,12" Width="220" Padding="12" CornerRadius="8">
-                                        <Grid ColumnDefinitions="Auto,*">
-                                            <Border Grid.Column="0" Width="40" Height="40" Background="#333" CornerRadius="4" Margin="0,0,12,0">
-                                                <TextBlock Text="♪" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#666"/>
-                                            </Border>
-                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding Name}" FontWeight="Medium" TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Text="{Binding Tracks.Total, StringFormat={}{0} tracks}" FontSize="10" Foreground="#666"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </Button>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </Border>
-                
-                <!-- Ad-hoc / Pasted Tracklist -->
-                <Border Background="{DynamicResource RegionBrush}" BorderBrush="#FFC107" BorderThickness="1" CornerRadius="12" Padding="32">
-                    <StackPanel Spacing="16">
-                        <StackPanel Orientation="Horizontal" Spacing="16">
-                            <TextBlock Text="📋" FontSize="48"/>
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="Ad-hoc Tracklist" FontSize="20" FontWeight="SemiBold" Foreground="White"/>
-                                <TextBlock Text="Paste a list of tracks (e.g. from YouTube, blog, or chat)" FontSize="14" Foreground="#A0A0A0" Margin="0,4,0,0"/>
-                            </StackPanel>
-                        </StackPanel>
-
-                        <Border Background="#121212" BorderBrush="#333" BorderThickness="1" CornerRadius="8" Padding="12">
-                            <StackPanel Spacing="10">
-                                <TextBlock Text="1001Tracklists Quick Import" FontWeight="SemiBold" Foreground="#FFC107" FontSize="12"/>
-                                <TextBlock Text="Open the website, copy the full tracklist block, then import from clipboard." FontSize="11" Foreground="#9A9A9A"/>
-                                <TextBlock Text="Shortcuts: Ctrl+Shift+V paste+import, Ctrl+Enter import" FontSize="10" Foreground="#7E7E7E"/>
-                                <StackPanel Orientation="Horizontal" Spacing="10">
-                                    <Button Command="{Binding OpenTracklistsWebsiteCommand}"
-                                            Background="#2A2A2A"
-                                            BorderBrush="#3E3E3E"
-                                            BorderThickness="1"
-                                            Foreground="White"
-                                            Padding="14,8"
-                                            CornerRadius="6">
-                                        <TextBlock Text="Open 1001Tracklists" FontWeight="SemiBold"/>
-                                    </Button>
-                                    <Button Command="{Binding ImportTracklistFromClipboardCommand}"
-                                            Background="#FFC107"
-                                            Foreground="Black"
-                                            Padding="14,8"
-                                            CornerRadius="6">
-                                        <TextBlock Text="Import From Clipboard" FontWeight="Bold"/>
-                                    </Button>
-                                </StackPanel>
-
-                                <TextBlock Text="Your Web Shortcuts" FontWeight="SemiBold" Foreground="#D0D0D0" FontSize="11" Margin="0,4,0,0"/>
-
-                                <Grid ColumnDefinitions="3*,Auto" Margin="0,0,0,4">
-                                    <ComboBox Grid.Column="0"
-                                              ItemsSource="{Binding SubgenrePresets}"
-                                              SelectedItem="{Binding SelectedSubgenrePreset, Mode=TwoWay}"
-                                              Background="#1A1A1A"
-                                              BorderThickness="1"
-                                              Padding="8,6"
-                                              CornerRadius="4">
-                                        <ComboBox.ItemTemplate>
+                            <StackPanel Spacing="8" IsVisible="{Binding IsAuthenticated}">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Classes="section" Text="YOUR PLAYLISTS" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding UserPlaylists.Count}"/>
+                                </Grid>
+                                <ProgressBar Classes="meter" IsIndeterminate="True" IsVisible="{Binding IsLoading}"/>
+                                <TextBlock Classes="caption" Text="No playlists found on this account."
+                                           IsVisible="{Binding !UserPlaylists.Count}"/>
+                                <ScrollViewer MaxHeight="320" IsVisible="{Binding UserPlaylists.Count}">
+                                    <ItemsControl ItemsSource="{Binding UserPlaylists}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <TextBlock Text="{Binding Name}"/>
+                                                <Button Classes="secondary tile"
+                                                        Command="{Binding $parent[UserControl].DataContext.ImportPlaylistCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Import this playlist">
+                                                    <Grid ColumnDefinitions="Auto,*">
+                                                        <Border Width="40" Height="40" Classes="inset" Padding="0" Margin="0,0,12,0">
+                                                            <PathIcon Data="{StaticResource icon_music}" Foreground="{StaticResource BrushText3}"/>
+                                                        </Border>
+                                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                                            <TextBlock Classes="body-sm" Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Classes="caption mono" Text="{Binding TrackCount, StringFormat={}{0} tracks}"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Button>
                                             </DataTemplate>
-                                        </ComboBox.ItemTemplate>
-                                    </ComboBox>
-                                    <Button Grid.Column="1"
-                                            Command="{Binding AddSelectedSubgenrePresetCommand}"
-                                            Background="#1E3A5F"
-                                            Foreground="#9FD3FF"
-                                            Margin="8,0,0,0"
-                                            Padding="12,8"
-                                            CornerRadius="4">
-                                        <TextBlock Text="Add 1001 Preset" FontWeight="SemiBold"/>
-                                    </Button>
-                                </Grid>
-
-                                <Grid ColumnDefinitions="3*,Auto" Margin="0,0,0,8">
-                                    <TextBox Grid.Column="0"
-                                             Text="{Binding GenreSlugOrUrlInput, Mode=TwoWay}"
-                                             Watermark="Any 1001 genre slug or URL (e.g. drum-n-bass or https://www.1001tracklists.com/genre/house/index.html)"
-                                             Background="#1A1A1A"
-                                             BorderThickness="1"
-                                             Padding="8,6"
-                                             CornerRadius="4"/>
-                                    <Button Grid.Column="1"
-                                            Command="{Binding AddGenreShortcutCommand}"
-                                            Background="#2C4A2B"
-                                            Foreground="#BEE3B6"
-                                            Margin="8,0,0,0"
-                                            Padding="12,8"
-                                            CornerRadius="4">
-                                        <TextBlock Text="Add Genre URL" FontWeight="SemiBold"/>
-                                    </Button>
-                                </Grid>
-
-                                <ItemsControl ItemsSource="{Binding WebShortcuts}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <WrapPanel />
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Border Background="#1A1A1A" BorderBrush="#333" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,8,8">
-                                                <Grid ColumnDefinitions="Auto,Auto">
-                                                    <Button Grid.Column="0"
-                                                            Command="{Binding OpenCommand}"
-                                                            Background="#2F3136"
-                                                            Foreground="White"
-                                                            Padding="10,4"
-                                                            CornerRadius="4">
-                                                        <TextBlock Text="{Binding Name}"/>
-                                                    </Button>
-                                                    <Button Grid.Column="1"
-                                                            Command="{Binding RemoveCommand}"
-                                                            Background="#3A1F1F"
-                                                            Foreground="#F3A6A6"
-                                                            Padding="8,4"
-                                                            Margin="6,0,0,0"
-                                                            CornerRadius="4">
-                                                        <TextBlock Text="✕"/>
-                                                    </Button>
-                                                </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-
-                                <Grid ColumnDefinitions="2*,3*,Auto">
-                                    <TextBox Grid.Column="0"
-                                             Text="{Binding NewShortcutName, Mode=TwoWay}"
-                                             Watermark="Shortcut name"
-                                             Background="#1A1A1A"
-                                             BorderThickness="1"
-                                             Padding="10,8"
-                                             CornerRadius="4"/>
-                                    <TextBox Grid.Column="1"
-                                             Text="{Binding NewShortcutUrl, Mode=TwoWay}"
-                                             Watermark="https://example.com"
-                                             Background="#1A1A1A"
-                                             BorderThickness="1"
-                                             Margin="8,0,0,0"
-                                             Padding="10,8"
-                                             CornerRadius="4"/>
-                                    <Button Grid.Column="2"
-                                            Command="{Binding AddWebShortcutCommand}"
-                                            Background="#4B5563"
-                                            Foreground="White"
-                                            Margin="8,0,0,0"
-                                            Padding="12,8"
-                                            CornerRadius="4">
-                                        <TextBlock Text="Add" FontWeight="SemiBold"/>
-                                    </Button>
-                                </Grid>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
                             </StackPanel>
-                        </Border>
-                        
-                        <TextBox Text="{Binding PastedTracklist, Mode=TwoWay}"
-                                 Watermark="Example:&#x0a;Artist - Title&#x0a;Artist2 - Title2&#x0a;01 Artist Title (Album)"
-                                 AcceptsReturn="True"
-                                 Height="150"
-                                 Background="#121212"
-                                 BorderThickness="1"
-                                 Padding="12"
-                                 CornerRadius="8"/>
-                        
-                        <Button Command="{Binding ImportTracklistCommand}"
-                                Background="#FFC107"
-                                Foreground="Black"
-                                HorizontalAlignment="Right"
-                                Padding="24,12"
-                                CornerRadius="8">
-                            <TextBlock Text="Parse &amp; Import" FontWeight="Bold"/>
-                        </Button>
-                    </StackPanel>
-                </Border>
-                
-                <!-- CSV Import -->
-                <Border Name="CsvDropZone" 
-                        Background="{DynamicResource RegionBrush}" 
-                        BorderBrush="#3E3E3E" 
-                        BorderThickness="1" 
-                        CornerRadius="12" 
-                        Padding="32"
-                        DragDrop.AllowDrop="True">
-                    <Border.Styles>
-                        <Style Selector="Border[Tag=Dragging]">
-                            <Setter Property="BorderBrush" Value="#0078D4"/>
-                        </Style>
-                    </Border.Styles>
-                    <Panel>
-                        <!-- Main Content -->
-                        <StackPanel Spacing="16" IsVisible="{Binding !IsCsvDragging}">
-                            <StackPanel Orientation="Horizontal" Spacing="16">
-                                <TextBlock Text="📄" FontSize="48"/>
-                                <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="CSV Import" FontSize="20" FontWeight="SemiBold" Foreground="White"/>
-                                    <TextBlock Text="Import tracks from a CSV file (Artist, Title, Album)" FontSize="14" Foreground="#A0A0A0" Margin="0,4,0,0"/>
-                                </StackPanel>
-                            </StackPanel>
-                            
-                            <Button Background="#0078D4"
-                                    Command="{Binding SelectCsvFileCommand}"
-                                    Foreground="White"
-                                    Padding="24,12"
-                                    CornerRadius="8"
-                                    HorizontalAlignment="Left">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <TextBlock Text="📂" FontSize="16"/>
-                                    <TextBlock Text="Select CSV File" FontSize="14" FontWeight="Medium"/>
-                                </StackPanel>
-                            </Button>
                         </StackPanel>
+                    </Border>
+                </StackPanel>
 
-                        <!-- "Scanner" Overlay for Dragging -->
-                        <Border IsVisible="{Binding IsCsvDragging}" 
-                                Background="#100078D4" 
-                                CornerRadius="12" 
-                                Classes="scanning"
-                                BorderBrush="#0078D4" 
-                                BorderThickness="2"
-                                Margin="-32">
-                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16">
-                                <PathIcon Data="{StaticResource cloud_arrow_up_regular}" Width="48" Height="48" Foreground="#0078D4"/>
-                                <TextBlock Text="DROP CSV TO INGEST" FontSize="18" FontWeight="Black" Foreground="#0078D4" LetterSpacing="2"/>
+                <!-- ── Pasted tracklist ────────────────────────────── -->
+                <StackPanel Classes="import-section">
+                    <TextBlock Classes="section" Text="TRACKLIST"/>
+                    <Border Classes="card">
+                        <StackPanel Spacing="12">
+                            <TextBlock Classes="caption"
+                                       Text="Paste one track per line, from YouTube, a blog, chat or 1001Tracklists. Ctrl+Shift+V pastes and imports; Ctrl+Enter imports."/>
+                            <TextBox Text="{Binding PastedTracklist, Mode=TwoWay}"
+                                     Watermark="Artist - Title&#x0a;Artist2 - Title2&#x0a;01 Artist Title (Album)"
+                                     AcceptsReturn="True" TextWrapping="Wrap"
+                                     Classes="mono"
+                                     Height="160"/>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Classes="secondary" Content="Import from clipboard"
+                                            Command="{Binding ImportTracklistFromClipboardCommand}"/>
+                                    <Button Classes="ghost" Content="Open 1001Tracklists"
+                                            Command="{Binding OpenTracklistsWebsiteCommand}"/>
+                                </StackPanel>
+                                <Button Grid.Column="1" Classes="primary" Content="Parse and import"
+                                        Command="{Binding ImportTracklistCommand}"/>
+                            </Grid>
+
+                            <Border Classes="divider"/>
+
+                            <Expander Header="Web shortcuts" HorizontalAlignment="Stretch">
+                                <StackPanel Spacing="12" Margin="0,8,0,0">
+                                    <TextBlock Classes="caption" Text="Quick links to tracklist sites. Open one, copy the tracklist block, then import from the clipboard."/>
+
+                                    <ItemsControl ItemsSource="{Binding WebShortcuts}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Classes="segmented" Margin="0,0,8,8">
+                                                    <StackPanel Orientation="Horizontal" Spacing="2">
+                                                        <Button Classes="ghost small" Content="{Binding Name}" Command="{Binding OpenCommand}"
+                                                                ToolTip.Tip="{Binding Url}"/>
+                                                        <Button Classes="icon small" Command="{Binding RemoveCommand}" ToolTip.Tip="Remove shortcut">
+                                                            <PathIcon Data="{StaticResource icon_close}" Width="{StaticResource IconSizeXs}" Height="{StaticResource IconSizeXs}"/>
+                                                        </Button>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <ComboBox ItemsSource="{Binding SubgenrePresets}"
+                                                  SelectedItem="{Binding SelectedSubgenrePreset, Mode=TwoWay}"
+                                                  PlaceholderText="1001Tracklists genre preset"
+                                                  HorizontalAlignment="Stretch">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Name}"/>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <Button Grid.Column="1" Classes="secondary" Content="Add preset" Width="112" Margin="8,0,0,0"
+                                                Command="{Binding AddSelectedSubgenrePresetCommand}"/>
+                                    </Grid>
+
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBox Classes="mono" Text="{Binding GenreSlugOrUrlInput, Mode=TwoWay}"
+                                                 Watermark="1001Tracklists genre slug or URL, e.g. drum-n-bass"/>
+                                        <Button Grid.Column="1" Classes="secondary" Content="Add genre" Width="112" Margin="8,0,0,0"
+                                                Command="{Binding AddGenreShortcutCommand}"/>
+                                    </Grid>
+
+                                    <Grid ColumnDefinitions="2*,3*,Auto">
+                                        <TextBox Text="{Binding NewShortcutName, Mode=TwoWay}" Watermark="Name"/>
+                                        <TextBox Grid.Column="1" Classes="mono" Text="{Binding NewShortcutUrl, Mode=TwoWay}"
+                                                 Watermark="https://example.com" Margin="8,0,0,0"/>
+                                        <Button Grid.Column="2" Classes="secondary" Content="Add link" Width="112" Margin="8,0,0,0"
+                                                Command="{Binding AddWebShortcutCommand}"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- ── CSV ─────────────────────────────────────────── -->
+                <StackPanel Classes="import-section">
+                    <TextBlock Classes="section" Text="CSV FILE"/>
+                    <Border Name="CsvDropZone"
+                            Classes="inset"
+                            Padding="24"
+                            BorderThickness="1"
+                            DragDrop.AllowDrop="True">
+                        <Panel>
+                            <Grid ColumnDefinitions="Auto,*,Auto" IsVisible="{Binding !IsCsvDragging}">
+                                <PathIcon Grid.Column="0" Data="{StaticResource icon_upload}"
+                                          Width="{StaticResource IconSizeXl}" Height="{StaticResource IconSizeXl}"
+                                          Foreground="{StaticResource BrushText3}" Margin="0,0,16,0"/>
+                                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Classes="body" Text="Drop a CSV file here"/>
+                                    <TextBlock Classes="caption" Text="Columns: Artist, Title, Album."/>
+                                </StackPanel>
+                                <Button Grid.Column="2" Classes="secondary" Content="Choose file…"
+                                        Command="{Binding SelectCsvFileCommand}"/>
+                            </Grid>
+                            <StackPanel IsVisible="{Binding IsCsvDragging}" Orientation="Horizontal" Spacing="12"
+                                        HorizontalAlignment="Center">
+                                <PathIcon Data="{StaticResource icon_upload}" Width="{StaticResource IconSizeXl}" Height="{StaticResource IconSizeXl}"
+                                          Foreground="{StaticResource BrushAccent}"/>
+                                <TextBlock Classes="h3 accent" Text="Release to import" VerticalAlignment="Center"/>
                             </StackPanel>
-                        </Border>
-                    </Panel>
-                </Border>
+                        </Panel>
+                    </Border>
+                </StackPanel>
             </StackPanel>
         </ScrollViewer>
     </Grid>
