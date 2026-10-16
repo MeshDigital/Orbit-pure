@@ -29,7 +29,7 @@
   <DockPanel>
     <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
       <TextBlock Classes="section" Text="STEM EQ" VerticalAlignment="Center"/>
-      <Button Grid.Column="1" Classes="ghost small" Content="Reset all" Command="{Binding ResetAll}"/>
+      <Button Grid.Column="1" Classes="ghost small" Content="Reset all" Command="{Binding ResetAllCommand}"/>
     </Grid>
 
     <ItemsControl ItemsSource="{Binding AllBands}">

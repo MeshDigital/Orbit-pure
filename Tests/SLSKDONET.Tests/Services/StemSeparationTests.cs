@@ -117,6 +117,19 @@ namespace SLSKDONET.Tests.Services
             Assert.False(ch.IsSoloed);
         }
 
+        [Theory]
+        [InlineData(0f, "C")]
+        [InlineData(-0.5f, "L 50")]
+        [InlineData(0.25f, "R 25")]
+        [InlineData(5f, "R 100")]   // clamped to +1
+        public void PanDisplay_IsConsoleStyle_AndFollowsClampedPan(float pan, string expected)
+        {
+            var ch = new SLSKDONET.ViewModels.StemChannelViewModel(StemType.Bass, CreateMixer());
+            ch.Pan = pan;
+            Assert.Equal(expected, ch.PanDisplay);
+            Assert.Equal(StemType.Bass, ch.StemType);
+        }
+
         [Fact]
         public void GainDb_Clamped_To_Minus60_Plus12()
         {
