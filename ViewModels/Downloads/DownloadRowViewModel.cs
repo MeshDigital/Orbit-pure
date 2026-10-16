@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Threading.Tasks;
 using System.Windows.Input;
 using ReactiveUI;
 using SLSKDONET.Models;
@@ -25,19 +26,25 @@ public enum DownloadRowStatus
 }
 
 /// <summary>
-/// Slice 1 projection model for Download Center v2 rows.
-/// Wraps UnifiedTrackViewModel into a stable, UI-facing row contract.
-/// Tracks the underlying UnifiedTrackViewModel live — the original implementation snapshotted
-/// everything at construction, which left every hub row frozen (progress bars stuck, status
-/// badges never flipping, rows never migrating between Active/Attention/Completed sections).
+/// One track row in the Download Center. Wraps UnifiedTrackViewModel into a stable, cell-sized
+/// row contract (short status label + tooltip detail, tone for the status dot, which actions
+/// apply right now). Tracks the underlying UnifiedTrackViewModel live — an earlier version
+/// snapshotted everything at construction, which froze every row.
 /// </summary>
 public sealed class DownloadRowViewModel : ReactiveObject, IDisposable, IHubRowDisplay
 {
-    public DownloadRowViewModel(UnifiedTrackViewModel track, Action<DownloadRowViewModel>? onSelect = null)
+    private readonly Func<DownloadRowViewModel, Task>? _onRemove;
+
+    public DownloadRowViewModel(
+        UnifiedTrackViewModel track,
+        Action<DownloadRowViewModel>? onSelect = null,
+        Func<DownloadRowViewModel, Task>? onRemove = null)
     {
         Track = track ?? throw new ArgumentNullException(nameof(track));
+        _onRemove = onRemove;
 
         SelectCommand = ReactiveCommand.Create(() => onSelect?.Invoke(this));
+        RemoveCommand = ReactiveCommand.CreateFromTask(() => _onRemove?.Invoke(this) ?? Task.CompletedTask);
 
         RefreshFromTrack();
         Track.PropertyChanged += OnTrackPropertyChanged;
@@ -45,6 +52,10 @@ public sealed class DownloadRowViewModel : ReactiveObject, IDisposable, IHubRowD
 
     public UnifiedTrackViewModel Track { get; }
     public ICommand SelectCommand { get; }
+
+    /// <summary>Cancel (if still in flight) and remove the row from the Download Center. Files stay on disk.</summary>
+    public ICommand RemoveCommand { get; }
+    public bool CanRemove => _onRemove != null;
 
     private string _title = string.Empty;
     public string Title { get => _title; private set => this.RaiseAndSetIfChanged(ref _title, value); }
@@ -59,13 +70,37 @@ public sealed class DownloadRowViewModel : ReactiveObject, IDisposable, IHubRowD
     public double Progress { get => _progress; private set => this.RaiseAndSetIfChanged(ref _progress, value); }
 
     private string _statusText = string.Empty;
+    /// <summary>The engine's own (often long) status line. Shown in the details panel, not in the row.</summary>
     public string StatusText { get => _statusText; private set => this.RaiseAndSetIfChanged(ref _statusText, value); }
 
-    private string _statusBadgeText = string.Empty;
-    public string StatusBadgeText { get => _statusBadgeText; private set => this.RaiseAndSetIfChanged(ref _statusBadgeText, value); }
+    private string _statusLabel = string.Empty;
+    /// <summary>2–3 word status for the row cell ("Downloading", "No results", "Peer queue #4").</summary>
+    public string StatusLabel { get => _statusLabel; private set => this.RaiseAndSetIfChanged(ref _statusLabel, value); }
 
-    private string _statusAccent = "#FFB300";
-    public string StatusAccent { get => _statusAccent; private set => this.RaiseAndSetIfChanged(ref _statusAccent, value); }
+    private string _statusDetail = string.Empty;
+    /// <summary>Full human explanation for the status-cell tooltip.</summary>
+    public string StatusDetail { get => _statusDetail; private set => this.RaiseAndSetIfChanged(ref _statusDetail, value); }
+
+    private DownloadStatusTone _tone;
+    public DownloadStatusTone Tone
+    {
+        get => _tone;
+        private set
+        {
+            if (_tone == value) return;
+            this.RaiseAndSetIfChanged(ref _tone, value);
+            this.RaisePropertyChanged(nameof(IsToneAccent));
+            this.RaisePropertyChanged(nameof(IsToneInfo));
+            this.RaisePropertyChanged(nameof(IsToneSuccess));
+            this.RaisePropertyChanged(nameof(IsToneWarning));
+            this.RaisePropertyChanged(nameof(IsToneError));
+        }
+    }
+    public bool IsToneAccent => Tone == DownloadStatusTone.Accent;
+    public bool IsToneInfo => Tone == DownloadStatusTone.Info;
+    public bool IsToneSuccess => Tone == DownloadStatusTone.Success;
+    public bool IsToneWarning => Tone == DownloadStatusTone.Warning;
+    public bool IsToneError => Tone == DownloadStatusTone.Error;
 
     private DateTime _lastUpdatedUtc = DateTime.UtcNow;
     public DateTime LastUpdatedUtc { get => _lastUpdatedUtc; private set => this.RaiseAndSetIfChanged(ref _lastUpdatedUtc, value); }
@@ -73,8 +108,14 @@ public sealed class DownloadRowViewModel : ReactiveObject, IDisposable, IHubRowD
     private string _primaryActionLabel = string.Empty;
     public string PrimaryActionLabel { get => _primaryActionLabel; private set => this.RaiseAndSetIfChanged(ref _primaryActionLabel, value); }
 
+    private ICommand? _primaryAction;
+    public ICommand? PrimaryAction { get => _primaryAction; private set => this.RaiseAndSetIfChanged(ref _primaryAction, value); }
+
     private bool _isProgressVisible;
     public bool IsProgressVisible { get => _isProgressVisible; private set => this.RaiseAndSetIfChanged(ref _isProgressVisible, value); }
+
+    private bool _isSpeedVisible;
+    public bool IsSpeedVisible { get => _isSpeedVisible; private set => this.RaiseAndSetIfChanged(ref _isSpeedVisible, value); }
 
     private string _peerSummary = string.Empty;
     public string PeerSummary { get => _peerSummary; private set => this.RaiseAndSetIfChanged(ref _peerSummary, value); }
@@ -91,8 +132,34 @@ public sealed class DownloadRowViewModel : ReactiveObject, IDisposable, IHubRowD
     private string _speedSummary = string.Empty;
     public string SpeedSummary { get => _speedSummary; private set => this.RaiseAndSetIfChanged(ref _speedSummary, value); }
 
-    private ICommand? _primaryAction;
-    public ICommand? PrimaryAction { get => _primaryAction; private set => this.RaiseAndSetIfChanged(ref _primaryAction, value); }
+    private string? _sizeDisplay;
+    /// <summary>
+    /// File size for completed rows. Lazy: the first read stats the file once, so only rows that
+    /// are actually realised on screen pay the disk hit (not every hydrated row at startup).
+    /// </summary>
+    public string SizeDisplay
+    {
+        get
+        {
+            if (Status != DownloadRowStatus.Completed) return string.Empty;
+            _sizeDisplay ??= Track.FileSizeDisplay;
+            return _sizeDisplay == "—" ? string.Empty : _sizeDisplay;
+        }
+    }
+
+    private bool _isInspected;
+    /// <summary>True while this row is open in the details panel (drives the selected-row highlight).</summary>
+    public bool IsInspected { get => _isInspected; set => this.RaiseAndSetIfChanged(ref _isInspected, value); }
+
+    // ── Which actions apply right now (drive context-menu item visibility) ──
+    private bool _canPause, _canResume, _canStartNow, _canRetry, _canReveal, _canCancel, _canForceDownload;
+    public bool CanPause { get => _canPause; private set => this.RaiseAndSetIfChanged(ref _canPause, value); }
+    public bool CanResume { get => _canResume; private set => this.RaiseAndSetIfChanged(ref _canResume, value); }
+    public bool CanStartNow { get => _canStartNow; private set => this.RaiseAndSetIfChanged(ref _canStartNow, value); }
+    public bool CanRetry { get => _canRetry; private set => this.RaiseAndSetIfChanged(ref _canRetry, value); }
+    public bool CanReveal { get => _canReveal; private set => this.RaiseAndSetIfChanged(ref _canReveal, value); }
+    public bool CanCancel { get => _canCancel; private set => this.RaiseAndSetIfChanged(ref _canCancel, value); }
+    public bool CanForceDownload { get => _canForceDownload; private set => this.RaiseAndSetIfChanged(ref _canForceDownload, value); }
 
     private void OnTrackPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -111,19 +178,27 @@ public sealed class DownloadRowViewModel : ReactiveObject, IDisposable, IHubRowD
                 break;
             case nameof(UnifiedTrackViewModel.StatusText):
                 StatusText = Track.StatusText;
+                RefreshStatusLabel();
+                break;
+            case nameof(UnifiedTrackViewModel.FailureEnum):
+            case nameof(UnifiedTrackViewModel.FailureReason):
+            case nameof(UnifiedTrackViewModel.RemoteQueuePosition):
+            case nameof(UnifiedTrackViewModel.HasRejectionDetails):
+                RefreshStatusLabel();
                 break;
             case nameof(UnifiedTrackViewModel.DownloadSpeed):
             case nameof(UnifiedTrackViewModel.SpeedDisplay):
                 SpeedSummary = Track.SpeedDisplay;
                 break;
             case nameof(UnifiedTrackViewModel.PeerName):
-                PeerSummary = string.IsNullOrWhiteSpace(Track.PeerName) ? "Unknown peer" : Track.PeerName;
+                PeerSummary = BuildPeerSummary(Track);
                 break;
             case nameof(UnifiedTrackViewModel.SearchAttemptCount):
                 RetrySummary = BuildRetrySummary(Track);
                 break;
             case nameof(UnifiedTrackViewModel.DetailedSearchStatus):
                 DiagnosticsSummary = BuildDiagnosticsSummary(Track);
+                RefreshStatusLabel();
                 break;
         }
     }
@@ -135,29 +210,88 @@ public sealed class DownloadRowViewModel : ReactiveObject, IDisposable, IHubRowD
         Progress = NormalizeProgress(Track.Progress);
         StatusText = Track.StatusText;
         SpeedSummary = Track.SpeedDisplay;
-        PeerSummary = string.IsNullOrWhiteSpace(Track.PeerName) ? "Unknown peer" : Track.PeerName;
+        PeerSummary = BuildPeerSummary(Track);
         RetrySummary = BuildRetrySummary(Track);
         DiagnosticsSummary = BuildDiagnosticsSummary(Track);
-        FilePathSummary = string.IsNullOrWhiteSpace(Track.Model.ResolvedFilePath)
-            ? "Not resolved yet"
-            : Track.Model.ResolvedFilePath;
     }
 
     private void ApplyStatus(DownloadRowStatus status)
     {
         Status = status;
         Priority = MapPriority(status);
-        StatusBadgeText = BuildStatusBadgeText(status);
-        StatusAccent = BuildStatusAccent(status);
         PrimaryActionLabel = ResolvePrimaryActionLabel(status);
         PrimaryAction = ResolvePrimaryAction(Track, status);
-        IsProgressVisible = status is DownloadRowStatus.Queued or DownloadRowStatus.Downloading or DownloadRowStatus.Verifying;
+        IsProgressVisible = status is DownloadRowStatus.Downloading or DownloadRowStatus.Verifying;
+        IsSpeedVisible = status == DownloadRowStatus.Downloading;
+
+        var state = Track.State;
+        CanPause = status is DownloadRowStatus.Searching or DownloadRowStatus.Downloading or DownloadRowStatus.Verifying
+                   || state is PlaylistTrackState.Queued or PlaylistTrackState.WaitingForConnection;
+        CanResume = state == PlaylistTrackState.Paused;
+        CanStartNow = state is PlaylistTrackState.Pending or PlaylistTrackState.Stalled or PlaylistTrackState.Paused;
+        CanRetry = status is DownloadRowStatus.Failed or DownloadRowStatus.Cancelled;
+        CanForceDownload = state is PlaylistTrackState.Failed or PlaylistTrackState.Cancelled;
+        CanReveal = status == DownloadRowStatus.Completed;
+        CanCancel = status is not (DownloadRowStatus.Completed or DownloadRowStatus.Failed or DownloadRowStatus.Cancelled);
 
         // File path resolves when the download lands — refresh alongside status flips.
         FilePathSummary = string.IsNullOrWhiteSpace(Track.Model.ResolvedFilePath)
             ? "Not resolved yet"
             : Track.Model.ResolvedFilePath;
+        _sizeDisplay = null;
+        this.RaisePropertyChanged(nameof(SizeDisplay));
+
+        RefreshStatusLabel();
     }
+
+    private void RefreshStatusLabel()
+    {
+        var (label, detail, tone) = BuildStatusLabel(Track, Status);
+        StatusLabel = label;
+        StatusDetail = detail;
+        Tone = tone;
+    }
+
+    /// <summary>Short label + tooltip detail + dot tone for a row. Pure, so it is unit-tested directly.</summary>
+    public static (string Label, string Detail, DownloadStatusTone Tone) BuildStatusLabel(UnifiedTrackViewModel track, DownloadRowStatus status)
+    {
+        switch (status)
+        {
+            case DownloadRowStatus.Searching:
+                return ("Searching", track.StatusText, DownloadStatusTone.Info);
+            case DownloadRowStatus.Downloading:
+                return ("Downloading", track.StatusText, DownloadStatusTone.Accent);
+            case DownloadRowStatus.Verifying:
+                return ("Verifying", "Checking the downloaded file", DownloadStatusTone.Accent);
+            case DownloadRowStatus.Completed:
+                return ("Done", track.FilePathOrEmpty(), DownloadStatusTone.Success);
+            case DownloadRowStatus.Cancelled:
+                return ("Cancelled", "Cancelled. Retry to search again.", DownloadStatusTone.Neutral);
+            case DownloadRowStatus.Failed:
+                if (track.State == PlaylistTrackState.Stalled)
+                {
+                    return ("Stalled", track.StatusText, DownloadStatusTone.Warning);
+                }
+
+                var label = track.FailureEnum.ToShortLabel(track.HasRejectionDetails);
+                var parts = new System.Collections.Generic.List<string> { track.FailureDisplayMessage };
+                if (!string.IsNullOrWhiteSpace(track.FailureActionSuggestion)) parts.Add(track.FailureActionSuggestion);
+                if (!string.IsNullOrWhiteSpace(track.FailureReason) && track.FailureReason != track.FailureDisplayMessage) parts.Add(track.FailureReason!);
+                return (label, string.Join("\n", parts), DownloadStatusTone.Error);
+            default:
+                return track.State switch
+                {
+                    PlaylistTrackState.Paused => ("Paused", "Paused. Resume to put it back in the queue.", DownloadStatusTone.Warning),
+                    PlaylistTrackState.WaitingForConnection => ("Connecting", "Waiting for the peer to connect", DownloadStatusTone.Neutral),
+                    PlaylistTrackState.Queued => (track.RemoteQueuePosition > 0 ? $"Peer queue #{track.RemoteQueuePosition}" : "In peer queue",
+                        track.StatusText, DownloadStatusTone.Neutral),
+                    _ => ("Queued", "Waiting for a free download slot", DownloadStatusTone.Neutral),
+                };
+        }
+    }
+
+    private static string BuildPeerSummary(UnifiedTrackViewModel track)
+        => string.IsNullOrWhiteSpace(track.PeerName) ? string.Empty : track.PeerName;
 
     private static string BuildRetrySummary(UnifiedTrackViewModel track)
         => track.SearchAttemptCount <= 0 ? "No retries yet" : $"{track.SearchAttemptCount} attempt(s)";
@@ -169,13 +303,13 @@ public sealed class DownloadRowViewModel : ReactiveObject, IDisposable, IHubRowD
     {
         if (!string.IsNullOrWhiteSpace(track.ArtistName) && !string.IsNullOrWhiteSpace(track.TrackTitle))
         {
-            return $"{track.ArtistName} - {track.TrackTitle}";
+            return $"{track.ArtistName} – {track.TrackTitle}";
         }
 
         return track.TrackTitle;
     }
 
-    private static DownloadRowStatus MapStatus(PlaylistTrackState state)
+    public static DownloadRowStatus MapStatus(PlaylistTrackState state)
     {
         return state switch
         {
@@ -215,34 +349,6 @@ public sealed class DownloadRowViewModel : ReactiveObject, IDisposable, IHubRowD
         return Math.Clamp(progress / 100.0, 0.0, 1.0);
     }
 
-    private static string BuildStatusBadgeText(DownloadRowStatus status)
-    {
-        return status switch
-        {
-            DownloadRowStatus.Searching => "SEARCHING",
-            DownloadRowStatus.Downloading => "DOWNLOADING",
-            DownloadRowStatus.Verifying => "VERIFYING",
-            DownloadRowStatus.Completed => "COMPLETED",
-            DownloadRowStatus.Failed => "ATTENTION",
-            DownloadRowStatus.Cancelled => "CANCELLED",
-            _ => "QUEUED",
-        };
-    }
-
-    private static string BuildStatusAccent(DownloadRowStatus status)
-    {
-        return status switch
-        {
-            DownloadRowStatus.Searching => "#A855F7",
-            DownloadRowStatus.Downloading => "#00BCD4",
-            DownloadRowStatus.Verifying => "#4DD0E1",
-            DownloadRowStatus.Completed => "#30C97A",
-            DownloadRowStatus.Failed => "#FF6B6B",
-            DownloadRowStatus.Cancelled => "#E57373",
-            _ => "#FFB300",
-        };
-    }
-
     private static string ResolvePrimaryActionLabel(DownloadRowStatus status)
     {
         return status switch
@@ -253,7 +359,7 @@ public sealed class DownloadRowViewModel : ReactiveObject, IDisposable, IHubRowD
             DownloadRowStatus.Searching => "Pause",
             DownloadRowStatus.Downloading => "Pause",
             DownloadRowStatus.Verifying => "Pause",
-            _ => "Start",
+            _ => "Start now",
         };
     }
 
@@ -275,4 +381,10 @@ public sealed class DownloadRowViewModel : ReactiveObject, IDisposable, IHubRowD
     {
         Track.PropertyChanged -= OnTrackPropertyChanged;
     }
+}
+
+internal static class UnifiedTrackRowExtensions
+{
+    public static string FilePathOrEmpty(this UnifiedTrackViewModel track)
+        => track.Model.ResolvedFilePath ?? string.Empty;
 }
