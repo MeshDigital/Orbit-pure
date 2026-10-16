@@ -29,14 +29,4 @@ public class NetworkActivityEntryViewModel
     public string TimeLabel => Timestamp.ToString("HH:mm:ss");
     public string DurationLabel => DurationMs.HasValue ? $"{DurationMs}ms" : "";
 
-    public string ProtocolColor => Protocol switch
-    {
-        "Soulseek" => "#4EC9B0",
-        "HTTP" => "#00D4FF",
-        "Socket" => "#D7BA7D",
-        "DNS" => "#C586C0",
-        _ => "#888",
-    };
-
-    public string StatusColor => Success ? "#4EC9B0" : "#F44336";
 }
