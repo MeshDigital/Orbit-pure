@@ -108,7 +108,7 @@
                         <TextBlock Text="Save cues"/>
                     </StackPanel>
                 </Button>
-                <TextBlock Classes="caption accent" Text="{Binding StatusText}" VerticalAlignment="Center" Margin="4,0,0,4"
+                <TextBlock Classes="caption" Classes.accent="{Binding !IsStatusError}" Classes.error="{Binding IsStatusError}" Text="{Binding StatusText}" VerticalAlignment="Center" Margin="4,0,0,4"
                            TextTrimming="CharacterEllipsis" MaxWidth="260"/>
             </WrapPanel>
 
